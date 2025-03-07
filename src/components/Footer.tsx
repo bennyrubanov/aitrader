@@ -49,7 +49,7 @@ const Footer: React.FC = () => {
             <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-4">Resources</h3>
             <ul className="space-y-3">
               <li><Link to="/blog" className="text-gray-600 hover:text-trader-blue transition-colors">Blog</Link></li>
-              <li><Link to="/research" className="text-gray-600 hover:text-trader-blue transition-colors">Research</Link></li>
+              <li><a href="/#research" className="text-gray-600 hover:text-trader-blue transition-colors">Research</a></li>
               <li><Link to="/help" className="text-gray-600 hover:text-trader-blue transition-colors">Help Center</Link></li>
             </ul>
           </div>

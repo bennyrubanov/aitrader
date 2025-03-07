@@ -17,7 +17,7 @@ const Help = () => {
         <section className="py-20">
           <div className="container mx-auto px-4">
             <div className="max-w-3xl mx-auto text-center">
-              <h1 className="text-4xl md:text-5xl font-bold mb-8">Help Center</h1>
+              <h1 className="text-4xl md:text-5xl font-bold mb-8">Help Center & Contact</h1>
               <p className="text-xl text-gray-600 mb-12 max-w-2xl mx-auto">
                 Need assistance with AITrader? Our team is here to help you get the most out of our AI-powered investment tools.
               </p>
@@ -74,7 +74,7 @@ const Help = () => {
                       </p>
                     </li>
                     <li>
-                      <a href="/research" className="font-medium text-trader-blue hover:underline">
+                      <a href="/#research" className="font-medium text-trader-blue hover:underline">
                         Research
                       </a>
                       <p className="text-gray-600 text-sm mt-1">
