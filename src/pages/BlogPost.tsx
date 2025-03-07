@@ -47,7 +47,7 @@ const ChatGPTStockPickingPost = () => (
       The researchers also observed that ChatGPT updates its ratings in response to news information in a timely manner, showing clear distinctions between positive and negative news events. It particularly adjusted ratings following negative earnings surprises, demonstrating its ability to process and interpret financial news.
     </p>
     
-    <img src="/placeholder.svg" alt="AI Trading Visualization" className="w-full rounded-xl my-8" />
+    <img src="/photo-1488590528505-98d2b5aba04b.jpg" alt="AI Trading Analysis" className="w-full rounded-xl my-8" />
     
     <h2 className="text-2xl font-bold mt-10 mb-4">Implications for Investors</h2>
     <p className="text-gray-700 mb-4">
@@ -92,7 +92,7 @@ const BlueChipInvestingPost = () => (
       Examples include companies like Apple, Microsoft, Johnson & Johnson, and Coca-Cola - household names that have demonstrated staying power through multiple economic cycles.
     </p>
     
-    <img src="/placeholder.svg" alt="Blue Chip Stock Chart" className="w-full rounded-xl my-8" />
+    <img src="/photo-1461749280684-dccba630e2f6.jpg" alt="Blue Chip Stock Analysis" className="w-full rounded-xl my-8" />
     
     <h2 className="text-2xl font-bold mt-10 mb-4">Strategies for Market-Beating Returns</h2>
     <p className="text-gray-700 mb-4">
@@ -121,6 +121,8 @@ const BlueChipInvestingPost = () => (
       <li>Scale advantages that lower costs compared to competitors</li>
       <li>High switching costs that lock in customers</li>
     </ul>
+    
+    <img src="/photo-1486312338219-ce68d2c6f44d.jpg" alt="Investor analyzing blue chip stocks" className="w-full rounded-xl my-8" />
     
     <h3 className="text-xl font-semibold mt-6 mb-3">3. Seek Innovation Within Tradition</h3>
     <p className="text-gray-700 mb-4">
@@ -187,14 +189,14 @@ const blogPosts: Record<string, BlogContent> = {
   "chatgpt-stock-picking": {
     id: "chatgpt-stock-picking",
     title: "Can ChatGPT Assist in Picking Stocks? Recent Research Says Yes",
-    date: "June 15, 2024",
+    date: "March 6, 2025",
     author: "AITrader Research Team",
     content: <ChatGPTStockPickingPost />
   },
   "blue-chip-investing": {
     id: "blue-chip-investing",
     title: "Blue Chip Investing: Strategies for Market-Beating Returns",
-    date: "June 8, 2024",
+    date: "February 20, 2025",
     author: "AITrader Research Team",
     content: <BlueChipInvestingPost />
   }
@@ -231,7 +233,13 @@ const BlogPost = () => {
                 <span>{post.author}</span>
               </div>
               
-              <img src="/placeholder.svg" alt={post.title} className="w-full h-72 object-cover rounded-xl mb-8" />
+              <img 
+                src={id === "chatgpt-stock-picking" 
+                  ? "/photo-1518770660439-4636190af475.jpg" 
+                  : "/photo-1488590528505-98d2b5aba04b.jpg"} 
+                alt={post.title} 
+                className="w-full h-72 object-cover rounded-xl mb-8" 
+              />
               
               {post.content}
               

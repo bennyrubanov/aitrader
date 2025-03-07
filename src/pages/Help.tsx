@@ -4,6 +4,7 @@ import { Mail } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { Button } from "@/components/ui/button";
+import { Link } from "react-router-dom";
 
 const Help = () => {
   useEffect(() => {
@@ -66,9 +67,9 @@ const Help = () => {
                   <h3 className="text-xl font-bold mb-4">Resources</h3>
                   <ul className="space-y-4">
                     <li>
-                      <a href="/blog" className="font-medium text-trader-blue hover:underline">
+                      <Link to="/blog" className="font-medium text-trader-blue hover:underline">
                         Blog Articles
-                      </a>
+                      </Link>
                       <p className="text-gray-600 text-sm mt-1">
                         Read our latest insights on AI-powered trading strategies.
                       </p>
@@ -82,9 +83,9 @@ const Help = () => {
                       </p>
                     </li>
                     <li>
-                      <a href="/terms" className="font-medium text-trader-blue hover:underline">
+                      <Link to="/terms" className="font-medium text-trader-blue hover:underline">
                         Terms of Service
-                      </a>
+                      </Link>
                       <p className="text-gray-600 text-sm mt-1">
                         Review our terms of service and disclaimers.
                       </p>
@@ -93,11 +94,11 @@ const Help = () => {
                 </div>
               </div>
               
-              <a href="/" className="block">
+              <Link to="/" className="block">
                 <Button variant="outline" className="px-6">
                   Return to Home
                 </Button>
-              </a>
+              </Link>
             </div>
           </div>
         </section>
