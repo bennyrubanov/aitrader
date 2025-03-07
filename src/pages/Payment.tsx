@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 
-const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/test_00g3dL8nydRB8IU6oo"; // Replace with your actual Stripe payment link
+const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/28o17D1Qx8QQfXaeUV"
 
 const Payment: React.FC = () => {
   return (
@@ -25,7 +25,7 @@ const Payment: React.FC = () => {
               <div className="bg-white rounded-xl shadow-elevated border border-gray-100 p-8 mb-12">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-6">
                   <div className="text-left">
-                    <h3 className="text-2xl font-bold mb-2">AI Trader Premium</h3>
+                    <h3 className="text-2xl font-bold mb-2">AI Trader - Outperformer</h3>
                     <p className="text-gray-600">Monthly subscription</p>
                   </div>
                   <div className="text-2xl md:text-3xl font-bold text-trader-blue">
