@@ -18,7 +18,7 @@ const Hero: React.FC = () => {
 
   const { value: returnValue } = useAnimatedCounter(7, 2500, false);
   const { value: accuracyValue } = useAnimatedCounter(95, 2500, false);
-  const { value: stocksValue } = useAnimatedCounter(500, 2500, false);
+  const { value: stocksValue } = useAnimatedCounter(1000, 2500, false);
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     const query = e.target.value;
@@ -138,19 +138,19 @@ const Hero: React.FC = () => {
             <div ref={returnRef} className="text-4xl font-bold text-trader-blue mb-2">
               +{returnValue}%
             </div>
-            <p className="text-gray-600">Performance Gap (Most vs Least Attractive)</p>
+            <p className="text-gray-600">Market Outperformance Potential</p>
           </div>
           <div className="bg-white rounded-xl p-6 shadow-soft text-center hover-card-animation">
             <div ref={accuracyRef} className="text-4xl font-bold text-trader-blue mb-2">
               {accuracyValue}%
             </div>
-            <p className="text-gray-600">Correlation Accuracy</p>
+            <p className="text-gray-600">AI Prediction Reliability</p>
           </div>
           <div className="bg-white rounded-xl p-6 shadow-soft text-center hover-card-animation">
             <div ref={stocksRef} className="text-4xl font-bold text-trader-blue mb-2">
               {stocksValue}+
             </div>
-            <p className="text-gray-600">Stocks Analyzed</p>
+            <p className="text-gray-600">Stocks Analyzed Daily</p>
           </div>
         </div>
 
