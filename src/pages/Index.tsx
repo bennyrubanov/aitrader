@@ -7,6 +7,7 @@ import CTA from "@/components/CTA";
 import Footer from "@/components/Footer";
 import NewsletterPopup, { NewsletterPopupRef } from "@/components/NewsletterPopup";
 import NewsletterLink from "@/components/NewsletterLink";
+import ActivityNotifications from "@/components/ActivityNotifications";
 
 const Index = () => {
   // Create a ref to control the newsletter popup
@@ -31,6 +32,7 @@ const Index = () => {
       </main>
       <Footer />
       <NewsletterPopup ref={newsletterPopupRef} />
+      <ActivityNotifications />
     </div>
   );
 };
