@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { ArrowRight } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 
 const Navbar: React.FC = () => {
   const [scrolled, setScrolled] = useState(false);
+  const location = useLocation();
 
   useEffect(() => {
     const handleScroll = () => {
@@ -17,9 +18,9 @@ const Navbar: React.FC = () => {
 
   // Function to create proper links that work from any page
   const getHomeLink = (hash: string) => {
-    // If we're already at the root path, just use the hash
-    // Otherwise, navigate to root path with hash
-    return window.location.pathname === "/" ? `${hash}` : `/${hash}`;
+    // If we're already at the home page, use the hash directly
+    // Otherwise, navigate to the home page with the hash
+    return location.pathname === "/" ? hash : `/${hash}`;
   };
 
   return (
