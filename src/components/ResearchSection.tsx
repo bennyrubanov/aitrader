@@ -53,7 +53,7 @@ const ResearchSection: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="text-xl font-semibold mb-1">Peer-Reviewed Study</h3>
-                  <p className="text-gray-500 text-sm">Published in Journal of Financial Economics</p>
+                  <p className="text-gray-500 text-sm">Published in Financial Research Letters Journal</p>
                 </div>
               </div>
               
