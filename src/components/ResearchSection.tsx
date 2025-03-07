@@ -116,12 +116,12 @@ const ResearchSection: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="text-xl font-semibold mb-1">Follow-up Research</h3>
-                  <p className="text-gray-500 text-sm">Journal of Financial Data Science</p>
+                  <p className="text-gray-500 text-sm">Finance Research Letters Journal</p>
                 </div>
               </div>
               
               <h4 className="text-lg font-medium mb-2">
-                "AI-Powered Stock Market Prediction"
+                "Can ChatGPT improve investment decisions? From a portfolio management perspective"
               </h4>
               
               <p className="text-gray-600 mb-4">
