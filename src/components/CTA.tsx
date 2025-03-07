@@ -34,7 +34,7 @@ const CTA: React.FC = () => {
                           <path d="M20 6L9 17L4 12" stroke="#0A84FF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                         </svg>
                       </div>
-                      <span>AI ratings for 500+ stocks</span>
+                      <span>AI ratings for 1000+ stocks</span>
                     </li>
                     <li className="flex items-start space-x-3">
                       <div className="bg-trader-blue/10 rounded-full p-1 mt-1">
@@ -62,13 +62,6 @@ const CTA: React.FC = () => {
                     </li>
                   </ul>
                 </div>
-
-                <div className="flex justify-center">
-                  <Button className="px-8 py-6 text-lg rounded-xl bg-trader-blue hover:bg-trader-blue-dark transition-all duration-300">
-                    <span className="mr-2">Get Started</span>
-                    <ArrowRight size={18} />
-                  </Button>
-                </div>
               </div>
             </div>
             
@@ -85,6 +78,12 @@ const CTA: React.FC = () => {
                 ))}
               </div>
             </div>
+          </div>
+          <div className="pt-10 flex justify-center">
+            <Button className="px-8 py-6 text-lg rounded-xl bg-trader-blue hover:bg-trader-blue-dark transition-all duration-300">
+              <span className="mr-2">Get Started</span>
+              <ArrowRight size={18} />
+            </Button>
           </div>
         </div>
       </div>

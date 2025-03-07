@@ -71,7 +71,7 @@ const Hero: React.FC = () => {
         <div className="max-w-4xl mx-auto text-center mb-12 md:mb-16">
           <h1 className="text-4xl md:text-6xl font-bold leading-tight text-gray-900 mb-6 animate-fade-in">
             <span className="inline-block">Use AI to </span> 
-            <span className="text-gradient inline-block">outperform the market</span>
+            <span className="text-gradient inline-block">&nbsp;outperform the market</span>
           </h1>
           
           <p className="text-xl md:text-2xl text-gray-600 mb-8 max-w-3xl mx-auto animate-fade-in" style={{ animationDelay: "0.2s" }}>
@@ -94,7 +94,7 @@ const Hero: React.FC = () => {
               </div>
               
               {isSearchFocused && searchResults.length > 0 && (
-                <div className="absolute left-0 right-0 mt-1 max-h-72 overflow-y-auto bg-white rounded-xl shadow-elevated border border-gray-100 z-30 animate-scale-in">
+                <div className="absolute left-0 right-0 mt-1 max-h-72 overflow-y-auto bg-white rounded-xl shadow-elevated border border-gray-100 z-30 animate-scale-in text-left">
                   <div className="p-2">
                     {searchResults.map((stock) => (
                       <div 
@@ -117,12 +117,12 @@ const Hero: React.FC = () => {
                 </div>
               )}
               
-              <Button 
+              {/* <Button 
                 type="submit"
                 className="absolute right-2 top-1/2 transform -translate-y-1/2 rounded-lg bg-trader-blue hover:bg-trader-blue-dark transition-colors px-4 py-2 text-white"
               >
                 Analyze
-              </Button>
+              </Button> */}
             </form>
           </div>
           

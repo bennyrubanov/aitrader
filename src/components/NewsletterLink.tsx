@@ -8,12 +8,12 @@ interface NewsletterLinkProps {
 
 const NewsletterLink = ({ onClick }: NewsletterLinkProps) => {
   return (
-    <section className="py-16 bg-gray-50">
+    <section id="newsletter" className="py-16 bg-gray-50">
       <div className="container mx-auto px-4">
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-10">
             <h2 className="text-3xl font-bold text-gray-900 mb-4">
-              Stay Ahead with AI Trader Newsletter
+              Stay Ahead with the AI Trader Newsletter
             </h2>
             <p className="text-gray-600 max-w-2xl mx-auto">
               Join thousands of investors who receive our weekly insights on trending stocks and AI-powered trading recommendations.
@@ -56,10 +56,10 @@ const NewsletterLink = ({ onClick }: NewsletterLinkProps) => {
             <Button 
               onClick={onClick} 
               size="lg" 
-              className="bg-primary hover:bg-primary/90 text-white px-8 py-6 h-auto text-lg"
+              className="bg-primary hover:bg-primary/90 text-white px-6 py-4 h-auto text-lg"
             >
-              <Mail className="mr-2 h-5 w-5" />
-              Subscribe to Newsletter — It's Free!
+              <Mail className="mr-2 h-4 w-4" />
+              Subscribe to our newsletter — It's Free!
             </Button>
             <p className="text-sm text-gray-500 mt-4">
               Join over 10,000 traders who trust AI Trader for market insights. No spam, unsubscribe anytime.

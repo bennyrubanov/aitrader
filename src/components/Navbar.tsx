@@ -49,10 +49,10 @@ const Navbar: React.FC = () => {
               Research
             </a>
             <a
-              href="#testimonials"
+              href="#newsletter"
               className="text-gray-600 hover:text-gray-900 transition-colors"
             >
-              Results
+              Newsletter
             </a>
           </nav>
 
