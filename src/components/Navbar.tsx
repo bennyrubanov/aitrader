@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { ArrowRight } from "lucide-react";
+import { Link } from "react-router-dom";
 
 const Navbar: React.FC = () => {
   const [scrolled, setScrolled] = useState(false);
@@ -26,13 +27,13 @@ const Navbar: React.FC = () => {
       <div className="container mx-auto px-4 md:px-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center">
-            <a
-              href="/"
+            <Link
+              to="/"
               className="text-xl md:text-2xl font-bold text-gray-900 flex items-center"
             >
               <span className="text-trader-blue">AI</span>
               <span>Trader</span>
-            </a>
+            </Link>
           </div>
 
           <nav className="hidden md:flex gap-6">
@@ -56,10 +57,12 @@ const Navbar: React.FC = () => {
             </a>
           </nav>
 
-          <Button className="rounded-full px-5 transition-all duration-300 bg-trader-blue hover:bg-trader-blue-dark">
-            <span className="mr-2">Get Started</span>
-            <ArrowRight size={16} />
-          </Button>
+          <Link to="/payment">
+            <Button className="rounded-full px-5 transition-all duration-300 bg-trader-blue hover:bg-trader-blue-dark">
+              <span className="mr-2">Get Started</span>
+              <ArrowRight size={16} />
+            </Button>
+          </Link>
         </div>
       </div>
     </header>
