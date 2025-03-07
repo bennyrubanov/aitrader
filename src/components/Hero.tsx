@@ -70,8 +70,8 @@ const Hero: React.FC = () => {
       <div className="container mx-auto px-4 relative z-10">
         <div className="max-w-4xl mx-auto text-center mb-12 md:mb-16">
           <h1 className="text-4xl md:text-6xl font-bold leading-tight text-gray-900 mb-6 animate-fade-in">
-            <span className="inline-block">Use AI to </span> 
-            <span className="text-gradient inline-block">&nbsp;outperform the market</span>
+            <span className="text-gradient inline-block">Outperform the market </span>
+            <span className="inline-block">&nbsp;with AI</span> 
           </h1>
           
           <p className="text-xl md:text-2xl text-gray-600 mb-8 max-w-3xl mx-auto animate-fade-in" style={{ animationDelay: "0.2s" }}>

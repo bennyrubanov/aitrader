@@ -55,8 +55,9 @@ const NewsletterLink = ({ onClick }: NewsletterLinkProps) => {
           <div className="flex flex-col items-center justify-center">
             <Button 
               onClick={onClick} 
-              size="lg" 
-              className="bg-primary hover:bg-primary/90 text-white px-6 py-4 h-auto text-lg"
+              size="lg"
+              variant="default"
+              className="px-6 py-4 h-auto text-lg"
             >
               <Mail className="mr-2 h-4 w-4" />
               Subscribe to our newsletter — It's Free!
