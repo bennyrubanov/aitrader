@@ -1,5 +1,6 @@
 
 import React from "react";
+import { Link } from "react-router-dom";
 
 const Footer: React.FC = () => {
   const currentYear = new Date().getFullYear();
@@ -9,15 +10,22 @@ const Footer: React.FC = () => {
       <div className="container mx-auto px-4">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
           <div className="col-span-1 md:col-span-2">
-            <a href="/" className="text-xl font-bold text-gray-900 flex items-center mb-4">
+            <Link to="/" className="text-xl font-bold text-gray-900 flex items-center mb-4">
               <span className="text-trader-blue">AI</span>
               <span>Trader</span>
-            </a>
+            </Link>
             <p className="text-gray-600 mb-6 max-w-md">
               Using artificial intelligence to revolutionize stock trading with research-backed insights that outperform traditional analysis.
             </p>
             <div className="flex space-x-4">
               {/* Facebook */}
+              <a href="https://www.instagram.com/tryaitrader/reels/" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-trader-blue transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
+                  <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
+                  <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
+                </svg>
+              </a>
               <a href="#" className="text-gray-400 hover:text-trader-blue transition-colors">
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"></path>
@@ -30,13 +38,6 @@ const Footer: React.FC = () => {
                 </svg>
               </a> */}
               {/* Instagram */}
-              <a href="#" className="text-gray-400 hover:text-trader-blue transition-colors">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
-                  <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
-                  <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
-                </svg>
-              </a>
               {/* LinkedIn */}
               {/* <a href="#" className="text-gray-400 hover:text-trader-blue transition-colors">
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -57,20 +58,18 @@ const Footer: React.FC = () => {
           <div>
             <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-4">Resources</h3>
             <ul className="space-y-3">
-              <li><a href="#" className="text-gray-600 hover:text-trader-blue transition-colors">Blog</a></li>
-              <li><a href="#" className="text-gray-600 hover:text-trader-blue transition-colors">Research</a></li>
-              <li><a href="#" className="text-gray-600 hover:text-trader-blue transition-colors">Help Center</a></li>
-              <li><a href="#" className="text-gray-600 hover:text-trader-blue transition-colors">Guides</a></li>
+              <li><Link to="/blog" className="text-gray-600 hover:text-trader-blue transition-colors">Blog</Link></li>
+              <li><a href="/#research" className="text-gray-600 hover:text-trader-blue transition-colors">Research</a></li>
+              <li><Link to="/help" className="text-gray-600 hover:text-trader-blue transition-colors">Help Center</Link></li>
             </ul>
           </div>
           
           <div>
             <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-4">Company</h3>
             <ul className="space-y-3">
-              <li><a href="#" className="text-gray-600 hover:text-trader-blue transition-colors">About</a></li>
-              <li><a href="#" className="text-gray-600 hover:text-trader-blue transition-colors">Careers</a></li>
-              <li><a href="#" className="text-gray-600 hover:text-trader-blue transition-colors">Privacy</a></li>
-              <li><a href="#" className="text-gray-600 hover:text-trader-blue transition-colors">Terms</a></li>
+              <li><Link to="/about" className="text-gray-600 hover:text-trader-blue transition-colors">About</Link></li>
+              <li><Link to="/privacy" className="text-gray-600 hover:text-trader-blue transition-colors">Privacy</Link></li>
+              <li><Link to="/terms" className="text-gray-600 hover:text-trader-blue transition-colors">Terms</Link></li>
             </ul>
           </div>
         </div>
@@ -81,9 +80,9 @@ const Footer: React.FC = () => {
           </p>
           <div className="mt-4 md:mt-0">
             <ul className="flex space-x-6">
-              <li><a href="#" className="text-gray-500 hover:text-trader-blue text-sm transition-colors">Privacy Policy</a></li>
-              <li><a href="#" className="text-gray-500 hover:text-trader-blue text-sm transition-colors">Terms of Service</a></li>
-              <li><a href="#" className="text-gray-500 hover:text-trader-blue text-sm transition-colors">Contact</a></li>
+              <li><Link to="/privacy" className="text-gray-500 hover:text-trader-blue text-sm transition-colors">Privacy Policy</Link></li>
+              <li><Link to="/terms" className="text-gray-500 hover:text-trader-blue text-sm transition-colors">Terms of Service</Link></li>
+              <li><Link to="/help" className="text-gray-500 hover:text-trader-blue text-sm transition-colors">Contact</Link></li>
             </ul>
           </div>
         </div>
