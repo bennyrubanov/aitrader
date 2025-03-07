@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Mail } from "lucide-react";
+import { Mail, Loader2 } from "lucide-react";
 import { errorHandler, asyncErrorHandler } from "@/lib/errorHandler";
 
 // Define the ref type for external control
@@ -17,11 +17,15 @@ export interface NewsletterPopupRef {
   openPopup: () => void;
 }
 
+// Formspree endpoint
+const FORMSPREE_ENDPOINT = "https://formspree.io/f/mgejgzor";
+
 const NewsletterPopup = forwardRef<NewsletterPopupRef, {}>((props, ref) => {
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Expose the openPopup method to parent components
   useImperativeHandle(ref, () => ({
@@ -47,7 +51,7 @@ const NewsletterPopup = forwardRef<NewsletterPopupRef, {}>((props, ref) => {
     return () => clearTimeout(timer);
   }, []);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     // Simple email validation
@@ -56,9 +60,24 @@ const NewsletterPopup = forwardRef<NewsletterPopupRef, {}>((props, ref) => {
       return;
     }
     
-    errorHandler(() => {
-      // In a real app, you would send this to your API
-      console.log("Subscribing email:", email);
+    setIsSubmitting(true);
+    
+    await asyncErrorHandler(async () => {
+      // Submit to Formspree
+      const response = await fetch(FORMSPREE_ENDPOINT, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: email,
+          message: "Newsletter subscription from AI Trader",
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error("Failed to submit form. Please try again later.");
+      }
       
       // Mark as subscribed in localStorage
       localStorage.setItem("newsletter_subscribed", "true");
@@ -78,6 +97,8 @@ const NewsletterPopup = forwardRef<NewsletterPopupRef, {}>((props, ref) => {
     }, (err) => {
       setError("Failed to subscribe: " + err.message);
     });
+    
+    setIsSubmitting(false);
   };
 
   const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -103,15 +124,28 @@ const NewsletterPopup = forwardRef<NewsletterPopupRef, {}>((props, ref) => {
         </DialogHeader>
         
         {!isSubmitted ? (
-          <form onSubmit={handleSubmit} className="space-y-4 py-4">
+          <form 
+            onSubmit={handleSubmit} 
+            className="space-y-4 py-4"
+            action={FORMSPREE_ENDPOINT}
+            method="POST"
+          >
             <div className="space-y-2">
               <Input
                 id="email"
+                name="email"
                 type="email"
                 placeholder="Enter your email"
                 value={email}
                 onChange={handleEmailChange}
                 className="w-full"
+                required
+              />
+              {/* Hidden field for additional context */}
+              <input 
+                type="hidden" 
+                name="message" 
+                value="Newsletter subscription from AI Trader" 
               />
               {error && <p className="text-sm text-red-500">{error}</p>}
             </div>
@@ -122,12 +156,26 @@ const NewsletterPopup = forwardRef<NewsletterPopupRef, {}>((props, ref) => {
                 variant="outline" 
                 onClick={handleClose}
                 className="mb-2 sm:mb-0"
+                disabled={isSubmitting}
               >
                 Maybe later
               </Button>
-              <Button type="submit" className="w-full sm:w-auto">
-                <Mail className="mr-2" />
-                Subscribe Now
+              <Button 
+                type="submit" 
+                className="w-full sm:w-auto"
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Subscribing...
+                  </>
+                ) : (
+                  <>
+                    <Mail className="mr-2" />
+                    Subscribe Now
+                  </>
+                )}
               </Button>
             </DialogFooter>
           </form>
