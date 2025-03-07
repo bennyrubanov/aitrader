@@ -12,6 +12,7 @@ import ActivityNotifications from "@/components/ActivityNotifications";
 const Index = () => {
   // Create a ref to control the newsletter popup
   const newsletterPopupRef = useRef<NewsletterPopupRef>(null);
+  const parentDivRef = useRef<HTMLDivElement>(null);
 
   // Function to open the newsletter popup
   const handleOpenNewsletterPopup = () => {
@@ -21,12 +22,12 @@ const Index = () => {
   };
 
   return (
-    <div className="min-h-screen bg-white">
+    <div ref={parentDivRef} className="min-h-screen bg-white">
       <Navbar />
       <main>
         <Hero />
         <Features />
-        <ResearchSection />
+        <ResearchSection parentDivRef={parentDivRef} />
         <CTA />
         <NewsletterLink onClick={handleOpenNewsletterPopup} />
       </main>

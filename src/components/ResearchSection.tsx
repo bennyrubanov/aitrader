@@ -1,4 +1,3 @@
-
 import React, { useRef } from "react";
 import { useIsVisible } from "@/lib/animations";
 import { FileText, ExternalLink, CheckCircle, TrendingUp, BarChart, Info } from "lucide-react";
@@ -10,8 +9,13 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Link } from "react-router-dom";
+import { createPortal } from "react-dom";
 
-const ResearchSection: React.FC = () => {
+interface ResearchSectionProps {
+  parentDivRef: React.RefObject<HTMLDivElement>;
+}
+
+const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
   const sectionRef = useRef<HTMLDivElement>(null);
   const isVisible = useIsVisible(sectionRef);
   
@@ -67,17 +71,20 @@ const ResearchSection: React.FC = () => {
                           Financial Research Letters Journal
                           <Info size={14} className="inline-block ml-1 text-gray-400" />
                         </TooltipTrigger>
-                        <TooltipContent side="top" className="max-w-sm p-3 text-sm z-[100]">
-                          <p>Finance Research Letters is a bimonthly peer-reviewed academic journal covering research on all areas of finance that was established in 2004. According to the Journal Citation Reports, the journal has a 2021 impact factor of 9.846, ranking it first out of 111 journals in the category "Business, Finance".</p>
-                          <a 
-                            href="https://en.wikipedia.org/wiki/Finance_Research_Letters"
-                            target="_blank"
-                            rel="noopener noreferrer" 
-                            className="text-trader-blue hover:underline mt-2 inline-flex items-center"
-                          >
-                            Source <ExternalLink size={12} className="ml-1" />
-                          </a>
-                        </TooltipContent>
+                        {parentDivRef.current && createPortal(
+                          <TooltipContent side="top" className="max-w-sm p-3 text-sm z-[1000]">
+                            <p>Finance Research Letters is a bimonthly peer-reviewed academic journal covering research on all areas of finance that was established in 2004. According to the Journal Citation Reports, the journal has a 2021 impact factor of 9.846, ranking it first out of 111 journals in the category "Business, Finance".</p>
+                            <a 
+                              href="https://en.wikipedia.org/wiki/Finance_Research_Letters"
+                              target="_blank"
+                              rel="noopener noreferrer" 
+                              className="text-trader-blue hover:underline mt-2 inline-flex items-center"
+                            >
+                              Source <ExternalLink size={12} className="ml-1" />
+                            </a>
+                          </TooltipContent>,
+                          parentDivRef.current
+                        )}
                       </Tooltip>
                     </TooltipProvider>
                   </p>
@@ -152,17 +159,20 @@ const ResearchSection: React.FC = () => {
                           Finance Research Letters Journal
                           <Info size={14} className="inline-block ml-1 text-gray-400" />
                         </TooltipTrigger>
-                        <TooltipContent side="top" className="max-w-sm p-3 text-sm z-[100]">
-                          <p>Finance Research Letters is a bimonthly peer-reviewed academic journal covering research on all areas of finance that was established in 2004. According to the Journal Citation Reports, the journal has a 2021 impact factor of 9.846, ranking it first out of 111 journals in the category "Business, Finance".</p>
-                          <a 
-                            href="https://en.wikipedia.org/wiki/Finance_Research_Letters"
-                            target="_blank"
-                            rel="noopener noreferrer" 
-                            className="text-trader-blue hover:underline mt-2 inline-flex items-center"
-                          >
-                            Source <ExternalLink size={12} className="ml-1" />
-                          </a>
-                        </TooltipContent>
+                        {parentDivRef.current && createPortal(
+                          <TooltipContent side="top" className="max-w-sm p-3 text-sm z-[1000]">
+                            <p>Finance Research Letters is a bimonthly peer-reviewed academic journal covering research on all areas of finance that was established in 2004. According to the Journal Citation Reports, the journal has a 2021 impact factor of 9.846, ranking it first out of 111 journals in the category "Business, Finance".</p>
+                            <a 
+                              href="https://en.wikipedia.org/wiki/Finance_Research_Letters"
+                              target="_blank"
+                              rel="noopener noreferrer" 
+                              className="text-trader-blue hover:underline mt-2 inline-flex items-center"
+                            >
+                              Source <ExternalLink size={12} className="ml-1" />
+                            </a>
+                          </TooltipContent>,
+                          parentDivRef.current
+                        )}
                       </Tooltip>
                     </TooltipProvider>
                   </p>
