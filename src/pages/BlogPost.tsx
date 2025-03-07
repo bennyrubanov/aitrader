@@ -47,7 +47,7 @@ const ChatGPTStockPickingPost = () => (
       The researchers also observed that ChatGPT updates its ratings in response to news information in a timely manner, showing clear distinctions between positive and negative news events. It particularly adjusted ratings following negative earnings surprises, demonstrating its ability to process and interpret financial news.
     </p>
     
-    <img src="/photo-1488590528505-98d2b5aba04b.jpg" alt="AI Trading Analysis" className="w-full rounded-xl my-8" />
+    <img src="/images/code-for-stocks.jpeg" alt="AI Trading Analysis" className="w-full rounded-xl my-8" />
     
     <h2 className="text-2xl font-bold mt-10 mb-4">Implications for Investors</h2>
     <p className="text-gray-700 mb-4">
@@ -92,7 +92,7 @@ const BlueChipInvestingPost = () => (
       Examples include companies like Apple, Microsoft, Johnson & Johnson, and Coca-Cola - household names that have demonstrated staying power through multiple economic cycles.
     </p>
     
-    <img src="/photo-1461749280684-dccba630e2f6.jpg" alt="Blue Chip Stock Analysis" className="w-full rounded-xl my-8" />
+    <img src="/images/person-typing-on-laptop.jpeg" alt="Blue Chip Stock Analysis" className="w-full rounded-xl my-8" />
     
     <h2 className="text-2xl font-bold mt-10 mb-4">Strategies for Market-Beating Returns</h2>
     <p className="text-gray-700 mb-4">
@@ -122,7 +122,7 @@ const BlueChipInvestingPost = () => (
       <li>High switching costs that lock in customers</li>
     </ul>
     
-    <img src="/photo-1486312338219-ce68d2c6f44d.jpg" alt="Investor analyzing blue chip stocks" className="w-full rounded-xl my-8" />
+    <img src="/images/candles.avif" alt="Analyzing blue chip stocks" className="w-full rounded-xl my-8" />
     
     <h3 className="text-xl font-semibold mt-6 mb-3">3. Seek Innovation Within Tradition</h3>
     <p className="text-gray-700 mb-4">
@@ -235,8 +235,8 @@ const BlogPost = () => {
               
               <img 
                 src={id === "chatgpt-stock-picking" 
-                  ? "/photo-1518770660439-4636190af475.jpg" 
-                  : "/photo-1488590528505-98d2b5aba04b.jpg"} 
+                  ? "/images/ai-chip.jpeg" 
+                  : "/images/investor-stock-picking.avif"} 
                 alt={post.title} 
                 className="w-full h-72 object-cover rounded-xl mb-8" 
               />
@@ -246,17 +246,26 @@ const BlogPost = () => {
               <div className="mt-12 pt-8 border-t border-gray-200">
                 <h3 className="text-xl font-bold mb-4">Share this article</h3>
                 <div className="flex space-x-4">
-                  <button className="text-gray-500 hover:text-trader-blue">
+                  <button 
+                    className="text-gray-500 hover:text-trader-blue"
+                    onClick={() => window.open(`https://www.facebook.com/sharer/sharer.php?u=${window.location.href}&quote=${encodeURIComponent(post.title)}`, '_blank')}
+                  >
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"></path>
                     </svg>
                   </button>
-                  <button className="text-gray-500 hover:text-trader-blue">
+                  <button 
+                    className="text-gray-500 hover:text-trader-blue"
+                    onClick={() => window.open(`https://twitter.com/intent/tweet?url=${window.location.href}&text=${encodeURIComponent(post.title)}`, '_blank')}
+                  >
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M22 4s-.7 2.1-2 3.4c1.6 10-9.4 17.3-18 11.6 2.2.1 4.4-.6 6-2C3 15.5.5 9.6 3 5c2.2 2.6 5.6 4.1 9 4-.9-4.2 4-6.6 7-3.8 1.1 0 3-1.2 3-1.2z"></path>
                     </svg>
                   </button>
-                  <button className="text-gray-500 hover:text-trader-blue">
+                  <button 
+                    className="text-gray-500 hover:text-trader-blue"
+                    onClick={() => window.open(`https://www.linkedin.com/shareArticle?mini=true&url=${window.location.href}&title=${encodeURIComponent(post.title)}&summary=${encodeURIComponent(post.title)}`, '_blank')}
+                  >
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"></path>
                       <rect x="2" y="9" width="4" height="12"></rect>

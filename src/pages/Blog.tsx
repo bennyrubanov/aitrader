@@ -18,14 +18,14 @@ const blogPosts: BlogPostPreview[] = [
     title: "Can ChatGPT Assist in Picking Stocks? Recent Research Says Yes",
     excerpt: "Recent studies show AI systems like ChatGPT can provide valuable investment advice and improve stock selection. We dive into the science behind these findings.",
     date: "March 6, 2025",
-    image: "/placeholder.svg"
+    image: "/images/ai-chip.jpeg"
   },
   {
     id: "blue-chip-investing",
     title: "Blue Chip Investing: Strategies for Market-Beating Returns",
     excerpt: "Looking beyond index investing, blue chip stocks offer stability and growth potential. Learn strategies to identify winners in this segment.",
     date: "February 20, 2025",
-    image: "/placeholder.svg"
+    image: "images/investor-stock-picking.avif"
   }
 ];
 
