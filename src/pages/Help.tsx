@@ -1,6 +1,6 @@
 
 import React, { useEffect } from "react";
-import { EnvelopeIcon } from "lucide-react";
+import { Mail } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { Button } from "@/components/ui/button";
@@ -28,7 +28,7 @@ const Help = () => {
                   For any questions, feedback, or technical support, please reach out to our dedicated support team via email:
                 </p>
                 <div className="flex items-center justify-center p-6 bg-white rounded-lg shadow-soft mb-6">
-                  <EnvelopeIcon className="w-6 h-6 text-trader-blue mr-3" />
+                  <Mail className="w-6 h-6 text-trader-blue mr-3" />
                   <a href="mailto:tryaitrader@gmail.com" className="text-lg font-medium text-trader-blue hover:underline">
                     tryaitrader@gmail.com
                   </a>
