@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { ArrowRight } from "lucide-react";
@@ -15,6 +14,13 @@ const Navbar: React.FC = () => {
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
+
+  // Function to create proper links that work from any page
+  const getHomeLink = (hash: string) => {
+    // If we're already at the root path, just use the hash
+    // Otherwise, navigate to root path with hash
+    return window.location.pathname === "/" ? `${hash}` : `/${hash}`;
+  };
 
   return (
     <header
@@ -37,24 +43,24 @@ const Navbar: React.FC = () => {
           </div>
 
           <nav className="hidden md:flex gap-6">
-            <a
-              href="#features"
+            <Link
+              to={getHomeLink("#features")}
               className="text-gray-600 hover:text-gray-900 transition-colors"
             >
               Features
-            </a>
-            <a
-              href="#research"
+            </Link>
+            <Link
+              to={getHomeLink("#research")}
               className="text-gray-600 hover:text-gray-900 transition-colors"
             >
               Research
-            </a>
-            <a
-              href="#newsletter"
+            </Link>
+            <Link
+              to={getHomeLink("#newsletter")}
               className="text-gray-600 hover:text-gray-900 transition-colors"
             >
               Newsletter
-            </a>
+            </Link>
           </nav>
 
           <Link to="/payment">

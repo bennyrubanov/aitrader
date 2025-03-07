@@ -1,8 +1,15 @@
 
 import React, { useRef } from "react";
 import { useIsVisible } from "@/lib/animations";
-import { FileText, ExternalLink, CheckCircle, TrendingUp, BarChart } from "lucide-react";
+import { FileText, ExternalLink, CheckCircle, TrendingUp, BarChart, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Link } from "react-router-dom";
 
 const ResearchSection: React.FC = () => {
   const sectionRef = useRef<HTMLDivElement>(null);
@@ -53,7 +60,27 @@ const ResearchSection: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="text-xl font-semibold mb-1">Peer-Reviewed Study</h3>
-                  <p className="text-gray-500 text-sm">Published in Financial Research Letters Journal</p>
+                  <p className="text-gray-500 text-sm">Published in 
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger className="inline px-1 underline decoration-dotted underline-offset-2">
+                          Financial Research Letters Journal
+                          <Info size={14} className="inline-block ml-1 text-gray-400" />
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-sm p-3 text-sm">
+                          <p>Finance Research Letters is a bimonthly peer-reviewed academic journal covering research on all areas of finance that was established in 2004. According to the Journal Citation Reports, the journal has a 2021 impact factor of 9.846, ranking it first out of 111 journals in the category "Business, Finance".</p>
+                          <a 
+                            href="https://en.wikipedia.org/wiki/Finance_Research_Letters"
+                            target="_blank"
+                            rel="noopener noreferrer" 
+                            className="text-trader-blue hover:underline mt-2 inline-flex items-center"
+                          >
+                            Source <ExternalLink size={12} className="ml-1" />
+                          </a>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </p>
                 </div>
               </div>
               
@@ -95,9 +122,11 @@ const ResearchSection: React.FC = () => {
               ))}
             </div>
             
-            <Button className="bg-trader-blue hover:bg-trader-blue-dark transition-colors w-full md:w-auto">
-              Get Access to AI Insights
-            </Button>
+            <Link to="/payment">
+              <Button className="bg-trader-blue hover:bg-trader-blue-dark transition-colors w-full md:w-auto">
+                Get Access to AI Insights
+              </Button>
+            </Link>
           </div>
         </div>
         
@@ -116,7 +145,27 @@ const ResearchSection: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="text-xl font-semibold mb-1">Follow-up Research</h3>
-                  <p className="text-gray-500 text-sm">Finance Research Letters Journal</p>
+                  <p className="text-gray-500 text-sm">
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger className="inline px-1 underline decoration-dotted underline-offset-2">
+                          Finance Research Letters Journal
+                          <Info size={14} className="inline-block ml-1 text-gray-400" />
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-sm p-3 text-sm">
+                          <p>Finance Research Letters is a bimonthly peer-reviewed academic journal covering research on all areas of finance that was established in 2004. According to the Journal Citation Reports, the journal has a 2021 impact factor of 9.846, ranking it first out of 111 journals in the category "Business, Finance".</p>
+                          <a 
+                            href="https://en.wikipedia.org/wiki/Finance_Research_Letters"
+                            target="_blank"
+                            rel="noopener noreferrer" 
+                            className="text-trader-blue hover:underline mt-2 inline-flex items-center"
+                          >
+                            Source <ExternalLink size={12} className="ml-1" />
+                          </a>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </p>
                 </div>
               </div>
               
