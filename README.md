@@ -1,4 +1,4 @@
-# Welcome to your Lovable project
+# Welcome to AI Trader
 
 ## Project info
 
