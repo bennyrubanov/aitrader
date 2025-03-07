@@ -1,4 +1,3 @@
-
 import React, { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,8 +16,8 @@ const Hero: React.FC = () => {
   const accuracyRef = useRef<HTMLDivElement>(null);
   const stocksRef = useRef<HTMLDivElement>(null);
 
-  const { value: returnValue } = useAnimatedCounter(43, 2500, false);
-  const { value: accuracyValue } = useAnimatedCounter(91, 2500, false);
+  const { value: returnValue } = useAnimatedCounter(7, 2500, false);
+  const { value: accuracyValue } = useAnimatedCounter(95, 2500, false);
   const { value: stocksValue } = useAnimatedCounter(500, 2500, false);
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -47,7 +46,6 @@ const Hero: React.FC = () => {
   };
 
   const handleBlur = () => {
-    // Delay hiding results to allow clicking on them
     setTimeout(() => {
       setIsSearchFocused(false);
     }, 200);
@@ -67,7 +65,6 @@ const Hero: React.FC = () => {
 
   return (
     <section className="relative pt-20 pb-24 md:pt-32 md:pb-40 overflow-hidden">
-      {/* Background gradient */}
       <div className="absolute top-0 left-0 right-0 h-[65vh] bg-gradient-to-b from-trader-gray to-white z-0"></div>
       
       <div className="container mx-auto px-4 relative z-10">
@@ -136,19 +133,18 @@ const Hero: React.FC = () => {
           )}
         </div>
 
-        {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mt-16 max-w-5xl mx-auto">
           <div className="bg-white rounded-xl p-6 shadow-soft text-center hover-card-animation">
             <div ref={returnRef} className="text-4xl font-bold text-trader-blue mb-2">
-              {returnValue}%
+              +{returnValue}%
             </div>
-            <p className="text-gray-600">Average Returns</p>
+            <p className="text-gray-600">Performance Gap (Most vs Least Attractive)</p>
           </div>
           <div className="bg-white rounded-xl p-6 shadow-soft text-center hover-card-animation">
             <div ref={accuracyRef} className="text-4xl font-bold text-trader-blue mb-2">
               {accuracyValue}%
             </div>
-            <p className="text-gray-600">Prediction Accuracy</p>
+            <p className="text-gray-600">Correlation Accuracy</p>
           </div>
           <div className="bg-white rounded-xl p-6 shadow-soft text-center hover-card-animation">
             <div ref={stocksRef} className="text-4xl font-bold text-trader-blue mb-2">
@@ -158,7 +154,6 @@ const Hero: React.FC = () => {
           </div>
         </div>
 
-        {/* Popular stocks */}
         <div className="mt-20">
           <h3 className="text-xl font-semibold text-center mb-6">Popular stocks to analyze</h3>
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
