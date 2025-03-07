@@ -1,5 +1,4 @@
-
-import React from "react";
+import React, { useEffect } from "react";
 import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Navbar from "@/components/Navbar";
@@ -8,6 +7,10 @@ import Footer from "@/components/Footer";
 const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/28o17D1Qx8QQfXaeUV"
 
 const Payment: React.FC = () => {
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
+
   return (
     <div className="min-h-screen bg-white flex flex-col">
       <Navbar />
