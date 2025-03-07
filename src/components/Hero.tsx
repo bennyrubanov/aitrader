@@ -1,8 +1,8 @@
 
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, ArrowRight } from "lucide-react";
+import { Search, ArrowRight, LockIcon } from "lucide-react";
 import { freeStocks, premiumStocks, Stock, searchStocks } from "@/lib/stockData";
 import StockCard from "@/components/ui/stock-card";
 import { useAnimatedCounter } from "@/lib/animations";
@@ -13,9 +13,13 @@ const Hero: React.FC = () => {
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [selectedStock, setSelectedStock] = useState<Stock | null>(null);
 
-  const { value: returnValue, ref: returnRef } = useAnimatedCounter(43, 2500, false);
-  const { value: accuracyValue, ref: accuracyRef } = useAnimatedCounter(91, 2500, false);
-  const { value: stocksValue, ref: stocksRef } = useAnimatedCounter(500, 2500, false);
+  const returnRef = useRef<HTMLDivElement>(null);
+  const accuracyRef = useRef<HTMLDivElement>(null);
+  const stocksRef = useRef<HTMLDivElement>(null);
+
+  const { value: returnValue } = useAnimatedCounter(43, 2500, false);
+  const { value: accuracyValue } = useAnimatedCounter(91, 2500, false);
+  const { value: stocksValue } = useAnimatedCounter(500, 2500, false);
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     const query = e.target.value;
@@ -107,7 +111,7 @@ const Hero: React.FC = () => {
                             <p className="text-sm text-gray-600">{stock.name}</p>
                           </div>
                           {stock.isPremium && (
-                            <Lock size={16} className="text-trader-blue" />
+                            <LockIcon size={16} className="text-trader-blue" />
                           )}
                         </div>
                       </div>

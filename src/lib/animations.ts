@@ -31,7 +31,7 @@ export function useAnimatedCounter(
   targetValue: number,
   duration: number = 2000,
   startOnVisible: boolean = true
-): { value: number; ref: RefObject<HTMLElement> } {
+): { value: number; ref?: RefObject<HTMLDivElement> } {
   const [count, setCount] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
   const isVisible = useIsVisible(ref);
@@ -64,5 +64,5 @@ export function useAnimatedCounter(
     }
   }, [isVisible, targetValue, duration, startOnVisible, hasAnimated]);
   
-  return { value: count, ref };
+  return { value: count };
 }
