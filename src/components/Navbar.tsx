@@ -66,6 +66,12 @@ const Navbar: React.FC = () => {
               Research
             </Link>
             <Link
+              to="/platform"
+              className="text-gray-600 hover:text-gray-900 transition-colors"
+            >
+              Platform
+            </Link>
+            <Link
               to={getHomeLink("#newsletter")}
               className="text-gray-600 hover:text-gray-900 transition-colors"
             >
