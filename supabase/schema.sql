@@ -1,50 +1,50 @@
 create extension if not exists "pgcrypto";
 
-create table if not exists public.stocks (
+create table if not exists public.nasdaq100_stocks (
   id uuid primary key default gen_random_uuid(),
-  symbol text not null unique,
-  name text,
-  exchange text,
-  is_active boolean not null default true,
+  ticker text not null unique,
+  company_name text not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
-create table if not exists public.daily_universes (
+create table if not exists public.stock_daily_ratings (
   id uuid primary key default gen_random_uuid(),
-  run_date date not null,
-  source text not null,
-  created_at timestamptz not null default now(),
-  unique (run_date, source)
-);
-
-create table if not exists public.daily_universe_stocks (
-  id uuid primary key default gen_random_uuid(),
-  universe_id uuid not null references public.daily_universes(id) on delete cascade,
-  stock_id uuid not null references public.stocks(id) on delete cascade,
-  created_at timestamptz not null default now(),
-  unique (universe_id, stock_id)
-);
-
-create table if not exists public.stock_recommendations (
-  id uuid primary key default gen_random_uuid(),
-  stock_id uuid not null references public.stocks(id) on delete cascade,
-  run_date date not null,
-  rating text not null,
+  stock_id uuid not null references public.nasdaq100_stocks(id) on delete cascade,
+  date date not null,
+  score int not null,
   confidence numeric,
-  summary text,
-  reasoning text,
-  change_summary text,
-  drivers jsonb,
+  reason_1s text,
   risks jsonb,
+  bucket text not null,
+  citations jsonb,
   sources jsonb,
   model text,
-  prompt_version text,
   raw_response jsonb,
   created_at timestamptz not null default now(),
-  unique (stock_id, run_date)
+  unique (stock_id, date),
+  constraint score_range check (score >= -5 and score <= 5)
 );
 
-create index if not exists idx_stocks_symbol on public.stocks(symbol);
-create index if not exists idx_stock_recommendations_stock_id on public.stock_recommendations(stock_id);
-create index if not exists idx_stock_recommendations_run_date on public.stock_recommendations(run_date);
+create table if not exists public.stock_score_rollups (
+  id uuid primary key default gen_random_uuid(),
+  stock_id uuid not null references public.nasdaq100_stocks(id) on delete cascade,
+  date date not null,
+  score_7d_avg numeric,
+  bucket_7d text not null,
+  created_at timestamptz not null default now(),
+  unique (stock_id, date)
+);
+
+create table if not exists public.weekly_portfolios (
+  week_start date primary key,
+  method text not null,
+  portfolio_json jsonb not null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_nasdaq100_stocks_ticker on public.nasdaq100_stocks(ticker);
+create index if not exists idx_stock_daily_ratings_date on public.stock_daily_ratings(date);
+create index if not exists idx_stock_daily_ratings_stock_id on public.stock_daily_ratings(stock_id);
+create index if not exists idx_stock_score_rollups_date on public.stock_score_rollups(date);
+create index if not exists idx_stock_score_rollups_stock_id on public.stock_score_rollups(stock_id);
