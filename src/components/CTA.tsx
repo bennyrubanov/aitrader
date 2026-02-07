@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { ArrowRight } from "lucide-react";
 import StockCard from "@/components/ui/stock-card";
 import { freeStocks, premiumStocks } from "@/lib/stockData";
-import { Link } from "react-router-dom";
+import Link from "next/link";
 
 const CTA: React.FC = () => {
   return (
@@ -81,7 +81,7 @@ const CTA: React.FC = () => {
             </div>
           </div>
           <div className="pt-10 flex justify-center">
-            <Link to="/payment">
+            <Link href="/payment">
               <Button className="px-8 py-6 text-lg rounded-xl bg-trader-blue hover:bg-trader-blue-dark transition-all duration-300">
                 <span className="mr-2">Get Started</span>
                 <ArrowRight size={18} />
