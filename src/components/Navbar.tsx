@@ -1,11 +1,14 @@
+"use client";
+
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { ArrowRight } from "lucide-react";
-import { Link, useLocation } from "react-router-dom";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 
 const Navbar: React.FC = () => {
   const [scrolled, setScrolled] = useState(false);
-  const location = useLocation();
+  const pathname = usePathname();
 
   useEffect(() => {
     const handleScroll = () => {
@@ -17,19 +20,20 @@ const Navbar: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (location.hash) {
-      const element = document.getElementById(location.hash.substring(1));
+    const hash = window.location.hash;
+    if (hash) {
+      const element = document.getElementById(hash.substring(1));
       if (element) {
         element.scrollIntoView({ behavior: "smooth" });
       }
     }
-  }, [location]);
+  }, [pathname]);
 
   // Function to create proper links that work from any page
   const getHomeLink = (hash: string) => {
     // If we're already at the home page, use the hash directly
     // Otherwise, navigate to the home page with the hash
-    return location.pathname === "/" ? hash : `/${hash}`;
+    return pathname === "/" ? hash : `/${hash}`;
   };
 
   return (
@@ -44,7 +48,7 @@ const Navbar: React.FC = () => {
         <div className="flex items-center justify-between">
           <div className="flex items-center">
             <Link
-              to="/"
+              href="/"
               className="text-xl md:text-2xl font-bold text-gray-900 flex items-center"
             >
               <span className="text-trader-blue">AI</span>
@@ -54,32 +58,32 @@ const Navbar: React.FC = () => {
 
           <nav className="hidden md:flex gap-6">
             <Link
-              to={getHomeLink("#features")}
+              href={getHomeLink("#features")}
               className="text-gray-600 hover:text-gray-900 transition-colors"
             >
               Features
             </Link>
             <Link
-              to={getHomeLink("#research")}
+              href={getHomeLink("#research")}
               className="text-gray-600 hover:text-gray-900 transition-colors"
             >
               Research
             </Link>
             <Link
-              to="/platform"
+              href="/platform"
               className="text-gray-600 hover:text-gray-900 transition-colors"
             >
               Platform
             </Link>
             <Link
-              to={getHomeLink("#newsletter")}
+              href={getHomeLink("#newsletter")}
               className="text-gray-600 hover:text-gray-900 transition-colors"
             >
               Newsletter
             </Link>
           </nav>
 
-          <Link to="/payment">
+          <Link href="/payment">
             <Button className="rounded-full px-5 transition-all duration-300 bg-trader-blue hover:bg-trader-blue-dark">
               <span className="mr-2">Get Started</span>
               <ArrowRight size={16} />
