@@ -1,5 +1,8 @@
 import {
   buildStockRatingPrompt,
+  PROMPT_NAME,
+  PROMPT_VERSION,
+  STOCK_RATING_PROMPT_TEMPLATE,
   STOCK_RATING_SCHEMA,
 } from "../../src/lib/aiPrompt";
 import { createSupabaseAdminClient } from "../../src/lib/supabaseServer";
@@ -57,6 +60,54 @@ const clampConfidence = (confidence: number) => {
     return 0;
   }
   return Math.max(0, Math.min(1, confidence));
+};
+
+const upsertPrompt = async (supabase: ReturnType<typeof createSupabaseAdminClient>) => {
+  const { data, error } = await supabase
+    .from("prompts")
+    .upsert(
+      {
+        name: PROMPT_NAME,
+        version: PROMPT_VERSION,
+        template: STOCK_RATING_PROMPT_TEMPLATE,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "name,version" }
+    )
+    .select("id")
+    .single();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data;
+};
+
+const upsertUniverseRun = async (
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  runDate: string,
+  promptId: string
+) => {
+  const { data, error } = await supabase
+    .from("universe_runs")
+    .upsert(
+      {
+        run_date: runDate,
+        universe: "nasdaq100",
+        prompt_id: promptId,
+        model: DEFAULT_MODEL,
+      },
+      { onConflict: "run_date,universe" }
+    )
+    .select("id")
+    .single();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data;
 };
 
 const isAuthorized = (req: any) => {
@@ -269,6 +320,20 @@ export default async function handler(req: any, res: any) {
   const runDate = getRunDate();
   const yesterdayDate = addDays(runDate, -1);
 
+  let promptRow;
+  try {
+    promptRow = await upsertPrompt(supabase);
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || "Prompt upsert failed" });
+  }
+
+  let runRow;
+  try {
+    runRow = await upsertUniverseRun(supabase, runDate, promptRow.id);
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || "Run upsert failed" });
+  }
+
   const { data: stocks, error: stockError } = await supabase
     .from("nasdaq100_stocks")
     .select("id, ticker, company_name")
@@ -283,6 +348,19 @@ export default async function handler(req: any, res: any) {
   }
 
   const stockMap = new Map(stocks.map((stock: NasdaqStock) => [stock.id, stock]));
+
+  const universeMembers = stocks.map((stock) => ({
+    run_id: runRow.id,
+    stock_id: stock.id,
+  }));
+
+  const { error: universeMemberError } = await supabase
+    .from("universe_run_stocks")
+    .upsert(universeMembers, { onConflict: "run_id,stock_id" });
+
+  if (universeMemberError) {
+    return res.status(500).json({ error: universeMemberError.message });
+  }
 
   const { data: yesterdayRows } = await supabase
     .from("stock_daily_ratings")
@@ -337,6 +415,7 @@ export default async function handler(req: any, res: any) {
       .from("stock_daily_ratings")
       .upsert(
         {
+          run_id: runRow.id,
           stock_id: stock.id,
           date: runDate,
           score,
@@ -346,7 +425,6 @@ export default async function handler(req: any, res: any) {
           bucket,
           citations,
           sources,
-          model: DEFAULT_MODEL,
           raw_response: rawResponse,
         },
         { onConflict: "stock_id,date" }
@@ -380,6 +458,9 @@ export default async function handler(req: any, res: any) {
             date: runDate,
             score_7d_avg: avg,
             bucket_7d: bucket7d,
+            window_start: rollupStart,
+            window_end: runDate,
+            sample_size: scores.length,
           },
           { onConflict: "stock_id,date" }
         );
