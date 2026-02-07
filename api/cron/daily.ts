@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import {
   buildStockRatingPrompt,
   PROMPT_NAME,
@@ -7,35 +8,93 @@ import {
 } from "../../src/lib/aiPrompt";
 import { createSupabaseAdminClient } from "../../src/lib/supabaseServer";
 
+const NASDAQ_100_ENDPOINT = "https://api.nasdaq.com/api/quote/list-type/nasdaq100";
 const DEFAULT_MODEL = process.env.OPENAI_MODEL || "gpt-5";
+const DEFAULT_MODEL_VERSION = process.env.OPENAI_MODEL_VERSION || "unknown";
 
-type NasdaqStock = {
-  id: string;
-  ticker: string;
-  company_name: string;
+type NasdaqRow = {
+  symbol: string;
+  companyName?: string;
+  marketCap?: string;
+  lastSalePrice?: string;
+  netChange?: string;
+  percentageChange?: string;
+  deltaIndicator?: string;
 };
 
-type DailyRatingRow = {
+type StockRow = {
+  id: string;
+  symbol: string;
+  company_name: string | null;
+};
+
+type MemberRow = {
+  stock_id: string;
+  stocks: StockRow | null;
+};
+
+type PreviousRun = {
   stock_id: string;
   score: number;
+  bucket: "buy" | "hold" | "sell";
 };
 
 const getRunDate = () => new Date().toISOString().slice(0, 10);
 
-const formatDate = (date: Date) => date.toISOString().slice(0, 10);
-
 const addDays = (dateString: string, days: number) => {
   const date = new Date(`${dateString}T00:00:00Z`);
   date.setUTCDate(date.getUTCDate() + days);
-  return formatDate(date);
+  return date.toISOString().slice(0, 10);
 };
 
-const getWeekStart = (dateString: string) => {
-  const date = new Date(`${dateString}T00:00:00Z`);
-  const day = date.getUTCDay();
-  const offset = (day + 6) % 7;
-  date.setUTCDate(date.getUTCDate() - offset);
-  return formatDate(date);
+const isAuthorized = (req: any) => {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) {
+    return true;
+  }
+
+  const headerToken =
+    req.headers?.["x-cron-secret"] ||
+    req.headers?.["x-vercel-cron-secret"] ||
+    (req.headers?.authorization || "").replace("Bearer ", "");
+  const queryToken = req.query?.secret;
+  const token = headerToken || queryToken;
+  return token === secret;
+};
+
+const parseNasdaqRows = (payload: any): NasdaqRow[] => {
+  const rows = payload?.data?.data?.rows;
+  if (!Array.isArray(rows)) {
+    return [];
+  }
+
+  return rows
+    .map((row: any) => ({
+      symbol: row.symbol,
+      companyName: row.companyName,
+      marketCap: row.marketCap,
+      lastSalePrice: row.lastSalePrice,
+      netChange: row.netChange,
+      percentageChange: row.percentageChange,
+      deltaIndicator: row.deltaIndicator,
+    }))
+    .filter((row: NasdaqRow) => row.symbol);
+};
+
+const fetchNasdaq100 = async (): Promise<NasdaqRow[]> => {
+  const response = await fetch(NASDAQ_100_ENDPOINT, {
+    headers: {
+      "user-agent": "Mozilla/5.0 (NASDAQ 100 fetch)",
+      accept: "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Nasdaq API error: ${response.status}`);
+  }
+
+  const payload = await response.json();
+  return parseNasdaqRows(payload);
 };
 
 const bucketFromScore = (score: number) => {
@@ -60,69 +119,6 @@ const clampConfidence = (confidence: number) => {
     return 0;
   }
   return Math.max(0, Math.min(1, confidence));
-};
-
-const upsertPrompt = async (supabase: ReturnType<typeof createSupabaseAdminClient>) => {
-  const { data, error } = await supabase
-    .from("prompts")
-    .upsert(
-      {
-        name: PROMPT_NAME,
-        version: PROMPT_VERSION,
-        template: STOCK_RATING_PROMPT_TEMPLATE,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "name,version" }
-    )
-    .select("id")
-    .single();
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  return data;
-};
-
-const upsertUniverseRun = async (
-  supabase: ReturnType<typeof createSupabaseAdminClient>,
-  runDate: string,
-  promptId: string
-) => {
-  const { data, error } = await supabase
-    .from("universe_runs")
-    .upsert(
-      {
-        run_date: runDate,
-        universe: "nasdaq100",
-        prompt_id: promptId,
-        model: DEFAULT_MODEL,
-      },
-      { onConflict: "run_date,universe" }
-    )
-    .select("id")
-    .single();
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  return data;
-};
-
-const isAuthorized = (req: any) => {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) {
-    return true;
-  }
-
-  const headerToken =
-    req.headers?.["x-cron-secret"] ||
-    req.headers?.["x-vercel-cron-secret"] ||
-    (req.headers?.authorization || "").replace("Bearer ", "");
-  const queryToken = req.query?.secret;
-  const token = headerToken || queryToken;
-  return token === secret;
 };
 
 const extractOutputText = (payload: any) => {
@@ -217,8 +213,93 @@ const fetchWithRetry = async (url: string, options: RequestInit, retries = 1) =>
   }
 };
 
+const upsertPrompt = async (supabase: ReturnType<typeof createSupabaseAdminClient>) => {
+  const { data, error } = await supabase
+    .from("ai_prompts")
+    .upsert(
+      {
+        name: PROMPT_NAME,
+        version: PROMPT_VERSION,
+        template: STOCK_RATING_PROMPT_TEMPLATE,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "name,version" }
+    )
+    .select("id")
+    .single();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data;
+};
+
+const upsertModel = async (supabase: ReturnType<typeof createSupabaseAdminClient>) => {
+  const { data, error } = await supabase
+    .from("ai_models")
+    .upsert(
+      {
+        provider: "openai",
+        name: DEFAULT_MODEL,
+        version: DEFAULT_MODEL_VERSION,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "provider,name,version" }
+    )
+    .select("id")
+    .single();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data;
+};
+
+const createSnapshot = async (
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  runDate: string,
+  symbols: string[]
+) => {
+  const membershipHash = createHash("sha256")
+    .update(symbols.join(","))
+    .digest("hex");
+
+  const { data: inserted, error: insertError } = await supabase
+    .from("nasdaq100_snapshots")
+    .insert(
+      { effective_date: runDate, membership_hash: membershipHash },
+      { onConflict: "membership_hash", ignoreDuplicates: true }
+    )
+    .select("id")
+    .maybeSingle();
+
+  if (insertError) {
+    throw new Error(insertError.message);
+  }
+
+  if (inserted?.id) {
+    return { id: inserted.id, membershipHash, isNew: true };
+  }
+
+  const { data: existing, error: fetchError } = await supabase
+    .from("nasdaq100_snapshots")
+    .select("id")
+    .eq("membership_hash", membershipHash)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .single();
+
+  if (fetchError) {
+    throw new Error(fetchError.message);
+  }
+
+  return { id: existing.id, membershipHash, isNew: false };
+};
+
 const requestStockRating = async (
-  stock: NasdaqStock,
+  stock: StockRow,
   runDate: string,
   previous: { score?: number | null; bucket?: "buy" | "hold" | "sell" | null }
 ) => {
@@ -228,8 +309,8 @@ const requestStockRating = async (
   }
 
   const prompt = buildStockRatingPrompt({
-    ticker: stock.ticker,
-    companyName: stock.company_name,
+    ticker: stock.symbol,
+    companyName: stock.company_name || stock.symbol,
     runDate,
     yesterdayScore: previous.score ?? null,
     yesterdayBucket: previous.bucket ?? null,
@@ -320,63 +401,146 @@ export default async function handler(req: any, res: any) {
   const runDate = getRunDate();
   const yesterdayDate = addDays(runDate, -1);
 
-  let promptRow;
+  let nasdaqRows: NasdaqRow[] = [];
   try {
-    promptRow = await upsertPrompt(supabase);
+    nasdaqRows = await fetchNasdaq100();
   } catch (error: any) {
-    return res.status(500).json({ error: error?.message || "Prompt upsert failed" });
+    return res.status(500).json({ error: error?.message || "Nasdaq fetch failed" });
   }
 
-  let runRow;
-  try {
-    runRow = await upsertUniverseRun(supabase, runDate, promptRow.id);
-  } catch (error: any) {
-    return res.status(500).json({ error: error?.message || "Run upsert failed" });
+  if (!nasdaqRows.length) {
+    return res.status(500).json({ error: "No Nasdaq 100 symbols available" });
   }
 
-  const { data: stocks, error: stockError } = await supabase
-    .from("nasdaq100_stocks")
-    .select("id, ticker, company_name")
-    .order("ticker");
+  const promptRow = await upsertPrompt(supabase);
+  const modelRow = await upsertModel(supabase);
 
-  if (stockError) {
-    return res.status(500).json({ error: stockError.message });
-  }
-
-  if (!stocks?.length) {
-    return res.status(500).json({ error: "No Nasdaq-100 stocks available" });
-  }
-
-  const stockMap = new Map(stocks.map((stock: NasdaqStock) => [stock.id, stock]));
-
-  const universeMembers = stocks.map((stock) => ({
-    run_id: runRow.id,
-    stock_id: stock.id,
+  const stockPayload = nasdaqRows.map((row) => ({
+    symbol: row.symbol,
+    company_name: row.companyName || null,
+    exchange: "NASDAQ",
+    updated_at: new Date().toISOString(),
   }));
 
-  const { error: universeMemberError } = await supabase
-    .from("universe_run_stocks")
-    .upsert(universeMembers, { onConflict: "run_id,stock_id" });
+  const { data: upsertedStocks, error: upsertError } = await supabase
+    .from("stocks")
+    .upsert(stockPayload, { onConflict: "symbol" })
+    .select("id, symbol, company_name");
 
-  if (universeMemberError) {
-    return res.status(500).json({ error: universeMemberError.message });
+  if (upsertError) {
+    return res.status(500).json({ error: upsertError.message });
   }
 
-  const { data: yesterdayRows } = await supabase
-    .from("stock_daily_ratings")
-    .select("stock_id, score")
-    .eq("date", yesterdayDate);
+  const stockMap = new Map(
+    (upsertedStocks || []).map((stock: StockRow) => [stock.symbol, stock])
+  );
 
-  const yesterdayMap = new Map<string, { score: number; bucket: "buy" | "hold" | "sell" }>();
-  (yesterdayRows || []).forEach((row: DailyRatingRow) => {
-    const bucket = bucketFromScore(row.score);
-    yesterdayMap.set(row.stock_id, { score: row.score, bucket });
-  });
+  const dailyRawPayload = nasdaqRows.map((row) => ({
+    run_date: runDate,
+    symbol: row.symbol,
+    company_name: row.companyName || null,
+    market_cap: row.marketCap || null,
+    last_sale_price: row.lastSalePrice || null,
+    net_change: row.netChange || null,
+    percentage_change: row.percentageChange || null,
+    delta_indicator: row.deltaIndicator || null,
+  }));
+
+  const { error: rawError } = await supabase
+    .from("nasdaq_100_daily_raw")
+    .upsert(dailyRawPayload, { onConflict: "run_date,symbol" });
+
+  if (rawError) {
+    return res.status(500).json({ error: rawError.message });
+  }
+
+  const symbols = Array.from(new Set(nasdaqRows.map((row) => row.symbol))).sort();
+  const snapshot = await createSnapshot(supabase, runDate, symbols);
+
+  if (snapshot.isNew) {
+    const snapshotStocks = symbols
+      .map((symbol) => stockMap.get(symbol))
+      .filter(Boolean)
+      .map((stock) => ({
+        snapshot_id: snapshot.id,
+        stock_id: stock?.id,
+      }));
+
+    const { error: snapshotError } = await supabase
+      .from("nasdaq100_snapshot_stocks")
+      .insert(snapshotStocks);
+
+    if (snapshotError) {
+      return res.status(500).json({ error: snapshotError.message });
+    }
+  }
+
+  const { data: batchRow, error: batchError } = await supabase
+    .from("ai_run_batches")
+    .upsert(
+      {
+        run_date: runDate,
+        index_name: "nasdaq100",
+        snapshot_id: snapshot.id,
+        prompt_id: promptRow.id,
+        model_id: modelRow.id,
+      },
+      { onConflict: "run_date,index_name,prompt_id,model_id" }
+    )
+    .select("id")
+    .single();
+
+  if (batchError) {
+    return res.status(500).json({ error: batchError.message });
+  }
+
+  const { data: yesterdayBatch } = await supabase
+    .from("ai_run_batches")
+    .select("id")
+    .eq("run_date", yesterdayDate)
+    .eq("index_name", "nasdaq100")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const previousRunsMap = new Map<string, { score: number; bucket: "buy" | "hold" | "sell" }>();
+
+  if (yesterdayBatch?.id) {
+    const { data: previousRuns } = await supabase
+      .from("ai_analysis_runs")
+      .select("stock_id, score, bucket")
+      .eq("batch_id", yesterdayBatch.id);
+
+    (previousRuns || []).forEach((row: PreviousRun) => {
+      previousRunsMap.set(row.stock_id, { score: row.score, bucket: row.bucket });
+    });
+  }
+
+  const { data: members, error: memberError } = await supabase
+    .from("nasdaq100_snapshot_stocks")
+    .select("stock_id, stocks (id, symbol, company_name)")
+    .eq("snapshot_id", snapshot.id);
+
+  if (memberError) {
+    return res.status(500).json({ error: memberError.message });
+  }
+
+  const memberRows = (members || []) as MemberRow[];
+  if (!memberRows.length) {
+    return res.status(500).json({ error: "No members found for snapshot" });
+  }
 
   const concurrency = Number(process.env.AI_CONCURRENCY || 4);
 
-  const results = await chunkWithConcurrency(stocks, concurrency, async (stock) => {
-    const previous = yesterdayMap.get(stock.id) || { score: null, bucket: null };
+  const results = await chunkWithConcurrency(memberRows, concurrency, async (member) => {
+    if (!member.stocks) {
+      return { stock_id: member.stock_id, status: "missing_stock" };
+    }
+
+    const previous = previousRunsMap.get(member.stock_id) || {
+      score: null,
+      bucket: null,
+    };
 
     let parsed;
     let citations: any[] = [];
@@ -384,14 +548,14 @@ export default async function handler(req: any, res: any) {
     let rawResponse: any = null;
 
     try {
-      const response = await requestStockRating(stock, runDate, previous);
+      const response = await requestStockRating(member.stocks, runDate, previous);
       parsed = response.parsed;
       citations = response.citations;
       sources = response.sources;
       rawResponse = response.raw;
     } catch (error: any) {
       parsed = {
-        ticker: stock.ticker,
+        ticker: member.stocks.symbol,
         date: runDate,
         score: 0,
         confidence: 0,
@@ -411,179 +575,71 @@ export default async function handler(req: any, res: any) {
     const confidence = clampConfidence(Number(parsed.confidence));
     const bucket = bucketFromScore(score);
 
-    const { error: insertError } = await supabase
-      .from("stock_daily_ratings")
+    const { data: runRow, error: runError } = await supabase
+      .from("ai_analysis_runs")
       .upsert(
         {
-          run_id: runRow.id,
-          stock_id: stock.id,
-          date: runDate,
+          batch_id: batchRow.id,
+          stock_id: member.stock_id,
           score,
           confidence,
+          bucket,
           reason_1s: parsed.reason_1s || null,
           risks: parsed.risks || [],
-          bucket,
           citations,
           sources,
           raw_response: rawResponse,
         },
-        { onConflict: "stock_id,date" }
+        { onConflict: "batch_id,stock_id" }
+      )
+      .select("id")
+      .single();
+
+    if (runError) {
+      return { ticker: member.stocks.symbol, status: "failed", error: runError.message };
+    }
+
+    const { error: currentError } = await supabase
+      .from("nasdaq100_recommendations_current")
+      .upsert(
+        {
+          stock_id: member.stock_id,
+          latest_run_id: runRow.id,
+          score,
+          confidence,
+          bucket,
+          reason_1s: parsed.reason_1s || null,
+          risks: parsed.risks || [],
+          citations,
+          sources,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "stock_id" }
       );
 
-    if (insertError) {
-      return { ticker: stock.ticker, status: "failed", error: insertError.message };
+    if (currentError) {
+      return { ticker: member.stocks.symbol, status: "failed", error: currentError.message };
     }
 
-    const rollupStart = addDays(runDate, -6);
-    const { data: scoreRows } = await supabase
-      .from("stock_daily_ratings")
-      .select("score")
-      .eq("stock_id", stock.id)
-      .gte("date", rollupStart)
-      .lte("date", runDate);
-
-    const scores = (scoreRows || []).map((row) => row.score);
-    const avg =
-      scores.length > 0
-        ? Number((scores.reduce((sum, value) => sum + value, 0) / scores.length).toFixed(4))
-        : null;
-
-    if (avg !== null) {
-      const bucket7d = bucketFromScore(avg);
-      const { error: rollupError } = await supabase
-        .from("stock_score_rollups")
-        .upsert(
-          {
-            stock_id: stock.id,
-            date: runDate,
-            score_7d_avg: avg,
-            bucket_7d: bucket7d,
-            window_start: rollupStart,
-            window_end: runDate,
-            sample_size: scores.length,
-          },
-          { onConflict: "stock_id,date" }
-        );
-
-      if (rollupError) {
-        return { ticker: stock.ticker, status: "failed", error: rollupError.message };
-      }
-    }
-
-    return { ticker: stock.ticker, status: "ok", score, bucket };
+    return { ticker: member.stocks.symbol, status: "ok", score, bucket };
   });
 
-  const { data: rollups } = await supabase
-    .from("stock_score_rollups")
-    .select("stock_id, score_7d_avg")
-    .eq("date", runDate);
+  const memberIds = memberRows.map((member) => member.stock_id);
+  if (memberIds.length) {
+    const formattedIds = memberIds.map((id) => `"${id}"`).join(",");
+    const { error: cleanupError } = await supabase
+      .from("nasdaq100_recommendations_current")
+      .delete()
+      .not("stock_id", "in", `(${formattedIds})`);
 
-  const rollupItems = (rollups || [])
-    .filter((row) => row.score_7d_avg !== null && row.score_7d_avg !== undefined)
-    .map((row) => {
-      const stock = stockMap.get(row.stock_id);
-      return {
-        stock_id: row.stock_id,
-        ticker: stock?.ticker || "N/A",
-        score_7d_avg: row.score_7d_avg,
-      };
-    });
-
-  const buildPortfolios = (items: typeof rollupItems) => {
-    const bins = [
-      { name: "P1", range: "score<=-3", items: [] as typeof rollupItems },
-      { name: "P2", range: "-3<score<=0", items: [] as typeof rollupItems },
-      { name: "P3", range: "0<score<=3", items: [] as typeof rollupItems },
-      { name: "P4", range: "score>3", items: [] as typeof rollupItems },
-    ];
-
-    items.forEach((item) => {
-      if (item.score_7d_avg <= -3) {
-        bins[0].items.push(item);
-      } else if (item.score_7d_avg <= 0) {
-        bins[1].items.push(item);
-      } else if (item.score_7d_avg <= 3) {
-        bins[2].items.push(item);
-      } else {
-        bins[3].items.push(item);
-      }
-    });
-
-    const merges: string[] = [];
-
-    const mergeAtIndex = (index: number, neighborIndex: number) => {
-      const leftIndex = Math.min(index, neighborIndex);
-      const rightIndex = Math.max(index, neighborIndex);
-      const left = bins[leftIndex];
-      const right = bins[rightIndex];
-      merges.push(`${left.name}+${right.name}`);
-      const merged = {
-        name: `${left.name}+${right.name}`,
-        range: `${left.range} + ${right.range}`,
-        items: [...left.items, ...right.items],
-      };
-      bins.splice(rightIndex, 1);
-      bins.splice(leftIndex, 1, merged);
-    };
-
-    const minSize = 5;
-    while (bins.length > 1) {
-      const smallIndex = bins.findIndex((bin) => bin.items.length < minSize);
-      if (smallIndex === -1) {
-        break;
-      }
-      if (smallIndex === 0) {
-        mergeAtIndex(0, 1);
-      } else if (smallIndex === bins.length - 1) {
-        mergeAtIndex(smallIndex - 1, smallIndex);
-      } else {
-        const leftCount = bins[smallIndex - 1].items.length;
-        const rightCount = bins[smallIndex + 1].items.length;
-        mergeAtIndex(smallIndex, leftCount <= rightCount ? smallIndex - 1 : smallIndex + 1);
-      }
+    if (cleanupError) {
+      return res.status(500).json({ error: cleanupError.message });
     }
-
-    return { bins, merges };
-  };
-
-  const { bins, merges } = buildPortfolios(rollupItems);
-  const weekStart = getWeekStart(runDate);
-  const portfolioJson = {
-    week_start: weekStart,
-    method: "paper_bins_7d_avg",
-    merges,
-    portfolios: bins.map((bin) => ({
-      name: bin.name,
-      range: bin.range,
-      count: bin.items.length,
-      constituents: bin.items.map((item) => ({
-        stock_id: item.stock_id,
-        ticker: item.ticker,
-        score_7d_avg: item.score_7d_avg,
-      })),
-    })),
-  };
-
-  const { error: portfolioError } = await supabase
-    .from("weekly_portfolios")
-    .upsert(
-      {
-        week_start: weekStart,
-        method: "paper_bins_7d_avg",
-        portfolio_json: portfolioJson,
-        created_at: new Date().toISOString(),
-      },
-      { onConflict: "week_start" }
-    );
-
-  if (portfolioError) {
-    return res.status(500).json({ error: portfolioError.message });
   }
 
   return res.status(200).json({
     runDate,
     total: results.length,
-    weekStart,
     results,
   });
 }

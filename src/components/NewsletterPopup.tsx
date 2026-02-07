@@ -11,14 +11,12 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Mail, Loader2 } from "lucide-react";
 import { errorHandler, asyncErrorHandler } from "@/lib/errorHandler";
+import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabaseClient";
 
 // Define the ref type for external control
 export interface NewsletterPopupRef {
   openPopup: () => void;
 }
-
-// Formspree endpoint
-const FORMSPREE_ENDPOINT = "https://formspree.io/f/mgejgzor";
 
 const NewsletterPopup = forwardRef<NewsletterPopupRef, {}>((props, ref) => {
   const [open, setOpen] = useState(false);
@@ -63,20 +61,28 @@ const NewsletterPopup = forwardRef<NewsletterPopupRef, {}>((props, ref) => {
     setIsSubmitting(true);
     
     await asyncErrorHandler(async () => {
-      // Submit to Formspree
-      const response = await fetch(FORMSPREE_ENDPOINT, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          email: email,
-          message: "Newsletter subscription from AI Trader",
-        }),
-      });
-      
-      if (!response.ok) {
-        throw new Error("Failed to submit form. Please try again later.");
+      if (!isSupabaseConfigured()) {
+        throw new Error("Supabase is not configured. Please try again later.");
+      }
+
+      const supabase = getSupabaseBrowserClient();
+      if (!supabase) {
+        throw new Error("Supabase client unavailable.");
+      }
+
+      const { error: insertError } = await supabase
+        .from("newsletter_subscribers")
+        .upsert(
+          {
+            email,
+            source: "popup",
+            status: "subscribed",
+          },
+          { onConflict: "email" }
+        );
+
+      if (insertError) {
+        throw new Error(insertError.message);
       }
       
       // Mark as subscribed in localStorage
@@ -127,8 +133,6 @@ const NewsletterPopup = forwardRef<NewsletterPopupRef, {}>((props, ref) => {
           <form 
             onSubmit={handleSubmit} 
             className="space-y-4 py-4"
-            action={FORMSPREE_ENDPOINT}
-            method="POST"
           >
             <div className="space-y-2">
               <Input
@@ -140,12 +144,6 @@ const NewsletterPopup = forwardRef<NewsletterPopupRef, {}>((props, ref) => {
                 onChange={handleEmailChange}
                 className="w-full"
                 required
-              />
-              {/* Hidden field for additional context */}
-              <input 
-                type="hidden" 
-                name="message" 
-                value="Newsletter subscription from AI Trader" 
               />
               {error && <p className="text-sm text-red-500">{error}</p>}
             </div>
