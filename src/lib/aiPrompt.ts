@@ -1,18 +1,56 @@
-export type StockEvaluationInput = {
-  symbol: string;
-  name?: string;
-  asOfDate: string;
-  previousRating?: string | null;
-  previousSummary?: string | null;
-  marketData?: {
-    lastSalePrice?: string | null;
-    netChange?: string | null;
-    percentageChange?: string | null;
-    marketCap?: string | null;
-  };
+export type StockRatingPromptInput = {
+  ticker: string;
+  companyName: string;
+  runDate: string;
+  yesterdayScore?: number | null;
+  yesterdayBucket?: "buy" | "hold" | "sell" | null;
 };
 
-export const PROMPT_VERSION = "research-v1";
+export const PROMPT_NAME = "nasdaq100_daily_rating";
+export const PROMPT_VERSION = "nasdaq100-websearch-v3";
+
+export const STOCK_RATING_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    ticker: { type: "string" },
+    date: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+    score: { type: "integer", minimum: -5, maximum: 5 },
+    confidence: { type: "number", minimum: 0, maximum: 1 },
+    reason_1s: { type: "string" },
+    risks: {
+      type: "array",
+      items: { type: "string" },
+      minItems: 2,
+      maxItems: 6,
+    },
+    change: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        changed_bucket: { type: "boolean" },
+        previous_bucket: { type: ["string", "null"], enum: ["buy", "hold", "sell", null] },
+        current_bucket: { type: "string", enum: ["buy", "hold", "sell"] },
+        change_explanation: { type: ["string", "null"] },
+      },
+      required: [
+        "changed_bucket",
+        "previous_bucket",
+        "current_bucket",
+        "change_explanation",
+      ],
+    },
+  },
+  required: [
+    "ticker",
+    "date",
+    "score",
+    "confidence",
+    "reason_1s",
+    "risks",
+    "change",
+  ],
+};
 
 const RESEARCH_EXCERPT = [
   "Use findings from two Finance Research Letters papers:",
@@ -25,48 +63,51 @@ const RESEARCH_EXCERPT = [
   "   diversification and produce higher Sharpe ratios versus random selection.",
 ].join("\n");
 
-export const buildStockEvaluationPrompt = (input: StockEvaluationInput) => {
-  const marketLines = [
-    input.marketData?.lastSalePrice
-      ? `Last sale price: ${input.marketData.lastSalePrice}`
-      : null,
-    input.marketData?.netChange ? `Net change: ${input.marketData.netChange}` : null,
-    input.marketData?.percentageChange
-      ? `Percentage change: ${input.marketData.percentageChange}`
-      : null,
-    input.marketData?.marketCap ? `Market cap: ${input.marketData.marketCap}` : null,
-  ].filter(Boolean);
+export const STOCK_RATING_PROMPT_TEMPLATE = [
+  "You are an AI investment analyst applying the paper's attractiveness-rating approach.",
+  "Assess relative attractiveness over the next ~30 days using recent news,",
+  "earnings, guidance, analyst revisions, and market reaction.",
+  "Use exactly one web_search call for the latest 30 days of info and use only",
+  "those sources to form your judgment. Do not browse beyond the web_search tool.",
+  "",
+  RESEARCH_EXCERPT,
+  "",
+  "Stock: {{COMPANY_NAME}} ({{TICKER}})",
+  "Run date: {{RUN_DATE}}",
+  "Yesterday score: {{YESTERDAY_SCORE}}, bucket: {{YESTERDAY_BUCKET}}.",
+  "",
+  "Search query to use (single web_search call):",
+  "\"{{COMPANY_NAME}} ({{TICKER}}) last 30 days news earnings guidance analyst revisions risks\"",
+  "",
+  "Scoring guidelines:",
+  "- Score is an integer from -5 (very unattractive) to +5 (very attractive).",
+  "- Score reflects relative attractiveness over the next ~30 days.",
+  "",
+  "Bucket mapping (MUST be used to populate current_bucket):",
+  "- buy if score >= +2",
+  "- hold if score in [-1, +1]",
+  "- sell if score <= -2",
+  "",
+  "Output ONLY the JSON matching the schema. Provide 2-6 short risks.",
+  "Set previous_bucket to yesterday's bucket or null if unavailable.",
+  "Set changed_bucket to true only if current_bucket differs from previous_bucket.",
+  "If changed_bucket is true, provide a short change_explanation; otherwise set it to null.",
+].join("\n");
 
-  const previousContext = input.previousRating
-    ? `Previous rating: ${input.previousRating}. Previous summary: ${input.previousSummary || "N/A"}`
-    : "Previous rating: N/A (first run).";
+export const buildStockRatingPrompt = (input: StockRatingPromptInput) => {
+  const values: Record<string, string> = {
+    COMPANY_NAME: input.companyName,
+    TICKER: input.ticker,
+    RUN_DATE: input.runDate,
+    YESTERDAY_SCORE:
+      input.yesterdayScore === null || input.yesterdayScore === undefined
+        ? "N/A"
+        : String(input.yesterdayScore),
+    YESTERDAY_BUCKET: input.yesterdayBucket ?? "N/A",
+  };
 
-  return [
-    "You are an AI investment analyst. Provide a daily rating for a stock.",
-    "Rating must be one of: buy, hold, sell.",
-    "Base your reasoning on the research excerpt below, current market context,",
-    "and the latest available signals. If data is sparse, be conservative and",
-    "explicit about uncertainty.",
-    "",
-    RESEARCH_EXCERPT,
-    "",
-    `Stock: ${input.symbol}${input.name ? ` (${input.name})` : ""}`,
-    `As-of date: ${input.asOfDate}`,
-    previousContext,
-    marketLines.length ? `Market data:\n- ${marketLines.join("\n- ")}` : "",
-    "",
-    "Return JSON only with the following shape:",
-    "{",
-    '  "rating": "buy|hold|sell",',
-    '  "confidence": 0.0-1.0,',
-    '  "summary": "1-2 sentence summary",',
-    '  "reasoning": "short paragraph",',
-    '  "change_summary": "if rating changed vs previous, explain why; otherwise explain stability",',
-    '  "drivers": ["key driver 1", "key driver 2"],',
-    '  "risks": ["key risk 1", "key risk 2"],',
-    '  "sources": ["news/earnings/valuation/market context/etc"],',
-    "}",
-  ]
-    .filter(Boolean)
-    .join("\n");
+  return Object.entries(values).reduce(
+    (prompt, [key, value]) => prompt.replaceAll(`{{${key}}}`, value),
+    STOCK_RATING_PROMPT_TEMPLATE
+  );
 };
