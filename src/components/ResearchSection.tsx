@@ -1,3 +1,5 @@
+"use client";
+
 import React, { useRef } from "react";
 import { useIsVisible } from "@/lib/animations";
 import { FileText, ExternalLink, CheckCircle, TrendingUp, BarChart, Info } from "lucide-react";
@@ -8,7 +10,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Link } from "react-router-dom";
+import Link from "next/link";
 import { createPortal } from "react-dom";
 
 interface ResearchSectionProps {
@@ -129,7 +131,7 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
               ))}
             </div>
             
-            <Link to="/payment">
+            <Link href="/payment">
               <Button className="bg-trader-blue hover:bg-trader-blue-dark transition-colors w-full md:w-auto">
                 Get Access to AI Insights
               </Button>

@@ -1,3 +1,5 @@
+"use client";
+
 import React, { useRef } from "react";
 import Navbar from "@/components/Navbar";
 import Hero from "@/components/Hero";
@@ -9,12 +11,10 @@ import NewsletterPopup, { NewsletterPopupRef } from "@/components/NewsletterPopu
 import NewsletterLink from "@/components/NewsletterLink";
 import ActivityNotifications from "@/components/ActivityNotifications";
 
-const Index = () => {
-  // Create a ref to control the newsletter popup
+const HomePage = () => {
   const newsletterPopupRef = useRef<NewsletterPopupRef>(null);
   const parentDivRef = useRef<HTMLDivElement>(null);
 
-  // Function to open the newsletter popup
   const handleOpenNewsletterPopup = () => {
     if (newsletterPopupRef.current) {
       newsletterPopupRef.current.openPopup();
@@ -38,4 +38,4 @@ const Index = () => {
   );
 };
 
-export default Index;
+export default HomePage;

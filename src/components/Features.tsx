@@ -1,4 +1,6 @@
 
+"use client";
+
 import React, { useRef } from "react";
 import { useIsVisible } from "@/lib/animations";
 import { 

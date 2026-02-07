@@ -1,6 +1,6 @@
 
 import React from "react";
-import { Link } from "react-router-dom";
+import Link from "next/link";
 
 const Footer: React.FC = () => {
   const currentYear = new Date().getFullYear();
@@ -10,7 +10,7 @@ const Footer: React.FC = () => {
       <div className="container mx-auto px-4">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
           <div className="col-span-1 md:col-span-2">
-            <Link to="/" className="text-xl font-bold text-gray-900 flex items-center mb-4">
+            <Link href="/" className="text-xl font-bold text-gray-900 flex items-center mb-4">
               <span className="text-trader-blue">AI</span>
               <span>Trader</span>
             </Link>
@@ -58,18 +58,18 @@ const Footer: React.FC = () => {
           <div>
             <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-4">Resources</h3>
             <ul className="space-y-3">
-              <li><Link to="/blog" className="text-gray-600 hover:text-trader-blue transition-colors">Blog</Link></li>
+              <li><Link href="/blog" className="text-gray-600 hover:text-trader-blue transition-colors">Blog</Link></li>
               <li><a href="/#research" className="text-gray-600 hover:text-trader-blue transition-colors">Research</a></li>
-              <li><Link to="/help" className="text-gray-600 hover:text-trader-blue transition-colors">Help Center</Link></li>
+              <li><Link href="/help" className="text-gray-600 hover:text-trader-blue transition-colors">Help Center</Link></li>
             </ul>
           </div>
           
           <div>
             <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-4">Company</h3>
             <ul className="space-y-3">
-              <li><Link to="/about" className="text-gray-600 hover:text-trader-blue transition-colors">About</Link></li>
-              <li><Link to="/privacy" className="text-gray-600 hover:text-trader-blue transition-colors">Privacy</Link></li>
-              <li><Link to="/terms" className="text-gray-600 hover:text-trader-blue transition-colors">Terms</Link></li>
+              <li><Link href="/about" className="text-gray-600 hover:text-trader-blue transition-colors">About</Link></li>
+              <li><Link href="/privacy" className="text-gray-600 hover:text-trader-blue transition-colors">Privacy</Link></li>
+              <li><Link href="/terms" className="text-gray-600 hover:text-trader-blue transition-colors">Terms</Link></li>
             </ul>
           </div>
         </div>
@@ -80,9 +80,9 @@ const Footer: React.FC = () => {
           </p>
           <div className="mt-4 md:mt-0">
             <ul className="flex space-x-6">
-              <li><Link to="/privacy" className="text-gray-500 hover:text-trader-blue text-sm transition-colors">Privacy Policy</Link></li>
-              <li><Link to="/terms" className="text-gray-500 hover:text-trader-blue text-sm transition-colors">Terms of Service</Link></li>
-              <li><Link to="/help" className="text-gray-500 hover:text-trader-blue text-sm transition-colors">Contact</Link></li>
+              <li><Link href="/privacy" className="text-gray-500 hover:text-trader-blue text-sm transition-colors">Privacy Policy</Link></li>
+              <li><Link href="/terms" className="text-gray-500 hover:text-trader-blue text-sm transition-colors">Terms of Service</Link></li>
+              <li><Link href="/help" className="text-gray-500 hover:text-trader-blue text-sm transition-colors">Contact</Link></li>
             </ul>
           </div>
         </div>
