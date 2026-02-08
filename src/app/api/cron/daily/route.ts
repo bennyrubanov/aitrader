@@ -7,7 +7,7 @@ import {
   STOCK_RATING_PROMPT_TEMPLATE,
   STOCK_RATING_SCHEMA,
 } from "@/lib/aiPrompt";
-import { createSupabaseAdminClient } from "@/lib/supabaseServer";
+import { createAdminClient } from "@/utils/supabase/admin";
 import { sendEmailByGmail } from "@/lib/sendEmailByGmail";
 
 export const runtime = "nodejs";
@@ -15,7 +15,6 @@ export const dynamic = "force-dynamic";
 
 const NASDAQ_100_ENDPOINT = "https://api.nasdaq.com/api/quote/list-type/nasdaq100";
 const DEFAULT_MODEL = process.env.OPENAI_MODEL || "gpt-5";
-const DEFAULT_MODEL_VERSION = process.env.OPENAI_MODEL_VERSION || "unknown";
 const CRON_ERROR_EMAIL = process.env.CRON_ERROR_EMAIL;
 
 type NasdaqRow = {
@@ -43,6 +42,70 @@ type PreviousRun = {
   stock_id: string;
   score: number;
   bucket: "buy" | "hold" | "sell";
+};
+
+type StockRatingParsed = {
+  ticker: string;
+  date: string;
+  score: number;
+  confidence: number;
+  reason_1s?: string | null;
+  risks?: string[];
+  change?: {
+    changed_bucket: boolean;
+    previous_bucket: "buy" | "hold" | "sell" | null;
+    current_bucket: "buy" | "hold" | "sell";
+    change_explanation: string | null;
+  };
+};
+
+type WebSource = {
+  url?: string;
+  link?: string;
+  title?: string;
+  source?: string;
+  snippet?: string;
+};
+
+type Citation = {
+  url: string;
+  title: string | null;
+};
+
+type UrlLike = {
+  url?: string;
+  link?: string;
+};
+
+type JsonRecord = Record<string, unknown>;
+
+const isRecord = (value: unknown): value is JsonRecord =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const isString = (value: unknown): value is string => typeof value === "string";
+
+const toOptionalString = (value: unknown) =>
+  typeof value === "string" || typeof value === "number" ? String(value) : undefined;
+
+const normalizeWebSource = (value: unknown): WebSource | null => {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const url = isString(value.url) ? value.url : undefined;
+  const link = isString(value.link) ? value.link : undefined;
+
+  if (!url && !link) {
+    return null;
+  }
+
+  return {
+    url,
+    link,
+    title: isString(value.title) ? value.title : undefined,
+    source: isString(value.source) ? value.source : undefined,
+    snippet: isString(value.snippet) ? value.snippet : undefined,
+  };
 };
 
 const getRunDate = () => new Date().toISOString().slice(0, 10);
@@ -98,23 +161,64 @@ const isAuthorized = (req: Request) => {
   return { ok: true };
 };
 
-const parseNasdaqRows = (payload: any): NasdaqRow[] => {
-  const rows = payload?.data?.data?.rows;
+const parseNasdaqRows = (payload: unknown): NasdaqRow[] => {
+  const rows =
+    isRecord(payload) && isRecord(payload.data) && isRecord(payload.data.data)
+      ? payload.data.data.rows
+      : null;
   if (!Array.isArray(rows)) {
     return [];
   }
 
   return rows
-    .map((row: any) => ({
-      symbol: row.symbol,
-      companyName: row.companyName,
-      marketCap: row.marketCap,
-      lastSalePrice: row.lastSalePrice,
-      netChange: row.netChange,
-      percentageChange: row.percentageChange,
-      deltaIndicator: row.deltaIndicator,
-    }))
-    .filter((row: NasdaqRow) => row.symbol);
+    .map((row) => {
+      if (!isRecord(row)) {
+        return null;
+      }
+      const symbol = toOptionalString(row.symbol);
+      const parsedRow: NasdaqRow = { symbol: symbol || "" };
+      const companyName = toOptionalString(row.companyName);
+      const marketCap = toOptionalString(row.marketCap);
+      const lastSalePrice = toOptionalString(row.lastSalePrice);
+      const netChange = toOptionalString(row.netChange);
+      const percentageChange = toOptionalString(row.percentageChange);
+      const deltaIndicator = toOptionalString(row.deltaIndicator);
+
+      if (companyName) {
+        parsedRow.companyName = companyName;
+      }
+      if (marketCap) {
+        parsedRow.marketCap = marketCap;
+      }
+      if (lastSalePrice) {
+        parsedRow.lastSalePrice = lastSalePrice;
+      }
+      if (netChange) {
+        parsedRow.netChange = netChange;
+      }
+      if (percentageChange) {
+        parsedRow.percentageChange = percentageChange;
+      }
+      if (deltaIndicator) {
+        parsedRow.deltaIndicator = deltaIndicator;
+      }
+
+      return parsedRow;
+    })
+    .filter((row): row is NasdaqRow => !!row && !!row.symbol);
+};
+
+const fallbackSymbolsFromEnv = (): NasdaqRow[] => {
+  const fallback = process.env.NASDAQ_100_FALLBACK;
+  if (!fallback) {
+    return [];
+  }
+
+  return fallback
+    .split(",")
+    .map((symbol) => symbol.trim())
+    .filter(Boolean)
+    .map((symbol) => ({ symbol, companyName: symbol }));
 };
 
 const fetchNasdaq100 = async (): Promise<NasdaqRow[]> => {
@@ -157,23 +261,23 @@ const clampConfidence = (confidence: number) => {
   return Math.max(0, Math.min(1, confidence));
 };
 
-const extractOutputText = (payload: any) => {
-  if (typeof payload?.output_text === "string") {
+const extractOutputText = (payload: unknown) => {
+  if (isRecord(payload) && isString(payload.output_text)) {
     return payload.output_text;
   }
 
-  const output = payload?.output;
+  const output = isRecord(payload) ? payload.output : null;
   if (!Array.isArray(output)) {
     return "";
   }
 
   const chunks: string[] = [];
   output.forEach((item) => {
-    if (!item?.content || !Array.isArray(item.content)) {
+    if (!isRecord(item) || !Array.isArray(item.content)) {
       return;
     }
-    item.content.forEach((contentItem: any) => {
-      if (contentItem?.text) {
+    item.content.forEach((contentItem) => {
+      if (isRecord(contentItem) && isString(contentItem.text)) {
         chunks.push(contentItem.text);
       }
     });
@@ -182,10 +286,10 @@ const extractOutputText = (payload: any) => {
   return chunks.join("\n").trim();
 };
 
-const uniqueByUrl = (items: any[]) => {
-  const map = new Map<string, any>();
+const uniqueByUrl = <T extends UrlLike>(items: T[]) => {
+  const map = new Map<string, T>();
   items.forEach((item) => {
-    const url = item?.url || item?.link;
+    const url = item.url || item.link;
     if (!url) {
       return;
     }
@@ -196,27 +300,40 @@ const uniqueByUrl = (items: any[]) => {
   return Array.from(map.values());
 };
 
-const extractSourcesAndCitations = (payload: any) => {
-  const sources: any[] = [];
-  const citations: any[] = [];
-  const output = payload?.output;
+const extractSourcesAndCitations = (payload: unknown) => {
+  const sources: WebSource[] = [];
+  const citations: Citation[] = [];
+  const output = isRecord(payload) ? payload.output : null;
 
   if (Array.isArray(output)) {
     output.forEach((item) => {
-      if (item?.type === "web_search_call" && item?.action?.sources) {
-        sources.push(...item.action.sources);
+      if (isRecord(item) && item.type === "web_search_call" && isRecord(item.action)) {
+        const actionSources = item.action.sources;
+        if (Array.isArray(actionSources)) {
+          actionSources.forEach((source) => {
+            const normalized = normalizeWebSource(source);
+            if (normalized) {
+              sources.push(normalized);
+            }
+          });
+        }
       }
 
-      if (Array.isArray(item?.content)) {
-        item.content.forEach((contentItem: any) => {
-          if (!Array.isArray(contentItem?.annotations)) {
+      if (isRecord(item) && Array.isArray(item.content)) {
+        item.content.forEach((contentItem) => {
+          if (!isRecord(contentItem) || !Array.isArray(contentItem.annotations)) {
             return;
           }
-          contentItem.annotations.forEach((annotation: any) => {
-            if (annotation?.url) {
+          contentItem.annotations.forEach((annotation) => {
+            if (!isRecord(annotation) || !isString(annotation.url)) {
+              return;
+            }
+            const titleValue = annotation.title || annotation.text || null;
+            const title = isString(titleValue) ? titleValue : null;
+            if (annotation.url) {
               citations.push({
                 url: annotation.url,
-                title: annotation.title || annotation.text || null,
+                title,
               });
             }
           });
@@ -226,10 +343,18 @@ const extractSourcesAndCitations = (payload: any) => {
   }
 
   const normalizedSources = uniqueByUrl(sources);
-  const citationFromSources = normalizedSources.map((source) => ({
-    url: source.url || source.link,
-    title: source.title || source.source || source.snippet || null,
-  }));
+  const citationFromSources = normalizedSources
+    .map((source) => {
+      const url = source.url || source.link;
+      if (!url) {
+        return null;
+      }
+      return {
+        url,
+        title: source.title || source.source || source.snippet || null,
+      };
+    })
+    .filter((citation): citation is Citation => !!citation);
 
   return {
     sources: normalizedSources,
@@ -249,7 +374,7 @@ const fetchWithRetry = async (url: string, options: RequestInit, retries = 1) =>
   }
 };
 
-const upsertPrompt = async (supabase: ReturnType<typeof createSupabaseAdminClient>) => {
+const upsertPrompt = async (supabase: ReturnType<typeof createAdminClient>) => {
   const { data, error } = await supabase
     .from("ai_prompts")
     .upsert(
@@ -271,14 +396,13 @@ const upsertPrompt = async (supabase: ReturnType<typeof createSupabaseAdminClien
   return data;
 };
 
-const upsertModel = async (supabase: ReturnType<typeof createSupabaseAdminClient>) => {
+const upsertModel = async (supabase: ReturnType<typeof createAdminClient>) => {
   const { data, error } = await supabase
     .from("ai_models")
     .upsert(
       {
         provider: "openai",
         name: DEFAULT_MODEL,
-        version: DEFAULT_MODEL_VERSION,
         updated_at: new Date().toISOString(),
       },
       { onConflict: "provider,name,version" }
@@ -294,30 +418,13 @@ const upsertModel = async (supabase: ReturnType<typeof createSupabaseAdminClient
 };
 
 const createSnapshot = async (
-  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  supabase: ReturnType<typeof createAdminClient>,
   runDate: string,
   symbols: string[]
 ) => {
   const membershipHash = createHash("sha256")
     .update(symbols.join(","))
     .digest("hex");
-
-  const { data: inserted, error: insertError } = await supabase
-    .from("nasdaq100_snapshots")
-    .insert(
-      { effective_date: runDate, membership_hash: membershipHash },
-      { onConflict: "membership_hash", ignoreDuplicates: true }
-    )
-    .select("id")
-    .maybeSingle();
-
-  if (insertError) {
-    throw new Error(insertError.message);
-  }
-
-  if (inserted?.id) {
-    return { id: inserted.id, membershipHash, isNew: true };
-  }
 
   const { data: existing, error: fetchError } = await supabase
     .from("nasdaq100_snapshots")
@@ -331,7 +438,21 @@ const createSnapshot = async (
     throw new Error(fetchError.message);
   }
 
-  return { id: existing.id, membershipHash, isNew: false };
+  if (existing?.id) {
+    return { id: existing.id, membershipHash, isNew: false };
+  }
+
+  const { data: inserted, error: insertError } = await supabase
+    .from("nasdaq100_snapshots")
+    .insert({ effective_date: runDate, membership_hash: membershipHash })
+    .select("id")
+    .single();
+
+  if (insertError) {
+    throw new Error(insertError.message);
+  }
+
+  return { id: inserted.id, membershipHash, isNew: true };
 };
 
 const requestStockRating = async (
@@ -431,7 +552,7 @@ const handleRequest = async (req: Request) => {
     return NextResponse.json({ error: auth.reason }, { status: auth.status });
   }
 
-  const supabase = createSupabaseAdminClient();
+  const supabase = createAdminClient();
   const runDate = getRunDate();
   const yesterdayDate = addDays(runDate, -1);
 
@@ -440,14 +561,24 @@ const handleRequest = async (req: Request) => {
     nasdaqRows = await fetchNasdaq100();
   } catch (error) {
     await sendCronError("Nasdaq API fetch failed", error);
-    return NextResponse.json({ error: "Nasdaq fetch failed" }, { status: 500 });
+    const fallbackRows = fallbackSymbolsFromEnv();
+    if (fallbackRows.length) {
+      nasdaqRows = fallbackRows;
+    } else {
+      return NextResponse.json({ error: "Nasdaq fetch failed" }, { status: 500 });
+    }
   }
 
   if (!nasdaqRows.length) {
-    return NextResponse.json(
-      { error: "No Nasdaq 100 symbols available" },
-      { status: 500 }
-    );
+    const fallbackRows = fallbackSymbolsFromEnv();
+    if (fallbackRows.length) {
+      nasdaqRows = fallbackRows;
+    } else {
+      return NextResponse.json(
+        { error: "No Nasdaq 100 symbols available" },
+        { status: 500 }
+      );
+    }
   }
 
   const promptRow = await upsertPrompt(supabase);
@@ -568,7 +699,7 @@ const handleRequest = async (req: Request) => {
     return NextResponse.json({ error: memberError.message }, { status: 500 });
   }
 
-  const memberRows = (members || []) as MemberRow[];
+  const memberRows = (members || []) as unknown as MemberRow[];
   if (!memberRows.length) {
     return NextResponse.json({ error: "No members found for snapshot" }, { status: 500 });
   }
@@ -585,10 +716,10 @@ const handleRequest = async (req: Request) => {
       bucket: null,
     };
 
-    let parsed;
-    let citations: any[] = [];
-    let sources: any[] = [];
-    let rawResponse: any = null;
+    let parsed: StockRatingParsed;
+    let citations: Citation[] = [];
+    let sources: WebSource[] = [];
+    let rawResponse: unknown = null;
 
     try {
       const response = await requestStockRating(member.stocks, runDate, previous);
@@ -596,7 +727,7 @@ const handleRequest = async (req: Request) => {
       citations = response.citations;
       sources = response.sources;
       rawResponse = response.raw;
-    } catch (error: any) {
+    } catch (error) {
       await sendCronError(
         "OpenAI stock rating failed",
         error,
@@ -616,7 +747,7 @@ const handleRequest = async (req: Request) => {
           change_explanation: null,
         },
       };
-      rawResponse = { error: error?.message || "unknown error" };
+      rawResponse = { error: error instanceof Error ? error.message : "unknown error" };
     }
 
     const score = clampScore(Number(parsed.score));

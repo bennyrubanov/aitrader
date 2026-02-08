@@ -1,9 +1,10 @@
-"use client";
+'use client';
 
-import React, { useEffect } from "react";
-import Link from "next/link";
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
+import React, { useEffect } from 'react';
+import Image from 'next/image';
+import Link from 'next/link';
+import Navbar from '@/components/Navbar';
+import Footer from '@/components/Footer';
 
 interface BlogPostPreview {
   id: string;
@@ -15,20 +16,20 @@ interface BlogPostPreview {
 
 const blogPosts: BlogPostPreview[] = [
   {
-    id: "chatgpt-stock-picking",
-    title: "Can ChatGPT Assist in Picking Stocks? Recent Research Says Yes",
+    id: 'chatgpt-stock-picking',
+    title: 'Can ChatGPT Assist in Picking Stocks? Recent Research Says Yes',
     excerpt:
-      "Recent studies show AI systems like ChatGPT can provide valuable investment advice and improve stock selection. We dive into the science behind these findings.",
-    date: "March 6, 2025",
-    image: "/images/ai-chip.jpeg",
+      'Recent studies show AI systems like ChatGPT can provide valuable investment advice and improve stock selection. We dive into the science behind these findings.',
+    date: 'March 6, 2025',
+    image: '/images/ai-chip.jpeg',
   },
   {
-    id: "blue-chip-investing",
-    title: "Blue Chip Investing: Strategies for Market-Beating Returns",
+    id: 'blue-chip-investing',
+    title: 'Blue Chip Investing: Strategies for Market-Beating Returns',
     excerpt:
-      "Looking beyond index investing, blue chip stocks offer stability and growth potential. Learn strategies to identify winners in this segment.",
-    date: "February 20, 2025",
-    image: "images/investor-stock-picking.avif",
+      'Looking beyond index investing, blue chip stocks offer stability and growth potential. Learn strategies to identify winners in this segment.',
+    date: 'February 20, 2025',
+    image: '/images/investor-stock-picking.avif',
   },
 ];
 
@@ -44,12 +45,10 @@ const BlogPage = () => {
         <section className="py-20">
           <div className="container mx-auto px-4">
             <div className="max-w-5xl mx-auto">
-              <h1 className="text-4xl md:text-5xl font-bold mb-8 text-center">
-                AI Trader Blog
-              </h1>
+              <h1 className="text-4xl md:text-5xl font-bold mb-8 text-center">AI Trader Blog</h1>
               <p className="text-xl text-gray-600 text-center mb-16 max-w-3xl mx-auto">
-                Insights on AI-driven trading, market analysis, and research-backed
-                investment strategies.
+                Insights on AI-driven trading, market analysis, and research-backed investment
+                strategies.
               </p>
 
               <div className="grid md:grid-cols-2 gap-8">
@@ -59,9 +58,11 @@ const BlogPage = () => {
                     className="bg-white shadow-soft rounded-xl overflow-hidden hover:shadow-elevated transition-shadow duration-300"
                   >
                     <Link href={`/blog/${post.id}`} className="block">
-                      <img
+                      <Image
                         src={post.image}
                         alt={post.title}
+                        width={800}
+                        height={416}
                         className="w-full h-52 object-cover"
                       />
                       <div className="p-6">

@@ -1,9 +1,10 @@
-import type { Metadata } from "next";
-import StockDetailClient from "@/components/StockDetailClient";
-import { allStocks, getStockBySymbol } from "@/lib/stockData";
+/* eslint-disable react-refresh/only-export-components */
+import type { Metadata } from 'next';
+import StockDetailClient from '@/components/StockDetailClient';
+import { allStocks, getStockBySymbol } from '@/lib/stockData';
 
 type StockDetailPageProps = {
-  params: { symbol: string };
+  params: Promise<{ symbol: string }>;
 };
 
 export const dynamicParams = false;
@@ -13,10 +14,9 @@ export const generateStaticParams = async () =>
     symbol: stock.symbol.toLowerCase(),
   }));
 
-export const generateMetadata = ({
-  params,
-}: StockDetailPageProps): Metadata => {
-  const symbol = params.symbol.toUpperCase();
+export const generateMetadata = async ({ params }: StockDetailPageProps): Promise<Metadata> => {
+  const resolvedParams = await params;
+  const symbol = resolvedParams.symbol.toUpperCase();
   const stock = getStockBySymbol(symbol);
   const title = stock?.name
     ? `${symbol} AI Recommendation · ${stock.name}`
@@ -28,8 +28,9 @@ export const generateMetadata = ({
   };
 };
 
-const StockDetailPage = ({ params }: StockDetailPageProps) => {
-  return <StockDetailClient symbol={params.symbol} />;
+const StockDetailPage = async ({ params }: StockDetailPageProps) => {
+  const resolvedParams = await params;
+  return <StockDetailClient symbol={resolvedParams.symbol} />;
 };
 
 export default StockDetailPage;

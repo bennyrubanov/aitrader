@@ -1,5 +1,12 @@
-import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
+/**
+ * Supabase server client — use in Server Components and Route Handlers.
+ *
+ * Reads the user's auth session from cookies (anon key, user-scoped).
+ * For Client Components, use `@/utils/supabase/browser` instead.
+ * For privileged admin operations (cron, API routes), use `@/utils/supabase/admin`.
+ */
+import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
 
 export const createClient = async () => {
   const cookieStore = await cookies();
@@ -24,6 +31,6 @@ export const createClient = async () => {
           }
         },
       },
-    },
+    }
   );
 };

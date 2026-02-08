@@ -1,21 +1,18 @@
-"use client";
+'use client';
 
-import React, { useMemo, useState } from "react";
-import Link from "next/link";
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { toast } from "@/hooks/use-toast";
-import { allStocks, searchStocks } from "@/lib/stockData";
-import {
-  getSupabaseBrowserClient,
-  isSupabaseConfigured,
-} from "@/lib/supabaseClient";
+import React, { useMemo, useState } from 'react';
+import Link from 'next/link';
+import Navbar from '@/components/Navbar';
+import Footer from '@/components/Footer';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { toast } from '@/hooks/use-toast';
+import { allStocks, searchStocks } from '@/lib/stockData';
+import { getSupabaseBrowserClient, isSupabaseConfigured } from '@/utils/supabase/browser';
 
 const PlatformPage = () => {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState('');
   const [isConnecting, setIsConnecting] = useState(false);
 
   const results = useMemo(() => {
@@ -29,15 +26,15 @@ const PlatformPage = () => {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) {
       toast({
-        title: "Supabase not configured",
-        description: "Add Supabase env vars to enable Google sign-in.",
+        title: 'Supabase not configured',
+        description: 'Add Supabase env vars to enable Google sign-in.',
       });
       return;
     }
 
     setIsConnecting(true);
     const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
+      provider: 'google',
       options: {
         redirectTo: `${window.location.origin}/platform`,
       },
@@ -46,7 +43,7 @@ const PlatformPage = () => {
 
     if (error) {
       toast({
-        title: "Sign-in failed",
+        title: 'Sign-in failed',
         description: error.message,
       });
     }
@@ -60,12 +57,10 @@ const PlatformPage = () => {
           <div className="container mx-auto px-4">
             <div className="max-w-4xl mx-auto mb-12">
               <div className="flex flex-col gap-3 mb-6">
-                <h1 className="text-3xl md:text-5xl font-bold">
-                  AI Trader Platform
-                </h1>
+                <h1 className="text-3xl md:text-5xl font-bold">AI Trader Platform</h1>
                 <p className="text-lg text-gray-600">
-                  Search the universe, track daily AI recommendations, and
-                  explore each stock&apos;s recommendation history over time.
+                  Search the universe, track daily AI recommendations, and explore each stock&apos;s
+                  recommendation history over time.
                 </p>
                 <div className="flex flex-wrap gap-2">
                   <Badge variant="secondary">NASDAQ 100 daily</Badge>
@@ -87,13 +82,13 @@ const PlatformPage = () => {
                     disabled={isConnecting}
                     className="bg-trader-blue hover:bg-trader-blue-dark"
                   >
-                    {isConnecting ? "Connecting..." : "Sign in with Google"}
+                    {isConnecting ? 'Connecting...' : 'Sign in with Google'}
                   </Button>
                 </div>
                 {!isSupabaseConfigured() && (
                   <p className="text-xs text-amber-600 mt-3">
-                    Supabase env vars are missing. Add NEXT_PUBLIC_SUPABASE_URL
-                    and NEXT_PUBLIC_SUPABASE_ANON_KEY to enable auth.
+                    Supabase env vars are missing. Add NEXT_PUBLIC_SUPABASE_URL and
+                    NEXT_PUBLIC_SUPABASE_ANON_KEY to enable auth.
                   </p>
                 )}
               </div>
@@ -126,17 +121,13 @@ const PlatformPage = () => {
                         </Badge>
                       )}
                     </div>
-                    <div className="mt-3 text-xs text-gray-500">
-                      View recommendation history →
-                    </div>
+                    <div className="mt-3 text-xs text-gray-500">View recommendation history →</div>
                   </Link>
                 ))}
               </div>
 
               {!results.length && (
-                <p className="text-sm text-gray-500 mt-6">
-                  No matches found. Try another symbol.
-                </p>
+                <p className="text-sm text-gray-500 mt-6">No matches found. Try another symbol.</p>
               )}
             </div>
           </div>

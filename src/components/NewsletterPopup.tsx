@@ -13,14 +13,14 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Mail, Loader2 } from "lucide-react";
 import { errorHandler, asyncErrorHandler } from "@/lib/errorHandler";
-import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabaseClient";
+import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/utils/supabase/browser";
 
 // Define the ref type for external control
 export interface NewsletterPopupRef {
   openPopup: () => void;
 }
 
-const NewsletterPopup = forwardRef<NewsletterPopupRef, {}>((props, ref) => {
+const NewsletterPopup = forwardRef<NewsletterPopupRef, object>((props, ref) => {
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [isSubmitted, setIsSubmitted] = useState(false);
@@ -86,7 +86,7 @@ const NewsletterPopup = forwardRef<NewsletterPopupRef, {}>((props, ref) => {
       if (insertError) {
         throw new Error(insertError.message);
       }
-      
+
       // Mark as subscribed in localStorage
       localStorage.setItem("newsletter_subscribed", "true");
       
