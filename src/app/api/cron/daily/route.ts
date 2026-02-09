@@ -452,23 +452,11 @@ const createSnapshot = async (
   return { id: inserted.id, membershipHash, isNew: true };
 };
 
-const requestStockRating = async (
-  stock: StockRow,
-  runDate: string,
-  previous: { score?: number | null; bucket?: "buy" | "hold" | "sell" | null }
-) => {
+const requestStockRating = async (prompt: string) => {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     throw new Error("Missing OPENAI_API_KEY");
   }
-
-  const prompt = buildStockRatingPrompt({
-    ticker: stock.symbol,
-    companyName: stock.company_name || stock.symbol,
-    runDate,
-    yesterdayScore: previous.score ?? null,
-    yesterdayBucket: previous.bucket ?? null,
-  });
 
   const response = await fetchWithRetry("https://api.openai.com/v1/responses", {
     method: "POST",
@@ -752,7 +740,7 @@ const handleRequest = async (req: Request) => {
   }
 
   // ----- Step 8: Load snapshot members for AI processing -----
-  const { data: members, error: memberError } = await supabase
+  let { data: members, error: memberError } = await supabase
     .from("nasdaq100_snapshot_stocks")
     .select("stock_id, stocks (id, symbol, company_name)")
     .eq("snapshot_id", snapshot.id);
@@ -763,10 +751,49 @@ const handleRequest = async (req: Request) => {
     return NextResponse.json({ error: memberError.message }, { status: 500 });
   }
 
-  const memberRows = (members || []) as unknown as MemberRow[];
+  let memberRows = (members || []) as unknown as MemberRow[];
   if (!memberRows.length) {
-    log("ABORT", "No members found for snapshot");
-    return NextResponse.json({ error: "No members found for snapshot" }, { status: 500 });
+    log("SNAPSHOT EMPTY", "No members found; attempting to backfill snapshot stocks");
+    const snapshotStocks = symbols
+      .map((symbol) => stockMap.get(symbol))
+      .filter(Boolean)
+      .map((stock) => ({
+        snapshot_id: snapshot.id,
+        stock_id: stock?.id,
+      }));
+
+    if (snapshotStocks.length) {
+      const { error: backfillError } = await supabase
+        .from("nasdaq100_snapshot_stocks")
+        .insert(snapshotStocks);
+
+      if (backfillError) {
+        log("SNAPSHOT BACKFILL FAILED", backfillError.message);
+        await sendCronError("Snapshot backfill failed", backfillError);
+        return NextResponse.json({ error: backfillError.message }, { status: 500 });
+      }
+      log("SNAPSHOT BACKFILLED", `${snapshotStocks.length} stocks linked`);
+    }
+
+    const { data: refreshedMembers, error: refreshError } = await supabase
+      .from("nasdaq100_snapshot_stocks")
+      .select("stock_id, stocks (id, symbol, company_name)")
+      .eq("snapshot_id", snapshot.id);
+
+    if (refreshError) {
+      log("SNAPSHOT REFRESH FAILED", refreshError.message);
+      await sendCronError("Snapshot members refresh failed", refreshError);
+      return NextResponse.json({ error: refreshError.message }, { status: 500 });
+    }
+
+    memberRows = (refreshedMembers || []) as unknown as MemberRow[];
+    if (!memberRows.length) {
+      log("ABORT", "No members found for snapshot after backfill");
+      return NextResponse.json(
+        { error: "No members found for snapshot after backfill" },
+        { status: 500 }
+      );
+    }
   }
   log("MEMBERS LOADED", `${memberRows.length} stocks to analyze`);
 
@@ -793,9 +820,17 @@ const handleRequest = async (req: Request) => {
     let sources: WebSource[] = [];
     let rawResponse: unknown = null;
 
+    const prompt = buildStockRatingPrompt({
+      ticker: member.stocks.symbol,
+      companyName: member.stocks.company_name || member.stocks.symbol,
+      runDate,
+      yesterdayScore: previous.score ?? null,
+      yesterdayBucket: previous.bucket ?? null,
+    });
+
     try {
       const aiStart = Date.now();
-      const response = await requestStockRating(member.stocks, runDate, previous);
+      const response = await requestStockRating(prompt);
       parsed = response.parsed;
       citations = response.citations;
       sources = response.sources;
@@ -824,19 +859,16 @@ const handleRequest = async (req: Request) => {
         confidence: 0,
         reason_1s: "Model evaluation unavailable due to an error.",
         risks: ["Data unavailable", "Model error"],
-        change: {
-          changed_bucket: false,
-          previous_bucket: previous.bucket ?? null,
-          current_bucket: "hold",
-          change_explanation: null,
-        },
       };
       rawResponse = { error: error instanceof Error ? error.message : "unknown error" };
     }
 
     const score = clampScore(Number(parsed.score));
     const confidence = clampConfidence(Number(parsed.confidence));
+    const scoreDelta =
+      previous.score === null || previous.score === undefined ? null : score - previous.score;
     const bucket = bucketFromScore(score);
+    const bucketChangeExplanation = parsed.change?.change_explanation ?? null;
 
     // ----- Upsert into ai_analysis_runs -----
     const { data: runRow, error: runError } = await supabase
@@ -846,8 +878,11 @@ const handleRequest = async (req: Request) => {
           batch_id: batchRow.id,
           stock_id: member.stock_id,
           score,
+          score_delta: scoreDelta,
           confidence,
           bucket,
+          bucket_change_explanation: bucketChangeExplanation,
+          prompt_text: prompt,
           reason_1s: parsed.reason_1s || null,
           risks: parsed.risks || [],
           citations,
@@ -877,6 +912,7 @@ const handleRequest = async (req: Request) => {
           stock_id: member.stock_id,
           latest_run_id: runRow.id,
           score,
+          score_delta: scoreDelta,
           confidence,
           bucket,
           reason_1s: parsed.reason_1s || null,
