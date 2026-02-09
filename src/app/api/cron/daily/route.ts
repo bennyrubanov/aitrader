@@ -14,7 +14,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const NASDAQ_100_ENDPOINT = "https://api.nasdaq.com/api/quote/list-type/nasdaq100";
-const DEFAULT_MODEL = process.env.OPENAI_MODEL || "gpt-5";
+const DEFAULT_MODEL = process.env.OPENAI_MODEL || "gpt-5.2";
 const CRON_ERROR_EMAIL = process.env.CRON_ERROR_EMAIL;
 
 type NasdaqRow = {
@@ -208,33 +208,29 @@ const parseNasdaqRows = (payload: unknown): NasdaqRow[] => {
     .filter((row): row is NasdaqRow => !!row && !!row.symbol);
 };
 
-const fallbackSymbolsFromEnv = (): NasdaqRow[] => {
-  const fallback = process.env.NASDAQ_100_FALLBACK;
-  if (!fallback) {
-    return [];
-  }
-
-  return fallback
-    .split(",")
-    .map((symbol) => symbol.trim())
-    .filter(Boolean)
-    .map((symbol) => ({ symbol, companyName: symbol }));
-};
-
 const fetchNasdaq100 = async (): Promise<NasdaqRow[]> => {
-  const response = await fetch(NASDAQ_100_ENDPOINT, {
-    headers: {
-      "user-agent": "Mozilla/5.0 (NASDAQ 100 fetch)",
-      accept: "application/json",
-    },
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
 
-  if (!response.ok) {
-    throw new Error(`Nasdaq API error: ${response.status}`);
+  try {
+    const response = await fetch(NASDAQ_100_ENDPOINT, {
+      headers: {
+        "user-agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        accept: "application/json",
+      },
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Nasdaq API error: ${response.status}`);
+    }
+
+    const payload = await response.json();
+    return parseNasdaqRows(payload);
+  } finally {
+    clearTimeout(timeout);
   }
-
-  const payload = await response.json();
-  return parseNasdaqRows(payload);
 };
 
 const bucketFromScore = (score: number) => {
@@ -547,37 +543,87 @@ const chunkWithConcurrency = async <T, R>(
 };
 
 const handleRequest = async (req: Request) => {
+  const t0 = Date.now();
+  const log = (step: string, detail?: unknown) => {
+    const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+    const msg = detail !== undefined ? `${detail}` : "";
+    console.log(`[cron +${elapsed}s] ${step}${msg ? ` — ${msg}` : ""}`);
+  };
+
+  log("START", `pid=${process.pid}`);
+
   const auth = isAuthorized(req);
   if (!auth.ok) {
+    log("AUTH FAILED", auth.reason);
     await sendCronError("Cron authorization failed", auth.reason);
     return NextResponse.json({ error: auth.reason }, { status: auth.status });
   }
+  log("AUTH OK");
 
   const supabase = createAdminClient();
   const runDate = getRunDate();
   const yesterdayDate = addDays(runDate, -1);
+  log("CONFIG", `runDate=${runDate}, yesterday=${yesterdayDate}`);
 
+  // ----- Step 1: Fetch NASDAQ-100 list (API -> DB fallback) -----
   let nasdaqRows: NasdaqRow[] = [];
   try {
     nasdaqRows = await fetchNasdaq100();
+    log("NASDAQ FETCH OK", `${nasdaqRows.length} symbols from API`);
   } catch (error) {
+    log("NASDAQ FETCH FAILED", error instanceof Error ? error.message : error);
     await sendCronError("Nasdaq API fetch failed", error);
   }
 
   if (!nasdaqRows.length) {
-    nasdaqRows = fallbackSymbolsFromEnv();
+    // Fallback: load NASDAQ-100 members from the most recent snapshot in Supabase
+    const { data: latestSnapshot } = await supabase
+      .from("nasdaq100_snapshots")
+      .select("id")
+      .order("effective_date", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (latestSnapshot?.id) {
+      const { data: snapMembers } = await supabase
+        .from("nasdaq100_snapshot_stocks")
+        .select("stocks (symbol, company_name)")
+        .eq("snapshot_id", latestSnapshot.id);
+
+      type SnapMemberRow = { stocks: { symbol: string; company_name: string | null } | null };
+      const rows = (snapMembers || []) as unknown as SnapMemberRow[];
+      const dbRows = rows
+        .map((m) => m.stocks)
+        .filter(Boolean)
+        .map((s) => ({
+          symbol: s!.symbol,
+          companyName: s!.company_name || s!.symbol,
+        }));
+
+      if (dbRows.length) {
+        nasdaqRows = dbRows;
+        log("NASDAQ FALLBACK DB", `${nasdaqRows.length} symbols from last snapshot in Supabase`);
+      }
+    }
   }
 
   if (!nasdaqRows.length) {
+    log("ABORT", "No Nasdaq 100 symbols available (API failed, DB empty)");
     return NextResponse.json(
       { error: "No Nasdaq 100 symbols available" },
       { status: 500 }
     );
   }
 
+  // ----- Step 2: Upsert prompt + model -----
   const promptRow = await upsertPrompt(supabase);
-  const modelRow = await upsertModel(supabase);
+  log("PROMPT UPSERTED", `id=${promptRow.id}, name=${PROMPT_NAME}, version=${PROMPT_VERSION}`);
 
+  const modelRow = await upsertModel(supabase);
+  log("MODEL UPSERTED", `id=${modelRow.id}, model=${DEFAULT_MODEL}`);
+
+  // ----- Step 3: Upsert stocks into canonical table -----
   const stockPayload = nasdaqRows.map((row) => ({
     symbol: row.symbol,
     company_name: row.companyName || null,
@@ -591,14 +637,17 @@ const handleRequest = async (req: Request) => {
     .select("id, symbol, company_name");
 
   if (upsertError) {
+    log("STOCKS UPSERT FAILED", upsertError.message);
     await sendCronError("Supabase stock upsert failed", upsertError);
     return NextResponse.json({ error: upsertError.message }, { status: 500 });
   }
+  log("STOCKS UPSERTED", `${(upsertedStocks || []).length} rows`);
 
   const stockMap = new Map(
     (upsertedStocks || []).map((stock: StockRow) => [stock.symbol, stock])
   );
 
+  // ----- Step 4: Store raw NASDAQ API data -----
   const dailyRawPayload = nasdaqRows.map((row) => ({
     run_date: runDate,
     symbol: row.symbol,
@@ -615,12 +664,21 @@ const handleRequest = async (req: Request) => {
     .upsert(dailyRawPayload, { onConflict: "run_date,symbol" });
 
   if (rawError) {
+    log("DAILY RAW UPSERT FAILED", rawError.message);
     await sendCronError("Failed to store Nasdaq daily raw data", rawError);
     return NextResponse.json({ error: rawError.message }, { status: 500 });
   }
+  log("DAILY RAW UPSERTED", `${dailyRawPayload.length} rows`);
 
+  // ----- Step 5: Create or reuse NASDAQ-100 membership snapshot -----
   const symbols = Array.from(new Set(nasdaqRows.map((row) => row.symbol))).sort();
   const snapshot = await createSnapshot(supabase, runDate, symbols);
+  log(
+    "SNAPSHOT",
+    snapshot.isNew
+      ? `NEW snapshot created (id=${snapshot.id})`
+      : `REUSED existing snapshot (id=${snapshot.id}, membership unchanged)`
+  );
 
   if (snapshot.isNew) {
     const snapshotStocks = symbols
@@ -629,18 +687,22 @@ const handleRequest = async (req: Request) => {
       .map((stock) => ({
         snapshot_id: snapshot.id,
         stock_id: stock?.id,
-      }));
+      }))
+      .filter((stock): stock is { snapshot_id: string; stock_id: string } => !!stock.stock_id);
 
     const { error: snapshotError } = await supabase
       .from("nasdaq100_snapshot_stocks")
       .insert(snapshotStocks);
 
     if (snapshotError) {
+      log("SNAPSHOT MEMBERS INSERT FAILED", snapshotError.message);
       await sendCronError("Snapshot membership insert failed", snapshotError);
       return NextResponse.json({ error: snapshotError.message }, { status: 500 });
     }
+    log("SNAPSHOT MEMBERS INSERTED", `${snapshotStocks.length} stocks linked`);
   }
 
+  // ----- Step 6: Create or reuse batch for today -----
   const { data: batchRow, error: batchError } = await supabase
     .from("ai_run_batches")
     .upsert(
@@ -657,10 +719,13 @@ const handleRequest = async (req: Request) => {
     .single();
 
   if (batchError) {
+    log("BATCH UPSERT FAILED", batchError.message);
     await sendCronError("Batch upsert failed", batchError);
     return NextResponse.json({ error: batchError.message }, { status: 500 });
   }
+  log("BATCH UPSERTED", `id=${batchRow.id}`);
 
+  // ----- Step 7: Fetch yesterday's runs for change detection -----
   const { data: yesterdayBatch } = await supabase
     .from("ai_run_batches")
     .select("id")
@@ -681,27 +746,40 @@ const handleRequest = async (req: Request) => {
     (previousRuns || []).forEach((row: PreviousRun) => {
       previousRunsMap.set(row.stock_id, { score: row.score, bucket: row.bucket });
     });
+    log("PREVIOUS RUNS LOADED", `${previousRunsMap.size} scores from ${yesterdayDate}`);
+  } else {
+    log("PREVIOUS RUNS", `No batch found for ${yesterdayDate} (first run or gap day)`);
   }
 
+  // ----- Step 8: Load snapshot members for AI processing -----
   const { data: members, error: memberError } = await supabase
     .from("nasdaq100_snapshot_stocks")
     .select("stock_id, stocks (id, symbol, company_name)")
     .eq("snapshot_id", snapshot.id);
 
   if (memberError) {
+    log("SNAPSHOT MEMBERS FETCH FAILED", memberError.message);
     await sendCronError("Snapshot members fetch failed", memberError);
     return NextResponse.json({ error: memberError.message }, { status: 500 });
   }
 
   const memberRows = (members || []) as unknown as MemberRow[];
   if (!memberRows.length) {
+    log("ABORT", "No members found for snapshot");
     return NextResponse.json({ error: "No members found for snapshot" }, { status: 500 });
   }
+  log("MEMBERS LOADED", `${memberRows.length} stocks to analyze`);
 
-  const concurrency = Number(process.env.AI_CONCURRENCY || 4);
+  // ----- Step 9: Run AI analysis with concurrency -----
+  const concurrency = Number(process.env.AI_CONCURRENCY || 20);
+  log("AI ANALYSIS START", `concurrency=${concurrency}, stocks=${memberRows.length}`);
+
+  let completed = 0;
+  let failed = 0;
 
   const results = await chunkWithConcurrency(memberRows, concurrency, async (member) => {
     if (!member.stocks) {
+      completed++;
       return { stock_id: member.stock_id, status: "missing_stock" };
     }
 
@@ -716,12 +794,24 @@ const handleRequest = async (req: Request) => {
     let rawResponse: unknown = null;
 
     try {
+      const aiStart = Date.now();
       const response = await requestStockRating(member.stocks, runDate, previous);
       parsed = response.parsed;
       citations = response.citations;
       sources = response.sources;
       rawResponse = response.raw;
+      const aiMs = Date.now() - aiStart;
+      log(
+        `AI OK [${++completed}/${memberRows.length}]`,
+        `${member.stocks.symbol}: score=${parsed.score}, confidence=${parsed.confidence}, bucket=${bucketFromScore(clampScore(Number(parsed.score)))}, sources=${sources.length}, ${aiMs}ms`
+      );
     } catch (error) {
+      failed++;
+      completed++;
+      log(
+        `AI FAILED [${completed}/${memberRows.length}]`,
+        `${member.stocks.symbol}: ${error instanceof Error ? error.message : "unknown"}`
+      );
       await sendCronError(
         "OpenAI stock rating failed",
         error,
@@ -748,6 +838,7 @@ const handleRequest = async (req: Request) => {
     const confidence = clampConfidence(Number(parsed.confidence));
     const bucket = bucketFromScore(score);
 
+    // ----- Upsert into ai_analysis_runs -----
     const { data: runRow, error: runError } = await supabase
       .from("ai_analysis_runs")
       .upsert(
@@ -769,6 +860,7 @@ const handleRequest = async (req: Request) => {
       .single();
 
     if (runError) {
+      log(`DB WRITE FAILED`, `ai_analysis_runs for ${member.stocks.symbol}: ${runError.message}`);
       await sendCronError(
         "Supabase analysis upsert failed",
         runError,
@@ -777,6 +869,7 @@ const handleRequest = async (req: Request) => {
       return { ticker: member.stocks.symbol, status: "failed", error: runError.message };
     }
 
+    // ----- Upsert into nasdaq100_recommendations_current -----
     const { error: currentError } = await supabase
       .from("nasdaq100_recommendations_current")
       .upsert(
@@ -796,6 +889,7 @@ const handleRequest = async (req: Request) => {
       );
 
     if (currentError) {
+      log(`DB WRITE FAILED`, `nasdaq100_recommendations_current for ${member.stocks.symbol}: ${currentError.message}`);
       await sendCronError(
         "Supabase current recs upsert failed",
         currentError,
@@ -807,23 +901,37 @@ const handleRequest = async (req: Request) => {
     return { ticker: member.stocks.symbol, status: "ok", score, bucket };
   });
 
+  log("AI ANALYSIS COMPLETE", `${completed} done, ${failed} failed`);
+
+  // ----- Step 10: Clean up stale recommendations -----
   const memberIds = memberRows.map((member) => member.stock_id);
   if (memberIds.length) {
-    const formattedIds = memberIds.map((id) => `"${id}"`).join(",");
     const { error: cleanupError } = await supabase
       .from("nasdaq100_recommendations_current")
       .delete()
-      .not("stock_id", "in", `(${formattedIds})`);
+      .not("stock_id", "in", memberIds);
 
     if (cleanupError) {
+      log("CLEANUP FAILED", cleanupError.message);
       await sendCronError("Current recs cleanup failed", cleanupError);
       return NextResponse.json({ error: cleanupError.message }, { status: 500 });
     }
+    log("CLEANUP OK", "Stale recommendations removed");
   }
+
+  const summary = {
+    ok: results.filter((r) => "status" in r && r.status === "ok").length,
+    failed: results.filter((r) => "status" in r && r.status === "failed").length,
+  };
+  const totalSeconds = ((Date.now() - t0) / 1000).toFixed(1);
+  log("DONE", `${summary.ok} ok, ${summary.failed} failed, ${totalSeconds}s total`);
 
   return NextResponse.json({
     runDate,
     total: results.length,
+    ok: summary.ok,
+    failed: summary.failed,
+    elapsedSeconds: Number(totalSeconds),
     results,
   });
 };

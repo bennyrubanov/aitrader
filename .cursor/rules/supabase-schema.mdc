@@ -1,0 +1,30 @@
+---
+description: Supabase database schema, table relationships, and conventions for AITrader
+alwaysApply: false
+---
+# Supabase Database Schema
+
+Schema files live in `supabase/`:
+- `supabase/schema.sql` – table/view definitions (run first)
+- `supabase/rls_policies.sql` – Row Level Security policies (run second)
+
+The daily cron job that populates the database is at `src/app/api/cron/daily/route.ts`.
+The AI prompt template and JSON schema are at `src/lib/aiPrompt.ts`.
+
+## Tables (4 layers)
+
+**Reference data**: `stocks` (canonical stock registry, `symbol` unique), `ai_prompts` (versioned by name+version), `ai_models` (versioned by provider+name+version).
+
+**NASDAQ-100 membership**: `nasdaq100_snapshots` (one row per distinct membership list, deduped by SHA-256 hash), `nasdaq100_snapshot_stocks` (join table: snapshot ↔ stocks), `nasdaq_100_daily_raw` (raw NASDAQ API data, not FK'd to stocks).
+
+**AI analysis**: `ai_run_batches` (groups runs by run_date + index_name + prompt + model; supports nasdaq100 and sp500), `ai_analysis_runs` (one row = one stock + one AI output; score -5 to +5, bucket buy/hold/sell, linked to batch).
+
+**Frontend-facing**: `nasdaq100_recommendations_current` (latest score/bucket per NASDAQ-100 member, one row per stock), views `nasdaq100_scores_7d_view` (7-day rolling avg), `nasdaq100_current_members`, `nasdaq100_latest_snapshot`.
+
+**User tables**: `user_profiles` (linked to Supabase Auth), `newsletter_subscribers`.
+
+## Key conventions
+- All PKs are UUID (`gen_random_uuid()`).
+- The cron job uses `createAdminClient()` (service role key), bypassing RLS.
+- Frontend reads use anon/authenticated key with RLS policies.
+- When modifying the schema, update `supabase/schema.sql`, `supabase/rls_policies.sql`, the cron job, and this rule file.

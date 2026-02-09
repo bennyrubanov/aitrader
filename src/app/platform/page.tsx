@@ -88,7 +88,7 @@ const PlatformPage = () => {
                 {!isSupabaseConfigured() && (
                   <p className="text-xs text-amber-600 mt-3">
                     Supabase env vars are missing. Add NEXT_PUBLIC_SUPABASE_URL and
-                    NEXT_PUBLIC_SUPABASE_ANON_KEY to enable auth.
+                    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY to enable auth.
                   </p>
                 )}
               </div>

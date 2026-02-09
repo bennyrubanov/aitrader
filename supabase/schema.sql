@@ -1,21 +1,19 @@
-create extension if not exists "pgcrypto";
-
 -- Clean slate (safe to rerun while empty)
-drop view if exists public.nasdaq100_scores_7d_view cascade;
-drop view if exists public.nasdaq100_current_members cascade;
-drop view if exists public.nasdaq100_latest_snapshot cascade;
+-- drop view if exists public.nasdaq100_scores_7d_view cascade;
+-- drop view if exists public.nasdaq100_current_members cascade;
+-- drop view if exists public.nasdaq100_latest_snapshot cascade;
 
-drop table if exists public.nasdaq100_recommendations_current cascade;
-drop table if exists public.ai_analysis_runs cascade;
-drop table if exists public.ai_run_batches cascade;
-drop table if exists public.nasdaq_100_daily_raw cascade;
-drop table if exists public.nasdaq100_snapshot_stocks cascade;
-drop table if exists public.nasdaq100_snapshots cascade;
-drop table if exists public.stocks cascade;
-drop table if exists public.ai_models cascade;
-drop table if exists public.ai_prompts cascade;
-drop table if exists public.newsletter_subscribers cascade;
-drop table if exists public.user_profiles cascade;
+-- drop table if exists public.nasdaq100_recommendations_current cascade;
+-- drop table if exists public.ai_analysis_runs cascade;
+-- drop table if exists public.ai_run_batches cascade;
+-- drop table if exists public.nasdaq_100_daily_raw cascade;
+-- drop table if exists public.nasdaq100_snapshot_stocks cascade;
+-- drop table if exists public.nasdaq100_snapshots cascade;
+-- drop table if exists public.stocks cascade;
+-- drop table if exists public.ai_models cascade;
+-- drop table if exists public.ai_prompts cascade;
+-- drop table if exists public.newsletter_subscribers cascade;
+-- drop table if exists public.user_profiles cascade;
 
 -- =========================
 -- 1) Prompt + Model versioning
@@ -150,8 +148,8 @@ create table if not exists public.ai_run_batches (
   run_date date not null,
   index_name text not null,
   snapshot_id uuid references public.nasdaq100_snapshots(id),
-  prompt_id uuid not null references public.ai_prompts(id),
-  model_id uuid not null references public.ai_models(id),
+  prompt_id uuid not null references public.ai_prompts(id) on delete restrict,
+  model_id uuid not null references public.ai_models(id) on delete restrict,
   created_at timestamptz not null default now(),
   unique (run_date, index_name, prompt_id, model_id),
   constraint ai_run_batches_index_valid check (index_name in ('nasdaq100', 'sp500'))
@@ -193,6 +191,9 @@ create index if not exists idx_ai_analysis_runs_batch_id
 
 create index if not exists idx_ai_analysis_runs_stock_batch
   on public.ai_analysis_runs(stock_id, batch_id);
+
+create index if not exists idx_ai_analysis_runs_stock_created_at
+  on public.ai_analysis_runs(stock_id, created_at desc);
 
 -- =========================
 -- 8) Current daily recommendations

@@ -1,7 +1,7 @@
 /**
  * Supabase admin client — use in API routes and cron jobs only.
  *
- * Uses the service-role key which bypasses Row Level Security.
+ * Uses the secret key which bypasses Row Level Security.
  * NEVER expose this client to the browser.
  * For Server Components (user-scoped), use `@/utils/supabase/server`.
  * For Client Components, use `@/utils/supabase/browser`.
@@ -9,14 +9,14 @@
 import { createClient } from '@supabase/supabase-js';
 
 export const createAdminClient = () => {
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const secretKey = process.env.SUPABASE_SECRET_KEY;
 
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+  if (!supabaseUrl || !secretKey) {
+    throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SECRET_KEY');
   }
 
-  return createClient(supabaseUrl, serviceRoleKey, {
+  return createClient(supabaseUrl, secretKey, {
     auth: {
       persistSession: false,
       autoRefreshToken: false,
