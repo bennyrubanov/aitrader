@@ -403,6 +403,7 @@ const upsertModel = async (supabase: ReturnType<typeof createAdminClient>) => {
       {
         provider: "openai",
         name: DEFAULT_MODEL,
+        version: "default",
         updated_at: new Date().toISOString(),
       },
       { onConflict: "provider,name,version" }
@@ -432,7 +433,7 @@ const createSnapshot = async (
     .eq("membership_hash", membershipHash)
     .order("created_at", { ascending: false })
     .limit(1)
-    .single();
+    .maybeSingle();
 
   if (fetchError) {
     throw new Error(fetchError.message);
@@ -561,24 +562,17 @@ const handleRequest = async (req: Request) => {
     nasdaqRows = await fetchNasdaq100();
   } catch (error) {
     await sendCronError("Nasdaq API fetch failed", error);
-    const fallbackRows = fallbackSymbolsFromEnv();
-    if (fallbackRows.length) {
-      nasdaqRows = fallbackRows;
-    } else {
-      return NextResponse.json({ error: "Nasdaq fetch failed" }, { status: 500 });
-    }
   }
 
   if (!nasdaqRows.length) {
-    const fallbackRows = fallbackSymbolsFromEnv();
-    if (fallbackRows.length) {
-      nasdaqRows = fallbackRows;
-    } else {
-      return NextResponse.json(
-        { error: "No Nasdaq 100 symbols available" },
-        { status: 500 }
-      );
-    }
+    nasdaqRows = fallbackSymbolsFromEnv();
+  }
+
+  if (!nasdaqRows.length) {
+    return NextResponse.json(
+      { error: "No Nasdaq 100 symbols available" },
+      { status: 500 }
+    );
   }
 
   const promptRow = await upsertPrompt(supabase);
