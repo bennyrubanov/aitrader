@@ -48,8 +48,24 @@ create table if not exists public.user_profiles (
   email text,
   full_name text,
   is_premium boolean not null default false,
+  stripe_last_event_id text,
+  stripe_last_event_created timestamptz,
+  stripe_subscription_status text,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  constraint user_profiles_stripe_subscription_status_valid check (
+    stripe_subscription_status is null
+    or stripe_subscription_status in (
+      'incomplete',
+      'incomplete_expired',
+      'trialing',
+      'active',
+      'past_due',
+      'canceled',
+      'unpaid',
+      'paused'
+    )
+  )
 );
 
 create table if not exists public.newsletter_subscribers (

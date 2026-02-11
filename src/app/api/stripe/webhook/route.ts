@@ -13,42 +13,101 @@ const getStripeClient = () => {
   return new Stripe(secretKey);
 };
 
-const updatePremiumByUserId = async (userId: string, isPremium: boolean) => {
-  const supabase = createAdminClient();
-  const updatedAt = new Date().toISOString();
-  const { data, error } = await supabase
-    .from("user_profiles")
-    .update({ is_premium: isPremium, updated_at: updatedAt })
-    .eq("id", userId)
-    .select("id")
-    .limit(1);
-  if (error) {
-    throw new Error(error.message);
+type EntitlementContext = {
+  eventId: string;
+  eventCreatedIso: string;
+  subscriptionStatus: Stripe.Subscription.Status | null;
+};
+
+const isPremiumSubscriptionStatus = (status: Stripe.Subscription.Status) => {
+  // Strict entitlement: only active/trialing users are premium.
+  return status === "active" || status === "trialing";
+};
+
+const isStaleEvent = (incomingEventCreatedIso: string, previousEventCreatedIso: string | null) => {
+  if (!previousEventCreatedIso) {
+    return false;
   }
 
-  // If the row is missing, create it on the fly so billing state is not dropped.
-  if (!data || data.length === 0) {
-    const { error: upsertError } = await supabase.from("user_profiles").upsert(
-      {
-        id: userId,
-        is_premium: isPremium,
-        updated_at: updatedAt,
-      },
-      { onConflict: "id" }
-    );
+  const incomingTs = Date.parse(incomingEventCreatedIso);
+  const previousTs = Date.parse(previousEventCreatedIso);
+  if (Number.isNaN(incomingTs) || Number.isNaN(previousTs)) {
+    return false;
+  }
 
-    if (upsertError) {
-      throw new Error(upsertError.message);
-    }
+  return incomingTs < previousTs;
+};
+
+const applyPremiumByUserId = async (
+  userId: string,
+  email: string | null,
+  isPremium: boolean,
+  context: EntitlementContext
+) => {
+  const supabase = createAdminClient();
+  const { data: existing, error: existingError } = await supabase
+    .from("user_profiles")
+    .select("stripe_last_event_created")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (existingError) {
+    throw new Error(existingError.message);
+  }
+
+  if (isStaleEvent(context.eventCreatedIso, existing?.stripe_last_event_created ?? null)) {
+    return;
+  }
+
+  const { error: upsertError } = await supabase.from("user_profiles").upsert(
+    {
+      id: userId,
+      ...(email ? { email } : {}),
+      is_premium: isPremium,
+      stripe_last_event_id: context.eventId,
+      stripe_last_event_created: context.eventCreatedIso,
+      stripe_subscription_status: context.subscriptionStatus,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "id" }
+  );
+
+  if (upsertError) {
+    throw new Error(upsertError.message);
   }
 };
 
 const resolveAuthUserIdByEmail = async (email: string) => {
+  const normalizedEmail = email.trim().toLowerCase();
+  const perPage = 1000;
+  let page = 1;
+
+  while (true) {
+    const { data, error } = await createAdminClient().auth.admin.listUsers({ page, perPage });
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    const users = data?.users ?? [];
+    const match = users.find((user) => user.email?.trim().toLowerCase() === normalizedEmail);
+    if (match) {
+      return match.id;
+    }
+
+    if (users.length < perPage) {
+      break;
+    }
+    page += 1;
+  }
+
+  return null;
+};
+
+const updatePremiumByEmail = async (email: string, isPremium: boolean, context: EntitlementContext) => {
   const supabase = createAdminClient();
   const normalizedEmail = email.trim().toLowerCase();
   const { data, error } = await supabase
-    .schema("auth")
-    .from("users")
+    .from("user_profiles")
     .select("id")
     .eq("email", normalizedEmail)
     .maybeSingle();
@@ -57,37 +116,22 @@ const resolveAuthUserIdByEmail = async (email: string) => {
     throw new Error(error.message);
   }
 
-  return data?.id ?? null;
-};
-
-const updatePremiumByEmail = async (email: string, isPremium: boolean) => {
-  const supabase = createAdminClient();
-  const normalizedEmail = email.trim().toLowerCase();
-  const updatedAt = new Date().toISOString();
-  const { data, error } = await supabase
-    .from("user_profiles")
-    .update({ is_premium: isPremium, updated_at: updatedAt })
-    .eq("email", normalizedEmail)
-    .select("id")
-    .limit(1);
-  if (error) {
-    throw new Error(error.message);
+  if (data?.id) {
+    await applyPremiumByUserId(data.id, normalizedEmail, isPremium, context);
+    return;
   }
 
-  // Email-only Stripe events can miss metadata; if profile is missing,
-  // recover via auth.users lookup and create/update profile by user id.
-  if (!data || data.length === 0) {
-    const userId = await resolveAuthUserIdByEmail(normalizedEmail);
-    if (userId) {
-      await updatePremiumByUserId(userId, isPremium);
-      return;
-    }
-
-    console.warn("Stripe webhook: could not map email to auth user", {
-      email: normalizedEmail,
-      isPremium,
-    });
+  const userId = await resolveAuthUserIdByEmail(normalizedEmail);
+  if (userId) {
+    await applyPremiumByUserId(userId, normalizedEmail, isPremium, context);
+    return;
   }
+
+  console.warn("Stripe webhook: could not map email to auth user", {
+    email: normalizedEmail,
+    isPremium,
+    eventId: context.eventId,
+  });
 };
 
 const resolveCustomerEmail = async (
@@ -108,8 +152,61 @@ const resolveCustomerEmail = async (
   return null;
 };
 
-const isPremiumSubscriptionStatus = (status: Stripe.Subscription.Status) => {
-  return status === "active" || status === "trialing" || status === "past_due";
+const getCustomerIdFromUnknown = (
+  customer: string | Stripe.Customer | Stripe.DeletedCustomer | null | undefined
+) => {
+  if (!customer) {
+    return null;
+  }
+  if (typeof customer === "string") {
+    return customer;
+  }
+  if ("deleted" in customer && customer.deleted) {
+    return null;
+  }
+  return customer.id;
+};
+
+const maybeSwitchMigratedSubsToAutoCharge = async (
+  stripe: Stripe,
+  customerId: string | null
+) => {
+  if (!customerId) {
+    return;
+  }
+
+  const customer = await stripe.customers.retrieve(customerId, {
+    expand: ["invoice_settings.default_payment_method"],
+  });
+
+  if ("deleted" in customer && customer.deleted) {
+    return;
+  }
+
+  const stripeCustomer = customer as Stripe.Customer;
+  const hasDefaultPaymentMethod = Boolean(stripeCustomer.invoice_settings?.default_payment_method);
+  if (!hasDefaultPaymentMethod) {
+    return;
+  }
+
+  const subs = await stripe.subscriptions.list({
+    customer: customerId,
+    status: "active",
+    limit: 100,
+  });
+
+  for (const sub of subs.data) {
+    const isMigrated = Boolean(sub.metadata?.migrated_from_source_subscription_id);
+    const needsSwitch = sub.collection_method !== "charge_automatically";
+    if (!isMigrated || !needsSwitch) {
+      continue;
+    }
+
+    await stripe.subscriptions.update(sub.id, {
+      collection_method: "charge_automatically",
+      payment_settings: { save_default_payment_method: "on_subscription" },
+    });
+  }
 };
 
 export async function POST(req: Request) {
@@ -137,17 +234,24 @@ export async function POST(req: Request) {
   }
 
   try {
+    const eventCreatedIso = new Date(event.created * 1000).toISOString();
+
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
         const userId = session.metadata?.user_id || session.client_reference_id || null;
+        const context: EntitlementContext = {
+          eventId: event.id,
+          eventCreatedIso,
+          subscriptionStatus: "active",
+        };
         if (userId) {
-          await updatePremiumByUserId(userId, true);
+          await applyPremiumByUserId(userId, null, true, context);
           break;
         }
         const email = session.customer_details?.email || session.customer_email || null;
         if (email) {
-          await updatePremiumByEmail(email, true);
+          await updatePremiumByEmail(email, true, context);
         }
         break;
       }
@@ -165,14 +269,19 @@ export async function POST(req: Request) {
         const subscription = subscriptionId
           ? await stripe.subscriptions.retrieve(subscriptionId)
           : null;
+        const context: EntitlementContext = {
+          eventId: event.id,
+          eventCreatedIso,
+          subscriptionStatus: subscription?.status ?? "active",
+        };
         const userId = subscription?.metadata?.user_id || null;
         if (userId) {
-          await updatePremiumByUserId(userId, true);
+          await applyPremiumByUserId(userId, null, true, context);
           break;
         }
         const email = await resolveCustomerEmail(stripe, invoice.customer);
         if (email) {
-          await updatePremiumByEmail(email, true);
+          await updatePremiumByEmail(email, true, context);
         }
         break;
       }
@@ -187,42 +296,69 @@ export async function POST(req: Request) {
         const subscription = subscriptionId
           ? await stripe.subscriptions.retrieve(subscriptionId)
           : null;
+        const context: EntitlementContext = {
+          eventId: event.id,
+          eventCreatedIso,
+          subscriptionStatus: subscription?.status ?? "past_due",
+        };
         const userId = subscription?.metadata?.user_id || null;
         if (userId) {
-          await updatePremiumByUserId(userId, false);
+          await applyPremiumByUserId(userId, null, false, context);
           break;
         }
         const email = await resolveCustomerEmail(stripe, invoice.customer);
         if (email) {
-          await updatePremiumByEmail(email, false);
+          await updatePremiumByEmail(email, false, context);
         }
         break;
       }
       case "customer.subscription.deleted": {
         const subscription = event.data.object as Stripe.Subscription;
+        const context: EntitlementContext = {
+          eventId: event.id,
+          eventCreatedIso,
+          subscriptionStatus: subscription.status,
+        };
         const userId = subscription.metadata?.user_id || null;
         if (userId) {
-          await updatePremiumByUserId(userId, false);
+          await applyPremiumByUserId(userId, null, false, context);
           break;
         }
         const email = await resolveCustomerEmail(stripe, subscription.customer);
         if (email) {
-          await updatePremiumByEmail(email, false);
+          await updatePremiumByEmail(email, false, context);
         }
         break;
       }
       case "customer.subscription.updated": {
         const subscription = event.data.object as Stripe.Subscription;
         const isPremium = isPremiumSubscriptionStatus(subscription.status);
+        const context: EntitlementContext = {
+          eventId: event.id,
+          eventCreatedIso,
+          subscriptionStatus: subscription.status,
+        };
         const userId = subscription.metadata?.user_id || null;
         if (userId) {
-          await updatePremiumByUserId(userId, isPremium);
+          await applyPremiumByUserId(userId, null, isPremium, context);
           break;
         }
         const email = await resolveCustomerEmail(stripe, subscription.customer);
         if (email) {
-          await updatePremiumByEmail(email, isPremium);
+          await updatePremiumByEmail(email, isPremium, context);
         }
+        break;
+      }
+      case "payment_method.attached": {
+        const paymentMethod = event.data.object as Stripe.PaymentMethod;
+        const customerId = getCustomerIdFromUnknown(paymentMethod.customer);
+        await maybeSwitchMigratedSubsToAutoCharge(stripe, customerId);
+        break;
+      }
+      case "customer.updated": {
+        const customer = event.data.object as Stripe.Customer;
+        const customerId = getCustomerIdFromUnknown(customer);
+        await maybeSwitchMigratedSubsToAutoCharge(stripe, customerId);
         break;
       }
       default:

@@ -7,7 +7,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "migrate:stripe-users": "node scripts/migrate-stripe-users.mjs",
+    "migrate:stripe-subscriptions": "node scripts/migrate-stripe-subscriptions.mjs",
+    "migrate:billing-finalize": "node scripts/finalize-migrated-billing.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",

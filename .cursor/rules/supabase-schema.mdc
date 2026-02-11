@@ -27,7 +27,7 @@ You must also keep this file up to date.
 
 **Frontend-facing**: `nasdaq100_recommendations_current` (latest score/bucket/latent_rank per NASDAQ-100 member, one row per stock), views `nasdaq100_scores_7d_view` (7-day rolling avg), `nasdaq100_current_members`, `nasdaq100_latest_snapshot`.
 
-**User tables**: `user_profiles` (linked 1:1 to Supabase `auth.users`, includes `is_premium`, auto-created/kept in sync via triggers on `auth.users`), `newsletter_subscribers`.
+**User tables**: `user_profiles` (linked 1:1 to Supabase `auth.users`, includes `is_premium`, auto-created/kept in sync via triggers on `auth.users`, and stores Stripe webhook ordering metadata in `stripe_last_event_id` + `stripe_last_event_created` + `stripe_subscription_status`), `newsletter_subscribers`.
 
 ## Key conventions
 
