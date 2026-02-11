@@ -47,6 +47,7 @@ create table if not exists public.user_profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   email text,
   full_name text,
+  is_premium boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -170,6 +171,7 @@ create table if not exists public.ai_analysis_runs (
   batch_id uuid not null references public.ai_run_batches(id) on delete cascade,
   stock_id uuid not null references public.stocks(id) on delete cascade,
   score int not null,
+  latent_rank numeric,
   score_delta int,
   confidence numeric,
   bucket text not null,
@@ -183,6 +185,7 @@ create table if not exists public.ai_analysis_runs (
   created_at timestamptz not null default now(),
   unique (batch_id, stock_id),
   constraint score_range check (score >= -5 and score <= 5),
+  constraint latent_rank_range check (latent_rank is null or (latent_rank >= 0 and latent_rank <= 1)),
   constraint bucket_valid check (bucket in ('buy', 'hold', 'sell'))
 );
 
@@ -206,6 +209,7 @@ create table if not exists public.nasdaq100_recommendations_current (
   stock_id uuid primary key references public.stocks(id) on delete cascade,
   latest_run_id uuid references public.ai_analysis_runs(id) on delete set null,
   score int,
+  latent_rank numeric,
   score_delta int,
   confidence numeric,
   bucket text,
@@ -215,7 +219,8 @@ create table if not exists public.nasdaq100_recommendations_current (
   sources jsonb,
   updated_at timestamptz not null default now(),
   constraint bucket_valid check (bucket is null or bucket in ('buy', 'hold', 'sell')),
-  constraint score_range check (score is null or (score >= -5 and score <= 5))
+  constraint score_range check (score is null or (score >= -5 and score <= 5)),
+  constraint latent_rank_range check (latent_rank is null or (latent_rank >= 0 and latent_rank <= 1))
 );
 
 create index if not exists idx_nasdaq100_recs_current_latest_run_id

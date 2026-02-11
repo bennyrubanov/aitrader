@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
@@ -8,19 +8,109 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/hooks/use-toast';
-import { allStocks, searchStocks } from '@/lib/stockData';
+import { allStocks } from '@/lib/stockData';
 import { getSupabaseBrowserClient, isSupabaseConfigured } from '@/utils/supabase/browser';
+
+type RankedStock = {
+  symbol: string;
+  name: string | null;
+  score: number | null;
+  latentRank: number | null;
+  bucket: string | null;
+};
 
 const PlatformPage = () => {
   const [query, setQuery] = useState('');
   const [isConnecting, setIsConnecting] = useState(false);
+  const [rankedStocks, setRankedStocks] = useState<RankedStock[]>([]);
+  const [rankingStatus, setRankingStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>(
+    'idle'
+  );
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadRankings = async () => {
+      if (!isSupabaseConfigured()) {
+        if (isMounted) {
+          setRankedStocks(
+            allStocks.map((stock) => ({
+              symbol: stock.symbol,
+              name: stock.name,
+              score: null,
+              latentRank: null,
+              bucket: stock.aiRating ? stock.aiRating.toLowerCase() : null,
+            }))
+          );
+          setRankingStatus('ready');
+        }
+        return;
+      }
+
+      const supabase = getSupabaseBrowserClient();
+      if (!supabase) {
+        if (isMounted) {
+          setRankingStatus('error');
+        }
+        return;
+      }
+
+      if (isMounted) {
+        setRankingStatus('loading');
+      }
+
+      const { data, error } = await supabase
+        .from('nasdaq100_recommendations_current')
+        .select('score, latent_rank, bucket, stocks (symbol, company_name)')
+        .order('score', { ascending: false, nullsFirst: false })
+        .order('latent_rank', { ascending: false, nullsFirst: false });
+
+      if (error) {
+        if (isMounted) {
+          setRankingStatus('error');
+        }
+        return;
+      }
+
+      const rows = (data ?? [])
+        .map((row) => {
+          const stock = Array.isArray(row.stocks) ? row.stocks[0] : row.stocks;
+          if (!stock?.symbol) {
+            return null;
+          }
+          return {
+            symbol: stock.symbol,
+            name: stock.company_name ?? stock.symbol,
+            score: typeof row.score === 'number' ? row.score : null,
+            latentRank: typeof row.latent_rank === 'number' ? row.latent_rank : null,
+            bucket: row.bucket ?? null,
+          };
+        })
+        .filter((row): row is RankedStock => Boolean(row));
+
+      if (isMounted) {
+        setRankedStocks(rows);
+        setRankingStatus('ready');
+      }
+    };
+
+    loadRankings();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const results = useMemo(() => {
     if (!query.trim()) {
-      return allStocks;
+      return rankedStocks;
     }
-    return searchStocks(query);
-  }, [query]);
+    const normalizedQuery = query.toLowerCase().trim();
+    return rankedStocks.filter(
+      (stock) =>
+        stock.symbol.toLowerCase().includes(normalizedQuery) ||
+        (stock.name ?? '').toLowerCase().includes(normalizedQuery)
+    );
+  }, [query, rankedStocks]);
 
   const handleSignIn = async () => {
     const supabase = getSupabaseBrowserClient();
@@ -103,6 +193,13 @@ const PlatformPage = () => {
                 />
               </div>
 
+              {rankingStatus === 'loading' && (
+                <p className="text-sm text-gray-500 mb-4">Loading ranked Nasdaq-100 list…</p>
+              )}
+              {rankingStatus === 'error' && (
+                <p className="text-sm text-red-500 mb-4">Unable to load rankings right now.</p>
+              )}
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {results.map((stock) => (
                   <Link
@@ -115,13 +212,19 @@ const PlatformPage = () => {
                         <div className="text-lg font-semibold">{stock.symbol}</div>
                         <div className="text-sm text-gray-600">{stock.name}</div>
                       </div>
-                      {stock.aiRating && (
+                      {stock.bucket && (
                         <Badge variant="outline" className="capitalize">
-                          {stock.aiRating}
+                          {stock.bucket}
                         </Badge>
                       )}
                     </div>
-                    <div className="mt-3 text-xs text-gray-500">View recommendation history →</div>
+                    <div className="mt-3 text-xs text-gray-500 flex flex-wrap gap-2">
+                      {stock.score !== null && <span>Score {stock.score}</span>}
+                      {stock.latentRank !== null && (
+                        <span>Latent rank {stock.latentRank.toFixed(3)}</span>
+                      )}
+                      <span>View recommendation history →</span>
+                    </div>
                   </Link>
                 ))}
               </div>

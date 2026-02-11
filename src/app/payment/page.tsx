@@ -5,8 +5,7 @@ import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
-
-const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/28o17D1Qx8QQfXaeUV";
+const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/4gM5kD3myaTOgsSbCuf7i00";
 
 const PaymentPage = () => {
   useEffect(() => {

@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 export type StockRatingPromptInput = {
   ticker: string;
   companyName: string;
@@ -10,37 +12,29 @@ export type StockRatingPromptInput = {
 // Update PROMPT_VERSION when you change STOCK_RATING_PROMPT_TEMPLATE or schema.
 // The daily cron upserts the template into `ai_prompts` and links runs via `ai_run_batches`.
 export const PROMPT_NAME = 'nasdaq100_daily_rating';
-export const PROMPT_VERSION = 'nasdaq100-websearch-v4';
+export const PROMPT_VERSION = 'nasdaq100-websearch-v5';
 
-export const STOCK_RATING_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    ticker: { type: 'string' },
-    date: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
-    score: { type: 'integer', minimum: -5, maximum: 5 },
-    confidence: { type: 'number', minimum: 0, maximum: 1 },
-    reason_1s: { type: 'string' },
-    risks: {
-      type: 'array',
-      items: { type: 'string' },
-      minItems: 2,
-      maxItems: 6,
-    },
-    change: {
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        changed_bucket: { type: 'boolean' },
-        previous_bucket: { type: ['string', 'null'], enum: ['buy', 'hold', 'sell', null] },
-        current_bucket: { type: 'string', enum: ['buy', 'hold', 'sell'] },
-        change_explanation: { type: ['string', 'null'] },
-      },
-      required: ['changed_bucket', 'previous_bucket', 'current_bucket', 'change_explanation'],
-    },
-  },
-  required: ['ticker', 'date', 'score', 'confidence', 'reason_1s', 'risks', 'change'],
-};
+export const StockRatingSchema = z
+  .object({
+    ticker: z.string(),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    score: z.number().int().min(-5).max(5),
+    latent_rank: z.number().min(0).max(1),
+    confidence: z.number().min(0).max(1),
+    reason_1s: z.string(),
+    risks: z.array(z.string()).min(2).max(6),
+    change: z
+      .object({
+        changed_bucket: z.boolean(),
+        previous_bucket: z.enum(["buy", "hold", "sell"]).nullable(),
+        current_bucket: z.enum(["buy", "hold", "sell"]),
+        change_explanation: z.string().nullable(),
+      })
+      .strict(),
+  })
+  .strict();
+
+export type StockRatingParsed = z.infer<typeof StockRatingSchema>;
 
 export const STOCK_RATING_PROMPT_TEMPLATE = [
   "You are an AI investment analyst applying the paper's attractiveness-rating approach.",
@@ -61,6 +55,7 @@ export const STOCK_RATING_PROMPT_TEMPLATE = [
   '- Score reflects relative attractiveness over the next ~30 days.',
   '- Calibrate the score relative to other Nasdaq-100 constituents, not in absolute isolation.',
   '- Avoid defaulting to 0 unless information is genuinely mixed.',
+  'In addition to the integer score, provide a latent_rank between 0 and 1 that reflects fine-grained relative attractiveness compared to other Nasdaq-100 stocks. Use latent_rank only as an ordinal ranking signal; it does not need to be calibrated across days.',
   '',
   'Bucket mapping (MUST be used to populate current_bucket). Buckets are an application-layer',
   'abstraction; the underlying signal is the continuous attractiveness score:',

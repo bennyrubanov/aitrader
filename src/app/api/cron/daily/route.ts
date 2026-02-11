@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { createHash } from "crypto";
+import OpenAI from "openai";
+import { zodTextFormat } from "openai/helpers/zod";
 import {
   buildStockRatingPrompt,
   PROMPT_NAME,
   PROMPT_VERSION,
   STOCK_RATING_PROMPT_TEMPLATE,
-  STOCK_RATING_SCHEMA,
+  StockRatingSchema,
+  type StockRatingParsed,
 } from "@/lib/aiPrompt";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { sendEmailByGmail } from "@/lib/sendEmailByGmail";
@@ -44,21 +48,6 @@ type PreviousRun = {
   bucket: "buy" | "hold" | "sell";
 };
 
-type StockRatingParsed = {
-  ticker: string;
-  date: string;
-  score: number;
-  confidence: number;
-  reason_1s?: string | null;
-  risks?: string[];
-  change?: {
-    changed_bucket: boolean;
-    previous_bucket: "buy" | "hold" | "sell" | null;
-    current_bucket: "buy" | "hold" | "sell";
-    change_explanation: string | null;
-  };
-};
-
 type WebSource = {
   url?: string;
   link?: string;
@@ -78,6 +67,13 @@ type UrlLike = {
 };
 
 type JsonRecord = Record<string, unknown>;
+
+type CronErrorEntry = {
+  subject: string;
+  context?: string;
+  message: string;
+  at: string;
+};
 
 const isRecord = (value: unknown): value is JsonRecord =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -116,29 +112,25 @@ const addDays = (dateString: string, days: number) => {
   return date.toISOString().slice(0, 10);
 };
 
-const sendCronError = async (subject: string, error: unknown, context?: string) => {
-  const errorMessage =
-    error instanceof Error ? error.message : JSON.stringify(error, null, 2);
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-  if (!CRON_ERROR_EMAIL) {
-    console.error(subject, context || "", errorMessage);
-    return;
+const sendEmailWithRetry = async (
+  email: string,
+  htmlBody: string,
+  subject: string,
+  maxAttempts = 4
+) => {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const ok = await sendEmailByGmail(email, htmlBody, subject);
+    if (ok) {
+      return true;
+    }
+    if (attempt < maxAttempts) {
+      const delayMs = Math.min(30_000, 1_000 * 2 ** (attempt - 1));
+      await sleep(delayMs);
+    }
   }
-
-  const htmlBody = `
-    <div style="font-family: Arial, sans-serif; padding: 20px;">
-      <h2 style="color: #b91c1c;">AITrader Cron Job Error</h2>
-      <p><strong>Subject:</strong> ${subject}</p>
-      ${context ? `<p><strong>Context:</strong> ${context}</p>` : ""}
-      <pre style="background:#f8fafc;padding:12px;border-radius:8px;">${errorMessage}</pre>
-    </div>
-  `;
-
-  try {
-    await sendEmailByGmail(CRON_ERROR_EMAIL, htmlBody, subject);
-  } catch (sendError) {
-    console.error("Failed to send cron error email", sendError);
-  }
+  return false;
 };
 
 const isAuthorized = (req: Request) => {
@@ -257,29 +249,75 @@ const clampConfidence = (confidence: number) => {
   return Math.max(0, Math.min(1, confidence));
 };
 
-const extractOutputText = (payload: unknown) => {
+const clampLatentRank = (latentRank: number) => {
+  if (Number.isNaN(latentRank)) {
+    return 0.5;
+  }
+  return Math.max(0, Math.min(1, latentRank));
+};
+
+const extractStructuredOutput = (payload: unknown) => {
+  if (isRecord(payload)) {
+    const status = payload.status;
+    const incomplete = payload.incomplete_details;
+    if (status === "incomplete" && isRecord(incomplete) && isString(incomplete.reason)) {
+      throw new Error(`OpenAI response incomplete: ${incomplete.reason}`);
+    }
+  }
+
   if (isRecord(payload) && isString(payload.output_text)) {
-    return payload.output_text;
+    return { text: payload.output_text.trim(), refusal: null };
   }
 
   const output = isRecord(payload) ? payload.output : null;
   if (!Array.isArray(output)) {
-    return "";
+    return { text: "", refusal: null };
   }
 
   const chunks: string[] = [];
-  output.forEach((item) => {
+  for (const item of output) {
     if (!isRecord(item) || !Array.isArray(item.content)) {
-      return;
+      continue;
     }
-    item.content.forEach((contentItem) => {
-      if (isRecord(contentItem) && isString(contentItem.text)) {
+    for (const contentItem of item.content) {
+      if (!isRecord(contentItem) || !isString(contentItem.type)) {
+        continue;
+      }
+      if (contentItem.type === "refusal" && isString(contentItem.refusal)) {
+        return { text: "", refusal: contentItem.refusal };
+      }
+      if (contentItem.type === "output_text" && isString(contentItem.text)) {
         chunks.push(contentItem.text);
       }
-    });
-  });
+    }
+  }
 
-  return chunks.join("\n").trim();
+  return { text: chunks.join("\n").trim(), refusal: null };
+};
+
+const parseStructuredOutput = <T>(outputText: string): T => {
+  const trimmed = outputText.trim();
+  if (!trimmed) {
+    throw new Error("OpenAI response missing output_text");
+  }
+
+  try {
+    return JSON.parse(trimmed) as T;
+  } catch (error) {
+    const start = trimmed.indexOf("{");
+    const end = trimmed.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      const sliced = trimmed.slice(start, end + 1);
+      try {
+        return JSON.parse(sliced) as T;
+      } catch (innerError) {
+        const message = innerError instanceof Error ? innerError.message : "unknown parse error";
+        throw new Error(`Failed to parse JSON output: ${message}`);
+      }
+    }
+    const message = error instanceof Error ? error.message : "unknown parse error";
+    throw new Error(`Failed to parse JSON output: ${message}`);
+  }
 };
 
 const uniqueByUrl = <T extends UrlLike>(items: T[]) => {
@@ -356,18 +394,6 @@ const extractSourcesAndCitations = (payload: unknown) => {
     sources: normalizedSources,
     citations: uniqueByUrl([...citations, ...citationFromSources]),
   };
-};
-
-const fetchWithRetry = async (url: string, options: RequestInit, retries = 1) => {
-  try {
-    return await fetch(url, options);
-  } catch (error) {
-    if (retries <= 0) {
-      throw error;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    return fetchWithRetry(url, options, retries - 1);
-  }
 };
 
 const upsertPrompt = async (supabase: ReturnType<typeof createAdminClient>) => {
@@ -458,50 +484,32 @@ const requestStockRating = async (prompt: string) => {
     throw new Error("Missing OPENAI_API_KEY");
   }
 
-  const response = await fetchWithRetry("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: DEFAULT_MODEL,
-      temperature: 0.2,
-      max_output_tokens: 450,
-      tools: [{ type: "web_search" }],
-      tool_choice: { type: "web_search" },
-      include: ["web_search_call.action.sources"],
-      input: [
-        {
-          role: "system",
-          content:
-            "Use exactly one web_search call. Output only JSON matching the schema.",
-        },
-        { role: "user", content: prompt },
-      ],
-      text: {
-        format: {
-          type: "json_schema",
-          name: "stock_rating",
-          schema: STOCK_RATING_SCHEMA,
-          strict: true,
-        },
+  const client = new OpenAI({ apiKey });
+  const payload = await client.responses.parse({
+    model: DEFAULT_MODEL,
+    temperature: 0.2,
+    max_output_tokens: 800,
+    tools: [{ type: "web_search" }],
+    tool_choice: { type: "web_search" },
+    include: ["web_search_call.action.sources"],
+    input: [
+      {
+        role: "system",
+        content:
+          "Use exactly one web_search call. Output only JSON matching the schema.",
       },
-    }),
-  });
+      { role: "user", content: prompt },
+    ],
+    text: {
+      format: zodTextFormat(StockRatingSchema, "stock_rating"),
+    },
+  } as unknown as Parameters<typeof client.responses.parse>[0]);
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`OpenAI error ${response.status}: ${errorText}`);
+  const { text: outputText, refusal } = extractStructuredOutput(payload);
+  if (refusal) {
+    throw new Error(`OpenAI refusal: ${refusal}`);
   }
-
-  const payload = await response.json();
-  const outputText = extractOutputText(payload);
-  if (!outputText) {
-    throw new Error("OpenAI response missing output_text");
-  }
-
-  const parsed = JSON.parse(outputText);
+  const parsed = payload.output_parsed ?? parseStructuredOutput<StockRatingParsed>(outputText);
   const { sources, citations } = extractSourcesAndCitations(payload);
 
   return { parsed, sources, citations, raw: payload };
@@ -537,21 +545,90 @@ const handleRequest = async (req: Request) => {
     const msg = detail !== undefined ? `${detail}` : "";
     console.log(`[cron +${elapsed}s] ${step}${msg ? ` — ${msg}` : ""}`);
   };
+  const errors: CronErrorEntry[] = [];
+  const errorKeys = new Set<string>();
+  const runStartedAt = new Date().toISOString();
 
+  const recordCronError = (subject: string, error: unknown, context?: string) => {
+    const message = error instanceof Error ? error.message : JSON.stringify(error, null, 2);
+    const key = `${subject}::${context || ""}::${message}`;
+    if (errorKeys.has(key)) {
+      return;
+    }
+    errorKeys.add(key);
+    errors.push({
+      subject,
+      context,
+      message,
+      at: new Date().toISOString(),
+    });
+  };
+
+  const sendCronSummary = async (runDate: string) => {
+    if (!errors.length) {
+      return;
+    }
+    if (!CRON_ERROR_EMAIL) {
+      log("CRON ERRORS", `${errors.length} captured (email disabled)`);
+      return;
+    }
+
+    const errorItems = errors
+      .map((entry) => {
+        const context = entry.context
+          ? `<div><strong>Context:</strong> ${entry.context}</div>`
+          : "";
+        return `
+          <li style="margin-bottom: 12px;">
+            <div><strong>Subject:</strong> ${entry.subject}</div>
+            ${context}
+            <div><strong>Time:</strong> ${entry.at}</div>
+            <pre style="background:#f8fafc;padding:12px;border-radius:8px;">${entry.message}</pre>
+          </li>
+        `;
+      })
+      .join("");
+
+    const htmlBody = `
+      <div style="font-family: Arial, sans-serif; padding: 20px;">
+        <h2 style="color: #b91c1c;">AITrader Cron Job Errors</h2>
+        <p><strong>Run date:</strong> ${runDate}</p>
+        <p><strong>Run started:</strong> ${runStartedAt}</p>
+        <p><strong>Total unique errors:</strong> ${errors.length}</p>
+        <ul style="padding-left: 18px;">${errorItems}</ul>
+      </div>
+    `;
+
+    const subject = `AITrader Cron Errors (${runDate})`;
+    const sent = await sendEmailWithRetry(CRON_ERROR_EMAIL, htmlBody, subject);
+    if (!sent) {
+      log("CRON EMAIL FAILED", "Summary email could not be sent after retries");
+    }
+  };
+  let summarySent = false;
+  const sendCronSummaryOnce = async (runDate: string) => {
+    if (summarySent) {
+      return;
+    }
+    summarySent = true;
+    await sendCronSummary(runDate);
+  };
+
+  const runDate = getRunDate();
   log("START", `pid=${process.pid}`);
 
-  const auth = isAuthorized(req);
-  if (!auth.ok) {
-    log("AUTH FAILED", auth.reason);
-    await sendCronError("Cron authorization failed", auth.reason);
-    return NextResponse.json({ error: auth.reason }, { status: auth.status });
-  }
-  log("AUTH OK");
+  try {
+    const auth = isAuthorized(req);
+    if (!auth.ok) {
+      log("AUTH FAILED", auth.reason);
+      recordCronError("Cron authorization failed", auth.reason);
+      return NextResponse.json({ error: auth.reason }, { status: auth.status });
+    }
+    log("AUTH OK");
 
-  const supabase = createAdminClient();
-  const runDate = getRunDate();
-  const yesterdayDate = addDays(runDate, -1);
-  log("CONFIG", `runDate=${runDate}, yesterday=${yesterdayDate}`);
+    const supabase = createAdminClient();
+    const yesterdayDate = addDays(runDate, -1);
+    log("CONFIG", `runDate=${runDate}, yesterday=${yesterdayDate}`);
 
   // ----- Step 1: Fetch NASDAQ-100 list (API -> DB fallback) -----
   let nasdaqRows: NasdaqRow[] = [];
@@ -560,7 +637,7 @@ const handleRequest = async (req: Request) => {
     log("NASDAQ FETCH OK", `${nasdaqRows.length} symbols from API`);
   } catch (error) {
     log("NASDAQ FETCH FAILED", error instanceof Error ? error.message : error);
-    await sendCronError("Nasdaq API fetch failed", error);
+    recordCronError("Nasdaq API fetch failed", error);
   }
 
   if (!nasdaqRows.length) {
@@ -598,6 +675,7 @@ const handleRequest = async (req: Request) => {
 
   if (!nasdaqRows.length) {
     log("ABORT", "No Nasdaq 100 symbols available (API failed, DB empty)");
+    recordCronError("No Nasdaq 100 symbols available", "API failed and DB empty");
     return NextResponse.json(
       { error: "No Nasdaq 100 symbols available" },
       { status: 500 }
@@ -626,7 +704,7 @@ const handleRequest = async (req: Request) => {
 
   if (upsertError) {
     log("STOCKS UPSERT FAILED", upsertError.message);
-    await sendCronError("Supabase stock upsert failed", upsertError);
+    recordCronError("Supabase stock upsert failed", upsertError);
     return NextResponse.json({ error: upsertError.message }, { status: 500 });
   }
   log("STOCKS UPSERTED", `${(upsertedStocks || []).length} rows`);
@@ -653,7 +731,7 @@ const handleRequest = async (req: Request) => {
 
   if (rawError) {
     log("DAILY RAW UPSERT FAILED", rawError.message);
-    await sendCronError("Failed to store Nasdaq daily raw data", rawError);
+    recordCronError("Failed to store Nasdaq daily raw data", rawError);
     return NextResponse.json({ error: rawError.message }, { status: 500 });
   }
   log("DAILY RAW UPSERTED", `${dailyRawPayload.length} rows`);
@@ -684,7 +762,7 @@ const handleRequest = async (req: Request) => {
 
     if (snapshotError) {
       log("SNAPSHOT MEMBERS INSERT FAILED", snapshotError.message);
-      await sendCronError("Snapshot membership insert failed", snapshotError);
+      recordCronError("Snapshot membership insert failed", snapshotError);
       return NextResponse.json({ error: snapshotError.message }, { status: 500 });
     }
     log("SNAPSHOT MEMBERS INSERTED", `${snapshotStocks.length} stocks linked`);
@@ -708,7 +786,7 @@ const handleRequest = async (req: Request) => {
 
   if (batchError) {
     log("BATCH UPSERT FAILED", batchError.message);
-    await sendCronError("Batch upsert failed", batchError);
+    recordCronError("Batch upsert failed", batchError);
     return NextResponse.json({ error: batchError.message }, { status: 500 });
   }
   log("BATCH UPSERTED", `id=${batchRow.id}`);
@@ -747,7 +825,7 @@ const handleRequest = async (req: Request) => {
 
   if (memberError) {
     log("SNAPSHOT MEMBERS FETCH FAILED", memberError.message);
-    await sendCronError("Snapshot members fetch failed", memberError);
+    recordCronError("Snapshot members fetch failed", memberError);
     return NextResponse.json({ error: memberError.message }, { status: 500 });
   }
 
@@ -769,7 +847,7 @@ const handleRequest = async (req: Request) => {
 
       if (backfillError) {
         log("SNAPSHOT BACKFILL FAILED", backfillError.message);
-        await sendCronError("Snapshot backfill failed", backfillError);
+      recordCronError("Snapshot backfill failed", backfillError);
         return NextResponse.json({ error: backfillError.message }, { status: 500 });
       }
       log("SNAPSHOT BACKFILLED", `${snapshotStocks.length} stocks linked`);
@@ -782,13 +860,14 @@ const handleRequest = async (req: Request) => {
 
     if (refreshError) {
       log("SNAPSHOT REFRESH FAILED", refreshError.message);
-      await sendCronError("Snapshot members refresh failed", refreshError);
+      recordCronError("Snapshot members refresh failed", refreshError);
       return NextResponse.json({ error: refreshError.message }, { status: 500 });
     }
 
     memberRows = (refreshedMembers || []) as unknown as MemberRow[];
     if (!memberRows.length) {
       log("ABORT", "No members found for snapshot after backfill");
+      recordCronError("No members found for snapshot after backfill", snapshot.id);
       return NextResponse.json(
         { error: "No members found for snapshot after backfill" },
         { status: 500 }
@@ -838,7 +917,7 @@ const handleRequest = async (req: Request) => {
       const aiMs = Date.now() - aiStart;
       log(
         `AI OK [${++completed}/${memberRows.length}]`,
-        `${member.stocks.symbol}: score=${parsed.score}, confidence=${parsed.confidence}, bucket=${bucketFromScore(clampScore(Number(parsed.score)))}, sources=${sources.length}, ${aiMs}ms`
+        `${member.stocks.symbol}: score=${parsed.score}, latent_rank=${parsed.latent_rank}, confidence=${parsed.confidence}, bucket=${bucketFromScore(clampScore(Number(parsed.score)))}, sources=${sources.length}, ${aiMs}ms`
       );
     } catch (error) {
       failed++;
@@ -847,7 +926,7 @@ const handleRequest = async (req: Request) => {
         `AI FAILED [${completed}/${memberRows.length}]`,
         `${member.stocks.symbol}: ${error instanceof Error ? error.message : "unknown"}`
       );
-      await sendCronError(
+      recordCronError(
         "OpenAI stock rating failed",
         error,
         `Ticker: ${member.stocks.symbol}`
@@ -856,6 +935,7 @@ const handleRequest = async (req: Request) => {
         ticker: member.stocks.symbol,
         date: runDate,
         score: 0,
+        latent_rank: 0.5,
         confidence: 0,
         reason_1s: "Model evaluation unavailable due to an error.",
         risks: ["Data unavailable", "Model error"],
@@ -864,11 +944,16 @@ const handleRequest = async (req: Request) => {
     }
 
     const score = clampScore(Number(parsed.score));
+    const latentRank = clampLatentRank(Number(parsed.latent_rank));
     const confidence = clampConfidence(Number(parsed.confidence));
     const scoreDelta =
       previous.score === null || previous.score === undefined ? null : score - previous.score;
     const bucket = bucketFromScore(score);
-    const bucketChangeExplanation = parsed.change?.change_explanation ?? null;
+    const previousBucket = previous.bucket ?? null;
+    const changedBucket = previousBucket ? previousBucket !== bucket : false;
+    const bucketChangeExplanation = changedBucket
+      ? parsed.change?.change_explanation ?? null
+      : null;
 
     // ----- Upsert into ai_analysis_runs -----
     const { data: runRow, error: runError } = await supabase
@@ -878,6 +963,7 @@ const handleRequest = async (req: Request) => {
           batch_id: batchRow.id,
           stock_id: member.stock_id,
           score,
+          latent_rank: latentRank,
           score_delta: scoreDelta,
           confidence,
           bucket,
@@ -896,7 +982,7 @@ const handleRequest = async (req: Request) => {
 
     if (runError) {
       log(`DB WRITE FAILED`, `ai_analysis_runs for ${member.stocks.symbol}: ${runError.message}`);
-      await sendCronError(
+      recordCronError(
         "Supabase analysis upsert failed",
         runError,
         `Ticker: ${member.stocks.symbol}`
@@ -912,6 +998,7 @@ const handleRequest = async (req: Request) => {
           stock_id: member.stock_id,
           latest_run_id: runRow.id,
           score,
+          latent_rank: latentRank,
           score_delta: scoreDelta,
           confidence,
           bucket,
@@ -926,13 +1013,15 @@ const handleRequest = async (req: Request) => {
 
     if (currentError) {
       log(`DB WRITE FAILED`, `nasdaq100_recommendations_current for ${member.stocks.symbol}: ${currentError.message}`);
-      await sendCronError(
+      recordCronError(
         "Supabase current recs upsert failed",
         currentError,
         `Ticker: ${member.stocks.symbol}`
       );
       return { ticker: member.stocks.symbol, status: "failed", error: currentError.message };
     }
+
+    revalidatePath(`/stocks/${member.stocks.symbol.toLowerCase()}`);
 
     return { ticker: member.stocks.symbol, status: "ok", score, bucket };
   });
@@ -942,14 +1031,15 @@ const handleRequest = async (req: Request) => {
   // ----- Step 10: Clean up stale recommendations -----
   const memberIds = memberRows.map((member) => member.stock_id);
   if (memberIds.length) {
+    const memberIdsFilter = `(${memberIds.join(",")})`;
     const { error: cleanupError } = await supabase
       .from("nasdaq100_recommendations_current")
       .delete()
-      .not("stock_id", "in", memberIds);
+      .not("stock_id", "in", memberIdsFilter);
 
     if (cleanupError) {
       log("CLEANUP FAILED", cleanupError.message);
-      await sendCronError("Current recs cleanup failed", cleanupError);
+      recordCronError("Current recs cleanup failed", cleanupError);
       return NextResponse.json({ error: cleanupError.message }, { status: 500 });
     }
     log("CLEANUP OK", "Stale recommendations removed");
@@ -962,14 +1052,17 @@ const handleRequest = async (req: Request) => {
   const totalSeconds = ((Date.now() - t0) / 1000).toFixed(1);
   log("DONE", `${summary.ok} ok, ${summary.failed} failed, ${totalSeconds}s total`);
 
-  return NextResponse.json({
-    runDate,
-    total: results.length,
-    ok: summary.ok,
-    failed: summary.failed,
-    elapsedSeconds: Number(totalSeconds),
-    results,
-  });
+    return NextResponse.json({
+      runDate,
+      total: results.length,
+      ok: summary.ok,
+      failed: summary.failed,
+      elapsedSeconds: Number(totalSeconds),
+      results,
+    });
+  } finally {
+    await sendCronSummaryOnce(runDate);
+  }
 };
 
 export async function GET(req: Request) {
