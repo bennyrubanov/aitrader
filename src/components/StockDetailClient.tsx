@@ -174,7 +174,7 @@ const StockDetailClient = ({
                     </p>
                   ) : null}
                 </div>
-                <Link href="/platform">
+                <Link href="/platform/daily">
                   <Button variant="outline">Back to search</Button>
                 </Link>
               </div>
@@ -230,7 +230,7 @@ const StockDetailClient = ({
                             <Link href="/payment">
                               <Button size="sm">Upgrade to premium</Button>
                             </Link>
-                            <Link href="/platform">
+                            <Link href="/platform/daily">
                               <Button size="sm" variant="outline">
                                 Log in
                               </Button>
@@ -342,7 +342,7 @@ const StockDetailClient = ({
                           <Link href="/payment">
                             <Button size="sm">Upgrade to premium</Button>
                           </Link>
-                          <Link href="/platform">
+                          <Link href="/platform/daily">
                             <Button size="sm" variant="outline">
                               Log in
                             </Button>

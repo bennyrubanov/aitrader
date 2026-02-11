@@ -5,6 +5,11 @@ import { createClient as createServerClient } from "@/utils/supabase/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+type CheckoutRequestBody = {
+  email?: string;
+  successPath?: string;
+};
+
 const getStripeClient = () => {
   const secretKey = process.env.STRIPE_SECRET_KEY;
   if (!secretKey) {
@@ -54,52 +59,93 @@ const getSiteUrl = (request: Request) => {
   throw new Error("Missing NEXT_PUBLIC_SITE_URL");
 };
 
+const normalizeEmail = (value: unknown) => {
+  if (typeof value !== "string") {
+    return "";
+  }
+  return value.trim().toLowerCase();
+};
+
+const sanitizeSuccessPath = (value: unknown) => {
+  if (typeof value !== "string") {
+    return "/platform/daily";
+  }
+
+  if (!value.startsWith("/platform")) {
+    return "/platform/daily";
+  }
+
+  return value.split("#")[0] || "/platform/daily";
+};
+
 export async function POST(req: Request) {
   try {
-    // Get the current user from Supabase
+    const body = (await req.json().catch(() => ({}))) as CheckoutRequestBody;
+    const requestedEmail = normalizeEmail(body.email);
+    const successPath = sanitizeSuccessPath(body.successPath);
+
     const supabase = await createServerClient();
     const {
       data: { user },
     } = await supabase.auth.getUser();
 
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    let profileEmail: string | null = null;
+    if (user) {
+      const { data: profile } = await supabase
+        .from("user_profiles")
+        .select("email")
+        .eq("id", user.id)
+        .maybeSingle();
+      profileEmail = profile?.email ?? null;
     }
 
-    // Get user profile to check email
-    const { data: profile } = await supabase
-      .from("user_profiles")
-      .select("email")
-      .eq("id", user.id)
-      .single();
-
-    const userEmail = profile?.email || user.email;
-
-    if (!userEmail) {
+    const checkoutEmail = requestedEmail || profileEmail || user?.email || null;
+    if (!checkoutEmail) {
       return NextResponse.json(
-        { error: "User email not found" },
+        { error: "Email is required to start checkout." },
         { status: 400 }
       );
+    }
+
+    if (user) {
+      const { error: profileUpsertError } = await supabase.from("user_profiles").upsert(
+        {
+          id: user.id,
+          email: checkoutEmail,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "id" }
+      );
+
+      if (profileUpsertError) {
+        throw new Error(profileUpsertError.message);
+      }
     }
 
     const stripe = getStripeClient();
     const priceId = await resolveCheckoutPriceId(stripe);
     const siteUrl = getSiteUrl(req);
 
-    const { error: profileUpsertError } = await supabase.from("user_profiles").upsert(
-      {
-        id: user.id,
-        email: userEmail,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "id" }
-    );
+    const successUrl = new URL(successPath, siteUrl);
+    successUrl.searchParams.set("subscription", "success");
+    successUrl.searchParams.set("checkout_email", checkoutEmail);
 
-    if (profileUpsertError) {
-      throw new Error(profileUpsertError.message);
+    const cancelUrl = new URL("/payment", siteUrl);
+    cancelUrl.searchParams.set("subscription", "cancelled");
+
+    const metadata: Record<string, string> = {
+      checkout_email: checkoutEmail,
+    };
+
+    const subscriptionMetadata: Record<string, string> = {
+      checkout_email: checkoutEmail,
+    };
+
+    if (user?.id) {
+      metadata.user_id = user.id;
+      subscriptionMetadata.user_id = user.id;
     }
 
-    // Create a Stripe Checkout session with user metadata
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       payment_method_types: ["card"],
@@ -109,17 +155,13 @@ export async function POST(req: Request) {
           quantity: 1,
         },
       ],
-      success_url: `${siteUrl}/platform?subscription=success`,
-      cancel_url: `${siteUrl}/payment?subscription=cancelled`,
-      customer_email: userEmail,
-      client_reference_id: user.id,
-      metadata: {
-        user_id: user.id,
-      },
+      success_url: successUrl.toString(),
+      cancel_url: cancelUrl.toString(),
+      customer_email: checkoutEmail,
+      client_reference_id: user?.id ?? undefined,
+      metadata,
       subscription_data: {
-        metadata: {
-          user_id: user.id,
-        },
+        metadata: subscriptionMetadata,
       },
     });
 

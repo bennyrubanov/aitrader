@@ -1,39 +1,69 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { ArrowRight, Loader2 } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { ArrowRight, Loader2, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
-import { createClient as createSupabaseBrowserClient } from "@/utils/supabase/browser";
+import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/utils/supabase/browser";
+
+const isValidEmail = (value: string) => /\S+@\S+\.\S+/.test(value.trim());
 
 const PaymentPage = () => {
+  const searchParams = useSearchParams();
+  const subscriptionStatus = searchParams.get("subscription");
+
+  const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
+  const [isPrefillingEmail, setIsPrefillingEmail] = useState(true);
 
   useEffect(() => {
     window.scrollTo(0, 0);
   }, []);
 
-  const handleSubscribe = async () => {
-    const supabase = createSupabaseBrowserClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+  useEffect(() => {
+    let isMounted = true;
 
-    if (!user) {
-      // Trigger Google OAuth sign-in with redirect back to payment
-      setLoading(true);
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: {
-          redirectTo: `${window.location.origin}/auth/callback?next=/payment`,
-        },
-      });
-      if (error) {
-        console.error("Sign-in error:", error);
-        alert("Failed to sign in. Please try again.");
-        setLoading(false);
+    const prefillEmail = async () => {
+      if (!isSupabaseConfigured()) {
+        if (isMounted) {
+          setIsPrefillingEmail(false);
+        }
+        return;
       }
+
+      const supabase = getSupabaseBrowserClient();
+      if (!supabase) {
+        if (isMounted) {
+          setIsPrefillingEmail(false);
+        }
+        return;
+      }
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (isMounted) {
+        if (user?.email) {
+          setEmail(user.email);
+        }
+        setIsPrefillingEmail(false);
+      }
+    };
+
+    prefillEmail();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const handleSubscribe = async () => {
+    if (!isValidEmail(email)) {
+      alert("Please enter a valid email address.");
       return;
     }
 
@@ -41,20 +71,24 @@ const PaymentPage = () => {
     try {
       const response = await fetch("/api/stripe/checkout", {
         method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          successPath: "/platform/daily",
+        }),
       });
 
-      if (!response.ok) {
-        throw new Error("Failed to create checkout session");
+      const payload = (await response.json()) as { url?: string; error?: string };
+      if (!response.ok || !payload.url) {
+        throw new Error(payload.error ?? "Failed to create checkout session");
       }
 
-      const { url } = await response.json();
-      if (url) {
-        window.location.href = url;
-      }
+      window.location.href = payload.url;
     } catch (error) {
       console.error("Checkout error:", error);
-      alert("Failed to start checkout. Please try again.");
-    } finally {
+      alert(error instanceof Error ? error.message : "Failed to start checkout. Please try again.");
       setLoading(false);
     }
   };
@@ -70,21 +104,46 @@ const PaymentPage = () => {
                 Unlock Premium AI Trading Insights
               </h1>
               <p className="text-xl text-gray-600 mb-8">
-                Get instant access to our AI-powered stock analysis platform and
-                start making smarter investment decisions today.
+                Pay first to access the platform. You can create your account right after checkout
+                from inside the platform experience.
               </p>
+
+              {subscriptionStatus === "cancelled" && (
+                <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  Checkout was canceled. You can restart whenever you&apos;re ready.
+                </div>
+              )}
 
               <div className="bg-white rounded-xl shadow-elevated border border-gray-100 p-8 mb-12">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-6">
                   <div className="text-left">
-                    <h3 className="text-2xl font-bold mb-2">
-                      AI Trader - Outperformer
-                    </h3>
+                    <h3 className="text-2xl font-bold mb-2">AI Trader - Outperformer</h3>
                     <p className="text-gray-600">Monthly subscription</p>
                   </div>
                   <div className="text-2xl md:text-3xl font-bold text-trader-blue">
                     $29<span className="text-lg font-normal text-gray-500">/month</span>
                   </div>
+                </div>
+
+                <div className="mb-6 text-left">
+                  <label htmlFor="checkout-email" className="block text-sm font-medium mb-2">
+                    Email for receipt and premium access sync
+                  </label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-gray-400" />
+                    <Input
+                      id="checkout-email"
+                      type="email"
+                      value={email}
+                      onChange={(event) => setEmail(event.target.value)}
+                      placeholder="you@example.com"
+                      className="pl-10"
+                      autoComplete="email"
+                    />
+                  </div>
+                  {isPrefillingEmail && (
+                    <p className="mt-2 text-xs text-gray-500">Checking for an existing sign-in…</p>
+                  )}
                 </div>
 
                 <ul className="space-y-4 mb-8 text-left">
@@ -126,7 +185,7 @@ const PaymentPage = () => {
                         />
                       </svg>
                     </div>
-                    <span>Real-time trading signals and alerts</span>
+                    <span>Daily and weekly recommendation tables</span>
                   </li>
                   <li className="flex items-start space-x-3">
                     <div className="bg-trader-blue/10 rounded-full p-1 mt-1">
@@ -146,47 +205,7 @@ const PaymentPage = () => {
                         />
                       </svg>
                     </div>
-                    <span>Personalized portfolio recommendations</span>
-                  </li>
-                  <li className="flex items-start space-x-3">
-                    <div className="bg-trader-blue/10 rounded-full p-1 mt-1">
-                      <svg
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        xmlns="http://www.w3.org/2000/svg"
-                      >
-                        <path
-                          d="M20 6L9 17L4 12"
-                          stroke="#0A84FF"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                    </div>
-                    <span>Access to our proprietary AI Trader bot</span>
-                  </li>
-                  <li className="flex items-start space-x-3">
-                    <div className="bg-trader-blue/10 rounded-full p-1 mt-1">
-                      <svg
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        xmlns="http://www.w3.org/2000/svg"
-                      >
-                        <path
-                          d="M20 6L9 17L4 12"
-                          stroke="#0A84FF"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                    </div>
-                    <span>Early warning on market risks</span>
+                    <span>Detailed explanation and risk context for each stock</span>
                   </li>
                 </ul>
 
@@ -202,7 +221,7 @@ const PaymentPage = () => {
                     </>
                   ) : (
                     <>
-                      <span className="mr-2">Subscribe Now</span>
+                      <span className="mr-2">Continue to Checkout</span>
                       <ArrowRight size={18} />
                     </>
                   )}
@@ -211,10 +230,9 @@ const PaymentPage = () => {
 
               <div className="text-gray-500 text-sm">
                 <p>
-                  By subscribing, you agree to our terms of service and privacy
-                  policy.
+                  By subscribing, you agree to our terms of service and privacy policy. You can
+                  cancel your subscription anytime.
                 </p>
-                <p className="mt-2">You can cancel your subscription anytime.</p>
               </div>
             </div>
           </div>

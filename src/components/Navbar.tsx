@@ -2,12 +2,16 @@
 
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Loader2, LogIn } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/utils/supabase/browser";
 
 const Navbar: React.FC = () => {
   const [scrolled, setScrolled] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [isSigningIn, setIsSigningIn] = useState(false);
   const pathname = usePathname();
 
   useEffect(() => {
@@ -28,6 +32,71 @@ const Navbar: React.FC = () => {
       }
     }
   }, [pathname]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadAuthState = async () => {
+      if (!isSupabaseConfigured()) {
+        if (isMounted) {
+          setIsAuthenticated(false);
+          setIsAuthLoading(false);
+        }
+        return;
+      }
+
+      const supabase = getSupabaseBrowserClient();
+      if (!supabase) {
+        if (isMounted) {
+          setIsAuthenticated(false);
+          setIsAuthLoading(false);
+        }
+        return;
+      }
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (isMounted) {
+        setIsAuthenticated(Boolean(user));
+        setIsAuthLoading(false);
+      }
+    };
+
+    loadAuthState();
+
+    const supabase = getSupabaseBrowserClient();
+    const subscription = supabase?.auth.onAuthStateChange((_event, session) => {
+      setIsAuthenticated(Boolean(session?.user));
+      setIsAuthLoading(false);
+    });
+
+    return () => {
+      isMounted = false;
+      subscription?.data.subscription.unsubscribe();
+    };
+  }, []);
+
+  const handleLogin = async () => {
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase) {
+      return;
+    }
+
+    setIsSigningIn(true);
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback?next=/platform/daily`,
+      },
+    });
+
+    if (error) {
+      setIsSigningIn(false);
+      alert("Unable to start sign in. Please try again.");
+    }
+  };
 
   // Function to create proper links that work from any page
   const getHomeLink = (hash: string) => {
@@ -70,7 +139,7 @@ const Navbar: React.FC = () => {
               Research
             </Link>
             <Link
-              href="/platform"
+              href="/platform/daily"
               className="text-gray-600 hover:text-gray-900 transition-colors"
             >
               Platform
@@ -83,12 +152,31 @@ const Navbar: React.FC = () => {
             </Link>
           </nav>
 
-          <Link href="/payment">
-            <Button className="rounded-full px-5 transition-all duration-300 bg-trader-blue hover:bg-trader-blue-dark">
-              <span className="mr-2">Get Started</span>
-              <ArrowRight size={16} />
-            </Button>
-          </Link>
+          <div className="flex items-center gap-2">
+            {!isAuthenticated && (
+              <Button
+                variant="outline"
+                className="rounded-full px-5"
+                onClick={handleLogin}
+                disabled={isSigningIn || isAuthLoading}
+              >
+                {isSigningIn || isAuthLoading ? (
+                  <Loader2 size={16} className="mr-2 animate-spin" />
+                ) : (
+                  <LogIn size={16} className="mr-2" />
+                )}
+                <span>Login</span>
+              </Button>
+            )}
+            <Link href={isAuthenticated ? "/platform/daily" : "/payment"}>
+              <Button className="rounded-full px-5 transition-all duration-300 bg-trader-blue hover:bg-trader-blue-dark">
+                <span className="mr-2">
+                  {isAuthenticated ? "Go to Platform" : "Get Started"}
+                </span>
+                <ArrowRight size={16} />
+              </Button>
+            </Link>
+          </div>
         </div>
       </div>
     </header>

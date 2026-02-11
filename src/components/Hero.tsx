@@ -7,6 +7,7 @@ import { Search, ArrowRight, LockIcon } from "lucide-react";
 import { freeStocks, premiumStocks, Stock, searchStocks } from "@/lib/stockData";
 import StockCard from "@/components/ui/stock-card";
 import { useAnimatedCounter } from "@/lib/animations";
+import Link from "next/link";
 
 const Hero: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState("");
@@ -129,8 +130,17 @@ const Hero: React.FC = () => {
           </div>
           
           {selectedStock && (
-            <div className="mt-8 max-w-md mx-auto animate-fade-in">
-              <StockCard stock={selectedStock} showDetails className="mx-auto max-w-md" />
+            <div className="mt-8 max-w-2xl mx-auto animate-fade-in rounded-xl border border-blue-100 bg-blue-50/50 p-4">
+              <p className="text-sm text-gray-700 mb-2">
+                <span className="font-semibold">{selectedStock.symbol}</span> selected.
+              </p>
+              <Link
+                href={`/stocks/${selectedStock.symbol.toLowerCase()}`}
+                className="inline-flex items-center text-trader-blue hover:text-trader-blue-dark font-medium transition-colors"
+              >
+                See why and how it ranks vs other stocks
+                <ArrowRight size={16} className="ml-2" />
+              </Link>
             </div>
           )}
         </div>

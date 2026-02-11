@@ -45,7 +45,7 @@ const generateNonce = async (): Promise<string[]> => {
 };
 
 interface GoogleOneTapProps {
-  /** Redirect path after successful sign-in. Default: '/platform' */
+  /** Redirect path after successful sign-in. Default: '/platform/daily' */
   redirectTo?: string;
   /** Whether to auto-select if only one account is available. Default: true */
   autoSelect?: boolean;
@@ -54,7 +54,7 @@ interface GoogleOneTapProps {
 }
 
 const GoogleOneTap = ({
-  redirectTo = '/platform',
+  redirectTo = '/platform/daily',
   autoSelect = true,
   enabled = true,
 }: GoogleOneTapProps) => {

@@ -8,7 +8,7 @@ type StockDetailPageProps = {
   params: Promise<{ symbol: string }>;
 };
 
-export const dynamicParams = false;
+export const dynamicParams = true;
 export const revalidate = 86400;
 
 export const generateStaticParams = async () =>
@@ -56,7 +56,7 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
   const { data: currentRow } = stockId
     ? await supabase
         .from("nasdaq100_recommendations_current")
-        .select("score, score_delta, confidence, bucket, reason_1s, risks, updated_at")
+        .select("score, score_delta, confidence, bucket, updated_at")
         .eq("stock_id", stockId)
         .maybeSingle()
     : { data: null };
@@ -69,7 +69,7 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
       currentRow?.confidence === null || currentRow?.confidence === undefined
         ? null
         : Number(currentRow?.confidence),
-    summary: currentRow?.reason_1s ?? null,
+    summary: null,
     risks: [],
     updatedAt: currentRow?.updated_at ?? null,
   };
