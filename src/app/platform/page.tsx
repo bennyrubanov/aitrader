@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from '@/hooks/use-toast';
 import { allStocks } from '@/lib/stockData';
 import { getSupabaseBrowserClient, isSupabaseConfigured } from '@/utils/supabase/browser';
+import GoogleOneTap from '@/components/GoogleOneTap';
 
 type RankedStock = {
   symbol: string;
@@ -126,7 +127,7 @@ const PlatformPage = () => {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/platform`,
+        redirectTo: `${window.location.origin}/auth/callback?next=/platform`,
       },
     });
     setIsConnecting(false);
@@ -141,6 +142,7 @@ const PlatformPage = () => {
 
   return (
     <div className="min-h-screen bg-white flex flex-col">
+      <GoogleOneTap redirectTo="/platform" />
       <Navbar />
       <main className="flex-grow">
         <section className="py-20 md:py-28">
