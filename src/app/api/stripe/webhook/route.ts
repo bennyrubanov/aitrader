@@ -15,23 +15,78 @@ const getStripeClient = () => {
 
 const updatePremiumByUserId = async (userId: string, isPremium: boolean) => {
   const supabase = createAdminClient();
-  const { error } = await supabase
+  const updatedAt = new Date().toISOString();
+  const { data, error } = await supabase
     .from("user_profiles")
-    .update({ is_premium: isPremium, updated_at: new Date().toISOString() })
-    .eq("id", userId);
+    .update({ is_premium: isPremium, updated_at: updatedAt })
+    .eq("id", userId)
+    .select("id")
+    .limit(1);
   if (error) {
     throw new Error(error.message);
   }
+
+  // If the row is missing, create it on the fly so billing state is not dropped.
+  if (!data || data.length === 0) {
+    const { error: upsertError } = await supabase.from("user_profiles").upsert(
+      {
+        id: userId,
+        is_premium: isPremium,
+        updated_at: updatedAt,
+      },
+      { onConflict: "id" }
+    );
+
+    if (upsertError) {
+      throw new Error(upsertError.message);
+    }
+  }
+};
+
+const resolveAuthUserIdByEmail = async (email: string) => {
+  const supabase = createAdminClient();
+  const normalizedEmail = email.trim().toLowerCase();
+  const { data, error } = await supabase
+    .schema("auth")
+    .from("users")
+    .select("id")
+    .eq("email", normalizedEmail)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data?.id ?? null;
 };
 
 const updatePremiumByEmail = async (email: string, isPremium: boolean) => {
   const supabase = createAdminClient();
-  const { error } = await supabase
+  const normalizedEmail = email.trim().toLowerCase();
+  const updatedAt = new Date().toISOString();
+  const { data, error } = await supabase
     .from("user_profiles")
-    .update({ is_premium: isPremium, updated_at: new Date().toISOString() })
-    .eq("email", email);
+    .update({ is_premium: isPremium, updated_at: updatedAt })
+    .eq("email", normalizedEmail)
+    .select("id")
+    .limit(1);
   if (error) {
     throw new Error(error.message);
+  }
+
+  // Email-only Stripe events can miss metadata; if profile is missing,
+  // recover via auth.users lookup and create/update profile by user id.
+  if (!data || data.length === 0) {
+    const userId = await resolveAuthUserIdByEmail(normalizedEmail);
+    if (userId) {
+      await updatePremiumByUserId(userId, isPremium);
+      return;
+    }
+
+    console.warn("Stripe webhook: could not map email to auth user", {
+      email: normalizedEmail,
+      isPremium,
+    });
   }
 };
 
@@ -51,6 +106,10 @@ const resolveCustomerEmail = async (
     return response.email ?? null;
   }
   return null;
+};
+
+const isPremiumSubscriptionStatus = (status: Stripe.Subscription.Status) => {
+  return status === "active" || status === "trialing" || status === "past_due";
 };
 
 export async function POST(req: Request) {
@@ -149,6 +208,20 @@ export async function POST(req: Request) {
         const email = await resolveCustomerEmail(stripe, subscription.customer);
         if (email) {
           await updatePremiumByEmail(email, false);
+        }
+        break;
+      }
+      case "customer.subscription.updated": {
+        const subscription = event.data.object as Stripe.Subscription;
+        const isPremium = isPremiumSubscriptionStatus(subscription.status);
+        const userId = subscription.metadata?.user_id || null;
+        if (userId) {
+          await updatePremiumByUserId(userId, isPremium);
+          break;
+        }
+        const email = await resolveCustomerEmail(stripe, subscription.customer);
+        if (email) {
+          await updatePremiumByEmail(email, isPremium);
         }
         break;
       }

@@ -157,7 +157,9 @@ const ActivityNotifications = () => {
           }
         },
         (err) => {
-          console.error('Error fetching locations:', err.message);
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn('Error fetching locations:', err.message);
+          }
           // Keep using fallback locations if API fails
         }
       );

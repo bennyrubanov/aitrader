@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
 import { Input } from '@/components/ui/input';
@@ -21,8 +22,13 @@ type RankedStock = {
 };
 
 const PlatformPage = () => {
+  const searchParams = useSearchParams();
+  const subscriptionStatus = searchParams.get('subscription');
   const [query, setQuery] = useState('');
   const [isConnecting, setIsConnecting] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isPremium, setIsPremium] = useState(false);
+  const [isProfileLoading, setIsProfileLoading] = useState(true);
   const [rankedStocks, setRankedStocks] = useState<RankedStock[]>([]);
   const [rankingStatus, setRankingStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>(
     'idle'
@@ -31,7 +37,74 @@ const PlatformPage = () => {
   useEffect(() => {
     let isMounted = true;
 
+    const loadProfile = async () => {
+      if (!isSupabaseConfigured()) {
+        if (isMounted) {
+          setIsAuthenticated(false);
+          setIsPremium(false);
+          setIsProfileLoading(false);
+        }
+        return;
+      }
+
+      const supabase = getSupabaseBrowserClient();
+      if (!supabase) {
+        if (isMounted) {
+          setIsAuthenticated(false);
+          setIsPremium(false);
+          setIsProfileLoading(false);
+        }
+        return;
+      }
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        if (isMounted) {
+          setIsAuthenticated(false);
+          setIsPremium(false);
+          setIsProfileLoading(false);
+        }
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .select('is_premium')
+        .eq('id', user.id)
+        .maybeSingle();
+
+      if (isMounted) {
+        setIsAuthenticated(true);
+        setIsPremium(!error && Boolean(data?.is_premium));
+        setIsProfileLoading(false);
+      }
+    };
+
+    loadProfile();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
     const loadRankings = async () => {
+      if (!isProfileLoading && !isPremium) {
+        if (isMounted) {
+          setRankedStocks([]);
+          setRankingStatus('idle');
+        }
+        return;
+      }
+
+      if (isProfileLoading) {
+        return;
+      }
+
       if (!isSupabaseConfigured()) {
         if (isMounted) {
           setRankedStocks(
@@ -99,7 +172,7 @@ const PlatformPage = () => {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [isPremium, isProfileLoading]);
 
   const results = useMemo(() => {
     if (!query.trim()) {
@@ -161,21 +234,41 @@ const PlatformPage = () => {
                 </div>
               </div>
 
+              {subscriptionStatus === 'success' && (
+                <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+                  Subscription active. Your premium access is being applied now.
+                </div>
+              )}
+
               <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                   <div>
                     <h2 className="text-xl font-semibold">Connect your account</h2>
                     <p className="text-sm text-gray-600">
-                      Google sign-in is ready once Supabase is configured.
+                      Sign in with Google, then subscribe to unlock premium stock intelligence.
                     </p>
                   </div>
-                  <Button
-                    onClick={handleSignIn}
-                    disabled={isConnecting}
-                    className="bg-trader-blue hover:bg-trader-blue-dark"
-                  >
-                    {isConnecting ? 'Connecting...' : 'Sign in with Google'}
-                  </Button>
+                  {!isAuthenticated ? (
+                    <Button
+                      onClick={handleSignIn}
+                      disabled={isConnecting || isProfileLoading}
+                      className="bg-trader-blue hover:bg-trader-blue-dark"
+                    >
+                      {isConnecting ? 'Connecting...' : 'Sign in with Google'}
+                    </Button>
+                  ) : isPremium ? (
+                    <Link href="/billing">
+                      <Button className="bg-trader-blue hover:bg-trader-blue-dark">
+                        Manage subscription
+                      </Button>
+                    </Link>
+                  ) : (
+                    <Link href="/payment">
+                      <Button className="bg-trader-blue hover:bg-trader-blue-dark">
+                        Upgrade to Premium
+                      </Button>
+                    </Link>
+                  )}
                 </div>
                 {!isSupabaseConfigured() && (
                   <p className="text-xs text-amber-600 mt-3">
@@ -187,52 +280,78 @@ const PlatformPage = () => {
             </div>
 
             <div className="max-w-4xl mx-auto">
-              <div className="mb-6">
-                <Input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Search stocks by symbol or company name"
-                />
-              </div>
+              {isPremium ? (
+                <>
+                  <div className="mb-6">
+                    <Input
+                      value={query}
+                      onChange={(event) => setQuery(event.target.value)}
+                      placeholder="Search stocks by symbol or company name"
+                    />
+                  </div>
 
-              {rankingStatus === 'loading' && (
-                <p className="text-sm text-gray-500 mb-4">Loading ranked Nasdaq-100 list…</p>
-              )}
-              {rankingStatus === 'error' && (
-                <p className="text-sm text-red-500 mb-4">Unable to load rankings right now.</p>
-              )}
+                  {rankingStatus === 'loading' && (
+                    <p className="text-sm text-gray-500 mb-4">Loading ranked Nasdaq-100 list…</p>
+                  )}
+                  {rankingStatus === 'error' && (
+                    <p className="text-sm text-red-500 mb-4">Unable to load rankings right now.</p>
+                  )}
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {results.map((stock) => (
-                  <Link
-                    href={`/stocks/${stock.symbol}`}
-                    key={stock.symbol}
-                    className="rounded-xl border border-gray-200 p-4 hover:border-trader-blue transition-colors"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="text-lg font-semibold">{stock.symbol}</div>
-                        <div className="text-sm text-gray-600">{stock.name}</div>
-                      </div>
-                      {stock.bucket && (
-                        <Badge variant="outline" className="capitalize">
-                          {stock.bucket}
-                        </Badge>
-                      )}
-                    </div>
-                    <div className="mt-3 text-xs text-gray-500 flex flex-wrap gap-2">
-                      {stock.score !== null && <span>Score {stock.score}</span>}
-                      {stock.latentRank !== null && (
-                        <span>Latent rank {stock.latentRank.toFixed(3)}</span>
-                      )}
-                      <span>View recommendation history →</span>
-                    </div>
-                  </Link>
-                ))}
-              </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {results.map((stock) => (
+                      <Link
+                        href={`/stocks/${stock.symbol}`}
+                        key={stock.symbol}
+                        className="rounded-xl border border-gray-200 p-4 hover:border-trader-blue transition-colors"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="text-lg font-semibold">{stock.symbol}</div>
+                            <div className="text-sm text-gray-600">{stock.name}</div>
+                          </div>
+                          {stock.bucket && (
+                            <Badge variant="outline" className="capitalize">
+                              {stock.bucket}
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="mt-3 text-xs text-gray-500 flex flex-wrap gap-2">
+                          {stock.score !== null && <span>Score {stock.score}</span>}
+                          {stock.latentRank !== null && (
+                            <span>Latent rank {stock.latentRank.toFixed(3)}</span>
+                          )}
+                          <span>View recommendation history →</span>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
 
-              {!results.length && (
-                <p className="text-sm text-gray-500 mt-6">No matches found. Try another symbol.</p>
+                  {!results.length && (
+                    <p className="text-sm text-gray-500 mt-6">No matches found. Try another symbol.</p>
+                  )}
+                </>
+              ) : (
+                <div className="rounded-xl border border-gray-200 bg-gray-50 p-6">
+                  <h3 className="text-lg font-semibold mb-2">Premium access required</h3>
+                  <p className="text-sm text-gray-600 mb-4">
+                    The full ranked list and recommendation history are available to premium members.
+                  </p>
+                  {isAuthenticated ? (
+                    <Link href="/payment">
+                      <Button className="bg-trader-blue hover:bg-trader-blue-dark">
+                        Upgrade to Premium
+                      </Button>
+                    </Link>
+                  ) : (
+                    <Button
+                      onClick={handleSignIn}
+                      disabled={isConnecting}
+                      className="bg-trader-blue hover:bg-trader-blue-dark"
+                    >
+                      {isConnecting ? 'Connecting...' : 'Sign in to continue'}
+                    </Button>
+                  )}
+                </div>
               )}
             </div>
           </div>

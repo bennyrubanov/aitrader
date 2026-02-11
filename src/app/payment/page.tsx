@@ -1,16 +1,63 @@
 "use client";
 
-import React, { useEffect } from "react";
-import { ArrowRight } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { ArrowRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
-const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/4gM5kD3myaTOgsSbCuf7i00";
+import { createClient as createSupabaseBrowserClient } from "@/utils/supabase/browser";
 
 const PaymentPage = () => {
+  const [loading, setLoading] = useState(false);
+
   useEffect(() => {
     window.scrollTo(0, 0);
   }, []);
+
+  const handleSubscribe = async () => {
+    const supabase = createSupabaseBrowserClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      // Trigger Google OAuth sign-in with redirect back to payment
+      setLoading(true);
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback?next=/payment`,
+        },
+      });
+      if (error) {
+        console.error("Sign-in error:", error);
+        alert("Failed to sign in. Please try again.");
+        setLoading(false);
+      }
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await fetch("/api/stripe/checkout", {
+        method: "POST",
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to create checkout session");
+      }
+
+      const { url } = await response.json();
+      if (url) {
+        window.location.href = url;
+      }
+    } catch (error) {
+      console.error("Checkout error:", error);
+      alert("Failed to start checkout. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-white flex flex-col">
@@ -143,12 +190,23 @@ const PaymentPage = () => {
                   </li>
                 </ul>
 
-                <a href={STRIPE_PAYMENT_LINK} className="block w-full">
-                  <Button className="w-full py-6 text-lg rounded-xl bg-trader-blue hover:bg-trader-blue-dark transition-all duration-300">
-                    <span className="mr-2">Subscribe Now</span>
-                    <ArrowRight size={18} />
-                  </Button>
-                </a>
+                <Button
+                  onClick={handleSubscribe}
+                  disabled={loading}
+                  className="w-full py-6 text-lg rounded-xl bg-trader-blue hover:bg-trader-blue-dark transition-all duration-300"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                      Processing...
+                    </>
+                  ) : (
+                    <>
+                      <span className="mr-2">Subscribe Now</span>
+                      <ArrowRight size={18} />
+                    </>
+                  )}
+                </Button>
               </div>
 
               <div className="text-gray-500 text-sm">
