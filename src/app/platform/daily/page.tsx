@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
 import { Loader2, ShieldCheck, ShieldX } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -66,9 +65,8 @@ const formatDate = (value: string | null) => {
 };
 
 const DailyRecommendationsPage = () => {
-  const searchParams = useSearchParams();
-  const subscriptionStatus = searchParams.get("subscription");
-  const checkoutEmail = searchParams.get("checkout_email");
+  const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
+  const [checkoutEmail, setCheckoutEmail] = useState<string | null>(null);
 
   const [query, setQuery] = useState("");
   const [rows, setRows] = useState<DailyRow[]>([]);
@@ -78,6 +76,12 @@ const DailyRecommendationsPage = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isPremium, setIsPremium] = useState(false);
   const [isProfileLoading, setIsProfileLoading] = useState(true);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setSubscriptionStatus(params.get("subscription"));
+    setCheckoutEmail(params.get("checkout_email"));
+  }, []);
 
   useEffect(() => {
     let isMounted = true;

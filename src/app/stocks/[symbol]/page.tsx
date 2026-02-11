@@ -33,33 +33,59 @@ export const generateMetadata = async ({ params }: StockDetailPageProps): Promis
 const StockDetailPage = async ({ params }: StockDetailPageProps) => {
   const resolvedParams = await params;
   const symbol = resolvedParams.symbol.toUpperCase();
-  const supabase = createPublicClient();
 
-  const { data: stockRow } = await supabase
-    .from("stocks")
-    .select("id, symbol, company_name")
-    .eq("symbol", symbol)
-    .maybeSingle();
+  const hasSupabasePublicEnv = Boolean(
+    process.env.NEXT_PUBLIC_SUPABASE_URL &&
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY
+  );
+
+  let stockRow: { id: string; symbol: string; company_name: string | null } | null = null;
+  let priceRow: {
+    last_sale_price: string | null;
+    net_change: string | null;
+    percentage_change: string | null;
+    delta_indicator: string | null;
+    run_date: string | null;
+  } | null = null;
+  let currentRow: {
+    score: number | null;
+    score_delta: number | null;
+    confidence: number | null;
+    bucket: "buy" | "hold" | "sell" | null;
+    updated_at: string | null;
+  } | null = null;
+
+  if (hasSupabasePublicEnv) {
+    const supabase = createPublicClient();
+
+    const { data: fetchedStockRow } = await supabase
+      .from("stocks")
+      .select("id, symbol, company_name")
+      .eq("symbol", symbol)
+      .maybeSingle();
+    stockRow = fetchedStockRow;
+
+    const { data: fetchedPriceRow } = await supabase
+      .from("nasdaq_100_daily_raw")
+      .select("last_sale_price, net_change, percentage_change, delta_indicator, run_date")
+      .eq("symbol", symbol)
+      .order("run_date", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    priceRow = fetchedPriceRow;
+
+    if (stockRow?.id) {
+      const { data: fetchedCurrentRow } = await supabase
+        .from("nasdaq100_recommendations_current")
+        .select("score, score_delta, confidence, bucket, updated_at")
+        .eq("stock_id", stockRow.id)
+        .maybeSingle();
+      currentRow = fetchedCurrentRow;
+    }
+  }
 
   const fallbackStock = getStockBySymbol(symbol);
   const stockName = stockRow?.company_name ?? fallbackStock?.name ?? null;
-  const stockId = stockRow?.id ?? null;
-
-  const { data: priceRow } = await supabase
-    .from("nasdaq_100_daily_raw")
-    .select("last_sale_price, net_change, percentage_change, delta_indicator, run_date")
-    .eq("symbol", symbol)
-    .order("run_date", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  const { data: currentRow } = stockId
-    ? await supabase
-        .from("nasdaq100_recommendations_current")
-        .select("score, score_delta, confidence, bucket, updated_at")
-        .eq("stock_id", stockId)
-        .maybeSingle()
-    : { data: null };
 
   const latest = {
     score: currentRow?.score ?? null,

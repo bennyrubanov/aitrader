@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 type RouteContext = {
-  params: { symbol: string };
+  params: Promise<{ symbol: string }>;
 };
 
 type HistoryRow = {
@@ -44,7 +44,8 @@ export async function GET(_req: Request, { params }: RouteContext) {
     return NextResponse.json({ error: "Premium required" }, { status: 403 });
   }
 
-  const symbol = params.symbol.toUpperCase();
+  const resolvedParams = await params;
+  const symbol = resolvedParams.symbol.toUpperCase();
   const { data: stockRow } = await supabase
     .from("stocks")
     .select("id")

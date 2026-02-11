@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { usePathname, useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { Loader2, Sparkles } from "lucide-react";
 import {
   Dialog,
@@ -44,21 +44,18 @@ const dismissPrompt = () => {
 
 export function AccountPromptDialog() {
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const [open, setOpen] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
-
-  const searchString = searchParams.toString();
-  const nextPath = useMemo(
-    () => `${pathname}${searchString ? `?${searchString}` : ""}`,
-    [pathname, searchString]
-  );
+  const [nextPath, setNextPath] = useState(pathname);
 
   useEffect(() => {
     let isMounted = true;
     let unsubscribe: (() => void) | undefined;
 
     const run = async () => {
+      const currentPath = `${pathname}${window.location.search || ""}`;
+      setNextPath(currentPath);
+
       if (!isSupabaseConfigured()) {
         if (isMounted) {
           setOpen(false);
@@ -100,7 +97,7 @@ export function AccountPromptDialog() {
       isMounted = false;
       unsubscribe?.();
     };
-  }, [pathname, searchString]);
+  }, [pathname]);
 
   const handleContinueAsGuest = () => {
     dismissPrompt();

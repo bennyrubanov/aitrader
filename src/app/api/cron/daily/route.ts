@@ -818,7 +818,7 @@ const handleRequest = async (req: Request) => {
   }
 
   // ----- Step 8: Load snapshot members for AI processing -----
-  let { data: members, error: memberError } = await supabase
+  const { data: members, error: memberError } = await supabase
     .from("nasdaq100_snapshot_stocks")
     .select("stock_id, stocks (id, symbol, company_name)")
     .eq("snapshot_id", snapshot.id);

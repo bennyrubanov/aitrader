@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import { ArrowRight, Loader2, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,8 +11,7 @@ import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/utils/supabase
 const isValidEmail = (value: string) => /\S+@\S+\.\S+/.test(value.trim());
 
 const PaymentPage = () => {
-  const searchParams = useSearchParams();
-  const subscriptionStatus = searchParams.get("subscription");
+  const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
 
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
@@ -21,6 +19,8 @@ const PaymentPage = () => {
 
   useEffect(() => {
     window.scrollTo(0, 0);
+    const params = new URLSearchParams(window.location.search);
+    setSubscriptionStatus(params.get("subscription"));
   }, []);
 
   useEffect(() => {
