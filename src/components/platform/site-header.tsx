@@ -11,10 +11,10 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { MiniStockSearch } from "@/components/platform/mini-stock-search";
 
 const viewTitleByPath: Record<string, string> = {
-  "/platform/daily": "Daily Recommendations",
-  "/platform/weekly": "Weekly Recommendations",
+  "/platform/daily": "Current Recommendations",
+  "/platform/weekly": "Weekly Rankings",
   "/platform/custom-search": "Custom Search",
-  "/platform/performance": "AI Trader Performance",
+  "/platform/performance": "Top-20 Performance",
   "/platform/settings": "Settings",
 };
 

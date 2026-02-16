@@ -255,7 +255,7 @@ const DailyRecommendationsPage = () => {
 
       if (error) {
         if (isMounted) {
-          setRowsError("Unable to load daily recommendations right now.");
+          setRowsError("Unable to load current recommendations right now.");
           setIsLoadingRows(false);
         }
         return;
@@ -319,9 +319,9 @@ const DailyRecommendationsPage = () => {
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>Daily Recommendations</CardTitle>
+          <CardTitle>Current Recommendations</CardTitle>
           <CardDescription>
-            Ranked daily stock recommendations with direct links to each stock profile page.
+            Latest AI recommendations across Nasdaq-100 members (refreshed on weekly strategy runs).
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -367,14 +367,14 @@ const DailyRecommendationsPage = () => {
 
       <Card>
         <CardHeader>
-          <CardTitle>Search daily picks</CardTitle>
+          <CardTitle>Search current picks</CardTitle>
           <CardDescription>Filter by symbol, company, or recommendation bucket.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search daily recommendations"
+            placeholder="Search current recommendations"
           />
 
           {isLoadingRows ? (

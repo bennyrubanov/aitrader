@@ -26,23 +26,25 @@ const CustomSearchPage = () => {
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             <p className="inline-flex items-center gap-2 font-medium">
               <AlertTriangle className="size-4" />
-              Custom bot responses are more variable and can be less accurate than the Daily and
-              Weekly recommendations.
+              Custom bot responses are more variable and can be less accurate than the core weekly
+              strategy rankings.
             </p>
-            <p className="mt-1 text-amber-800">Use Daily and Weekly as your primary signal.</p>
+            <p className="mt-1 text-amber-800">
+              Use Current Recommendations and Weekly Rankings as your primary signal.
+            </p>
           </div>
 
           <p className="text-sm text-muted-foreground">
             Use custom prompts to compare stocks, stress-test scenarios, and get contextual market
-            analysis beyond the daily and weekly recommendation tables.
+            analysis beyond the current-recommendation and weekly-ranking tables.
           </p>
 
           <div className="flex flex-wrap gap-2">
             <Button asChild variant="outline">
-              <Link href="/platform/daily">Open Daily Recommendations</Link>
+              <Link href="/platform/daily">Open Current Recommendations</Link>
             </Button>
             <Button asChild variant="outline">
-              <Link href="/platform/weekly">Open Weekly Recommendations</Link>
+              <Link href="/platform/weekly">Open Weekly Rankings</Link>
             </Button>
             <Button asChild className="bg-trader-blue hover:bg-trader-blue-dark">
               <a href={AI_TRADER_BOT_URL} target="_blank" rel="noopener noreferrer">

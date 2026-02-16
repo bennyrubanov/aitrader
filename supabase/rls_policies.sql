@@ -144,7 +144,52 @@ create policy "Public read current recommendations"
   using (true);
 
 -- -------------------------------------------------------
--- 12) View access grants (views do not use RLS policies)
+-- 12) strategy tables – public read (frontend performance tab)
+-- -------------------------------------------------------
+alter table public.trading_strategies enable row level security;
+
+drop policy if exists "Public read trading strategies" on public.trading_strategies;
+create policy "Public read trading strategies"
+  on public.trading_strategies for select
+  using (true);
+
+alter table public.strategy_portfolio_holdings enable row level security;
+
+drop policy if exists "Public read strategy portfolio holdings" on public.strategy_portfolio_holdings;
+create policy "Public read strategy portfolio holdings"
+  on public.strategy_portfolio_holdings for select
+  using (true);
+
+alter table public.strategy_rebalance_actions enable row level security;
+
+drop policy if exists "Public read strategy rebalance actions" on public.strategy_rebalance_actions;
+create policy "Public read strategy rebalance actions"
+  on public.strategy_rebalance_actions for select
+  using (true);
+
+alter table public.strategy_performance_weekly enable row level security;
+
+drop policy if exists "Public read strategy performance weekly" on public.strategy_performance_weekly;
+create policy "Public read strategy performance weekly"
+  on public.strategy_performance_weekly for select
+  using (true);
+
+alter table public.strategy_quintile_returns enable row level security;
+
+drop policy if exists "Public read strategy quintile returns" on public.strategy_quintile_returns;
+create policy "Public read strategy quintile returns"
+  on public.strategy_quintile_returns for select
+  using (true);
+
+alter table public.strategy_cross_sectional_regressions enable row level security;
+
+drop policy if exists "Public read strategy cross sectional regressions" on public.strategy_cross_sectional_regressions;
+create policy "Public read strategy cross sectional regressions"
+  on public.strategy_cross_sectional_regressions for select
+  using (true);
+
+-- -------------------------------------------------------
+-- 13) View access grants (views do not use RLS policies)
 -- -------------------------------------------------------
 alter view public.nasdaq100_scores_7d_view set (security_invoker = true);
 alter view public.nasdaq100_current_members set (security_invoker = true);
@@ -167,4 +212,7 @@ grant select on public.nasdaq100_latest_snapshot to anon, authenticated;
 -- * nasdaq_100_daily_raw has RLS enabled with zero policies,
 --   meaning it is locked to service role only. This is intentional
 --   — raw API data doesn't need frontend exposure.
+--
+-- * Strategy/performance/research tables are intentionally read-only
+--   to the public client; writes happen only via service-role cron.
 -- ============================================================

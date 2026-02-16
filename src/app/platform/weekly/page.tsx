@@ -20,54 +20,33 @@ import { allStocks } from "@/lib/stockData";
 import { getPlatformCachedValue, setPlatformCachedValue } from "@/lib/platformClientCache";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/utils/supabase/browser";
 
-type RecommendationBucket = "buy" | "hold" | "sell" | null;
-
 type WeeklyRecommendationRow = {
   stockId: string;
   symbol: string;
   name: string | null;
-  weeklyScore: number | null;
-  weeklyBucket: RecommendationBucket;
-  currentBucket: RecommendationBucket;
+  score: number | null;
+  latentRank: number | null;
+  isTop20: boolean;
   runDate: string | null;
 };
 
-type WeeklyViewRow = {
+type AnalysisRow = {
   stock_id: string;
-  run_date: string;
-  score_7d_avg: number | null;
-};
-
-type CurrentRecommendationRow = {
-  stock_id: string;
-  bucket: RecommendationBucket;
+  score: number | null;
+  latent_rank: number | null;
   stocks:
     | { symbol: string; company_name: string | null }
     | { symbol: string; company_name: string | null }[]
     | null;
 };
 
-const bucketClassName: Record<Exclude<RecommendationBucket, null>, string> = {
-  buy: "border-green-200 bg-green-50 text-green-700",
-  hold: "border-amber-200 bg-amber-50 text-amber-700",
-  sell: "border-red-200 bg-red-50 text-red-700",
+type ExitActionRow = {
+  symbol: string;
+  action_label: string;
 };
 
-const formatBucket = (bucket: RecommendationBucket) =>
-  bucket ? bucket.charAt(0).toUpperCase() + bucket.slice(1) : "N/A";
-
-const bucketFromScore = (score: number | null): RecommendationBucket => {
-  if (score === null) {
-    return null;
-  }
-  if (score >= 2) {
-    return "buy";
-  }
-  if (score <= -2) {
-    return "sell";
-  }
-  return "hold";
-};
+const WEEKLY_ROWS_CACHE_KEY = "weekly.v2.rows";
+const WEEKLY_ROWS_CACHE_TTL_MS = 10 * 60 * 1000;
 
 const formatDate = (value: string | null) => {
   if (!value) {
@@ -82,14 +61,12 @@ const formatDate = (value: string | null) => {
   return parsed.toLocaleDateString();
 };
 
-const WEEKLY_ROWS_CACHE_KEY = "weekly.rows";
-const WEEKLY_ROWS_CACHE_TTL_MS = 10 * 60 * 1000;
-
 const WeeklyRecommendationsPage = () => {
   const router = useRouter();
 
   const [query, setQuery] = useState("");
   const [rows, setRows] = useState<WeeklyRecommendationRow[]>([]);
+  const [indexExitActions, setIndexExitActions] = useState<ExitActionRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -97,13 +74,15 @@ const WeeklyRecommendationsPage = () => {
     let isMounted = true;
 
     const loadWeeklyRows = async () => {
-      const cachedRows = getPlatformCachedValue<WeeklyRecommendationRow[]>(
-        WEEKLY_ROWS_CACHE_KEY,
-        WEEKLY_ROWS_CACHE_TTL_MS
-      );
+      const cachedRows = getPlatformCachedValue<{
+        rows: WeeklyRecommendationRow[];
+        indexExitActions: ExitActionRow[];
+      }>(WEEKLY_ROWS_CACHE_KEY, WEEKLY_ROWS_CACHE_TTL_MS);
+
       if (cachedRows) {
         if (isMounted) {
-          setRows(cachedRows);
+          setRows(cachedRows.rows);
+          setIndexExitActions(cachedRows.indexExitActions);
           setErrorMessage(null);
           setIsLoading(false);
         }
@@ -115,26 +94,30 @@ const WeeklyRecommendationsPage = () => {
           stockId: stock.symbol,
           symbol: stock.symbol,
           name: stock.name,
-          weeklyScore: null,
-          weeklyBucket: null,
-          currentBucket: null,
+          score: null,
+          latentRank: null,
+          isTop20: false,
           runDate: null,
         }));
 
         if (isMounted) {
           setRows(fallbackRows);
+          setIndexExitActions([]);
           setErrorMessage(null);
           setIsLoading(false);
         }
 
-        setPlatformCachedValue(WEEKLY_ROWS_CACHE_KEY, fallbackRows);
+        setPlatformCachedValue(WEEKLY_ROWS_CACHE_KEY, {
+          rows: fallbackRows,
+          indexExitActions: [],
+        });
         return;
       }
 
       const supabase = getSupabaseBrowserClient();
       if (!supabase) {
         if (isMounted) {
-          setErrorMessage("Unable to initialize weekly recommendations.");
+          setErrorMessage("Unable to initialize weekly rankings.");
           setIsLoading(false);
         }
         return;
@@ -145,51 +128,75 @@ const WeeklyRecommendationsPage = () => {
         setErrorMessage(null);
       }
 
-      const lookbackDate = new Date();
-      lookbackDate.setDate(lookbackDate.getDate() - 21);
-      const lookbackISO = lookbackDate.toISOString().slice(0, 10);
+      const { data: strategy, error: strategyError } = await supabase
+        .from("trading_strategies")
+        .select("id")
+        .eq("is_default", true)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-      const [weeklyResponse, currentResponse] = await Promise.all([
-        supabase
-          .from("nasdaq100_scores_7d_view")
-          .select("stock_id, run_date, score_7d_avg")
-          .gte("run_date", lookbackISO)
-          .order("run_date", { ascending: false }),
-        supabase
-          .from("nasdaq100_recommendations_current")
-          .select("stock_id, bucket, stocks(symbol, company_name)"),
-      ]);
-
-      if (weeklyResponse.error || currentResponse.error) {
+      if (strategyError || !strategy?.id) {
         if (isMounted) {
-          setErrorMessage("Unable to load weekly recommendations right now.");
+          setRows([]);
+          setIndexExitActions([]);
+          setErrorMessage("No active strategy version found yet.");
           setIsLoading(false);
         }
         return;
       }
 
-      const latestWeeklyByStock = new Map<
-        string,
-        {
-          score: number | null;
-          runDate: string | null;
-        }
-      >();
+      const { data: latestBatch, error: latestBatchError } = await supabase
+        .from("ai_run_batches")
+        .select("id, run_date")
+        .eq("strategy_id", strategy.id)
+        .eq("run_frequency", "weekly")
+        .order("run_date", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-      for (const row of (weeklyResponse.data ?? []) as WeeklyViewRow[]) {
-        if (!latestWeeklyByStock.has(row.stock_id)) {
-          latestWeeklyByStock.set(row.stock_id, {
-            score: typeof row.score_7d_avg === "number" ? row.score_7d_avg : null,
-            runDate: row.run_date ?? null,
-          });
+      if (latestBatchError || !latestBatch?.id) {
+        if (isMounted) {
+          setRows([]);
+          setIndexExitActions([]);
+          setErrorMessage("No weekly AI run found yet.");
+          setIsLoading(false);
         }
+        return;
       }
 
-      const mappedRows = ((currentResponse.data ?? []) as CurrentRecommendationRow[])
+      const [analysisResponse, holdingsResponse, exitActionsResponse] = await Promise.all([
+        supabase
+          .from("ai_analysis_runs")
+          .select("stock_id, score, latent_rank, stocks(symbol, company_name)")
+          .eq("batch_id", latestBatch.id),
+        supabase
+          .from("strategy_portfolio_holdings")
+          .select("stock_id")
+          .eq("strategy_id", strategy.id)
+          .eq("run_date", latestBatch.run_date),
+        supabase
+          .from("strategy_rebalance_actions")
+          .select("symbol, action_label")
+          .eq("strategy_id", strategy.id)
+          .eq("run_date", latestBatch.run_date)
+          .eq("action_type", "exit_index")
+          .order("symbol", { ascending: true }),
+      ]);
+
+      if (analysisResponse.error || holdingsResponse.error || exitActionsResponse.error) {
+        if (isMounted) {
+          setErrorMessage("Unable to load weekly rankings right now.");
+          setIsLoading(false);
+        }
+        return;
+      }
+
+      const top20Ids = new Set((holdingsResponse.data ?? []).map((row: { stock_id: string }) => row.stock_id));
+      const mappedRows = ((analysisResponse.data ?? []) as AnalysisRow[])
         .map((row) => {
           const stock = Array.isArray(row.stocks) ? row.stocks[0] : row.stocks;
-          const weekly = latestWeeklyByStock.get(row.stock_id);
-          if (!stock?.symbol || !weekly) {
+          if (!stock?.symbol) {
             return null;
           }
 
@@ -197,24 +204,41 @@ const WeeklyRecommendationsPage = () => {
             stockId: row.stock_id,
             symbol: stock.symbol,
             name: stock.company_name ?? stock.symbol,
-            weeklyScore: weekly.score,
-            weeklyBucket: bucketFromScore(weekly.score),
-            currentBucket: row.bucket ?? null,
-            runDate: weekly.runDate,
+            score: typeof row.score === "number" ? row.score : null,
+            latentRank: typeof row.latent_rank === "number" ? row.latent_rank : null,
+            isTop20: top20Ids.has(row.stock_id),
+            runDate: latestBatch.run_date ?? null,
           };
         })
         .filter((row): row is WeeklyRecommendationRow => Boolean(row))
-        .sort((a, b) => (b.weeklyScore ?? -999) - (a.weeklyScore ?? -999));
+        .sort((a, b) => {
+          const latentA = a.latentRank ?? -1;
+          const latentB = b.latentRank ?? -1;
+          if (latentA !== latentB) {
+            return latentB - latentA;
+          }
+          const scoreA = a.score ?? -999;
+          const scoreB = b.score ?? -999;
+          if (scoreA !== scoreB) {
+            return scoreB - scoreA;
+          }
+          return a.symbol.localeCompare(b.symbol);
+        });
+
+      const exitActions = (exitActionsResponse.data ?? []) as ExitActionRow[];
 
       if (isMounted) {
         setRows(mappedRows);
-        setPlatformCachedValue(WEEKLY_ROWS_CACHE_KEY, mappedRows);
+        setIndexExitActions(exitActions);
+        setPlatformCachedValue(WEEKLY_ROWS_CACHE_KEY, {
+          rows: mappedRows,
+          indexExitActions: exitActions,
+        });
         setIsLoading(false);
       }
     };
 
     loadWeeklyRows();
-
     return () => {
       isMounted = false;
     };
@@ -229,8 +253,7 @@ const WeeklyRecommendationsPage = () => {
     return rows.filter(
       (row) =>
         row.symbol.toLowerCase().includes(normalized) ||
-        (row.name ?? "").toLowerCase().includes(normalized) ||
-        (row.weeklyBucket ?? "").toLowerCase().includes(normalized)
+        (row.name ?? "").toLowerCase().includes(normalized)
     );
   }, [query, rows]);
 
@@ -245,32 +268,54 @@ const WeeklyRecommendationsPage = () => {
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>Weekly Recommendations</CardTitle>
+          <CardTitle>Weekly rankings (all Nasdaq-100 members)</CardTitle>
           <CardDescription>
-            7-day rolling score averages, sorted by strongest weekly conviction.
+            Constituents are rated weekly and sorted by latent rank. Portfolio construction ignores
+            bucket labels and selects the Top-20 equal-weight each rebalance.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search weekly recommendations"
+            placeholder="Search by symbol or company"
           />
         </CardContent>
       </Card>
 
+      {indexExitActions.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Index exits</CardTitle>
+            <CardDescription>
+              Stocks that left the index are marked for deterministic rebalance handling.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {indexExitActions.map((action) => (
+                <div key={action.symbol} className="rounded-lg border bg-background p-3">
+                  <p className="font-semibold">{action.symbol}</p>
+                  <p className="text-sm text-muted-foreground">{action.action_label}</p>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
-          <CardTitle>Weekly ranking table</CardTitle>
+          <CardTitle>Latest weekly ranking table</CardTitle>
           <CardDescription>
-            Recommendation buckets from weekly score trends, with links to each stock page.
+            Top-20 selections are explicitly tagged. As-of date equals the latest weekly strategy run.
           </CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (
             <div className="inline-flex items-center text-sm text-muted-foreground">
               <Loader2 className="mr-2 size-4 animate-spin" />
-              Loading weekly recommendations...
+              Loading weekly rankings...
             </div>
           ) : errorMessage ? (
             <p className="text-sm text-red-600">{errorMessage}</p>
@@ -278,37 +323,38 @@ const WeeklyRecommendationsPage = () => {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-[80px]">Rank</TableHead>
                   <TableHead>Symbol</TableHead>
                   <TableHead>Company</TableHead>
-                  <TableHead>Weekly Recommendation</TableHead>
-                  <TableHead className="text-right">7d Avg Score</TableHead>
-                  <TableHead>Current Daily</TableHead>
+                  <TableHead className="text-right">Score</TableHead>
+                  <TableHead className="text-right">Latent rank</TableHead>
+                  <TableHead>Top-20</TableHead>
                   <TableHead>As of</TableHead>
                   <TableHead className="text-right">Page</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredRows.map((row) => (
+                {filteredRows.map((row, index) => (
                   <TableRow key={row.stockId}>
+                    <TableCell className="font-semibold">{index + 1}</TableCell>
                     <TableCell className="font-semibold">{row.symbol}</TableCell>
                     <TableCell>{row.name ?? row.symbol}</TableCell>
-                    <TableCell>
-                      <Badge
-                        variant="outline"
-                        className={row.weeklyBucket ? bucketClassName[row.weeklyBucket] : undefined}
-                      >
-                        {formatBucket(row.weeklyBucket)}
-                      </Badge>
+                    <TableCell className="text-right">
+                      {row.score === null ? "N/A" : row.score.toFixed(0)}
                     </TableCell>
                     <TableCell className="text-right">
-                      {row.weeklyScore === null ? "N/A" : row.weeklyScore.toFixed(2)}
+                      {row.latentRank === null ? "N/A" : row.latentRank.toFixed(4)}
                     </TableCell>
                     <TableCell>
                       <Badge
                         variant="outline"
-                        className={row.currentBucket ? bucketClassName[row.currentBucket] : undefined}
+                        className={
+                          row.isTop20
+                            ? "border-green-200 bg-green-50 text-green-700"
+                            : "border-muted text-muted-foreground"
+                        }
                       >
-                        {formatBucket(row.currentBucket)}
+                        {row.isTop20 ? "Top-20" : "Not in Top-20"}
                       </Badge>
                     </TableCell>
                     <TableCell>{formatDate(row.runDate)}</TableCell>

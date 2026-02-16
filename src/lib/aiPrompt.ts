@@ -4,15 +4,15 @@ export type StockRatingPromptInput = {
   ticker: string;
   companyName: string;
   runDate: string;
-  yesterdayScore?: number | null;
-  yesterdayBucket?: 'buy' | 'hold' | 'sell' | null;
+  previousScore?: number | null;
+  previousBucket?: 'buy' | 'hold' | 'sell' | null;
 };
 
 // PROMPT_NAME + PROMPT_VERSION are persisted in Supabase `ai_prompts`.
 // Update PROMPT_VERSION when you change STOCK_RATING_PROMPT_TEMPLATE or schema.
-// The daily cron upserts the template into `ai_prompts` and links runs via `ai_run_batches`.
-export const PROMPT_NAME = 'nasdaq100_daily_rating';
-export const PROMPT_VERSION = 'nasdaq100-websearch-v2.1';
+// The weekly cron upserts the template into `ai_prompts` and links runs via `ai_run_batches`.
+export const PROMPT_NAME = 'nasdaq100_weekly_rating';
+export const PROMPT_VERSION = 'nasdaq100-websearch-v3.0-top20-weekly';
 
 export const StockRatingSchema = z
   .object({
@@ -45,7 +45,7 @@ export const STOCK_RATING_PROMPT_TEMPLATE = [
   'The single web_search call may return multiple sources; synthesize across them.',
   'Stock: {{COMPANY_NAME}} ({{TICKER}})',
   'Run date: {{RUN_DATE}}',
-  'Yesterday score: {{YESTERDAY_SCORE}}, bucket: {{YESTERDAY_BUCKET}}.',
+  'Previous weekly score: {{PREVIOUS_SCORE}}, bucket: {{PREVIOUS_BUCKET}}.',
   '',
   'Search query to use (single web_search call):',
   '"{{COMPANY_NAME}} ({{TICKER}}) last 30 days news earnings guidance analyst revisions risks"',
@@ -56,6 +56,7 @@ export const STOCK_RATING_PROMPT_TEMPLATE = [
   '- Calibrate the score relative to other Nasdaq-100 constituents, not in absolute isolation.',
   '- Avoid defaulting to 0 unless information is genuinely mixed.',
   'In addition to the integer score, provide a latent_rank between 0 and 1 that reflects fine-grained relative attractiveness compared to other Nasdaq-100 stocks. Use latent_rank only as an ordinal ranking signal; it does not need to be calibrated across days.',
+  'Portfolio construction is determined downstream by sorting latent_rank and taking Top-20 equal weight. Bucket labels are for transparency, not construction.',
   '',
   'Bucket mapping (MUST be used to populate current_bucket). Buckets are an application-layer',
   'abstraction; the underlying signal is the continuous attractiveness score:',
@@ -67,7 +68,7 @@ export const STOCK_RATING_PROMPT_TEMPLATE = [
   'Provide 2-6 short risks; at least one risk must relate to information uncertainty,',
   'model error, or conflicting signals.',
   'Confidence is a self-assessed epistemic confidence (not a probability of correctness).',
-  "Set previous_bucket to yesterday's bucket or null if unavailable.",
+  "Set previous_bucket to the previous weekly bucket or null if unavailable.",
   'Set changed_bucket to true only if current_bucket differs from previous_bucket.',
   'If changed_bucket is true, provide a short change_explanation; otherwise set it to null.',
 ].join('\n');
@@ -77,11 +78,11 @@ export const buildStockRatingPrompt = (input: StockRatingPromptInput) => {
     COMPANY_NAME: input.companyName,
     TICKER: input.ticker,
     RUN_DATE: input.runDate,
-    YESTERDAY_SCORE:
-      input.yesterdayScore === null || input.yesterdayScore === undefined
+    PREVIOUS_SCORE:
+      input.previousScore === null || input.previousScore === undefined
         ? 'N/A'
-        : String(input.yesterdayScore),
-    YESTERDAY_BUCKET: input.yesterdayBucket ?? 'N/A',
+        : String(input.previousScore),
+    PREVIOUS_BUCKET: input.previousBucket ?? 'N/A',
   };
 
   return Object.entries(values).reduce(
