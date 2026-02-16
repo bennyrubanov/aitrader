@@ -1633,13 +1633,27 @@ const handleRequest = async (req: Request) => {
 
     // ----- Step 11: Deterministic Top-20 equal-weight construction -----
     const scoredRows = results
-      .filter((row): row is Extract<AiProcessResult, { status: "ok" | "failed" }> => row.status !== "missing_stock")
-      .map((row) => ({
-        stock_id: row.stock_id,
-        symbol: row.symbol,
-        score: row.score,
-        latent_rank: row.latent_rank,
-      }));
+      .map((row) => {
+        if (row.status === "missing_stock") {
+          return null;
+        }
+        return {
+          stock_id: row.stock_id,
+          symbol: row.symbol,
+          score: row.score,
+          latent_rank: row.latent_rank,
+        };
+      })
+      .filter(
+        (
+          row
+        ): row is {
+          stock_id: string;
+          symbol: string;
+          score: number;
+          latent_rank: number;
+        } => Boolean(row)
+      );
 
     const topHoldings = buildTopHoldings(scoredRows, strategy.portfolio_size);
     if (topHoldings.length !== strategy.portfolio_size) {
