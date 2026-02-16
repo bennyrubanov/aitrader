@@ -10,7 +10,7 @@ const AboutPage = () => {
   }, []);
 
   return (
-    <div className="min-h-screen bg-white flex flex-col">
+    <div className="min-h-screen bg-background text-foreground flex flex-col">
       <Navbar />
       <main className="flex-grow">
         <section className="py-20">
@@ -20,9 +20,9 @@ const AboutPage = () => {
                 About AITrader
               </h1>
 
-              <div className="bg-trader-gray rounded-xl p-8 mb-12">
+              <div className="bg-muted/40 border border-border rounded-xl p-8 mb-12">
                 <h2 className="text-2xl font-bold mb-6">Our Story</h2>
-                <p className="text-gray-700 mb-6">
+                <p className="text-foreground/90 mb-6">
                   AITrader was born out of frustration with traditional
                   investment research methods. Four friends - investment
                   enthusiasts from America, Germany, and the Netherlands - came
@@ -30,7 +30,7 @@ const AboutPage = () => {
                   high-quality investment insights through the power of
                   artificial intelligence.
                 </p>
-                <p className="text-gray-700 mb-6">
+                <p className="text-foreground/90 mb-6">
                   What started as a passion project quickly evolved into
                   something bigger. We were tired of seeing everyday investors
                   priced out of quality research that institutional investors
@@ -38,7 +38,7 @@ const AboutPage = () => {
                   meant that individual investors were often making decisions
                   with incomplete information.
                 </p>
-                <p className="text-gray-700">
+                <p className="text-foreground/90">
                   Our diverse backgrounds - combining expertise from Silicon
                   Valley, European finance, and cutting-edge AI research -
                   allowed us to build a tool that leverages the latest
@@ -49,17 +49,17 @@ const AboutPage = () => {
               </div>
 
               <div className="grid md:grid-cols-2 gap-8 mb-12">
-                <div className="bg-white shadow-soft rounded-xl p-8">
+                <div className="bg-card border border-border shadow-soft rounded-xl p-8">
                   <h3 className="text-xl font-bold mb-4">Our Mission</h3>
-                  <p className="text-gray-700">
+                  <p className="text-foreground/90">
                     To empower everyday investors with AI-powered tools and
                     insights previously available only to financial institutions
                     and ultra-high-net-worth individuals.
                   </p>
                 </div>
-                <div className="bg-white shadow-soft rounded-xl p-8">
+                <div className="bg-card border border-border shadow-soft rounded-xl p-8">
                   <h3 className="text-xl font-bold mb-4">Our Approach</h3>
-                  <p className="text-gray-700">
+                  <p className="text-foreground/90">
                     We combine cutting-edge AI with proven investment
                     methodologies, backed by academic research and real-world
                     testing, to identify market opportunities with greater
@@ -68,11 +68,11 @@ const AboutPage = () => {
                 </div>
               </div>
 
-              <div className="bg-trader-blue/5 rounded-xl p-8">
+              <div className="bg-trader-blue/10 dark:bg-trader-blue/15 border border-trader-blue/20 rounded-xl p-8">
                 <h2 className="text-2xl font-bold mb-6">
                   The Science Behind AITrader
                 </h2>
-                <p className="text-gray-700 mb-6">
+                <p className="text-foreground/90 mb-6">
                   Our approach is grounded in academic research that
                   demonstrates how AI models can successfully identify patterns
                   and opportunities in financial markets. Recent studies
@@ -81,7 +81,7 @@ const AboutPage = () => {
                   the ones we use can significantly improve investment
                   decisions and assist in picking stocks.
                 </p>
-                <p className="text-gray-700">
+                <p className="text-foreground/90">
                   By leveraging these scientifically validated approaches,
                   we&apos;ve built a tool that delivers consistent value to
                   investors looking to outperform the market.

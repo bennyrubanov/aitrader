@@ -39,14 +39,14 @@ const BlogPage = () => {
   }, []);
 
   return (
-    <div className="min-h-screen bg-white flex flex-col">
+    <div className="min-h-screen bg-background text-foreground flex flex-col">
       <Navbar />
       <main className="flex-grow">
         <section className="py-20">
           <div className="container mx-auto px-4">
             <div className="max-w-5xl mx-auto">
               <h1 className="text-4xl md:text-5xl font-bold mb-8 text-center">AI Trader Blog</h1>
-              <p className="text-xl text-gray-600 text-center mb-16 max-w-3xl mx-auto">
+              <p className="text-xl text-muted-foreground text-center mb-16 max-w-3xl mx-auto">
                 Insights on AI-driven trading, market analysis, and research-backed investment
                 strategies.
               </p>
@@ -55,7 +55,7 @@ const BlogPage = () => {
                 {blogPosts.map((post) => (
                   <article
                     key={post.id}
-                    className="bg-white shadow-soft rounded-xl overflow-hidden hover:shadow-elevated transition-shadow duration-300"
+                    className="bg-card border border-border shadow-soft rounded-xl overflow-hidden hover:shadow-elevated transition-shadow duration-300"
                   >
                     <Link href={`/blog/${post.id}`} className="block">
                       <Image
@@ -66,11 +66,11 @@ const BlogPage = () => {
                         className="w-full h-52 object-cover"
                       />
                       <div className="p-6">
-                        <span className="text-sm text-gray-500">{post.date}</span>
+                        <span className="text-sm text-muted-foreground">{post.date}</span>
                         <h2 className="text-xl font-bold mt-2 mb-3 hover:text-trader-blue">
                           {post.title}
                         </h2>
-                        <p className="text-gray-600">{post.excerpt}</p>
+                        <p className="text-muted-foreground">{post.excerpt}</p>
                         <div className="mt-4 text-trader-blue font-medium flex items-center">
                           Read more
                           <svg

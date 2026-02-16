@@ -3,6 +3,7 @@ import { createPublicClient } from "@/utils/supabase/public";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+const CACHE_CONTROL_HEADER = "public, s-maxage=300, stale-while-revalidate=1800";
 
 type BatchRow = {
   id: string;
@@ -128,6 +129,16 @@ const buildSp500CloseMap = (runDates: string[], spRows: Sp500CsvRow[]) => {
 
 export async function GET() {
   try {
+    const toCachedJson = (series: { date: string; aiTrader: number; sp500: number }[]) =>
+      NextResponse.json(
+        { series },
+        {
+          headers: {
+            "Cache-Control": CACHE_CONTROL_HEADER,
+          },
+        }
+      );
+
     const supabase = createPublicClient();
 
     const { data: batches, error: batchError } = await supabase
@@ -138,7 +149,7 @@ export async function GET() {
       .limit(MAX_DAYS);
 
     if (batchError || !batches?.length) {
-      return NextResponse.json({ series: buildFallbackSeries() });
+      return toCachedJson(buildFallbackSeries());
     }
 
     const typedBatches = batches as BatchRow[];
@@ -146,7 +157,7 @@ export async function GET() {
     const runDates = Array.from(new Set(typedBatches.map((row) => row.run_date))).sort();
 
     if (!runDates.length) {
-      return NextResponse.json({ series: buildFallbackSeries() });
+      return toCachedJson(buildFallbackSeries());
     }
 
     const batchIds = typedBatches.map((row) => row.id);
@@ -163,7 +174,7 @@ export async function GET() {
     ]);
 
     if (analysisResponse.error || rawResponse.error) {
-      return NextResponse.json({ series: buildFallbackSeries() });
+      return toCachedJson(buildFallbackSeries());
     }
 
     const analysisRows = (analysisResponse.data ?? []) as AnalysisRow[];
@@ -249,8 +260,15 @@ export async function GET() {
       };
     });
 
-    return NextResponse.json({ series });
+    return toCachedJson(series);
   } catch {
-    return NextResponse.json({ series: buildFallbackSeries() });
+    return NextResponse.json(
+      { series: buildFallbackSeries() },
+      {
+        headers: {
+          "Cache-Control": CACHE_CONTROL_HEADER,
+        },
+      }
+    );
   }
 }

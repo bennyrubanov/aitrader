@@ -5,10 +5,10 @@ import { Button } from '@/components/ui/button';
 
 export default function AuthCodeError() {
   return (
-    <div className="min-h-screen bg-white flex items-center justify-center px-4">
+    <div className="min-h-screen bg-background text-foreground flex items-center justify-center px-4">
       <div className="max-w-md w-full text-center">
         <h1 className="text-3xl font-bold mb-4">Authentication Error</h1>
-        <p className="text-gray-600 mb-8">
+        <p className="text-muted-foreground mb-8">
           Sorry, we couldn&apos;t complete your sign-in. The authentication code was missing or
           invalid.
         </p>

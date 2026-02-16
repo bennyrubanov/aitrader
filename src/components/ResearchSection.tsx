@@ -41,7 +41,7 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
           }`}
         >
           <h2 className="text-3xl md:text-4xl font-bold mb-4">Backed by Scientific Research</h2>
-          <p className="text-xl text-gray-600">
+          <p className="text-xl text-muted-foreground">
             Our approach is validated by multiple peer-reviewed academic studies showing AI's
             superiority in stock analysis and prediction.
           </p>
@@ -50,24 +50,24 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center max-w-6xl mx-auto mb-16">
           <div
             ref={paperRef}
-            className={`bg-white rounded-xl shadow-elevated border border-gray-200 overflow-hidden transition-all duration-700 ${
+            className={`bg-card rounded-xl shadow-elevated border border-border overflow-hidden transition-all duration-700 ${
               isPaperVisible ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-20'
             }`}
           >
             <div className="p-6">
               <div className="flex items-start space-x-4 mb-6">
-                <div className="bg-blue-50 rounded-lg p-3">
+                <div className="bg-blue-50/80 dark:bg-blue-950/30 rounded-lg p-3">
                   <FileText size={24} className="text-trader-blue" />
                 </div>
                 <div>
                   <h3 className="text-xl font-semibold mb-1">Peer-Reviewed Study</h3>
-                  <p className="text-gray-500 text-sm">
+                  <p className="text-muted-foreground text-sm">
                     Published in
                     <TooltipProvider delayDuration={300}>
                       <Tooltip>
                         <TooltipTrigger className="inline px-1 underline decoration-dotted underline-offset-2">
                           Financial Research Letters Journal
-                          <Info size={14} className="inline-block ml-1 text-gray-400" />
+                          <Info size={14} className="inline-block ml-1 text-muted-foreground/70" />
                         </TooltipTrigger>
                         {parentDivRef.current &&
                           createPortal(
@@ -98,7 +98,7 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
 
               <h4 className="text-lg font-medium mb-2">"Can ChatGPT assist in picking stocks?"</h4>
 
-              <p className="text-gray-600 mb-4">
+              <p className="text-muted-foreground mb-4">
                 Research published on ScienceDirect examining AI's ability to forecast earnings and
                 predict stock returns.
               </p>
@@ -114,7 +114,7 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
                   <ExternalLink size={16} />
                 </a>
 
-                <span className="text-gray-500 text-sm">2023</span>
+                <span className="text-muted-foreground text-sm">2023</span>
               </div>
             </div>
           </div>
@@ -130,13 +130,13 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
               {findings.map((finding, index) => (
                 <div key={index} className="flex items-start space-x-3">
                   <CheckCircle className="text-trader-green flex-shrink-0 mt-1" size={20} />
-                  <p className="text-gray-700">{finding}</p>
+                  <p className="text-foreground/90">{finding}</p>
                 </div>
               ))}
             </div>
 
             <Link href="/payment">
-              <Button className="bg-trader-blue hover:bg-trader-blue-dark transition-colors w-full md:w-auto">
+              <Button className="bg-trader-blue hover:bg-trader-blue-dark text-white transition-colors w-full md:w-auto">
                 Get Access to AI Insights
               </Button>
             </Link>
@@ -147,23 +147,23 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center max-w-6xl mx-auto">
           <div
             ref={dataRef}
-            className={`bg-white rounded-xl shadow-elevated border border-gray-200 overflow-hidden transition-all duration-700 ${
+            className={`bg-card rounded-xl shadow-elevated border border-border overflow-hidden transition-all duration-700 ${
               isDataVisible ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-20'
             }`}
           >
             <div className="p-6">
               <div className="flex items-start space-x-4 mb-6">
-                <div className="bg-blue-50 rounded-lg p-3">
+                <div className="bg-blue-50/80 dark:bg-blue-950/30 rounded-lg p-3">
                   <BarChart size={24} className="text-trader-blue" />
                 </div>
                 <div>
                   <h3 className="text-xl font-semibold mb-1">Follow-up Research</h3>
-                  <p className="text-gray-500 text-sm">
+                  <p className="text-muted-foreground text-sm">
                     <TooltipProvider delayDuration={300}>
                       <Tooltip>
                         <TooltipTrigger className="inline px-1 underline decoration-dotted underline-offset-2">
                           Finance Research Letters Journal
-                          <Info size={14} className="inline-block ml-1 text-gray-400" />
+                          <Info size={14} className="inline-block ml-1 text-muted-foreground/70" />
                         </TooltipTrigger>
                         {parentDivRef.current &&
                           createPortal(
@@ -196,7 +196,7 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
                 "Can ChatGPT improve investment decisions? From a portfolio management perspective"
               </h4>
 
-              <p className="text-gray-600 mb-4">
+              <p className="text-muted-foreground mb-4">
                 Extended research confirming AI's superior ability to identify attractive
                 investments and generate higher Sharpe ratios.
               </p>
@@ -212,7 +212,7 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
                   <ExternalLink size={16} />
                 </a>
 
-                <span className="text-gray-500 text-sm">2024</span>
+                <span className="text-muted-foreground text-sm">2024</span>
               </div>
             </div>
           </div>
@@ -224,20 +224,20 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
           >
             <h3 className="text-2xl font-bold mb-6">Performance Data</h3>
 
-            <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+            <div className="bg-card rounded-xl p-6 shadow-sm border border-border">
               <h4 className="text-lg font-medium mb-4">ChatGPT Attractiveness Rating Impact</h4>
 
               <div className="overflow-x-auto">
-                <table className="min-w-full bg-white">
+                <table className="min-w-full bg-card">
                   <thead>
-                    <tr className="bg-gray-50 border-b">
-                      <th className="py-3 px-4 text-left text-sm font-medium text-gray-500">
+                    <tr className="bg-muted/50 border-b">
+                      <th className="py-3 px-4 text-left text-sm font-medium text-muted-foreground">
                         Rating
                       </th>
-                      <th className="py-3 px-4 text-left text-sm font-medium text-gray-500">
+                      <th className="py-3 px-4 text-left text-sm font-medium text-muted-foreground">
                         Mean Return
                       </th>
-                      <th className="py-3 px-4 text-left text-sm font-medium text-gray-500">
+                      <th className="py-3 px-4 text-left text-sm font-medium text-muted-foreground">
                         Sharpe Ratio
                       </th>
                     </tr>
@@ -268,7 +268,7 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
                       <td className="py-3 px-4 text-sm">−0.08%</td>
                       <td className="py-3 px-4 text-sm">−0.13</td>
                     </tr>
-                    <tr className="bg-blue-50">
+                    <tr className="bg-blue-50/80 dark:bg-blue-950/30">
                       <td className="py-3 px-4 text-sm font-medium">Performance Gap (5-1)</td>
                       <td className="py-3 px-4 text-sm font-medium text-trader-blue">+0.07%</td>
                       <td className="py-3 px-4 text-sm font-medium text-trader-blue">+0.17</td>
@@ -277,7 +277,7 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
                 </table>
               </div>
 
-              <p className="text-sm text-gray-500 mt-4">
+              <p className="text-sm text-muted-foreground mt-4">
                 Study shows portfolios with higher AI attractiveness ratings consistently outperform
                 those with lower ratings.
               </p>

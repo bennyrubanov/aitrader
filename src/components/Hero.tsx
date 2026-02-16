@@ -68,27 +68,33 @@ const Hero: React.FC = () => {
 
   return (
     <section className="relative pt-20 pb-24 md:pt-32 md:pb-40 overflow-hidden">
-      <div className="absolute top-0 left-0 right-0 h-[65vh] bg-gradient-to-b from-trader-gray to-white z-0"></div>
+      <div className="absolute top-0 left-0 right-0 h-[65vh] bg-gradient-to-b from-trader-gray to-background dark:from-slate-950 dark:to-background z-0"></div>
       
       <div className="container mx-auto px-4 relative z-10">
         <div className="max-w-4xl mx-auto text-center mb-12 md:mb-16">
-          <h1 className="text-4xl md:text-6xl font-bold leading-tight text-gray-900 mb-6 animate-fade-in">
+          <h1 className="text-4xl md:text-6xl font-bold leading-tight text-foreground mb-6 animate-fade-in">
             <span className="text-gradient inline-block">Outperform the market </span>
             <span className="inline-block">&nbsp;with AI</span> 
           </h1>
           
-          <p className="text-xl md:text-2xl text-gray-600 mb-8 max-w-3xl mx-auto animate-fade-in" style={{ animationDelay: "0.2s" }}>
+          <p
+            className="text-xl md:text-2xl text-muted-foreground mb-8 max-w-3xl mx-auto animate-fade-in"
+            style={{ animationDelay: "0.2s" }}
+          >
             Search for any stock to find its AI-recommended rating in real-time
           </p>
 
           <div className="max-w-2xl mx-auto relative animate-fade-in" style={{ animationDelay: "0.4s" }}>
             <form onSubmit={handleSubmit} className="relative">
               <div className="relative">
-                <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+                <Search
+                  className="absolute left-4 top-1/2 transform -translate-y-1/2 text-muted-foreground"
+                  size={20}
+                />
                 <Input
                   type="text"
                   placeholder="Search for a stock (e.g., AAPL, Tesla)"
-                  className="pl-12 pr-4 py-6 w-full rounded-xl border border-gray-200 shadow-sm focus:border-trader-blue focus:ring-2 focus:ring-trader-blue/20 transition-all"
+                  className="pl-12 pr-4 py-6 w-full rounded-xl border border-border bg-background shadow-sm focus:border-trader-blue focus:ring-2 focus:ring-trader-blue/20 transition-all"
                   value={searchQuery}
                   onChange={handleSearch}
                   onFocus={handleFocus}
@@ -97,7 +103,7 @@ const Hero: React.FC = () => {
               </div>
               
               {isSearchFocused && searchResults.length > 0 && (
-                <div className="absolute left-0 right-0 mt-1 max-h-72 overflow-y-auto bg-white rounded-xl shadow-elevated border border-gray-100 z-30 animate-scale-in text-left">
+                <div className="absolute left-0 right-0 mt-1 max-h-72 overflow-y-auto bg-card rounded-xl shadow-elevated border border-border z-30 animate-scale-in text-left">
                   <div className="p-2">
                     {searchResults.map((stock) => (
                       <div 
@@ -108,7 +114,7 @@ const Hero: React.FC = () => {
                         <div className="flex items-center justify-between">
                           <div>
                             <span className="font-medium">{stock.symbol}</span>
-                            <p className="text-sm text-gray-600">{stock.name}</p>
+                            <p className="text-sm text-muted-foreground">{stock.name}</p>
                           </div>
                           {stock.isPremium && (
                             <LockIcon size={16} className="text-trader-blue" />
@@ -130,12 +136,14 @@ const Hero: React.FC = () => {
           </div>
           
           {selectedStock && (
-            <div className="mt-8 max-w-2xl mx-auto animate-fade-in rounded-xl border border-blue-100 bg-blue-50/50 p-4">
-              <p className="text-sm text-gray-700 mb-2">
+            <div className="mt-8 max-w-2xl mx-auto animate-fade-in rounded-xl border border-blue-200/40 bg-blue-50/60 dark:bg-blue-950/20 p-4">
+              <p className="text-sm text-foreground/90 mb-2">
                 <span className="font-semibold">{selectedStock.symbol}</span> selected.
               </p>
               <Link
                 href={`/stocks/${selectedStock.symbol.toLowerCase()}`}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="inline-flex items-center text-trader-blue hover:text-trader-blue-dark font-medium transition-colors"
               >
                 See why and how it ranks vs other stocks
@@ -146,23 +154,23 @@ const Hero: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mt-16 max-w-5xl mx-auto">
-          <div className="bg-white rounded-xl p-6 shadow-soft text-center hover-card-animation">
+          <div className="bg-card border border-border rounded-xl p-6 shadow-soft text-center hover-card-animation">
             <div ref={returnRef} className="text-4xl font-bold text-trader-blue mb-2">
               +{returnValue}%
             </div>
-            <p className="text-gray-600">Market Outperformance Potential</p>
+            <p className="text-muted-foreground">Market Outperformance Potential</p>
           </div>
-          <div className="bg-white rounded-xl p-6 shadow-soft text-center hover-card-animation">
+          <div className="bg-card border border-border rounded-xl p-6 shadow-soft text-center hover-card-animation">
             <div ref={accuracyRef} className="text-4xl font-bold text-trader-blue mb-2">
               {accuracyValue}%
             </div>
-            <p className="text-gray-600">AI Prediction Reliability</p>
+            <p className="text-muted-foreground">AI Prediction Reliability</p>
           </div>
-          <div className="bg-white rounded-xl p-6 shadow-soft text-center hover-card-animation">
+          <div className="bg-card border border-border rounded-xl p-6 shadow-soft text-center hover-card-animation">
             <div ref={stocksRef} className="text-4xl font-bold text-trader-blue mb-2">
               {stocksValue}+
             </div>
-            <p className="text-gray-600">Stocks Analyzed Daily</p>
+            <p className="text-muted-foreground">Stocks Analyzed Daily</p>
           </div>
         </div>
 

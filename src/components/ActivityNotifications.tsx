@@ -254,7 +254,7 @@ const ActivityNotifications = () => {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.9 }}
             transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-            className="bg-white rounded-lg shadow-xl border border-gray-200 p-4 max-w-sm w-full"
+            className="bg-card rounded-lg shadow-xl border border-border p-4 max-w-sm w-full"
           >
             <div className="flex items-start">
               <div className="flex-shrink-0 bg-primary/10 rounded-full p-2">
@@ -262,17 +262,17 @@ const ActivityNotifications = () => {
               </div>
               <div className="ml-3 flex-1">
                 <div className="flex justify-between items-start">
-                  <p className="text-sm font-medium text-gray-900">
+                  <p className="text-sm font-medium text-foreground">
                     Someone from {currentNotification.location}
                   </p>
                   <button
                     onClick={dismissNotification}
-                    className="ml-4 text-gray-400 hover:text-gray-500"
+                    className="ml-4 text-muted-foreground hover:text-foreground"
                   >
                     <X className="h-4 w-4" />
                   </button>
                 </div>
-                <p className="mt-1 text-sm text-gray-600">
+                <p className="mt-1 text-sm text-muted-foreground">
                   {currentNotification.action}{' '}
                   <span className="font-semibold text-primary">
                     {currentNotification.stock.symbol}
@@ -296,13 +296,13 @@ const ActivityNotifications = () => {
                   </div>
 
                   {currentNotification.insight && (
-                    <span className="ml-2 text-xs bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded-full">
+                    <span className="ml-2 text-xs bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-200 px-1.5 py-0.5 rounded-full">
                       {currentNotification.insight}
                     </span>
                   )}
                 </div>
 
-                <div className="mt-2 flex items-center text-xs text-gray-500">
+                <div className="mt-2 flex items-center text-xs text-muted-foreground">
                   <Clock className="mr-1 h-3 w-3" />
                   {formatTimeAgo(currentNotification.timeAgo)}
                   <TrendingUp className="ml-3 mr-1 h-3 w-3 text-green-500" />

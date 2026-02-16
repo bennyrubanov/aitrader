@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, LogIn, LogOut, CreditCard } from "lucide-react";
+import { Loader2, LogIn, LogOut, CreditCard, Bell, UserRound } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
 import { toast } from "@/hooks/use-toast";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/utils/supabase/browser";
 
@@ -146,101 +147,123 @@ const SettingsPage = () => {
   };
 
   return (
-    <div className="space-y-6">
-      <Card>
+    <div className="mx-auto w-full max-w-3xl">
+      <Card className="w-full">
         <CardHeader>
           <CardTitle>Settings</CardTitle>
-          <CardDescription>Manage account access, premium status, and Stripe billing.</CardDescription>
+          <CardDescription>Manage account, billing, and notifications in one place.</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-6">
           {isLoadingProfile ? (
             <div className="inline-flex items-center text-sm text-muted-foreground">
               <Loader2 className="mr-2 size-4 animate-spin" />
               Loading account settings...
             </div>
           ) : isAuthenticated ? (
-            <div className="space-y-3 text-sm">
-              <p>
-                <span className="font-medium">Name:</span> {profile.fullName ?? "Not set"}
-              </p>
-              <p>
-                <span className="font-medium">Email:</span> {profile.email ?? "Unavailable"}
-              </p>
-              <div className="flex items-center gap-2">
-                <span className="font-medium">Plan:</span>
-                <Badge
-                  variant="outline"
-                  className={
-                    profile.isPremium
-                      ? "border-green-200 bg-green-50 text-green-700"
-                      : "border-amber-200 bg-amber-50 text-amber-700"
-                  }
-                >
-                  {profile.isPremium ? "Premium" : "Free"}
-                </Badge>
-              </div>
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Sign in to access subscription controls and account settings.
-            </p>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Billing</CardTitle>
-          <CardDescription>Update subscription and payment settings securely in Stripe.</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-wrap gap-3">
-          {isAuthenticated ? (
             <>
-              <Button
-                onClick={handleOpenPortal}
-                disabled={isOpeningPortal}
-                className="bg-trader-blue hover:bg-trader-blue-dark"
-              >
-                {isOpeningPortal ? (
-                  <>
-                    <Loader2 className="mr-2 size-4 animate-spin" />
-                    Opening portal...
-                  </>
-                ) : (
-                  <>
-                    <CreditCard className="mr-2 size-4" />
-                    Update subscription in Stripe
-                  </>
-                )}
-              </Button>
-              <Button variant="outline" onClick={handleSignOut} disabled={isSigningOut}>
-                {isSigningOut ? (
-                  <>
-                    <Loader2 className="mr-2 size-4 animate-spin" />
-                    Signing out...
-                  </>
-                ) : (
-                  <>
-                    <LogOut className="mr-2 size-4" />
-                    Sign out
-                  </>
-                )}
-              </Button>
+              <section id="account" className="space-y-3">
+                <h3 className="inline-flex items-center text-sm font-semibold">
+                  <UserRound className="mr-2 size-4" />
+                  Account
+                </h3>
+                <div className="space-y-2 text-sm">
+                  <p>
+                    <span className="font-medium">Name:</span> {profile.fullName ?? "Not set"}
+                  </p>
+                  <p>
+                    <span className="font-medium">Email:</span> {profile.email ?? "Unavailable"}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">Plan:</span>
+                    <Badge
+                      variant="outline"
+                      className={
+                        profile.isPremium
+                          ? "border-trader-blue/40 bg-trader-blue/10 text-trader-blue"
+                          : "border-amber-200 bg-amber-50 text-amber-700"
+                      }
+                    >
+                      {profile.isPremium ? "Premium - Outperformer plan" : "Free version"}
+                    </Badge>
+                  </div>
+                </div>
+              </section>
+
+              <Separator />
+
+              <section id="billing" className="space-y-3">
+                <h3 className="inline-flex items-center text-sm font-semibold">
+                  <CreditCard className="mr-2 size-4" />
+                  Billing
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  Update subscription and payment settings securely in Stripe.
+                </p>
+                <Button
+                  onClick={handleOpenPortal}
+                  disabled={isOpeningPortal}
+                  className="bg-trader-blue hover:bg-trader-blue-dark text-white"
+                >
+                  {isOpeningPortal ? (
+                    <>
+                      <Loader2 className="mr-2 size-4 animate-spin" />
+                      Opening portal...
+                    </>
+                  ) : (
+                    "Open billing portal"
+                  )}
+                </Button>
+              </section>
+
+              <Separator />
+
+              <section id="notifications" className="space-y-2">
+                <h3 className="inline-flex items-center text-sm font-semibold">
+                  <Bell className="mr-2 size-4" />
+                  Notifications
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  Notification preferences are coming soon.
+                </p>
+              </section>
+
+              <Separator />
+
+              <div className="flex justify-end">
+                <Button variant="outline" onClick={handleSignOut} disabled={isSigningOut}>
+                  {isSigningOut ? (
+                    <>
+                      <Loader2 className="mr-2 size-4 animate-spin" />
+                      Signing out...
+                    </>
+                  ) : (
+                    <>
+                      <LogOut className="mr-2 size-4" />
+                      Log out
+                    </>
+                  )}
+                </Button>
+              </div>
             </>
           ) : (
-            <Button onClick={handleSignIn} disabled={isSigningIn}>
-              {isSigningIn ? (
-                <>
-                  <Loader2 className="mr-2 size-4 animate-spin" />
-                  Redirecting...
-                </>
-              ) : (
-                <>
-                  <LogIn className="mr-2 size-4" />
-                  Sign in with Google
-                </>
-              )}
-            </Button>
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Sign in to access account, billing, and notification settings.
+              </p>
+              <Button onClick={handleSignIn} disabled={isSigningIn}>
+                {isSigningIn ? (
+                  <>
+                    <Loader2 className="mr-2 size-4 animate-spin" />
+                    Redirecting...
+                  </>
+                ) : (
+                  <>
+                    <LogIn className="mr-2 size-4" />
+                    Sign in with Google
+                  </>
+                )}
+              </Button>
+            </div>
           )}
         </CardContent>
       </Card>

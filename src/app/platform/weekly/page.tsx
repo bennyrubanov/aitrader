@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -16,6 +17,7 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { allStocks } from "@/lib/stockData";
+import { getPlatformCachedValue, setPlatformCachedValue } from "@/lib/platformClientCache";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/utils/supabase/browser";
 
 type RecommendationBucket = "buy" | "hold" | "sell" | null;
@@ -80,7 +82,12 @@ const formatDate = (value: string | null) => {
   return parsed.toLocaleDateString();
 };
 
+const WEEKLY_ROWS_CACHE_KEY = "weekly.rows";
+const WEEKLY_ROWS_CACHE_TTL_MS = 10 * 60 * 1000;
+
 const WeeklyRecommendationsPage = () => {
+  const router = useRouter();
+
   const [query, setQuery] = useState("");
   const [rows, setRows] = useState<WeeklyRecommendationRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -90,22 +97,37 @@ const WeeklyRecommendationsPage = () => {
     let isMounted = true;
 
     const loadWeeklyRows = async () => {
-      if (!isSupabaseConfigured()) {
+      const cachedRows = getPlatformCachedValue<WeeklyRecommendationRow[]>(
+        WEEKLY_ROWS_CACHE_KEY,
+        WEEKLY_ROWS_CACHE_TTL_MS
+      );
+      if (cachedRows) {
         if (isMounted) {
-          setRows(
-            allStocks.map((stock) => ({
-              stockId: stock.symbol,
-              symbol: stock.symbol,
-              name: stock.name,
-              weeklyScore: null,
-              weeklyBucket: null,
-              currentBucket: null,
-              runDate: null,
-            }))
-          );
+          setRows(cachedRows);
           setErrorMessage(null);
           setIsLoading(false);
         }
+        return;
+      }
+
+      if (!isSupabaseConfigured()) {
+        const fallbackRows = allStocks.map((stock) => ({
+          stockId: stock.symbol,
+          symbol: stock.symbol,
+          name: stock.name,
+          weeklyScore: null,
+          weeklyBucket: null,
+          currentBucket: null,
+          runDate: null,
+        }));
+
+        if (isMounted) {
+          setRows(fallbackRows);
+          setErrorMessage(null);
+          setIsLoading(false);
+        }
+
+        setPlatformCachedValue(WEEKLY_ROWS_CACHE_KEY, fallbackRows);
         return;
       }
 
@@ -186,6 +208,7 @@ const WeeklyRecommendationsPage = () => {
 
       if (isMounted) {
         setRows(mappedRows);
+        setPlatformCachedValue(WEEKLY_ROWS_CACHE_KEY, mappedRows);
         setIsLoading(false);
       }
     };
@@ -210,6 +233,13 @@ const WeeklyRecommendationsPage = () => {
         (row.weeklyBucket ?? "").toLowerCase().includes(normalized)
     );
   }, [query, rows]);
+
+  useEffect(() => {
+    const topSymbols = rows.slice(0, 40).map((row) => row.symbol.toLowerCase());
+    topSymbols.forEach((symbol) => {
+      router.prefetch(`/stocks/${symbol}`);
+    });
+  }, [rows, router]);
 
   return (
     <div className="space-y-6">
@@ -284,7 +314,17 @@ const WeeklyRecommendationsPage = () => {
                     <TableCell>{formatDate(row.runDate)}</TableCell>
                     <TableCell className="text-right">
                       <Button asChild size="sm" variant="outline">
-                        <Link href={`/stocks/${row.symbol.toLowerCase()}`}>View</Link>
+                        <Link
+                          href={`/stocks/${row.symbol.toLowerCase()}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          prefetch
+                          onMouseEnter={() => router.prefetch(`/stocks/${row.symbol.toLowerCase()}`)}
+                          onFocus={() => router.prefetch(`/stocks/${row.symbol.toLowerCase()}`)}
+                          onPointerDown={() => router.prefetch(`/stocks/${row.symbol.toLowerCase()}`)}
+                        >
+                          View
+                        </Link>
                       </Button>
                     </TableCell>
                   </TableRow>

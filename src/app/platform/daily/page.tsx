@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Loader2, ShieldCheck, ShieldX } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -16,6 +17,7 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { allStocks } from "@/lib/stockData";
+import { getPlatformCachedValue, setPlatformCachedValue } from "@/lib/platformClientCache";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/utils/supabase/browser";
 
 type RecommendationBucket = "buy" | "hold" | "sell" | null;
@@ -64,7 +66,19 @@ const formatDate = (value: string | null) => {
   return parsed.toLocaleDateString();
 };
 
+const DAILY_ROWS_CACHE_KEY = "daily.rows";
+const DAILY_ROWS_CACHE_TTL_MS = 5 * 60 * 1000;
+const PROFILE_STATUS_CACHE_KEY = "daily.profile.status";
+const PROFILE_STATUS_CACHE_TTL_MS = 10 * 60 * 1000;
+
+type ProfileStatusCache = {
+  isAuthenticated: boolean;
+  isPremium: boolean;
+};
+
 const DailyRecommendationsPage = () => {
+  const router = useRouter();
+
   const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
   const [checkoutEmail, setCheckoutEmail] = useState<string | null>(null);
 
@@ -87,12 +101,29 @@ const DailyRecommendationsPage = () => {
     let isMounted = true;
 
     const loadProfile = async () => {
+      const cachedProfile = getPlatformCachedValue<ProfileStatusCache>(
+        PROFILE_STATUS_CACHE_KEY,
+        PROFILE_STATUS_CACHE_TTL_MS
+      );
+      if (cachedProfile) {
+        if (isMounted) {
+          setIsAuthenticated(cachedProfile.isAuthenticated);
+          setIsPremium(cachedProfile.isPremium);
+          setIsProfileLoading(false);
+        }
+        return;
+      }
+
       if (!isSupabaseConfigured()) {
         if (isMounted) {
           setIsAuthenticated(false);
           setIsPremium(false);
           setIsProfileLoading(false);
         }
+        setPlatformCachedValue(PROFILE_STATUS_CACHE_KEY, {
+          isAuthenticated: false,
+          isPremium: false,
+        });
         return;
       }
 
@@ -103,6 +134,10 @@ const DailyRecommendationsPage = () => {
           setIsPremium(false);
           setIsProfileLoading(false);
         }
+        setPlatformCachedValue(PROFILE_STATUS_CACHE_KEY, {
+          isAuthenticated: false,
+          isPremium: false,
+        });
         return;
       }
 
@@ -116,6 +151,10 @@ const DailyRecommendationsPage = () => {
           setIsPremium(false);
           setIsProfileLoading(false);
         }
+        setPlatformCachedValue(PROFILE_STATUS_CACHE_KEY, {
+          isAuthenticated: false,
+          isPremium: false,
+        });
         return;
       }
 
@@ -146,6 +185,10 @@ const DailyRecommendationsPage = () => {
         setIsPremium(premium);
         setIsProfileLoading(false);
       }
+      setPlatformCachedValue(PROFILE_STATUS_CACHE_KEY, {
+        isAuthenticated: true,
+        isPremium: premium,
+      });
     };
 
     loadProfile();
@@ -159,22 +202,34 @@ const DailyRecommendationsPage = () => {
     let isMounted = true;
 
     const loadRows = async () => {
-      if (!isSupabaseConfigured()) {
+      const cachedRows = getPlatformCachedValue<DailyRow[]>(DAILY_ROWS_CACHE_KEY, DAILY_ROWS_CACHE_TTL_MS);
+      if (cachedRows) {
         if (isMounted) {
-          setRows(
-            allStocks.map((stock) => ({
-              symbol: stock.symbol,
-              name: stock.name,
-              score: null,
-              latentRank: null,
-              confidence: null,
-              bucket: null,
-              updatedAt: null,
-            }))
-          );
+          setRows(cachedRows);
           setRowsError(null);
           setIsLoadingRows(false);
         }
+        return;
+      }
+
+      if (!isSupabaseConfigured()) {
+        const fallbackRows = allStocks.map((stock) => ({
+          symbol: stock.symbol,
+          name: stock.name,
+          score: null,
+          latentRank: null,
+          confidence: null,
+          bucket: null,
+          updatedAt: null,
+        }));
+
+        if (isMounted) {
+          setRows(fallbackRows);
+          setRowsError(null);
+          setIsLoadingRows(false);
+        }
+
+        setPlatformCachedValue(DAILY_ROWS_CACHE_KEY, fallbackRows);
         return;
       }
 
@@ -227,6 +282,7 @@ const DailyRecommendationsPage = () => {
 
       if (isMounted) {
         setRows(mappedRows);
+        setPlatformCachedValue(DAILY_ROWS_CACHE_KEY, mappedRows);
         setIsLoadingRows(false);
       }
     };
@@ -251,6 +307,13 @@ const DailyRecommendationsPage = () => {
         (row.bucket ?? "").toLowerCase().includes(normalized)
     );
   }, [query, rows]);
+
+  useEffect(() => {
+    const topSymbols = rows.slice(0, 40).map((row) => row.symbol.toLowerCase());
+    topSymbols.forEach((symbol) => {
+      router.prefetch(`/stocks/${symbol}`);
+    });
+  }, [rows, router]);
 
   return (
     <div className="space-y-6">
@@ -356,7 +419,17 @@ const DailyRecommendationsPage = () => {
                     <TableCell>{formatDate(row.updatedAt)}</TableCell>
                     <TableCell className="text-right">
                       <Button asChild size="sm" variant="outline">
-                        <Link href={`/stocks/${row.symbol.toLowerCase()}`}>View</Link>
+                        <Link
+                          href={`/stocks/${row.symbol.toLowerCase()}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          prefetch
+                          onMouseEnter={() => router.prefetch(`/stocks/${row.symbol.toLowerCase()}`)}
+                          onFocus={() => router.prefetch(`/stocks/${row.symbol.toLowerCase()}`)}
+                          onPointerDown={() => router.prefetch(`/stocks/${row.symbol.toLowerCase()}`)}
+                        >
+                          View
+                        </Link>
                       </Button>
                     </TableCell>
                   </TableRow>

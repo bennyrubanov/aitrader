@@ -10,16 +10,16 @@ const PrivacyPage = () => {
   }, []);
 
   return (
-    <div className="min-h-screen bg-white flex flex-col">
+    <div className="min-h-screen bg-background text-foreground flex flex-col">
       <Navbar />
       <main className="flex-grow">
         <section className="py-20">
           <div className="container mx-auto px-4">
             <div className="max-w-4xl mx-auto">
               <h1 className="text-4xl font-bold mb-8">Privacy Policy</h1>
-              <p className="text-gray-600 mb-12">Last updated: June 15, 2024</p>
+              <p className="text-muted-foreground mb-12">Last updated: June 15, 2024</p>
 
-              <div className="prose prose-lg max-w-none">
+              <div className="prose prose-lg max-w-none dark:prose-invert prose-headings:text-foreground prose-p:text-foreground/90 prose-strong:text-foreground prose-li:text-foreground/90">
                 <p>
                   AITrader ("we", "our", or "us") is committed to protecting your
                   privacy. This Privacy Policy explains how we collect, use,

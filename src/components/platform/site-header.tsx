@@ -2,11 +2,13 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Home } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { MiniStockSearch } from "@/components/platform/mini-stock-search";
 
 const viewTitleByPath: Record<string, string> = {
   "/platform/daily": "Daily Recommendations",
@@ -30,6 +32,7 @@ const getTitleFromPath = (pathname: string) => {
 
 export function SiteHeader() {
   const pathname = usePathname();
+  const router = useRouter();
   const title = getTitleFromPath(pathname);
 
   return (
@@ -37,6 +40,10 @@ export function SiteHeader() {
       <div className="flex h-[var(--header-height)] items-center gap-3 px-4">
         <Link
           href="/"
+          prefetch
+          onMouseEnter={() => router.prefetch("/")}
+          onFocus={() => router.prefetch("/")}
+          onPointerDown={() => router.prefetch("/")}
           className="inline-flex items-center gap-2 rounded-md px-1 py-1 text-sm font-medium hover:bg-muted"
         >
           <Image src="/favicon.ico" alt="AITrader home" width={20} height={20} />
@@ -56,12 +63,23 @@ export function SiteHeader() {
           </p>
         </div>
 
-        <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
-          <Link href="/">
-            <Home className="mr-2 size-4" />
-            Home
-          </Link>
-        </Button>
+        <MiniStockSearch />
+
+        <div className="flex items-center gap-1">
+          <ThemeToggle />
+          <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
+            <Link
+              href="/"
+              prefetch
+              onMouseEnter={() => router.prefetch("/")}
+              onFocus={() => router.prefetch("/")}
+              onPointerDown={() => router.prefetch("/")}
+            >
+              <Home className="mr-2 size-4" />
+              Home
+            </Link>
+          </Button>
+        </div>
       </div>
     </header>
   );

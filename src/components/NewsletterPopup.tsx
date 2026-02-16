@@ -181,7 +181,7 @@ const NewsletterPopup = forwardRef<NewsletterPopupRef, object>((props, ref) => {
           </form>
         ) : (
           <div className="py-6 text-center">
-            <div className="rounded-full bg-green-100 p-3 w-12 h-12 mx-auto flex items-center justify-center mb-4">
+            <div className="rounded-full bg-green-100 dark:bg-green-900/40 p-3 w-12 h-12 mx-auto flex items-center justify-center mb-4">
               <svg 
                 xmlns="http://www.w3.org/2000/svg" 
                 className="h-6 w-6 text-green-600" 
@@ -197,8 +197,8 @@ const NewsletterPopup = forwardRef<NewsletterPopupRef, object>((props, ref) => {
                 />
               </svg>
             </div>
-            <h3 className="text-lg font-medium text-gray-900">Thanks for subscribing!</h3>
-            <p className="text-gray-500 mt-1">
+            <h3 className="text-lg font-medium text-foreground">Thanks for subscribing!</h3>
+            <p className="text-muted-foreground mt-1">
               You'll receive our weekly updates on the latest stock trends.
             </p>
           </div>

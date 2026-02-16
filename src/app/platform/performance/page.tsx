@@ -1,26 +1,29 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { Loader2 } from "lucide-react";
-import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-} from "@/components/ui/chart";
+import { Skeleton } from "@/components/ui/skeleton";
+import { getPlatformCachedValue, setPlatformCachedValue } from "@/lib/platformClientCache";
 
 type PerformancePoint = {
   date: string;
   aiTrader: number;
   sp500: number;
 };
+
+const PERFORMANCE_SERIES_CACHE_KEY = "performance.series";
+const PERFORMANCE_SERIES_CACHE_TTL_MS = 10 * 60 * 1000;
+
+const PerformanceChart = dynamic(
+  () =>
+    import("@/components/platform/performance-chart").then((module) => module.PerformanceChart),
+  {
+    ssr: false,
+    loading: () => <Skeleton className="h-[360px] w-full" />,
+  }
+);
 
 const PerformancePage = () => {
   const [series, setSeries] = useState<PerformancePoint[]>([]);
@@ -32,14 +35,25 @@ const PerformancePage = () => {
 
     const loadSeries = async () => {
       try {
+        const cachedSeries = getPlatformCachedValue<PerformancePoint[]>(
+          PERFORMANCE_SERIES_CACHE_KEY,
+          PERFORMANCE_SERIES_CACHE_TTL_MS
+        );
+        if (cachedSeries) {
+          if (isMounted) {
+            setSeries(cachedSeries);
+            setErrorMessage(null);
+            setIsLoading(false);
+          }
+          return;
+        }
+
         if (isMounted) {
           setIsLoading(true);
           setErrorMessage(null);
         }
 
-        const response = await fetch("/api/platform/performance", {
-          cache: "no-store",
-        });
+        const response = await fetch("/api/platform/performance");
 
         if (!response.ok) {
           throw new Error("Unable to load performance data.");
@@ -50,7 +64,9 @@ const PerformancePage = () => {
           return;
         }
 
-        setSeries(payload.series ?? []);
+        const seriesPayload = payload.series ?? [];
+        setSeries(seriesPayload);
+        setPlatformCachedValue(PERFORMANCE_SERIES_CACHE_KEY, seriesPayload);
         setIsLoading(false);
       } catch {
         if (isMounted) {
@@ -66,15 +82,6 @@ const PerformancePage = () => {
       isMounted = false;
     };
   }, []);
-
-  const chartSeries = useMemo(
-    () =>
-      series.map((point) => ({
-        ...point,
-        shortDate: point.date.slice(5),
-      })),
-    [series]
-  );
 
   const latest = series[series.length - 1] ?? null;
   const outperformance = latest ? latest.aiTrader - latest.sp500 : null;
@@ -137,43 +144,8 @@ const PerformancePage = () => {
             </div>
           ) : errorMessage ? (
             <p className="text-sm text-red-600">{errorMessage}</p>
-          ) : chartSeries.length ? (
-            <ChartContainer
-              className="h-[360px] w-full"
-              config={{
-                aiTrader: {
-                  label: "AI Trader",
-                  color: "#2563eb",
-                },
-                sp500: {
-                  label: "S&P 500",
-                  color: "#64748b",
-                },
-              }}
-            >
-              <LineChart data={chartSeries} margin={{ top: 16, right: 16, left: 8, bottom: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="shortDate" />
-                <YAxis />
-                <ChartTooltip content={<ChartTooltipContent labelKey="shortDate" />} />
-                <Line
-                  type="monotone"
-                  dataKey="aiTrader"
-                  name="AI Trader"
-                  stroke="var(--color-aiTrader)"
-                  strokeWidth={2.5}
-                  dot={false}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="sp500"
-                  name="S&P 500"
-                  stroke="var(--color-sp500)"
-                  strokeWidth={2.5}
-                  dot={false}
-                />
-              </LineChart>
-            </ChartContainer>
+          ) : series.length ? (
+            <PerformanceChart series={series} />
           ) : (
             <p className="text-sm text-muted-foreground">No performance data available yet.</p>
           )}

@@ -8,14 +8,14 @@ import Link from "next/link";
 
 const CTA: React.FC = () => {
   return (
-    <section className="py-20 bg-gradient-to-b from-trader-gray to-white">
+    <section className="py-20 bg-gradient-to-b from-muted/40 to-background">
       <div className="container mx-auto px-4">
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-12">
             <h2 className="text-3xl md:text-4xl font-bold mb-4">
               Ready to Trade Smarter with AI?
             </h2>
-            <p className="text-xl text-gray-600 max-w-3xl mx-auto">
+            <p className="text-xl text-muted-foreground max-w-3xl mx-auto">
               Get instant access to AI-powered stock analysis and start outperforming the market today.
             </p>
           </div>
@@ -23,7 +23,7 @@ const CTA: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
             <div className="order-2 md:order-1">
               <div className="space-y-6">
-                <div className="bg-white p-6 rounded-xl shadow-elevated border border-gray-100">
+                <div className="bg-card p-6 rounded-xl shadow-elevated border border-border">
                   <h3 className="text-xl font-semibold mb-4">
                     What you'll get:
                   </h3>
@@ -82,7 +82,7 @@ const CTA: React.FC = () => {
           </div>
           <div className="pt-10 flex justify-center">
             <Link href="/payment">
-              <Button className="px-8 py-6 text-lg rounded-xl bg-trader-blue hover:bg-trader-blue-dark transition-all duration-300">
+              <Button className="px-8 py-6 text-lg rounded-xl bg-trader-blue hover:bg-trader-blue-dark text-white transition-all duration-300">
                 <span className="mr-2">Get Started</span>
                 <ArrowRight size={18} />
               </Button>

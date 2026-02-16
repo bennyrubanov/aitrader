@@ -4,8 +4,9 @@ import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Loader2, LogIn } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/utils/supabase/browser";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 const Navbar: React.FC = () => {
   const [scrolled, setScrolled] = useState(false);
@@ -13,6 +14,7 @@ const Navbar: React.FC = () => {
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const pathname = usePathname();
+  const router = useRouter();
 
   useEffect(() => {
     const handleScroll = () => {
@@ -22,6 +24,12 @@ const Navbar: React.FC = () => {
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
+
+  useEffect(() => {
+    ["/", "/platform/daily", "/payment"].forEach((href) => {
+      router.prefetch(href);
+    });
+  }, [router]);
 
   useEffect(() => {
     const hash = window.location.hash;
@@ -105,12 +113,14 @@ const Navbar: React.FC = () => {
     return pathname === "/" ? hash : `/${hash}`;
   };
 
+  const handlePrefetch = (href: string) => {
+    router.prefetch(href);
+  };
+
   return (
     <header
       className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-        scrolled
-          ? "bg-white/80 backdrop-blur-md shadow-sm py-3"
-          : "bg-transparent py-5"
+        scrolled ? "bg-background/80 backdrop-blur-md shadow-sm py-3" : "bg-transparent py-5"
       }`}
     >
       <div className="container mx-auto px-4 md:px-6">
@@ -118,7 +128,11 @@ const Navbar: React.FC = () => {
           <div className="flex items-center">
             <Link
               href="/"
-              className="text-xl md:text-2xl font-bold text-gray-900 flex items-center"
+              prefetch
+              onMouseEnter={() => handlePrefetch("/")}
+              onFocus={() => handlePrefetch("/")}
+              onPointerDown={() => handlePrefetch("/")}
+              className="text-xl md:text-2xl font-bold text-foreground flex items-center"
             >
               <span className="text-trader-blue">AI</span>
               <span>Trader</span>
@@ -128,31 +142,48 @@ const Navbar: React.FC = () => {
           <nav className="hidden md:flex gap-6">
             <Link
               href={getHomeLink("#features")}
-              className="text-gray-600 hover:text-gray-900 transition-colors"
+              prefetch
+              onMouseEnter={() => handlePrefetch(getHomeLink("#features"))}
+              onFocus={() => handlePrefetch(getHomeLink("#features"))}
+              onPointerDown={() => handlePrefetch(getHomeLink("#features"))}
+              className="text-muted-foreground hover:text-foreground transition-colors"
             >
               Features
             </Link>
             <Link
               href={getHomeLink("#research")}
-              className="text-gray-600 hover:text-gray-900 transition-colors"
+              prefetch
+              onMouseEnter={() => handlePrefetch(getHomeLink("#research"))}
+              onFocus={() => handlePrefetch(getHomeLink("#research"))}
+              onPointerDown={() => handlePrefetch(getHomeLink("#research"))}
+              className="text-muted-foreground hover:text-foreground transition-colors"
             >
               Research
             </Link>
             <Link
               href="/platform/daily"
-              className="text-gray-600 hover:text-gray-900 transition-colors"
+              prefetch
+              onMouseEnter={() => handlePrefetch("/platform/daily")}
+              onFocus={() => handlePrefetch("/platform/daily")}
+              onPointerDown={() => handlePrefetch("/platform/daily")}
+              className="text-muted-foreground hover:text-foreground transition-colors"
             >
               Platform
             </Link>
             <Link
               href={getHomeLink("#newsletter")}
-              className="text-gray-600 hover:text-gray-900 transition-colors"
+              prefetch
+              onMouseEnter={() => handlePrefetch(getHomeLink("#newsletter"))}
+              onFocus={() => handlePrefetch(getHomeLink("#newsletter"))}
+              onPointerDown={() => handlePrefetch(getHomeLink("#newsletter"))}
+              className="text-muted-foreground hover:text-foreground transition-colors"
             >
               Newsletter
             </Link>
           </nav>
 
           <div className="flex items-center gap-2">
+            <ThemeToggle className="rounded-full" />
             {!isAuthenticated && (
               <Button
                 variant="outline"
@@ -168,8 +199,14 @@ const Navbar: React.FC = () => {
                 <span>Login</span>
               </Button>
             )}
-            <Link href={isAuthenticated ? "/platform/daily" : "/payment"}>
-              <Button className="rounded-full px-5 transition-all duration-300 bg-trader-blue hover:bg-trader-blue-dark">
+            <Link
+              href={isAuthenticated ? "/platform/daily" : "/payment"}
+              prefetch
+              onMouseEnter={() => handlePrefetch(isAuthenticated ? "/platform/daily" : "/payment")}
+              onFocus={() => handlePrefetch(isAuthenticated ? "/platform/daily" : "/payment")}
+              onPointerDown={() => handlePrefetch(isAuthenticated ? "/platform/daily" : "/payment")}
+            >
+              <Button className="rounded-full px-5 transition-all duration-300 bg-trader-blue hover:bg-trader-blue-dark text-white">
                 <span className="mr-2">
                   {isAuthenticated ? "Go to Platform" : "Get Started"}
                 </span>

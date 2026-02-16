@@ -47,21 +47,21 @@ const BillingPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-white flex flex-col">
+    <div className="min-h-screen bg-background text-foreground flex flex-col">
       <Navbar />
       <main className="flex-grow">
         <section className="py-20 md:py-28">
           <div className="container mx-auto px-4">
             <div className="max-w-2xl mx-auto text-center">
               <h1 className="text-3xl md:text-5xl font-bold mb-4">Billing & Subscription</h1>
-              <p className="text-lg text-gray-600 mb-8">
+              <p className="text-lg text-muted-foreground mb-8">
                 Open Stripe&apos;s secure billing portal to update payment method, view invoices, or
                 cancel your subscription.
               </p>
               <Button
                 onClick={handleManageSubscription}
                 disabled={loading}
-                className="bg-trader-blue hover:bg-trader-blue-dark"
+                className="bg-trader-blue text-white hover:bg-trader-blue-dark"
               >
                 {loading ? "Opening..." : "Manage Subscription"}
               </Button>

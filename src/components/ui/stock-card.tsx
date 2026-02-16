@@ -48,7 +48,7 @@ const StockCard: React.FC<StockCardProps> = ({
               />
             )}
           </div>
-          <span className="text-sm text-gray-600 truncate max-w-[180px]">
+          <span className="text-sm text-muted-foreground truncate max-w-[180px]">
             {name}
           </span>
         </div>
@@ -69,9 +69,9 @@ const StockCard: React.FC<StockCardProps> = ({
       </div>
 
       {showDetails && !isPremium && aiRating ? (
-        <div className="mt-3 pt-2 border-t border-gray-100">
+        <div className="mt-3 pt-2 border-t border-border">
           <div className="flex items-center justify-between">
-            <span className="text-xs text-gray-500">AI Rating</span>
+            <span className="text-xs text-muted-foreground">AI Rating</span>
             <span
               className={`text-sm font-medium ${
                 aiRating === "Strong Buy"
@@ -93,7 +93,7 @@ const StockCard: React.FC<StockCardProps> = ({
 
       {isPremium && (
         <div
-          className="absolute inset-0 rounded-xl flex items-center justify-center bg-white/60 backdrop-blur-sm opacity-0 transition-opacity hover:opacity-100"
+          className="absolute inset-0 rounded-xl flex items-center justify-center bg-background/60 backdrop-blur-sm opacity-0 transition-opacity hover:opacity-100"
           aria-hidden="true"
         >
           <div className="cta-button text-sm px-3 py-1.5">

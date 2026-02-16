@@ -131,11 +131,11 @@
   }
 
   .stock-card-premium {
-    @apply border border-trader-blue/30 bg-gradient-to-b from-trader-gray-light to-white;
+    @apply border border-trader-blue/30 bg-gradient-to-b from-trader-gray-light to-white dark:from-slate-900 dark:to-slate-950;
   }
 
   .stock-card-free {
-    @apply border border-gray-200 bg-white;
+    @apply border border-border bg-card;
   }
 
   .cta-button {

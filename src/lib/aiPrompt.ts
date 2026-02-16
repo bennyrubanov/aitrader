@@ -12,7 +12,7 @@ export type StockRatingPromptInput = {
 // Update PROMPT_VERSION when you change STOCK_RATING_PROMPT_TEMPLATE or schema.
 // The daily cron upserts the template into `ai_prompts` and links runs via `ai_run_batches`.
 export const PROMPT_NAME = 'nasdaq100_daily_rating';
-export const PROMPT_VERSION = 'nasdaq100-websearch-v5';
+export const PROMPT_VERSION = 'nasdaq100-websearch-v2.1';
 
 export const StockRatingSchema = z
   .object({

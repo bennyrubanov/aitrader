@@ -94,7 +94,7 @@ const PaymentPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-white flex flex-col">
+    <div className="min-h-screen bg-background text-foreground flex flex-col">
       <Navbar />
       <main className="flex-grow">
         <section className="py-20 md:py-32">
@@ -103,7 +103,7 @@ const PaymentPage = () => {
               <h1 className="text-3xl md:text-5xl font-bold mb-6">
                 Unlock Premium AI Trading Insights
               </h1>
-              <p className="text-xl text-gray-600 mb-8">
+              <p className="text-xl text-muted-foreground mb-8">
                 Pay first to access the platform. You can create your account right after checkout
                 from inside the platform experience.
               </p>
@@ -114,14 +114,14 @@ const PaymentPage = () => {
                 </div>
               )}
 
-              <div className="bg-white rounded-xl shadow-elevated border border-gray-100 p-8 mb-12">
+              <div className="bg-card rounded-xl shadow-elevated border border-border p-8 mb-12">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-6">
                   <div className="text-left">
                     <h3 className="text-2xl font-bold mb-2">AI Trader - Outperformer</h3>
-                    <p className="text-gray-600">Monthly subscription</p>
+                    <p className="text-muted-foreground">Monthly subscription</p>
                   </div>
                   <div className="text-2xl md:text-3xl font-bold text-trader-blue">
-                    $29<span className="text-lg font-normal text-gray-500">/month</span>
+                    $29<span className="text-lg font-normal text-muted-foreground">/month</span>
                   </div>
                 </div>
 
@@ -130,7 +130,7 @@ const PaymentPage = () => {
                     Email for receipt and premium access sync
                   </label>
                   <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-gray-400" />
+                    <Mail className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
                       id="checkout-email"
                       type="email"
@@ -142,7 +142,7 @@ const PaymentPage = () => {
                     />
                   </div>
                   {isPrefillingEmail && (
-                    <p className="mt-2 text-xs text-gray-500">Checking for an existing sign-in…</p>
+                    <p className="mt-2 text-xs text-muted-foreground">Checking for an existing sign-in…</p>
                   )}
                 </div>
 
@@ -212,7 +212,7 @@ const PaymentPage = () => {
                 <Button
                   onClick={handleSubscribe}
                   disabled={loading}
-                  className="w-full py-6 text-lg rounded-xl bg-trader-blue hover:bg-trader-blue-dark transition-all duration-300"
+                  className="w-full py-6 text-lg rounded-xl bg-trader-blue text-white hover:bg-trader-blue-dark transition-all duration-300"
                 >
                   {loading ? (
                     <>
@@ -228,7 +228,7 @@ const PaymentPage = () => {
                 </Button>
               </div>
 
-              <div className="text-gray-500 text-sm">
+              <div className="text-muted-foreground text-sm">
                 <p>
                   By subscribing, you agree to our terms of service and privacy policy. You can
                   cancel your subscription anytime.

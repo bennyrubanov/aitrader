@@ -1,6 +1,4 @@
 {
   "outputDirectory": ".next",
-  "crons": [
-    { "path": "/api/cron/daily", "schedule": "0 20 * * *" }
-  ]
+  "crons": [{ "path": "/api/cron/daily", "schedule": "0 20 * * *" }]
 }

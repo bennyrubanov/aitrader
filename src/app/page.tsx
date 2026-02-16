@@ -22,7 +22,7 @@ const HomePage = () => {
   };
 
   return (
-    <div ref={parentDivRef} className="min-h-screen bg-white">
+    <div ref={parentDivRef} className="min-h-screen bg-background text-foreground">
       <Navbar />
       <main>
         <Hero />

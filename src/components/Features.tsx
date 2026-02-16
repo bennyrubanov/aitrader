@@ -26,7 +26,7 @@ const Feature: React.FC<FeatureProps> = ({ icon, title, description, delay }) =>
   return (
     <div 
       ref={ref}
-      className={`bg-white rounded-xl p-6 shadow-soft transition-all duration-500 transform ${
+      className={`bg-card border border-border rounded-xl p-6 shadow-soft transition-all duration-500 transform ${
         isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-10"
       }`}
       style={{ 
@@ -35,12 +35,12 @@ const Feature: React.FC<FeatureProps> = ({ icon, title, description, delay }) =>
       }}
     >
       <div className="flex items-start space-x-4">
-        <div className="bg-trader-gray rounded-full p-3 flex-shrink-0">
+        <div className="bg-muted rounded-full p-3 flex-shrink-0">
           {icon}
         </div>
         <div>
           <h3 className="text-lg font-semibold mb-2">{title}</h3>
-          <p className="text-gray-600">{description}</p>
+          <p className="text-muted-foreground">{description}</p>
         </div>
       </div>
     </div>
@@ -91,7 +91,7 @@ const Features: React.FC = () => {
   const isTitleVisible = useIsVisible(titleRef);
 
   return (
-    <section id="features" className="py-20 bg-trader-gray-light">
+    <section id="features" className="py-20 bg-muted/40">
       <div className="container mx-auto px-4">
         <div className="max-w-3xl mx-auto text-center mb-16">
           <h2 
@@ -103,7 +103,7 @@ const Features: React.FC = () => {
             Science-Backed Trading Intelligence
           </h2>
           <p 
-            className={`text-xl text-gray-600 transition-all duration-700 delay-100 ${
+            className={`text-xl text-muted-foreground transition-all duration-700 delay-100 ${
               isTitleVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-10"
             }`}
           >

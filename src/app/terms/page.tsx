@@ -10,16 +10,16 @@ const TermsPage = () => {
   }, []);
 
   return (
-    <div className="min-h-screen bg-white flex flex-col">
+    <div className="min-h-screen bg-background text-foreground flex flex-col">
       <Navbar />
       <main className="flex-grow">
         <section className="py-20">
           <div className="container mx-auto px-4">
             <div className="max-w-4xl mx-auto">
               <h1 className="text-4xl font-bold mb-8">Terms of Service</h1>
-              <p className="text-gray-600 mb-12">Last updated: March 7, 2025</p>
+              <p className="text-muted-foreground mb-12">Last updated: March 7, 2025</p>
 
-              <div className="prose prose-lg max-w-none">
+              <div className="prose prose-lg max-w-none dark:prose-invert prose-headings:text-foreground prose-p:text-foreground/90 prose-strong:text-foreground prose-li:text-foreground/90">
                 <h2>Agreement to Terms</h2>
                 <p>
                   These Terms of Service constitute a legally binding agreement made between you and
@@ -28,13 +28,13 @@ const TermsPage = () => {
                   of Service. If you do not agree, you may not use the platform or services.
                 </p>
 
-                <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 my-6">
+                <div className="bg-yellow-50/80 dark:bg-yellow-950/30 border-l-4 border-yellow-400 dark:border-yellow-700 p-4 my-6 rounded-r-md">
                   <div className="flex">
                     <div className="ml-3">
-                      <h3 className="text-lg font-medium text-yellow-800">
+                      <h3 className="text-lg font-medium text-yellow-900 dark:text-yellow-200">
                         Disclaimer: Not Financial Advice
                       </h3>
-                      <div className="mt-2 text-yellow-700">
+                      <div className="mt-2 text-yellow-800 dark:text-yellow-100/90">
                         <p>
                           The information provided on our website and through our services is for
                           informational and educational purposes only. It is not intended to be and
