@@ -90,6 +90,32 @@ create table if not exists public.newsletter_subscribers (
 create index if not exists idx_newsletter_subscribers_email
   on public.newsletter_subscribers(email);
 
+create unique index if not exists uidx_newsletter_subscribers_email_lower
+  on public.newsletter_subscribers(lower(email));
+
+-- Auto-link newsletter rows to auth.users by email when possible.
+create or replace function public.link_newsletter_subscriber_to_user()
+returns trigger as $$
+begin
+  if new.user_id is null and new.email is not null then
+    select u.id
+      into new.user_id
+    from auth.users u
+    where lower(u.email) = lower(new.email)
+    order by u.created_at asc
+    limit 1;
+  end if;
+
+  return new;
+end;
+$$ language plpgsql security definer
+set search_path = public, auth;
+
+drop trigger if exists on_newsletter_subscriber_link_user on public.newsletter_subscribers;
+create trigger on_newsletter_subscriber_link_user
+before insert or update of email, user_id on public.newsletter_subscribers
+for each row execute procedure public.link_newsletter_subscriber_to_user();
+
 -- Bootstrap + keep user_profiles in sync with auth.users
 
 create or replace function public.handle_new_auth_user()
@@ -111,6 +137,11 @@ begin
     set email = excluded.email,
         full_name = excluded.full_name,
         updated_at = now();
+
+  update public.newsletter_subscribers
+  set user_id = new.id
+  where user_id is null
+    and lower(email) = lower(new.email);
 
   return new;
 end;
@@ -135,6 +166,11 @@ begin
       updated_at = now()
   where id = new.id;
 
+  update public.newsletter_subscribers
+  set user_id = new.id
+  where user_id is null
+    and lower(email) = lower(new.email);
+
   return new;
 end;
 $$ language plpgsql security definer
@@ -144,6 +180,13 @@ drop trigger if exists on_auth_user_updated on auth.users;
 create trigger on_auth_user_updated
 after update of email, raw_user_meta_data on auth.users
 for each row execute procedure public.handle_updated_auth_user();
+
+-- Backfill existing newsletter records for users who already exist.
+update public.newsletter_subscribers n
+set user_id = u.id
+from auth.users u
+where n.user_id is null
+  and lower(n.email) = lower(u.email);
 
 -- =========================
 -- 3) Canonical stocks table

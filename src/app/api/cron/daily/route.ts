@@ -580,7 +580,7 @@ const chunkWithConcurrency = async <T, R>(
 };
 
 const upsertPrompt = async (supabase: ReturnType<typeof createAdminClient>) => {
-  const { data: existing } = await supabase
+const { data: existing } = await supabase
     .from('ai_prompts')
     .select('id, template')
     .eq('name', STRATEGY_CONFIG.prompt.name)

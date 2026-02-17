@@ -19,6 +19,7 @@ The AI prompt template and JSON schema are at `src/lib/aiPrompt.ts`.
 All strategy version configuration lives in a single file: `src/lib/strategyConfig.ts`.
 
 Two independent version axes:
+
 - `APP_VERSION` (semver, e.g. `v1.0.0`) — bump for app-level changes: prompt text, portfolio rules, universe, ranking methodology, etc.
 - `MODEL_VERSION` (m-series, e.g. `m2.0`) — bump for AI model changes: provider swap, model upgrade, temperature/token tuning, etc.
 - `STRATEGY_CONFIG` contains all version-sensitive parameters: prompt name/version, model provider/name/version, portfolio size, weighting method, rebalance settings, and description. The strategy slug and prompt version string are derived from both versions.
@@ -43,7 +44,7 @@ You must also keep this file up to date.
 
 **Frontend-facing**: `nasdaq100_recommendations_current` (latest score/bucket/latent_rank per NASDAQ-100 member, one row per stock), views `nasdaq100_scores_7d_view` (rolling 7-run avg), `nasdaq100_current_members`, `nasdaq100_latest_snapshot`.
 
-**User tables**: `user_profiles` (linked 1:1 to Supabase `auth.users`, includes `is_premium`, auto-created/kept in sync via triggers on `auth.users`, and stores Stripe webhook ordering metadata in `stripe_last_event_id` + `stripe_last_event_created` + `stripe_subscription_status`), `newsletter_subscribers`.
+**User tables**: `user_profiles` (linked 1:1 to Supabase `auth.users`, includes `is_premium`, auto-created/kept in sync via triggers on `auth.users`, and stores Stripe webhook ordering metadata in `stripe_last_event_id` + `stripe_last_event_created` + `stripe_subscription_status`), `newsletter_subscribers` (auto-links to `auth.users` via `user_id` when emails match through DB triggers, including backfill behavior, and enforces case-insensitive unique email via `lower(email)` unique index).
 
 ## Key conventions
 
