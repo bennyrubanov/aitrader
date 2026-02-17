@@ -7,25 +7,28 @@ alwaysApply: true
 
 Schema files live in `supabase/`:
 
+- `supabase/reset.sql` – one-shot wipe script (run first when resetting all data/schema)
 - `supabase/schema.sql` – table/view definitions (run first)
 - `supabase/rls_policies.sql` – Row Level Security policies (run second)
 
-The daily cron job that populates the database is at `src/app/api/cron/daily/route.ts`.
+The weekly strategy cron job is at `src/app/api/cron/daily/route.ts` (endpoint name is legacy; logic is weekly).
 The AI prompt template and JSON schema are at `src/lib/aiPrompt.ts`.
 
 Important: if you suggest changes to supabase/schema.sql, you must also suggest an SQL editor function to implement those changes in supabase.
 
 You must also keep this file up to date.
 
-## Tables (4 layers)
+## Tables (5 layers)
 
 **Reference data**: `stocks` (canonical stock registry, `symbol` unique), `ai_prompts` (versioned by name+version), `ai_models` (versioned by provider+name+version).
 
 **NASDAQ-100 membership**: `nasdaq100_snapshots` (one row per distinct membership list, deduped by SHA-256 hash), `nasdaq100_snapshot_stocks` (join table: snapshot ↔ stocks), `nasdaq_100_daily_raw` (raw NASDAQ API data, not FK'd to stocks).
 
-**AI analysis**: `ai_run_batches` (groups runs by run_date + index_name + prompt + model; supports nasdaq100 and sp500), `ai_analysis_runs` (one row = one stock + one AI output; score -5 to +5, latent_rank 0-1 tie-breaker, bucket buy/hold/sell, linked to batch).
+**Strategy/version control**: `trading_strategies` (immutable strategy versions; prompt/model/portfolio settings), `ai_run_batches` (groups AI runs by run_date + strategy_id), `ai_analysis_runs` (one row = one stock + one AI output; score -5 to +5, latent_rank 0-1 tie-breaker, bucket buy/hold/sell, linked to batch).
 
-**Frontend-facing**: `nasdaq100_recommendations_current` (latest score/bucket/latent_rank per NASDAQ-100 member, one row per stock), views `nasdaq100_scores_7d_view` (7-day rolling avg), `nasdaq100_current_members`, `nasdaq100_latest_snapshot`.
+**Portfolio/performance + research**: `strategy_portfolio_holdings` (weekly Top-20 holdings with equal weights), `strategy_rebalance_actions` (enter/exit_rank/exit_index actions), `strategy_performance_weekly` (weekly net/gross return, turnover, transaction cost, equity curve + benchmark equities), `strategy_quintile_returns` (weekly/4-week quintile forward returns), `strategy_cross_sectional_regressions` (weekly alpha/beta/R² on future returns vs rating).
+
+**Frontend-facing**: `nasdaq100_recommendations_current` (latest score/bucket/latent_rank per NASDAQ-100 member, one row per stock), views `nasdaq100_scores_7d_view` (rolling 7-run avg), `nasdaq100_current_members`, `nasdaq100_latest_snapshot`.
 
 **User tables**: `user_profiles` (linked 1:1 to Supabase `auth.users`, includes `is_premium`, auto-created/kept in sync via triggers on `auth.users`, and stores Stripe webhook ordering metadata in `stripe_last_event_id` + `stripe_last_event_created` + `stripe_subscription_status`), `newsletter_subscribers`.
 
@@ -34,4 +37,5 @@ You must also keep this file up to date.
 - All PKs are UUID (`gen_random_uuid()`).
 - The cron job uses `createAdminClient()` (service role key), bypassing RLS.
 - Frontend reads use anon/authenticated key with RLS policies.
+- Weekly strategy rules: rank all 100 weekly, build Top-20 equal-weight, rebalance weekly, apply turnover cost (15 bps), and track benchmark-relative equity curves.
 - When modifying the schema, update `supabase/schema.sql`, `supabase/rls_policies.sql`, the cron job, and this rule file.

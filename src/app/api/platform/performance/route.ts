@@ -3,267 +3,498 @@ import { createPublicClient } from "@/utils/supabase/public";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
 const CACHE_CONTROL_HEADER = "public, s-maxage=300, stale-while-revalidate=1800";
+const INITIAL_CAPITAL = 10_000;
 
-type BatchRow = {
+type StrategyRow = {
   id: string;
-  run_date: string;
+  slug: string;
+  name: string;
+  version: string;
+  description: string | null;
+  rebalance_frequency: string;
+  rebalance_day_of_week: number;
+  portfolio_size: number;
+  transaction_cost_bps: number | string;
 };
 
-type AnalysisRow = {
-  batch_id: string;
-  bucket: "buy" | "hold" | "sell" | null;
-  stocks: { symbol: string } | { symbol: string }[] | null;
+type PerformanceRow = {
+  run_date: string;
+  net_return: number | string;
+  ending_equity: number | string;
+  nasdaq100_cap_weight_equity: number | string;
+  nasdaq100_equal_weight_equity: number | string;
+  sp500_equity: number | string;
 };
 
-type RawRow = {
-  run_date: string;
+type HoldingRow = {
   symbol: string;
-  percentage_change: string | null;
+  rank_position: number;
+  target_weight: number | string;
+  score: number | null;
+  latent_rank: number | null;
+  stocks:
+    | { company_name: string | null }
+    | { company_name: string | null }[]
+    | null;
 };
 
-type Sp500CsvRow = {
+type ActionRow = {
+  symbol: string;
+  action_type: "enter" | "exit_rank" | "exit_index";
+  action_label: string;
+  previous_weight: number | string | null;
+  new_weight: number | string | null;
+};
+
+type QuintileRow = {
+  run_date: string;
+  quintile: number;
+  stock_count: number;
+  return_value: number | string;
+};
+
+type RegressionRow = {
+  run_date: string;
+  sample_size: number;
+  alpha: number | string | null;
+  beta: number | string | null;
+  r_squared: number | string | null;
+};
+
+type SeriesPoint = {
   date: string;
-  close: number;
+  aiTop20: number;
+  nasdaq100CapWeight: number;
+  nasdaq100EqualWeight: number;
+  sp500: number;
 };
 
-const FALLBACK_POINTS = 30;
-const MAX_DAYS = 120;
+const toNumber = (value: unknown, fallback = 0) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+};
 
-const parsePercentage = (value: string | null) => {
-  if (!value) {
+const toNullableNumber = (value: unknown) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+const computeTotalReturn = (startValue: number, endValue: number) => {
+  if (startValue <= 0) {
     return null;
   }
-
-  const normalized = value.replaceAll("%", "").replaceAll(",", "").trim();
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : null;
+  return endValue / startValue - 1;
 };
 
-const average = (values: number[]) => {
+const computeCagr = (startValue: number, endValue: number, startDate: string, endDate: string) => {
+  if (startValue <= 0 || endValue <= 0 || startDate === endDate) {
+    return null;
+  }
+  const start = new Date(`${startDate}T00:00:00Z`);
+  const end = new Date(`${endDate}T00:00:00Z`);
+  const diffMs = end.getTime() - start.getTime();
+  if (!Number.isFinite(diffMs) || diffMs <= 0) {
+    return null;
+  }
+  const years = diffMs / (1000 * 60 * 60 * 24 * 365.25);
+  if (years <= 0) {
+    return null;
+  }
+  return Math.pow(endValue / startValue, 1 / years) - 1;
+};
+
+const computeMaxDrawdown = (values: number[]) => {
   if (!values.length) {
     return null;
   }
-  return values.reduce((total, value) => total + value, 0) / values.length;
-};
 
-const buildFallbackSeries = () => {
-  const points: { date: string; aiTrader: number; sp500: number }[] = [];
-  let aiTrader = 100;
-  let sp500 = 100;
+  let peak = values[0];
+  let maxDrawdown = 0;
 
-  for (let index = FALLBACK_POINTS - 1; index >= 0; index--) {
-    const date = new Date();
-    date.setDate(date.getDate() - index);
-
-    const aiDrift = 0.22 + Math.sin(index / 3) * 0.15;
-    const spDrift = 0.14 + Math.cos(index / 4) * 0.1;
-
-    aiTrader *= 1 + aiDrift / 100;
-    sp500 *= 1 + spDrift / 100;
-
-    points.push({
-      date: date.toISOString().slice(0, 10),
-      aiTrader: Number(aiTrader.toFixed(2)),
-      sp500: Number(sp500.toFixed(2)),
-    });
+  for (const value of values) {
+    if (value > peak) {
+      peak = value;
+    }
+    const drawdown = peak > 0 ? (value - peak) / peak : 0;
+    if (drawdown < maxDrawdown) {
+      maxDrawdown = drawdown;
+    }
   }
 
-  return points;
+  return maxDrawdown;
 };
 
-const fetchSp500Rows = async (): Promise<Sp500CsvRow[] | null> => {
-  try {
-    const response = await fetch("https://stooq.com/q/d/l/?s=%5Espx&i=d", {
-      cache: "no-store",
-    });
-
-    if (!response.ok) {
-      return null;
-    }
-
-    const csv = await response.text();
-    const lines = csv.trim().split("\n");
-    if (lines.length < 2) {
-      return null;
-    }
-
-    const rows = lines
-      .slice(1)
-      .map((line) => {
-        const [date, _open, _high, _low, close] = line.split(",");
-        const closeValue = Number(close);
-        if (!date || !Number.isFinite(closeValue)) {
-          return null;
-        }
-        return { date, close: closeValue };
-      })
-      .filter((row): row is Sp500CsvRow => Boolean(row))
-      .sort((a, b) => a.date.localeCompare(b.date));
-
-    return rows.length ? rows : null;
-  } catch {
+const computeSharpeWeekly = (returns: number[]) => {
+  if (returns.length < 2) {
     return null;
   }
+
+  const mean = returns.reduce((sum, value) => sum + value, 0) / returns.length;
+  const variance =
+    returns.reduce((sum, value) => sum + (value - mean) ** 2, 0) / (returns.length - 1);
+  const stdDev = Math.sqrt(variance);
+  if (!Number.isFinite(stdDev) || stdDev <= 0) {
+    return null;
+  }
+
+  return (mean / stdDev) * Math.sqrt(52);
 };
 
-const buildSp500CloseMap = (runDates: string[], spRows: Sp500CsvRow[]) => {
-  const closeByRunDate = new Map<string, number>();
+const computePctMonthsBeating = (
+  points: Array<{ date: string; aiValue: number; benchmarkValue: number }>
+) => {
+  if (points.length < 2) {
+    return null;
+  }
 
-  let rowIndex = 0;
-  let latestClose: number | null = null;
+  const monthEndMap = new Map<string, { date: string; aiValue: number; benchmarkValue: number }>();
+  points.forEach((point) => {
+    monthEndMap.set(point.date.slice(0, 7), point);
+  });
 
-  for (const runDate of runDates) {
-    while (rowIndex < spRows.length && spRows[rowIndex].date <= runDate) {
-      latestClose = spRows[rowIndex].close;
-      rowIndex += 1;
+  const monthPoints = Array.from(monthEndMap.values()).sort((a, b) =>
+    a.date.localeCompare(b.date)
+  );
+
+  if (monthPoints.length < 2) {
+    return null;
+  }
+
+  let beats = 0;
+  let total = 0;
+  for (let index = 1; index < monthPoints.length; index++) {
+    const previous = monthPoints[index - 1];
+    const current = monthPoints[index];
+
+    if (previous.aiValue <= 0 || previous.benchmarkValue <= 0) {
+      continue;
     }
 
-    if (latestClose !== null) {
-      closeByRunDate.set(runDate, latestClose);
+    const aiReturn = current.aiValue / previous.aiValue - 1;
+    const benchmarkReturn = current.benchmarkValue / previous.benchmarkValue - 1;
+
+    if (!Number.isFinite(aiReturn) || !Number.isFinite(benchmarkReturn)) {
+      continue;
+    }
+
+    total += 1;
+    if (aiReturn > benchmarkReturn) {
+      beats += 1;
     }
   }
 
-  return closeByRunDate;
+  if (total === 0) {
+    return null;
+  }
+
+  return beats / total;
+};
+
+const selectLatestQuintileSet = (rows: QuintileRow[]) => {
+  if (!rows.length) {
+    return null;
+  }
+  const latestRunDate = rows[0].run_date;
+  const latestRows = rows
+    .filter((row) => row.run_date === latestRunDate)
+    .sort((a, b) => a.quintile - b.quintile)
+    .map((row) => ({
+      quintile: row.quintile,
+      stockCount: row.stock_count,
+      return: toNumber(row.return_value, 0),
+    }));
+
+  if (!latestRows.length) {
+    return null;
+  }
+
+  return {
+    runDate: latestRunDate,
+    rows: latestRows,
+  };
 };
 
 export async function GET() {
   try {
-    const toCachedJson = (series: { date: string; aiTrader: number; sp500: number }[]) =>
-      NextResponse.json(
-        { series },
+    const supabase = createPublicClient();
+
+    const { data: strategyData, error: strategyError } = await supabase
+      .from("trading_strategies")
+      .select(
+        "id, slug, name, version, description, rebalance_frequency, rebalance_day_of_week, portfolio_size, transaction_cost_bps"
+      )
+      .eq("is_default", true)
+      .eq("status", "active")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (strategyError || !strategyData) {
+      return NextResponse.json(
+        {
+          strategy: null,
+          series: [],
+          metrics: null,
+          latestHoldings: [],
+          latestActions: [],
+          research: null,
+        },
         {
           headers: {
             "Cache-Control": CACHE_CONTROL_HEADER,
           },
         }
       );
-
-    const supabase = createPublicClient();
-
-    const { data: batches, error: batchError } = await supabase
-      .from("ai_run_batches")
-      .select("id, run_date")
-      .eq("index_name", "nasdaq100")
-      .order("run_date", { ascending: true })
-      .limit(MAX_DAYS);
-
-    if (batchError || !batches?.length) {
-      return toCachedJson(buildFallbackSeries());
     }
 
-    const typedBatches = batches as BatchRow[];
-    const batchIdToDate = new Map(typedBatches.map((row) => [row.id, row.run_date]));
-    const runDates = Array.from(new Set(typedBatches.map((row) => row.run_date))).sort();
+    const strategy = strategyData as StrategyRow;
 
-    if (!runDates.length) {
-      return toCachedJson(buildFallbackSeries());
+    const { data: performanceData, error: performanceError } = await supabase
+      .from("strategy_performance_weekly")
+      .select(
+        "run_date, net_return, ending_equity, nasdaq100_cap_weight_equity, nasdaq100_equal_weight_equity, sp500_equity"
+      )
+      .eq("strategy_id", strategy.id)
+      .order("run_date", { ascending: true });
+
+    if (performanceError || !performanceData?.length) {
+      return NextResponse.json(
+        {
+          strategy: {
+            id: strategy.id,
+            slug: strategy.slug,
+            name: strategy.name,
+            version: strategy.version,
+            description: strategy.description,
+            rebalanceFrequency: strategy.rebalance_frequency,
+            rebalanceDayOfWeek: strategy.rebalance_day_of_week,
+            portfolioSize: strategy.portfolio_size,
+            transactionCostBps: toNumber(strategy.transaction_cost_bps, 15),
+          },
+          series: [],
+          metrics: null,
+          latestHoldings: [],
+          latestActions: [],
+          research: null,
+        },
+        {
+          headers: {
+            "Cache-Control": CACHE_CONTROL_HEADER,
+          },
+        }
+      );
     }
 
-    const batchIds = typedBatches.map((row) => row.id);
+    const perfRows = performanceData as PerformanceRow[];
+    const series: SeriesPoint[] = perfRows.map((row) => ({
+      date: row.run_date,
+      aiTop20: toNumber(row.ending_equity, INITIAL_CAPITAL),
+      nasdaq100CapWeight: toNumber(row.nasdaq100_cap_weight_equity, INITIAL_CAPITAL),
+      nasdaq100EqualWeight: toNumber(row.nasdaq100_equal_weight_equity, INITIAL_CAPITAL),
+      sp500: toNumber(row.sp500_equity, INITIAL_CAPITAL),
+    }));
 
-    const [analysisResponse, rawResponse] = await Promise.all([
-      supabase
-        .from("ai_analysis_runs")
-        .select("batch_id, bucket, stocks(symbol)")
-        .in("batch_id", batchIds),
-      supabase
-        .from("nasdaq_100_daily_raw")
-        .select("run_date, symbol, percentage_change")
-        .in("run_date", runDates),
-    ]);
+    const netReturns = perfRows.map((row) => toNumber(row.net_return, 0));
+    const firstPoint = series[0];
+    const lastPoint = series[series.length - 1];
+    const firstDate = firstPoint?.date ?? "";
+    const lastDate = lastPoint?.date ?? "";
 
-    if (analysisResponse.error || rawResponse.error) {
-      return toCachedJson(buildFallbackSeries());
-    }
+    const totalReturnAi = firstPoint && lastPoint ? computeTotalReturn(firstPoint.aiTop20, lastPoint.aiTop20) : null;
+    const totalReturnCap =
+      firstPoint && lastPoint
+        ? computeTotalReturn(firstPoint.nasdaq100CapWeight, lastPoint.nasdaq100CapWeight)
+        : null;
+    const totalReturnEqual =
+      firstPoint && lastPoint
+        ? computeTotalReturn(firstPoint.nasdaq100EqualWeight, lastPoint.nasdaq100EqualWeight)
+        : null;
+    const totalReturnSp =
+      firstPoint && lastPoint ? computeTotalReturn(firstPoint.sp500, lastPoint.sp500) : null;
 
-    const analysisRows = (analysisResponse.data ?? []) as AnalysisRow[];
-    const rawRows = (rawResponse.data ?? []) as RawRow[];
+    const metrics = firstPoint && lastPoint
+      ? {
+          startingCapital: INITIAL_CAPITAL,
+          endingValue: lastPoint.aiTop20,
+          totalReturn: totalReturnAi,
+          cagr: computeCagr(firstPoint.aiTop20, lastPoint.aiTop20, firstDate, lastDate),
+          maxDrawdown: computeMaxDrawdown(series.map((point) => point.aiTop20)),
+          sharpeRatio: computeSharpeWeekly(netReturns),
+          pctMonthsBeatingNasdaq100: computePctMonthsBeating(
+            series.map((point) => ({
+              date: point.date,
+              aiValue: point.aiTop20,
+              benchmarkValue: point.nasdaq100CapWeight,
+            }))
+          ),
+          benchmarks: {
+            nasdaq100CapWeight: {
+              endingValue: lastPoint.nasdaq100CapWeight,
+              totalReturn: totalReturnCap,
+              cagr: computeCagr(
+                firstPoint.nasdaq100CapWeight,
+                lastPoint.nasdaq100CapWeight,
+                firstDate,
+                lastDate
+              ),
+              maxDrawdown: computeMaxDrawdown(
+                series.map((point) => point.nasdaq100CapWeight)
+              ),
+            },
+            nasdaq100EqualWeight: {
+              endingValue: lastPoint.nasdaq100EqualWeight,
+              totalReturn: totalReturnEqual,
+              cagr: computeCagr(
+                firstPoint.nasdaq100EqualWeight,
+                lastPoint.nasdaq100EqualWeight,
+                firstDate,
+                lastDate
+              ),
+              maxDrawdown: computeMaxDrawdown(
+                series.map((point) => point.nasdaq100EqualWeight)
+              ),
+            },
+            sp500: {
+              endingValue: lastPoint.sp500,
+              totalReturn: totalReturnSp,
+              cagr: computeCagr(firstPoint.sp500, lastPoint.sp500, firstDate, lastDate),
+              maxDrawdown: computeMaxDrawdown(series.map((point) => point.sp500)),
+            },
+          },
+        }
+      : null;
 
-    const buySymbolsByDate = new Map<string, Set<string>>();
-    for (const run of analysisRows) {
-      if (run.bucket !== "buy") {
-        continue;
-      }
+    const latestRunDate = lastPoint?.date ?? null;
 
-      const runDate = batchIdToDate.get(run.batch_id);
-      const stock = Array.isArray(run.stocks) ? run.stocks[0] : run.stocks;
-      if (!runDate || !stock?.symbol) {
-        continue;
-      }
+    const [holdingsResponse, actionsResponse, weeklyQuintilesResponse, fourWeekQuintilesResponse, regressionResponse] =
+      await Promise.all([
+        latestRunDate
+          ? supabase
+              .from("strategy_portfolio_holdings")
+              .select("symbol, rank_position, target_weight, score, latent_rank, stocks(company_name)")
+              .eq("strategy_id", strategy.id)
+              .eq("run_date", latestRunDate)
+              .order("rank_position", { ascending: true })
+          : Promise.resolve({ data: [], error: null }),
+        latestRunDate
+          ? supabase
+              .from("strategy_rebalance_actions")
+              .select("symbol, action_type, action_label, previous_weight, new_weight")
+              .eq("strategy_id", strategy.id)
+              .eq("run_date", latestRunDate)
+              .order("action_type", { ascending: true })
+              .order("symbol", { ascending: true })
+          : Promise.resolve({ data: [], error: null }),
+        supabase
+          .from("strategy_quintile_returns")
+          .select("run_date, quintile, stock_count, return_value")
+          .eq("strategy_id", strategy.id)
+          .eq("horizon_weeks", 1)
+          .order("run_date", { ascending: false })
+          .order("quintile", { ascending: true })
+          .limit(100),
+        supabase
+          .from("strategy_quintile_returns")
+          .select("run_date, quintile, stock_count, return_value")
+          .eq("strategy_id", strategy.id)
+          .eq("horizon_weeks", 4)
+          .order("run_date", { ascending: false })
+          .order("quintile", { ascending: true })
+          .limit(100),
+        supabase
+          .from("strategy_cross_sectional_regressions")
+          .select("run_date, sample_size, alpha, beta, r_squared")
+          .eq("strategy_id", strategy.id)
+          .eq("horizon_weeks", 1)
+          .order("run_date", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ]);
 
-      if (!buySymbolsByDate.has(runDate)) {
-        buySymbolsByDate.set(runDate, new Set<string>());
-      }
-      buySymbolsByDate.get(runDate)?.add(stock.symbol);
-    }
-
-    const changeByDateAndSymbol = new Map<string, number>();
-    const allChangesByDate = new Map<string, number[]>();
-
-    for (const row of rawRows) {
-      const change = parsePercentage(row.percentage_change);
-      if (change === null) {
-        continue;
-      }
-
-      changeByDateAndSymbol.set(`${row.run_date}::${row.symbol}`, change);
-      if (!allChangesByDate.has(row.run_date)) {
-        allChangesByDate.set(row.run_date, []);
-      }
-      allChangesByDate.get(row.run_date)?.push(change);
-    }
-
-    const aiDailyReturnByDate = new Map<string, number>();
-    const marketProxyReturnByDate = new Map<string, number>();
-
-    for (const runDate of runDates) {
-      const buySymbols = Array.from(buySymbolsByDate.get(runDate) ?? []);
-      const buyReturns = buySymbols
-        .map((symbol) => changeByDateAndSymbol.get(`${runDate}::${symbol}`))
-        .filter((value): value is number => typeof value === "number");
-
-      const aiReturn = average(buyReturns);
-      aiDailyReturnByDate.set(runDate, aiReturn ?? 0);
-
-      const marketProxy = average(allChangesByDate.get(runDate) ?? []);
-      marketProxyReturnByDate.set(runDate, marketProxy ?? 0);
-    }
-
-    let aiTrader = 100;
-    let sp500 = 100;
-    let previousSpClose: number | null = null;
-
-    const spRows = await fetchSp500Rows();
-    const spCloseByDate = spRows ? buildSp500CloseMap(runDates, spRows) : null;
-
-    const series = runDates.map((runDate) => {
-      const aiDailyReturn = aiDailyReturnByDate.get(runDate) ?? 0;
-      aiTrader *= 1 + aiDailyReturn / 100;
-
-      const spClose = spCloseByDate?.get(runDate);
-      if (typeof spClose === "number" && previousSpClose && previousSpClose > 0) {
-        sp500 *= 1 + (spClose - previousSpClose) / previousSpClose;
-      } else {
-        const marketProxyReturn = marketProxyReturnByDate.get(runDate) ?? 0;
-        sp500 *= 1 + marketProxyReturn / 100;
-      }
-
-      if (typeof spClose === "number") {
-        previousSpClose = spClose;
-      }
-
+    const latestHoldings = (holdingsResponse.data || []).map((row: HoldingRow) => {
+      const stock = Array.isArray(row.stocks) ? row.stocks[0] : row.stocks;
       return {
-        date: runDate,
-        aiTrader: Number(aiTrader.toFixed(2)),
-        sp500: Number(sp500.toFixed(2)),
+        symbol: row.symbol,
+        companyName: stock?.company_name ?? row.symbol,
+        rank: row.rank_position,
+        weight: toNumber(row.target_weight, 0),
+        score: toNullableNumber(row.score),
+        latentRank: toNullableNumber(row.latent_rank),
       };
     });
 
-    return toCachedJson(series);
+    const latestActions = (actionsResponse.data || []).map((row: ActionRow) => ({
+      symbol: row.symbol,
+      actionType: row.action_type,
+      label: row.action_label,
+      previousWeight: toNullableNumber(row.previous_weight),
+      newWeight: toNullableNumber(row.new_weight),
+    }));
+
+    const weeklyQuintiles = selectLatestQuintileSet(
+      (weeklyQuintilesResponse.data || []) as QuintileRow[]
+    );
+    const fourWeekQuintiles = selectLatestQuintileSet(
+      (fourWeekQuintilesResponse.data || []) as QuintileRow[]
+    );
+
+    const regression = regressionResponse.data
+      ? ({
+          runDate: (regressionResponse.data as RegressionRow).run_date,
+          sampleSize: (regressionResponse.data as RegressionRow).sample_size,
+          alpha: toNullableNumber((regressionResponse.data as RegressionRow).alpha),
+          beta: toNullableNumber((regressionResponse.data as RegressionRow).beta),
+          rSquared: toNullableNumber((regressionResponse.data as RegressionRow).r_squared),
+        } as const)
+      : null;
+
+    return NextResponse.json(
+      {
+        strategy: {
+          id: strategy.id,
+          slug: strategy.slug,
+          name: strategy.name,
+          version: strategy.version,
+          description: strategy.description,
+          rebalanceFrequency: strategy.rebalance_frequency,
+          rebalanceDayOfWeek: strategy.rebalance_day_of_week,
+          portfolioSize: strategy.portfolio_size,
+          transactionCostBps: toNumber(strategy.transaction_cost_bps, 15),
+        },
+        latestRunDate,
+        series,
+        metrics,
+        latestHoldings,
+        latestActions,
+        research: {
+          weeklyQuintiles,
+          fourWeekQuintiles,
+          regression,
+        },
+        notes: {
+          forwardOnly: true,
+          backtestingPolicy:
+            "Official performance is forward-only live tracking. Any historical simulation must be labeled simulated historical results.",
+        },
+      },
+      {
+        headers: {
+          "Cache-Control": CACHE_CONTROL_HEADER,
+        },
+      }
+    );
   } catch {
     return NextResponse.json(
-      { series: buildFallbackSeries() },
+      {
+        strategy: null,
+        series: [],
+        metrics: null,
+        latestHoldings: [],
+        latestActions: [],
+        research: null,
+      },
       {
         headers: {
           "Cache-Control": CACHE_CONTROL_HEADER,

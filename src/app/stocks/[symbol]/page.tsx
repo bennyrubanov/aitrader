@@ -26,7 +26,7 @@ export const generateMetadata = async ({ params }: StockDetailPageProps): Promis
 
   return {
     title: `${title} | AITrader`,
-    description: `Daily AI stock recommendation history for ${symbol}.`,
+    description: `Weekly AI stock recommendation history for ${symbol}.`,
   };
 };
 

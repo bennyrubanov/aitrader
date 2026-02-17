@@ -38,12 +38,12 @@ type AppSidebarProps = {
 
 const mainItems: NavItem[] = [
   {
-    title: 'Daily Recommendations',
+    title: 'Current Recommendations',
     href: '/platform/daily',
     icon: CalendarDays,
   },
   {
-    title: 'Weekly Recommendations',
+    title: 'Weekly Rankings',
     href: '/platform/weekly',
     icon: CalendarRange,
   },
@@ -53,7 +53,7 @@ const mainItems: NavItem[] = [
     icon: Search,
   },
   {
-    title: 'AI Trader Performance',
+    title: 'Top-20 Performance',
     href: '/platform/performance',
     icon: BarChart3,
   },

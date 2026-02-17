@@ -374,10 +374,10 @@ const StockDetailClient = ({ symbol, stockName, price, latest }: StockDetailClie
                     ) : (
                       <>
                         <p className="font-medium text-foreground">
-                          Unlock change explanations and daily history
+                          Unlock change explanations and weekly history
                         </p>
                         <p className="mt-2">
-                          Premium members can see why recommendations change day to day.
+                          Premium members can see why recommendations change from week to week.
                         </p>
                         <div className="mt-4 flex flex-wrap gap-2">
                           <Link href="/payment">
