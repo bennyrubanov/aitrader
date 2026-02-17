@@ -7,7 +7,7 @@ alwaysApply: true
 
 Schema files live in `supabase/`:
 
-- `supabase/reset.sql` – one-shot wipe script (run first when resetting all data/schema)
+- `supabase/reset.sql` – selective wipe script (run first when resetting experiment data; preserves user tables)
 - `supabase/schema.sql` – table/view definitions (run first)
 - `supabase/rls_policies.sql` – Row Level Security policies (run second)
 

@@ -1,4 +1,6 @@
--- Clean slate (safe to rerun while empty)
+-- Clean slate notes
+-- For a fresh experiment reset that preserves user/account data,
+-- run supabase/reset.sql first, then run this file.
 -- drop view if exists public.nasdaq100_scores_7d_view cascade;
 -- drop view if exists public.nasdaq100_current_members cascade;
 -- drop view if exists public.nasdaq100_latest_snapshot cascade;
@@ -18,6 +20,7 @@
 -- drop table if exists public.stocks cascade;
 -- drop table if exists public.ai_models cascade;
 -- drop table if exists public.ai_prompts cascade;
+-- user tables intentionally preserved by reset.sql:
 -- drop table if exists public.newsletter_subscribers cascade;
 -- drop table if exists public.user_profiles cascade;
 
