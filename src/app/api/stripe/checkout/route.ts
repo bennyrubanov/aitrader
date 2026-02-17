@@ -1,9 +1,9 @@
-import { NextResponse } from "next/server";
-import Stripe from "stripe";
-import { createClient as createServerClient } from "@/utils/supabase/server";
+import { NextResponse } from 'next/server';
+import Stripe from 'stripe';
+import { createClient as createServerClient } from '@/utils/supabase/server';
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 type CheckoutRequestBody = {
   email?: string;
@@ -13,7 +13,7 @@ type CheckoutRequestBody = {
 const getStripeClient = () => {
   const secretKey = process.env.STRIPE_SECRET_KEY;
   if (!secretKey) {
-    throw new Error("Missing STRIPE_SECRET_KEY");
+    throw new Error('Missing STRIPE_SECRET_KEY');
   }
   return new Stripe(secretKey);
 };
@@ -25,7 +25,7 @@ const resolveCheckoutPriceId = async (stripe: Stripe) => {
 
   const productId = process.env.STRIPE_PRODUCT_ID;
   if (!productId) {
-    throw new Error("Missing STRIPE_PRICE_ID or STRIPE_PRODUCT_ID");
+    throw new Error('Missing STRIPE_PRICE_ID or STRIPE_PRODUCT_ID');
   }
 
   const prices = await stripe.prices.list({
@@ -35,12 +35,14 @@ const resolveCheckoutPriceId = async (stripe: Stripe) => {
   });
 
   const monthlyRecurringPrice =
-    prices.data.find((price) => price.type === "recurring" && price.recurring?.interval === "month") ??
-    prices.data.find((price) => price.type === "recurring") ??
+    prices.data.find(
+      (price) => price.type === 'recurring' && price.recurring?.interval === 'month'
+    ) ??
+    prices.data.find((price) => price.type === 'recurring') ??
     prices.data[0];
 
   if (!monthlyRecurringPrice?.id) {
-    throw new Error("No active Stripe price found for STRIPE_PRODUCT_ID");
+    throw new Error('No active Stripe price found for STRIPE_PRODUCT_ID');
   }
 
   return monthlyRecurringPrice.id;
@@ -51,31 +53,31 @@ const getSiteUrl = (request: Request) => {
     return process.env.NEXT_PUBLIC_SITE_URL;
   }
 
-  const origin = request.headers.get("origin");
+  const origin = request.headers.get('origin');
   if (origin) {
     return origin;
   }
 
-  throw new Error("Missing NEXT_PUBLIC_SITE_URL");
+  throw new Error('Missing NEXT_PUBLIC_SITE_URL');
 };
 
 const normalizeEmail = (value: unknown) => {
-  if (typeof value !== "string") {
-    return "";
+  if (typeof value !== 'string') {
+    return '';
   }
   return value.trim().toLowerCase();
 };
 
 const sanitizeSuccessPath = (value: unknown) => {
-  if (typeof value !== "string") {
-    return "/platform/daily";
+  if (typeof value !== 'string') {
+    return '/platform/current';
   }
 
-  if (!value.startsWith("/platform")) {
-    return "/platform/daily";
+  if (!value.startsWith('/platform')) {
+    return '/platform/current';
   }
 
-  return value.split("#")[0] || "/platform/daily";
+  return value.split('#')[0] || '/platform/current';
 };
 
 export async function POST(req: Request) {
@@ -92,29 +94,26 @@ export async function POST(req: Request) {
     let profileEmail: string | null = null;
     if (user) {
       const { data: profile } = await supabase
-        .from("user_profiles")
-        .select("email")
-        .eq("id", user.id)
+        .from('user_profiles')
+        .select('email')
+        .eq('id', user.id)
         .maybeSingle();
       profileEmail = profile?.email ?? null;
     }
 
     const checkoutEmail = requestedEmail || profileEmail || user?.email || null;
     if (!checkoutEmail) {
-      return NextResponse.json(
-        { error: "Email is required to start checkout." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Email is required to start checkout.' }, { status: 400 });
     }
 
     if (user) {
-      const { error: profileUpsertError } = await supabase.from("user_profiles").upsert(
+      const { error: profileUpsertError } = await supabase.from('user_profiles').upsert(
         {
           id: user.id,
           email: checkoutEmail,
           updated_at: new Date().toISOString(),
         },
-        { onConflict: "id" }
+        { onConflict: 'id' }
       );
 
       if (profileUpsertError) {
@@ -127,11 +126,11 @@ export async function POST(req: Request) {
     const siteUrl = getSiteUrl(req);
 
     const successUrl = new URL(successPath, siteUrl);
-    successUrl.searchParams.set("subscription", "success");
-    successUrl.searchParams.set("checkout_email", checkoutEmail);
+    successUrl.searchParams.set('subscription', 'success');
+    successUrl.searchParams.set('checkout_email', checkoutEmail);
 
-    const cancelUrl = new URL("/payment", siteUrl);
-    cancelUrl.searchParams.set("subscription", "cancelled");
+    const cancelUrl = new URL('/sign-up', siteUrl);
+    cancelUrl.searchParams.set('subscription', 'cancelled');
 
     const metadata: Record<string, string> = {
       checkout_email: checkoutEmail,
@@ -147,8 +146,8 @@ export async function POST(req: Request) {
     }
 
     const session = await stripe.checkout.sessions.create({
-      mode: "subscription",
-      payment_method_types: ["card"],
+      mode: 'subscription',
+      payment_method_types: ['card'],
       line_items: [
         {
           price: priceId,
@@ -167,11 +166,10 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ url: session.url });
   } catch (error) {
-    console.error("Stripe checkout error:", error);
+    console.error('Stripe checkout error:', error);
     return NextResponse.json(
       {
-        error:
-          error instanceof Error ? error.message : "Failed to create checkout",
+        error: error instanceof Error ? error.message : 'Failed to create checkout',
       },
       { status: 500 }
     );

@@ -11,6 +11,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 const Navbar: React.FC = () => {
   const [scrolled, setScrolled] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [hasPremiumAccess, setHasPremiumAccess] = useState(false);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const pathname = usePathname();
@@ -26,7 +27,7 @@ const Navbar: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    ["/", "/platform/daily", "/payment"].forEach((href) => {
+    ["/", "/platform/current", "/sign-up", "/blog", "/contact", "/help", "/payment"].forEach((href) => {
       router.prefetch(href);
     });
   }, [router]);
@@ -48,6 +49,7 @@ const Navbar: React.FC = () => {
       if (!isSupabaseConfigured()) {
         if (isMounted) {
           setIsAuthenticated(false);
+          setHasPremiumAccess(false);
           setIsAuthLoading(false);
         }
         return;
@@ -57,6 +59,7 @@ const Navbar: React.FC = () => {
       if (!supabase) {
         if (isMounted) {
           setIsAuthenticated(false);
+          setHasPremiumAccess(false);
           setIsAuthLoading(false);
         }
         return;
@@ -66,8 +69,19 @@ const Navbar: React.FC = () => {
         data: { user },
       } = await supabase.auth.getUser();
 
+      let premium = false;
+      if (user) {
+        const { data, error } = await supabase
+          .from("user_profiles")
+          .select("is_premium")
+          .eq("id", user.id)
+          .maybeSingle();
+        premium = !error && Boolean(data?.is_premium);
+      }
+
       if (isMounted) {
         setIsAuthenticated(Boolean(user));
+        setHasPremiumAccess(premium);
         setIsAuthLoading(false);
       }
     };
@@ -76,8 +90,13 @@ const Navbar: React.FC = () => {
 
     const supabase = getSupabaseBrowserClient();
     const subscription = supabase?.auth.onAuthStateChange((_event, session) => {
-      setIsAuthenticated(Boolean(session?.user));
-      setIsAuthLoading(false);
+      if (!session?.user) {
+        setIsAuthenticated(false);
+        setHasPremiumAccess(false);
+        setIsAuthLoading(false);
+        return;
+      }
+      void loadAuthState();
     });
 
     return () => {
@@ -96,7 +115,7 @@ const Navbar: React.FC = () => {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback?next=/platform/daily`,
+        redirectTo: `${window.location.origin}/auth/callback?next=/platform/current`,
       },
     });
 
@@ -106,10 +125,7 @@ const Navbar: React.FC = () => {
     }
   };
 
-  // Function to create proper links that work from any page
   const getHomeLink = (hash: string) => {
-    // If we're already at the home page, use the hash directly
-    // Otherwise, navigate to the home page with the hash
     return pathname === "/" ? hash : `/${hash}`;
   };
 
@@ -161,24 +177,14 @@ const Navbar: React.FC = () => {
               Research
             </Link>
             <Link
-              href="/platform/daily"
+              href={getHomeLink("#performance")}
               prefetch
-              onMouseEnter={() => handlePrefetch("/platform/daily")}
-              onFocus={() => handlePrefetch("/platform/daily")}
-              onPointerDown={() => handlePrefetch("/platform/daily")}
+              onMouseEnter={() => handlePrefetch(getHomeLink("#performance"))}
+              onFocus={() => handlePrefetch(getHomeLink("#performance"))}
+              onPointerDown={() => handlePrefetch(getHomeLink("#performance"))}
               className="text-muted-foreground hover:text-foreground transition-colors"
             >
-              Platform
-            </Link>
-            <Link
-              href={getHomeLink("#newsletter")}
-              prefetch
-              onMouseEnter={() => handlePrefetch(getHomeLink("#newsletter"))}
-              onFocus={() => handlePrefetch(getHomeLink("#newsletter"))}
-              onPointerDown={() => handlePrefetch(getHomeLink("#newsletter"))}
-              className="text-muted-foreground hover:text-foreground transition-colors"
-            >
-              Newsletter
+              Performance
             </Link>
           </nav>
 
@@ -200,15 +206,15 @@ const Navbar: React.FC = () => {
               </Button>
             )}
             <Link
-              href={isAuthenticated ? "/platform/daily" : "/payment"}
+              href={hasPremiumAccess ? "/platform/current" : "/sign-up"}
               prefetch
-              onMouseEnter={() => handlePrefetch(isAuthenticated ? "/platform/daily" : "/payment")}
-              onFocus={() => handlePrefetch(isAuthenticated ? "/platform/daily" : "/payment")}
-              onPointerDown={() => handlePrefetch(isAuthenticated ? "/platform/daily" : "/payment")}
+              onMouseEnter={() => handlePrefetch(hasPremiumAccess ? "/platform/current" : "/sign-up")}
+              onFocus={() => handlePrefetch(hasPremiumAccess ? "/platform/current" : "/sign-up")}
+              onPointerDown={() => handlePrefetch(hasPremiumAccess ? "/platform/current" : "/sign-up")}
             >
               <Button className="rounded-full px-5 transition-all duration-300 bg-trader-blue hover:bg-trader-blue-dark text-white">
                 <span className="mr-2">
-                  {isAuthenticated ? "Go to Platform" : "Get Started"}
+                  {hasPremiumAccess ? "Platform" : "Get Started"}
                 </span>
                 <ArrowRight size={16} />
               </Button>

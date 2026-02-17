@@ -11,6 +11,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/
 import { Line, LineChart, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { getPlatformCachedValue, setPlatformCachedValue } from '@/lib/platformClientCache';
 import { getSupabaseBrowserClient, isSupabaseConfigured } from '@/utils/supabase/browser';
+import { Disclaimer } from '@/components/Disclaimer';
 
 type StockDetailClientProps = {
   symbol: string;
@@ -174,8 +175,8 @@ const StockDetailClient = ({ symbol, stockName, price, latest }: StockDetailClie
 
   useEffect(() => {
     router.prefetch('/');
-    router.prefetch('/platform/daily');
-    router.prefetch('/payment');
+    router.prefetch('/platform/current');
+    router.prefetch('/sign-up');
   }, [router]);
 
   const showPremium = premiumState === 'ready';
@@ -223,11 +224,11 @@ const StockDetailClient = ({ symbol, stockName, price, latest }: StockDetailClie
                   ) : null}
                 </div>
                 <Link
-                  href="/platform/daily"
+                  href="/platform/current"
                   prefetch
-                  onMouseEnter={() => router.prefetch('/platform/daily')}
-                  onFocus={() => router.prefetch('/platform/daily')}
-                  onPointerDown={() => router.prefetch('/platform/daily')}
+                  onMouseEnter={() => router.prefetch('/platform/current')}
+                  onFocus={() => router.prefetch('/platform/current')}
+                  onPointerDown={() => router.prefetch('/platform/current')}
                 >
                   <Button variant="outline">Back to search</Button>
                 </Link>
@@ -272,10 +273,10 @@ const StockDetailClient = ({ symbol, stockName, price, latest }: StockDetailClie
                             Sign in with a paid account to view historical recommendations.
                           </p>
                           <div className="mt-4 flex flex-wrap gap-2">
-                            <Link href="/payment">
+                            <Link href="/sign-up">
                               <Button size="sm">Upgrade to premium</Button>
                             </Link>
-                            <Link href="/platform/daily">
+                            <Link href="/platform/current">
                               <Button size="sm" variant="outline">
                                 Log in
                               </Button>
@@ -380,10 +381,10 @@ const StockDetailClient = ({ symbol, stockName, price, latest }: StockDetailClie
                           Premium members can see why recommendations change from week to week.
                         </p>
                         <div className="mt-4 flex flex-wrap gap-2">
-                          <Link href="/payment">
+                          <Link href="/sign-up">
                             <Button size="sm">Upgrade to premium</Button>
                           </Link>
-                          <Link href="/platform/daily">
+                          <Link href="/platform/current">
                             <Button size="sm" variant="outline">
                               Log in
                             </Button>
@@ -394,6 +395,8 @@ const StockDetailClient = ({ symbol, stockName, price, latest }: StockDetailClie
                   </div>
                 )}
               </div>
+
+              <Disclaimer variant="inline" className="text-center mt-8" />
             </div>
           </div>
         </section>

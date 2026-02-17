@@ -10,12 +10,12 @@ const siteUrl =
 export const metadata: Metadata = {
   title: 'AITrader - AI-Powered Stock Analysis',
   description:
-    'Research-backed AI that outperforms human traders with scientifically-proven stock analysis.',
+    'A live AI-driven stock rating and portfolio system built on research and tracked transparently.',
   metadataBase: new URL(siteUrl),
   openGraph: {
     title: 'AITrader - AI-Powered Stock Analysis',
     description:
-      'Research-backed AI that outperforms human traders with scientifically-proven stock analysis.',
+      'A live AI-driven stock rating and portfolio system built on research and tracked transparently.',
     images: ['/og-image.png'],
   },
 };

@@ -1,7 +1,7 @@
-import { redirect } from "next/navigation";
+import { redirect } from 'next/navigation';
 
 const PlatformIndexPage = () => {
-  redirect("/platform/daily");
+  redirect('/platform/current');
 };
 
 export default PlatformIndexPage;

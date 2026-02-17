@@ -3,13 +3,7 @@
 import type { ComponentType } from 'react';
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import {
-  BarChart3,
-  CalendarDays,
-  CalendarRange,
-  MessageSquare,
-  Search,
-} from 'lucide-react';
+import { BarChart3, CalendarDays, CalendarRange, Info, MessageSquare, Search } from 'lucide-react';
 import {
   Sidebar,
   SidebarContent,
@@ -31,15 +25,10 @@ type NavItem = {
   icon: ComponentType<{ className?: string }>;
 };
 
-type AppSidebarProps = {
-  onNavigateStart?: (href: string) => void;
-  activePathOverride?: string | null;
-};
-
 const mainItems: NavItem[] = [
   {
     title: 'Current Recommendations',
-    href: '/platform/daily',
+    href: '/platform/current',
     icon: CalendarDays,
   },
   {
@@ -67,9 +56,8 @@ const isItemActive = (pathname: string, href: string) => {
   return pathname.startsWith(`${href}/`);
 };
 
-export function AppSidebar({ onNavigateStart, activePathOverride }: AppSidebarProps) {
+export function AppSidebar() {
   const pathname = usePathname();
-  const activePath = activePathOverride ?? pathname;
   const router = useRouter();
   const [account, setAccount] = useState({
     name: 'Guest',
@@ -82,17 +70,16 @@ export function AppSidebar({ onNavigateStart, activePathOverride }: AppSidebarPr
     router.prefetch(href);
   };
   const handleNavigateStart = (href: string) => {
-    if (pathname !== href) {
-      onNavigateStart?.(href);
-    }
     router.prefetch(href);
   };
 
   useEffect(() => {
     const prefetchTargets = ['/', ...mainItems.map((item) => item.href), '/platform/settings'];
-    prefetchTargets.forEach((href) => {
-      router.prefetch(href);
-    });
+    const prefetchAllRoutes = () => {
+      prefetchTargets.forEach((href) => {
+        router.prefetch(href);
+      });
+    };
 
     const warmPerformanceData = () => {
       void fetch('/api/platform/performance').catch(() => {
@@ -100,20 +87,50 @@ export function AppSidebar({ onNavigateStart, activePathOverride }: AppSidebarPr
       });
     };
 
+    const warmAll = () => {
+      prefetchAllRoutes();
+      warmPerformanceData();
+    };
+
+    prefetchAllRoutes();
+
+    const intervalId = globalThis.setInterval(() => {
+      warmAll();
+    }, 30_000);
+
+    const handleWindowFocus = () => {
+      warmAll();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        warmAll();
+      }
+    };
+
+    window.addEventListener('focus', handleWindowFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    let idleCallbackId: number | null = null;
+    let timeoutId: ReturnType<typeof globalThis.setTimeout> | null = null;
+
     if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
-      const idleCallbackId = window.requestIdleCallback(warmPerformanceData, { timeout: 1500 });
-      return () => {
-        window.cancelIdleCallback(idleCallbackId);
-      };
+      idleCallbackId = window.requestIdleCallback(warmPerformanceData, { timeout: 1500 });
+    } else {
+      timeoutId = globalThis.setTimeout(warmPerformanceData, 500);
     }
 
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    const timeoutId = globalThis.setTimeout(warmPerformanceData, 500);
     return () => {
-      globalThis.clearTimeout(timeoutId);
+      globalThis.clearInterval(intervalId);
+      window.removeEventListener('focus', handleWindowFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+
+      if (idleCallbackId !== null) {
+        window.cancelIdleCallback(idleCallbackId);
+      }
+      if (timeoutId !== null) {
+        globalThis.clearTimeout(timeoutId);
+      }
     };
   }, [router]);
 
@@ -194,7 +211,6 @@ export function AppSidebar({ onNavigateStart, activePathOverride }: AppSidebarPr
   }, []);
 
   const openPath = (href: string) => {
-    onNavigateStart?.(href);
     router.prefetch(href);
     router.push(href);
   };
@@ -264,7 +280,7 @@ export function AppSidebar({ onNavigateStart, activePathOverride }: AppSidebarPr
             title: item.title,
             url: item.href,
             icon: item.icon,
-            isActive: isItemActive(activePath, item.href),
+            isActive: isItemActive(pathname, item.href),
             onNavigate: handleNavigateStart,
             onPrefetch: handlePrefetchIntent,
           }))}
@@ -278,6 +294,25 @@ export function AppSidebar({ onNavigateStart, activePathOverride }: AppSidebarPr
               url: '/help',
               icon: MessageSquare,
               onClick: () => openPath('/help'),
+            },
+            {
+              title: 'Disclaimer',
+              url: '#',
+              icon: Info,
+              collapsible: {
+                content: (
+                  <div className="px-4 py-3 text-xs text-sidebar-foreground/70 space-y-2">
+                    <p>
+                      This platform provides AI-generated analysis for informational and educational
+                      purposes only.
+                    </p>
+                    <p>
+                      Not investment advice. Past performance does not guarantee future results.
+                      Consult a qualified financial advisor before making investment decisions.
+                    </p>
+                  </div>
+                ),
+              },
             },
           ]}
         />

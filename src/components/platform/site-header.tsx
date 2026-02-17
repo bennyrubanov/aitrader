@@ -1,21 +1,21 @@
-"use client";
+'use client';
 
-import Image from "next/image";
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { Home } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { SidebarTrigger } from "@/components/ui/sidebar";
-import { Separator } from "@/components/ui/separator";
-import { ThemeToggle } from "@/components/theme-toggle";
-import { MiniStockSearch } from "@/components/platform/mini-stock-search";
+import Image from 'next/image';
+import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
+import { Home } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { SidebarTrigger } from '@/components/ui/sidebar';
+import { Separator } from '@/components/ui/separator';
+import { ThemeToggle } from '@/components/theme-toggle';
+import { MiniStockSearch } from '@/components/platform/mini-stock-search';
 
 const viewTitleByPath: Record<string, string> = {
-  "/platform/daily": "Current Recommendations",
-  "/platform/weekly": "Weekly Rankings",
-  "/platform/custom-search": "Custom Search",
-  "/platform/performance": "Top-20 Performance",
-  "/platform/settings": "Settings",
+  '/platform/current': 'Current Recommendations',
+  '/platform/weekly': 'Weekly Rankings',
+  '/platform/custom-search': 'Custom Search',
+  '/platform/performance': 'Top-20 Performance',
+  '/platform/settings': 'Settings',
 };
 
 const getTitleFromPath = (pathname: string) => {
@@ -27,7 +27,7 @@ const getTitleFromPath = (pathname: string) => {
     pathname.startsWith(`${path}/`)
   );
 
-  return matchedEntry?.[1] ?? "Platform";
+  return matchedEntry?.[1] ?? 'Platform';
 };
 
 export function SiteHeader() {
@@ -41,9 +41,9 @@ export function SiteHeader() {
         <Link
           href="/"
           prefetch
-          onMouseEnter={() => router.prefetch("/")}
-          onFocus={() => router.prefetch("/")}
-          onPointerDown={() => router.prefetch("/")}
+          onMouseEnter={() => router.prefetch('/')}
+          onFocus={() => router.prefetch('/')}
+          onPointerDown={() => router.prefetch('/')}
           className="inline-flex items-center gap-2 rounded-md px-1 py-1 text-sm font-medium hover:bg-muted"
         >
           <Image src="/favicon.ico" alt="AITrader home" width={20} height={20} />
@@ -71,9 +71,9 @@ export function SiteHeader() {
             <Link
               href="/"
               prefetch
-              onMouseEnter={() => router.prefetch("/")}
-              onFocus={() => router.prefetch("/")}
-              onPointerDown={() => router.prefetch("/")}
+              onMouseEnter={() => router.prefetch('/')}
+              onFocus={() => router.prefetch('/')}
+              onPointerDown={() => router.prefetch('/')}
             >
               <Home className="mr-2 size-4" />
               Home

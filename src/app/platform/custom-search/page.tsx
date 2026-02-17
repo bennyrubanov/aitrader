@@ -1,9 +1,8 @@
-'use client';
-
 import Link from 'next/link';
 import { AlertTriangle, ExternalLink, Search } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Disclaimer } from '@/components/Disclaimer';
 
 const AI_TRADER_BOT_URL = 'https://chatgpt.com/g/g-699304af9c848191a2f5ab371923dc8e-ai-trader-v2-1';
 // Old v1 (switched to v2.1 in Feb 2026): "https://chatgpt.com/g/g-67cb1a9de530819182ffdb2ec63e4a2a-ai-trader";
@@ -41,7 +40,7 @@ const CustomSearchPage = () => {
 
           <div className="flex flex-wrap gap-2">
             <Button asChild variant="outline">
-              <Link href="/platform/daily">Open Current Recommendations</Link>
+              <Link href="/platform/current">Open Current Recommendations</Link>
             </Button>
             <Button asChild variant="outline">
               <Link href="/platform/weekly">Open Weekly Rankings</Link>
@@ -55,6 +54,8 @@ const CustomSearchPage = () => {
           </div>
         </CardContent>
       </Card>
+
+      <Disclaimer variant="inline" className="text-center" />
     </div>
   );
 };

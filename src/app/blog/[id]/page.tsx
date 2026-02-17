@@ -1,10 +1,9 @@
-'use client';
-
-import React, { useEffect } from 'react';
+import React from 'react';
 import Image from 'next/image';
-import { useParams, useRouter } from 'next/navigation';
+import { notFound } from 'next/navigation';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
+import { BlogShareButtons } from '@/components/blog-share-buttons';
 
 interface BlogContent {
   id: string;
@@ -178,7 +177,9 @@ const BlueChipInvestingPost = () => (
     />
 
     <h3 className="text-xl font-semibold mt-6 mb-3">3. Seek Innovation Within Tradition</h3>
-    <p className="text-foreground/90 mb-4">The best blue chips combine stability with adaptation:</p>
+    <p className="text-foreground/90 mb-4">
+      The best blue chips combine stability with adaptation:
+    </p>
     <ul className="list-disc pl-6 mb-6 text-foreground/90 space-y-2">
       <li>R&D investment that consistently delivers new products or services</li>
       <li>Digital transformation initiatives that enhance efficiency</li>
@@ -259,22 +260,16 @@ const blogPosts: Record<string, BlogContent> = {
   },
 };
 
-const BlogPostPage = () => {
-  const params = useParams<{ id?: string }>();
-  const router = useRouter();
-  const resolvedId = Array.isArray(params?.id) ? params?.id[0] : params?.id;
-  const post = resolvedId ? blogPosts[resolvedId] : null;
+type BlogPostPageProps = {
+  params: Promise<{ id: string }>;
+};
 
-  useEffect(() => {
-    window.scrollTo(0, 0);
-
-    if (!post) {
-      router.replace('/blog');
-    }
-  }, [post, router]);
+const BlogPostPage = async ({ params }: BlogPostPageProps) => {
+  const { id } = await params;
+  const post = blogPosts[id];
 
   if (!post) {
-    return null;
+    notFound();
   }
 
   return (
@@ -293,7 +288,7 @@ const BlogPostPage = () => {
 
               <Image
                 src={
-                  resolvedId === 'chatgpt-stock-picking'
+                  id === 'chatgpt-stock-picking'
                     ? '/images/ai-chip.jpeg'
                     : '/images/investor-stock-picking.avif'
                 }
@@ -307,85 +302,7 @@ const BlogPostPage = () => {
 
               <div className="mt-12 pt-8 border-t border-border">
                 <h3 className="text-xl font-bold mb-4">Share this article</h3>
-                <div className="flex space-x-4">
-                  <button
-                    className="text-muted-foreground hover:text-trader-blue"
-                    onClick={() =>
-                      window.open(
-                        `https://www.facebook.com/sharer/sharer.php?u=${window.location.href}&quote=${encodeURIComponent(
-                          post.title
-                        )}`,
-                        '_blank'
-                      )
-                    }
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="24"
-                      height="24"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"></path>
-                    </svg>
-                  </button>
-                  <button
-                    className="text-muted-foreground hover:text-trader-blue"
-                    onClick={() =>
-                      window.open(
-                        `https://twitter.com/intent/tweet?url=${window.location.href}&text=${encodeURIComponent(
-                          post.title
-                        )}`,
-                        '_blank'
-                      )
-                    }
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="24"
-                      height="24"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M22 4s-.7 2.1-2 3.4c1.6 10-9.4 17.3-18 11.6 2.2.1 4.4-.6 6-2C3 15.5.5 9.6 3 5c2.2 2.6 5.6 4.1 9 4-.9-4.2 4-6.6 7-3.8 1.1 0 3-1.2 3-1.2z"></path>
-                    </svg>
-                  </button>
-                  <button
-                    className="text-muted-foreground hover:text-trader-blue"
-                    onClick={() =>
-                      window.open(
-                        `https://www.linkedin.com/shareArticle?mini=true&url=${window.location.href}&title=${encodeURIComponent(
-                          post.title
-                        )}&summary=${encodeURIComponent(post.title)}`,
-                        '_blank'
-                      )
-                    }
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="24"
-                      height="24"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"></path>
-                      <rect x="2" y="9" width="4" height="12"></rect>
-                      <circle cx="4" cy="4" r="2"></circle>
-                    </svg>
-                  </button>
-                </div>
+                <BlogShareButtons title={post.title} />
               </div>
             </div>
           </div>

@@ -1,0 +1,22 @@
+---
+description: Enforce strategy version bump when AI prompt or rating logic changes
+globs:
+  - src/lib/aiPrompt.ts
+alwaysApply: false
+---
+
+# AI Prompt Versioning Rule
+
+When modifying `src/lib/aiPrompt.ts` — including the prompt template (`STOCK_RATING_PROMPT_TEMPLATE`), the Zod schema (`StockRatingSchema`), or the prompt builder (`buildStockRatingPrompt`) — you MUST also bump `APP_VERSION` in `src/lib/strategyConfig.ts`.
+
+This applies to any change that affects what the AI model receives or how its output is validated:
+
+- Changing prompt wording, instructions, or scoring guidelines
+- Adding, removing, or modifying fields in the Zod schema
+- Changing how template variables are substituted
+
+How to bump: open `src/lib/strategyConfig.ts` and increment `APP_VERSION` (e.g. `'v1.0.0'` -> `'v1.1.0'`). The prompt version, strategy slug, and all downstream identifiers derive from this automatically.
+
+Note: if you are changing the AI model (provider, model name, temperature, etc.) rather than the prompt, bump `MODEL_VERSION` (e.g. `'m2.0'` -> `'m2.1'`) instead.
+
+If you do not bump the relevant version, the cron job will throw a mismatch error at runtime to prevent silent corruption of historical data.

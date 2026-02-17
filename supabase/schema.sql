@@ -268,6 +268,7 @@ create table if not exists public.ai_run_batches (
   prompt_id uuid not null references public.ai_prompts(id) on delete restrict,
   model_id uuid not null references public.ai_models(id) on delete restrict,
   run_frequency text not null default 'weekly',
+  git_commit_sha text,
   created_at timestamptz not null default now(),
   unique (run_date, strategy_id),
   constraint ai_run_batches_index_valid check (index_name in ('nasdaq100', 'sp500')),

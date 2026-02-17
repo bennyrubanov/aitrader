@@ -8,12 +8,6 @@ export type StockRatingPromptInput = {
   previousBucket?: 'buy' | 'hold' | 'sell' | null;
 };
 
-// PROMPT_NAME + PROMPT_VERSION are persisted in Supabase `ai_prompts`.
-// Update PROMPT_VERSION when you change STOCK_RATING_PROMPT_TEMPLATE or schema.
-// The weekly cron upserts the template into `ai_prompts` and links runs via `ai_run_batches`.
-export const PROMPT_NAME = 'nasdaq100_weekly_rating';
-export const PROMPT_VERSION = 'nasdaq100-websearch-v3.0-top20-weekly';
-
 export const StockRatingSchema = z
   .object({
     ticker: z.string(),

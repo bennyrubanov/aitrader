@@ -1,5 +1,5 @@
-import { DailyRecommendationsClient } from '@/components/platform/daily-recommendations-client';
-import { getDailyRecommendationsData } from '@/lib/platform-server-data';
+import { DailyRecommendationsClient } from "@/components/platform/daily-recommendations-client";
+import { getDailyRecommendationsData } from "@/lib/platform-server-data";
 
 export const revalidate = 300;
 

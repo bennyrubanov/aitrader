@@ -1,6 +1,3 @@
-'use client';
-
-import React, { useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import Navbar from '@/components/Navbar';
@@ -34,10 +31,6 @@ const blogPosts: BlogPostPreview[] = [
 ];
 
 const BlogPage = () => {
-  useEffect(() => {
-    window.scrollTo(0, 0);
-  }, []);
-
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
       <Navbar />
