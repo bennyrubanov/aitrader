@@ -1,59 +1,41 @@
 -- ============================================================
--- AITrader database reset script (single-run clean wipe)
+-- AITrader experiment-data reset script (preserves users)
 -- ============================================================
--- Run this first in the Supabase SQL editor to wipe public schema
--- objects/data for a fresh experiment start.
+-- Run this first in the Supabase SQL editor to wipe strategy/market
+-- experiment objects while keeping user/account data intact.
 --
 -- Then run:
 --   1) supabase/schema.sql
 --   2) supabase/rls_policies.sql
+--
+-- Preserved:
+--   * public.user_profiles
+--   * public.newsletter_subscribers
+--   * auth user-profile sync functions/triggers
 -- ============================================================
 
-drop trigger if exists on_auth_user_created on auth.users;
-drop trigger if exists on_auth_user_updated on auth.users;
+-- Views
+drop view if exists public.nasdaq100_scores_7d_view cascade;
+drop view if exists public.nasdaq100_current_members cascade;
+drop view if exists public.nasdaq100_latest_snapshot cascade;
 
-do $$
-declare
-  obj record;
-begin
-  -- Drop views first.
-  for obj in
-    select format('%I.%I', schemaname, viewname) as ident
-    from pg_views
-    where schemaname = 'public'
-  loop
-    execute 'drop view if exists ' || obj.ident || ' cascade';
-  end loop;
+-- Research + performance layer
+drop table if exists public.strategy_cross_sectional_regressions cascade;
+drop table if exists public.strategy_quintile_returns cascade;
+drop table if exists public.strategy_performance_weekly cascade;
+drop table if exists public.strategy_rebalance_actions cascade;
+drop table if exists public.strategy_portfolio_holdings cascade;
 
-  -- Drop tables.
-  for obj in
-    select format('%I.%I', schemaname, tablename) as ident
-    from pg_tables
-    where schemaname = 'public'
-  loop
-    execute 'drop table if exists ' || obj.ident || ' cascade';
-  end loop;
+-- AI output + batching layer
+drop table if exists public.nasdaq100_recommendations_current cascade;
+drop table if exists public.ai_analysis_runs cascade;
+drop table if exists public.ai_run_batches cascade;
+drop table if exists public.trading_strategies cascade;
 
-  -- Drop public functions/procedures.
-  for obj in
-    select
-      format('%I.%I', n.nspname, p.proname)
-      || '('
-      || pg_get_function_identity_arguments(p.oid)
-      || ')' as ident
-    from pg_proc p
-    join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname = 'public'
-  loop
-    execute 'drop function if exists ' || obj.ident || ' cascade';
-  end loop;
-
-  -- Drop remaining sequences.
-  for obj in
-    select format('%I.%I', sequence_schema, sequence_name) as ident
-    from information_schema.sequences
-    where sequence_schema = 'public'
-  loop
-    execute 'drop sequence if exists ' || obj.ident || ' cascade';
-  end loop;
-end $$;
+-- Universe/raw/reference data for experiment
+drop table if exists public.nasdaq_100_daily_raw cascade;
+drop table if exists public.nasdaq100_snapshot_stocks cascade;
+drop table if exists public.nasdaq100_snapshots cascade;
+drop table if exists public.stocks cascade;
+drop table if exists public.ai_models cascade;
+drop table if exists public.ai_prompts cascade;

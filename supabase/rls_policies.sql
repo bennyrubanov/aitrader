@@ -2,6 +2,8 @@
 -- RLS Policies for AITrader
 -- Run AFTER schema.sql in the Supabase SQL editor.
 -- Safe to re-run (drops existing policies before recreating).
+-- Compatible with supabase/reset.sql selective resets that preserve
+-- public.user_profiles and public.newsletter_subscribers.
 -- ============================================================
 
 -- -------------------------------------------------------
