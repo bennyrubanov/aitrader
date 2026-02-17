@@ -1,0 +1,14 @@
+{
+  "hash": "ec4305ecc6d94a11d135e17fb90730eae97cb5828b0a58ceea91ac297c653b04",
+  "prompts": [],
+  "consistency": {
+    "english": {
+      "localLanguage": "english",
+      "commitFix": "fix(server): change port variable to uppercase",
+      "commitFeat": "feat(server): add env variable support for server port",
+      "commitFixOmitScope": "fix: change port variable to uppercase",
+      "commitFeatOmitScope": "feat: add env variable support for server port",
+      "commitDescription": "Fix port variable case and enable listening on env PORT."
+    }
+  }
+}
