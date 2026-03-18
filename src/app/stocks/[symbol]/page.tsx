@@ -4,12 +4,89 @@ import StockDetailClient from '@/components/StockDetailClient';
 import { allStocks, getStockBySymbol } from '@/lib/stockData';
 import { createPublicClient } from '@/utils/supabase/public';
 
+type NewsItem = {
+  title: string;
+  link: string;
+  source: string | null;
+  publishedAt: string | null;
+};
+
 type StockDetailPageProps = {
   params: Promise<{ symbol: string }>;
 };
 
 export const dynamicParams = true;
 export const revalidate = 86400;
+
+const decodeXmlEntities = (value: string) =>
+  value
+    .replaceAll('&amp;', '&')
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&quot;', '"')
+    .replaceAll('&#39;', "'");
+
+const extractTag = (xmlBlock: string, tagName: string) => {
+  const match = xmlBlock.match(new RegExp(`<${tagName}>([\\s\\S]*?)</${tagName}>`, 'i'));
+  return match?.[1]?.trim() ?? null;
+};
+
+const parseNewsSource = (title: string) => {
+  const parts = title.split(' - ');
+  if (parts.length < 2) {
+    return null;
+  }
+
+  return parts[parts.length - 1]?.trim() ?? null;
+};
+
+const fetchStockNews = async (symbol: string, stockName: string | null): Promise<NewsItem[]> => {
+  try {
+    const query = encodeURIComponent(`${symbol} stock ${stockName ?? ''}`.trim());
+    const url = `https://news.google.com/rss/search?q=${query}&hl=en-US&gl=US&ceid=US:en`;
+    const response = await fetch(url, {
+      next: { revalidate: 3600 },
+      headers: { 'User-Agent': 'Mozilla/5.0 AITrader/1.0' },
+    });
+
+    if (!response.ok) {
+      return [];
+    }
+
+    const rss = await response.text();
+    const itemMatches = [...rss.matchAll(/<item>([\s\S]*?)<\/item>/gi)];
+
+    return itemMatches.slice(0, 6).flatMap((match) => {
+      const itemXml = match[1];
+      if (!itemXml) {
+        return [];
+      }
+
+      const rawTitle = extractTag(itemXml, 'title');
+      const link = extractTag(itemXml, 'link');
+      const pubDate = extractTag(itemXml, 'pubDate');
+
+      if (!rawTitle || !link) {
+        return [];
+      }
+
+      const decodedTitle = decodeXmlEntities(rawTitle);
+      const source = parseNewsSource(decodedTitle);
+      const title = source ? decodedTitle.replace(new RegExp(`\\s-\\s${source}$`), '') : decodedTitle;
+
+      return [
+        {
+          title,
+          link: decodeXmlEntities(link),
+          source,
+          publishedAt: pubDate,
+        },
+      ];
+    });
+  } catch {
+    return [];
+  }
+};
 
 export const generateStaticParams = async () =>
   allStocks.map((stock) => ({
@@ -86,6 +163,7 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
 
   const fallbackStock = getStockBySymbol(symbol);
   const stockName = stockRow?.company_name ?? fallbackStock?.name ?? null;
+  const news = await fetchStockNews(symbol, stockName);
 
   const latest = {
     score: currentRow?.score ?? null,
@@ -114,6 +192,7 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
       stockName={stockName}
       price={price}
       latest={latest}
+      news={news}
     />
   );
 };

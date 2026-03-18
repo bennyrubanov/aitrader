@@ -202,7 +202,7 @@ const Navbar: React.FC = () => {
                 ) : (
                   <LogIn size={16} className="mr-2" />
                 )}
-                <span>Login</span>
+                <span>Sign in</span>
               </Button>
             )}
             <Link

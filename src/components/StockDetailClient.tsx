@@ -32,6 +32,12 @@ type StockDetailClientProps = {
     risks: string[];
     updatedAt: string | null;
   };
+  news: {
+    title: string;
+    link: string;
+    source: string | null;
+    publishedAt: string | null;
+  }[];
 };
 
 type PremiumState = 'idle' | 'loading' | 'ready' | 'locked' | 'error';
@@ -55,7 +61,7 @@ const PREMIUM_CACHE_TTL_MS = 10 * 60 * 1000;
 const formatBucket = (bucket: string | null) =>
   bucket ? bucket.charAt(0).toUpperCase() + bucket.slice(1) : 'N/A';
 
-const StockDetailClient = ({ symbol, stockName, price, latest }: StockDetailClientProps) => {
+const StockDetailClient = ({ symbol, stockName, price, latest, news }: StockDetailClientProps) => {
   const router = useRouter();
   const normalizedSymbol = symbol.toUpperCase();
   const premiumCacheKey = `stock.${normalizedSymbol.toLowerCase()}.premium`;
@@ -278,7 +284,7 @@ const StockDetailClient = ({ symbol, stockName, price, latest }: StockDetailClie
                             </Link>
                             <Link href="/platform/current">
                               <Button size="sm" variant="outline">
-                                Log in
+                                Sign in
                               </Button>
                             </Link>
                           </div>
@@ -386,13 +392,44 @@ const StockDetailClient = ({ symbol, stockName, price, latest }: StockDetailClie
                           </Link>
                           <Link href="/platform/current">
                             <Button size="sm" variant="outline">
-                              Log in
+                              Sign in
                             </Button>
                           </Link>
                         </div>
                       </>
                     )}
                   </div>
+                )}
+              </div>
+
+              <div className="rounded-xl border border-border bg-card p-6 shadow-sm mt-6">
+                <h2 className="text-xl font-semibold mb-4">Latest news</h2>
+                {news.length ? (
+                  <div className="space-y-4">
+                    {news.map((item) => (
+                      <article
+                        key={`${item.link}-${item.publishedAt ?? 'unknown'}`}
+                        className="border-b border-border pb-4 last:border-b-0 last:pb-0"
+                      >
+                        <a
+                          href={item.link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-medium text-foreground hover:underline"
+                        >
+                          {item.title}
+                        </a>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {item.source ?? 'Unknown source'}
+                          {item.publishedAt ? ` · ${new Date(item.publishedAt).toLocaleString()}` : ''}
+                        </p>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No recent headlines available for this stock.
+                  </p>
                 )}
               </div>
 

@@ -104,7 +104,7 @@ export function AccountPromptDialog() {
     setOpen(false);
   };
 
-  const handleCreateAccount = async () => {
+  const startGoogleAuth = async () => {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) {
       return;
@@ -122,6 +122,14 @@ export function AccountPromptDialog() {
       setIsConnecting(false);
       alert("Unable to open sign-in. Please try again.");
     }
+  };
+
+  const handleCreateAccount = async () => {
+    await startGoogleAuth();
+  };
+
+  const handleSignBackIn = async () => {
+    await startGoogleAuth();
   };
 
   return (
@@ -145,13 +153,10 @@ export function AccountPromptDialog() {
             sync premium access, save your settings, and manage billing.
           </DialogDescription>
         </DialogHeader>
-        <DialogFooter className="gap-2 sm:gap-0">
-          <Button variant="outline" onClick={handleContinueAsGuest}>
-            Continue as guest
-          </Button>
+        <DialogFooter className="flex-col gap-3 sm:flex-col sm:gap-3">
           <Button
             onClick={handleCreateAccount}
-            className="bg-trader-blue hover:bg-trader-blue-dark"
+            className="w-full bg-trader-blue hover:bg-trader-blue-dark"
             disabled={isConnecting}
           >
             {isConnecting ? (
@@ -163,6 +168,20 @@ export function AccountPromptDialog() {
               "Create account with Google"
             )}
           </Button>
+          <Button variant="outline" onClick={handleContinueAsGuest} className="w-full">
+            Continue as guest
+          </Button>
+          <div className="pt-1 text-center text-sm text-muted-foreground">
+            Already have an account?{" "}
+            <button
+              type="button"
+              onClick={handleSignBackIn}
+              disabled={isConnecting}
+              className="font-medium text-foreground underline-offset-4 transition-colors hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Sign back in
+            </button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
