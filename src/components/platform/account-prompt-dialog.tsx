@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/utils/supabase/browser";
+import { useAuthState } from "@/components/auth/auth-state-provider";
 
 const PROMPT_DISMISS_KEY = "platform-account-prompt-dismissed-at";
 const ACCOUNT_SEEN_KEY = "platform-account-seen-on-device";
@@ -59,69 +60,33 @@ const markAccountSeenOnDevice = () => {
 
 export function AccountPromptDialog() {
   const pathname = usePathname();
+  const { isAuthenticated, isLoaded } = useAuthState();
   const [open, setOpen] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [nextPath, setNextPath] = useState(pathname);
   const [hasSeenAccount, setHasSeenAccount] = useState(false);
 
   useEffect(() => {
-    let isMounted = true;
-    let unsubscribe: (() => void) | undefined;
-
-    const run = async () => {
-      const currentPath = `${pathname}${window.location.search || ""}`;
-      setNextPath(currentPath);
-      setHasSeenAccount(hasSeenAccountOnDevice());
-
-      if (!isSupabaseConfigured()) {
-        if (isMounted) {
-          setOpen(false);
-        }
-        return;
-      }
-
-      const supabase = getSupabaseBrowserClient();
-      if (!supabase) {
-        if (isMounted) {
-          setOpen(false);
-        }
-        return;
-      }
-
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!isMounted) {
-        return;
-      }
-
-      if (user) {
-        markAccountSeenOnDevice();
-        setHasSeenAccount(true);
-      }
-
-      const shouldOpen = !user && !hasDismissedRecently();
-      setOpen(shouldOpen);
-
-      const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-        if (session?.user) {
-          markAccountSeenOnDevice();
-          setHasSeenAccount(true);
-          setOpen(false);
-        }
-      });
-
-      unsubscribe = () => data.subscription.unsubscribe();
-    };
-
-    run();
-
-    return () => {
-      isMounted = false;
-      unsubscribe?.();
-    };
+    const currentPath = `${pathname}${window.location.search || ""}`;
+    setNextPath(currentPath);
+    setHasSeenAccount(hasSeenAccountOnDevice());
   }, [pathname]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured() || !isLoaded) {
+      setOpen(false);
+      return;
+    }
+
+    if (isAuthenticated) {
+      markAccountSeenOnDevice();
+      setHasSeenAccount(true);
+      setOpen(false);
+      return;
+    }
+
+    setOpen(!hasDismissedRecently());
+  }, [isAuthenticated, isLoaded]);
 
   const handleContinueAsGuest = () => {
     dismissPrompt();

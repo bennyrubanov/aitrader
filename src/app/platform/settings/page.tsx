@@ -9,7 +9,8 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { toast } from '@/hooks/use-toast';
-import { getSupabaseBrowserClient, isSupabaseConfigured } from '@/utils/supabase/browser';
+import { getSupabaseBrowserClient } from '@/utils/supabase/browser';
+import { useAuthState } from '@/components/auth/auth-state-provider';
 
 type ProfileState = {
   email: string | null;
@@ -21,8 +22,7 @@ type NewsletterStatus = 'subscribed' | 'unsubscribed' | null;
 
 const SettingsPage = () => {
   const router = useRouter();
-  const [isLoadingProfile, setIsLoadingProfile] = useState(true);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const authState = useAuthState();
   const [authUser, setAuthUser] = useState<{ id: string; email: string | null } | null>(null);
   const [profile, setProfile] = useState<ProfileState>({
     email: null,
@@ -37,85 +37,69 @@ const SettingsPage = () => {
   const [isSigningOut, setIsSigningOut] = useState(false);
 
   useEffect(() => {
+    if (!authState.isLoaded) {
+      return;
+    }
+
+    if (!authState.isAuthenticated || !authState.userId) {
+      setAuthUser(null);
+      setProfile({
+        email: null,
+        fullName: null,
+        isPremium: false,
+      });
+      setNewsletterStatus(null);
+      setIsLoadingNewsletter(false);
+      return;
+    }
+
+    setAuthUser({
+      id: authState.userId,
+      email: authState.email.includes("@") ? authState.email : null,
+    });
+    setProfile({
+      email: authState.email.includes("@") ? authState.email : null,
+      fullName: authState.name && authState.name !== "Guest" ? authState.name : null,
+      isPremium: authState.hasPremiumAccess,
+    });
+  }, [authState]);
+
+  useEffect(() => {
     let isMounted = true;
 
-    const loadProfile = async () => {
-      if (!isSupabaseConfigured()) {
-        if (isMounted) {
-          setIsAuthenticated(false);
-          setAuthUser(null);
-          setIsLoadingProfile(false);
-        }
+    const loadNewsletter = async () => {
+      if (!authState.isLoaded || !authState.isAuthenticated || !authState.userId) {
         return;
       }
 
       const supabase = getSupabaseBrowserClient();
       if (!supabase) {
-        if (isMounted) {
-          setIsAuthenticated(false);
-          setAuthUser(null);
-          setIsLoadingProfile(false);
-        }
         return;
       }
 
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
-        if (isMounted) {
-          setIsAuthenticated(false);
-          setAuthUser(null);
-          setIsLoadingProfile(false);
-        }
-        return;
-      }
-
-      if (isMounted) {
-        setAuthUser({
-          id: user.id,
-          email: user.email ?? null,
-        });
-      }
-
-      const { data, error } = await supabase
-        .from('user_profiles')
-        .select('email, full_name, is_premium')
-        .eq('id', user.id)
-        .maybeSingle();
-
-      if (isMounted) {
-        setIsLoadingNewsletter(true);
-      }
-
+      setIsLoadingNewsletter(true);
       const { data: newsletterData, error: newsletterError } = await supabase
         .from('newsletter_subscribers')
         .select('status')
-        .eq('user_id', user.id)
+        .eq('user_id', authState.userId)
         .maybeSingle();
 
-      if (isMounted) {
-        setIsAuthenticated(true);
-        setProfile({
-          email: data?.email ?? user.email ?? null,
-          fullName: data?.full_name ?? null,
-          isPremium: !error && Boolean(data?.is_premium),
-        });
-        setNewsletterStatus(
-          !newsletterError ? ((newsletterData?.status as NewsletterStatus) ?? null) : null
-        );
-        setIsLoadingNewsletter(false);
-        setIsLoadingProfile(false);
+      if (!isMounted) {
+        return;
       }
+
+      setNewsletterStatus(
+        !newsletterError ? ((newsletterData?.status as NewsletterStatus) ?? null) : null
+      );
+      setIsLoadingNewsletter(false);
     };
 
-    loadProfile();
+    void loadNewsletter();
 
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [authState.isAuthenticated, authState.isLoaded, authState.userId]);
 
   const handleSignIn = async () => {
     const supabase = getSupabaseBrowserClient();
@@ -270,7 +254,7 @@ const SettingsPage = () => {
   };
 
   return (
-    <div className="mx-auto w-full max-w-3xl">
+    <div className="mx-auto w-full max-w-3xl pt-2 md:pt-4">
       <Card className="w-full">
         <CardHeader>
           <CardTitle>Settings</CardTitle>
@@ -279,12 +263,12 @@ const SettingsPage = () => {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          {isLoadingProfile ? (
+          {!authState.isLoaded ? (
             <div className="inline-flex items-center text-sm text-muted-foreground">
               <Loader2 className="mr-2 size-4 animate-spin" />
               Loading account settings...
             </div>
-          ) : isAuthenticated ? (
+          ) : authState.isAuthenticated ? (
             <>
               <section id="account" className="space-y-3">
                 <h3 className="inline-flex items-center text-sm font-semibold">

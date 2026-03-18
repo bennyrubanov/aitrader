@@ -2,6 +2,7 @@
 import type { Metadata } from 'next';
 import Providers from './providers';
 import './globals.css';
+import { getInitialAuthState } from '@/lib/get-initial-auth-state';
 
 const siteUrl =
   process.env.NEXT_PUBLIC_SITE_URL ||
@@ -20,11 +21,13 @@ export const metadata: Metadata = {
   },
 };
 
-const RootLayout = ({ children }: { children: React.ReactNode }) => {
+const RootLayout = async ({ children }: { children: React.ReactNode }) => {
+  const initialAuthState = await getInitialAuthState();
+
   return (
     <html lang="en" suppressHydrationWarning>
       <body>
-        <Providers>{children}</Providers>
+        <Providers initialAuthState={initialAuthState}>{children}</Providers>
       </body>
     </html>
   );

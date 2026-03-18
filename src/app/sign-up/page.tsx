@@ -8,19 +8,20 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/utils/supabase/browser";
+import { getSupabaseBrowserClient } from "@/utils/supabase/browser";
+import { useAuthState } from "@/components/auth/auth-state-provider";
 
 const isValidEmail = (value: string) => /\S+@\S+\.\S+/.test(value.trim());
 
 const SignUpPage = () => {
   const router = useRouter();
+  const { email: accountEmail, hasPremiumAccess, isAuthenticated, isLoaded } = useAuthState();
   const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
 
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
-  const [isPrefillingEmail, setIsPrefillingEmail] = useState(true);
-  const [hasPremiumAccess, setHasPremiumAccess] = useState(false);
+  const [isPrefillingEmail, setIsPrefillingEmail] = useState(false);
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -29,55 +30,21 @@ const SignUpPage = () => {
   }, []);
 
   useEffect(() => {
-    let isMounted = true;
+    if (!isLoaded) {
+      setIsPrefillingEmail(true);
+      return;
+    }
 
-    const prefillEmail = async () => {
-      if (!isSupabaseConfigured()) {
-        if (isMounted) {
-          setHasPremiumAccess(false);
-          setIsPrefillingEmail(false);
-        }
-        return;
-      }
+    if (!isAuthenticated) {
+      setIsPrefillingEmail(false);
+      return;
+    }
 
-      const supabase = getSupabaseBrowserClient();
-      if (!supabase) {
-        if (isMounted) {
-          setHasPremiumAccess(false);
-          setIsPrefillingEmail(false);
-        }
-        return;
-      }
-
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      let premium = false;
-      if (user) {
-        const { data, error } = await supabase
-          .from("user_profiles")
-          .select("is_premium")
-          .eq("id", user.id)
-          .maybeSingle();
-        premium = !error && Boolean(data?.is_premium);
-      }
-
-      if (isMounted) {
-        setHasPremiumAccess(premium);
-        if (user?.email) {
-          setEmail(user.email);
-        }
-        setIsPrefillingEmail(false);
-      }
-    };
-
-    prefillEmail();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+    if (accountEmail && accountEmail.includes("@")) {
+      setEmail(accountEmail);
+    }
+    setIsPrefillingEmail(false);
+  }, [accountEmail, isAuthenticated, isLoaded]);
 
   const handleSubscribe = async () => {
     if (!isValidEmail(email)) {

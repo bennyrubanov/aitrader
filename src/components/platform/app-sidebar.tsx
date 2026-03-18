@@ -1,7 +1,7 @@
 'use client';
 
 import type { ComponentType } from 'react';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { BarChart3, CalendarDays, CalendarRange, Info, MessageSquare, Search } from 'lucide-react';
 import {
@@ -16,8 +16,9 @@ import {
 import { NavMain } from '@/components/platform/nav-main';
 import { NavSecondary } from '@/components/platform/nav-secondary';
 import { NavUser } from '@/components/platform/nav-user';
-import { getSupabaseBrowserClient, isSupabaseConfigured } from '@/utils/supabase/browser';
+import { getSupabaseBrowserClient } from '@/utils/supabase/browser';
 import { toast } from '@/hooks/use-toast';
+import { useAuthState } from '@/components/auth/auth-state-provider';
 
 type NavItem = {
   title: string;
@@ -59,13 +60,14 @@ const isItemActive = (pathname: string, href: string) => {
 export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const [account, setAccount] = useState({
-    name: 'Guest',
-    email: 'Sign in to sync account',
-    avatar: '',
-    isPremium: false,
-    isAuthenticated: false,
-  });
+  const authState = useAuthState();
+  const account = {
+    name: authState.name,
+    email: authState.email,
+    avatar: authState.avatar,
+    isPremium: authState.hasPremiumAccess,
+    isAuthenticated: authState.isAuthenticated,
+  };
   const handlePrefetchIntent = (href: string) => {
     router.prefetch(href);
   };
@@ -134,82 +136,6 @@ export function AppSidebar() {
     };
   }, [router]);
 
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadAccount = async () => {
-      if (!isSupabaseConfigured()) {
-        if (isMounted) {
-          setAccount({
-            name: 'Guest',
-            email: 'Sign in to sync account',
-            avatar: '',
-            isPremium: false,
-            isAuthenticated: false,
-          });
-        }
-        return;
-      }
-
-      const supabase = getSupabaseBrowserClient();
-      if (!supabase) {
-        if (isMounted) {
-          setAccount({
-            name: 'Guest',
-            email: 'Sign in to sync account',
-            avatar: '',
-            isPremium: false,
-            isAuthenticated: false,
-          });
-        }
-        return;
-      }
-
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
-        if (isMounted) {
-          setAccount({
-            name: 'Guest',
-            email: 'Sign in to sync account',
-            avatar: '',
-            isPremium: false,
-            isAuthenticated: false,
-          });
-        }
-        return;
-      }
-
-      const { data, error } = await supabase
-        .from('user_profiles')
-        .select('is_premium, full_name, email')
-        .eq('id', user.id)
-        .maybeSingle();
-
-      if (isMounted) {
-        setAccount({
-          name:
-            data?.full_name ??
-            user.user_metadata?.full_name ??
-            user.user_metadata?.name ??
-            'Account',
-          email: data?.email ?? user.email ?? 'Signed in',
-          avatar: user.user_metadata?.avatar_url ?? user.user_metadata?.picture ?? '',
-          isPremium: !error && Boolean(data?.is_premium),
-          isAuthenticated: true,
-        });
-      }
-    };
-
-    loadAccount();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
   const openPath = (href: string) => {
     router.prefetch(href);
     router.push(href);
@@ -256,7 +182,7 @@ export function AppSidebar() {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
-              <button type="button" onClick={() => openPath('/platform/settings#account')}>
+              <button type="button" onClick={() => openPath('/platform/settings')}>
                 <div className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-medium">AITrader</span>
                   <span
@@ -318,10 +244,10 @@ export function AppSidebar() {
         />
         <NavUser
           user={account}
-          onOpenAccount={() => openPath('/platform/settings#account')}
-          onOpenBilling={() => openPath('/platform/settings#billing')}
-          onOpenNotifications={() => openPath('/platform/settings#notifications')}
-          onUpgrade={() => openPath('/platform/settings#billing')}
+          onOpenAccount={() => openPath('/platform/settings')}
+          onOpenBilling={() => openPath('/platform/settings')}
+          onOpenNotifications={() => openPath('/platform/settings')}
+          onUpgrade={() => openPath('/platform/settings')}
           onSignOut={handleSignOut}
           onSignIn={handleSignIn}
         />

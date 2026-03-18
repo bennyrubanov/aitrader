@@ -5,17 +5,15 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { createClient as createSupabaseBrowserClient } from "@/utils/supabase/browser";
+import { useAuthState } from "@/components/auth/auth-state-provider";
 
 const BillingPage = () => {
   const [loading, setLoading] = useState(false);
+  const { isAuthenticated } = useAuthState();
 
   const handleManageSubscription = async () => {
     const supabase = createSupabaseBrowserClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
+    if (!isAuthenticated) {
       setLoading(true);
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",

@@ -16,18 +16,9 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
-import { getPlatformCachedValue, setPlatformCachedValue } from '@/lib/platformClientCache';
 import { DailyRow, RecommendationBucket } from '@/lib/platform-server-data';
-import { getSupabaseBrowserClient, isSupabaseConfigured } from '@/utils/supabase/browser';
 import { Disclaimer } from '@/components/Disclaimer';
-
-const PROFILE_STATUS_CACHE_KEY = 'daily.profile.status';
-const PROFILE_STATUS_CACHE_TTL_MS = 10 * 60 * 1000;
-
-type ProfileStatusCache = {
-  isAuthenticated: boolean;
-  isPremium: boolean;
-};
+import { useAuthState } from '@/components/auth/auth-state-provider';
 
 type DailyRecommendationsClientProps = {
   initialRows: DailyRow[];
@@ -62,10 +53,9 @@ export function DailyRecommendationsClient({
 }: DailyRecommendationsClientProps) {
   const router = useRouter();
   const [query, setQuery] = useState('');
-
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isPremium, setIsPremium] = useState(false);
-  const [isProfileLoading, setIsProfileLoading] = useState(true);
+  const { isAuthenticated, hasPremiumAccess, isLoaded } = useAuthState();
+  const [isPremium, setIsPremium] = useState(hasPremiumAccess);
+  const [isReconcilingPremium, setIsReconcilingPremium] = useState(false);
 
   const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
   const [checkoutEmail, setCheckoutEmail] = useState<string | null>(null);
@@ -77,104 +67,43 @@ export function DailyRecommendationsClient({
   }, []);
 
   useEffect(() => {
+    setIsPremium(hasPremiumAccess);
+  }, [hasPremiumAccess]);
+
+  useEffect(() => {
     let isMounted = true;
 
-    const loadProfile = async () => {
-      const cachedProfile = getPlatformCachedValue<ProfileStatusCache>(
-        PROFILE_STATUS_CACHE_KEY,
-        PROFILE_STATUS_CACHE_TTL_MS
-      );
-      if (cachedProfile) {
-        if (isMounted) {
-          setIsAuthenticated(cachedProfile.isAuthenticated);
-          setIsPremium(cachedProfile.isPremium);
-          setIsProfileLoading(false);
-        }
+    const reconcilePremiumIfNeeded = async () => {
+      if (!isLoaded || !isAuthenticated || hasPremiumAccess) {
+        setIsReconcilingPremium(false);
         return;
       }
 
-      if (!isSupabaseConfigured()) {
-        if (isMounted) {
-          setIsAuthenticated(false);
-          setIsPremium(false);
-          setIsProfileLoading(false);
-        }
-        setPlatformCachedValue(PROFILE_STATUS_CACHE_KEY, {
-          isAuthenticated: false,
-          isPremium: false,
-        });
-        return;
-      }
-
-      const supabase = getSupabaseBrowserClient();
-      if (!supabase) {
-        if (isMounted) {
-          setIsAuthenticated(false);
-          setIsPremium(false);
-          setIsProfileLoading(false);
-        }
-        setPlatformCachedValue(PROFILE_STATUS_CACHE_KEY, {
-          isAuthenticated: false,
-          isPremium: false,
-        });
-        return;
-      }
-
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
-        if (isMounted) {
-          setIsAuthenticated(false);
-          setIsPremium(false);
-          setIsProfileLoading(false);
-        }
-        setPlatformCachedValue(PROFILE_STATUS_CACHE_KEY, {
-          isAuthenticated: false,
-          isPremium: false,
-        });
-        return;
-      }
-
-      let premium = false;
-      const { data, error } = await supabase
-        .from('user_profiles')
-        .select('is_premium')
-        .eq('id', user.id)
-        .maybeSingle();
-
-      if (!error && data?.is_premium) {
-        premium = true;
-      }
-
-      if (!premium) {
+      setIsReconcilingPremium(true);
+      try {
         const reconcileResponse = await fetch('/api/user/reconcile-premium', {
           method: 'POST',
         });
-        if (reconcileResponse.ok) {
-          const payload = (await reconcileResponse.json()) as { isPremium?: boolean };
-          premium = Boolean(payload.isPremium);
+        if (!reconcileResponse.ok) {
+          return;
+        }
+        const payload = (await reconcileResponse.json()) as { isPremium?: boolean };
+        if (isMounted && payload.isPremium) {
+          setIsPremium(true);
+        }
+      } finally {
+        if (isMounted) {
+          setIsReconcilingPremium(false);
         }
       }
-
-      if (isMounted) {
-        setIsAuthenticated(true);
-        setIsPremium(premium);
-        setIsProfileLoading(false);
-      }
-      setPlatformCachedValue(PROFILE_STATUS_CACHE_KEY, {
-        isAuthenticated: true,
-        isPremium: premium,
-      });
     };
 
-    void loadProfile();
+    void reconcilePremiumIfNeeded();
 
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [hasPremiumAccess, isAuthenticated, isLoaded]);
 
   const filteredRows = useMemo(() => {
     if (!query.trim()) {
@@ -220,7 +149,7 @@ export function DailyRecommendationsClient({
             </div>
           )}
 
-          {isProfileLoading ? (
+          {!isLoaded || isReconcilingPremium ? (
             <div className="inline-flex items-center text-sm text-muted-foreground">
               <Loader2 className="mr-2 size-4 animate-spin" />
               Checking account status...

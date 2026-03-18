@@ -10,8 +10,8 @@ import { Button } from '@/components/ui/button';
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import { Line, LineChart, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { getPlatformCachedValue, setPlatformCachedValue } from '@/lib/platformClientCache';
-import { getSupabaseBrowserClient, isSupabaseConfigured } from '@/utils/supabase/browser';
 import { Disclaimer } from '@/components/Disclaimer';
+import { useAuthState } from '@/components/auth/auth-state-provider';
 
 type StockDetailClientProps = {
   symbol: string;
@@ -63,6 +63,7 @@ const formatBucket = (bucket: string | null) =>
 
 const StockDetailClient = ({ symbol, stockName, price, latest, news }: StockDetailClientProps) => {
   const router = useRouter();
+  const { isAuthenticated, isLoaded } = useAuthState();
   const normalizedSymbol = symbol.toUpperCase();
   const premiumCacheKey = `stock.${normalizedSymbol.toLowerCase()}.premium`;
   const initialPremiumCache =
@@ -90,31 +91,11 @@ const StockDetailClient = ({ symbol, stockName, price, latest, news }: StockDeta
         return;
       }
 
-      if (!isSupabaseConfigured()) {
-        if (isMounted) {
-          setPremiumState('locked');
-        }
-        setPlatformCachedValue(premiumCacheKey, {
-          premiumState: 'locked',
-          premiumHistory: [],
-        });
+      if (!isLoaded) {
         return;
       }
 
-      const supabase = getSupabaseBrowserClient();
-      if (!supabase) {
-        if (isMounted) {
-          setPremiumState('locked');
-        }
-        setPlatformCachedValue(premiumCacheKey, {
-          premiumState: 'locked',
-          premiumHistory: [],
-        });
-        return;
-      }
-
-      const { data: userData, error: userError } = await supabase.auth.getUser();
-      if (userError || !userData.user) {
+      if (!isAuthenticated) {
         if (isMounted) {
           setPremiumState('locked');
         }
@@ -173,11 +154,11 @@ const StockDetailClient = ({ symbol, stockName, price, latest, news }: StockDeta
       }
     };
 
-    loadPremiumData();
+    void loadPremiumData();
     return () => {
       isMounted = false;
     };
-  }, [normalizedSymbol, premiumCacheKey]);
+  }, [isAuthenticated, isLoaded, normalizedSymbol, premiumCacheKey]);
 
   useEffect(() => {
     router.prefetch('/');

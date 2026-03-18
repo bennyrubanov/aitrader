@@ -8,7 +8,7 @@ import { useAnimatedCounter } from '@/lib/animations';
 import { freeStocks } from '@/lib/stockData';
 import StockCard from '@/components/ui/stock-card';
 import Link from 'next/link';
-import { getSupabaseBrowserClient, isSupabaseConfigured } from '@/utils/supabase/browser';
+import { useAuthState } from '@/components/auth/auth-state-provider';
 
 type Nasdaq100Member = { symbol: string; name: string };
 
@@ -30,7 +30,7 @@ const Hero: React.FC = () => {
   const [selectedResult, setSelectedResult] = useState<PriceResult | null>(null);
   const [isLoadingPrice, setIsLoadingPrice] = useState(false);
   const [isTracked, setIsTracked] = useState<boolean | null>(null);
-  const [hasPremiumAccess, setHasPremiumAccess] = useState(false);
+  const { hasPremiumAccess } = useAuthState();
 
   const stocksRef = useRef<HTMLDivElement>(null);
   const outperformRef = useRef<HTMLDivElement>(null);
@@ -53,64 +53,6 @@ const Hero: React.FC = () => {
       }
     };
     loadMembers();
-  }, []);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadAccessState = async () => {
-      if (!isSupabaseConfigured()) {
-        if (isMounted) {
-          setHasPremiumAccess(false);
-        }
-        return;
-      }
-
-      const supabase = getSupabaseBrowserClient();
-      if (!supabase) {
-        if (isMounted) {
-          setHasPremiumAccess(false);
-        }
-        return;
-      }
-
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
-        if (isMounted) {
-          setHasPremiumAccess(false);
-        }
-        return;
-      }
-
-      const { data, error } = await supabase
-        .from("user_profiles")
-        .select("is_premium")
-        .eq("id", user.id)
-        .maybeSingle();
-
-      if (isMounted) {
-        setHasPremiumAccess(!error && Boolean(data?.is_premium));
-      }
-    };
-
-    loadAccessState();
-
-    const supabase = getSupabaseBrowserClient();
-    const subscription = supabase?.auth.onAuthStateChange((_event, session) => {
-      if (!session?.user) {
-        setHasPremiumAccess(false);
-        return;
-      }
-      void loadAccessState();
-    });
-
-    return () => {
-      isMounted = false;
-      subscription?.data.subscription.unsubscribe();
-    };
   }, []);
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {

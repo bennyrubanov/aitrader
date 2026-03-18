@@ -76,8 +76,8 @@ export function NavUser({
             onClick={onSignIn}
             className="bg-sidebar-accent/60 hover:bg-sidebar-accent"
           >
-            <Avatar className="h-7 w-7 rounded-lg">
-              <AvatarFallback className="rounded-lg">{initials}</AvatarFallback>
+            <Avatar className="h-7 w-7 rounded-full">
+              <AvatarFallback className="rounded-full">{initials}</AvatarFallback>
             </Avatar>
             <div className="grid flex-1 text-left text-sm leading-tight">
               <span className="truncate font-medium">Guest</span>
@@ -99,9 +99,9 @@ export function NavUser({
               size="lg"
               className="bg-sidebar-accent/60 hover:bg-sidebar-accent data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
             >
-              <Avatar className="h-7 w-7 rounded-lg">
+              <Avatar className="h-7 w-7 rounded-full">
                 <AvatarImage src={user.avatar} alt={user.name} />
-                <AvatarFallback className="rounded-lg">{initials}</AvatarFallback>
+                <AvatarFallback className="rounded-full">{initials}</AvatarFallback>
               </Avatar>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-medium">{user.name}</span>
@@ -118,9 +118,9 @@ export function NavUser({
           >
             <DropdownMenuLabel className="p-0 font-normal">
               <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
-                <Avatar className="h-7 w-7 rounded-lg">
+                <Avatar className="h-7 w-7 rounded-full">
                   <AvatarImage src={user.avatar} alt={user.name} />
-                  <AvatarFallback className="rounded-lg">{initials}</AvatarFallback>
+                  <AvatarFallback className="rounded-full">{initials}</AvatarFallback>
                 </Avatar>
                 <div className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-medium">{user.name}</span>

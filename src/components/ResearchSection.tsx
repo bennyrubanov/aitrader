@@ -33,9 +33,9 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { getSupabaseBrowserClient, isSupabaseConfigured } from '@/utils/supabase/browser';
 import { useRouter } from 'next/navigation';
 import { toast } from '@/hooks/use-toast';
+import { useAuthState } from '@/components/auth/auth-state-provider';
 
 interface ResearchSectionProps {
   parentDivRef: React.RefObject<HTMLDivElement>;
@@ -57,7 +57,7 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
   const [carouselApi, setCarouselApi] = useState<CarouselApi>();
   const [activeSlide, setActiveSlide] = useState(0);
   const [isCarouselHovered, setIsCarouselHovered] = useState(false);
-  const [hasPremiumAccess, setHasPremiumAccess] = useState(false);
+  const { hasPremiumAccess } = useAuthState();
 
   const findings = [
     "AI earnings forecasts significantly correlate with actual earnings outcomes.",
@@ -110,64 +110,6 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
     { title: '% Months Beating Market', description: 'How often the system wins.' },
     { title: 'Growth Chart', description: 'Visual $10K comparison over time.' },
   ];
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadAccessState = async () => {
-      if (!isSupabaseConfigured()) {
-        if (isMounted) {
-          setHasPremiumAccess(false);
-        }
-        return;
-      }
-
-      const supabase = getSupabaseBrowserClient();
-      if (!supabase) {
-        if (isMounted) {
-          setHasPremiumAccess(false);
-        }
-        return;
-      }
-
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
-        if (isMounted) {
-          setHasPremiumAccess(false);
-        }
-        return;
-      }
-
-      const { data, error } = await supabase
-        .from("user_profiles")
-        .select("is_premium")
-        .eq("id", user.id)
-        .maybeSingle();
-
-      if (isMounted) {
-        setHasPremiumAccess(!error && Boolean(data?.is_premium));
-      }
-    };
-
-    loadAccessState();
-
-    const supabase = getSupabaseBrowserClient();
-    const subscription = supabase?.auth.onAuthStateChange((_event, session) => {
-      if (!session?.user) {
-        setHasPremiumAccess(false);
-        return;
-      }
-      void loadAccessState();
-    });
-
-    return () => {
-      isMounted = false;
-      subscription?.data.subscription.unsubscribe();
-    };
-  }, []);
 
   useEffect(() => {
     if (!carouselApi) {
