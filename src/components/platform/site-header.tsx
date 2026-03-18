@@ -9,31 +9,63 @@ import { SidebarTrigger } from '@/components/ui/sidebar';
 import { Separator } from '@/components/ui/separator';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { MiniStockSearch } from '@/components/platform/mini-stock-search';
+import { useAuthState } from '@/components/auth/auth-state-context';
 
-const viewTitleByPath: Record<string, string> = {
-  '/platform/current': 'Current Recommendations',
-  '/platform/weekly': 'Weekly Rankings',
-  '/platform/custom-search': 'Custom Search',
-  '/platform/performance': 'Top-20 Performance',
-  '/platform/settings': 'Settings',
+type ViewMeta = {
+  title: string;
+  subtitle: string;
 };
 
-const getTitleFromPath = (pathname: string) => {
-  if (viewTitleByPath[pathname]) {
-    return viewTitleByPath[pathname];
+const viewMetaByPath: Record<string, ViewMeta> = {
+  '/platform/current': {
+    title: 'Current Recommendations',
+    subtitle: 'Latest AI recommendations across Nasdaq-100 members',
+  },
+  '/platform/daily': {
+    title: 'Current Recommendations',
+    subtitle: 'Latest AI recommendations across Nasdaq-100 members',
+  },
+  '/platform/weekly': {
+    title: 'Weekly Rankings',
+    subtitle: 'Weekly rankings for all Nasdaq-100 members',
+  },
+  '/platform/custom-search': {
+    title: 'Custom Search',
+    subtitle: 'Explore ideas with the AI Trader GPT assistant',
+  },
+  '/platform/performance': {
+    title: 'Top-20 Performance',
+    subtitle: 'Transparent live results for the weekly Top-20 strategy',
+  },
+  '/platform/settings': {
+    title: 'Settings',
+    subtitle: 'Manage account, billing, and notification preferences',
+  },
+};
+
+const getMetaFromPath = (pathname: string): ViewMeta => {
+  if (viewMetaByPath[pathname]) {
+    return viewMetaByPath[pathname];
   }
 
-  const matchedEntry = Object.entries(viewTitleByPath).find(([path]) =>
-    pathname.startsWith(`${path}/`)
+  const matchedEntry = Object.entries(viewMetaByPath).find(([path]) =>
+    pathname === path || pathname.startsWith(`${path}/`)
   );
 
-  return matchedEntry?.[1] ?? 'Platform';
+  return (
+    matchedEntry?.[1] ?? {
+      title: 'Platform',
+      subtitle: 'Search, compare, and monitor AI-ranked stocks',
+    }
+  );
 };
 
 export function SiteHeader() {
   const pathname = usePathname();
   const router = useRouter();
-  const title = getTitleFromPath(pathname);
+  const { isAuthenticated, isLoaded, hasPremiumAccess } = useAuthState();
+  const viewMeta = getMetaFromPath(pathname);
+  const getStartedHref = hasPremiumAccess ? '/platform/current' : isAuthenticated ? '/pricing' : '/sign-up';
 
   return (
     <header className="bg-background sticky top-0 z-50 border-b">
@@ -44,10 +76,10 @@ export function SiteHeader() {
           onMouseEnter={() => router.prefetch('/')}
           onFocus={() => router.prefetch('/')}
           onPointerDown={() => router.prefetch('/')}
-          className="inline-flex items-center gap-2 rounded-md px-1 py-1 text-sm font-medium hover:bg-muted"
+          className="inline-flex items-center rounded-md p-1 hover:bg-muted"
+          aria-label="Go to home"
         >
-          <Image src="/favicon.ico" alt="AITrader home" width={20} height={20} />
-          <span className="hidden sm:inline">AITrader</span>
+          <Image src="/favicon.ico" alt="AITrader home" width={24} height={24} />
         </Link>
 
         <Separator orientation="vertical" className="h-5" />
@@ -57,28 +89,53 @@ export function SiteHeader() {
         <Separator orientation="vertical" className="h-5 hidden md:block" />
 
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold">{title}</p>
-          <p className="truncate text-xs text-muted-foreground">
-            Search, compare, and monitor AI-ranked stocks
-          </p>
+          <p className="truncate text-sm font-semibold">{viewMeta.title}</p>
+          <p className="truncate text-xs text-muted-foreground">{viewMeta.subtitle}</p>
         </div>
 
         <MiniStockSearch />
 
         <div className="flex items-center gap-1">
           <ThemeToggle />
-          <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
-            <Link
-              href="/"
-              prefetch
-              onMouseEnter={() => router.prefetch('/')}
-              onFocus={() => router.prefetch('/')}
-              onPointerDown={() => router.prefetch('/')}
-            >
-              <Home className="mr-2 size-4" />
-              Home
-            </Link>
-          </Button>
+          {isLoaded && !isAuthenticated ? (
+            <>
+              <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
+                <Link
+                  href="/sign-in?next=/platform/current"
+                  prefetch
+                  onMouseEnter={() => router.prefetch('/sign-in')}
+                  onFocus={() => router.prefetch('/sign-in')}
+                  onPointerDown={() => router.prefetch('/sign-in')}
+                >
+                  Sign in
+                </Link>
+              </Button>
+              <Button asChild size="sm" className="hidden sm:inline-flex bg-trader-blue hover:bg-trader-blue-dark text-white">
+                <Link
+                  href={getStartedHref}
+                  prefetch
+                  onMouseEnter={() => router.prefetch(getStartedHref)}
+                  onFocus={() => router.prefetch(getStartedHref)}
+                  onPointerDown={() => router.prefetch(getStartedHref)}
+                >
+                  Get started
+                </Link>
+              </Button>
+            </>
+          ) : (
+            <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
+              <Link
+                href="/"
+                prefetch
+                onMouseEnter={() => router.prefetch('/')}
+                onFocus={() => router.prefetch('/')}
+                onPointerDown={() => router.prefetch('/')}
+              >
+                <Home className="mr-2 size-4" />
+                Home
+              </Link>
+            </Button>
+          )}
         </div>
       </div>
     </header>

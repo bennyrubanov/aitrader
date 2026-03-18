@@ -8,7 +8,6 @@ import {
   CreditCard,
   LogIn,
   LogOut,
-  Sparkles,
 } from "lucide-react";
 import {
   Avatar,
@@ -30,6 +29,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { PlanLabel } from "@/components/account/plan-label";
 
 type NavUserProps = {
   user: {
@@ -76,12 +76,12 @@ export function NavUser({
             onClick={onSignIn}
             className="bg-sidebar-accent/60 hover:bg-sidebar-accent"
           >
-            <Avatar className="h-7 w-7 rounded-lg">
-              <AvatarFallback className="rounded-lg">{initials}</AvatarFallback>
+            <Avatar className="h-7 w-7 rounded-full">
+              <AvatarFallback className="rounded-full">{initials}</AvatarFallback>
             </Avatar>
             <div className="grid flex-1 text-left text-sm leading-tight">
               <span className="truncate font-medium">Guest</span>
-              <span className="truncate text-xs">Sign in to sync account</span>
+              <span className="truncate text-xs">Sign in to access account</span>
             </div>
             <LogIn className="ml-auto size-3.5" />
           </SidebarMenuButton>
@@ -99,9 +99,9 @@ export function NavUser({
               size="lg"
               className="bg-sidebar-accent/60 hover:bg-sidebar-accent data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
             >
-              <Avatar className="h-7 w-7 rounded-lg">
+              <Avatar className="h-7 w-7 rounded-full">
                 <AvatarImage src={user.avatar} alt={user.name} />
-                <AvatarFallback className="rounded-lg">{initials}</AvatarFallback>
+                <AvatarFallback className="rounded-full">{initials}</AvatarFallback>
               </Avatar>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-medium">{user.name}</span>
@@ -118,9 +118,9 @@ export function NavUser({
           >
             <DropdownMenuLabel className="p-0 font-normal">
               <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
-                <Avatar className="h-7 w-7 rounded-lg">
+                <Avatar className="h-7 w-7 rounded-full">
                   <AvatarImage src={user.avatar} alt={user.name} />
-                  <AvatarFallback className="rounded-lg">{initials}</AvatarFallback>
+                  <AvatarFallback className="rounded-full">{initials}</AvatarFallback>
                 </Avatar>
                 <div className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-medium">{user.name}</span>
@@ -131,10 +131,7 @@ export function NavUser({
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
               <DropdownMenuItem onSelect={onUpgrade} className="gap-2">
-                <Sparkles className="size-4 text-trader-blue" />
-                <span className="text-trader-blue font-medium">
-                  {user.isPremium ? "Outperformer" : "Free version"}
-                </span>
+                <PlanLabel isPremium={user.isPremium} className="text-trader-blue font-medium" />
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />

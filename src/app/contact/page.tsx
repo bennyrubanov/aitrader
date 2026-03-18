@@ -4,6 +4,8 @@ import Footer from '@/components/Footer';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 
+export const revalidate = 3600;
+
 const ContactPage = () => {
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
@@ -78,13 +80,13 @@ const ContactPage = () => {
                     </li>
                     <li>
                       <Link
-                        href="/#research"
+                        href="/experiment-research"
                         className="font-medium text-trader-blue hover:underline"
                       >
-                        Research
+                        Experiment &amp; Research
                       </Link>
                       <p className="text-muted-foreground text-sm mt-1">
-                        Explore the scientific foundation behind our recommendations.
+                        Explore the scientific foundation behind our strategy models.
                       </p>
                     </li>
                     <li>

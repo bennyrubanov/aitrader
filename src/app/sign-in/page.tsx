@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getSupabaseBrowserClient } from "@/utils/supabase/browser";
 import { AuthPreviewPlaceholder } from "@/components/auth/auth-preview-placeholder";
-import { useToast } from "@/hooks/use-toast";
 import {
   EMAIL_PASSWORD_SIGN_IN_METHOD,
   GOOGLE_SIGN_IN_METHOD,
@@ -30,9 +29,8 @@ const methodBadge = (lastMethod: string | null, method: string) =>
     </span>
   ) : null;
 
-function SignUpPageContent() {
+function SignInPageContent() {
   const router = useRouter();
-  const { toast, dismiss } = useToast();
   const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -41,12 +39,12 @@ function SignUpPageContent() {
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const [passwordWarning, setPasswordWarning] = useState<string | null>(null);
+  const [passwordSetupEmail, setPasswordSetupEmail] = useState<string | null>(null);
   const [lastMethod, setLastMethod] = useState<string | null>(null);
   const oauthInFlightRef = useRef(false);
 
   const nextPath = useMemo(
-    () => sanitizeNextPath(searchParams.get("next"), "/pricing"),
+    () => sanitizeNextPath(searchParams.get("next"), "/platform/current"),
     [searchParams],
   );
 
@@ -57,7 +55,7 @@ function SignUpPageContent() {
   useEffect(() => {
     [
       "/",
-      "/sign-in",
+      "/sign-up",
       "/forgot-password",
       "/pricing",
       "/platform/current",
@@ -69,22 +67,23 @@ function SignUpPageContent() {
     router.prefetch(nextPath);
   }, [nextPath, router]);
 
-  const passwordChecks = {
-    hasUppercase: /[A-Z]/.test(password),
-    hasLowercase: /[a-z]/.test(password),
-    hasNumber: /[0-9]/.test(password),
-    hasSpecial: /[!?\-_=+<>{}@#$%^&*()[\]~`|\\/:;,.]/.test(password),
-    hasMinLength: password.length >= 8,
-  };
+  useEffect(() => {
+    const prefilledEmail = searchParams.get("email");
+    if (prefilledEmail) {
+      setEmail(prefilledEmail);
+    }
 
-  const getFirstPasswordError = () => {
-    if (!passwordChecks.hasUppercase) return "Password must include at least one uppercase letter.";
-    if (!passwordChecks.hasLowercase) return "Password must include at least one lowercase letter.";
-    if (!passwordChecks.hasNumber) return "Password must include at least one number.";
-    if (!passwordChecks.hasSpecial) return "Password must include at least one special character.";
-    if (!passwordChecks.hasMinLength) return "Password must be at least 8 characters.";
-    return null;
-  };
+    const shouldPrefillPassword = searchParams.get("prefillPassword") === "1";
+    if (!shouldPrefillPassword || typeof window === "undefined") {
+      return;
+    }
+
+    const prefilledPassword = window.sessionStorage.getItem("aitrader.auth.prefill.password");
+    if (prefilledPassword) {
+      setPassword(prefilledPassword);
+    }
+    window.sessionStorage.removeItem("aitrader.auth.prefill.password");
+  }, [searchParams]);
 
   const handleGoogleAuth = async () => {
     if (oauthInFlightRef.current) {
@@ -93,6 +92,7 @@ function SignUpPageContent() {
 
     setErrorMessage(null);
     setStatusMessage(null);
+    setPasswordSetupEmail(null);
     const supabase = getSupabaseBrowserClient();
     if (!supabase) {
       setErrorMessage("Auth is not configured in this environment.");
@@ -120,13 +120,7 @@ function SignUpPageContent() {
     event.preventDefault();
     setErrorMessage(null);
     setStatusMessage(null);
-    setPasswordWarning(null);
-
-    const passwordError = getFirstPasswordError();
-    if (passwordError) {
-      setPasswordWarning(passwordError);
-      return;
-    }
+    setPasswordSetupEmail(null);
 
     const supabase = getSupabaseBrowserClient();
     if (!supabase) {
@@ -135,75 +129,37 @@ function SignUpPageContent() {
     }
 
     setIsSubmitting(true);
-    const { data, error } = await supabase.auth.signUp({
+    const { error } = await supabase.auth.signInWithPassword({
       email: email.trim().toLowerCase(),
       password,
-      options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`,
-      },
     });
 
     if (error) {
-      setErrorMessage(error.message);
-      setIsSubmitting(false);
-      return;
-    }
-
-    const accountAlreadyExists = !data.session && (data.user?.identities?.length ?? 0) === 0;
-    if (accountAlreadyExists) {
-      const normalizedEmail = email.trim().toLowerCase();
-      if (typeof window !== "undefined" && password) {
-        window.sessionStorage.setItem("aitrader.auth.prefill.password", password);
+      if (error.message.toLowerCase().includes("invalid login credentials")) {
+        const normalizedEmail = email.trim().toLowerCase();
+        const hintResponse = await fetch("/api/auth/password-login-hint", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: normalizedEmail }),
+        });
+        const hintPayload = (await hintResponse.json()) as { requiresPasswordSetup?: boolean };
+        if (hintPayload.requiresPasswordSetup) {
+          setIsSubmitting(false);
+          setPasswordSetupEmail(normalizedEmail);
+          return;
+        }
+        setErrorMessage("Invalid email/password. Please try again.");
+      } else {
+        setErrorMessage(error.message);
       }
-      toast({
-        title: "Account already exists",
-        description: (
-          <div className="space-y-3">
-            <p>An account with this email already exists.</p>
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  dismiss();
-                  router.push(
-                    `/sign-in?email=${encodeURIComponent(normalizedEmail)}&prefillPassword=1&next=${encodeURIComponent(nextPath)}`,
-                  );
-                }}
-              >
-                Sign in
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  dismiss();
-                  router.push(
-                    `/forgot-password?email=${encodeURIComponent(normalizedEmail)}&next=${encodeURIComponent(nextPath)}`,
-                  );
-                }}
-              >
-                Reset password
-              </Button>
-            </div>
-          </div>
-        ),
-      });
-      setStatusMessage(null);
       setIsSubmitting(false);
       return;
     }
 
     rememberSignInMethod(EMAIL_PASSWORD_SIGN_IN_METHOD);
-
-    if (data.session) {
-      router.push(nextPath);
-      router.refresh();
-      return;
-    }
-
-    setStatusMessage("Check your email to confirm your account, then continue to pricing.");
-    setIsSubmitting(false);
+    setStatusMessage("Signed in successfully. Redirecting...");
+    router.push(nextPath);
+    router.refresh();
   };
 
   return (
@@ -220,8 +176,8 @@ function SignUpPageContent() {
           <div className="mx-auto flex h-full w-full max-w-[420px] flex-col">
             <div className="flex flex-1 items-center">
               <div className="w-full">
-                <h1 className="text-3xl font-semibold tracking-tight">Get started</h1>
-                <p className="mt-1 text-sm text-muted-foreground">Create a new account</p>
+                <h1 className="text-3xl font-semibold tracking-tight">Welcome back</h1>
+                <p className="mt-1 text-sm text-muted-foreground">Sign in to your account</p>
 
                 <div className="mt-6 space-y-3">
                   <div className="relative">
@@ -262,7 +218,10 @@ function SignUpPageContent() {
                       type="email"
                       autoComplete="email"
                       value={email}
-                      onChange={(event) => setEmail(event.target.value)}
+                      onChange={(event) => {
+                        setEmail(event.target.value);
+                        setPasswordSetupEmail(null);
+                      }}
                       placeholder="you@example.com"
                       required
                       className="h-11"
@@ -277,12 +236,14 @@ function SignUpPageContent() {
                       <Input
                         id="password"
                         type={showPassword ? "text" : "password"}
-                        autoComplete="new-password"
+                        autoComplete="current-password"
                         value={password}
-                        onChange={(event) => setPassword(event.target.value)}
+                        onChange={(event) => {
+                          setPassword(event.target.value);
+                          setPasswordSetupEmail(null);
+                        }}
                         placeholder="••••••••"
                         required
-                        minLength={8}
                         className="h-11 pr-10"
                       />
                       <button
@@ -296,33 +257,28 @@ function SignUpPageContent() {
                     </div>
                   </div>
 
-                  {password.length > 0 && (
-                    <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 p-3">
-                      <label className="flex items-center gap-2 text-sm">
-                        <input type="checkbox" readOnly checked={passwordChecks.hasUppercase} className="size-4 accent-trader-blue" />
-                        <span>Uppercase letter</span>
-                      </label>
-                      <label className="flex items-center gap-2 text-sm">
-                        <input type="checkbox" readOnly checked={passwordChecks.hasLowercase} className="size-4 accent-trader-blue" />
-                        <span>Lowercase letter</span>
-                      </label>
-                      <label className="flex items-center gap-2 text-sm">
-                        <input type="checkbox" readOnly checked={passwordChecks.hasNumber} className="size-4 accent-trader-blue" />
-                        <span>Number</span>
-                      </label>
-                      <label className="flex items-center gap-2 text-sm">
-                        <input type="checkbox" readOnly checked={passwordChecks.hasSpecial} className="size-4 accent-trader-blue" />
-                        <span>Special character (e.g. !?&lt;&gt;@#$%)</span>
-                      </label>
-                      <label className="flex items-center gap-2 text-sm">
-                        <input type="checkbox" readOnly checked={passwordChecks.hasMinLength} className="size-4 accent-trader-blue" />
-                        <span>8 characters or more</span>
-                      </label>
-                    </div>
-                  )}
+                  <div className="pt-1">
+                    <Link
+                      href={`/forgot-password?next=${encodeURIComponent(nextPath)}`}
+                      className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                    >
+                      Forgot password?
+                    </Link>
+                  </div>
 
-                  {passwordWarning && (
-                    <p className="text-sm text-amber-600">{passwordWarning}</p>
+                  {passwordSetupEmail && (
+                    <div className="rounded-md border border-trader-blue/30 bg-trader-blue/10 px-3 py-3 text-sm">
+                      <p className="text-trader-blue">
+                        This account currently signs in with Google. You can create an email password
+                        for the same account.
+                      </p>
+                      <Link
+                        href={`/forgot-password?email=${encodeURIComponent(passwordSetupEmail)}&next=${encodeURIComponent(nextPath)}&reason=create-password`}
+                        className="mt-2 inline-block font-medium text-foreground underline underline-offset-4"
+                      >
+                        Reset password
+                      </Link>
+                    </div>
                   )}
 
                   {errorMessage && (
@@ -341,21 +297,21 @@ function SignUpPageContent() {
                     {isSubmitting ? (
                       <>
                         <Loader2 className="mr-2 size-4 animate-spin" />
-                        Creating account...
+                        Signing in...
                       </>
                     ) : (
-                      "Sign up"
+                      "Sign in"
                     )}
                   </Button>
                 </form>
 
                 <p className="mt-5 text-center text-sm text-muted-foreground">
-                  Have an account?{" "}
+                  Don&apos;t have an account?{" "}
                   <Link
-                    href={`/sign-in?next=${encodeURIComponent(nextPath)}`}
+                    href={`/sign-up?next=${encodeURIComponent(nextPath)}`}
                     className="font-medium text-foreground underline underline-offset-4"
                   >
-                    Sign in
+                    Sign up
                   </Link>
                 </p>
               </div>
@@ -383,10 +339,10 @@ function SignUpPageContent() {
   );
 }
 
-export default function SignUpPage() {
+export default function SignInPage() {
   return (
     <Suspense fallback={null}>
-      <SignUpPageContent />
+      <SignInPageContent />
     </Suspense>
   );
 }

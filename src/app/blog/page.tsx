@@ -3,6 +3,8 @@ import Link from 'next/link';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
 
+export const revalidate = 3600;
+
 interface BlogPostPreview {
   id: string;
   title: string;

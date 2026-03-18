@@ -4,29 +4,16 @@ import { useState } from "react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { Button } from "@/components/ui/button";
-import { createClient as createSupabaseBrowserClient } from "@/utils/supabase/browser";
+import { useAuthState } from "@/components/auth/auth-state-context";
 
 const BillingPage = () => {
   const [loading, setLoading] = useState(false);
+  const { isAuthenticated } = useAuthState();
 
   const handleManageSubscription = async () => {
-    const supabase = createSupabaseBrowserClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
+    if (!isAuthenticated) {
       setLoading(true);
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: {
-          redirectTo: `${window.location.origin}/auth/callback?next=/billing`,
-        },
-      });
-      if (error) {
-        alert("Failed to sign in. Please try again.");
-        setLoading(false);
-      }
+      window.location.href = "/sign-in?next=/billing";
       return;
     }
 

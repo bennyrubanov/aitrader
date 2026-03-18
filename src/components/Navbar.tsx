@@ -1,21 +1,124 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { Button } from "@/components/ui/button";
-import { ArrowRight, Loader2, LogIn } from "lucide-react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/utils/supabase/browser";
+import { Button } from "@/components/ui/button";
+import {
+  ArrowRight,
+  BadgeCheck,
+  Bell,
+  Building2,
+  ChevronDown,
+  CircleHelp,
+  CreditCard,
+  FlaskConical,
+  Gauge,
+  Landmark,
+  LayoutDashboard,
+  Loader2,
+  LogIn,
+  LogOut,
+  Map,
+  Menu,
+  Newspaper,
+  Scale,
+  ShieldCheck,
+  TriangleAlert,
+  type LucideIcon,
+} from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Sheet, SheetClose, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { getSupabaseBrowserClient } from "@/utils/supabase/browser";
+import { useAuthState } from "@/components/auth/auth-state-context";
+import { PlanLabel } from "@/components/account/plan-label";
+import { navigateWithFallback } from "@/lib/client-navigation";
+
+const platformNavItems = [
+  { label: "Experiment & Research", href: "/experiment-research", icon: FlaskConical },
+  { label: "Performance", href: "/platform/performance", icon: Gauge },
+  { label: "Pricing & Features", href: "/pricing", icon: Landmark },
+  { label: "Explore Platform", href: "/platform/current", icon: LayoutDashboard },
+] as const;
+
+const resourcesNavItems = [
+  { label: "Roadmap & Changelog", href: "/roadmap-changelog", icon: Map },
+  { label: "Blog", href: "/blog", icon: Newspaper },
+  { label: "Help & Contact", href: "/contact", icon: CircleHelp },
+] as const;
+
+const companyNavItems = [
+  { label: "About", href: "/about", icon: Building2 },
+  { label: "Privacy Policy", href: "/privacy", icon: ShieldCheck },
+  { label: "Terms of Service", href: "/terms", icon: Scale },
+  { label: "Disclaimer", href: "/disclaimer", icon: TriangleAlert },
+] as const;
+
+type NavItem = {
+  label: string;
+  href: string;
+  icon: LucideIcon;
+};
+
+const MARKETING_PREFETCH_ROUTES = [
+  "/",
+  "/experiment-research",
+  "/platform/performance",
+  "/platform/current",
+  "/platform/settings",
+  "/pricing",
+  "/blog",
+  "/contact",
+  "/help",
+  "/payment",
+  "/about",
+  "/roadmap-changelog",
+  "/privacy",
+  "/terms",
+  "/disclaimer",
+  "/sign-in",
+  "/sign-up",
+  "/forgot-password",
+];
 
 const Navbar: React.FC = () => {
   const [scrolled, setScrolled] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [hasPremiumAccess, setHasPremiumAccess] = useState(false);
-  const [isAuthLoading, setIsAuthLoading] = useState(true);
-  const [isSigningIn, setIsSigningIn] = useState(false);
+  const [isNavigatingToSignIn, setIsNavigatingToSignIn] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [avatarLoaded, setAvatarLoaded] = useState(false);
+  const [openMenu, setOpenMenu] = useState<"platform" | "resources" | "company" | null>(null);
   const pathname = usePathname();
   const router = useRouter();
+  const authState = useAuthState();
+  const isAuthenticated = authState.isAuthenticated;
+  const hasPremiumAccess = authState.hasPremiumAccess;
+  const isFreeSignedIn = isAuthenticated && !hasPremiumAccess;
+  const primaryCtaHref = hasPremiumAccess ? "/platform/current" : isFreeSignedIn ? "/pricing" : "/sign-up";
+  const isAuthLoading = !authState.isLoaded;
+  const account = {
+    name: authState.name,
+    email: authState.email,
+    avatar: authState.avatar,
+  };
+
+  useEffect(() => {
+    setAvatarLoaded(false);
+  }, [account.avatar]);
+
+  useEffect(() => {
+    setIsNavigatingToSignIn(false);
+  }, [pathname]);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -27,116 +130,218 @@ const Navbar: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    ["/", "/platform/current", "/sign-up", "/blog", "/contact", "/help", "/payment"].forEach((href) => {
-      router.prefetch(href);
-    });
-  }, [router]);
-
-  useEffect(() => {
-    const hash = window.location.hash;
-    if (hash) {
-      const element = document.getElementById(hash.substring(1));
-      if (element) {
-        element.scrollIntoView({ behavior: "smooth" });
-      }
+    // Keep aggressive route warming for production UX, but avoid
+    // eager precompile pressure in local dev.
+    if (process.env.NODE_ENV !== "production") {
+      return;
     }
-  }, [pathname]);
 
-  useEffect(() => {
-    let isMounted = true;
+    const warmRoutes = () => {
+      MARKETING_PREFETCH_ROUTES.forEach((href) => {
+        router.prefetch(href);
+      });
+    };
 
-    const loadAuthState = async () => {
-      if (!isSupabaseConfigured()) {
-        if (isMounted) {
-          setIsAuthenticated(false);
-          setHasPremiumAccess(false);
-          setIsAuthLoading(false);
-        }
-        return;
-      }
+    warmRoutes();
 
-      const supabase = getSupabaseBrowserClient();
-      if (!supabase) {
-        if (isMounted) {
-          setIsAuthenticated(false);
-          setHasPremiumAccess(false);
-          setIsAuthLoading(false);
-        }
-        return;
-      }
+    const intervalId = globalThis.setInterval(() => {
+      warmRoutes();
+    }, 30_000);
 
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+    const handleWindowFocus = () => {
+      warmRoutes();
+    };
 
-      let premium = false;
-      if (user) {
-        const { data, error } = await supabase
-          .from("user_profiles")
-          .select("is_premium")
-          .eq("id", user.id)
-          .maybeSingle();
-        premium = !error && Boolean(data?.is_premium);
-      }
-
-      if (isMounted) {
-        setIsAuthenticated(Boolean(user));
-        setHasPremiumAccess(premium);
-        setIsAuthLoading(false);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        warmRoutes();
       }
     };
 
-    loadAuthState();
+    window.addEventListener("focus", handleWindowFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
-    const supabase = getSupabaseBrowserClient();
-    const subscription = supabase?.auth.onAuthStateChange((_event, session) => {
-      if (!session?.user) {
-        setIsAuthenticated(false);
-        setHasPremiumAccess(false);
-        setIsAuthLoading(false);
-        return;
-      }
-      void loadAuthState();
-    });
+    let idleCallbackId: number | null = null;
+    let timeoutId: ReturnType<typeof globalThis.setTimeout> | null = null;
+
+    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+      idleCallbackId = window.requestIdleCallback(warmRoutes, { timeout: 1500 });
+    } else {
+      timeoutId = globalThis.setTimeout(warmRoutes, 500);
+    }
 
     return () => {
-      isMounted = false;
-      subscription?.data.subscription.unsubscribe();
-    };
-  }, []);
+      globalThis.clearInterval(intervalId);
+      window.removeEventListener("focus", handleWindowFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
 
-  const handleLogin = async () => {
+      if (idleCallbackId !== null) {
+        window.cancelIdleCallback(idleCallbackId);
+      }
+      if (timeoutId !== null) {
+        globalThis.clearTimeout(timeoutId);
+      }
+    };
+  }, [router]);
+
+  const handleLogin = () => {
+    setIsNavigatingToSignIn(true);
+    navigateWithFallback((href) => router.push(href), "/sign-in?next=/platform/current");
+  };
+
+  const handleSignOut = async () => {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) {
       return;
     }
 
-    setIsSigningIn(true);
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback?next=/platform/current`,
-      },
-    });
-
-    if (error) {
-      setIsSigningIn(false);
-      alert("Unable to start sign in. Please try again.");
-    }
-  };
-
-  const getHomeLink = (hash: string) => {
-    return pathname === "/" ? hash : `/${hash}`;
+    setIsSigningOut(true);
+    await supabase.auth.signOut();
+    setIsSigningOut(false);
+    setIsMobileMenuOpen(false);
+    navigateWithFallback((href) => router.push(href), "/");
+    router.refresh();
   };
 
   const handlePrefetch = (href: string) => {
     router.prefetch(href);
   };
 
+  const isActive = (href: string) => {
+    if (href === "/") return pathname === "/";
+    return pathname === href || pathname.startsWith(`${href}/`);
+  };
+
+  const isPlatformActive =
+    pathname.startsWith("/platform") || pathname === "/experiment-research" || pathname === "/pricing";
+
+  const dropdownButtonClass = (active: boolean) =>
+    `inline-flex items-center gap-1 transition-colors ${
+      active ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+    }`;
+
+  const accountInitials = (() => {
+    const source = account.name || account.email || "U";
+    const parts = source.split(" ").filter(Boolean);
+    if (parts.length >= 2) {
+      return `${parts[0][0] ?? ""}${parts[1][0] ?? ""}`.toUpperCase();
+    }
+    return (source[0] ?? "U").toUpperCase();
+  })();
+
+  const AccountDropdown = ({ mobile = false }: { mobile?: boolean }) => (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background/80 transition-colors hover:bg-muted"
+          aria-label="Open account menu"
+        >
+          <div className="relative">
+            {!avatarLoaded && account.avatar && (
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-[-2px] rounded-full border border-trader-blue/30 animate-pulse"
+              />
+            )}
+            <Avatar className="h-7 w-7">
+              <AvatarImage
+                src={account.avatar}
+                alt={account.name}
+                className={`transition-opacity duration-300 ${avatarLoaded ? "opacity-100" : "opacity-0"}`}
+                onLoad={() => setAvatarLoaded(true)}
+              />
+              <AvatarFallback>{accountInitials}</AvatarFallback>
+            </Avatar>
+          </div>
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent className="w-56 rounded-lg" align="end" sideOffset={8}>
+        <DropdownMenuLabel className="p-0 font-normal">
+          <div className="flex items-center gap-2 px-2 py-1.5 text-left text-sm">
+            <div className="relative">
+              {!avatarLoaded && account.avatar && (
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-[-2px] rounded-full border border-trader-blue/30 animate-pulse"
+                />
+              )}
+              <Avatar className="h-7 w-7">
+                <AvatarImage
+                  src={account.avatar}
+                  alt={account.name}
+                  className={`transition-opacity duration-300 ${avatarLoaded ? "opacity-100" : "opacity-0"}`}
+                  onLoad={() => setAvatarLoaded(true)}
+                />
+                <AvatarFallback>{accountInitials}</AvatarFallback>
+              </Avatar>
+            </div>
+            <div className="grid flex-1 text-left leading-tight">
+              <span className="truncate font-medium">{account.name}</span>
+              <span className="truncate text-xs text-muted-foreground">{account.email}</span>
+            </div>
+          </div>
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup>
+          <DropdownMenuItem
+            onSelect={() =>
+              navigateWithFallback(
+                (href) => router.push(href),
+                hasPremiumAccess ? "/platform/settings" : "/pricing"
+              )
+            }
+            className="gap-2"
+          >
+            <PlanLabel isPremium={hasPremiumAccess} className="text-trader-blue font-medium" />
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup>
+              <DropdownMenuItem
+                onSelect={() =>
+                  navigateWithFallback((href) => router.push(href), "/platform/settings#account")
+                }
+                className="gap-2"
+              >
+            <BadgeCheck className="size-4 text-muted-foreground" />
+            Account
+          </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() =>
+                  navigateWithFallback((href) => router.push(href), "/platform/settings#billing")
+                }
+                className="gap-2"
+              >
+            <CreditCard className="size-4 text-muted-foreground" />
+            Billing
+          </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() =>
+                  navigateWithFallback(
+                    (href) => router.push(href),
+                    "/platform/settings#notifications"
+                  )
+                }
+                className="gap-2"
+              >
+            <Bell className="size-4 text-muted-foreground" />
+            Notifications
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={handleSignOut} className="gap-2" disabled={isSigningOut}>
+          <LogOut className="size-4 text-muted-foreground" />
+          {isSigningOut ? "Logging out..." : "Log out"}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
   return (
     <header
       className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-        scrolled ? "bg-background/80 backdrop-blur-md shadow-sm py-3" : "bg-transparent py-5"
+        scrolled ? "bg-background/80 py-3 shadow-sm backdrop-blur-md" : "bg-transparent py-5"
       }`}
     >
       <div className="container mx-auto px-4 md:px-6">
@@ -148,56 +353,171 @@ const Navbar: React.FC = () => {
               onMouseEnter={() => handlePrefetch("/")}
               onFocus={() => handlePrefetch("/")}
               onPointerDown={() => handlePrefetch("/")}
-              className="text-xl md:text-2xl font-bold text-foreground flex items-center"
+              className="flex items-center text-xl font-bold text-foreground md:text-2xl"
             >
               <span className="text-trader-blue">AI</span>
               <span>Trader</span>
             </Link>
           </div>
 
-          <nav className="hidden md:flex gap-6">
-            <Link
-              href={getHomeLink("#features")}
-              prefetch
-              onMouseEnter={() => handlePrefetch(getHomeLink("#features"))}
-              onFocus={() => handlePrefetch(getHomeLink("#features"))}
-              onPointerDown={() => handlePrefetch(getHomeLink("#features"))}
-              className="text-muted-foreground hover:text-foreground transition-colors"
+          <nav className="hidden items-center gap-5 md:flex">
+            <div
+              className="relative"
+              onMouseEnter={() => setOpenMenu("platform")}
+              onMouseLeave={() => setOpenMenu(null)}
             >
-              Features
-            </Link>
-            <Link
-              href={getHomeLink("#research")}
-              prefetch
-              onMouseEnter={() => handlePrefetch(getHomeLink("#research"))}
-              onFocus={() => handlePrefetch(getHomeLink("#research"))}
-              onPointerDown={() => handlePrefetch(getHomeLink("#research"))}
-              className="text-muted-foreground hover:text-foreground transition-colors"
+              <button
+                type="button"
+                className={dropdownButtonClass(isPlatformActive)}
+                aria-expanded={openMenu === "platform"}
+              >
+                Platform
+                <ChevronDown
+                  size={14}
+                  className={`transition-transform duration-200 ${
+                    openMenu === "platform" ? "rotate-180" : "rotate-0"
+                  }`}
+                />
+              </button>
+              <div
+                className={`absolute left-0 top-full z-50 w-64 pt-2 transition-all ${
+                  openMenu === "platform" ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
+                }`}
+              >
+                <div className="rounded-xl border border-border bg-card/95 p-2 shadow-lg backdrop-blur-sm">
+                  {platformNavItems.map((item: NavItem) => (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      prefetch
+                      onMouseEnter={() => handlePrefetch(item.href)}
+                      onFocus={() => handlePrefetch(item.href)}
+                      onPointerDown={() => handlePrefetch(item.href)}
+                      className={`block rounded-lg px-3 py-2 text-sm transition-colors hover:bg-muted ${
+                        isActive(item.href) ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <item.icon size={14} />
+                        {item.label}
+                      </span>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div
+              className="relative"
+              onMouseEnter={() => setOpenMenu("resources")}
+              onMouseLeave={() => setOpenMenu(null)}
             >
-              Research
-            </Link>
-            <Link
-              href={getHomeLink("#performance")}
-              prefetch
-              onMouseEnter={() => handlePrefetch(getHomeLink("#performance"))}
-              onFocus={() => handlePrefetch(getHomeLink("#performance"))}
-              onPointerDown={() => handlePrefetch(getHomeLink("#performance"))}
-              className="text-muted-foreground hover:text-foreground transition-colors"
+              <button
+                type="button"
+                className={dropdownButtonClass(
+                  isActive("/roadmap-changelog") || isActive("/blog") || isActive("/contact"),
+                )}
+                aria-expanded={openMenu === "resources"}
+              >
+                Resources
+                <ChevronDown
+                  size={14}
+                  className={`transition-transform duration-200 ${
+                    openMenu === "resources" ? "rotate-180" : "rotate-0"
+                  }`}
+                />
+              </button>
+              <div
+                className={`absolute left-0 top-full z-50 w-64 pt-2 transition-all ${
+                  openMenu === "resources" ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
+                }`}
+              >
+                <div className="rounded-xl border border-border bg-card/95 p-2 shadow-lg backdrop-blur-sm">
+                  {resourcesNavItems.map((item: NavItem) => (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      prefetch
+                      onMouseEnter={() => handlePrefetch(item.href)}
+                      onFocus={() => handlePrefetch(item.href)}
+                      onPointerDown={() => handlePrefetch(item.href)}
+                      className={`block rounded-lg px-3 py-2 text-sm transition-colors hover:bg-muted ${
+                        isActive(item.href) ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <item.icon size={14} />
+                        {item.label}
+                      </span>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div
+              className="relative"
+              onMouseEnter={() => setOpenMenu("company")}
+              onMouseLeave={() => setOpenMenu(null)}
             >
-              Performance
-            </Link>
+              <button
+                type="button"
+                className={dropdownButtonClass(
+                  isActive("/about") ||
+                    isActive("/privacy") ||
+                    isActive("/terms") ||
+                    isActive("/disclaimer"),
+                )}
+                aria-expanded={openMenu === "company"}
+              >
+                Company
+                <ChevronDown
+                  size={14}
+                  className={`transition-transform duration-200 ${
+                    openMenu === "company" ? "rotate-180" : "rotate-0"
+                  }`}
+                />
+              </button>
+              <div
+                className={`absolute left-0 top-full z-50 w-64 pt-2 transition-all ${
+                  openMenu === "company" ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
+                }`}
+              >
+                <div className="rounded-xl border border-border bg-card/95 p-2 shadow-lg backdrop-blur-sm">
+                  {companyNavItems.map((item: NavItem) => (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      prefetch
+                      onMouseEnter={() => handlePrefetch(item.href)}
+                      onFocus={() => handlePrefetch(item.href)}
+                      onPointerDown={() => handlePrefetch(item.href)}
+                      className={`block rounded-lg px-3 py-2 text-sm transition-colors hover:bg-muted ${
+                        isActive(item.href) ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <item.icon size={14} />
+                        {item.label}
+                      </span>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            </div>
           </nav>
 
-          <div className="flex items-center gap-2">
+          <div className="hidden items-center gap-2 md:flex">
             <ThemeToggle className="rounded-full" />
+            {isAuthenticated && <AccountDropdown />}
             {!isAuthenticated && (
               <Button
                 variant="outline"
                 className="rounded-full px-5"
                 onClick={handleLogin}
-                disabled={isSigningIn || isAuthLoading}
+                disabled={isNavigatingToSignIn || isAuthLoading}
               >
-                {isSigningIn || isAuthLoading ? (
+                {isNavigatingToSignIn || isAuthLoading ? (
                   <Loader2 size={16} className="mr-2 animate-spin" />
                 ) : (
                   <LogIn size={16} className="mr-2" />
@@ -206,19 +526,153 @@ const Navbar: React.FC = () => {
               </Button>
             )}
             <Link
-              href={hasPremiumAccess ? "/platform/current" : "/sign-up"}
+              href={primaryCtaHref}
               prefetch
-              onMouseEnter={() => handlePrefetch(hasPremiumAccess ? "/platform/current" : "/sign-up")}
-              onFocus={() => handlePrefetch(hasPremiumAccess ? "/platform/current" : "/sign-up")}
-              onPointerDown={() => handlePrefetch(hasPremiumAccess ? "/platform/current" : "/sign-up")}
+              onMouseEnter={() => handlePrefetch(primaryCtaHref)}
+              onFocus={() => handlePrefetch(primaryCtaHref)}
+              onPointerDown={() => handlePrefetch(primaryCtaHref)}
             >
-              <Button className="rounded-full px-5 transition-all duration-300 bg-trader-blue hover:bg-trader-blue-dark text-white">
+              <Button className="rounded-full bg-trader-blue px-5 text-white transition-all duration-300 hover:bg-trader-blue-dark">
                 <span className="mr-2">
-                  {hasPremiumAccess ? "Platform" : "Get Started"}
+                  {hasPremiumAccess ? "Platform" : isFreeSignedIn ? "Upgrade" : "Get Started"}
                 </span>
                 <ArrowRight size={16} />
               </Button>
             </Link>
+          </div>
+
+          <div className="flex items-center gap-2 md:hidden">
+            <ThemeToggle className="rounded-full" />
+            {isAuthenticated && <AccountDropdown mobile />}
+            <Sheet open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
+              <SheetTrigger asChild>
+                <Button variant="outline" size="icon" className="rounded-full" aria-label="Open navigation menu">
+                  <Menu size={18} />
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="right" className="w-[88vw] max-w-sm pr-4">
+                <SheetTitle className="sr-only">Main menu</SheetTitle>
+                <div className="mt-6 flex h-full flex-col">
+                  <div className="space-y-5">
+                    <div>
+                      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Platform
+                      </h3>
+                      <div className="space-y-1">
+                        {platformNavItems.map((item: NavItem) => (
+                          <SheetClose asChild key={item.href}>
+                            <Link
+                              href={item.href}
+                              prefetch
+                              onMouseEnter={() => handlePrefetch(item.href)}
+                              onFocus={() => handlePrefetch(item.href)}
+                              onPointerDown={() => handlePrefetch(item.href)}
+                              className={`flex items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors hover:bg-muted ${
+                                isActive(item.href)
+                                  ? "text-foreground"
+                                  : "text-muted-foreground hover:text-foreground"
+                              }`}
+                            >
+                              <item.icon size={14} />
+                              {item.label}
+                            </Link>
+                          </SheetClose>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Resources
+                      </h3>
+                      <div className="space-y-1">
+                        {resourcesNavItems.map((item: NavItem) => (
+                          <SheetClose asChild key={item.href}>
+                            <Link
+                              href={item.href}
+                              prefetch
+                              onMouseEnter={() => handlePrefetch(item.href)}
+                              onFocus={() => handlePrefetch(item.href)}
+                              onPointerDown={() => handlePrefetch(item.href)}
+                              className={`flex items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors hover:bg-muted ${
+                                isActive(item.href)
+                                  ? "text-foreground"
+                                  : "text-muted-foreground hover:text-foreground"
+                              }`}
+                            >
+                              <item.icon size={14} />
+                              {item.label}
+                            </Link>
+                          </SheetClose>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Company
+                      </h3>
+                      <div className="space-y-1">
+                        {companyNavItems.map((item: NavItem) => (
+                          <SheetClose asChild key={item.href}>
+                            <Link
+                              href={item.href}
+                              prefetch
+                              onMouseEnter={() => handlePrefetch(item.href)}
+                              onFocus={() => handlePrefetch(item.href)}
+                              onPointerDown={() => handlePrefetch(item.href)}
+                              className={`flex items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors hover:bg-muted ${
+                                isActive(item.href)
+                                  ? "text-foreground"
+                                  : "text-muted-foreground hover:text-foreground"
+                              }`}
+                            >
+                              <item.icon size={14} />
+                              {item.label}
+                            </Link>
+                          </SheetClose>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-auto space-y-2 pt-6">
+                    {!isAuthenticated && (
+                      <Button
+                        variant="outline"
+                        className="w-full justify-center rounded-full"
+                        onClick={handleLogin}
+                        disabled={isNavigatingToSignIn || isAuthLoading}
+                      >
+                        {isNavigatingToSignIn || isAuthLoading ? (
+                          <Loader2 size={16} className="mr-2 animate-spin" />
+                        ) : (
+                          <LogIn size={16} className="mr-2" />
+                        )}
+                        <span>Sign in</span>
+                      </Button>
+                    )}
+                    <SheetClose asChild>
+                      <Link
+                        href={primaryCtaHref}
+                        prefetch
+                        onMouseEnter={() => handlePrefetch(primaryCtaHref)}
+                        onFocus={() => handlePrefetch(primaryCtaHref)}
+                        onPointerDown={() => handlePrefetch(primaryCtaHref)}
+                        className="block"
+                      >
+                        <Button className="w-full rounded-full bg-trader-blue text-white transition-all duration-300 hover:bg-trader-blue-dark">
+                          <span className="mr-2">
+                            {hasPremiumAccess ? "Platform" : isFreeSignedIn ? "Upgrade" : "Get Started"}
+                          </span>
+                          <ArrowRight size={16} />
+                        </Button>
+                      </Link>
+                    </SheetClose>
+                  </div>
+                </div>
+              </SheetContent>
+            </Sheet>
           </div>
         </div>
       </div>

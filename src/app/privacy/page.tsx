@@ -1,14 +1,9 @@
-"use client";
-
-import React, { useEffect } from "react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 
-const PrivacyPage = () => {
-  useEffect(() => {
-    window.scrollTo(0, 0);
-  }, []);
+export const revalidate = 3600;
 
+const PrivacyPage = () => {
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
       <Navbar />

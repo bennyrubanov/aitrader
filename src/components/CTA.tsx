@@ -1,73 +1,16 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { Button } from "@/components/ui/button";
 import { ArrowRight } from "lucide-react";
 import StockCard from "@/components/ui/stock-card";
 import { freeStocks, premiumStocks } from "@/lib/stockData";
 import Link from "next/link";
-import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/utils/supabase/browser";
+import { useAuthState } from "@/components/auth/auth-state-context";
 
 const CTA: React.FC = () => {
-  const [hasPremiumAccess, setHasPremiumAccess] = useState(false);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadAccessState = async () => {
-      if (!isSupabaseConfigured()) {
-        if (isMounted) {
-          setHasPremiumAccess(false);
-        }
-        return;
-      }
-
-      const supabase = getSupabaseBrowserClient();
-      if (!supabase) {
-        if (isMounted) {
-          setHasPremiumAccess(false);
-        }
-        return;
-      }
-
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
-        if (isMounted) {
-          setHasPremiumAccess(false);
-        }
-        return;
-      }
-
-      const { data, error } = await supabase
-        .from("user_profiles")
-        .select("is_premium")
-        .eq("id", user.id)
-        .maybeSingle();
-
-      if (isMounted) {
-        setHasPremiumAccess(!error && Boolean(data?.is_premium));
-      }
-    };
-
-    loadAccessState();
-
-    const supabase = getSupabaseBrowserClient();
-    const subscription = supabase?.auth.onAuthStateChange((_event, session) => {
-      if (!session?.user) {
-        setHasPremiumAccess(false);
-        return;
-      }
-      void loadAccessState();
-    });
-
-    return () => {
-      isMounted = false;
-      subscription?.data.subscription.unsubscribe();
-    };
-  }, []);
+  const { hasPremiumAccess, isAuthenticated } = useAuthState();
+  const ctaHref = hasPremiumAccess ? "/platform/current" : isAuthenticated ? "/pricing" : "/sign-up";
 
   return (
     <section className="py-20 bg-gradient-to-b from-muted/40 to-background">
@@ -152,9 +95,9 @@ const CTA: React.FC = () => {
             </div>
           </div>
           <div className="pt-10 flex justify-center">
-            <Link href={hasPremiumAccess ? "/platform/current" : "/sign-up"}>
+            <Link href={ctaHref}>
               <Button className="px-8 py-6 text-lg rounded-xl bg-trader-blue hover:bg-trader-blue-dark text-white transition-all duration-300">
-                <span className="mr-2">Get Full Access</span>
+                <span className="mr-2">{hasPremiumAccess ? "Go to Platform" : "Get Full Access"}</span>
                 <ArrowRight size={18} />
               </Button>
             </Link>

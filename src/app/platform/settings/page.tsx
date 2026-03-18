@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Loader2, LogIn, LogOut, CreditCard, Bell, UserRound } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -9,7 +9,8 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { toast } from '@/hooks/use-toast';
-import { getSupabaseBrowserClient, isSupabaseConfigured } from '@/utils/supabase/browser';
+import { getSupabaseBrowserClient } from '@/utils/supabase/browser';
+import { useAuthState } from '@/components/auth/auth-state-context';
 
 type ProfileState = {
   email: string | null;
@@ -19,10 +20,10 @@ type ProfileState = {
 
 type NewsletterStatus = 'subscribed' | 'unsubscribed' | null;
 
-const SettingsPage = () => {
+const SettingsPageContent = () => {
   const router = useRouter();
-  const [isLoadingProfile, setIsLoadingProfile] = useState(true);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const searchParams = useSearchParams();
+  const authState = useAuthState();
   const [authUser, setAuthUser] = useState<{ id: string; email: string | null } | null>(null);
   const [profile, setProfile] = useState<ProfileState>({
     email: null,
@@ -34,114 +35,86 @@ const SettingsPage = () => {
   const [isSavingNewsletter, setIsSavingNewsletter] = useState(false);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [isOpeningPortal, setIsOpeningPortal] = useState(false);
+  const [isSendingPasswordReset, setIsSendingPasswordReset] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [requiresPasswordSetup, setRequiresPasswordSetup] = useState<boolean | null>(null);
+  const [isCheckingPasswordSetup, setIsCheckingPasswordSetup] = useState(false);
+  const [canManagePassword, setCanManagePassword] = useState(false);
+
+  useEffect(() => {
+    if (searchParams.get('reauth') === '1') {
+      setCanManagePassword(true);
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (!authState.isLoaded) {
+      return;
+    }
+
+    if (!authState.isAuthenticated || !authState.userId) {
+      setAuthUser(null);
+      setProfile({
+        email: null,
+        fullName: null,
+        isPremium: false,
+      });
+      setNewsletterStatus(null);
+      setIsLoadingNewsletter(false);
+      return;
+    }
+
+    setAuthUser({
+      id: authState.userId,
+      email: authState.email.includes("@") ? authState.email : null,
+    });
+    setProfile({
+      email: authState.email.includes("@") ? authState.email : null,
+      fullName: authState.name && authState.name !== "Guest" ? authState.name : null,
+      isPremium: authState.hasPremiumAccess,
+    });
+  }, [authState]);
 
   useEffect(() => {
     let isMounted = true;
 
-    const loadProfile = async () => {
-      if (!isSupabaseConfigured()) {
-        if (isMounted) {
-          setIsAuthenticated(false);
-          setAuthUser(null);
-          setIsLoadingProfile(false);
-        }
+    const loadNewsletter = async () => {
+      if (!authState.isLoaded || !authState.isAuthenticated || !authState.userId) {
         return;
       }
 
       const supabase = getSupabaseBrowserClient();
       if (!supabase) {
-        if (isMounted) {
-          setIsAuthenticated(false);
-          setAuthUser(null);
-          setIsLoadingProfile(false);
-        }
         return;
       }
 
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
-        if (isMounted) {
-          setIsAuthenticated(false);
-          setAuthUser(null);
-          setIsLoadingProfile(false);
-        }
-        return;
-      }
-
-      if (isMounted) {
-        setAuthUser({
-          id: user.id,
-          email: user.email ?? null,
-        });
-      }
-
-      const { data, error } = await supabase
-        .from('user_profiles')
-        .select('email, full_name, is_premium')
-        .eq('id', user.id)
-        .maybeSingle();
-
-      if (isMounted) {
-        setIsLoadingNewsletter(true);
-      }
-
+      setIsLoadingNewsletter(true);
       const { data: newsletterData, error: newsletterError } = await supabase
         .from('newsletter_subscribers')
         .select('status')
-        .eq('user_id', user.id)
+        .eq('user_id', authState.userId)
         .maybeSingle();
 
-      if (isMounted) {
-        setIsAuthenticated(true);
-        setProfile({
-          email: data?.email ?? user.email ?? null,
-          fullName: data?.full_name ?? null,
-          isPremium: !error && Boolean(data?.is_premium),
-        });
-        setNewsletterStatus(
-          !newsletterError ? ((newsletterData?.status as NewsletterStatus) ?? null) : null
-        );
-        setIsLoadingNewsletter(false);
-        setIsLoadingProfile(false);
+      if (!isMounted) {
+        return;
       }
+
+      setNewsletterStatus(
+        !newsletterError ? ((newsletterData?.status as NewsletterStatus) ?? null) : null
+      );
+      setIsLoadingNewsletter(false);
     };
 
-    loadProfile();
+    void loadNewsletter();
 
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [authState.isAuthenticated, authState.isLoaded, authState.userId]);
 
   const handleSignIn = async () => {
-    const supabase = getSupabaseBrowserClient();
-    if (!supabase) {
-      toast({
-        title: 'Supabase not configured',
-        description: 'Unable to start sign-in in this environment.',
-      });
-      return;
-    }
-
     setIsSigningIn(true);
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback?next=/platform/settings`,
-      },
-    });
-
-    if (error) {
-      toast({
-        title: 'Sign-in failed',
-        description: error.message,
-      });
-      setIsSigningIn(false);
-    }
+    router.push('/sign-in?next=/platform/settings');
   };
 
   const handleOpenPortal = async () => {
@@ -176,6 +149,82 @@ const SettingsPage = () => {
     router.push('/');
     router.refresh();
   };
+
+  const handleSendPasswordReset = async () => {
+    const emailToUse = (profile.email ?? authUser?.email ?? '').trim().toLowerCase();
+    if (!emailToUse) {
+      toast({
+        title: 'Unable to send reset email',
+        description: 'No email address is available for this account.',
+      });
+      return;
+    }
+
+    setIsSendingPasswordReset(true);
+    const response = await fetch('/api/auth/password-reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: emailToUse,
+        nextPath: '/platform/settings',
+      }),
+    });
+    const payload = (await response.json()) as { ok?: boolean; error?: string };
+
+    if (!response.ok || !payload.ok) {
+      toast({
+        title: 'Password reset failed',
+        description: payload.error ?? 'Unable to send password reset email.',
+      });
+      setIsSendingPasswordReset(false);
+      return;
+    }
+
+    toast({
+      title: 'Password reset email sent',
+      description: 'Check your inbox to set or change your password.',
+    });
+    setIsSendingPasswordReset(false);
+  };
+
+  const handleAuthenticateAgain = () => {
+    router.push('/sign-in?next=/platform/settings%3Freauth%3D1');
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const checkPasswordSetup = async () => {
+      if (!authState.isLoaded || !authState.isAuthenticated) {
+        setRequiresPasswordSetup(null);
+        return;
+      }
+
+      const emailToUse = (profile.email ?? authUser?.email ?? '').trim().toLowerCase();
+      if (!emailToUse) {
+        setRequiresPasswordSetup(null);
+        return;
+      }
+
+      setIsCheckingPasswordSetup(true);
+      const response = await fetch('/api/auth/password-login-hint', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: emailToUse }),
+      });
+      const payload = (await response.json()) as { requiresPasswordSetup?: boolean };
+
+      if (isMounted) {
+        setRequiresPasswordSetup(Boolean(payload.requiresPasswordSetup));
+        setIsCheckingPasswordSetup(false);
+      }
+    };
+
+    void checkPasswordSetup();
+    return () => {
+      isMounted = false;
+    };
+  }, [authState.isAuthenticated, authState.isLoaded, authUser?.email, profile.email]);
 
   const handleNewsletterToggle = async (checked: boolean) => {
     const supabase = getSupabaseBrowserClient();
@@ -270,7 +319,7 @@ const SettingsPage = () => {
   };
 
   return (
-    <div className="mx-auto w-full max-w-3xl">
+    <div className="mx-auto w-full max-w-3xl pt-2 md:pt-4">
       <Card className="w-full">
         <CardHeader>
           <CardTitle>Settings</CardTitle>
@@ -279,12 +328,12 @@ const SettingsPage = () => {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          {isLoadingProfile ? (
+          {!authState.isLoaded ? (
             <div className="inline-flex items-center text-sm text-muted-foreground">
               <Loader2 className="mr-2 size-4 animate-spin" />
               Loading account settings...
             </div>
-          ) : isAuthenticated ? (
+          ) : authState.isAuthenticated ? (
             <>
               <section id="account" className="space-y-3">
                 <h3 className="inline-flex items-center text-sm font-semibold">
@@ -310,6 +359,48 @@ const SettingsPage = () => {
                     >
                       {profile.isPremium ? 'Premium - Outperformer plan' : 'Free version'}
                     </Badge>
+                  </div>
+                </div>
+                <div className="rounded-lg border p-3">
+                  <p className="text-sm font-medium">Password login</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Re-authenticate before managing password reset email.
+                  </p>
+                  {isCheckingPasswordSetup ? (
+                    <p className="mt-2 inline-flex items-center text-xs text-muted-foreground">
+                      <Loader2 className="mr-1 size-3 animate-spin" />
+                      Checking password setup...
+                    </p>
+                  ) : requiresPasswordSetup ? (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      No password is currently set. Click the password reset email button to create one.
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      You can reset your password anytime via email.
+                    </p>
+                  )}
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {!canManagePassword ? (
+                      <Button variant="outline" onClick={handleAuthenticateAgain}>
+                        Authenticate again
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        onClick={handleSendPasswordReset}
+                        disabled={isSendingPasswordReset}
+                      >
+                        {isSendingPasswordReset ? (
+                          <>
+                            <Loader2 className="mr-2 size-4 animate-spin" />
+                            Sending reset email...
+                          </>
+                        ) : (
+                          'Send password reset email'
+                        )}
+                      </Button>
+                    )}
                   </div>
                 </div>
               </section>
@@ -406,7 +497,7 @@ const SettingsPage = () => {
                 ) : (
                   <>
                     <LogIn className="mr-2 size-4" />
-                    Sign in with Google
+                    Sign in
                   </>
                 )}
               </Button>
@@ -415,6 +506,14 @@ const SettingsPage = () => {
         </CardContent>
       </Card>
     </div>
+  );
+};
+
+const SettingsPage = () => {
+  return (
+    <Suspense fallback={null}>
+      <SettingsPageContent />
+    </Suspense>
   );
 };
 
