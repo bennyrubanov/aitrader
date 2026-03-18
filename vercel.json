@@ -1,4 +1,12 @@
 {
   "framework": "nextjs",
-  "crons": [{ "path": "/api/cron/daily", "schedule": "35 13 * * 1-5" }]
+  "crons": [{ "path": "/api/cron/daily", "schedule": "35 13 * * 1-5" }],
+  "headers": [
+    {
+      "source": "/favicon.ico",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+      ]
+    }
+  ]
 }

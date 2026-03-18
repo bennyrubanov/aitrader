@@ -12,11 +12,6 @@ export const metadata: Metadata = {
   description:
     'A live AI-driven stock rating and portfolio system built on research and tracked transparently.',
   metadataBase: new URL(siteUrl),
-  icons: {
-    icon: [{ url: '/favicon.ico' }],
-    shortcut: ['/favicon.ico'],
-    apple: [{ url: '/apple-touch-icon.png', sizes: '180x180' }],
-  },
   openGraph: {
     title: 'AITrader - AI-Powered Stock Analysis',
     description:
