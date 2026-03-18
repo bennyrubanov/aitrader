@@ -1,13 +1,10 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { DEFAULT_AUTH_STATE, type AuthState } from "@/lib/auth-state";
+import { AuthStateContext } from "@/components/auth/auth-state-context";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/utils/supabase/browser";
-
-type AuthStateContextValue = AuthState;
-
-const AuthStateContext = createContext<AuthStateContextValue>(DEFAULT_AUTH_STATE);
 const AUTH_SNAPSHOT_KEY = "aitrader.auth.snapshot.v1";
 
 type AuthStateProviderProps = {
@@ -166,6 +163,4 @@ export function AuthStateProvider({ children, initialState }: AuthStateProviderP
 
   return <AuthStateContext.Provider value={value}>{children}</AuthStateContext.Provider>;
 }
-
-export const useAuthState = () => useContext(AuthStateContext);
 

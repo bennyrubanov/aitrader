@@ -35,7 +35,7 @@ import {
 } from 'recharts';
 import { useRouter } from 'next/navigation';
 import { toast } from '@/hooks/use-toast';
-import { useAuthState } from '@/components/auth/auth-state-provider';
+import { useAuthState } from '@/components/auth/auth-state-context';
 
 interface ResearchSectionProps {
   parentDivRef: React.RefObject<HTMLDivElement>;
@@ -57,7 +57,8 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
   const [carouselApi, setCarouselApi] = useState<CarouselApi>();
   const [activeSlide, setActiveSlide] = useState(0);
   const [isCarouselHovered, setIsCarouselHovered] = useState(false);
-  const { hasPremiumAccess } = useAuthState();
+  const { hasPremiumAccess, isAuthenticated } = useAuthState();
+  const unlockHref = hasPremiumAccess ? "/platform/current" : isAuthenticated ? "/pricing" : "/sign-up";
 
   const findings = [
     "AI earnings forecasts significantly correlate with actual earnings outcomes.",
@@ -276,7 +277,7 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
             </div>
 
             <Link
-              href={hasPremiumAccess ? "/platform/current" : "/sign-up"}
+              href={unlockHref}
               onClick={handleUnlockClick}
             >
               <Button className="bg-trader-blue hover:bg-trader-blue-dark text-white transition-colors w-full md:w-auto">

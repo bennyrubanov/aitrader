@@ -9,6 +9,7 @@ import { SidebarTrigger } from '@/components/ui/sidebar';
 import { Separator } from '@/components/ui/separator';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { MiniStockSearch } from '@/components/platform/mini-stock-search';
+import { useAuthState } from '@/components/auth/auth-state-context';
 
 type ViewMeta = {
   title: string;
@@ -62,7 +63,9 @@ const getMetaFromPath = (pathname: string): ViewMeta => {
 export function SiteHeader() {
   const pathname = usePathname();
   const router = useRouter();
+  const { isAuthenticated, isLoaded, hasPremiumAccess } = useAuthState();
   const viewMeta = getMetaFromPath(pathname);
+  const getStartedHref = hasPremiumAccess ? '/platform/current' : isAuthenticated ? '/pricing' : '/sign-up';
 
   return (
     <header className="bg-background sticky top-0 z-50 border-b">
@@ -94,18 +97,45 @@ export function SiteHeader() {
 
         <div className="flex items-center gap-1">
           <ThemeToggle />
-          <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
-            <Link
-              href="/"
-              prefetch
-              onMouseEnter={() => router.prefetch('/')}
-              onFocus={() => router.prefetch('/')}
-              onPointerDown={() => router.prefetch('/')}
-            >
-              <Home className="mr-2 size-4" />
-              Home
-            </Link>
-          </Button>
+          {isLoaded && !isAuthenticated ? (
+            <>
+              <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
+                <Link
+                  href="/sign-in?next=/platform/current"
+                  prefetch
+                  onMouseEnter={() => router.prefetch('/sign-in')}
+                  onFocus={() => router.prefetch('/sign-in')}
+                  onPointerDown={() => router.prefetch('/sign-in')}
+                >
+                  Sign in
+                </Link>
+              </Button>
+              <Button asChild size="sm" className="hidden sm:inline-flex bg-trader-blue hover:bg-trader-blue-dark text-white">
+                <Link
+                  href={getStartedHref}
+                  prefetch
+                  onMouseEnter={() => router.prefetch(getStartedHref)}
+                  onFocus={() => router.prefetch(getStartedHref)}
+                  onPointerDown={() => router.prefetch(getStartedHref)}
+                >
+                  Get started
+                </Link>
+              </Button>
+            </>
+          ) : (
+            <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
+              <Link
+                href="/"
+                prefetch
+                onMouseEnter={() => router.prefetch('/')}
+                onFocus={() => router.prefetch('/')}
+                onPointerDown={() => router.prefetch('/')}
+              >
+                <Home className="mr-2 size-4" />
+                Home
+              </Link>
+            </Button>
+          )}
         </div>
       </div>
     </header>

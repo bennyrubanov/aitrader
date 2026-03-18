@@ -40,8 +40,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetClose, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { getSupabaseBrowserClient } from "@/utils/supabase/browser";
-import { useAuthState } from "@/components/auth/auth-state-provider";
+import { useAuthState } from "@/components/auth/auth-state-context";
 import { PlanLabel } from "@/components/account/plan-label";
+import { navigateWithFallback } from "@/lib/client-navigation";
 
 const platformNavItems = [
   { label: "Experiment & Research", href: "/experiment-research", icon: FlaskConical },
@@ -69,9 +70,30 @@ type NavItem = {
   icon: LucideIcon;
 };
 
+const MARKETING_PREFETCH_ROUTES = [
+  "/",
+  "/experiment-research",
+  "/platform/performance",
+  "/platform/current",
+  "/platform/settings",
+  "/pricing",
+  "/blog",
+  "/contact",
+  "/help",
+  "/payment",
+  "/about",
+  "/roadmap-changelog",
+  "/privacy",
+  "/terms",
+  "/disclaimer",
+  "/sign-in",
+  "/sign-up",
+  "/forgot-password",
+];
+
 const Navbar: React.FC = () => {
   const [scrolled, setScrolled] = useState(false);
-  const [isSigningIn, setIsSigningIn] = useState(false);
+  const [isNavigatingToSignIn, setIsNavigatingToSignIn] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [avatarLoaded, setAvatarLoaded] = useState(false);
@@ -81,6 +103,8 @@ const Navbar: React.FC = () => {
   const authState = useAuthState();
   const isAuthenticated = authState.isAuthenticated;
   const hasPremiumAccess = authState.hasPremiumAccess;
+  const isFreeSignedIn = isAuthenticated && !hasPremiumAccess;
+  const primaryCtaHref = hasPremiumAccess ? "/platform/current" : isFreeSignedIn ? "/pricing" : "/sign-up";
   const isAuthLoading = !authState.isLoaded;
   const account = {
     name: authState.name,
@@ -93,6 +117,10 @@ const Navbar: React.FC = () => {
   }, [account.avatar]);
 
   useEffect(() => {
+    setIsNavigatingToSignIn(false);
+  }, [pathname]);
+
+  useEffect(() => {
     const handleScroll = () => {
       setScrolled(window.scrollY > 10);
     };
@@ -102,44 +130,63 @@ const Navbar: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    [
-      "/",
-      "/experiment-research",
-      "/platform/performance",
-      "/platform/current",
-      "/platform/settings",
-      "/pricing",
-      "/blog",
-      "/contact",
-      "/about",
-      "/roadmap-changelog",
-      "/privacy",
-      "/terms",
-      "/disclaimer",
-      "/sign-up",
-    ].forEach((href) => {
-      router.prefetch(href);
-    });
-  }, [router]);
-
-  const handleLogin = async () => {
-    const supabase = getSupabaseBrowserClient();
-    if (!supabase) {
+    // Keep aggressive route warming for production UX, but avoid
+    // eager precompile pressure in local dev.
+    if (process.env.NODE_ENV !== "production") {
       return;
     }
 
-    setIsSigningIn(true);
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback?next=/platform/current`,
-      },
-    });
+    const warmRoutes = () => {
+      MARKETING_PREFETCH_ROUTES.forEach((href) => {
+        router.prefetch(href);
+      });
+    };
 
-    if (error) {
-      setIsSigningIn(false);
-      alert("Unable to start sign in. Please try again.");
+    warmRoutes();
+
+    const intervalId = globalThis.setInterval(() => {
+      warmRoutes();
+    }, 30_000);
+
+    const handleWindowFocus = () => {
+      warmRoutes();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        warmRoutes();
+      }
+    };
+
+    window.addEventListener("focus", handleWindowFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    let idleCallbackId: number | null = null;
+    let timeoutId: ReturnType<typeof globalThis.setTimeout> | null = null;
+
+    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+      idleCallbackId = window.requestIdleCallback(warmRoutes, { timeout: 1500 });
+    } else {
+      timeoutId = globalThis.setTimeout(warmRoutes, 500);
     }
+
+    return () => {
+      globalThis.clearInterval(intervalId);
+      window.removeEventListener("focus", handleWindowFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+
+      if (idleCallbackId !== null) {
+        window.cancelIdleCallback(idleCallbackId);
+      }
+      if (timeoutId !== null) {
+        globalThis.clearTimeout(timeoutId);
+      }
+    };
+  }, [router]);
+
+  const handleLogin = () => {
+    setIsNavigatingToSignIn(true);
+    navigateWithFallback((href) => router.push(href), "/sign-in?next=/platform/current");
   };
 
   const handleSignOut = async () => {
@@ -152,7 +199,7 @@ const Navbar: React.FC = () => {
     await supabase.auth.signOut();
     setIsSigningOut(false);
     setIsMobileMenuOpen(false);
-    router.push("/");
+    navigateWithFallback((href) => router.push(href), "/");
     router.refresh();
   };
 
@@ -237,21 +284,47 @@ const Navbar: React.FC = () => {
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
-          <DropdownMenuItem onSelect={() => router.push("/platform/settings")} className="gap-2">
+          <DropdownMenuItem
+            onSelect={() =>
+              navigateWithFallback(
+                (href) => router.push(href),
+                hasPremiumAccess ? "/platform/settings" : "/pricing"
+              )
+            }
+            className="gap-2"
+          >
             <PlanLabel isPremium={hasPremiumAccess} className="text-trader-blue font-medium" />
           </DropdownMenuItem>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
-          <DropdownMenuItem onSelect={() => router.push("/platform/settings#account")} className="gap-2">
+              <DropdownMenuItem
+                onSelect={() =>
+                  navigateWithFallback((href) => router.push(href), "/platform/settings#account")
+                }
+                className="gap-2"
+              >
             <BadgeCheck className="size-4 text-muted-foreground" />
             Account
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => router.push("/platform/settings#billing")} className="gap-2">
+              <DropdownMenuItem
+                onSelect={() =>
+                  navigateWithFallback((href) => router.push(href), "/platform/settings#billing")
+                }
+                className="gap-2"
+              >
             <CreditCard className="size-4 text-muted-foreground" />
             Billing
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => router.push("/platform/settings#notifications")} className="gap-2">
+              <DropdownMenuItem
+                onSelect={() =>
+                  navigateWithFallback(
+                    (href) => router.push(href),
+                    "/platform/settings#notifications"
+                  )
+                }
+                className="gap-2"
+              >
             <Bell className="size-4 text-muted-foreground" />
             Notifications
           </DropdownMenuItem>
@@ -442,9 +515,9 @@ const Navbar: React.FC = () => {
                 variant="outline"
                 className="rounded-full px-5"
                 onClick={handleLogin}
-                disabled={isSigningIn || isAuthLoading}
+                disabled={isNavigatingToSignIn || isAuthLoading}
               >
-                {isSigningIn || isAuthLoading ? (
+                {isNavigatingToSignIn || isAuthLoading ? (
                   <Loader2 size={16} className="mr-2 animate-spin" />
                 ) : (
                   <LogIn size={16} className="mr-2" />
@@ -453,14 +526,16 @@ const Navbar: React.FC = () => {
               </Button>
             )}
             <Link
-              href={hasPremiumAccess ? "/platform/current" : "/sign-up"}
+              href={primaryCtaHref}
               prefetch
-              onMouseEnter={() => handlePrefetch(hasPremiumAccess ? "/platform/current" : "/sign-up")}
-              onFocus={() => handlePrefetch(hasPremiumAccess ? "/platform/current" : "/sign-up")}
-              onPointerDown={() => handlePrefetch(hasPremiumAccess ? "/platform/current" : "/sign-up")}
+              onMouseEnter={() => handlePrefetch(primaryCtaHref)}
+              onFocus={() => handlePrefetch(primaryCtaHref)}
+              onPointerDown={() => handlePrefetch(primaryCtaHref)}
             >
               <Button className="rounded-full bg-trader-blue px-5 text-white transition-all duration-300 hover:bg-trader-blue-dark">
-                <span className="mr-2">{hasPremiumAccess ? "Platform" : "Get Started"}</span>
+                <span className="mr-2">
+                  {hasPremiumAccess ? "Platform" : isFreeSignedIn ? "Upgrade" : "Get Started"}
+                </span>
                 <ArrowRight size={16} />
               </Button>
             </Link>
@@ -567,9 +642,9 @@ const Navbar: React.FC = () => {
                         variant="outline"
                         className="w-full justify-center rounded-full"
                         onClick={handleLogin}
-                        disabled={isSigningIn || isAuthLoading}
+                        disabled={isNavigatingToSignIn || isAuthLoading}
                       >
-                        {isSigningIn || isAuthLoading ? (
+                        {isNavigatingToSignIn || isAuthLoading ? (
                           <Loader2 size={16} className="mr-2 animate-spin" />
                         ) : (
                           <LogIn size={16} className="mr-2" />
@@ -579,15 +654,17 @@ const Navbar: React.FC = () => {
                     )}
                     <SheetClose asChild>
                       <Link
-                        href={hasPremiumAccess ? "/platform/current" : "/sign-up"}
+                        href={primaryCtaHref}
                         prefetch
-                        onMouseEnter={() => handlePrefetch(hasPremiumAccess ? "/platform/current" : "/sign-up")}
-                        onFocus={() => handlePrefetch(hasPremiumAccess ? "/platform/current" : "/sign-up")}
-                        onPointerDown={() => handlePrefetch(hasPremiumAccess ? "/platform/current" : "/sign-up")}
+                        onMouseEnter={() => handlePrefetch(primaryCtaHref)}
+                        onFocus={() => handlePrefetch(primaryCtaHref)}
+                        onPointerDown={() => handlePrefetch(primaryCtaHref)}
                         className="block"
                       >
                         <Button className="w-full rounded-full bg-trader-blue text-white transition-all duration-300 hover:bg-trader-blue-dark">
-                          <span className="mr-2">{hasPremiumAccess ? "Platform" : "Get Started"}</span>
+                          <span className="mr-2">
+                            {hasPremiumAccess ? "Platform" : isFreeSignedIn ? "Upgrade" : "Get Started"}
+                          </span>
                           <ArrowRight size={16} />
                         </Button>
                       </Link>

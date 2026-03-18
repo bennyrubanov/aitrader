@@ -1,6 +1,8 @@
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 
+export const revalidate = 3600;
+
 const roadmapItems = [
   {
     title: "Methodology Expansion",

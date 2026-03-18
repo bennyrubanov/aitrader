@@ -5,6 +5,8 @@ import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
 import { BlogShareButtons } from '@/components/blog-share-buttons';
 
+export const revalidate = 3600;
+
 interface BlogContent {
   id: string;
   title: string;

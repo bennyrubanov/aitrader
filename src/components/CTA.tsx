@@ -6,10 +6,11 @@ import { ArrowRight } from "lucide-react";
 import StockCard from "@/components/ui/stock-card";
 import { freeStocks, premiumStocks } from "@/lib/stockData";
 import Link from "next/link";
-import { useAuthState } from "@/components/auth/auth-state-provider";
+import { useAuthState } from "@/components/auth/auth-state-context";
 
 const CTA: React.FC = () => {
-  const { hasPremiumAccess } = useAuthState();
+  const { hasPremiumAccess, isAuthenticated } = useAuthState();
+  const ctaHref = hasPremiumAccess ? "/platform/current" : isAuthenticated ? "/pricing" : "/sign-up";
 
   return (
     <section className="py-20 bg-gradient-to-b from-muted/40 to-background">
@@ -94,9 +95,9 @@ const CTA: React.FC = () => {
             </div>
           </div>
           <div className="pt-10 flex justify-center">
-            <Link href={hasPremiumAccess ? "/platform/current" : "/sign-up"}>
+            <Link href={ctaHref}>
               <Button className="px-8 py-6 text-lg rounded-xl bg-trader-blue hover:bg-trader-blue-dark text-white transition-all duration-300">
-                <span className="mr-2">Get Full Access</span>
+                <span className="mr-2">{hasPremiumAccess ? "Go to Platform" : "Get Full Access"}</span>
                 <ArrowRight size={18} />
               </Button>
             </Link>

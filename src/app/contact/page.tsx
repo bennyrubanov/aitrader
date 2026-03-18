@@ -4,6 +4,8 @@ import Footer from '@/components/Footer';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 
+export const revalidate = 3600;
+
 const ContactPage = () => {
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">

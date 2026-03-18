@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Loader2, LogIn, LogOut, CreditCard, Bell, UserRound } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -10,7 +10,7 @@ import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { toast } from '@/hooks/use-toast';
 import { getSupabaseBrowserClient } from '@/utils/supabase/browser';
-import { useAuthState } from '@/components/auth/auth-state-provider';
+import { useAuthState } from '@/components/auth/auth-state-context';
 
 type ProfileState = {
   email: string | null;
@@ -22,6 +22,7 @@ type NewsletterStatus = 'subscribed' | 'unsubscribed' | null;
 
 const SettingsPage = () => {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const authState = useAuthState();
   const [authUser, setAuthUser] = useState<{ id: string; email: string | null } | null>(null);
   const [profile, setProfile] = useState<ProfileState>({
@@ -34,7 +35,17 @@ const SettingsPage = () => {
   const [isSavingNewsletter, setIsSavingNewsletter] = useState(false);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [isOpeningPortal, setIsOpeningPortal] = useState(false);
+  const [isSendingPasswordReset, setIsSendingPasswordReset] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [requiresPasswordSetup, setRequiresPasswordSetup] = useState<boolean | null>(null);
+  const [isCheckingPasswordSetup, setIsCheckingPasswordSetup] = useState(false);
+  const [canManagePassword, setCanManagePassword] = useState(false);
+
+  useEffect(() => {
+    if (searchParams.get('reauth') === '1') {
+      setCanManagePassword(true);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     if (!authState.isLoaded) {
@@ -102,30 +113,8 @@ const SettingsPage = () => {
   }, [authState.isAuthenticated, authState.isLoaded, authState.userId]);
 
   const handleSignIn = async () => {
-    const supabase = getSupabaseBrowserClient();
-    if (!supabase) {
-      toast({
-        title: 'Supabase not configured',
-        description: 'Unable to start sign-in in this environment.',
-      });
-      return;
-    }
-
     setIsSigningIn(true);
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback?next=/platform/settings`,
-      },
-    });
-
-    if (error) {
-      toast({
-        title: 'Sign-in failed',
-        description: error.message,
-      });
-      setIsSigningIn(false);
-    }
+    router.push('/sign-in?next=/platform/settings');
   };
 
   const handleOpenPortal = async () => {
@@ -160,6 +149,82 @@ const SettingsPage = () => {
     router.push('/');
     router.refresh();
   };
+
+  const handleSendPasswordReset = async () => {
+    const emailToUse = (profile.email ?? authUser?.email ?? '').trim().toLowerCase();
+    if (!emailToUse) {
+      toast({
+        title: 'Unable to send reset email',
+        description: 'No email address is available for this account.',
+      });
+      return;
+    }
+
+    setIsSendingPasswordReset(true);
+    const response = await fetch('/api/auth/password-reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: emailToUse,
+        nextPath: '/platform/settings',
+      }),
+    });
+    const payload = (await response.json()) as { ok?: boolean; error?: string };
+
+    if (!response.ok || !payload.ok) {
+      toast({
+        title: 'Password reset failed',
+        description: payload.error ?? 'Unable to send password reset email.',
+      });
+      setIsSendingPasswordReset(false);
+      return;
+    }
+
+    toast({
+      title: 'Password reset email sent',
+      description: 'Check your inbox to set or change your password.',
+    });
+    setIsSendingPasswordReset(false);
+  };
+
+  const handleAuthenticateAgain = () => {
+    router.push('/sign-in?next=/platform/settings%3Freauth%3D1');
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const checkPasswordSetup = async () => {
+      if (!authState.isLoaded || !authState.isAuthenticated) {
+        setRequiresPasswordSetup(null);
+        return;
+      }
+
+      const emailToUse = (profile.email ?? authUser?.email ?? '').trim().toLowerCase();
+      if (!emailToUse) {
+        setRequiresPasswordSetup(null);
+        return;
+      }
+
+      setIsCheckingPasswordSetup(true);
+      const response = await fetch('/api/auth/password-login-hint', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: emailToUse }),
+      });
+      const payload = (await response.json()) as { requiresPasswordSetup?: boolean };
+
+      if (isMounted) {
+        setRequiresPasswordSetup(Boolean(payload.requiresPasswordSetup));
+        setIsCheckingPasswordSetup(false);
+      }
+    };
+
+    void checkPasswordSetup();
+    return () => {
+      isMounted = false;
+    };
+  }, [authState.isAuthenticated, authState.isLoaded, authUser?.email, profile.email]);
 
   const handleNewsletterToggle = async (checked: boolean) => {
     const supabase = getSupabaseBrowserClient();
@@ -296,6 +361,48 @@ const SettingsPage = () => {
                     </Badge>
                   </div>
                 </div>
+                <div className="rounded-lg border p-3">
+                  <p className="text-sm font-medium">Password login</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Re-authenticate before managing password reset email.
+                  </p>
+                  {isCheckingPasswordSetup ? (
+                    <p className="mt-2 inline-flex items-center text-xs text-muted-foreground">
+                      <Loader2 className="mr-1 size-3 animate-spin" />
+                      Checking password setup...
+                    </p>
+                  ) : requiresPasswordSetup ? (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      No password is currently set. Click the password reset email button to create one.
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      You can reset your password anytime via email.
+                    </p>
+                  )}
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {!canManagePassword ? (
+                      <Button variant="outline" onClick={handleAuthenticateAgain}>
+                        Authenticate again
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        onClick={handleSendPasswordReset}
+                        disabled={isSendingPasswordReset}
+                      >
+                        {isSendingPasswordReset ? (
+                          <>
+                            <Loader2 className="mr-2 size-4 animate-spin" />
+                            Sending reset email...
+                          </>
+                        ) : (
+                          'Send password reset email'
+                        )}
+                      </Button>
+                    )}
+                  </div>
+                </div>
               </section>
 
               <Separator />
@@ -390,7 +497,7 @@ const SettingsPage = () => {
                 ) : (
                   <>
                     <LogIn className="mr-2 size-4" />
-                    Sign in with Google
+                    Sign in
                   </>
                 )}
               </Button>

@@ -1,6 +1,8 @@
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 
+export const revalidate = 3600;
+
 const DisclaimerPage = () => {
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">

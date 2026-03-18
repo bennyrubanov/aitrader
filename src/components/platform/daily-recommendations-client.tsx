@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Loader2, ShieldCheck, ShieldX } from 'lucide-react';
+import { ShieldCheck, ShieldX } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -18,7 +18,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { DailyRow, RecommendationBucket } from '@/lib/platform-server-data';
 import { Disclaimer } from '@/components/Disclaimer';
-import { useAuthState } from '@/components/auth/auth-state-provider';
+import { useAuthState } from '@/components/auth/auth-state-context';
 
 type DailyRecommendationsClientProps = {
   initialRows: DailyRow[];
@@ -149,12 +149,7 @@ export function DailyRecommendationsClient({
             </div>
           )}
 
-          {!isLoaded || isReconcilingPremium ? (
-            <div className="inline-flex items-center text-sm text-muted-foreground">
-              <Loader2 className="mr-2 size-4 animate-spin" />
-              Checking account status...
-            </div>
-          ) : isAuthenticated ? (
+          {isLoaded && !isReconcilingPremium && isAuthenticated ? (
             <div className="inline-flex items-center gap-2 text-sm">
               {isPremium ? (
                 <>

@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import { getSupabaseBrowserClient } from "@/utils/supabase/browser";
-import { useAuthState } from "@/components/auth/auth-state-provider";
+import { useAuthState } from "@/components/auth/auth-state-context";
 
 type SidebarAccountModuleProps = {
   onNavigateStart?: (href: string) => void;
@@ -40,26 +40,8 @@ export function SidebarAccountModule({ onNavigateStart }: SidebarAccountModulePr
   };
 
   const handleSignIn = async () => {
-    const supabase = getSupabaseBrowserClient();
-    if (!supabase) {
-      return;
-    }
-
     setIsSigningIn(true);
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback?next=/platform/settings`,
-      },
-    });
-
-    if (error) {
-      toast({
-        title: "Sign-in failed",
-        description: error.message,
-      });
-      setIsSigningIn(false);
-    }
+    router.push("/sign-in?next=/platform/settings");
   };
 
   const handleSignOut = async () => {
@@ -165,7 +147,7 @@ export function SidebarAccountModule({ onNavigateStart }: SidebarAccountModulePr
             ) : (
               <>
                 <LogIn className="mr-2 size-3" />
-                Sign in with Google
+                Sign in
               </>
             )}
           </Button>

@@ -17,9 +17,9 @@ import { NavMain } from '@/components/platform/nav-main';
 import { NavSecondary } from '@/components/platform/nav-secondary';
 import { NavUser } from '@/components/platform/nav-user';
 import { getSupabaseBrowserClient } from '@/utils/supabase/browser';
-import { toast } from '@/hooks/use-toast';
-import { useAuthState } from '@/components/auth/auth-state-provider';
+import { useAuthState } from '@/components/auth/auth-state-context';
 import { PlanLabel } from '@/components/account/plan-label';
+import { navigateWithFallback } from '@/lib/client-navigation';
 
 type NavItem = {
   title: string;
@@ -84,6 +84,14 @@ export function AppSidebar() {
       });
     };
 
+    // Always prefetch sibling platform routes while the user is in platform.
+    prefetchAllRoutes();
+
+    // Keep aggressive background warmups for production only.
+    if (process.env.NODE_ENV !== 'production') {
+      return;
+    }
+
     const warmPerformanceData = () => {
       void fetch('/api/platform/performance').catch(() => {
         // Best-effort warmup only.
@@ -94,8 +102,6 @@ export function AppSidebar() {
       prefetchAllRoutes();
       warmPerformanceData();
     };
-
-    prefetchAllRoutes();
 
     const intervalId = globalThis.setInterval(() => {
       warmAll();
@@ -139,28 +145,11 @@ export function AppSidebar() {
 
   const openPath = (href: string) => {
     router.prefetch(href);
-    router.push(href);
+    navigateWithFallback((targetHref) => router.push(targetHref), href);
   };
 
-  const handleSignIn = async () => {
-    const supabase = getSupabaseBrowserClient();
-    if (!supabase) {
-      return;
-    }
-
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback?next=/platform/settings`,
-      },
-    });
-
-    if (error) {
-      toast({
-        title: 'Sign-in failed',
-        description: error.message,
-      });
-    }
+  const handleSignIn = () => {
+    openPath('/sign-in?next=/platform/settings');
   };
 
   const handleSignOut = async () => {
@@ -247,7 +236,7 @@ export function AppSidebar() {
           onOpenAccount={() => openPath('/platform/settings')}
           onOpenBilling={() => openPath('/platform/settings')}
           onOpenNotifications={() => openPath('/platform/settings')}
-          onUpgrade={() => openPath('/platform/settings')}
+          onUpgrade={() => openPath('/pricing')}
           onSignOut={handleSignOut}
           onSignIn={handleSignIn}
         />

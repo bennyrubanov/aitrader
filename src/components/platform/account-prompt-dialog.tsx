@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Loader2, Sparkles } from "lucide-react";
 import {
   Dialog,
@@ -12,8 +12,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/utils/supabase/browser";
-import { useAuthState } from "@/components/auth/auth-state-provider";
+import { isSupabaseConfigured } from "@/utils/supabase/browser";
+import { useAuthState } from "@/components/auth/auth-state-context";
 
 const PROMPT_DISMISS_KEY = "platform-account-prompt-dismissed-at";
 const ACCOUNT_SEEN_KEY = "platform-account-seen-on-device";
@@ -60,6 +60,7 @@ const markAccountSeenOnDevice = () => {
 
 export function AccountPromptDialog() {
   const pathname = usePathname();
+  const router = useRouter();
   const { isAuthenticated, isLoaded } = useAuthState();
   const [open, setOpen] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -93,32 +94,17 @@ export function AccountPromptDialog() {
     setOpen(false);
   };
 
-  const startGoogleAuth = async () => {
-    const supabase = getSupabaseBrowserClient();
-    if (!supabase) {
-      return;
-    }
-
+  const goToAuthPage = (target: "sign-in" | "sign-up") => {
     setIsConnecting(true);
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`,
-      },
-    });
-
-    if (error) {
-      setIsConnecting(false);
-      alert("Unable to open sign-in. Please try again.");
-    }
+    router.push(`/${target}?next=${encodeURIComponent(nextPath)}`);
   };
 
-  const handleCreateAccount = async () => {
-    await startGoogleAuth();
+  const handleCreateAccount = () => {
+    goToAuthPage("sign-up");
   };
 
-  const handleSignBackIn = async () => {
-    await startGoogleAuth();
+  const handleSignBackIn = () => {
+    goToAuthPage("sign-in");
   };
 
   const dialogTitle = hasSeenAccount
@@ -127,7 +113,7 @@ export function AccountPromptDialog() {
   const dialogDescription = hasSeenAccount
     ? "Sign in with your account to sync premium access, save your settings, and manage billing."
     : "You can explore the platform now. Create an account with the same checkout email to sync premium access, save your settings, and manage billing.";
-  const primaryButtonLabel = hasSeenAccount ? "Sign in with Google" : "Create account with Google";
+  const primaryButtonLabel = hasSeenAccount ? "Sign in with email" : "Create account";
   const secondaryPrompt = hasSeenAccount ? "Need a new account?" : "Already have an account?";
   const secondaryActionLabel = hasSeenAccount ? "Create account" : "Sign back in";
 

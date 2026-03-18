@@ -11,7 +11,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/
 import { Line, LineChart, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { getPlatformCachedValue, setPlatformCachedValue } from '@/lib/platformClientCache';
 import { Disclaimer } from '@/components/Disclaimer';
-import { useAuthState } from '@/components/auth/auth-state-provider';
+import { useAuthState } from '@/components/auth/auth-state-context';
 
 type StockDetailClientProps = {
   symbol: string;
@@ -64,6 +64,7 @@ const formatBucket = (bucket: string | null) =>
 const StockDetailClient = ({ symbol, stockName, price, latest, news }: StockDetailClientProps) => {
   const router = useRouter();
   const { isAuthenticated, isLoaded } = useAuthState();
+  const upgradeHref = isAuthenticated ? '/pricing' : '/sign-up';
   const normalizedSymbol = symbol.toUpperCase();
   const premiumCacheKey = `stock.${normalizedSymbol.toLowerCase()}.premium`;
   const initialPremiumCache =
@@ -163,6 +164,8 @@ const StockDetailClient = ({ symbol, stockName, price, latest, news }: StockDeta
   useEffect(() => {
     router.prefetch('/');
     router.prefetch('/platform/current');
+    router.prefetch('/sign-in');
+    router.prefetch('/pricing');
     router.prefetch('/sign-up');
   }, [router]);
 
@@ -260,14 +263,16 @@ const StockDetailClient = ({ symbol, stockName, price, latest, news }: StockDeta
                             Sign in with a paid account to view historical recommendations.
                           </p>
                           <div className="mt-4 flex flex-wrap gap-2">
-                            <Link href="/sign-up">
+                            <Link href={upgradeHref}>
                               <Button size="sm">Upgrade to premium</Button>
                             </Link>
-                            <Link href="/platform/current">
-                              <Button size="sm" variant="outline">
-                                Sign in
-                              </Button>
-                            </Link>
+                            {!isAuthenticated && (
+                              <Link href="/sign-in?next=/platform/current">
+                                <Button size="sm" variant="outline">
+                                  Sign in
+                                </Button>
+                              </Link>
+                            )}
                           </div>
                         </>
                       )}
@@ -368,14 +373,16 @@ const StockDetailClient = ({ symbol, stockName, price, latest, news }: StockDeta
                           Premium members can see why recommendations change from week to week.
                         </p>
                         <div className="mt-4 flex flex-wrap gap-2">
-                          <Link href="/sign-up">
+                          <Link href={upgradeHref}>
                             <Button size="sm">Upgrade to premium</Button>
                           </Link>
-                          <Link href="/platform/current">
-                            <Button size="sm" variant="outline">
-                              Sign in
-                            </Button>
-                          </Link>
+                          {!isAuthenticated && (
+                            <Link href="/sign-in?next=/platform/current">
+                              <Button size="sm" variant="outline">
+                                Sign in
+                              </Button>
+                            </Link>
+                          )}
                         </div>
                       </>
                     )}

@@ -6,6 +6,7 @@ import { Stock } from "@/lib/stockData";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "@/hooks/use-toast";
+import { useAuthState } from "@/components/auth/auth-state-context";
 
 interface StockCardProps {
   stock: Stock;
@@ -18,15 +19,18 @@ const StockCard: React.FC<StockCardProps> = ({
   stock,
   showDetails = true,
   className = "",
-  hasPremiumAccess = false,
+  hasPremiumAccess,
 }) => {
   const router = useRouter();
+  const authState = useAuthState();
+  const canAccessPremium = hasPremiumAccess ?? authState.hasPremiumAccess;
+  const premiumCtaHref = canAccessPremium ? "/platform/current" : authState.isAuthenticated ? "/pricing" : "/sign-up";
   const { symbol, name, isPremium, price, change, aiRating } = stock;
 
   const isPositive = change && change > 0;
 
   const handlePremiumClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
-    if (!hasPremiumAccess) {
+    if (!canAccessPremium) {
       return;
     }
 
@@ -101,7 +105,7 @@ const StockCard: React.FC<StockCardProps> = ({
 
       {isPremium && (
         <Link
-          href={hasPremiumAccess ? "/platform/current" : "/sign-up"}
+          href={premiumCtaHref}
           onClick={handlePremiumClick}
           className="absolute inset-0 rounded-xl flex items-center justify-center bg-background/60 backdrop-blur-sm opacity-0 transition-opacity hover:opacity-100"
         >

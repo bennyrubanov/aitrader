@@ -81,7 +81,7 @@ export function NavUser({
             </Avatar>
             <div className="grid flex-1 text-left text-sm leading-tight">
               <span className="truncate font-medium">Guest</span>
-              <span className="truncate text-xs">Sign in to sync account</span>
+              <span className="truncate text-xs">Sign in to access account</span>
             </div>
             <LogIn className="ml-auto size-3.5" />
           </SidebarMenuButton>
