@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
@@ -30,7 +30,7 @@ const methodBadge = (lastMethod: string | null, method: string) =>
     </span>
   ) : null;
 
-export default function SignUpPage() {
+function SignUpPageContent() {
   const router = useRouter();
   const { toast, dismiss } = useToast();
   const searchParams = useSearchParams();
@@ -380,5 +380,13 @@ export default function SignUpPage() {
         </section>
       </div>
     </main>
+  );
+}
+
+export default function SignUpPage() {
+  return (
+    <Suspense fallback={null}>
+      <SignUpPageContent />
+    </Suspense>
   );
 }

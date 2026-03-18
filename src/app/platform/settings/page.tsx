@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Loader2, LogIn, LogOut, CreditCard, Bell, UserRound } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,7 +20,7 @@ type ProfileState = {
 
 type NewsletterStatus = 'subscribed' | 'unsubscribed' | null;
 
-const SettingsPage = () => {
+const SettingsPageContent = () => {
   const router = useRouter();
   const searchParams = useSearchParams();
   const authState = useAuthState();
@@ -506,6 +506,14 @@ const SettingsPage = () => {
         </CardContent>
       </Card>
     </div>
+  );
+};
+
+const SettingsPage = () => {
+  return (
+    <Suspense fallback={null}>
+      <SettingsPageContent />
+    </Suspense>
   );
 };
 

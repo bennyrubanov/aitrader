@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type { User } from "@supabase/supabase-js";
 import { createAdminClient } from "@/utils/supabase/admin";
 
 export const runtime = "nodejs";
@@ -25,11 +26,13 @@ export async function POST(request: Request) {
 
     while (page <= maxPages) {
       const { data, error } = await supabase.auth.admin.listUsers({ page, perPage });
-      if (error || !data?.users?.length) {
+      const users = (Array.isArray(data?.users) ? data.users : []) as User[];
+
+      if (error || users.length === 0) {
         return NextResponse.json({ requiresPasswordSetup: false });
       }
 
-      const matchedUser = data.users.find(
+      const matchedUser = users.find(
         (user) => (user.email ?? "").trim().toLowerCase() === email,
       );
 
@@ -43,7 +46,7 @@ export async function POST(request: Request) {
         });
       }
 
-      if (data.users.length < perPage) {
+      if (users.length < perPage) {
         break;
       }
       page += 1;

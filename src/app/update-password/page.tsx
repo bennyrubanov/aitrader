@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
@@ -17,7 +17,7 @@ const sanitizeNextPath = (value: string | null, fallback: string) => {
   return value;
 };
 
-export default function UpdatePasswordPage() {
+function UpdatePasswordPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [password, setPassword] = useState("");
@@ -239,5 +239,13 @@ export default function UpdatePasswordPage() {
         </section>
       </div>
     </main>
+  );
+}
+
+export default function UpdatePasswordPage() {
+  return (
+    <Suspense fallback={null}>
+      <UpdatePasswordPageContent />
+    </Suspense>
   );
 }
