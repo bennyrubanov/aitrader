@@ -67,6 +67,7 @@ export function AppSidebar() {
     email: authState.email,
     avatar: authState.avatar,
     isPremium: authState.hasPremiumAccess,
+    subscriptionTier: authState.subscriptionTier,
     isAuthenticated: authState.isAuthenticated,
   };
   const handlePrefetchIntent = (href: string) => {
@@ -176,6 +177,7 @@ export function AppSidebar() {
                 <div className="grid flex-1 text-left text-sm leading-tight">
                   <PlanLabel
                     isPremium={account.isPremium}
+                    subscriptionTier={account.subscriptionTier}
                     className={`truncate text-xs uppercase tracking-[0.18em] ${
                       account.isPremium
                         ? '-skew-x-12 text-trader-blue font-semibold'

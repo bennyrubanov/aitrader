@@ -1,12 +1,11 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { Loader2, LogIn, LogOut, CreditCard, Bell, UserRound } from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { Loader2, LogIn, LogOut, CreditCard, Bell, UserRound, KeyRound, Mail, ExternalLink } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { toast } from '@/hooks/use-toast';
 import { getSupabaseBrowserClient } from '@/utils/supabase/browser';
@@ -22,7 +21,6 @@ type NewsletterStatus = 'subscribed' | 'unsubscribed' | null;
 
 const SettingsPageContent = () => {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const authState = useAuthState();
   const [authUser, setAuthUser] = useState<{ id: string; email: string | null } | null>(null);
   const [profile, setProfile] = useState<ProfileState>({
@@ -35,17 +33,8 @@ const SettingsPageContent = () => {
   const [isSavingNewsletter, setIsSavingNewsletter] = useState(false);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [isOpeningPortal, setIsOpeningPortal] = useState(false);
-  const [isSendingPasswordReset, setIsSendingPasswordReset] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
-  const [requiresPasswordSetup, setRequiresPasswordSetup] = useState<boolean | null>(null);
-  const [isCheckingPasswordSetup, setIsCheckingPasswordSetup] = useState(false);
-  const [canManagePassword, setCanManagePassword] = useState(false);
-
-  useEffect(() => {
-    if (searchParams.get('reauth') === '1') {
-      setCanManagePassword(true);
-    }
-  }, [searchParams]);
+  const [isSendingReset, setIsSendingReset] = useState(false);
 
   useEffect(() => {
     if (!authState.isLoaded) {
@@ -154,13 +143,13 @@ const SettingsPageContent = () => {
     const emailToUse = (profile.email ?? authUser?.email ?? '').trim().toLowerCase();
     if (!emailToUse) {
       toast({
-        title: 'Unable to send reset email',
-        description: 'No email address is available for this account.',
+        title: 'No email found',
+        description: 'Unable to determine your account email.',
       });
       return;
     }
 
-    setIsSendingPasswordReset(true);
+    setIsSendingReset(true);
     const response = await fetch('/api/auth/password-reset', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -176,55 +165,16 @@ const SettingsPageContent = () => {
         title: 'Password reset failed',
         description: payload.error ?? 'Unable to send password reset email.',
       });
-      setIsSendingPasswordReset(false);
+      setIsSendingReset(false);
       return;
     }
 
     toast({
       title: 'Password reset email sent',
-      description: 'Check your inbox to set or change your password.',
+      description: 'Check your inbox to set or update your password.',
     });
-    setIsSendingPasswordReset(false);
+    setIsSendingReset(false);
   };
-
-  const handleAuthenticateAgain = () => {
-    router.push('/sign-in?next=/platform/settings%3Freauth%3D1');
-  };
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const checkPasswordSetup = async () => {
-      if (!authState.isLoaded || !authState.isAuthenticated) {
-        setRequiresPasswordSetup(null);
-        return;
-      }
-
-      const emailToUse = (profile.email ?? authUser?.email ?? '').trim().toLowerCase();
-      if (!emailToUse) {
-        setRequiresPasswordSetup(null);
-        return;
-      }
-
-      setIsCheckingPasswordSetup(true);
-      const response = await fetch('/api/auth/password-login-hint', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: emailToUse }),
-      });
-      const payload = (await response.json()) as { requiresPasswordSetup?: boolean };
-
-      if (isMounted) {
-        setRequiresPasswordSetup(Boolean(payload.requiresPasswordSetup));
-        setIsCheckingPasswordSetup(false);
-      }
-    };
-
-    void checkPasswordSetup();
-    return () => {
-      isMounted = false;
-    };
-  }, [authState.isAuthenticated, authState.isLoaded, authUser?.email, profile.email]);
 
   const handleNewsletterToggle = async (checked: boolean) => {
     const supabase = getSupabaseBrowserClient();
@@ -319,202 +269,203 @@ const SettingsPageContent = () => {
   };
 
   return (
-    <div className="mx-auto w-full max-w-3xl pt-2 md:pt-4">
-      <Card className="w-full">
-        <CardHeader>
-          <CardTitle>Settings</CardTitle>
-          <CardDescription>
-            Manage account, billing, and notifications in one place.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {!authState.isLoaded ? (
-            <div className="inline-flex items-center text-sm text-muted-foreground">
-              <Loader2 className="mr-2 size-4 animate-spin" />
-              Loading account settings...
+    <div className="mx-auto w-full max-w-2xl space-y-6 pt-2 md:pt-4">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Manage your account, billing, and notification preferences.
+        </p>
+      </div>
+
+      {!authState.isLoaded ? (
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="mr-2 size-5 animate-spin text-muted-foreground" />
+          <span className="text-sm text-muted-foreground">Loading settings...</span>
+        </div>
+      ) : authState.isAuthenticated ? (
+        <>
+          {/* ── Account ── */}
+          <section className="rounded-xl border bg-card">
+            <div className="flex items-center gap-2 border-b px-5 py-3">
+              <UserRound className="size-4 text-muted-foreground" />
+              <h2 className="text-sm font-semibold">Account</h2>
             </div>
-          ) : authState.isAuthenticated ? (
-            <>
-              <section id="account" className="space-y-3">
-                <h3 className="inline-flex items-center text-sm font-semibold">
-                  <UserRound className="mr-2 size-4" />
-                  Account
-                </h3>
-                <div className="space-y-2 text-sm">
-                  <p>
-                    <span className="font-medium">Name:</span> {profile.fullName ?? 'Not set'}
-                  </p>
-                  <p>
-                    <span className="font-medium">Email:</span> {profile.email ?? 'Unavailable'}
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">Plan:</span>
-                    <Badge
-                      variant="outline"
-                      className={
-                        profile.isPremium
-                          ? 'border-trader-blue/40 bg-trader-blue/10 text-trader-blue'
-                          : 'border-amber-200 bg-amber-50 text-amber-700'
-                      }
-                    >
-                      {profile.isPremium ? 'Premium - Outperformer plan' : 'Free version'}
-                    </Badge>
-                  </div>
-                </div>
-                <div className="rounded-lg border p-3">
-                  <p className="text-sm font-medium">Password login</p>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Re-authenticate before managing password reset email.
-                  </p>
-                  {isCheckingPasswordSetup ? (
-                    <p className="mt-2 inline-flex items-center text-xs text-muted-foreground">
-                      <Loader2 className="mr-1 size-3 animate-spin" />
-                      Checking password setup...
-                    </p>
-                  ) : requiresPasswordSetup ? (
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      No password is currently set. Click the password reset email button to create one.
-                    </p>
-                  ) : (
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      You can reset your password anytime via email.
-                    </p>
-                  )}
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {!canManagePassword ? (
-                      <Button variant="outline" onClick={handleAuthenticateAgain}>
-                        Authenticate again
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="outline"
-                        onClick={handleSendPasswordReset}
-                        disabled={isSendingPasswordReset}
-                      >
-                        {isSendingPasswordReset ? (
-                          <>
-                            <Loader2 className="mr-2 size-4 animate-spin" />
-                            Sending reset email...
-                          </>
-                        ) : (
-                          'Send password reset email'
-                        )}
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              </section>
-
-              <Separator />
-
-              <section id="billing" className="space-y-3">
-                <h3 className="inline-flex items-center text-sm font-semibold">
-                  <CreditCard className="mr-2 size-4" />
-                  Billing
-                </h3>
-                <p className="text-sm text-muted-foreground">
-                  Update subscription and payment settings securely in Stripe.
-                </p>
-                <Button
-                  onClick={handleOpenPortal}
-                  disabled={isOpeningPortal}
-                  className="bg-trader-blue hover:bg-trader-blue-dark text-white"
-                >
-                  {isOpeningPortal ? (
-                    <>
-                      <Loader2 className="mr-2 size-4 animate-spin" />
-                      Opening portal...
-                    </>
-                  ) : (
-                    'Open billing portal'
-                  )}
-                </Button>
-              </section>
-
-              <Separator />
-
-              <section id="notifications" className="space-y-2">
-                <h3 className="inline-flex items-center text-sm font-semibold">
-                  <Bell className="mr-2 size-4" />
-                  Notifications
-                </h3>
-                <div className="rounded-lg border p-3">
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-medium">AI Trader weekly newsletter</p>
-                      <p className="text-sm text-muted-foreground">
-                        Receive weekly reports and trendy stock updates.
-                      </p>
-                    </div>
-                    <Switch
-                      checked={newsletterStatus === 'subscribed'}
-                      onCheckedChange={handleNewsletterToggle}
-                      disabled={isLoadingNewsletter || isSavingNewsletter}
-                      aria-label="Toggle AI Trader newsletter subscription"
-                    />
-                  </div>
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    {isLoadingNewsletter
-                      ? 'Loading newsletter preference...'
-                      : isSavingNewsletter
-                        ? 'Saving newsletter preference...'
-                        : newsletterStatus === 'subscribed'
-                          ? 'Status: Subscribed'
-                          : 'Status: Unsubscribed'}
-                  </p>
-                </div>
-              </section>
-
-              <Separator />
-
-              <div className="flex justify-end">
-                <Button variant="outline" onClick={handleSignOut} disabled={isSigningOut}>
-                  {isSigningOut ? (
-                    <>
-                      <Loader2 className="mr-2 size-4 animate-spin" />
-                      Signing out...
-                    </>
-                  ) : (
-                    <>
-                      <LogOut className="mr-2 size-4" />
-                      Log out
-                    </>
-                  )}
-                </Button>
+            <div className="divide-y">
+              <div className="grid grid-cols-[100px_1fr] items-center gap-x-4 px-5 py-3 text-sm sm:grid-cols-[120px_1fr]">
+                <span className="text-muted-foreground">Name</span>
+                <span className="truncate font-medium">{profile.fullName ?? 'Not set'}</span>
               </div>
-            </>
-          ) : (
-            <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">
-                Sign in to access account, billing, and notification settings.
-              </p>
-              <Button onClick={handleSignIn} disabled={isSigningIn}>
-                {isSigningIn ? (
+              <div className="grid grid-cols-[100px_1fr] items-center gap-x-4 px-5 py-3 text-sm sm:grid-cols-[120px_1fr]">
+                <span className="text-muted-foreground">Email</span>
+                <span className="truncate font-medium">{profile.email ?? 'Unavailable'}</span>
+              </div>
+              <div className="grid grid-cols-[100px_1fr] items-center gap-x-4 px-5 py-3 text-sm sm:grid-cols-[120px_1fr]">
+                <span className="text-muted-foreground">Plan</span>
+                <div>
+                  <Badge
+                    variant="outline"
+                    className={
+                      profile.isPremium
+                        ? 'border-trader-blue/40 bg-trader-blue/10 text-trader-blue'
+                        : 'border-amber-200 bg-amber-50 text-amber-700'
+                    }
+                  >
+                    {profile.isPremium ? 'Outperformer' : 'Free plan'}
+                  </Badge>
+                  {!profile.isPremium && (
+                    <Link
+                      href="/pricing"
+                      className="ml-2 text-xs text-trader-blue underline-offset-4 hover:underline"
+                    >
+                      Upgrade
+                    </Link>
+                  )}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* ── Security ── */}
+          <section className="rounded-xl border bg-card">
+            <div className="flex items-center gap-2 border-b px-5 py-3">
+              <KeyRound className="size-4 text-muted-foreground" />
+              <h2 className="text-sm font-semibold">Security</h2>
+            </div>
+            <div className="flex items-center justify-between gap-4 px-5 py-4">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">Password</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Set or change your login password via email.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSendPasswordReset}
+                disabled={isSendingReset}
+              >
+                {isSendingReset ? (
                   <>
-                    <Loader2 className="mr-2 size-4 animate-spin" />
-                    Redirecting...
+                    <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                    Sending...
                   </>
                 ) : (
                   <>
-                    <LogIn className="mr-2 size-4" />
-                    Sign in
+                    <Mail className="mr-1.5 size-3.5" />
+                    Reset password
                   </>
                 )}
               </Button>
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </section>
+
+          {/* ── Billing ── */}
+          <section className="rounded-xl border bg-card">
+            <div className="flex items-center gap-2 border-b px-5 py-3">
+              <CreditCard className="size-4 text-muted-foreground" />
+              <h2 className="text-sm font-semibold">Billing</h2>
+            </div>
+            <div className="flex items-center justify-between gap-4 px-5 py-4">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">Subscription & payments</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Manage your plan, invoices, and payment method on Stripe.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                onClick={handleOpenPortal}
+                disabled={isOpeningPortal}
+                className="shrink-0 bg-trader-blue text-white hover:bg-trader-blue-dark"
+              >
+                {isOpeningPortal ? (
+                  <>
+                    <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                    Opening...
+                  </>
+                ) : (
+                  <>
+                    Manage
+                    <ExternalLink className="ml-1.5 size-3.5" />
+                  </>
+                )}
+              </Button>
+            </div>
+          </section>
+
+          {/* ── Notifications ── */}
+          <section className="rounded-xl border bg-card">
+            <div className="flex items-center gap-2 border-b px-5 py-3">
+              <Bell className="size-4 text-muted-foreground" />
+              <h2 className="text-sm font-semibold">Notifications</h2>
+            </div>
+            <div className="flex items-center justify-between gap-4 px-5 py-4">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">Weekly newsletter</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {isLoadingNewsletter
+                    ? 'Loading preference...'
+                    : isSavingNewsletter
+                      ? 'Saving...'
+                      : 'AI-driven stock reports and market updates.'}
+                </p>
+              </div>
+              <Switch
+                checked={newsletterStatus === 'subscribed'}
+                onCheckedChange={handleNewsletterToggle}
+                disabled={isLoadingNewsletter || isSavingNewsletter}
+                aria-label="Toggle AI Trader newsletter subscription"
+              />
+            </div>
+          </section>
+
+          {/* ── Sign out ── */}
+          <div className="flex justify-end pb-4">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground hover:text-destructive"
+              onClick={handleSignOut}
+              disabled={isSigningOut}
+            >
+              {isSigningOut ? (
+                <>
+                  <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                  Signing out...
+                </>
+              ) : (
+                <>
+                  <LogOut className="mr-1.5 size-3.5" />
+                  Log out
+                </>
+              )}
+            </Button>
+          </div>
+        </>
+      ) : (
+        <section className="flex flex-col items-center justify-center rounded-xl border bg-card px-6 py-16 text-center">
+          <UserRound className="mb-3 size-10 text-muted-foreground/40" />
+          <p className="text-sm font-medium">Sign in to manage your settings</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Account, billing, and notification preferences require authentication.
+          </p>
+          <Button className="mt-5" onClick={handleSignIn} disabled={isSigningIn}>
+            {isSigningIn ? (
+              <>
+                <Loader2 className="mr-2 size-4 animate-spin" />
+                Redirecting...
+              </>
+            ) : (
+              <>
+                <LogIn className="mr-2 size-4" />
+                Sign in
+              </>
+            )}
+          </Button>
+        </section>
+      )}
     </div>
   );
 };
 
-const SettingsPage = () => {
-  return (
-    <Suspense fallback={null}>
-      <SettingsPageContent />
-    </Suspense>
-  );
-};
-
-export default SettingsPage;
+export default SettingsPageContent;

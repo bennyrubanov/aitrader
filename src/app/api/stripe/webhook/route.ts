@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { createAdminClient } from "@/utils/supabase/admin";
+import type { SubscriptionTier } from "@/lib/auth-state";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,7 +21,6 @@ type EntitlementContext = {
 };
 
 const isPremiumSubscriptionStatus = (status: Stripe.Subscription.Status) => {
-  // Strict entitlement: only active/trialing users are premium.
   return status === "active" || status === "trialing";
 };
 
@@ -38,10 +38,41 @@ const isStaleEvent = (incomingEventCreatedIso: string, previousEventCreatedIso: 
   return incomingTs < previousTs;
 };
 
-const applyPremiumByUserId = async (
+const resolveTierFromSubscription = async (
+  stripe: Stripe,
+  subscription: Stripe.Subscription
+): Promise<SubscriptionTier> => {
+  // First check subscription metadata (set at checkout time)
+  const metaTier = subscription.metadata?.tier as SubscriptionTier | undefined;
+  if (metaTier === "supporter" || metaTier === "outperformer") {
+    return metaTier;
+  }
+
+  // Fallback: look up product metadata for the first price item
+  try {
+    const priceId = subscription.items.data[0]?.price?.id;
+    if (!priceId) return "outperformer";
+
+    const price = await stripe.prices.retrieve(priceId, { expand: ["product"] });
+    const product = price.product as Stripe.Product | null;
+    if (!product || "deleted" in product) return "outperformer";
+
+    const productTier = product.metadata?.tier as SubscriptionTier | undefined;
+    if (productTier === "supporter" || productTier === "outperformer") {
+      return productTier;
+    }
+  } catch {
+    // ignore lookup failures
+  }
+
+  // Final fallback: existing outperformer subscriptions
+  return "outperformer";
+};
+
+const applyTierByUserId = async (
   userId: string,
   email: string | null,
-  isPremium: boolean,
+  tier: SubscriptionTier,
   context: EntitlementContext
 ) => {
   const supabase = createAdminClient();
@@ -63,7 +94,7 @@ const applyPremiumByUserId = async (
     {
       id: userId,
       ...(email ? { email } : {}),
-      is_premium: isPremium,
+      subscription_tier: tier,
       stripe_last_event_id: context.eventId,
       stripe_last_event_created: context.eventCreatedIso,
       stripe_subscription_status: context.subscriptionStatus,
@@ -103,7 +134,7 @@ const resolveAuthUserIdByEmail = async (email: string) => {
   return null;
 };
 
-const updatePremiumByEmail = async (email: string, isPremium: boolean, context: EntitlementContext) => {
+const updateTierByEmail = async (email: string, tier: SubscriptionTier, context: EntitlementContext) => {
   const supabase = createAdminClient();
   const normalizedEmail = email.trim().toLowerCase();
   const { data, error } = await supabase
@@ -117,19 +148,19 @@ const updatePremiumByEmail = async (email: string, isPremium: boolean, context: 
   }
 
   if (data?.id) {
-    await applyPremiumByUserId(data.id, normalizedEmail, isPremium, context);
+    await applyTierByUserId(data.id, normalizedEmail, tier, context);
     return;
   }
 
   const userId = await resolveAuthUserIdByEmail(normalizedEmail);
   if (userId) {
-    await applyPremiumByUserId(userId, normalizedEmail, isPremium, context);
+    await applyTierByUserId(userId, normalizedEmail, tier, context);
     return;
   }
 
   console.warn("Stripe webhook: could not map email to auth user", {
     email: normalizedEmail,
-    isPremium,
+    tier,
     eventId: context.eventId,
   });
 };
@@ -240,18 +271,19 @@ export async function POST(req: Request) {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
         const userId = session.metadata?.user_id || session.client_reference_id || null;
+        const sessionTier = (session.metadata?.tier as SubscriptionTier | undefined) ?? "outperformer";
         const context: EntitlementContext = {
           eventId: event.id,
           eventCreatedIso,
           subscriptionStatus: "active",
         };
         if (userId) {
-          await applyPremiumByUserId(userId, null, true, context);
+          await applyTierByUserId(userId, null, sessionTier, context);
           break;
         }
         const email = session.customer_details?.email || session.customer_email || null;
         if (email) {
-          await updatePremiumByEmail(email, true, context);
+          await updateTierByEmail(email, sessionTier, context);
         }
         break;
       }
@@ -274,14 +306,15 @@ export async function POST(req: Request) {
           eventCreatedIso,
           subscriptionStatus: subscription?.status ?? "active",
         };
+        const tier = subscription ? await resolveTierFromSubscription(stripe, subscription) : "outperformer";
         const userId = subscription?.metadata?.user_id || null;
         if (userId) {
-          await applyPremiumByUserId(userId, null, true, context);
+          await applyTierByUserId(userId, null, tier, context);
           break;
         }
         const email = await resolveCustomerEmail(stripe, invoice.customer);
         if (email) {
-          await updatePremiumByEmail(email, true, context);
+          await updateTierByEmail(email, tier, context);
         }
         break;
       }
@@ -303,12 +336,12 @@ export async function POST(req: Request) {
         };
         const userId = subscription?.metadata?.user_id || null;
         if (userId) {
-          await applyPremiumByUserId(userId, null, false, context);
+          await applyTierByUserId(userId, null, "free", context);
           break;
         }
         const email = await resolveCustomerEmail(stripe, invoice.customer);
         if (email) {
-          await updatePremiumByEmail(email, false, context);
+          await updateTierByEmail(email, "free", context);
         }
         break;
       }
@@ -321,31 +354,32 @@ export async function POST(req: Request) {
         };
         const userId = subscription.metadata?.user_id || null;
         if (userId) {
-          await applyPremiumByUserId(userId, null, false, context);
+          await applyTierByUserId(userId, null, "free", context);
           break;
         }
         const email = await resolveCustomerEmail(stripe, subscription.customer);
         if (email) {
-          await updatePremiumByEmail(email, false, context);
+          await updateTierByEmail(email, "free", context);
         }
         break;
       }
       case "customer.subscription.updated": {
         const subscription = event.data.object as Stripe.Subscription;
-        const isPremium = isPremiumSubscriptionStatus(subscription.status);
+        const isActive = isPremiumSubscriptionStatus(subscription.status);
         const context: EntitlementContext = {
           eventId: event.id,
           eventCreatedIso,
           subscriptionStatus: subscription.status,
         };
+        const tier = isActive ? await resolveTierFromSubscription(stripe, subscription) : "free";
         const userId = subscription.metadata?.user_id || null;
         if (userId) {
-          await applyPremiumByUserId(userId, null, isPremium, context);
+          await applyTierByUserId(userId, null, tier, context);
           break;
         }
         const email = await resolveCustomerEmail(stripe, subscription.customer);
         if (email) {
-          await updatePremiumByEmail(email, isPremium, context);
+          await updateTierByEmail(email, tier, context);
         }
         break;
       }

@@ -1,5 +1,4 @@
 import { unstable_cache } from 'next/cache';
-import { allStocks } from '@/lib/stockData';
 import { createPublicClient } from '@/utils/supabase/public';
 
 export type RecommendationBucket = 'buy' | 'hold' | 'sell' | null;
@@ -89,18 +88,7 @@ const getDailyRecommendationsDataCached = unstable_cache(
 
       return { rows, errorMessage: null };
     } catch {
-      return {
-        rows: allStocks.map((stock) => ({
-          symbol: stock.symbol,
-          name: stock.name,
-          score: null,
-          latentRank: null,
-          confidence: null,
-          bucket: null,
-          updatedAt: null,
-        })),
-        errorMessage: null,
-      };
+      return { rows: [], errorMessage: null };
     }
   },
   ['platform-daily-recommendations'],
@@ -217,19 +205,7 @@ const getWeeklyRecommendationsDataCached = unstable_cache(
         errorMessage: null,
       };
     } catch {
-      return {
-        rows: allStocks.map((stock) => ({
-          stockId: stock.symbol,
-          symbol: stock.symbol,
-          name: stock.name,
-          score: null,
-          latentRank: null,
-          isTop20: false,
-          runDate: null,
-        })),
-        indexExitActions: [],
-        errorMessage: null,
-      };
+      return { rows: [], indexExitActions: [], errorMessage: null };
     }
   },
   ['platform-weekly-recommendations'],

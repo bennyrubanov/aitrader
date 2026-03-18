@@ -1,6 +1,8 @@
 -- Clean slate notes
 -- For a fresh experiment reset that preserves user/account data,
 -- run supabase/reset.sql first, then run this file.
+-- For incremental changes to an existing DB, run the files in supabase/migrations/ instead.
+
 -- drop view if exists public.nasdaq100_scores_7d_view cascade;
 -- drop view if exists public.nasdaq100_current_members cascade;
 -- drop view if exists public.nasdaq100_latest_snapshot cascade;
@@ -56,12 +58,15 @@ create table if not exists public.user_profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   email text,
   full_name text,
-  is_premium boolean not null default false,
+  subscription_tier text not null default 'free',
   stripe_last_event_id text,
   stripe_last_event_created timestamptz,
   stripe_subscription_status text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
+  constraint user_profiles_subscription_tier_valid check (
+    subscription_tier in ('free', 'supporter', 'outperformer')
+  ),
   constraint user_profiles_stripe_subscription_status_valid check (
     stripe_subscription_status is null
     or stripe_subscription_status in (
@@ -197,6 +202,7 @@ create table if not exists public.stocks (
   symbol text not null unique,
   company_name text,
   exchange text,
+  is_premium_stock boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

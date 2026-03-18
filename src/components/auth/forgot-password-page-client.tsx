@@ -1,12 +1,13 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AuthPreviewPlaceholder } from "@/components/auth/auth-preview-placeholder";
+import { consumeAuthPrefillEmail } from "@/lib/auth-storage";
 
 const sanitizeNextPath = (value: string | null, fallback: string) => {
   if (!value || !value.startsWith("/")) {
@@ -17,9 +18,8 @@ const sanitizeNextPath = (value: string | null, fallback: string) => {
 
 export function ForgotPasswordPageClient() {
   const searchParams = useSearchParams();
-  const presetEmail = searchParams.get("email") ?? "";
   const reason = searchParams.get("reason");
-  const [email, setEmail] = useState(presetEmail);
+  const [email, setEmail] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -27,6 +27,13 @@ export function ForgotPasswordPageClient() {
     () => sanitizeNextPath(searchParams.get("next"), "/platform/current"),
     [searchParams]
   );
+
+  useEffect(() => {
+    const prefilledEmail = consumeAuthPrefillEmail();
+    if (prefilledEmail) {
+      setEmail(prefilledEmail);
+    }
+  }, []);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

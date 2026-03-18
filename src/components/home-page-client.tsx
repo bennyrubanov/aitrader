@@ -3,6 +3,7 @@
 import React, { useRef } from 'react';
 import Navbar from '@/components/Navbar';
 import Hero from '@/components/Hero';
+import ExperimentSection from '@/components/ExperimentSection';
 import Features from '@/components/Features';
 import ResearchSection from '@/components/ResearchSection';
 import CTA from '@/components/CTA';
@@ -25,10 +26,11 @@ const HomePageClient = () => {
       <Navbar />
       <main>
         <Hero />
-        <Features />
+        <ExperimentSection />
         <ResearchSection parentDivRef={parentDivRef} />
-        <CTA />
+        <Features />
         <NewsletterLink onClick={handleOpenNewsletterPopup} />
+        <CTA />
       </main>
       <Footer />
       <NewsletterPopup ref={newsletterPopupRef} />

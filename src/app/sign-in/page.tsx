@@ -9,9 +9,11 @@ import { Input } from "@/components/ui/input";
 import { getSupabaseBrowserClient } from "@/utils/supabase/browser";
 import { AuthPreviewPlaceholder } from "@/components/auth/auth-preview-placeholder";
 import {
+  consumeAuthPrefillEmail,
   EMAIL_PASSWORD_SIGN_IN_METHOD,
   GOOGLE_SIGN_IN_METHOD,
   getLastSignInMethod,
+  rememberAuthPrefillEmail,
   rememberSignInMethod,
 } from "@/lib/auth-storage";
 
@@ -68,22 +70,11 @@ function SignInPageContent() {
   }, [nextPath, router]);
 
   useEffect(() => {
-    const prefilledEmail = searchParams.get("email");
+    const prefilledEmail = consumeAuthPrefillEmail();
     if (prefilledEmail) {
       setEmail(prefilledEmail);
     }
-
-    const shouldPrefillPassword = searchParams.get("prefillPassword") === "1";
-    if (!shouldPrefillPassword || typeof window === "undefined") {
-      return;
-    }
-
-    const prefilledPassword = window.sessionStorage.getItem("aitrader.auth.prefill.password");
-    if (prefilledPassword) {
-      setPassword(prefilledPassword);
-    }
-    window.sessionStorage.removeItem("aitrader.auth.prefill.password");
-  }, [searchParams]);
+  }, []);
 
   const handleGoogleAuth = async () => {
     if (oauthInFlightRef.current) {
@@ -273,7 +264,8 @@ function SignInPageContent() {
                         for the same account.
                       </p>
                       <Link
-                        href={`/forgot-password?email=${encodeURIComponent(passwordSetupEmail)}&next=${encodeURIComponent(nextPath)}&reason=create-password`}
+                        href={`/forgot-password?next=${encodeURIComponent(nextPath)}&reason=create-password`}
+                        onClick={() => rememberAuthPrefillEmail(passwordSetupEmail)}
                         className="mt-2 inline-block font-medium text-foreground underline underline-offset-4"
                       >
                         Reset password

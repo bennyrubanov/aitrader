@@ -1,24 +1,34 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { searchStocks } from "@/lib/stockData";
+import type { Stock } from "@/types/stock";
 
 export function MiniStockSearch() {
   const [query, setQuery] = useState("");
   const [isFocused, setIsFocused] = useState(false);
+  const [stocks, setStocks] = useState<Stock[]>([]);
+
+  useEffect(() => {
+    fetch("/api/stocks")
+      .then((res) => res.json())
+      .then((data: Stock[]) => {
+        if (Array.isArray(data)) setStocks(data);
+      })
+      .catch(() => {});
+  }, []);
 
   const results = useMemo(() => {
-    if (query.trim().length < 2) {
-      return [];
-    }
-    return searchStocks(query).slice(0, 6);
-  }, [query]);
+    if (query.trim().length < 2) return [];
+    const q = query.toLowerCase().trim();
+    return stocks
+      .filter((s) => s.symbol.toLowerCase().includes(q) || s.name.toLowerCase().includes(q))
+      .slice(0, 6);
+  }, [query, stocks]);
 
   const openStock = (symbol: string) => {
-    const url = `/stocks/${symbol.toLowerCase()}`;
-    window.open(url, "_blank", "noopener,noreferrer");
+    window.open(`/stocks/${symbol.toLowerCase()}`, "_blank", "noopener,noreferrer");
   };
 
   return (
@@ -29,9 +39,7 @@ export function MiniStockSearch() {
         onChange={(event) => setQuery(event.target.value)}
         onFocus={() => setIsFocused(true)}
         onBlur={() => {
-          window.setTimeout(() => {
-            setIsFocused(false);
-          }, 120);
+          window.setTimeout(() => setIsFocused(false), 120);
         }}
         placeholder="Quick stock search"
         className="h-8 pl-9"

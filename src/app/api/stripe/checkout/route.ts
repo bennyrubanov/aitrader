@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createClient as createServerClient } from '@/utils/supabase/server';
+import type { SubscriptionTier } from '@/lib/auth-state';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -8,6 +9,8 @@ export const dynamic = 'force-dynamic';
 type CheckoutRequestBody = {
   email?: string;
   successPath?: string;
+  plan?: 'supporter' | 'outperformer';
+  billingPeriod?: 'monthly' | 'yearly';
 };
 
 const getStripeClient = () => {
@@ -18,14 +21,34 @@ const getStripeClient = () => {
   return new Stripe(secretKey);
 };
 
-const resolveCheckoutPriceId = async (stripe: Stripe) => {
+const resolveCheckoutPriceId = async (
+  stripe: Stripe,
+  plan: 'supporter' | 'outperformer',
+  billingPeriod: 'monthly' | 'yearly'
+): Promise<string> => {
+  // Check dedicated env vars first
+  if (plan === 'supporter') {
+    const priceId =
+      billingPeriod === 'yearly'
+        ? process.env.STRIPE_SUPPORTER_YEARLY_PRICE_ID
+        : process.env.STRIPE_SUPPORTER_MONTHLY_PRICE_ID;
+    if (priceId) return priceId;
+  } else {
+    const priceId =
+      billingPeriod === 'yearly'
+        ? process.env.STRIPE_OUTPERFORMER_YEARLY_PRICE_ID
+        : process.env.STRIPE_OUTPERFORMER_MONTHLY_PRICE_ID;
+    if (priceId) return priceId;
+  }
+
+  // Legacy fallback: STRIPE_PRICE_ID or STRIPE_PRODUCT_ID
   if (process.env.STRIPE_PRICE_ID) {
     return process.env.STRIPE_PRICE_ID;
   }
 
   const productId = process.env.STRIPE_PRODUCT_ID;
   if (!productId) {
-    throw new Error('Missing STRIPE_PRICE_ID or STRIPE_PRODUCT_ID');
+    throw new Error('Missing Stripe price configuration. Set STRIPE_SUPPORTER_MONTHLY_PRICE_ID, STRIPE_OUTPERFORMER_MONTHLY_PRICE_ID etc.');
   }
 
   const prices = await stripe.prices.list({
@@ -85,6 +108,8 @@ export async function POST(req: Request) {
     const body = (await req.json().catch(() => ({}))) as CheckoutRequestBody;
     const requestedEmail = normalizeEmail(body.email);
     const successPath = sanitizeSuccessPath(body.successPath);
+    const plan = body.plan === 'supporter' ? 'supporter' : 'outperformer';
+    const billingPeriod = body.billingPeriod === 'yearly' ? 'yearly' : 'monthly';
 
     const supabase = await createServerClient();
     const {
@@ -122,22 +147,26 @@ export async function POST(req: Request) {
     }
 
     const stripe = getStripeClient();
-    const priceId = await resolveCheckoutPriceId(stripe);
+    const priceId = await resolveCheckoutPriceId(stripe, plan, billingPeriod);
     const siteUrl = getSiteUrl(req);
 
     const successUrl = new URL(successPath, siteUrl);
     successUrl.searchParams.set('subscription', 'success');
     successUrl.searchParams.set('checkout_email', checkoutEmail);
 
-    const cancelUrl = new URL('/sign-up', siteUrl);
+    const cancelUrl = new URL('/pricing', siteUrl);
     cancelUrl.searchParams.set('subscription', 'cancelled');
+
+    const tier: SubscriptionTier = plan;
 
     const metadata: Record<string, string> = {
       checkout_email: checkoutEmail,
+      tier,
     };
 
     const subscriptionMetadata: Record<string, string> = {
       checkout_email: checkoutEmail,
+      tier,
     };
 
     if (user?.id) {

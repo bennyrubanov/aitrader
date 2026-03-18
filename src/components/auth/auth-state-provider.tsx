@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
-import { DEFAULT_AUTH_STATE, type AuthState } from "@/lib/auth-state";
+import { DEFAULT_AUTH_STATE, type AuthState, type SubscriptionTier } from "@/lib/auth-state";
 import { AuthStateContext } from "@/components/auth/auth-state-context";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/utils/supabase/browser";
-const AUTH_SNAPSHOT_KEY = "aitrader.auth.snapshot.v1";
+const AUTH_SNAPSHOT_KEY = "aitrader.auth.snapshot.v2";
 
 type AuthStateProviderProps = {
   children: React.ReactNode;
@@ -23,10 +23,11 @@ const hydrateUserState = async (user: User): Promise<AuthState> => {
 
   const { data, error } = await supabase
     .from("user_profiles")
-    .select("is_premium, full_name, email")
+    .select("subscription_tier, full_name, email")
     .eq("id", user.id)
     .maybeSingle();
 
+  const tier = (!error && (data?.subscription_tier as SubscriptionTier | undefined)) || 'free';
   return {
     isLoaded: true,
     isAuthenticated: true,
@@ -34,7 +35,8 @@ const hydrateUserState = async (user: User): Promise<AuthState> => {
     email: data?.email ?? user.email ?? "Signed in",
     name: data?.full_name ?? user.user_metadata?.full_name ?? user.user_metadata?.name ?? "Account",
     avatar: user.user_metadata?.avatar_url ?? user.user_metadata?.picture ?? "",
-    hasPremiumAccess: !error && Boolean(data?.is_premium),
+    subscriptionTier: tier,
+    hasPremiumAccess: tier === 'supporter' || tier === 'outperformer',
   };
 };
 
@@ -59,6 +61,7 @@ export function AuthStateProvider({ children, initialState }: AuthStateProviderP
       }
 
       // Use the local snapshot for instant visual continuity, then refresh from Supabase.
+      const tier = (parsed.subscriptionTier ?? 'free') as SubscriptionTier;
       return {
         ...fallbackState,
         isLoaded: true,
@@ -67,6 +70,7 @@ export function AuthStateProvider({ children, initialState }: AuthStateProviderP
         email: parsed.email ?? fallbackState.email,
         name: parsed.name ?? fallbackState.name,
         avatar: parsed.avatar ?? fallbackState.avatar,
+        subscriptionTier: tier,
         hasPremiumAccess: Boolean(parsed.hasPremiumAccess),
       };
     } catch {

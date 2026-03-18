@@ -39,6 +39,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetClose, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { getSupabaseBrowserClient } from "@/utils/supabase/browser";
 import { useAuthState } from "@/components/auth/auth-state-context";
 import { PlanLabel } from "@/components/account/plan-label";
@@ -104,7 +105,7 @@ const Navbar: React.FC = () => {
   const isAuthenticated = authState.isAuthenticated;
   const hasPremiumAccess = authState.hasPremiumAccess;
   const isFreeSignedIn = isAuthenticated && !hasPremiumAccess;
-  const primaryCtaHref = hasPremiumAccess ? "/platform/current" : isFreeSignedIn ? "/pricing" : "/sign-up";
+  const primaryCtaHref = isAuthenticated ? "/platform/current" : "/sign-up";
   const isAuthLoading = !authState.isLoaded;
   const account = {
     name: authState.name,
@@ -534,7 +535,7 @@ const Navbar: React.FC = () => {
             >
               <Button className="rounded-full bg-trader-blue px-5 text-white transition-all duration-300 hover:bg-trader-blue-dark">
                 <span className="mr-2">
-                  {hasPremiumAccess ? "Platform" : isFreeSignedIn ? "Upgrade" : "Get Started"}
+                  {isAuthenticated ? "Platform" : "Get Started"}
                 </span>
                 <ArrowRight size={16} />
               </Button>
@@ -553,88 +554,94 @@ const Navbar: React.FC = () => {
               <SheetContent side="right" className="w-[88vw] max-w-sm pr-4">
                 <SheetTitle className="sr-only">Main menu</SheetTitle>
                 <div className="mt-6 flex h-full flex-col">
-                  <div className="space-y-5">
-                    <div>
-                      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <Accordion type="multiple" defaultValue={["platform"]} className="w-full">
+                    <AccordionItem value="platform">
+                      <AccordionTrigger className="py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:no-underline">
                         Platform
-                      </h3>
-                      <div className="space-y-1">
-                        {platformNavItems.map((item: NavItem) => (
-                          <SheetClose asChild key={item.href}>
-                            <Link
-                              href={item.href}
-                              prefetch
-                              onMouseEnter={() => handlePrefetch(item.href)}
-                              onFocus={() => handlePrefetch(item.href)}
-                              onPointerDown={() => handlePrefetch(item.href)}
-                              className={`flex items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors hover:bg-muted ${
-                                isActive(item.href)
-                                  ? "text-foreground"
-                                  : "text-muted-foreground hover:text-foreground"
-                              }`}
-                            >
-                              <item.icon size={14} />
-                              {item.label}
-                            </Link>
-                          </SheetClose>
-                        ))}
-                      </div>
-                    </div>
+                      </AccordionTrigger>
+                      <AccordionContent className="pb-1">
+                        <div className="space-y-1">
+                          {platformNavItems.map((item: NavItem) => (
+                            <SheetClose asChild key={item.href}>
+                              <Link
+                                href={item.href}
+                                prefetch
+                                onMouseEnter={() => handlePrefetch(item.href)}
+                                onFocus={() => handlePrefetch(item.href)}
+                                onPointerDown={() => handlePrefetch(item.href)}
+                                className={`flex items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors hover:bg-muted ${
+                                  isActive(item.href)
+                                    ? "text-foreground"
+                                    : "text-muted-foreground hover:text-foreground"
+                                }`}
+                              >
+                                <item.icon size={14} />
+                                {item.label}
+                              </Link>
+                            </SheetClose>
+                          ))}
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
 
-                    <div>
-                      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    <AccordionItem value="resources">
+                      <AccordionTrigger className="py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:no-underline">
                         Resources
-                      </h3>
-                      <div className="space-y-1">
-                        {resourcesNavItems.map((item: NavItem) => (
-                          <SheetClose asChild key={item.href}>
-                            <Link
-                              href={item.href}
-                              prefetch
-                              onMouseEnter={() => handlePrefetch(item.href)}
-                              onFocus={() => handlePrefetch(item.href)}
-                              onPointerDown={() => handlePrefetch(item.href)}
-                              className={`flex items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors hover:bg-muted ${
-                                isActive(item.href)
-                                  ? "text-foreground"
-                                  : "text-muted-foreground hover:text-foreground"
-                              }`}
-                            >
-                              <item.icon size={14} />
-                              {item.label}
-                            </Link>
-                          </SheetClose>
-                        ))}
-                      </div>
-                    </div>
+                      </AccordionTrigger>
+                      <AccordionContent className="pb-1">
+                        <div className="space-y-1">
+                          {resourcesNavItems.map((item: NavItem) => (
+                            <SheetClose asChild key={item.href}>
+                              <Link
+                                href={item.href}
+                                prefetch
+                                onMouseEnter={() => handlePrefetch(item.href)}
+                                onFocus={() => handlePrefetch(item.href)}
+                                onPointerDown={() => handlePrefetch(item.href)}
+                                className={`flex items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors hover:bg-muted ${
+                                  isActive(item.href)
+                                    ? "text-foreground"
+                                    : "text-muted-foreground hover:text-foreground"
+                                }`}
+                              >
+                                <item.icon size={14} />
+                                {item.label}
+                              </Link>
+                            </SheetClose>
+                          ))}
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
 
-                    <div>
-                      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    <AccordionItem value="company">
+                      <AccordionTrigger className="py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:no-underline">
                         Company
-                      </h3>
-                      <div className="space-y-1">
-                        {companyNavItems.map((item: NavItem) => (
-                          <SheetClose asChild key={item.href}>
-                            <Link
-                              href={item.href}
-                              prefetch
-                              onMouseEnter={() => handlePrefetch(item.href)}
-                              onFocus={() => handlePrefetch(item.href)}
-                              onPointerDown={() => handlePrefetch(item.href)}
-                              className={`flex items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors hover:bg-muted ${
-                                isActive(item.href)
-                                  ? "text-foreground"
-                                  : "text-muted-foreground hover:text-foreground"
-                              }`}
-                            >
-                              <item.icon size={14} />
-                              {item.label}
-                            </Link>
-                          </SheetClose>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
+                      </AccordionTrigger>
+                      <AccordionContent className="pb-1">
+                        <div className="space-y-1">
+                          {companyNavItems.map((item: NavItem) => (
+                            <SheetClose asChild key={item.href}>
+                              <Link
+                                href={item.href}
+                                prefetch
+                                onMouseEnter={() => handlePrefetch(item.href)}
+                                onFocus={() => handlePrefetch(item.href)}
+                                onPointerDown={() => handlePrefetch(item.href)}
+                                className={`flex items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors hover:bg-muted ${
+                                  isActive(item.href)
+                                    ? "text-foreground"
+                                    : "text-muted-foreground hover:text-foreground"
+                                }`}
+                              >
+                                <item.icon size={14} />
+                                {item.label}
+                              </Link>
+                            </SheetClose>
+                          ))}
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  </Accordion>
 
                   <div className="mt-auto space-y-2 pt-6">
                     {!isAuthenticated && (
@@ -663,7 +670,7 @@ const Navbar: React.FC = () => {
                       >
                         <Button className="w-full rounded-full bg-trader-blue text-white transition-all duration-300 hover:bg-trader-blue-dark">
                           <span className="mr-2">
-                            {hasPremiumAccess ? "Platform" : isFreeSignedIn ? "Upgrade" : "Get Started"}
+                            {isAuthenticated ? "Platform" : "Get Started"}
                           </span>
                           <ArrowRight size={16} />
                         </Button>

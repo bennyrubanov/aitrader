@@ -1,3 +1,5 @@
+export type SubscriptionTier = 'free' | 'supporter' | 'outperformer';
+
 export type AuthState = {
   isLoaded: boolean;
   isAuthenticated: boolean;
@@ -5,6 +7,7 @@ export type AuthState = {
   email: string;
   name: string;
   avatar: string;
+  subscriptionTier: SubscriptionTier;
   hasPremiumAccess: boolean;
 };
 
@@ -15,6 +18,7 @@ export const DEFAULT_AUTH_STATE: AuthState = {
   email: "Sign in to access account",
   name: "Guest",
   avatar: "",
+  subscriptionTier: 'free',
   hasPremiumAccess: false,
 };
 
