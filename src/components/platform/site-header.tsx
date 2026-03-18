@@ -73,10 +73,10 @@ export function SiteHeader() {
           onMouseEnter={() => router.prefetch('/')}
           onFocus={() => router.prefetch('/')}
           onPointerDown={() => router.prefetch('/')}
-          className="inline-flex items-center gap-2 rounded-md px-1 py-1 text-sm font-medium hover:bg-muted"
+          className="inline-flex items-center rounded-md p-1 hover:bg-muted"
+          aria-label="Go to home"
         >
-          <Image src="/favicon.ico" alt="AITrader home" width={20} height={20} />
-          <span className="hidden sm:inline">AITrader</span>
+          <Image src="/favicon.ico" alt="AITrader home" width={24} height={24} />
         </Link>
 
         <Separator orientation="vertical" className="h-5" />

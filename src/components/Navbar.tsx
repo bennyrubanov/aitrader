@@ -41,6 +41,7 @@ import {
 import { Sheet, SheetClose, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { getSupabaseBrowserClient } from "@/utils/supabase/browser";
 import { useAuthState } from "@/components/auth/auth-state-provider";
+import { PlanLabel } from "@/components/account/plan-label";
 
 const platformNavItems = [
   { label: "Experiment & Research", href: "/experiment-research", icon: FlaskConical },
@@ -234,6 +235,12 @@ const Navbar: React.FC = () => {
             </div>
           </div>
         </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup>
+          <DropdownMenuItem onSelect={() => router.push("/platform/settings")} className="gap-2">
+            <PlanLabel isPremium={hasPremiumAccess} className="text-trader-blue font-medium" />
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
           <DropdownMenuItem onSelect={() => router.push("/platform/settings#account")} className="gap-2">

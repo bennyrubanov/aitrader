@@ -8,7 +8,6 @@ import {
   CreditCard,
   LogIn,
   LogOut,
-  Sparkles,
 } from "lucide-react";
 import {
   Avatar,
@@ -30,6 +29,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { PlanLabel } from "@/components/account/plan-label";
 
 type NavUserProps = {
   user: {
@@ -131,10 +131,7 @@ export function NavUser({
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
               <DropdownMenuItem onSelect={onUpgrade} className="gap-2">
-                <Sparkles className="size-4 text-trader-blue" />
-                <span className="text-trader-blue font-medium">
-                  {user.isPremium ? "Outperformer" : "Free version"}
-                </span>
+                <PlanLabel isPremium={user.isPremium} className="text-trader-blue font-medium" />
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />

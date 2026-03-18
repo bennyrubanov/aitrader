@@ -19,6 +19,7 @@ import { NavUser } from '@/components/platform/nav-user';
 import { getSupabaseBrowserClient } from '@/utils/supabase/browser';
 import { toast } from '@/hooks/use-toast';
 import { useAuthState } from '@/components/auth/auth-state-provider';
+import { PlanLabel } from '@/components/account/plan-label';
 
 type NavItem = {
   title: string;
@@ -184,16 +185,15 @@ export function AppSidebar() {
             <SidebarMenuButton size="lg" asChild>
               <button type="button" onClick={() => openPath('/platform/settings')}>
                 <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-medium">AITrader</span>
-                  <span
-                    className={`truncate text-xs ${
+                  <PlanLabel
+                    isPremium={account.isPremium}
+                    className={`truncate text-xs uppercase tracking-[0.18em] ${
                       account.isPremium
-                        ? '-skew-x-12 text-trader-blue font-semibold uppercase tracking-[0.18em]'
-                        : 'text-sidebar-foreground/70 uppercase tracking-[0.18em]'
+                        ? '-skew-x-12 text-trader-blue font-semibold'
+                        : 'text-sidebar-foreground/70'
                     }`}
-                  >
-                    {account.isPremium ? 'Outperformer' : 'Free version'}
-                  </span>
+                    iconClassName="size-3.5"
+                  />
                 </div>
               </button>
             </SidebarMenuButton>
