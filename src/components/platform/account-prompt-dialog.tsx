@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/utils/supabase/browser";
 
 const PROMPT_DISMISS_KEY = "platform-account-prompt-dismissed-at";
+const ACCOUNT_SEEN_KEY = "platform-account-seen-on-device";
 const PROMPT_HIDE_MS = 24 * 60 * 60 * 1000;
 
 const hasDismissedRecently = () => {
@@ -42,11 +43,26 @@ const dismissPrompt = () => {
   window.localStorage.setItem(PROMPT_DISMISS_KEY, Date.now().toString());
 };
 
+const hasSeenAccountOnDevice = () => {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  return window.localStorage.getItem(ACCOUNT_SEEN_KEY) === "1";
+};
+
+const markAccountSeenOnDevice = () => {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.localStorage.setItem(ACCOUNT_SEEN_KEY, "1");
+};
+
 export function AccountPromptDialog() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [nextPath, setNextPath] = useState(pathname);
+  const [hasSeenAccount, setHasSeenAccount] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -55,6 +71,7 @@ export function AccountPromptDialog() {
     const run = async () => {
       const currentPath = `${pathname}${window.location.search || ""}`;
       setNextPath(currentPath);
+      setHasSeenAccount(hasSeenAccountOnDevice());
 
       if (!isSupabaseConfigured()) {
         if (isMounted) {
@@ -79,11 +96,18 @@ export function AccountPromptDialog() {
         return;
       }
 
+      if (user) {
+        markAccountSeenOnDevice();
+        setHasSeenAccount(true);
+      }
+
       const shouldOpen = !user && !hasDismissedRecently();
       setOpen(shouldOpen);
 
       const { data } = supabase.auth.onAuthStateChange((_event, session) => {
         if (session?.user) {
+          markAccountSeenOnDevice();
+          setHasSeenAccount(true);
           setOpen(false);
         }
       });
@@ -132,6 +156,16 @@ export function AccountPromptDialog() {
     await startGoogleAuth();
   };
 
+  const dialogTitle = hasSeenAccount
+    ? "Welcome back - sign in to unlock premium details"
+    : "Create your account to unlock premium details";
+  const dialogDescription = hasSeenAccount
+    ? "Sign in with your account to sync premium access, save your settings, and manage billing."
+    : "You can explore the platform now. Create an account with the same checkout email to sync premium access, save your settings, and manage billing.";
+  const primaryButtonLabel = hasSeenAccount ? "Sign in with Google" : "Create account with Google";
+  const secondaryPrompt = hasSeenAccount ? "Need a new account?" : "Already have an account?";
+  const secondaryActionLabel = hasSeenAccount ? "Create account" : "Sign back in";
+
   return (
     <Dialog
       open={open}
@@ -146,12 +180,9 @@ export function AccountPromptDialog() {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="size-4 text-trader-blue" />
-            Create your account to unlock premium details
+            {dialogTitle}
           </DialogTitle>
-          <DialogDescription>
-            You can explore the platform now. Create an account with the same checkout email to
-            sync premium access, save your settings, and manage billing.
-          </DialogDescription>
+          <DialogDescription>{dialogDescription}</DialogDescription>
         </DialogHeader>
         <DialogFooter className="flex-col gap-3 sm:flex-col sm:gap-3">
           <Button
@@ -165,21 +196,21 @@ export function AccountPromptDialog() {
                 Redirecting...
               </>
             ) : (
-              "Create account with Google"
+              primaryButtonLabel
             )}
           </Button>
           <Button variant="outline" onClick={handleContinueAsGuest} className="w-full">
             Continue as guest
           </Button>
           <div className="pt-1 text-center text-sm text-muted-foreground">
-            Already have an account?{" "}
+            {secondaryPrompt}{" "}
             <button
               type="button"
               onClick={handleSignBackIn}
               disabled={isConnecting}
               className="font-medium text-foreground underline-offset-4 transition-colors hover:underline disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Sign back in
+              {secondaryActionLabel}
             </button>
           </div>
         </DialogFooter>

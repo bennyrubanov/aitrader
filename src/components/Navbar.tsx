@@ -2,11 +2,54 @@
 
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Loader2, LogIn } from "lucide-react";
+import {
+  ArrowRight,
+  ChevronDown,
+  CircleHelp,
+  FlaskConical,
+  Gauge,
+  Loader2,
+  LogIn,
+  Map,
+  Newspaper,
+  Scale,
+  ShieldCheck,
+  TriangleAlert,
+  Building2,
+  LayoutDashboard,
+  Landmark,
+  type LucideIcon,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/utils/supabase/browser";
 import { ThemeToggle } from "@/components/theme-toggle";
+
+const platformNavItems = [
+  { label: "Experiment & Research", href: "/experiment-research", icon: FlaskConical },
+  { label: "Performance", href: "/platform/performance", icon: Gauge },
+  { label: "Pricing & Features", href: "/pricing", icon: Landmark },
+  { label: "Explore Platform", href: "/platform/current", icon: LayoutDashboard },
+] as const;
+
+const resourcesNavItems = [
+  { label: "Roadmap & Changelog", href: "/roadmap-changelog", icon: Map },
+  { label: "Blog", href: "/blog", icon: Newspaper },
+  { label: "Help & Contact", href: "/contact", icon: CircleHelp },
+] as const;
+
+const companyNavItems = [
+  { label: "About", href: "/about", icon: Building2 },
+  { label: "Privacy Policy", href: "/privacy", icon: ShieldCheck },
+  { label: "Terms of Service", href: "/terms", icon: Scale },
+  { label: "Disclaimer", href: "/disclaimer", icon: TriangleAlert },
+] as const;
+
+type NavItem = {
+  label: string;
+  href: string;
+  icon: LucideIcon;
+};
 
 const Navbar: React.FC = () => {
   const [scrolled, setScrolled] = useState(false);
@@ -14,6 +57,7 @@ const Navbar: React.FC = () => {
   const [hasPremiumAccess, setHasPremiumAccess] = useState(false);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isSigningIn, setIsSigningIn] = useState(false);
+  const [openMenu, setOpenMenu] = useState<"platform" | "resources" | "company" | null>(null);
   const pathname = usePathname();
   const router = useRouter();
 
@@ -27,20 +71,24 @@ const Navbar: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    ["/", "/platform/current", "/sign-up", "/blog", "/contact", "/help", "/payment"].forEach((href) => {
+    [
+      "/",
+      "/experiment-research",
+      "/platform/performance",
+      "/platform/current",
+      "/pricing",
+      "/blog",
+      "/contact",
+      "/about",
+      "/roadmap-changelog",
+      "/privacy",
+      "/terms",
+      "/disclaimer",
+      "/sign-up",
+    ].forEach((href) => {
       router.prefetch(href);
     });
   }, [router]);
-
-  useEffect(() => {
-    const hash = window.location.hash;
-    if (hash) {
-      const element = document.getElementById(hash.substring(1));
-      if (element) {
-        element.scrollIntoView({ behavior: "smooth" });
-      }
-    }
-  }, [pathname]);
 
   useEffect(() => {
     let isMounted = true;
@@ -125,13 +173,22 @@ const Navbar: React.FC = () => {
     }
   };
 
-  const getHomeLink = (hash: string) => {
-    return pathname === "/" ? hash : `/${hash}`;
-  };
-
   const handlePrefetch = (href: string) => {
     router.prefetch(href);
   };
+
+  const isActive = (href: string) => {
+    if (href === "/") return pathname === "/";
+    return pathname === href || pathname.startsWith(`${href}/`);
+  };
+
+  const isPlatformActive =
+    pathname.startsWith("/platform") || pathname === "/experiment-research" || pathname === "/pricing";
+
+  const dropdownButtonClass = (active: boolean) =>
+    `inline-flex items-center gap-1 transition-colors ${
+      active ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+    }`;
 
   return (
     <header
@@ -155,37 +212,157 @@ const Navbar: React.FC = () => {
             </Link>
           </div>
 
-          <nav className="hidden md:flex gap-6">
-            <Link
-              href={getHomeLink("#features")}
-              prefetch
-              onMouseEnter={() => handlePrefetch(getHomeLink("#features"))}
-              onFocus={() => handlePrefetch(getHomeLink("#features"))}
-              onPointerDown={() => handlePrefetch(getHomeLink("#features"))}
-              className="text-muted-foreground hover:text-foreground transition-colors"
+          <nav className="hidden md:flex items-center gap-5">
+            <div
+              className="relative"
+              onMouseEnter={() => setOpenMenu("platform")}
+              onMouseLeave={() => setOpenMenu(null)}
             >
-              Features
-            </Link>
-            <Link
-              href={getHomeLink("#research")}
-              prefetch
-              onMouseEnter={() => handlePrefetch(getHomeLink("#research"))}
-              onFocus={() => handlePrefetch(getHomeLink("#research"))}
-              onPointerDown={() => handlePrefetch(getHomeLink("#research"))}
-              className="text-muted-foreground hover:text-foreground transition-colors"
+              <button
+                type="button"
+                className={dropdownButtonClass(isPlatformActive)}
+                aria-expanded={openMenu === "platform"}
+              >
+                Platform
+                <ChevronDown
+                  size={14}
+                  className={`transition-transform duration-200 ${
+                    openMenu === "platform" ? "rotate-180" : "rotate-0"
+                  }`}
+                />
+              </button>
+              <div
+                className={`absolute left-0 top-full z-50 w-64 pt-2 transition-all ${
+                  openMenu === "platform"
+                    ? "pointer-events-auto opacity-100"
+                    : "pointer-events-none opacity-0"
+                }`}
+              >
+                <div className="rounded-xl border border-border bg-card/95 p-2 shadow-lg backdrop-blur-sm">
+                  {platformNavItems.map((item: NavItem) => (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      prefetch
+                      onMouseEnter={() => handlePrefetch(item.href)}
+                      onFocus={() => handlePrefetch(item.href)}
+                      onPointerDown={() => handlePrefetch(item.href)}
+                      className={`block rounded-lg px-3 py-2 text-sm transition-colors hover:bg-muted ${
+                        isActive(item.href) ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <item.icon size={14} />
+                        {item.label}
+                      </span>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div
+              className="relative"
+              onMouseEnter={() => setOpenMenu("resources")}
+              onMouseLeave={() => setOpenMenu(null)}
             >
-              Research
-            </Link>
-            <Link
-              href={getHomeLink("#performance")}
-              prefetch
-              onMouseEnter={() => handlePrefetch(getHomeLink("#performance"))}
-              onFocus={() => handlePrefetch(getHomeLink("#performance"))}
-              onPointerDown={() => handlePrefetch(getHomeLink("#performance"))}
-              className="text-muted-foreground hover:text-foreground transition-colors"
+              <button
+                type="button"
+                className={dropdownButtonClass(
+                  isActive("/roadmap-changelog") || isActive("/blog") || isActive("/contact"),
+                )}
+                aria-expanded={openMenu === "resources"}
+              >
+                Resources
+                <ChevronDown
+                  size={14}
+                  className={`transition-transform duration-200 ${
+                    openMenu === "resources" ? "rotate-180" : "rotate-0"
+                  }`}
+                />
+              </button>
+              <div
+                className={`absolute left-0 top-full z-50 w-64 pt-2 transition-all ${
+                  openMenu === "resources"
+                    ? "pointer-events-auto opacity-100"
+                    : "pointer-events-none opacity-0"
+                }`}
+              >
+                <div className="rounded-xl border border-border bg-card/95 p-2 shadow-lg backdrop-blur-sm">
+                  {resourcesNavItems.map((item: NavItem) => (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      prefetch
+                      onMouseEnter={() => handlePrefetch(item.href)}
+                      onFocus={() => handlePrefetch(item.href)}
+                      onPointerDown={() => handlePrefetch(item.href)}
+                      className={`block rounded-lg px-3 py-2 text-sm transition-colors hover:bg-muted ${
+                        isActive(item.href) ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <item.icon size={14} />
+                        {item.label}
+                      </span>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div
+              className="relative"
+              onMouseEnter={() => setOpenMenu("company")}
+              onMouseLeave={() => setOpenMenu(null)}
             >
-              Performance
-            </Link>
+              <button
+                type="button"
+                className={dropdownButtonClass(
+                  isActive("/about") ||
+                    isActive("/privacy") ||
+                    isActive("/terms") ||
+                    isActive("/disclaimer"),
+                )}
+                aria-expanded={openMenu === "company"}
+              >
+                Company
+                <ChevronDown
+                  size={14}
+                  className={`transition-transform duration-200 ${
+                    openMenu === "company" ? "rotate-180" : "rotate-0"
+                  }`}
+                />
+              </button>
+              <div
+                className={`absolute left-0 top-full z-50 w-64 pt-2 transition-all ${
+                  openMenu === "company"
+                    ? "pointer-events-auto opacity-100"
+                    : "pointer-events-none opacity-0"
+                }`}
+              >
+                <div className="rounded-xl border border-border bg-card/95 p-2 shadow-lg backdrop-blur-sm">
+                  {companyNavItems.map((item: NavItem) => (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      prefetch
+                      onMouseEnter={() => handlePrefetch(item.href)}
+                      onFocus={() => handlePrefetch(item.href)}
+                      onPointerDown={() => handlePrefetch(item.href)}
+                      className={`block rounded-lg px-3 py-2 text-sm transition-colors hover:bg-muted ${
+                        isActive(item.href) ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <item.icon size={14} />
+                        {item.label}
+                      </span>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            </div>
           </nav>
 
           <div className="flex items-center gap-2">
