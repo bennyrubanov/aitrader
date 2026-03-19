@@ -1,16 +1,66 @@
-"use client";
+'use client';
 
-import React from "react";
-import { Button } from "@/components/ui/button";
-import { ArrowRight } from "lucide-react";
-import StockCard from "@/components/ui/stock-card";
-import { freeStocks, premiumStocks } from "@/lib/stockData";
-import Link from "next/link";
-import { useAuthState } from "@/components/auth/auth-state-context";
+import React, { useEffect, useMemo, useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { ArrowRight } from 'lucide-react';
+import StockCard from '@/components/ui/stock-card';
+import type { Stock } from '@/types/stock';
+import Link from 'next/link';
+
+import { useAuthState } from '@/components/auth/auth-state-context';
+
+const LANDING_SYMBOLS = ['NVDA', 'AAPL', 'META', 'TSLA'] as const;
+const FALLBACK_NAMES: Record<(typeof LANDING_SYMBOLS)[number], string> = {
+  NVDA: 'NVIDIA Corporation',
+  AAPL: 'Apple Inc.',
+  META: 'Meta Platforms, Inc.',
+  TSLA: 'Tesla, Inc.',
+};
 
 const CTA: React.FC = () => {
   const { hasPremiumAccess, isAuthenticated } = useAuthState();
-  const ctaHref = hasPremiumAccess ? "/platform/current" : isAuthenticated ? "/pricing" : "/sign-up";
+  const ctaHref = isAuthenticated ? '/platform/current' : '/sign-up';
+  const ctaLabel = 'Go to Platform';
+
+  const [stocks, setStocks] = useState<Stock[]>([]);
+
+  useEffect(() => {
+    fetch('/api/stocks')
+      .then((res) => res.json())
+      .then((data: Stock[]) => {
+        if (Array.isArray(data)) setStocks(data);
+      })
+      .catch(() => {});
+  }, []);
+
+  const stockMap = useMemo(() => {
+    const map = new Map<string, Stock>();
+    stocks.forEach((s) => map.set(s.symbol.toUpperCase(), s));
+    return map;
+  }, [stocks]);
+
+  const landingStocks = useMemo<Stock[]>(
+    () =>
+      LANDING_SYMBOLS.map((symbol) => {
+        const stock = stockMap.get(symbol);
+        return (
+          stock ?? {
+            symbol,
+            name: FALLBACK_NAMES[symbol],
+            isPremium: false,
+          }
+        );
+      }),
+    [stockMap]
+  );
+
+  const bullets = [
+    'Live portfolio updated weekly',
+    'Full history of AI decisions',
+    'Transparent performance vs benchmark',
+    'Detailed breakdowns for each stock',
+    'Nothing edited or removed after the fact',
+  ];
 
   return (
     <section className="py-20 bg-gradient-to-b from-muted/40 to-background">
@@ -18,11 +68,11 @@ const CTA: React.FC = () => {
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-12">
             <h2 className="text-3xl md:text-4xl font-bold mb-4">
-              Ready to Beat the Market With AI?
+              Let&apos;s outperform the market with AI
             </h2>
             <p className="text-xl text-muted-foreground max-w-3xl mx-auto">
-              See the AI&apos;s top-ranked stocks, follow the live portfolio, and track real
-              performance as our system aims to outperform the market — transparently.
+              Every decision, every trade, and every result — tracked in public. Follow along, or
+              support the experiment by accessing full data and insights.
             </p>
           </div>
 
@@ -30,74 +80,58 @@ const CTA: React.FC = () => {
             <div className="order-2 md:order-1">
               <div className="space-y-6">
                 <div className="bg-card p-6 rounded-xl shadow-elevated border border-border">
-                  <h3 className="text-xl font-semibold mb-4">
-                    What you&apos;ll get:
-                  </h3>
-                  
+                  <h3 className="text-xl font-semibold mb-4">What you&apos;ll see:</h3>
                   <ul className="space-y-3">
-                    <li className="flex items-start space-x-3">
-                      <div className="bg-trader-blue/10 rounded-full p-1 mt-1">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                          <path d="M20 6L9 17L4 12" stroke="#0A84FF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                      </div>
-                      <span>AI rankings on every top-100 stock, updated weekly</span>
-                    </li>
-                    <li className="flex items-start space-x-3">
-                      <div className="bg-trader-blue/10 rounded-full p-1 mt-1">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                          <path d="M20 6L9 17L4 12" stroke="#0A84FF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                      </div>
-                      <span>Recommended portfolio with rebalancing guidance</span>
-                    </li>
-                    <li className="flex items-start space-x-3">
-                      <div className="bg-trader-blue/10 rounded-full p-1 mt-1">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                          <path d="M20 6L9 17L4 12" stroke="#0A84FF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                      </div>
-                      <span>Detailed explanation and risk context for each stock</span>
-                    </li>
-                    <li className="flex items-start space-x-3">
-                      <div className="bg-trader-blue/10 rounded-full p-1 mt-1">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                          <path d="M20 6L9 17L4 12" stroke="#0A84FF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                      </div>
-                      <span>Transparent performance tracking and methodology</span>
-                    </li>
-                    <li className="flex items-start space-x-3">
-                      <div className="bg-trader-blue/10 rounded-full p-1 mt-1">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                          <path d="M20 6L9 17L4 12" stroke="#0A84FF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                      </div>
-                      <span>Early warnings on shifting market dynamics and risks</span>
-                    </li>
+                    {bullets.map((bullet) => (
+                      <li key={bullet} className="flex items-start space-x-3">
+                        <div className="bg-trader-blue/10 rounded-full p-1 mt-1 flex-shrink-0">
+                          <svg
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            xmlns="http://www.w3.org/2000/svg"
+                          >
+                            <path
+                              d="M20 6L9 17L4 12"
+                              stroke="#0A84FF"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </div>
+                        <span>{bullet}</span>
+                      </li>
+                    ))}
                   </ul>
                 </div>
               </div>
             </div>
-            
+
             <div className="order-1 md:order-2">
               <div className="grid grid-cols-2 gap-4 max-w-lg mx-auto">
-                {[...freeStocks.slice(0, 2), ...premiumStocks.slice(0, 2)].map((stock, index) => (
+                {landingStocks.map((stock, index) => (
                   <div
                     key={stock.symbol}
                     className="animate-float"
                     style={{ animationDelay: `${index * 0.2}s` }}
                   >
-                    <StockCard stock={stock} showDetails={false} hasPremiumAccess={hasPremiumAccess} />
+                    <StockCard
+                      stock={stock}
+                      showDetails={false}
+                      hasPremiumAccess={hasPremiumAccess}
+                    />
                   </div>
                 ))}
               </div>
             </div>
           </div>
+
           <div className="pt-10 flex justify-center">
             <Link href={ctaHref}>
               <Button className="px-8 py-6 text-lg rounded-xl bg-trader-blue hover:bg-trader-blue-dark text-white transition-all duration-300">
-                <span className="mr-2">{hasPremiumAccess ? "Go to Platform" : "Get Full Access"}</span>
+                <span className="mr-2">{ctaLabel}</span>
                 <ArrowRight size={18} />
               </Button>
             </Link>

@@ -1,9 +1,10 @@
 'use client';
 
+// Deprecated: replaced by the unified ratings experience at /platform/ratings.
+
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ShieldCheck, ShieldX } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -53,9 +54,7 @@ export function DailyRecommendationsClient({
 }: DailyRecommendationsClientProps) {
   const router = useRouter();
   const [query, setQuery] = useState('');
-  const { isAuthenticated, hasPremiumAccess, isLoaded } = useAuthState();
-  const [isPremium, setIsPremium] = useState(hasPremiumAccess);
-  const [isReconcilingPremium, setIsReconcilingPremium] = useState(false);
+  const { isAuthenticated } = useAuthState();
 
   const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
   const [checkoutEmail, setCheckoutEmail] = useState<string | null>(null);
@@ -65,45 +64,6 @@ export function DailyRecommendationsClient({
     setSubscriptionStatus(params.get('subscription'));
     setCheckoutEmail(params.get('checkout_email'));
   }, []);
-
-  useEffect(() => {
-    setIsPremium(hasPremiumAccess);
-  }, [hasPremiumAccess]);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const reconcilePremiumIfNeeded = async () => {
-      if (!isLoaded || !isAuthenticated || hasPremiumAccess) {
-        setIsReconcilingPremium(false);
-        return;
-      }
-
-      setIsReconcilingPremium(true);
-      try {
-        const reconcileResponse = await fetch('/api/user/reconcile-premium', {
-          method: 'POST',
-        });
-        if (!reconcileResponse.ok) {
-          return;
-        }
-        const payload = (await reconcileResponse.json()) as { isPremium?: boolean };
-        if (isMounted && payload.isPremium) {
-          setIsPremium(true);
-        }
-      } finally {
-        if (isMounted) {
-          setIsReconcilingPremium(false);
-        }
-      }
-    };
-
-    void reconcilePremiumIfNeeded();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [hasPremiumAccess, isAuthenticated, isLoaded]);
 
   const filteredRows = useMemo(() => {
     if (!query.trim()) {
@@ -147,26 +107,6 @@ export function DailyRecommendationsClient({
               Checked out with <span className="font-medium">{checkoutEmail}</span>. Create an
               account using this same email to sync premium access automatically.
             </div>
-          )}
-
-          {isLoaded && !isReconcilingPremium && isAuthenticated ? (
-            <div className="inline-flex items-center gap-2 text-sm">
-              {isPremium ? (
-                <>
-                  <ShieldCheck className="size-4 text-green-600" />
-                  <span className="text-green-700">Premium account active</span>
-                </>
-              ) : (
-                <>
-                  <ShieldX className="size-4 text-amber-600" />
-                  <span className="text-amber-700">Signed in without premium details</span>
-                </>
-              )}
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Browsing as guest. You can still view rankings and open stock pages.
-            </p>
           )}
         </CardContent>
       </Card>

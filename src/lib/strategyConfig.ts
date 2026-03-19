@@ -13,7 +13,7 @@
 // ──────────────────────────────────────────────────────────────────────────────
 
 /** Bump for app-level changes (prompt, portfolio, universe, ranking, etc.). */
-export const APP_VERSION = 'v1.0.0';
+export const APP_VERSION = 'v1.0.1';
 
 /** Bump for AI model changes (provider, model name, temperature, tokens, etc.). */
 export const MODEL_VERSION = 'm2.0';
@@ -25,7 +25,8 @@ export const STRATEGY_CONFIG = {
   modelVersion: MODEL_VERSION,
   version: `${APP_VERSION}-${MODEL_VERSION}`,
   slug: `ai-top20-nasdaq100-${APP_VERSION.replaceAll('.', '-')}-${MODEL_VERSION.replaceAll('.', '-')}`,
-  name: 'AI Top-20 Nasdaq-100',
+  /** Single name for internal + display (e.g. AIT-1 Daneel). Bump AIT number when creating a new strategy version. */
+  name: 'AIT-1 Daneel',
 
   // Universe
   indexName: 'nasdaq100' as const,
@@ -53,7 +54,7 @@ export const STRATEGY_CONFIG = {
   },
 
   description:
-    'Forward-only, rules-based weekly Top-20 Nasdaq-100 strategy sorted by latent_rank and rebalanced equal-weight with turnover costs.',
+    'Weekly Top-20 Nasdaq-100 portfolio: stocks ranked by AI, equal weight, rebalanced every week, with trading costs included.',
 };
 
 /**

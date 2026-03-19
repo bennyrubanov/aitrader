@@ -36,12 +36,12 @@ export async function GET(_req: Request, { params }: RouteContext) {
 
   const { data: profile } = await supabase
     .from("user_profiles")
-    .select("is_premium")
+    .select("subscription_tier")
     .eq("id", userData.user.id)
     .maybeSingle();
 
-  if (!profile?.is_premium) {
-    return NextResponse.json({ error: "Premium required" }, { status: 403 });
+  if (!profile?.subscription_tier || profile.subscription_tier === "free") {
+    return NextResponse.json({ error: "Supporter or Outperformer plan required" }, { status: 403 });
   }
 
   const resolvedParams = await params;

@@ -58,10 +58,14 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
   const [activeSlide, setActiveSlide] = useState(0);
   const [isCarouselHovered, setIsCarouselHovered] = useState(false);
   const { hasPremiumAccess, isAuthenticated } = useAuthState();
-  const unlockHref = hasPremiumAccess ? "/platform/current" : isAuthenticated ? "/pricing" : "/sign-up";
+  const unlockHref = hasPremiumAccess
+    ? '/platform/current'
+    : isAuthenticated
+      ? '/pricing'
+      : '/sign-up';
 
   const findings = [
-    "AI earnings forecasts significantly correlate with actual earnings outcomes.",
+    'AI earnings forecasts significantly correlate with actual earnings outcomes.',
     'AI stock ratings correlate with future stock returns.',
     'AI reacts to new information faster and with less bias than human analysts.',
     'Outperformance is particularly strong during volatile market conditions.',
@@ -76,18 +80,138 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
   ];
 
   const performanceMockData = [
-    { month: 'Jan', aiValue: 10000, benchmarkValue: 10000, totalReturn: 0.0, cagr: 11.2, drawdownAi: -1.2, drawdownBenchmark: -1.8, sharpe: 1.18, winRate: 58 },
-    { month: 'Feb', aiValue: 10180, benchmarkValue: 10090, totalReturn: 1.8, cagr: 11.6, drawdownAi: -2.8, drawdownBenchmark: -4.4, sharpe: 1.22, winRate: 60 },
-    { month: 'Mar', aiValue: 10340, benchmarkValue: 10160, totalReturn: 3.4, cagr: 12.1, drawdownAi: -4.1, drawdownBenchmark: -6.9, sharpe: 1.27, winRate: 61 },
-    { month: 'Apr', aiValue: 10620, benchmarkValue: 10310, totalReturn: 6.2, cagr: 12.9, drawdownAi: -3.0, drawdownBenchmark: -5.5, sharpe: 1.33, winRate: 63 },
-    { month: 'May', aiValue: 10890, benchmarkValue: 10480, totalReturn: 8.9, cagr: 13.7, drawdownAi: -6.2, drawdownBenchmark: -9.8, sharpe: 1.28, winRate: 62 },
-    { month: 'Jun', aiValue: 11140, benchmarkValue: 10610, totalReturn: 11.4, cagr: 14.2, drawdownAi: -5.5, drawdownBenchmark: -8.6, sharpe: 1.35, winRate: 64 },
-    { month: 'Jul', aiValue: 11480, benchmarkValue: 10790, totalReturn: 14.8, cagr: 15.1, drawdownAi: -3.4, drawdownBenchmark: -6.0, sharpe: 1.41, winRate: 66 },
-    { month: 'Aug', aiValue: 11820, benchmarkValue: 10980, totalReturn: 18.2, cagr: 15.9, drawdownAi: -7.1, drawdownBenchmark: -11.7, sharpe: 1.37, winRate: 65 },
-    { month: 'Sep', aiValue: 12100, benchmarkValue: 11140, totalReturn: 21.0, cagr: 16.5, drawdownAi: -5.8, drawdownBenchmark: -9.5, sharpe: 1.44, winRate: 67 },
-    { month: 'Oct', aiValue: 12430, benchmarkValue: 11310, totalReturn: 24.3, cagr: 17.1, drawdownAi: -4.3, drawdownBenchmark: -7.4, sharpe: 1.49, winRate: 68 },
-    { month: 'Nov', aiValue: 12860, benchmarkValue: 11540, totalReturn: 28.6, cagr: 17.8, drawdownAi: -3.1, drawdownBenchmark: -6.1, sharpe: 1.54, winRate: 70 },
-    { month: 'Dec', aiValue: 13140, benchmarkValue: 11720, totalReturn: 31.4, cagr: 18.2, drawdownAi: -2.2, drawdownBenchmark: -4.8, sharpe: 1.58, winRate: 71 },
+    {
+      month: 'Jan',
+      aiValue: 10000,
+      benchmarkValue: 10000,
+      totalReturn: 0.0,
+      cagr: 11.2,
+      drawdownAi: -1.2,
+      drawdownBenchmark: -1.8,
+      sharpe: 1.18,
+      winRate: 58,
+    },
+    {
+      month: 'Feb',
+      aiValue: 10180,
+      benchmarkValue: 10090,
+      totalReturn: 1.8,
+      cagr: 11.6,
+      drawdownAi: -2.8,
+      drawdownBenchmark: -4.4,
+      sharpe: 1.22,
+      winRate: 60,
+    },
+    {
+      month: 'Mar',
+      aiValue: 10340,
+      benchmarkValue: 10160,
+      totalReturn: 3.4,
+      cagr: 12.1,
+      drawdownAi: -4.1,
+      drawdownBenchmark: -6.9,
+      sharpe: 1.27,
+      winRate: 61,
+    },
+    {
+      month: 'Apr',
+      aiValue: 10620,
+      benchmarkValue: 10310,
+      totalReturn: 6.2,
+      cagr: 12.9,
+      drawdownAi: -3.0,
+      drawdownBenchmark: -5.5,
+      sharpe: 1.33,
+      winRate: 63,
+    },
+    {
+      month: 'May',
+      aiValue: 10890,
+      benchmarkValue: 10480,
+      totalReturn: 8.9,
+      cagr: 13.7,
+      drawdownAi: -6.2,
+      drawdownBenchmark: -9.8,
+      sharpe: 1.28,
+      winRate: 62,
+    },
+    {
+      month: 'Jun',
+      aiValue: 11140,
+      benchmarkValue: 10610,
+      totalReturn: 11.4,
+      cagr: 14.2,
+      drawdownAi: -5.5,
+      drawdownBenchmark: -8.6,
+      sharpe: 1.35,
+      winRate: 64,
+    },
+    {
+      month: 'Jul',
+      aiValue: 11480,
+      benchmarkValue: 10790,
+      totalReturn: 14.8,
+      cagr: 15.1,
+      drawdownAi: -3.4,
+      drawdownBenchmark: -6.0,
+      sharpe: 1.41,
+      winRate: 66,
+    },
+    {
+      month: 'Aug',
+      aiValue: 11820,
+      benchmarkValue: 10980,
+      totalReturn: 18.2,
+      cagr: 15.9,
+      drawdownAi: -7.1,
+      drawdownBenchmark: -11.7,
+      sharpe: 1.37,
+      winRate: 65,
+    },
+    {
+      month: 'Sep',
+      aiValue: 12100,
+      benchmarkValue: 11140,
+      totalReturn: 21.0,
+      cagr: 16.5,
+      drawdownAi: -5.8,
+      drawdownBenchmark: -9.5,
+      sharpe: 1.44,
+      winRate: 67,
+    },
+    {
+      month: 'Oct',
+      aiValue: 12430,
+      benchmarkValue: 11310,
+      totalReturn: 24.3,
+      cagr: 17.1,
+      drawdownAi: -4.3,
+      drawdownBenchmark: -7.4,
+      sharpe: 1.49,
+      winRate: 68,
+    },
+    {
+      month: 'Nov',
+      aiValue: 12860,
+      benchmarkValue: 11540,
+      totalReturn: 28.6,
+      cagr: 17.8,
+      drawdownAi: -3.1,
+      drawdownBenchmark: -6.1,
+      sharpe: 1.54,
+      winRate: 70,
+    },
+    {
+      month: 'Dec',
+      aiValue: 13140,
+      benchmarkValue: 11720,
+      totalReturn: 31.4,
+      cagr: 18.2,
+      drawdownAi: -2.2,
+      drawdownBenchmark: -4.8,
+      sharpe: 1.58,
+      winRate: 71,
+    },
   ];
 
   const performanceDetailedData = performanceMockData.map((point, index, all) => {
@@ -161,10 +285,15 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
             isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'
           }`}
         >
-          <h2 className="text-3xl md:text-4xl font-bold mb-4">Built on Research, Tested in the Real World</h2>
+          <p className="text-sm font-semibold text-trader-blue uppercase tracking-wide mb-3">
+            Research
+          </p>
+          <h2 className="text-3xl md:text-4xl font-bold mb-4">
+            The research behind the experiment
+          </h2>
           <p className="text-xl text-muted-foreground">
-            Peer-reviewed academic research shows AI can meaningfully improve investment outcomes.
-            We&apos;re putting that to the test in a live, public system.
+            Peer-reviewed academic research suggests AI can surface signals humans miss. We&apos;re
+            extending that into a live setting to find out if it holds.
           </p>
         </div>
 
@@ -190,7 +319,10 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
                         <Tooltip>
                           <TooltipTrigger className="inline px-1 underline decoration-dotted underline-offset-2">
                             Financial Research Letters Journal
-                            <Info size={14} className="inline-block ml-1 text-muted-foreground/70" />
+                            <Info
+                              size={14}
+                              className="inline-block ml-1 text-muted-foreground/70"
+                            />
                           </TooltipTrigger>
                           {parentDivRef.current &&
                             createPortal(
@@ -198,9 +330,10 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
                                 <p>
                                   Finance Research Letters is a bimonthly peer-reviewed academic
                                   journal covering research on all areas of finance that was
-                                  established in 2004. According to the Journal Citation Reports, the
-                                  journal has a 2021 impact factor of 9.846, ranking it first out of
-                                  111 journals in the category &ldquo;Business, Finance&rdquo;.
+                                  established in 2004. According to the Journal Citation Reports,
+                                  the journal has a 2021 impact factor of 9.846, ranking it first
+                                  out of 111 journals in the category &ldquo;Business,
+                                  Finance&rdquo;.
                                 </p>
                                 <a
                                   href="https://en.wikipedia.org/wiki/Finance_Research_Letters"
@@ -219,7 +352,9 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
                   </div>
                 </div>
 
-                <h4 className="text-lg font-medium mb-2">&ldquo;Can ChatGPT assist in picking stocks?&rdquo;</h4>
+                <h4 className="text-lg font-medium mb-2">
+                  &ldquo;Can ChatGPT assist in picking stocks?&rdquo;
+                </h4>
 
                 <p className="text-muted-foreground mb-4">
                   A peer-reviewed paper studying how AI-generated stock ratings connect to actual
@@ -276,12 +411,9 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
               ))}
             </div>
 
-            <Link
-              href={unlockHref}
-              onClick={handleUnlockClick}
-            >
+            <Link href={unlockHref} onClick={handleUnlockClick}>
               <Button className="bg-trader-blue hover:bg-trader-blue-dark text-white transition-colors w-full md:w-auto">
-                Unlock Full AI Analysis
+                Follow the experiment
               </Button>
             </Link>
           </div>
@@ -337,12 +469,14 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
               </div>
 
               <h4 className="text-lg font-medium mb-2">
-                &ldquo;Can ChatGPT improve investment decisions? From a portfolio management perspective&rdquo;
+                &ldquo;Can ChatGPT improve investment decisions? From a portfolio management
+                perspective&rdquo;
               </h4>
 
               <p className="text-muted-foreground mb-4">
                 Extended research examining AI&apos;s ability to select assets and build diversified
-                portfolios that outperform random selection across stocks, bonds, commodities, and more.
+                portfolios that outperform random selection across stocks, bonds, commodities, and
+                more.
               </p>
 
               <div className="flex justify-between items-center">
@@ -387,14 +521,14 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
           }`}
         >
           <div className="text-center mb-10">
-            <div className="flex justify-center mb-4">
-              <div className="bg-trader-blue/10 rounded-full p-3">
-                <Eye size={28} className="text-trader-blue" />
-              </div>
-            </div>
-            <h3 className="text-2xl md:text-3xl font-bold mb-3 text-trader-blue">How Performance Is Tracked</h3>
+            <p className="text-sm font-semibold text-trader-blue uppercase tracking-wide mb-3">
+              Performance
+            </p>
+            <h3 className="text-3xl md:text-4xl font-bold mb-4">
+              Live results since launch
+            </h3>
             <p className="text-muted-foreground max-w-2xl mx-auto">
-              All performance and methodology are published openly. Here&apos;s what we measure and track.
+              All performance is tracked openly and updated weekly after new data is available.
             </p>
           </div>
 
@@ -435,7 +569,10 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
                         benchmarkReturn: { label: ' Benchmark Return', color: '#94a3b8' },
                       }}
                     >
-                      <AreaChart data={performanceDetailedData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                      <AreaChart
+                        data={performanceDetailedData}
+                        margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
+                      >
                         <defs>
                           <linearGradient id="totalReturnFill" x1="0" y1="0" x2="0" y2="1">
                             <stop offset="5%" stopColor="#0A84FF" stopOpacity={0.35} />
@@ -457,8 +594,20 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
                           }
                         />
                         <ChartLegend content={<ChartLegendContent />} />
-                        <Area type="monotone" dataKey="totalReturn" stroke="var(--color-totalReturn)" fill="url(#totalReturnFill)" strokeWidth={2.8} />
-                        <Line type="monotone" dataKey="benchmarkReturn" stroke="var(--color-benchmarkReturn)" strokeWidth={2.2} dot={false} />
+                        <Area
+                          type="monotone"
+                          dataKey="totalReturn"
+                          stroke="var(--color-totalReturn)"
+                          fill="url(#totalReturnFill)"
+                          strokeWidth={2.8}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="benchmarkReturn"
+                          stroke="var(--color-benchmarkReturn)"
+                          strokeWidth={2.2}
+                          dot={false}
+                        />
                       </AreaChart>
                     </ChartContainer>
                   </div>
@@ -474,7 +623,10 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
                         benchmarkCagr: { label: ' Benchmark CAGR', color: '#94a3b8' },
                       }}
                     >
-                      <LineChart data={performanceDetailedData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                      <LineChart
+                        data={performanceDetailedData}
+                        margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
+                      >
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="month" tickLine={false} axisLine={false} />
                         <YAxis tickLine={false} axisLine={false} tickFormatter={(v) => `${v}%`} />
@@ -490,8 +642,20 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
                           }
                         />
                         <ChartLegend content={<ChartLegendContent />} />
-                        <Line type="monotone" dataKey="cagr" stroke="var(--color-cagr)" strokeWidth={3} dot={false} />
-                        <Line type="monotone" dataKey="benchmarkCagr" stroke="var(--color-benchmarkCagr)" strokeWidth={2.2} dot={false} />
+                        <Line
+                          type="monotone"
+                          dataKey="cagr"
+                          stroke="var(--color-cagr)"
+                          strokeWidth={3}
+                          dot={false}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="benchmarkCagr"
+                          stroke="var(--color-benchmarkCagr)"
+                          strokeWidth={2.2}
+                          dot={false}
+                        />
                       </LineChart>
                     </ChartContainer>
                   </div>
@@ -507,7 +671,10 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
                         drawdownBenchmark: { label: ' Benchmark DD', color: '#fca5a5' },
                       }}
                     >
-                      <AreaChart data={performanceDetailedData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                      <AreaChart
+                        data={performanceDetailedData}
+                        margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
+                      >
                         <defs>
                           <linearGradient id="ddFill" x1="0" y1="0" x2="0" y2="1">
                             <stop offset="5%" stopColor="#ef4444" stopOpacity={0.35} />
@@ -516,12 +683,38 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="month" tickLine={false} axisLine={false} />
-                        <YAxis domain={[-14, 0]} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}%`} />
+                        <YAxis
+                          domain={[-14, 0]}
+                          tickLine={false}
+                          axisLine={false}
+                          tickFormatter={(v) => `${v}%`}
+                        />
                         <ReferenceLine y={-10} stroke="#94a3b8" strokeDasharray="4 4" />
-                        <ChartTooltip content={<ChartTooltipContent formatter={(v, name) => [`${Number(v).toFixed(1)}%`, name === 'drawdownAi' ? ' AI DD' : ' Benchmark DD']} />} />
+                        <ChartTooltip
+                          content={
+                            <ChartTooltipContent
+                              formatter={(v, name) => [
+                                `${Number(v).toFixed(1)}%`,
+                                name === 'drawdownAi' ? ' AI DD' : ' Benchmark DD',
+                              ]}
+                            />
+                          }
+                        />
                         <ChartLegend content={<ChartLegendContent />} />
-                        <Area type="monotone" dataKey="drawdownAi" stroke="var(--color-drawdownAi)" fill="url(#ddFill)" strokeWidth={2.6} />
-                        <Line type="monotone" dataKey="drawdownBenchmark" stroke="var(--color-drawdownBenchmark)" strokeWidth={2.2} dot={false} />
+                        <Area
+                          type="monotone"
+                          dataKey="drawdownAi"
+                          stroke="var(--color-drawdownAi)"
+                          fill="url(#ddFill)"
+                          strokeWidth={2.6}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="drawdownBenchmark"
+                          stroke="var(--color-drawdownBenchmark)"
+                          strokeWidth={2.2}
+                          dot={false}
+                        />
                       </AreaChart>
                     </ChartContainer>
                   </div>
@@ -537,7 +730,10 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
                         sharpeBenchmark: { label: 'Benchmark Sharpe', color: '#c4b5fd' },
                       }}
                     >
-                      <LineChart data={performanceDetailedData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                      <LineChart
+                        data={performanceDetailedData}
+                        margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
+                      >
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="month" tickLine={false} axisLine={false} />
                         <YAxis domain={[0.8, 1.8]} tickLine={false} axisLine={false} />
@@ -553,8 +749,20 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
                           }
                         />
                         <ChartLegend content={<ChartLegendContent />} />
-                        <Line type="monotone" dataKey="sharpe" stroke="var(--color-sharpe)" strokeWidth={3} dot={false} />
-                        <Line type="monotone" dataKey="sharpeBenchmark" stroke="var(--color-sharpeBenchmark)" strokeWidth={2.2} dot={false} />
+                        <Line
+                          type="monotone"
+                          dataKey="sharpe"
+                          stroke="var(--color-sharpe)"
+                          strokeWidth={3}
+                          dot={false}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="sharpeBenchmark"
+                          stroke="var(--color-sharpeBenchmark)"
+                          strokeWidth={2.2}
+                          dot={false}
+                        />
                       </LineChart>
                     </ChartContainer>
                   </div>
@@ -562,7 +770,9 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
 
                 <CarouselItem>
                   <div className="rounded-lg border border-border p-5 bg-muted/20">
-                    <p className="font-semibold text-sm mb-3 text-trader-blue">% Months Beating Market</p>
+                    <p className="font-semibold text-sm mb-3 text-trader-blue">
+                      % Months Beating Market
+                    </p>
                     <ChartContainer
                       className="h-[250px] w-full"
                       config={{
@@ -570,10 +780,18 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
                         rollingWinRate: { label: '3-Month Rolling Avg', color: '#0369a1' },
                       }}
                     >
-                      <LineChart data={performanceDetailedData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                      <LineChart
+                        data={performanceDetailedData}
+                        margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
+                      >
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="month" tickLine={false} axisLine={false} />
-                        <YAxis domain={[40, 80]} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}%`} />
+                        <YAxis
+                          domain={[40, 80]}
+                          tickLine={false}
+                          axisLine={false}
+                          tickFormatter={(v) => `${v}%`}
+                        />
                         <ReferenceLine y={50} stroke="#94a3b8" strokeDasharray="4 4" />
                         <ChartTooltip
                           content={
@@ -615,14 +833,43 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
                         benchmarkValue: { label: 'Benchmark', color: '#94a3b8' },
                       }}
                     >
-                      <LineChart data={performanceDetailedData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                      <LineChart
+                        data={performanceDetailedData}
+                        margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
+                      >
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="month" tickLine={false} axisLine={false} />
-                        <YAxis tickLine={false} axisLine={false} width={56} tickFormatter={(v) => `$${Math.round(Number(v) / 1000)}k`} />
-                        <ChartTooltip content={<ChartTooltipContent formatter={(v, name) => [`$${Number(v).toLocaleString()}`, name === 'aiValue' ? ' AI Portfolio' : ' Benchmark']} />} />
+                        <YAxis
+                          tickLine={false}
+                          axisLine={false}
+                          width={56}
+                          tickFormatter={(v) => `$${Math.round(Number(v) / 1000)}k`}
+                        />
+                        <ChartTooltip
+                          content={
+                            <ChartTooltipContent
+                              formatter={(v, name) => [
+                                `$${Number(v).toLocaleString()}`,
+                                name === 'aiValue' ? ' AI Portfolio' : ' Benchmark',
+                              ]}
+                            />
+                          }
+                        />
                         <ChartLegend content={<ChartLegendContent />} />
-                        <Line type="monotone" dataKey="aiValue" stroke="var(--color-aiValue)" strokeWidth={3} dot={false} />
-                        <Line type="monotone" dataKey="benchmarkValue" stroke="var(--color-benchmarkValue)" strokeWidth={2.2} dot={false} />
+                        <Line
+                          type="monotone"
+                          dataKey="aiValue"
+                          stroke="var(--color-aiValue)"
+                          strokeWidth={3}
+                          dot={false}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="benchmarkValue"
+                          stroke="var(--color-benchmarkValue)"
+                          strokeWidth={2.2}
+                          dot={false}
+                        />
                       </LineChart>
                     </ChartContainer>
                   </div>
@@ -653,6 +900,15 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
             <p className="text-sm text-muted-foreground mt-6 text-center">
               Comprehensive, industry-standard performance tracking, with 100% transparency.
             </p>
+
+            <div className="mt-6 flex justify-center">
+              <Link href="/performance">
+                <Button variant="outline" className="gap-2">
+                  See how the experiment is performing
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                </Button>
+              </Link>
+            </div>
           </div>
         </div>
       </div>

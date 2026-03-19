@@ -1,19 +1,23 @@
-"use client";
+'use client';
 
+import { useMemo, useState } from 'react';
 import {
   CartesianGrid,
   Line,
   LineChart,
+  ReferenceLine,
   XAxis,
   YAxis,
-} from "recharts";
+} from 'recharts';
 import {
   ChartContainer,
   ChartLegend,
   ChartLegendContent,
   ChartTooltip,
   ChartTooltipContent,
-} from "@/components/ui/chart";
+} from '@/components/ui/chart';
+import { Button } from '@/components/ui/button';
+import { toDrawdownPercentSeries } from '@/lib/performance-series-drawdown';
 
 type PerformancePoint = {
   date: string;
@@ -23,77 +27,250 @@ type PerformancePoint = {
   sp500: number;
 };
 
-type PerformanceChartProps = {
-  series: PerformancePoint[];
+type TimeRange = '1M' | '3M' | '6M' | 'YTD' | 'All';
+
+const TIME_RANGES: TimeRange[] = ['1M', '3M', '6M', 'YTD', 'All'];
+const displayDateFormatter = new Intl.DateTimeFormat('en-US', {
+  weekday: 'short',
+  month: 'short',
+  day: 'numeric',
+  timeZone: 'UTC',
+});
+
+const SERIES_CONFIG: Record<string, { label: string; color: string; defaultVisible: boolean }> = {
+  aiTop20: { label: 'AI Strategy', color: '#2563eb', defaultVisible: true },
+  nasdaq100CapWeight: { label: 'Nasdaq-100 (cap-weighted)', color: '#64748b', defaultVisible: true },
+  nasdaq100EqualWeight: { label: 'Nasdaq-100 (equal-weighted)', color: '#16a34a', defaultVisible: true },
+  sp500: { label: 'S&P 500 (cap-weighted)', color: '#a855f7', defaultVisible: true },
 };
 
-export function PerformanceChart({ series }: PerformanceChartProps) {
-  const chartSeries = series.map((point) => ({
-    ...point,
-    shortDate: point.date.slice(5),
+type SeriesKey = 'aiTop20' | 'nasdaq100CapWeight' | 'nasdaq100EqualWeight' | 'sp500';
+
+function filterByRange(series: PerformancePoint[], range: TimeRange): PerformancePoint[] {
+  if (range === 'All' || !series.length) return series;
+  const lastDate = new Date(`${series[series.length - 1].date}T00:00:00Z`);
+  let cutoff: Date;
+  if (range === 'YTD') {
+    cutoff = new Date(Date.UTC(lastDate.getUTCFullYear(), 0, 1));
+  } else {
+    const months = range === '1M' ? 1 : range === '3M' ? 3 : 6;
+    cutoff = new Date(lastDate);
+    cutoff.setUTCMonth(cutoff.getUTCMonth() - months);
+  }
+  return series.filter((p) => new Date(`${p.date}T00:00:00Z`) >= cutoff);
+}
+
+function formatDisplayDate(date: string) {
+  const parsed = new Date(`${date}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return date;
+  return displayDateFormatter.format(parsed);
+}
+
+/**
+ * Rebase all series to 100 at the first point in the filtered window so
+ * comparisons are always relative to the same start.
+ */
+function rebaseSeries(series: PerformancePoint[]): PerformancePoint[] {
+  if (!series.length) return series;
+  const base = series[0];
+  return series.map((p) => ({
+    date: p.date,
+    aiTop20: base.aiTop20 > 0 ? (p.aiTop20 / base.aiTop20) * 10000 : 0,
+    nasdaq100CapWeight:
+      base.nasdaq100CapWeight > 0 ? (p.nasdaq100CapWeight / base.nasdaq100CapWeight) * 10000 : 0,
+    nasdaq100EqualWeight:
+      base.nasdaq100EqualWeight > 0
+        ? (p.nasdaq100EqualWeight / base.nasdaq100EqualWeight) * 10000
+        : 0,
+    sp500: base.sp500 > 0 ? (p.sp500 / base.sp500) * 10000 : 0,
   }));
+}
+
+type PerformanceChartProps = {
+  series: PerformancePoint[];
+  /** Override the AI strategy label (e.g. model name) */
+  strategyName?: string;
+  /** When true, hides the drawdown toggle (drawdown lives in the Risk section) */
+  hideDrawdown?: boolean;
+};
+
+export function PerformanceChart({ series, strategyName, hideDrawdown = false }: PerformanceChartProps) {
+  const [range, setRange] = useState<TimeRange>('All');
+  const [view, setView] = useState<'equity' | 'drawdown'>('equity');
+  const [hidden, setHidden] = useState<Set<SeriesKey>>(new Set());
+
+  const toggleSeries = (key: SeriesKey) => {
+    setHidden((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const chartData = useMemo(() => {
+    const filtered = filterByRange(series, range);
+    const rebased = rebaseSeries(filtered);
+    const data = view === 'drawdown' ? toDrawdownPercentSeries(filtered) : rebased;
+    return data.map((p) => ({ ...p, shortDate: formatDisplayDate(p.date as string) }));
+  }, [series, range, view]);
+
+  const yDomain = useMemo<[number, number] | ['auto', 'auto']>(() => {
+    if (!chartData.length) return ['auto', 'auto'];
+    const visibleKeys = (Object.keys(SERIES_CONFIG) as SeriesKey[]).filter((key) => !hidden.has(key));
+    if (!visibleKeys.length) return ['auto', 'auto'];
+
+    const values: number[] = [];
+    chartData.forEach((row) => {
+      visibleKeys.forEach((key) => {
+        const value = Number(row[key]);
+        if (Number.isFinite(value)) values.push(value);
+      });
+    });
+
+    if (!values.length) return ['auto', 'auto'];
+
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const span = max - min;
+
+    if (span <= 0) {
+      const basePad = Math.max(Math.abs(min) * 0.01, view === 'drawdown' ? 0.25 : 50);
+      return [min - basePad, max + basePad];
+    }
+
+    const pad = span * 0.08;
+    if (view === 'drawdown') {
+      return [min - pad, Math.max(max + pad, 0.5)];
+    }
+    return [Math.max(0, min - pad), max + pad];
+  }, [chartData, hidden, view]);
+
+  const config = useMemo(() => {
+    const base = { ...SERIES_CONFIG };
+    if (strategyName) {
+      base.aiTop20 = { ...base.aiTop20, label: strategyName };
+    }
+    return base;
+  }, [strategyName]);
+
+  const yFormatter = (v: number) =>
+    view === 'drawdown' ? `${v.toFixed(1)}%` : `$${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
 
   return (
-    <ChartContainer
-      className="h-[360px] w-full"
-      config={{
-        aiTop20: {
-          label: "AI Top-20",
-          color: "#2563eb",
-        },
-        nasdaq100CapWeight: {
-          label: "Nasdaq-100 (Cap Weight)",
-          color: "#64748b",
-        },
-        nasdaq100EqualWeight: {
-          label: "Nasdaq-100 (Equal Weight)",
-          color: "#16a34a",
-        },
-        sp500: {
-          label: "S&P 500",
-          color: "#a855f7",
-        },
-      }}
-    >
-      <LineChart data={chartSeries} margin={{ top: 16, right: 16, left: 8, bottom: 8 }}>
-        <CartesianGrid strokeDasharray="3 3" />
-        <XAxis dataKey="shortDate" />
-        <YAxis />
-        <ChartTooltip content={<ChartTooltipContent labelKey="shortDate" />} />
-        <ChartLegend content={<ChartLegendContent />} />
-        <Line
-          type="monotone"
-          dataKey="aiTop20"
-          name="AI Top-20"
-          stroke="var(--color-aiTop20)"
-          strokeWidth={2.5}
-          dot={false}
-        />
-        <Line
-          type="monotone"
-          dataKey="nasdaq100CapWeight"
-          name="Nasdaq-100 (Cap Weight)"
-          stroke="var(--color-nasdaq100CapWeight)"
-          strokeWidth={2}
-          dot={false}
-        />
-        <Line
-          type="monotone"
-          dataKey="nasdaq100EqualWeight"
-          name="Nasdaq-100 (Equal Weight)"
-          stroke="var(--color-nasdaq100EqualWeight)"
-          strokeWidth={2}
-          dot={false}
-        />
-        <Line
-          type="monotone"
-          dataKey="sp500"
-          name="S&P 500"
-          stroke="var(--color-sp500)"
-          strokeWidth={2}
-          dot={false}
-        />
-      </LineChart>
-    </ChartContainer>
+    <div className="space-y-3">
+      {/* Controls row */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        {/* Time range */}
+        <div className="flex items-center gap-1">
+          {TIME_RANGES.map((r) => (
+            <button
+              key={r}
+              onClick={() => setRange(r)}
+              className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                range === r
+                  ? 'bg-trader-blue text-white'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+              }`}
+            >
+              {r}
+            </button>
+          ))}
+        </div>
+
+        {/* View toggle */}
+        {!hideDrawdown && (
+          <div className="flex items-center gap-1 rounded-md border p-0.5">
+            <Button
+              variant={view === 'equity' ? 'default' : 'ghost'}
+              size="sm"
+              className="h-7 text-xs px-2.5"
+              onClick={() => setView('equity')}
+            >
+              Growth
+            </Button>
+            <Button
+              variant={view === 'drawdown' ? 'default' : 'ghost'}
+              size="sm"
+              className="h-7 text-xs px-2.5"
+              onClick={() => setView('drawdown')}
+            >
+              Drawdown
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {/* Series toggle chips */}
+      <div className="flex flex-wrap gap-1.5">
+        {(Object.entries(config) as [SeriesKey, { label: string; color: string }][]).map(
+          ([key, cfg]) => (
+            <button
+              key={key}
+              onClick={() => toggleSeries(key)}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs transition-opacity ${
+                hidden.has(key) ? 'opacity-40' : ''
+              }`}
+            >
+              <span
+                className="size-2 rounded-full shrink-0"
+                style={{ background: cfg.color }}
+              />
+              {cfg.label}
+            </button>
+          )
+        )}
+      </div>
+
+      {/* Chart */}
+      <ChartContainer
+        className="h-[340px] w-full"
+        config={Object.fromEntries(
+          Object.entries(config).map(([key, cfg]) => [key, { label: cfg.label, color: cfg.color }])
+        )}
+      >
+        <LineChart data={chartData} margin={{ top: 8, right: 8, left: 4, bottom: 4 }}>
+          <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.4} />
+          <XAxis dataKey="shortDate" tick={{ fontSize: 11 }} />
+          <YAxis domain={yDomain} tickFormatter={yFormatter} tick={{ fontSize: 11 }} width={52} />
+          {view === 'drawdown' && <ReferenceLine y={0} stroke="#64748b" strokeDasharray="4 2" />}
+          <ChartTooltip
+            content={
+              <ChartTooltipContent
+                formatter={(value, name) => {
+                  const cfg = config[name as SeriesKey];
+                  const label = cfg?.label ?? name;
+                  const formatted =
+                    view === 'drawdown'
+                      ? `${Number(value).toFixed(2)}%`
+                      : `$${Number(value).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+                  return [`${formatted} `, ` ${label}`];
+                }}
+              />
+            }
+          />
+          <ChartLegend content={<ChartLegendContent />} />
+
+          {(Object.keys(config) as SeriesKey[]).map((key) => (
+            <Line
+              key={key}
+              type="monotone"
+              dataKey={key}
+              stroke={config[key].color}
+              strokeWidth={key === 'aiTop20' ? 2.5 : 1.75}
+              dot={false}
+              hide={hidden.has(key)}
+              connectNulls
+            />
+          ))}
+        </LineChart>
+      </ChartContainer>
+
+      <p className="text-[11px] text-muted-foreground">
+        {view === 'equity'
+          ? `Growth of $10,000 rebased to start of selected window. Net of trading costs.`
+          : `Drawdown from rolling peak for each series. Deeper troughs = larger losses from peak.`}
+      </p>
+    </div>
   );
 }

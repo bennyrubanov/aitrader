@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import type { Metadata } from 'next';
 import StockDetailClient from '@/components/StockDetailClient';
-import { allStocks, getStockBySymbol } from '@/lib/stockData';
+import { getAllStocks } from '@/lib/stocks-cache';
 import { createPublicClient } from '@/utils/supabase/public';
 
 type NewsItem = {
@@ -88,15 +88,16 @@ const fetchStockNews = async (symbol: string, stockName: string | null): Promise
   }
 };
 
-export const generateStaticParams = async () =>
-  allStocks.map((stock) => ({
-    symbol: stock.symbol.toLowerCase(),
-  }));
+export const generateStaticParams = async () => {
+  const stocks = await getAllStocks();
+  return stocks.map((stock) => ({ symbol: stock.symbol.toLowerCase() }));
+};
 
 export const generateMetadata = async ({ params }: StockDetailPageProps): Promise<Metadata> => {
   const resolvedParams = await params;
   const symbol = resolvedParams.symbol.toUpperCase();
-  const stock = getStockBySymbol(symbol);
+  const stocks = await getAllStocks();
+  const stock = stocks.find((s) => s.symbol === symbol);
   const title = stock?.name
     ? `${symbol} AI Recommendation · ${stock.name}`
     : `${symbol} AI Recommendation`;
@@ -116,7 +117,7 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
       process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY
   );
 
-  let stockRow: { id: string; symbol: string; company_name: string | null } | null = null;
+  let stockRow: { id: string; symbol: string; company_name: string | null; is_premium_stock: boolean } | null = null;
   let priceRow: {
     last_sale_price: string | null;
     net_change: string | null;
@@ -137,7 +138,7 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
 
     const { data: fetchedStockRow } = await supabase
       .from("stocks")
-      .select("id, symbol, company_name")
+      .select("id, symbol, company_name, is_premium_stock")
       .eq("symbol", symbol)
       .maybeSingle();
     stockRow = fetchedStockRow;
@@ -161,8 +162,10 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
     }
   }
 
-  const fallbackStock = getStockBySymbol(symbol);
+  const stocks = await getAllStocks();
+  const fallbackStock = stocks.find((s) => s.symbol === symbol);
   const stockName = stockRow?.company_name ?? fallbackStock?.name ?? null;
+  const isPremiumStock = stockRow?.is_premium_stock ?? fallbackStock?.isPremium ?? true;
   const news = await fetchStockNews(symbol, stockName);
 
   const latest = {
@@ -190,6 +193,7 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
     <StockDetailClient
       symbol={symbol}
       stockName={stockName}
+      isPremiumStock={isPremiumStock}
       price={price}
       latest={latest}
       news={news}

@@ -1,5 +1,7 @@
 'use client';
 
+// Deprecated: replaced by the unified ratings experience at /platform/ratings.
+
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';

@@ -9,11 +9,17 @@ import { Input } from "@/components/ui/input";
 import { getSupabaseBrowserClient } from "@/utils/supabase/browser";
 import { AuthPreviewPlaceholder } from "@/components/auth/auth-preview-placeholder";
 import {
+  consumeAuthPrefillEmail,
   EMAIL_PASSWORD_SIGN_IN_METHOD,
   GOOGLE_SIGN_IN_METHOD,
   getLastSignInMethod,
+  rememberAuthPrefillEmail,
   rememberSignInMethod,
+  savePreAuthReturnUrl,
+  getPreAuthReturnUrl,
+  clearPreAuthReturnUrl,
 } from "@/lib/auth-storage";
+import { useAuthState } from "@/components/auth/auth-state-context";
 
 const sanitizeNextPath = (value: string | null, fallback: string) => {
   if (!value || !value.startsWith("/")) {
@@ -32,6 +38,7 @@ const methodBadge = (lastMethod: string | null, method: string) =>
 function SignInPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { hasPremiumAccess, isLoaded } = useAuthState();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -44,13 +51,36 @@ function SignInPageContent() {
   const oauthInFlightRef = useRef(false);
 
   const nextPath = useMemo(
-    () => sanitizeNextPath(searchParams.get("next"), "/platform/current"),
+    () => sanitizeNextPath(searchParams.get("next"), "/pricing"),
     [searchParams],
   );
 
   useEffect(() => {
+    if (!isLoaded) return;
+    if (hasPremiumAccess) {
+      router.replace("/platform/current");
+    }
+  }, [hasPremiumAccess, isLoaded, router]);
+
+  useEffect(() => {
     setLastMethod(getLastSignInMethod());
   }, []);
+
+  useEffect(() => {
+    const explicit = searchParams.get("next");
+    if (explicit && explicit !== "/pricing" && explicit.startsWith("/")) {
+      savePreAuthReturnUrl(explicit);
+    } else if (typeof document !== "undefined" && document.referrer) {
+      try {
+        const ref = new URL(document.referrer);
+        if (ref.origin === window.location.origin) {
+          savePreAuthReturnUrl(ref.pathname + ref.search);
+        }
+      } catch {
+        /* ignore invalid referrer */
+      }
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     [
@@ -68,22 +98,11 @@ function SignInPageContent() {
   }, [nextPath, router]);
 
   useEffect(() => {
-    const prefilledEmail = searchParams.get("email");
+    const prefilledEmail = consumeAuthPrefillEmail();
     if (prefilledEmail) {
       setEmail(prefilledEmail);
     }
-
-    const shouldPrefillPassword = searchParams.get("prefillPassword") === "1";
-    if (!shouldPrefillPassword || typeof window === "undefined") {
-      return;
-    }
-
-    const prefilledPassword = window.sessionStorage.getItem("aitrader.auth.prefill.password");
-    if (prefilledPassword) {
-      setPassword(prefilledPassword);
-    }
-    window.sessionStorage.removeItem("aitrader.auth.prefill.password");
-  }, [searchParams]);
+  }, []);
 
   const handleGoogleAuth = async () => {
     if (oauthInFlightRef.current) {
@@ -105,7 +124,7 @@ function SignInPageContent() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`,
+        redirectTo: `${window.location.origin}/auth/callback`,
       },
     });
 
@@ -158,7 +177,15 @@ function SignInPageContent() {
 
     rememberSignInMethod(EMAIL_PASSWORD_SIGN_IN_METHOD);
     setStatusMessage("Signed in successfully. Redirecting...");
-    router.push(nextPath);
+    const returnUrl = getPreAuthReturnUrl();
+    clearPreAuthReturnUrl();
+    if (returnUrl) {
+      router.push(returnUrl);
+    } else {
+      const redirectRes = await fetch("/api/auth/post-login-redirect");
+      const { redirectTo } = (await redirectRes.json()) as { redirectTo: string };
+      router.push(redirectTo ?? "/pricing");
+    }
     router.refresh();
   };
 
@@ -260,6 +287,7 @@ function SignInPageContent() {
                   <div className="pt-1">
                     <Link
                       href={`/forgot-password?next=${encodeURIComponent(nextPath)}`}
+                      onClick={() => clearPreAuthReturnUrl()}
                       className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
                     >
                       Forgot password?
@@ -273,7 +301,11 @@ function SignInPageContent() {
                         for the same account.
                       </p>
                       <Link
-                        href={`/forgot-password?email=${encodeURIComponent(passwordSetupEmail)}&next=${encodeURIComponent(nextPath)}&reason=create-password`}
+                        href={`/forgot-password?next=${encodeURIComponent(nextPath)}&reason=create-password`}
+                        onClick={() => {
+                          rememberAuthPrefillEmail(passwordSetupEmail);
+                          clearPreAuthReturnUrl();
+                        }}
                         className="mt-2 inline-block font-medium text-foreground underline underline-offset-4"
                       >
                         Reset password
@@ -309,6 +341,7 @@ function SignInPageContent() {
                   Don&apos;t have an account?{" "}
                   <Link
                     href={`/sign-up?next=${encodeURIComponent(nextPath)}`}
+                    onClick={() => clearPreAuthReturnUrl()}
                     className="font-medium text-foreground underline underline-offset-4"
                   >
                     Sign up

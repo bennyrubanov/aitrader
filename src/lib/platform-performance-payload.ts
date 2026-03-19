@@ -3,12 +3,35 @@ import { createPublicClient } from '@/utils/supabase/public';
 
 const INITIAL_CAPITAL = 10_000;
 
+// ─── Types ──────────────────────────────────────────────────────────────────
+
+export type StrategyListItem = {
+  id: string;
+  slug: string;
+  name: string;
+  version: string;
+  description: string | null;
+  status: string;
+  portfolioSize: number;
+  rebalanceFrequency: string;
+  weightingMethod: string;
+  transactionCostBps: number;
+  isDefault: boolean;
+  startDate: string | null;
+  sharpeRatio: number | null;
+  totalReturn: number | null;
+  cagr: number | null;
+  maxDrawdown: number | null;
+};
+
 type StrategyRow = {
   id: string;
   slug: string;
   name: string;
   version: string;
   description: string | null;
+  status: string;
+  is_default: boolean;
   rebalance_frequency: string;
   rebalance_day_of_week: number;
   portfolio_size: number;
@@ -22,6 +45,15 @@ type PerformanceRow = {
   nasdaq100_cap_weight_equity: number | string;
   nasdaq100_equal_weight_equity: number | string;
   sp500_equity: number | string;
+};
+
+export type HoldingItem = {
+  symbol: string;
+  companyName: string;
+  rank: number;
+  weight: number;
+  score: number | null;
+  latentRank: number | null;
 };
 
 type HoldingRow = {
@@ -56,12 +88,30 @@ type RegressionRow = {
   r_squared: number | string | null;
 };
 
-type SeriesPoint = {
+export type PerformanceSeriesPoint = {
   date: string;
   aiTop20: number;
   nasdaq100CapWeight: number;
   nasdaq100EqualWeight: number;
   sp500: number;
+};
+
+type SeriesPoint = PerformanceSeriesPoint;
+
+export type QuintileSnapshot = {
+  runDate: string;
+  rows: Array<{ quintile: number; stockCount: number; return: number }>;
+};
+
+export type MonthlyQuintileSnapshot = {
+  month: string; // "YYYY-MM"
+  rows: Array<{ quintile: number; avgReturn: number; weekCount: number }>;
+};
+
+export type QuintileWinRate = {
+  total: number;
+  wins: number;
+  rate: number;
 };
 
 export type PlatformPerformancePayload = {
@@ -71,10 +121,13 @@ export type PlatformPerformancePayload = {
     name: string;
     version: string;
     description: string | null;
+    status: string;
+    isDefault: boolean;
     rebalanceFrequency: string;
     rebalanceDayOfWeek: number;
     portfolioSize: number;
     transactionCostBps: number;
+    startDate: string | null;
   } | null;
   latestRunDate?: string | null;
   series: SeriesPoint[];
@@ -107,14 +160,7 @@ export type PlatformPerformancePayload = {
       };
     };
   } | null;
-  latestHoldings: Array<{
-    symbol: string;
-    companyName: string;
-    rank: number;
-    weight: number;
-    score: number | null;
-    latentRank: number | null;
-  }>;
+  // Holdings are NOT included here — fetched separately with auth gating
   latestActions: Array<{
     symbol: string;
     actionType: 'enter' | 'exit_rank' | 'exit_index';
@@ -123,22 +169,15 @@ export type PlatformPerformancePayload = {
     newWeight: number | null;
   }>;
   research: {
-    weeklyQuintiles: {
-      runDate: string;
-      rows: Array<{
-        quintile: number;
-        stockCount: number;
-        return: number;
-      }>;
-    } | null;
-    fourWeekQuintiles: {
-      runDate: string;
-      rows: Array<{
-        quintile: number;
-        stockCount: number;
-        return: number;
-      }>;
-    } | null;
+    // Latest snapshot for default display
+    weeklyQuintiles: QuintileSnapshot | null;
+    fourWeekQuintiles: QuintileSnapshot | null;
+    // Full history for the week selector (all run dates, weekly horizon)
+    quintileHistory: QuintileSnapshot[];
+    // Q5 beat Q1 win rate across all weeks
+    quintileWinRate: QuintileWinRate | null;
+    // Monthly averages (aggregated from weekly data)
+    monthlyQuintiles: MonthlyQuintileSnapshot[];
     regression: {
       runDate: string;
       sampleSize: number;
@@ -146,6 +185,13 @@ export type PlatformPerformancePayload = {
       beta: number | null;
       rSquared: number | null;
     } | null;
+    regressionHistory: Array<{
+      runDate: string;
+      sampleSize: number;
+      alpha: number | null;
+      beta: number | null;
+      rSquared: number | null;
+    }>;
   } | null;
   notes?: {
     forwardOnly: boolean;
@@ -153,14 +199,7 @@ export type PlatformPerformancePayload = {
   };
 };
 
-const EMPTY_PAYLOAD: PlatformPerformancePayload = {
-  strategy: null,
-  series: [],
-  metrics: null,
-  latestHoldings: [],
-  latestActions: [],
-  research: null,
-};
+// ─── Math helpers ────────────────────────────────────────────────────────────
 
 const toNumber = (value: unknown, fallback = 0) => {
   const numeric = Number(value);
@@ -173,147 +212,375 @@ const toNullableNumber = (value: unknown) => {
 };
 
 const computeTotalReturn = (startValue: number, endValue: number) => {
-  if (startValue <= 0) {
-    return null;
-  }
+  if (startValue <= 0) return null;
   return endValue / startValue - 1;
 };
 
 const computeCagr = (startValue: number, endValue: number, startDate: string, endDate: string) => {
-  if (startValue <= 0 || endValue <= 0 || startDate === endDate) {
-    return null;
-  }
+  if (startValue <= 0 || endValue <= 0 || startDate === endDate) return null;
   const start = new Date(`${startDate}T00:00:00Z`);
   const end = new Date(`${endDate}T00:00:00Z`);
   const diffMs = end.getTime() - start.getTime();
-  if (!Number.isFinite(diffMs) || diffMs <= 0) {
-    return null;
-  }
+  if (!Number.isFinite(diffMs) || diffMs <= 0) return null;
   const years = diffMs / (1000 * 60 * 60 * 24 * 365.25);
-  if (years <= 0) {
-    return null;
-  }
+  if (years <= 0) return null;
   return Math.pow(endValue / startValue, 1 / years) - 1;
 };
 
 const computeMaxDrawdown = (values: number[]) => {
-  if (!values.length) {
-    return null;
-  }
-
+  if (!values.length) return null;
   let peak = values[0];
   let maxDrawdown = 0;
-
   for (const value of values) {
-    if (value > peak) {
-      peak = value;
-    }
+    if (value > peak) peak = value;
     const drawdown = peak > 0 ? (value - peak) / peak : 0;
-    if (drawdown < maxDrawdown) {
-      maxDrawdown = drawdown;
-    }
+    if (drawdown < maxDrawdown) maxDrawdown = drawdown;
   }
-
   return maxDrawdown;
 };
 
 const computeSharpeWeekly = (returns: number[]) => {
-  if (returns.length < 2) {
-    return null;
-  }
-
-  const mean = returns.reduce((sum, value) => sum + value, 0) / returns.length;
-  const variance =
-    returns.reduce((sum, value) => sum + (value - mean) ** 2, 0) / (returns.length - 1);
+  if (returns.length < 2) return null;
+  const mean = returns.reduce((sum, v) => sum + v, 0) / returns.length;
+  const variance = returns.reduce((sum, v) => sum + (v - mean) ** 2, 0) / (returns.length - 1);
   const stdDev = Math.sqrt(variance);
-  if (!Number.isFinite(stdDev) || stdDev <= 0) {
-    return null;
-  }
-
+  if (!Number.isFinite(stdDev) || stdDev <= 0) return null;
   return (mean / stdDev) * Math.sqrt(52);
 };
 
 const computePctMonthsBeating = (
   points: Array<{ date: string; aiValue: number; benchmarkValue: number }>
 ) => {
-  if (points.length < 2) {
-    return null;
-  }
-
+  if (points.length < 2) return null;
   const monthEndMap = new Map<string, { date: string; aiValue: number; benchmarkValue: number }>();
-  points.forEach((point) => {
-    monthEndMap.set(point.date.slice(0, 7), point);
-  });
-
+  points.forEach((point) => monthEndMap.set(point.date.slice(0, 7), point));
   const monthPoints = Array.from(monthEndMap.values()).sort((a, b) => a.date.localeCompare(b.date));
-
-  if (monthPoints.length < 2) {
-    return null;
-  }
-
+  if (monthPoints.length < 2) return null;
   let beats = 0;
   let total = 0;
-  for (let index = 1; index < monthPoints.length; index++) {
-    const previous = monthPoints[index - 1];
-    const current = monthPoints[index];
-
-    if (previous.aiValue <= 0 || previous.benchmarkValue <= 0) {
-      continue;
-    }
-
-    const aiReturn = current.aiValue / previous.aiValue - 1;
-    const benchmarkReturn = current.benchmarkValue / previous.benchmarkValue - 1;
-
-    if (!Number.isFinite(aiReturn) || !Number.isFinite(benchmarkReturn)) {
-      continue;
-    }
-
+  for (let i = 1; i < monthPoints.length; i++) {
+    const prev = monthPoints[i - 1];
+    const curr = monthPoints[i];
+    if (prev.aiValue <= 0 || prev.benchmarkValue <= 0) continue;
+    const aiReturn = curr.aiValue / prev.aiValue - 1;
+    const benchReturn = curr.benchmarkValue / prev.benchmarkValue - 1;
+    if (!Number.isFinite(aiReturn) || !Number.isFinite(benchReturn)) continue;
     total += 1;
-    if (aiReturn > benchmarkReturn) {
-      beats += 1;
-    }
+    if (aiReturn > benchReturn) beats += 1;
   }
-
-  if (total === 0) {
-    return null;
-  }
-
+  if (total === 0) return null;
   return beats / total;
 };
 
-const selectLatestQuintileSet = (rows: QuintileRow[]) => {
-  if (!rows.length) {
-    return null;
+/**
+ * Build full quintile history from all rows, grouped by run_date.
+ * Returns snapshots sorted newest-first.
+ */
+const buildQuintileHistory = (rows: QuintileRow[]): QuintileSnapshot[] => {
+  if (!rows.length) return [];
+  const byDate = new Map<string, QuintileRow[]>();
+  for (const row of rows) {
+    const bucket = byDate.get(row.run_date) ?? [];
+    bucket.push(row);
+    byDate.set(row.run_date, bucket);
   }
-  const latestRunDate = rows[0].run_date;
-  const latestRows = rows
-    .filter((row) => row.run_date === latestRunDate)
-    .sort((a, b) => a.quintile - b.quintile)
-    .map((row) => ({
-      quintile: row.quintile,
-      stockCount: row.stock_count,
-      return: toNumber(row.return_value, 0),
+  return Array.from(byDate.entries())
+    .sort(([a], [b]) => b.localeCompare(a)) // newest first
+    .map(([runDate, dateRows]) => ({
+      runDate,
+      rows: dateRows
+        .sort((a, b) => a.quintile - b.quintile)
+        .map((r) => ({
+          quintile: r.quintile,
+          stockCount: r.stock_count,
+          return: toNumber(r.return_value, 0),
+        })),
     }));
+};
 
-  if (!latestRows.length) {
-    return null;
+/**
+ * Aggregate weekly quintile history into calendar-month averages.
+ */
+const buildMonthlyQuintiles = (history: QuintileSnapshot[]): MonthlyQuintileSnapshot[] => {
+  if (!history.length) return [];
+  const byMonth = new Map<string, Map<number, { sum: number; count: number }>>();
+  for (const snapshot of history) {
+    const month = snapshot.runDate.slice(0, 7); // "YYYY-MM"
+    const monthMap = byMonth.get(month) ?? new Map<number, { sum: number; count: number }>();
+    for (const row of snapshot.rows) {
+      const acc = monthMap.get(row.quintile) ?? { sum: 0, count: 0 };
+      acc.sum += row.return;
+      acc.count += 1;
+      monthMap.set(row.quintile, acc);
+    }
+    byMonth.set(month, monthMap);
   }
+  return Array.from(byMonth.entries())
+    .sort(([a], [b]) => b.localeCompare(a)) // newest first
+    .map(([month, qMap]) => ({
+      month,
+      rows: Array.from(qMap.entries())
+        .sort(([a], [b]) => a - b)
+        .map(([quintile, { sum, count }]) => ({
+          quintile,
+          avgReturn: count > 0 ? sum / count : 0,
+          weekCount: count,
+        })),
+    }));
+};
+
+/**
+ * Compute how often Q5 outperforms Q1 across all weekly snapshots.
+ */
+const computeQuintileWinRate = (history: QuintileSnapshot[]): QuintileWinRate | null => {
+  if (!history.length) return null;
+  let total = 0;
+  let wins = 0;
+  for (const snapshot of history) {
+    const q1 = snapshot.rows.find((r) => r.quintile === 1)?.return;
+    const q5 = snapshot.rows.find((r) => r.quintile === 5)?.return;
+    if (typeof q1 === 'number' && typeof q5 === 'number') {
+      total += 1;
+      if (q5 > q1) wins += 1;
+    }
+  }
+  if (total === 0) return null;
+  return { total, wins, rate: wins / total };
+};
+
+// ─── Main performance payload ────────────────────────────────────────────────
+
+const buildPayloadForStrategy = async (
+  strategy: StrategyRow,
+  supabase: ReturnType<typeof createPublicClient>
+): Promise<PlatformPerformancePayload> => {
+  const { data: performanceData, error: performanceError } = await supabase
+    .from('strategy_performance_weekly')
+    .select(
+      'run_date, net_return, ending_equity, nasdaq100_cap_weight_equity, nasdaq100_equal_weight_equity, sp500_equity'
+    )
+    .eq('strategy_id', strategy.id)
+    .order('run_date', { ascending: true });
+
+  const baseStrategy = {
+    id: strategy.id,
+    slug: strategy.slug,
+    name: strategy.name,
+    version: strategy.version,
+    description: strategy.description,
+    status: strategy.status ?? 'active',
+    isDefault: strategy.is_default ?? false,
+    rebalanceFrequency: strategy.rebalance_frequency,
+    rebalanceDayOfWeek: strategy.rebalance_day_of_week,
+    portfolioSize: strategy.portfolio_size,
+    transactionCostBps: toNumber(strategy.transaction_cost_bps, 15),
+    startDate: null as string | null,
+  };
+
+  if (performanceError || !performanceData?.length) {
+    return {
+      strategy: baseStrategy,
+      series: [],
+      metrics: null,
+      latestActions: [],
+      research: null,
+    };
+  }
+
+  const perfRows = performanceData as PerformanceRow[];
+  baseStrategy.startDate = perfRows[0]?.run_date ?? null;
+
+  const series: SeriesPoint[] = perfRows.map((row) => ({
+    date: row.run_date,
+    aiTop20: toNumber(row.ending_equity, INITIAL_CAPITAL),
+    nasdaq100CapWeight: toNumber(row.nasdaq100_cap_weight_equity, INITIAL_CAPITAL),
+    nasdaq100EqualWeight: toNumber(row.nasdaq100_equal_weight_equity, INITIAL_CAPITAL),
+    sp500: toNumber(row.sp500_equity, INITIAL_CAPITAL),
+  }));
+
+  const netReturns = perfRows.map((row) => toNumber(row.net_return, 0));
+  const firstPoint = series[0];
+  const lastPoint = series[series.length - 1];
+  const firstDate = firstPoint?.date ?? '';
+  const lastDate = lastPoint?.date ?? '';
+  const latestRunDate = lastPoint?.date ?? null;
+
+  // Use INITIAL_CAPITAL as the start value for all return calculations.
+  // The first row's ending_equity already includes the first week's return,
+  // so measuring from it would skip that week.
+  const totalReturnAi =
+    lastPoint ? computeTotalReturn(INITIAL_CAPITAL, lastPoint.aiTop20) : null;
+  const totalReturnCap =
+    lastPoint ? computeTotalReturn(INITIAL_CAPITAL, lastPoint.nasdaq100CapWeight) : null;
+  const totalReturnEqual =
+    lastPoint ? computeTotalReturn(INITIAL_CAPITAL, lastPoint.nasdaq100EqualWeight) : null;
+  const totalReturnSp =
+    lastPoint ? computeTotalReturn(INITIAL_CAPITAL, lastPoint.sp500) : null;
+
+  const metrics =
+    firstPoint && lastPoint
+      ? {
+          startingCapital: INITIAL_CAPITAL,
+          endingValue: lastPoint.aiTop20,
+          totalReturn: totalReturnAi,
+          cagr: computeCagr(INITIAL_CAPITAL, lastPoint.aiTop20, firstDate, lastDate),
+          maxDrawdown: computeMaxDrawdown(series.map((p) => p.aiTop20)),
+          sharpeRatio: computeSharpeWeekly(netReturns),
+          pctMonthsBeatingNasdaq100: computePctMonthsBeating(
+            series.map((p) => ({ date: p.date, aiValue: p.aiTop20, benchmarkValue: p.nasdaq100CapWeight }))
+          ),
+          benchmarks: {
+            nasdaq100CapWeight: {
+              endingValue: lastPoint.nasdaq100CapWeight,
+              totalReturn: totalReturnCap,
+              cagr: computeCagr(
+                INITIAL_CAPITAL,
+                lastPoint.nasdaq100CapWeight,
+                firstDate,
+                lastDate
+              ),
+              maxDrawdown: computeMaxDrawdown(series.map((p) => p.nasdaq100CapWeight)),
+            },
+            nasdaq100EqualWeight: {
+              endingValue: lastPoint.nasdaq100EqualWeight,
+              totalReturn: totalReturnEqual,
+              cagr: computeCagr(
+                INITIAL_CAPITAL,
+                lastPoint.nasdaq100EqualWeight,
+                firstDate,
+                lastDate
+              ),
+              maxDrawdown: computeMaxDrawdown(series.map((p) => p.nasdaq100EqualWeight)),
+            },
+            sp500: {
+              endingValue: lastPoint.sp500,
+              totalReturn: totalReturnSp,
+              cagr: computeCagr(INITIAL_CAPITAL, lastPoint.sp500, firstDate, lastDate),
+              maxDrawdown: computeMaxDrawdown(series.map((p) => p.sp500)),
+            },
+          },
+        }
+      : null;
+
+  const [actionsResponse, weeklyQuintilesResponse, fourWeekQuintilesResponse, regressionResponse] =
+    await Promise.all([
+      latestRunDate
+        ? supabase
+            .from('strategy_rebalance_actions')
+            .select('symbol, action_type, action_label, previous_weight, new_weight')
+            .eq('strategy_id', strategy.id)
+            .eq('run_date', latestRunDate)
+            .order('action_type', { ascending: true })
+            .order('symbol', { ascending: true })
+        : Promise.resolve({ data: [], error: null }),
+      // Fetch ALL weekly quintile rows for history
+      supabase
+        .from('strategy_quintile_returns')
+        .select('run_date, quintile, stock_count, return_value')
+        .eq('strategy_id', strategy.id)
+        .eq('horizon_weeks', 1)
+        .order('run_date', { ascending: false })
+        .order('quintile', { ascending: true }),
+      // Fetch latest 4-week quintiles (just the most recent snapshot)
+      supabase
+        .from('strategy_quintile_returns')
+        .select('run_date, quintile, stock_count, return_value')
+        .eq('strategy_id', strategy.id)
+        .eq('horizon_weeks', 4)
+        .order('run_date', { ascending: false })
+        .order('quintile', { ascending: true })
+        .limit(5),
+      supabase
+        .from('strategy_cross_sectional_regressions')
+        .select('run_date, sample_size, alpha, beta, r_squared')
+        .eq('strategy_id', strategy.id)
+        .eq('horizon_weeks', 1)
+        .order('run_date', { ascending: false }),
+    ]);
+
+  const latestActions = (actionsResponse.data || []).map((row: ActionRow) => ({
+    symbol: row.symbol,
+    actionType: row.action_type,
+    label: row.action_label,
+    previousWeight: toNullableNumber(row.previous_weight),
+    newWeight: toNullableNumber(row.new_weight),
+  }));
+
+  const allWeeklyRows = (weeklyQuintilesResponse.data || []) as QuintileRow[];
+  const quintileHistory = buildQuintileHistory(allWeeklyRows);
+  const weeklyQuintiles = quintileHistory[0] ?? null;
+  const fourWeekQuintiles =
+    (fourWeekQuintilesResponse.data?.length ?? 0) > 0
+      ? (() => {
+          const rows = (fourWeekQuintilesResponse.data || []) as QuintileRow[];
+          const latestDate = rows[0]?.run_date;
+          return {
+            runDate: latestDate,
+            rows: rows
+              .filter((r) => r.run_date === latestDate)
+              .sort((a, b) => a.quintile - b.quintile)
+              .map((r) => ({
+                quintile: r.quintile,
+                stockCount: r.stock_count,
+                return: toNumber(r.return_value, 0),
+              })),
+          };
+        })()
+      : null;
+
+  const allRegressionRows = ((regressionResponse.data || []) as RegressionRow[]).map((row) => ({
+    runDate: row.run_date,
+    sampleSize: row.sample_size,
+    alpha: toNullableNumber(row.alpha),
+    beta: toNullableNumber(row.beta),
+    rSquared: toNullableNumber(row.r_squared),
+  }));
+  const regression = allRegressionRows[0] ?? null;
+
+  const monthlyQuintiles = buildMonthlyQuintiles(quintileHistory);
+  const quintileWinRate = computeQuintileWinRate(quintileHistory);
 
   return {
-    runDate: latestRunDate,
-    rows: latestRows,
+    strategy: baseStrategy,
+    latestRunDate,
+    series,
+    metrics,
+    latestActions,
+    research: {
+      weeklyQuintiles,
+      fourWeekQuintiles,
+      quintileHistory,
+      quintileWinRate,
+      monthlyQuintiles,
+      regression,
+      regressionHistory: allRegressionRows,
+    },
+    notes: {
+      forwardOnly: true,
+      backtestingPolicy:
+        'Official performance is forward-only live tracking. Any historical simulation must be labeled simulated historical results.',
+    },
   };
+};
+
+// ─── Default payload (used by /performance redirect target) ──────────────────
+
+const EMPTY_PAYLOAD: PlatformPerformancePayload = {
+  strategy: null,
+  series: [],
+  metrics: null,
+  latestActions: [],
+  research: null,
 };
 
 const getPlatformPerformancePayloadCached = unstable_cache(
   async (): Promise<PlatformPerformancePayload> => {
     try {
       const supabase = createPublicClient();
-
       const { data: strategyData, error: strategyError } = await supabase
         .from('trading_strategies')
         .select(
-          'id, slug, name, version, description, rebalance_frequency, rebalance_day_of_week, portfolio_size, transaction_cost_bps'
+          'id, slug, name, version, description, status, is_default, rebalance_frequency, rebalance_day_of_week, portfolio_size, transaction_cost_bps'
         )
         .eq('is_default', true)
         .eq('status', 'active')
@@ -321,239 +588,8 @@ const getPlatformPerformancePayloadCached = unstable_cache(
         .limit(1)
         .maybeSingle();
 
-      if (strategyError || !strategyData) {
-        return EMPTY_PAYLOAD;
-      }
-
-      const strategy = strategyData as StrategyRow;
-
-      const { data: performanceData, error: performanceError } = await supabase
-        .from('strategy_performance_weekly')
-        .select(
-          'run_date, net_return, ending_equity, nasdaq100_cap_weight_equity, nasdaq100_equal_weight_equity, sp500_equity'
-        )
-        .eq('strategy_id', strategy.id)
-        .order('run_date', { ascending: true });
-
-      if (performanceError || !performanceData?.length) {
-        return {
-          strategy: {
-            id: strategy.id,
-            slug: strategy.slug,
-            name: strategy.name,
-            version: strategy.version,
-            description: strategy.description,
-            rebalanceFrequency: strategy.rebalance_frequency,
-            rebalanceDayOfWeek: strategy.rebalance_day_of_week,
-            portfolioSize: strategy.portfolio_size,
-            transactionCostBps: toNumber(strategy.transaction_cost_bps, 15),
-          },
-          series: [],
-          metrics: null,
-          latestHoldings: [],
-          latestActions: [],
-          research: null,
-        };
-      }
-
-      const perfRows = performanceData as PerformanceRow[];
-      const series: SeriesPoint[] = perfRows.map((row) => ({
-        date: row.run_date,
-        aiTop20: toNumber(row.ending_equity, INITIAL_CAPITAL),
-        nasdaq100CapWeight: toNumber(row.nasdaq100_cap_weight_equity, INITIAL_CAPITAL),
-        nasdaq100EqualWeight: toNumber(row.nasdaq100_equal_weight_equity, INITIAL_CAPITAL),
-        sp500: toNumber(row.sp500_equity, INITIAL_CAPITAL),
-      }));
-
-      const netReturns = perfRows.map((row) => toNumber(row.net_return, 0));
-      const firstPoint = series[0];
-      const lastPoint = series[series.length - 1];
-      const firstDate = firstPoint?.date ?? '';
-      const lastDate = lastPoint?.date ?? '';
-
-      const totalReturnAi =
-        firstPoint && lastPoint ? computeTotalReturn(firstPoint.aiTop20, lastPoint.aiTop20) : null;
-      const totalReturnCap =
-        firstPoint && lastPoint
-          ? computeTotalReturn(firstPoint.nasdaq100CapWeight, lastPoint.nasdaq100CapWeight)
-          : null;
-      const totalReturnEqual =
-        firstPoint && lastPoint
-          ? computeTotalReturn(firstPoint.nasdaq100EqualWeight, lastPoint.nasdaq100EqualWeight)
-          : null;
-      const totalReturnSp =
-        firstPoint && lastPoint ? computeTotalReturn(firstPoint.sp500, lastPoint.sp500) : null;
-
-      const metrics =
-        firstPoint && lastPoint
-          ? {
-              startingCapital: INITIAL_CAPITAL,
-              endingValue: lastPoint.aiTop20,
-              totalReturn: totalReturnAi,
-              cagr: computeCagr(firstPoint.aiTop20, lastPoint.aiTop20, firstDate, lastDate),
-              maxDrawdown: computeMaxDrawdown(series.map((point) => point.aiTop20)),
-              sharpeRatio: computeSharpeWeekly(netReturns),
-              pctMonthsBeatingNasdaq100: computePctMonthsBeating(
-                series.map((point) => ({
-                  date: point.date,
-                  aiValue: point.aiTop20,
-                  benchmarkValue: point.nasdaq100CapWeight,
-                }))
-              ),
-              benchmarks: {
-                nasdaq100CapWeight: {
-                  endingValue: lastPoint.nasdaq100CapWeight,
-                  totalReturn: totalReturnCap,
-                  cagr: computeCagr(
-                    firstPoint.nasdaq100CapWeight,
-                    lastPoint.nasdaq100CapWeight,
-                    firstDate,
-                    lastDate
-                  ),
-                  maxDrawdown: computeMaxDrawdown(series.map((point) => point.nasdaq100CapWeight)),
-                },
-                nasdaq100EqualWeight: {
-                  endingValue: lastPoint.nasdaq100EqualWeight,
-                  totalReturn: totalReturnEqual,
-                  cagr: computeCagr(
-                    firstPoint.nasdaq100EqualWeight,
-                    lastPoint.nasdaq100EqualWeight,
-                    firstDate,
-                    lastDate
-                  ),
-                  maxDrawdown: computeMaxDrawdown(
-                    series.map((point) => point.nasdaq100EqualWeight)
-                  ),
-                },
-                sp500: {
-                  endingValue: lastPoint.sp500,
-                  totalReturn: totalReturnSp,
-                  cagr: computeCagr(firstPoint.sp500, lastPoint.sp500, firstDate, lastDate),
-                  maxDrawdown: computeMaxDrawdown(series.map((point) => point.sp500)),
-                },
-              },
-            }
-          : null;
-
-      const latestRunDate = lastPoint?.date ?? null;
-
-      const [
-        holdingsResponse,
-        actionsResponse,
-        weeklyQuintilesResponse,
-        fourWeekQuintilesResponse,
-        regressionResponse,
-      ] = await Promise.all([
-        latestRunDate
-          ? supabase
-              .from('strategy_portfolio_holdings')
-              .select(
-                'symbol, rank_position, target_weight, score, latent_rank, stocks(company_name)'
-              )
-              .eq('strategy_id', strategy.id)
-              .eq('run_date', latestRunDate)
-              .order('rank_position', { ascending: true })
-          : Promise.resolve({ data: [], error: null }),
-        latestRunDate
-          ? supabase
-              .from('strategy_rebalance_actions')
-              .select('symbol, action_type, action_label, previous_weight, new_weight')
-              .eq('strategy_id', strategy.id)
-              .eq('run_date', latestRunDate)
-              .order('action_type', { ascending: true })
-              .order('symbol', { ascending: true })
-          : Promise.resolve({ data: [], error: null }),
-        supabase
-          .from('strategy_quintile_returns')
-          .select('run_date, quintile, stock_count, return_value')
-          .eq('strategy_id', strategy.id)
-          .eq('horizon_weeks', 1)
-          .order('run_date', { ascending: false })
-          .order('quintile', { ascending: true })
-          .limit(100),
-        supabase
-          .from('strategy_quintile_returns')
-          .select('run_date, quintile, stock_count, return_value')
-          .eq('strategy_id', strategy.id)
-          .eq('horizon_weeks', 4)
-          .order('run_date', { ascending: false })
-          .order('quintile', { ascending: true })
-          .limit(100),
-        supabase
-          .from('strategy_cross_sectional_regressions')
-          .select('run_date, sample_size, alpha, beta, r_squared')
-          .eq('strategy_id', strategy.id)
-          .eq('horizon_weeks', 1)
-          .order('run_date', { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-      ]);
-
-      const latestHoldings = (holdingsResponse.data || []).map((row: HoldingRow) => {
-        const stock = Array.isArray(row.stocks) ? row.stocks[0] : row.stocks;
-        return {
-          symbol: row.symbol,
-          companyName: stock?.company_name ?? row.symbol,
-          rank: row.rank_position,
-          weight: toNumber(row.target_weight, 0),
-          score: toNullableNumber(row.score),
-          latentRank: toNullableNumber(row.latent_rank),
-        };
-      });
-
-      const latestActions = (actionsResponse.data || []).map((row: ActionRow) => ({
-        symbol: row.symbol,
-        actionType: row.action_type,
-        label: row.action_label,
-        previousWeight: toNullableNumber(row.previous_weight),
-        newWeight: toNullableNumber(row.new_weight),
-      }));
-
-      const weeklyQuintiles = selectLatestQuintileSet(
-        (weeklyQuintilesResponse.data || []) as QuintileRow[]
-      );
-      const fourWeekQuintiles = selectLatestQuintileSet(
-        (fourWeekQuintilesResponse.data || []) as QuintileRow[]
-      );
-
-      const regression = regressionResponse.data
-        ? ({
-            runDate: (regressionResponse.data as RegressionRow).run_date,
-            sampleSize: (regressionResponse.data as RegressionRow).sample_size,
-            alpha: toNullableNumber((regressionResponse.data as RegressionRow).alpha),
-            beta: toNullableNumber((regressionResponse.data as RegressionRow).beta),
-            rSquared: toNullableNumber((regressionResponse.data as RegressionRow).r_squared),
-          } as const)
-        : null;
-
-      return {
-        strategy: {
-          id: strategy.id,
-          slug: strategy.slug,
-          name: strategy.name,
-          version: strategy.version,
-          description: strategy.description,
-          rebalanceFrequency: strategy.rebalance_frequency,
-          rebalanceDayOfWeek: strategy.rebalance_day_of_week,
-          portfolioSize: strategy.portfolio_size,
-          transactionCostBps: toNumber(strategy.transaction_cost_bps, 15),
-        },
-        latestRunDate,
-        series,
-        metrics,
-        latestHoldings,
-        latestActions,
-        research: {
-          weeklyQuintiles,
-          fourWeekQuintiles,
-          regression,
-        },
-        notes: {
-          forwardOnly: true,
-          backtestingPolicy:
-            'Official performance is forward-only live tracking. Any historical simulation must be labeled simulated historical results.',
-        },
-      };
+      if (strategyError || !strategyData) return EMPTY_PAYLOAD;
+      return buildPayloadForStrategy(strategyData as StrategyRow, supabase);
     } catch {
       return EMPTY_PAYLOAD;
     }
@@ -563,3 +599,371 @@ const getPlatformPerformancePayloadCached = unstable_cache(
 );
 
 export const getPlatformPerformancePayload = async () => getPlatformPerformancePayloadCached();
+
+// ─── Per-slug payload (used by /performance/[slug]) ──────────────────────────
+
+const getPerformancePayloadBySlugCached = (slug: string) =>
+  unstable_cache(
+    async (): Promise<PlatformPerformancePayload> => {
+      try {
+        const supabase = createPublicClient();
+        const { data: strategyData, error: strategyError } = await supabase
+          .from('trading_strategies')
+          .select(
+            'id, slug, name, version, description, status, is_default, rebalance_frequency, rebalance_day_of_week, portfolio_size, transaction_cost_bps'
+          )
+          .eq('slug', slug)
+          .eq('status', 'active')
+          .maybeSingle();
+
+        if (strategyError || !strategyData) return EMPTY_PAYLOAD;
+        return buildPayloadForStrategy(strategyData as StrategyRow, supabase);
+      } catch {
+        return EMPTY_PAYLOAD;
+      }
+    },
+    [`platform-performance-payload-${slug}`],
+    { revalidate: 300 }
+  );
+
+export const getPerformancePayloadBySlug = async (slug: string) =>
+  getPerformancePayloadBySlugCached(slug)();
+
+// ─── Auth-gated holdings (never exposed in the public payload) ───────────────
+
+export const getHoldingsForStrategy = async (
+  strategyId: string,
+  runDate: string
+): Promise<HoldingItem[]> => {
+  try {
+    const supabase = createPublicClient();
+    const { data, error } = await supabase
+      .from('strategy_portfolio_holdings')
+      .select('symbol, rank_position, target_weight, score, latent_rank, stocks(company_name)')
+      .eq('strategy_id', strategyId)
+      .eq('run_date', runDate)
+      .order('rank_position', { ascending: true });
+
+    if (error || !data) return [];
+
+    return (data as HoldingRow[]).map((row) => {
+      const stock = Array.isArray(row.stocks) ? row.stocks[0] : row.stocks;
+      return {
+        symbol: row.symbol,
+        companyName: stock?.company_name ?? row.symbol,
+        rank: row.rank_position,
+        weight: toNumber(row.target_weight, 0),
+        score: toNullableNumber(row.score),
+        latentRank: toNullableNumber(row.latent_rank),
+      };
+    });
+  } catch {
+    return [];
+  }
+};
+
+// ─── Portfolio snapshot dates (all run_dates for a strategy) ─────────────────
+
+export const getPortfolioRunDates = async (strategyId: string): Promise<string[]> => {
+  try {
+    const supabase = createPublicClient();
+    const { data, error } = await supabase
+      .from('strategy_portfolio_holdings')
+      .select('run_date')
+      .eq('strategy_id', strategyId)
+      .order('run_date', { ascending: false });
+
+    if (error || !data) return [];
+    const unique = Array.from(new Set((data as Array<{ run_date: string }>).map((r) => r.run_date)));
+    return unique.sort((a, b) => b.localeCompare(a));
+  } catch {
+    return [];
+  }
+};
+
+// ─── Strategy List ───────────────────────────────────────────────────────────
+
+const getStrategiesListCached = unstable_cache(
+  async (): Promise<StrategyListItem[]> => {
+    try {
+      const supabase = createPublicClient();
+
+      const { data, error } = await supabase
+        .from('trading_strategies')
+        .select(
+          'id, slug, name, version, description, status, portfolio_size, rebalance_frequency, weighting_method, transaction_cost_bps, is_default'
+        )
+        .eq('status', 'active')
+        .order('created_at', { ascending: false });
+
+      if (error || !data?.length) return [];
+
+      const strategies = data as Array<{
+        id: string;
+        slug: string;
+        name: string;
+        version: string;
+        description: string | null;
+        status: string;
+        portfolio_size: number;
+        rebalance_frequency: string;
+        weighting_method: string;
+        transaction_cost_bps: number | string;
+        is_default: boolean;
+      }>;
+
+      const items: StrategyListItem[] = await Promise.all(
+        strategies.map(async (strategy) => {
+          const { data: perfData } = await supabase
+            .from('strategy_performance_weekly')
+            .select('run_date, net_return, ending_equity')
+            .eq('strategy_id', strategy.id)
+            .order('run_date', { ascending: true });
+
+          const rows = (perfData ?? []) as Array<{
+            run_date: string;
+            net_return: number | string;
+            ending_equity: number | string;
+          }>;
+
+          const netReturns = rows.map((r) => toNumber(r.net_return, 0));
+          const firstRow = rows[0];
+          const lastRow = rows[rows.length - 1];
+          const endEquity = lastRow ? toNumber(lastRow.ending_equity, INITIAL_CAPITAL) : INITIAL_CAPITAL;
+
+          return {
+            id: strategy.id,
+            slug: strategy.slug,
+            name: strategy.name,
+            version: strategy.version,
+            description: strategy.description,
+            status: strategy.status,
+            portfolioSize: Number(strategy.portfolio_size),
+            rebalanceFrequency: strategy.rebalance_frequency,
+            weightingMethod: strategy.weighting_method,
+            transactionCostBps: toNumber(strategy.transaction_cost_bps, 15),
+            isDefault: strategy.is_default,
+            startDate: firstRow?.run_date ?? null,
+            sharpeRatio: computeSharpeWeekly(netReturns),
+            totalReturn: rows.length >= 2 ? computeTotalReturn(INITIAL_CAPITAL, endEquity) : null,
+            cagr:
+              firstRow && lastRow && rows.length >= 2
+                ? computeCagr(INITIAL_CAPITAL, endEquity, firstRow.run_date, lastRow.run_date)
+                : null,
+            maxDrawdown:
+              rows.length >= 2
+                ? computeMaxDrawdown(rows.map((r) => toNumber(r.ending_equity, INITIAL_CAPITAL)))
+                : null,
+          } satisfies StrategyListItem;
+        })
+      );
+
+      return items.sort((a, b) => {
+        if (a.sharpeRatio === null && b.sharpeRatio === null) return 0;
+        if (a.sharpeRatio === null) return 1;
+        if (b.sharpeRatio === null) return -1;
+        return b.sharpeRatio - a.sharpeRatio;
+      });
+    } catch {
+      return [];
+    }
+  },
+  ['strategies-list'],
+  { revalidate: 300 }
+);
+
+export const getStrategiesList = async () => getStrategiesListCached();
+
+// ─── Strategy Detail (for /strategy-models/[slug]) ──────────────────────────
+
+export type StrategyDetail = {
+  id: string;
+  slug: string;
+  name: string;
+  version: string;
+  description: string | null;
+  status: string;
+  isDefault: boolean;
+  indexName: string;
+  portfolioSize: number;
+  rebalanceFrequency: string;
+  rebalanceDayOfWeek: number;
+  weightingMethod: string;
+  transactionCostBps: number;
+  promptName: string | null;
+  promptVersion: string | null;
+  promptTemplate: string | null;
+  modelProvider: string | null;
+  modelName: string | null;
+  modelVersion: string | null;
+  createdAt: string;
+  startDate: string | null;
+  sharpeRatio: number | null;
+  totalReturn: number | null;
+  cagr: number | null;
+  maxDrawdown: number | null;
+  runCount: number;
+  latestRunDate: string | null;
+  pctMonthsBeatingNasdaq100: number | null;
+  quintileWinRate: { total: number; wins: number; rate: number } | null;
+  latestBeta: number | null;
+  latestRSquared: number | null;
+  latestAlpha: number | null;
+  latestRegressionDate: string | null;
+  benchmarkCapWeightReturn: number | null;
+};
+
+const getStrategyDetailCached = (slug: string) =>
+  unstable_cache(
+    async (): Promise<StrategyDetail | null> => {
+      try {
+        const supabase = createPublicClient();
+
+        const { data, error } = await supabase
+          .from('trading_strategies')
+          .select(
+            'id, slug, name, version, description, status, is_default, index_name, portfolio_size, rebalance_frequency, rebalance_day_of_week, weighting_method, transaction_cost_bps, created_at, ai_prompts(name, version, template), ai_models(provider, name, version)'
+          )
+          .eq('slug', slug)
+          .maybeSingle();
+
+        if (error || !data) return null;
+
+        const row = data as {
+          id: string;
+          slug: string;
+          name: string;
+          version: string;
+          description: string | null;
+          status: string;
+          is_default: boolean;
+          index_name: string;
+          portfolio_size: number;
+          rebalance_frequency: string;
+          rebalance_day_of_week: number;
+          weighting_method: string;
+          transaction_cost_bps: number | string;
+          created_at: string;
+          ai_prompts:
+            | { name: string; version: string; template: string }
+            | { name: string; version: string; template: string }[]
+            | null;
+          ai_models:
+            | { provider: string; name: string; version: string }
+            | { provider: string; name: string; version: string }[]
+            | null;
+        };
+
+        const prompt = Array.isArray(row.ai_prompts) ? row.ai_prompts[0] : row.ai_prompts;
+        const model = Array.isArray(row.ai_models) ? row.ai_models[0] : row.ai_models;
+
+        const [perfResponse, quintileResponse, regressionResponse] = await Promise.all([
+          supabase
+            .from('strategy_performance_weekly')
+            .select(
+              'run_date, net_return, ending_equity, nasdaq100_cap_weight_equity'
+            )
+            .eq('strategy_id', row.id)
+            .order('run_date', { ascending: true }),
+          supabase
+            .from('strategy_quintile_returns')
+            .select('run_date, quintile, stock_count, return_value')
+            .eq('strategy_id', row.id)
+            .eq('horizon_weeks', 1)
+            .order('run_date', { ascending: false }),
+          supabase
+            .from('strategy_cross_sectional_regressions')
+            .select('run_date, sample_size, alpha, beta, r_squared')
+            .eq('strategy_id', row.id)
+            .eq('horizon_weeks', 1)
+            .order('run_date', { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+        ]);
+
+        const perfRows = (perfResponse.data ?? []) as Array<{
+          run_date: string;
+          net_return: number | string;
+          ending_equity: number | string;
+          nasdaq100_cap_weight_equity: number | string;
+        }>;
+
+        const netReturns = perfRows.map((r) => toNumber(r.net_return, 0));
+        const firstRow = perfRows[0];
+        const lastRow = perfRows[perfRows.length - 1];
+        const endEquity = lastRow ? toNumber(lastRow.ending_equity, INITIAL_CAPITAL) : INITIAL_CAPITAL;
+        const benchCapEnd = lastRow
+          ? toNumber(lastRow.nasdaq100_cap_weight_equity, INITIAL_CAPITAL)
+          : INITIAL_CAPITAL;
+
+        const pctMonthsBeatingNasdaq100 =
+          perfRows.length >= 2
+            ? computePctMonthsBeating(
+                perfRows.map((r) => ({
+                  date: r.run_date,
+                  aiValue: toNumber(r.ending_equity, INITIAL_CAPITAL),
+                  benchmarkValue: toNumber(r.nasdaq100_cap_weight_equity, INITIAL_CAPITAL),
+                }))
+              )
+            : null;
+
+        const quintileHistory = buildQuintileHistory(
+          (quintileResponse.data ?? []) as QuintileRow[]
+        );
+        const quintileWinRate = computeQuintileWinRate(quintileHistory);
+
+        const regRow = regressionResponse.data as RegressionRow | null;
+
+        return {
+          id: row.id,
+          slug: row.slug,
+          name: row.name,
+          version: row.version,
+          description: row.description,
+          status: row.status,
+          isDefault: row.is_default,
+          indexName: row.index_name,
+          portfolioSize: Number(row.portfolio_size),
+          rebalanceFrequency: row.rebalance_frequency,
+          rebalanceDayOfWeek: Number(row.rebalance_day_of_week),
+          weightingMethod: row.weighting_method,
+          transactionCostBps: toNumber(row.transaction_cost_bps, 15),
+          promptName: prompt?.name ?? null,
+          promptVersion: prompt?.version ?? null,
+          promptTemplate: prompt?.template ?? null,
+          modelProvider: model?.provider ?? null,
+          modelName: model?.name ?? null,
+          modelVersion: model?.version ?? null,
+          createdAt: row.created_at,
+          startDate: firstRow?.run_date ?? null,
+          sharpeRatio: computeSharpeWeekly(netReturns),
+          totalReturn: perfRows.length >= 2 ? computeTotalReturn(INITIAL_CAPITAL, endEquity) : null,
+          cagr:
+            firstRow && lastRow && perfRows.length >= 2
+              ? computeCagr(INITIAL_CAPITAL, endEquity, firstRow.run_date, lastRow.run_date)
+              : null,
+          maxDrawdown:
+            perfRows.length >= 2
+              ? computeMaxDrawdown(perfRows.map((r) => toNumber(r.ending_equity, INITIAL_CAPITAL)))
+              : null,
+          runCount: perfRows.length,
+          latestRunDate: lastRow?.run_date ?? null,
+          pctMonthsBeatingNasdaq100,
+          quintileWinRate,
+          latestBeta: regRow ? toNullableNumber(regRow.beta) : null,
+          latestRSquared: regRow ? toNullableNumber(regRow.r_squared) : null,
+          latestAlpha: regRow ? toNullableNumber(regRow.alpha) : null,
+          latestRegressionDate: regRow?.run_date ?? null,
+          benchmarkCapWeightReturn:
+            perfRows.length >= 2 ? computeTotalReturn(INITIAL_CAPITAL, benchCapEnd) : null,
+        };
+      } catch {
+        return null;
+      }
+    },
+    [`strategy-detail-${slug}`],
+    { revalidate: 300 }
+  );
+
+export const getStrategyDetail = async (slug: string): Promise<StrategyDetail | null> =>
+  getStrategyDetailCached(slug)();

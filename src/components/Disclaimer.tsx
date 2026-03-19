@@ -1,4 +1,5 @@
 import React from 'react';
+import Link from 'next/link';
 import { Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -11,7 +12,10 @@ export const Disclaimer: React.FC<DisclaimerProps> = ({ variant = 'default', cla
   if (variant === 'inline') {
     return (
       <p className={cn('text-xs text-muted-foreground', className)}>
-        Not investment advice. Past performance does not guarantee future results.
+        Not investment advice. Past performance does not guarantee future results.{' '}
+        <Link href="/disclaimer" className="text-trader-blue hover:underline">
+          Full disclaimer
+        </Link>
       </p>
     );
   }
@@ -27,8 +31,11 @@ export const Disclaimer: React.FC<DisclaimerProps> = ({ variant = 'default', cla
         <p className="font-medium mb-1">Important Disclosure</p>
         <p>
           This platform provides AI-generated analysis for informational and educational purposes
-          only. It is not investment advice, and past performance does not guarantee future results.
-          Consult a qualified financial advisor before making investment decisions.
+          only. It is not investment advice, and past performance does not guarantee future
+          results. Consult a qualified financial advisor before making investment decisions.{' '}
+          <Link href="/disclaimer" className="text-trader-blue hover:underline">
+            Full disclaimer
+          </Link>
         </p>
       </div>
     );
@@ -45,8 +52,8 @@ export const Disclaimer: React.FC<DisclaimerProps> = ({ variant = 'default', cla
           <p>
             This platform provides AI-generated stock analysis for informational and educational
             purposes only. The content does not constitute investment advice, financial advice,
-            trading advice, or any other sort of advice, and you should not treat any of the content
-            as such.
+            trading advice, or any other sort of advice, and you should not treat any of the
+            content as such.
           </p>
           <p>
             Past performance is not indicative of future results. All investments carry risk,
@@ -55,9 +62,13 @@ export const Disclaimer: React.FC<DisclaimerProps> = ({ variant = 'default', cla
             market behavior.
           </p>
           <p>
-            Before making any investment decisions, you should conduct your own research and consult
-            with a qualified financial advisor who understands your specific financial situation and
-            objectives.
+            Before making any investment decisions, you should conduct your own research and
+            consult with a qualified financial advisor who understands your specific financial
+            situation and objectives.{' '}
+            <Link href="/disclaimer" className="text-trader-blue hover:underline">
+              Read our full disclaimer
+            </Link>
+            .
           </p>
         </div>
       </div>

@@ -16,6 +16,7 @@ import { useAuthState } from '@/components/auth/auth-state-context';
 type StockDetailClientProps = {
   symbol: string;
   stockName: string | null;
+  isPremiumStock: boolean;
   price: {
     price: string | null;
     change: string | null;
@@ -61,10 +62,17 @@ const PREMIUM_CACHE_TTL_MS = 10 * 60 * 1000;
 const formatBucket = (bucket: string | null) =>
   bucket ? bucket.charAt(0).toUpperCase() + bucket.slice(1) : 'N/A';
 
-const StockDetailClient = ({ symbol, stockName, price, latest, news }: StockDetailClientProps) => {
+const StockDetailClient = ({ symbol, stockName, isPremiumStock, price, latest, news }: StockDetailClientProps) => {
   const router = useRouter();
-  const { isAuthenticated, isLoaded } = useAuthState();
+  const { isAuthenticated, isLoaded, hasPremiumAccess } = useAuthState();
   const upgradeHref = isAuthenticated ? '/pricing' : '/sign-up';
+  // Premium stocks require Supporter+ for all ratings.
+  // Free stocks allow authenticated users to see the basic bucket,
+  // but detailed history / risks require Supporter+.
+  const canAccessPremiumStock = hasPremiumAccess;
+  const premiumGateMessage = isPremiumStock
+    ? 'This is a premium stock. Upgrade to Supporter or Outperformer to see AI ratings and history.'
+    : 'Full history and detailed analysis require a Supporter or Outperformer plan.';
   const normalizedSymbol = symbol.toUpperCase();
   const premiumCacheKey = `stock.${normalizedSymbol.toLowerCase()}.premium`;
   const initialPremiumCache =
@@ -96,7 +104,7 @@ const StockDetailClient = ({ symbol, stockName, price, latest, news }: StockDeta
         return;
       }
 
-      if (!isAuthenticated) {
+      if (!isAuthenticated || !canAccessPremiumStock) {
         if (isMounted) {
           setPremiumState('locked');
         }
@@ -159,7 +167,7 @@ const StockDetailClient = ({ symbol, stockName, price, latest, news }: StockDeta
     return () => {
       isMounted = false;
     };
-  }, [isAuthenticated, isLoaded, normalizedSymbol, premiumCacheKey]);
+  }, [isAuthenticated, isLoaded, canAccessPremiumStock, normalizedSymbol, premiumCacheKey]);
 
   useEffect(() => {
     router.prefetch('/');
@@ -202,7 +210,14 @@ const StockDetailClient = ({ symbol, stockName, price, latest, news }: StockDeta
             <div className="max-w-4xl mx-auto">
               <div className="flex items-center justify-between gap-4 mb-6">
                 <div>
-                  <p className="text-sm text-muted-foreground">Stock profile</p>
+                  <div className="flex items-center gap-2 mb-1">
+                    <p className="text-sm text-muted-foreground">Stock profile</p>
+                    {isPremiumStock && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-trader-blue bg-trader-blue/10 px-1.5 py-0.5 rounded">
+                        Premium stock
+                      </span>
+                    )}
+                  </div>
                   <h1 className="text-3xl md:text-5xl font-bold">
                     {normalizedSymbol} {stockName ? `· ${stockName}` : ''}
                   </h1>
@@ -257,14 +272,12 @@ const StockDetailClient = ({ symbol, stockName, price, latest, news }: StockDeta
                       {premiumState !== 'loading' && (
                         <>
                           <p className="font-medium text-foreground">
-                            Unlock premium history and trend chart
+                            Unlock history and trend chart
                           </p>
-                          <p className="mt-2">
-                            Sign in with a paid account to view historical recommendations.
-                          </p>
+                          <p className="mt-2">{premiumGateMessage}</p>
                           <div className="mt-4 flex flex-wrap gap-2">
                             <Link href={upgradeHref}>
-                              <Button size="sm">Upgrade to premium</Button>
+                              <Button size="sm">Upgrade plan</Button>
                             </Link>
                             {!isAuthenticated && (
                               <Link href="/sign-in?next=/platform/current">
@@ -315,7 +328,10 @@ const StockDetailClient = ({ symbol, stockName, price, latest, news }: StockDeta
                         </ul>
                       ) : (
                         <div className="text-sm text-muted-foreground">
-                          Premium members can view detailed risks.
+                          <Link href={upgradeHref} className="text-trader-blue hover:underline font-medium">
+                            Supporter plan
+                          </Link>{' '}
+                          required to view detailed risks.
                         </div>
                       )}
                     </div>
@@ -369,12 +385,10 @@ const StockDetailClient = ({ symbol, stockName, price, latest, news }: StockDeta
                         <p className="font-medium text-foreground">
                           Unlock change explanations and weekly history
                         </p>
-                        <p className="mt-2">
-                          Premium members can see why recommendations change from week to week.
-                        </p>
+                        <p className="mt-2">{premiumGateMessage}</p>
                         <div className="mt-4 flex flex-wrap gap-2">
                           <Link href={upgradeHref}>
-                            <Button size="sm">Upgrade to premium</Button>
+                            <Button size="sm">Upgrade plan</Button>
                           </Link>
                           {!isAuthenticated && (
                             <Link href="/sign-in?next=/platform/current">

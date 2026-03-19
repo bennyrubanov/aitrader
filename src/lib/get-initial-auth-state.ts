@@ -1,5 +1,5 @@
 import "server-only";
-import { DEFAULT_AUTH_STATE, type AuthState } from "@/lib/auth-state";
+import { DEFAULT_AUTH_STATE, type AuthState, type SubscriptionTier } from "@/lib/auth-state";
 import { createClient } from "@/utils/supabase/server";
 
 export const getInitialAuthState = async (): Promise<AuthState> => {
@@ -19,10 +19,11 @@ export const getInitialAuthState = async (): Promise<AuthState> => {
 
     const { data, error } = await supabase
       .from("user_profiles")
-      .select("is_premium, full_name, email")
+      .select("subscription_tier, full_name, email")
       .eq("id", user.id)
       .maybeSingle();
 
+    const tier = (!error && (data?.subscription_tier as SubscriptionTier | undefined)) || 'free';
     return {
       isLoaded: true,
       isAuthenticated: true,
@@ -30,7 +31,8 @@ export const getInitialAuthState = async (): Promise<AuthState> => {
       email: data?.email ?? user.email ?? "Signed in",
       name: data?.full_name ?? user.user_metadata?.full_name ?? user.user_metadata?.name ?? "Account",
       avatar: user.user_metadata?.avatar_url ?? user.user_metadata?.picture ?? "",
-      hasPremiumAccess: !error && Boolean(data?.is_premium),
+      subscriptionTier: tier,
+      hasPremiumAccess: tier === 'supporter' || tier === 'outperformer',
     };
   } catch {
     return { ...DEFAULT_AUTH_STATE, isLoaded: true };

@@ -3,11 +3,24 @@
 import type { ComponentType } from 'react';
 import { useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { BarChart3, CalendarDays, CalendarRange, Info, MessageSquare, Search } from 'lucide-react';
+import {
+  ArrowUpRight,
+  BarChart3,
+  Briefcase,
+  Cpu,
+  FlaskConical,
+  Folders,
+  House,
+  Info,
+  ListOrdered,
+  MessageSquare,
+} from 'lucide-react';
 import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
@@ -20,37 +33,62 @@ import { getSupabaseBrowserClient } from '@/utils/supabase/browser';
 import { useAuthState } from '@/components/auth/auth-state-context';
 import { PlanLabel } from '@/components/account/plan-label';
 import { navigateWithFallback } from '@/lib/client-navigation';
+import { Disclaimer } from '@/components/Disclaimer';
 
 type NavItem = {
   title: string;
-  href: string;
+  href?: string;
   icon: ComponentType<{ className?: string }>;
+  disabled?: boolean;
+  badge?: string;
 };
 
 const mainItems: NavItem[] = [
   {
-    title: 'Current Recommendations',
-    href: '/platform/current',
-    icon: CalendarDays,
+    title: 'Overview',
+    href: '/platform',
+    icon: House,
+  },
+];
+
+const platformItems: NavItem[] = [
+  {
+    title: "This Week's Ratings",
+    href: '/platform/ratings',
+    icon: ListOrdered,
   },
   {
-    title: 'Weekly Rankings',
-    href: '/platform/weekly',
-    icon: CalendarRange,
+    title: 'Recommended Portfolio',
+    href: '/platform/recommended-portfolio',
+    icon: Briefcase,
   },
   {
-    title: 'Custom Search',
-    href: '/platform/custom-search',
-    icon: Search,
+    title: 'Your Portfolio',
+    href: '/platform/your-portfolio',
+    icon: Folders,
+  },
+];
+
+const advancedItems: NavItem[] = [
+  {
+    title: 'Create Custom Strategy',
+    icon: FlaskConical,
+    disabled: true,
+    badge: 'Soon',
   },
   {
-    title: 'Top-20 Performance',
-    href: '/platform/performance',
-    icon: BarChart3,
+    title: 'Chat',
+    icon: MessageSquare,
+    disabled: true,
+    badge: 'Soon',
   },
 ];
 
 const isItemActive = (pathname: string, href: string) => {
+  if (href === '/platform') {
+    return pathname === '/platform' || pathname === '/platform/overview';
+  }
+
   if (pathname === href) {
     return true;
   }
@@ -67,6 +105,7 @@ export function AppSidebar() {
     email: authState.email,
     avatar: authState.avatar,
     isPremium: authState.hasPremiumAccess,
+    subscriptionTier: authState.subscriptionTier,
     isAuthenticated: authState.isAuthenticated,
   };
   const handlePrefetchIntent = (href: string) => {
@@ -77,7 +116,14 @@ export function AppSidebar() {
   };
 
   useEffect(() => {
-    const prefetchTargets = ['/', ...mainItems.map((item) => item.href), '/platform/settings'];
+    const prefetchTargets = [
+      '/',
+      ...mainItems.flatMap((item) => (item.href ? [item.href] : [])),
+      ...platformItems.flatMap((item) => (item.href ? [item.href] : [])),
+      ...advancedItems.flatMap((item) => (item.href ? [item.href] : [])),
+      '/platform/settings',
+      '/strategy-models',
+    ];
     const prefetchAllRoutes = () => {
       prefetchTargets.forEach((href) => {
         router.prefetch(href);
@@ -176,6 +222,7 @@ export function AppSidebar() {
                 <div className="grid flex-1 text-left text-sm leading-tight">
                   <PlanLabel
                     isPremium={account.isPremium}
+                    subscriptionTier={account.subscriptionTier}
                     className={`truncate text-xs uppercase tracking-[0.18em] ${
                       account.isPremium
                         ? '-skew-x-12 text-trader-blue font-semibold'
@@ -195,11 +242,65 @@ export function AppSidebar() {
             title: item.title,
             url: item.href,
             icon: item.icon,
-            isActive: isItemActive(pathname, item.href),
+            isActive: item.href ? isItemActive(pathname, item.href) : false,
             onNavigate: handleNavigateStart,
             onPrefetch: handlePrefetchIntent,
+            disabled: item.disabled,
+            badge: item.badge,
           }))}
+          label="Overview"
+          hideLabel
         />
+        <NavMain
+          items={platformItems.map((item) => ({
+            title: item.title,
+            url: item.href,
+            icon: item.icon,
+            isActive: item.href ? isItemActive(pathname, item.href) : false,
+            onNavigate: handleNavigateStart,
+            onPrefetch: handlePrefetchIntent,
+            disabled: item.disabled,
+            badge: item.badge,
+          }))}
+          label="Platform"
+        />
+        <NavMain
+          items={advancedItems.map((item) => ({
+            title: item.title,
+            url: item.href,
+            icon: item.icon,
+            isActive: item.href ? isItemActive(pathname, item.href) : false,
+            onNavigate: handleNavigateStart,
+            onPrefetch: handlePrefetchIntent,
+            disabled: item.disabled,
+            badge: item.badge,
+          }))}
+          label="Advanced Features"
+        />
+        <SidebarGroup className="mt-auto">
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild tooltip="Performance (outside platform)">
+                  <button type="button" onClick={() => openPath('/performance')}>
+                    <BarChart3 className="size-4 shrink-0" />
+                    <span className="truncate">Performance</span>
+                    <ArrowUpRight className="ml-auto size-3.5 shrink-0 text-muted-foreground" />
+                  </button>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild tooltip="Strategy models (outside platform)">
+                  <button type="button" onClick={() => openPath('/strategy-models')}>
+                    <Cpu className="size-4 shrink-0" />
+                    <span className="truncate">Strategy models</span>
+                    <ArrowUpRight className="ml-auto size-3.5 shrink-0 text-muted-foreground" />
+                  </button>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
       </SidebarContent>
       <SidebarFooter className="sticky bottom-0 z-10 border-t border-sidebar-border/70 bg-sidebar">
         <NavSecondary
@@ -212,19 +313,12 @@ export function AppSidebar() {
             },
             {
               title: 'Disclaimer',
-              url: '#',
+              url: '/disclaimer',
               icon: Info,
               collapsible: {
                 content: (
-                  <div className="px-4 py-3 text-xs text-sidebar-foreground/70 space-y-2">
-                    <p>
-                      This platform provides AI-generated analysis for informational and educational
-                      purposes only.
-                    </p>
-                    <p>
-                      Not investment advice. Past performance does not guarantee future results.
-                      Consult a qualified financial advisor before making investment decisions.
-                    </p>
+                  <div className="px-4 py-3">
+                    <Disclaimer variant="compact" className="border-sidebar-border bg-sidebar-accent/50 text-sidebar-foreground/80 [&_a]:text-trader-blue" />
                   </div>
                 ),
               },

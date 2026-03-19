@@ -17,24 +17,20 @@ type ViewMeta = {
 };
 
 const viewMetaByPath: Record<string, ViewMeta> = {
-  '/platform/current': {
-    title: 'Current Recommendations',
-    subtitle: 'Latest AI recommendations across Nasdaq-100 members',
+  '/platform/ratings': {
+    title: "This Week's Ratings",
+    subtitle: 'AI ratings and rankings for all Nasdaq-100 stocks',
   },
-  '/platform/daily': {
-    title: 'Current Recommendations',
-    subtitle: 'Latest AI recommendations across Nasdaq-100 members',
+  '/platform/recommended-portfolio': {
+    title: 'Recommended Portfolio',
+    subtitle: 'AI-optimized portfolio based on top-performing strategy',
   },
-  '/platform/weekly': {
-    title: 'Weekly Rankings',
-    subtitle: 'Weekly rankings for all Nasdaq-100 members',
+  '/platform/your-portfolio': {
+    title: 'Your Portfolio',
+    subtitle: 'Track and manage your personal stock selections',
   },
-  '/platform/custom-search': {
-    title: 'Custom Search',
-    subtitle: 'Explore ideas with the AI Trader GPT assistant',
-  },
-  '/platform/performance': {
-    title: 'Top-20 Performance',
+  '/performance': {
+    title: 'Performance',
     subtitle: 'Transparent live results for the weekly Top-20 strategy',
   },
   '/platform/settings': {
@@ -65,7 +61,7 @@ export function SiteHeader() {
   const router = useRouter();
   const { isAuthenticated, isLoaded, hasPremiumAccess } = useAuthState();
   const viewMeta = getMetaFromPath(pathname);
-  const getStartedHref = hasPremiumAccess ? '/platform/current' : isAuthenticated ? '/pricing' : '/sign-up';
+  const getStartedHref = hasPremiumAccess ? '/platform/ratings' : isAuthenticated ? '/pricing' : '/sign-up';
 
   return (
     <header className="bg-background sticky top-0 z-50 border-b">
@@ -101,7 +97,7 @@ export function SiteHeader() {
             <>
               <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
                 <Link
-                  href="/sign-in?next=/platform/current"
+                  href="/sign-in?next=/platform/ratings"
                   prefetch
                   onMouseEnter={() => router.prefetch('/sign-in')}
                   onFocus={() => router.prefetch('/sign-in')}

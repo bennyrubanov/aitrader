@@ -13,7 +13,9 @@ import {
   EMAIL_PASSWORD_SIGN_IN_METHOD,
   GOOGLE_SIGN_IN_METHOD,
   getLastSignInMethod,
+  rememberAuthPrefillEmail,
   rememberSignInMethod,
+  clearPreAuthReturnUrl,
 } from "@/lib/auth-storage";
 
 const sanitizeNextPath = (value: string | null, fallback: string) => {
@@ -52,6 +54,7 @@ function SignUpPageContent() {
 
   useEffect(() => {
     setLastMethod(getLastSignInMethod());
+    clearPreAuthReturnUrl();
   }, []);
 
   useEffect(() => {
@@ -152,9 +155,6 @@ function SignUpPageContent() {
     const accountAlreadyExists = !data.session && (data.user?.identities?.length ?? 0) === 0;
     if (accountAlreadyExists) {
       const normalizedEmail = email.trim().toLowerCase();
-      if (typeof window !== "undefined" && password) {
-        window.sessionStorage.setItem("aitrader.auth.prefill.password", password);
-      }
       toast({
         title: "Account already exists",
         description: (
@@ -166,8 +166,9 @@ function SignUpPageContent() {
                 variant="outline"
                 onClick={() => {
                   dismiss();
+                  rememberAuthPrefillEmail(normalizedEmail);
                   router.push(
-                    `/sign-in?email=${encodeURIComponent(normalizedEmail)}&prefillPassword=1&next=${encodeURIComponent(nextPath)}`,
+                    `/sign-in?next=${encodeURIComponent(nextPath)}`,
                   );
                 }}
               >
@@ -178,8 +179,9 @@ function SignUpPageContent() {
                 variant="outline"
                 onClick={() => {
                   dismiss();
+                  rememberAuthPrefillEmail(normalizedEmail);
                   router.push(
-                    `/forgot-password?email=${encodeURIComponent(normalizedEmail)}&next=${encodeURIComponent(nextPath)}`,
+                    `/forgot-password?next=${encodeURIComponent(nextPath)}`,
                   );
                 }}
               >

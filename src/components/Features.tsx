@@ -41,44 +41,44 @@ const Features: React.FC = () => {
   const features = [
     {
       icon: <BrainCircuit size={24} className="text-trader-blue" />,
-      title: 'AI-Powered Deep Analysis',
+      title: '100+ stocks evaluated weekly',
       description:
-        'Our AI processes thousands of data points per stock, far more than any human analyst can evaluate at once.',
+        'Every NASDAQ-100 stock is re-analyzed on a fixed weekly schedule using the same model and prompt.',
       delay: 100,
     },
     {
       icon: <TrendingUp size={24} className="text-trader-green" />,
-      title: 'Research-Backed Forecasting',
+      title: 'Based on published academic findings',
       description:
-        'Peer-reviewed studies show AI stock ratings correlate with actual future returns and earnings.',
+        'Inspired by peer-reviewed research showing AI ratings correlate with actual future returns and earnings.',
       delay: 200,
     },
     {
       icon: <BarChart3 size={24} className="text-purple-500" />,
-      title: 'Recommended Portfolios',
+      title: 'Portfolio constructed from top-ranked stocks',
       description:
-        'A portfolio built from the highest-ranked stocks is tracked live, with weekly updates and rebalancing.',
+        'The highest-ranked stocks form a live equal-weight portfolio, tracked with weekly rebalancing.',
       delay: 300,
     },
     {
       icon: <Clock size={24} className="text-amber-500" />,
-      title: 'Updated Weekly',
+      title: 'Model updated on a fixed schedule',
       description:
-        'Every stock is re-rated on a set weekly schedule as new market information becomes available.',
+        'No discretionary timing. The model runs on a set cadence — same rules, same process, every week.',
       delay: 400,
     },
     {
       icon: <ShieldCheck size={24} className="text-orange-500" />,
-      title: 'Early Warning on Risks',
+      title: 'Risk signals flagged as they emerge',
       description:
-        'The AI identifies shifting market dynamics and flags potential risks before they become obvious.',
+        'The AI surfaces potential risk factors based on model signals — not guarantees, but flags worth watching.',
       delay: 500,
     },
     {
       icon: <Eye size={24} className="text-trader-blue-dark" />,
-      title: 'Fully Transparent',
+      title: 'All historical outputs preserved publicly',
       description:
-        'All performance and methodology are published openly. Past results are never changed after the fact.',
+        'Every rating, every decision, and every result stays on the record. Nothing is changed after the fact.',
       delay: 600,
     },
   ];
@@ -87,24 +87,27 @@ const Features: React.FC = () => {
   const isTitleVisible = useIsVisible(titleRef);
 
   return (
-    <section id="features" className="py-20 bg-muted/40">
+    <section id="protocol" className="py-20 bg-muted/40">
       <div className="container mx-auto px-4">
         <div className="max-w-3xl mx-auto text-center mb-16">
+          <p className="text-sm font-semibold text-trader-blue uppercase tracking-wide mb-3">
+            The Experiment
+          </p>
           <h2
             ref={titleRef}
             className={`text-3xl md:text-4xl font-bold mb-4 transition-all duration-700 ${
               isTitleVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'
             }`}
           >
-            Science-Backed Trading Intelligence
+            How the Experiment Works
           </h2>
           <p
             className={`text-xl text-muted-foreground transition-all duration-700 delay-100 ${
               isTitleVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'
             }`}
           >
-            Our AI analyzes far more factors than any human can, delivering insights that
-            traditional analysts miss — backed by published research.
+            Extending existing research into a live setting — with a fixed protocol and full
+            public accountability.
           </p>
         </div>
 

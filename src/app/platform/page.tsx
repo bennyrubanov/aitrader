@@ -1,7 +1,7 @@
-import { redirect } from 'next/navigation';
+import { PlatformOverviewClient } from '@/components/platform/platform-overview-client';
 
 const PlatformIndexPage = () => {
-  redirect('/platform/current');
+  return <PlatformOverviewClient />;
 };
 
 export default PlatformIndexPage;

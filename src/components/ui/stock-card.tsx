@@ -2,7 +2,7 @@
 
 import React from "react";
 import { Lock } from "lucide-react";
-import { Stock } from "@/lib/stockData";
+import type { Stock } from "@/types/stock";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "@/hooks/use-toast";
