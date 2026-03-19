@@ -20,6 +20,7 @@ import { getSupabaseBrowserClient } from '@/utils/supabase/browser';
 import { useAuthState } from '@/components/auth/auth-state-context';
 import { PlanLabel } from '@/components/account/plan-label';
 import { navigateWithFallback } from '@/lib/client-navigation';
+import { Disclaimer } from '@/components/Disclaimer';
 
 type NavItem = {
   title: string;
@@ -214,19 +215,12 @@ export function AppSidebar() {
             },
             {
               title: 'Disclaimer',
-              url: '#',
+              url: '/disclaimer',
               icon: Info,
               collapsible: {
                 content: (
-                  <div className="px-4 py-3 text-xs text-sidebar-foreground/70 space-y-2">
-                    <p>
-                      This platform provides AI-generated analysis for informational and educational
-                      purposes only.
-                    </p>
-                    <p>
-                      Not investment advice. Past performance does not guarantee future results.
-                      Consult a qualified financial advisor before making investment decisions.
-                    </p>
+                  <div className="px-4 py-3">
+                    <Disclaimer variant="compact" className="border-sidebar-border bg-sidebar-accent/50 text-sidebar-foreground/80 [&_a]:text-trader-blue" />
                   </div>
                 ),
               },

@@ -94,7 +94,15 @@ const ContactPage = () => {
                         Terms of Service
                       </Link>
                       <p className="text-muted-foreground text-sm mt-1">
-                        Review our terms of service and disclaimers.
+                        Review our terms of service.
+                      </p>
+                    </li>
+                    <li>
+                      <Link href="/disclaimer" className="font-medium text-trader-blue hover:underline">
+                        Disclaimer
+                      </Link>
+                      <p className="text-muted-foreground text-sm mt-1">
+                        Important disclosures about our AI analysis and ratings.
                       </p>
                     </li>
                   </ul>
