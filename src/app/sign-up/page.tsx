@@ -15,6 +15,7 @@ import {
   getLastSignInMethod,
   rememberAuthPrefillEmail,
   rememberSignInMethod,
+  clearPreAuthReturnUrl,
 } from "@/lib/auth-storage";
 
 const sanitizeNextPath = (value: string | null, fallback: string) => {
@@ -53,6 +54,7 @@ function SignUpPageContent() {
 
   useEffect(() => {
     setLastMethod(getLastSignInMethod());
+    clearPreAuthReturnUrl();
   }, []);
 
   useEffect(() => {

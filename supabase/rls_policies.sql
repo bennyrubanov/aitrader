@@ -58,7 +58,33 @@ create policy "Anyone can subscribe"
   with check (true);
 
 -- -------------------------------------------------------
--- 3) stocks – public read, write via service role only
+-- 3) user_portfolio_stocks - users manage their own saved holdings
+-- -------------------------------------------------------
+alter table public.user_portfolio_stocks enable row level security;
+
+drop policy if exists "Users can read own portfolio stocks" on public.user_portfolio_stocks;
+create policy "Users can read own portfolio stocks"
+  on public.user_portfolio_stocks for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert own portfolio stocks" on public.user_portfolio_stocks;
+create policy "Users can insert own portfolio stocks"
+  on public.user_portfolio_stocks for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update own portfolio stocks" on public.user_portfolio_stocks;
+create policy "Users can update own portfolio stocks"
+  on public.user_portfolio_stocks for update
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can delete own portfolio stocks" on public.user_portfolio_stocks;
+create policy "Users can delete own portfolio stocks"
+  on public.user_portfolio_stocks for delete
+  using (auth.uid() = user_id);
+
+-- -------------------------------------------------------
+-- 4) stocks – public read, write via service role only
 -- -------------------------------------------------------
 alter table public.stocks enable row level security;
 
@@ -68,7 +94,7 @@ create policy "Public read stocks"
   using (true);
 
 -- -------------------------------------------------------
--- 4) nasdaq100_snapshots – public read
+-- 5) nasdaq100_snapshots – public read
 -- -------------------------------------------------------
 alter table public.nasdaq100_snapshots enable row level security;
 
@@ -78,7 +104,7 @@ create policy "Public read snapshots"
   using (true);
 
 -- -------------------------------------------------------
--- 5) nasdaq100_snapshot_stocks – public read
+-- 6) nasdaq100_snapshot_stocks – public read
 -- -------------------------------------------------------
 alter table public.nasdaq100_snapshot_stocks enable row level security;
 
@@ -88,13 +114,13 @@ create policy "Public read snapshot members"
   using (true);
 
 -- -------------------------------------------------------
--- 6) nasdaq_100_daily_raw – service role only (no public access)
+-- 7) nasdaq_100_daily_raw – service role only (no public access)
 -- -------------------------------------------------------
 alter table public.nasdaq_100_daily_raw enable row level security;
 -- No policies = no access except via service role key.
 
 -- -------------------------------------------------------
--- 7) ai_prompts – public read for transparency
+-- 8) ai_prompts – public read for transparency
 -- -------------------------------------------------------
 alter table public.ai_prompts enable row level security;
 
@@ -104,7 +130,7 @@ create policy "Public read prompts"
   using (true);
 
 -- -------------------------------------------------------
--- 8) ai_models – public read for transparency
+-- 9) ai_models – public read for transparency
 -- -------------------------------------------------------
 alter table public.ai_models enable row level security;
 
@@ -114,7 +140,7 @@ create policy "Public read models"
   using (true);
 
 -- -------------------------------------------------------
--- 9) ai_run_batches – public read
+-- 10) ai_run_batches – public read
 --    (required for the 7-day rolling view to resolve)
 -- -------------------------------------------------------
 alter table public.ai_run_batches enable row level security;
@@ -125,7 +151,7 @@ create policy "Public read batches"
   using (true);
 
 -- -------------------------------------------------------
--- 10) ai_analysis_runs – public read
+-- 11) ai_analysis_runs – public read
 --     (required for the 7-day rolling view and stock detail pages)
 -- -------------------------------------------------------
 alter table public.ai_analysis_runs enable row level security;
@@ -136,7 +162,7 @@ create policy "Public read analysis runs"
   using (true);
 
 -- -------------------------------------------------------
--- 11) nasdaq100_recommendations_current – public read
+-- 12) nasdaq100_recommendations_current – public read
 -- -------------------------------------------------------
 alter table public.nasdaq100_recommendations_current enable row level security;
 
@@ -146,7 +172,7 @@ create policy "Public read current recommendations"
   using (true);
 
 -- -------------------------------------------------------
--- 12) strategy tables – public read (frontend performance tab)
+-- 13) strategy tables – public read (frontend performance tab)
 -- -------------------------------------------------------
 alter table public.trading_strategies enable row level security;
 
@@ -191,7 +217,7 @@ create policy "Public read strategy cross sectional regressions"
   using (true);
 
 -- -------------------------------------------------------
--- 13) View access grants (views do not use RLS policies)
+-- 14) View access grants (views do not use RLS policies)
 -- -------------------------------------------------------
 alter view public.nasdaq100_scores_7d_view set (security_invoker = true);
 alter view public.nasdaq100_current_members set (security_invoker = true);

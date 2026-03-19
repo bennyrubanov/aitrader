@@ -63,7 +63,7 @@ const ExperimentResearchPage = () => {
                 </p>
                 <div className="flex flex-wrap gap-3">
                   <Button asChild>
-                    <Link href="/platform/performance">View Performance</Link>
+                    <Link href="/performance">View Performance</Link>
                   </Button>
                   <Button variant="outline" asChild>
                     <Link href="/platform/current">Follow the Experiment</Link>

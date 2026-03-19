@@ -48,7 +48,8 @@ export function PerformancePageClient({ payload }: PerformancePageClientProps) {
   const strategy = payload.strategy ?? null;
   const series = payload.series ?? [];
   const metrics = payload.metrics ?? null;
-  const latestHoldings = payload.latestHoldings ?? [];
+  // Holdings are no longer included in the public payload; gated by auth at the page level
+  const latestHoldings: Array<{ symbol: string; companyName: string; rank: number; weight: number; score: number | null; latentRank: number | null }> = [];
   const latestActions = payload.latestActions ?? [];
   const research = payload.research ?? null;
 

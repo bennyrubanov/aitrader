@@ -2067,6 +2067,12 @@ const handleRequest = async (req: Request) => {
     revalidatePath('/platform/current');
     revalidatePath('/platform/weekly');
     revalidatePath('/platform/performance');
+    revalidatePath('/performance');
+    revalidatePath('/performance', 'page');
+    revalidatePath('/strategy-models');
+    // Revalidate per-slug performance and model detail pages
+    revalidatePath('/performance/[slug]', 'page');
+    revalidatePath('/strategy-models/[slug]', 'page');
 
     const summary = {
       ok: results.filter((result) => result.status === 'ok').length,

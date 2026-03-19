@@ -7,7 +7,7 @@ import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AuthPreviewPlaceholder } from "@/components/auth/auth-preview-placeholder";
-import { consumeAuthPrefillEmail } from "@/lib/auth-storage";
+import { consumeAuthPrefillEmail, clearPreAuthReturnUrl } from "@/lib/auth-storage";
 
 const sanitizeNextPath = (value: string | null, fallback: string) => {
   if (!value || !value.startsWith("/")) {
@@ -29,6 +29,7 @@ export function ForgotPasswordPageClient() {
   );
 
   useEffect(() => {
+    clearPreAuthReturnUrl();
     const prefilledEmail = consumeAuthPrefillEmail();
     if (prefilledEmail) {
       setEmail(prefilledEmail);

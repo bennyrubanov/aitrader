@@ -61,7 +61,7 @@ const ProductPage = () => {
                 </p>
                 <div className="flex flex-wrap gap-3">
                   <Button asChild>
-                    <Link href="/experiment-research">Read Experiment &amp; Research</Link>
+                    <Link href="/strategy-models">Read Strategy Models</Link>
                   </Button>
                   <Button variant="outline" asChild>
                     <Link href="/platform/current">Follow the Experiment</Link>

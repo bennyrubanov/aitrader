@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, Check, Loader2, Minus, Sparkles } from 'lucide-react';
@@ -96,19 +96,12 @@ function FeatureCell({ value }: { value: boolean | string }) {
 
 export default function PricingPage() {
   const router = useRouter();
-  const { email, isAuthenticated, hasPremiumAccess, isLoaded, subscriptionTier } = useAuthState();
+  const { email, isAuthenticated, subscriptionTier } = useAuthState();
   const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>('monthly');
   const [isProcessingCheckout, setIsProcessingCheckout] = useState(false);
   const [checkoutPlan, setCheckoutPlan] = useState<Plan | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!isLoaded) return;
-    if (hasPremiumAccess) {
-      router.replace('/platform/current');
-    }
-  }, [hasPremiumAccess, isLoaded, router]);
 
   const handleSubscribe = async (plan: Plan) => {
     setErrorMessage(null);

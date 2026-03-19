@@ -1,11 +1,6 @@
-import { PerformancePageClient } from '@/components/platform/performance-page-client';
-import { getPlatformPerformancePayload } from '@/lib/platform-performance-payload';
+import { redirect } from 'next/navigation';
 
-export const revalidate = 300;
-
-const PerformancePage = async () => {
-  const payload = await getPlatformPerformancePayload();
-  return <PerformancePageClient payload={payload} />;
-};
-
-export default PerformancePage;
+// /platform/performance has moved to /performance (public page)
+export default function PlatformPerformancePage() {
+  redirect('/performance');
+}

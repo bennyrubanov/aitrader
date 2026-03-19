@@ -11,6 +11,7 @@
 -- Preserved:
 --   * public.user_profiles
 --   * public.newsletter_subscribers
+--   * public.user_portfolio_stocks
 --   * auth user-profile sync functions/triggers
 -- ============================================================
 

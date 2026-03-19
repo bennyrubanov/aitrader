@@ -46,10 +46,10 @@ import { PlanLabel } from "@/components/account/plan-label";
 import { navigateWithFallback } from "@/lib/client-navigation";
 
 const platformNavItems = [
-  { label: "Experiment & Research", href: "/experiment-research", icon: FlaskConical },
-  { label: "Performance", href: "/platform/performance", icon: Gauge },
+  { label: "Strategy Models", href: "/strategy-models", icon: FlaskConical },
+  { label: "Performance", href: "/performance", icon: Gauge },
   { label: "Pricing & Features", href: "/pricing", icon: Landmark },
-  { label: "Explore Platform", href: "/platform/current", icon: LayoutDashboard },
+  { label: "Explore Platform", href: "/platform/ratings", icon: LayoutDashboard },
 ] as const;
 
 const resourcesNavItems = [
@@ -73,9 +73,9 @@ type NavItem = {
 
 const MARKETING_PREFETCH_ROUTES = [
   "/",
-  "/experiment-research",
-  "/platform/performance",
-  "/platform/current",
+  "/strategy-models",
+  "/performance",
+  "/platform/ratings",
   "/platform/settings",
   "/pricing",
   "/blog",
@@ -105,7 +105,7 @@ const Navbar: React.FC = () => {
   const isAuthenticated = authState.isAuthenticated;
   const hasPremiumAccess = authState.hasPremiumAccess;
   const isFreeSignedIn = isAuthenticated && !hasPremiumAccess;
-  const primaryCtaHref = isAuthenticated ? "/platform/current" : "/sign-up";
+  const primaryCtaHref = isAuthenticated ? "/platform/ratings" : "/sign-up";
   const isAuthLoading = !authState.isLoaded;
   const account = {
     name: authState.name,
@@ -187,7 +187,13 @@ const Navbar: React.FC = () => {
 
   const handleLogin = () => {
     setIsNavigatingToSignIn(true);
-    navigateWithFallback((href) => router.push(href), "/sign-in?next=/platform/current");
+    const currentPath = typeof window !== "undefined"
+      ? window.location.pathname + window.location.search
+      : "/";
+    navigateWithFallback(
+      (href) => router.push(href),
+      `/sign-in?next=${encodeURIComponent(currentPath)}`,
+    );
   };
 
   const handleSignOut = async () => {
@@ -214,7 +220,7 @@ const Navbar: React.FC = () => {
   };
 
   const isPlatformActive =
-    pathname.startsWith("/platform") || pathname === "/experiment-research" || pathname === "/pricing";
+    pathname.startsWith("/platform") || pathname.startsWith("/strategy-models") || pathname.startsWith("/performance") || pathname === "/pricing";
 
   const dropdownButtonClass = (active: boolean) =>
     `inline-flex items-center gap-1 transition-colors ${

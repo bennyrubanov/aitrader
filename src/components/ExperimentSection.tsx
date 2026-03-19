@@ -118,7 +118,7 @@ const ExperimentSection: React.FC = () => {
               </p>
               <div className="flex flex-col sm:flex-row gap-3">
                 <Button asChild variant="outline" className="rounded-xl">
-                  <Link href="/platform/performance">
+                  <Link href="/performance">
                     See performance
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Link>

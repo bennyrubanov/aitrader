@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Loader2, LogIn, LogOut, CreditCard, Bell, UserRound, KeyRound, Mail, ExternalLink } from 'lucide-react';
+import { Loader2, LogIn, LogOut, CreditCard, Bell, BellOff, UserRound, KeyRound, Mail, ExternalLink } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -35,6 +35,7 @@ const SettingsPageContent = () => {
   const [isOpeningPortal, setIsOpeningPortal] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isSendingReset, setIsSendingReset] = useState(false);
+  const [followedStocks, setFollowedStocks] = useState<Array<{ symbol: string; notify_on_change: boolean }>>([]);
 
   useEffect(() => {
     if (!authState.isLoaded) {
@@ -100,6 +101,20 @@ const SettingsPageContent = () => {
       isMounted = false;
     };
   }, [authState.isAuthenticated, authState.isLoaded, authState.userId]);
+
+  useEffect(() => {
+    if (!authState.isLoaded || !authState.isAuthenticated) return;
+    let mounted = true;
+    fetch('/api/platform/user-portfolio')
+      .then(async (r) => (r.ok ? r.json() : null))
+      .then((data: { items?: Array<{ symbol: string; notify_on_change: boolean }> } | null) => {
+        if (mounted && data?.items) {
+          setFollowedStocks(data.items.filter((i) => i.notify_on_change));
+        }
+      })
+      .catch(() => {});
+    return () => { mounted = false; };
+  }, [authState.isLoaded, authState.isAuthenticated]);
 
   const handleSignIn = async () => {
     setIsSigningIn(true);
@@ -417,6 +432,30 @@ const SettingsPageContent = () => {
                 aria-label="Toggle AI Trader newsletter subscription"
               />
             </div>
+            {followedStocks.length > 0 && (
+              <div className="border-t px-5 py-4">
+                <div className="flex items-center gap-2">
+                  <Bell className="size-3.5 text-trader-blue" />
+                  <p className="text-sm font-medium">Stock rating change alerts</p>
+                </div>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  You&apos;ll be notified when these stocks&apos; weekly ratings change.
+                </p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {followedStocks.map((s) => (
+                    <Badge key={s.symbol} variant="outline" className="text-xs">
+                      {s.symbol}
+                    </Badge>
+                  ))}
+                </div>
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  Manage in{' '}
+                  <Link href="/platform/your-portfolio" className="font-medium text-foreground underline underline-offset-2 hover:no-underline">
+                    Your Portfolio
+                  </Link>
+                </p>
+              </div>
+            )}
           </section>
 
           {/* ── Sign out ── */}

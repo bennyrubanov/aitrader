@@ -24,6 +24,7 @@
 -- drop table if exists public.ai_prompts cascade;
 -- user tables intentionally preserved by reset.sql:
 -- drop table if exists public.newsletter_subscribers cascade;
+-- drop table if exists public.user_portfolio_stocks cascade;
 -- drop table if exists public.user_profiles cascade;
 
 -- =========================
@@ -208,6 +209,22 @@ create table if not exists public.stocks (
 );
 
 create index if not exists idx_stocks_symbol on public.stocks(symbol);
+
+create table if not exists public.user_portfolio_stocks (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  stock_id uuid not null references public.stocks(id) on delete cascade,
+  symbol text not null,
+  notify_on_change boolean not null default false,
+  added_at timestamptz not null default now(),
+  unique (user_id, stock_id)
+);
+
+create index if not exists idx_user_portfolio_stocks_user_id
+  on public.user_portfolio_stocks(user_id, added_at desc);
+
+create index if not exists idx_user_portfolio_stocks_symbol
+  on public.user_portfolio_stocks(symbol);
 
 -- =========================
 -- 4) NASDAQ-100 membership snapshots

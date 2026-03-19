@@ -80,10 +80,10 @@ const ContactPage = () => {
                     </li>
                     <li>
                       <Link
-                        href="/experiment-research"
+                        href="/strategy-models"
                         className="font-medium text-trader-blue hover:underline"
                       >
-                        Experiment &amp; Research
+                        Strategy Models
                       </Link>
                       <p className="text-muted-foreground text-sm mt-1">
                         Explore the scientific foundation behind our strategy models.
