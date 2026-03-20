@@ -524,9 +524,7 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
             <p className="text-sm font-semibold text-trader-blue uppercase tracking-wide mb-3">
               Performance
             </p>
-            <h3 className="text-3xl md:text-4xl font-bold mb-4">
-              Live results since launch
-            </h3>
+            <h3 className="text-3xl md:text-4xl font-bold mb-4">Live results since launch</h3>
             <p className="text-muted-foreground max-w-2xl mx-auto">
               All performance is tracked openly and updated weekly after new data is available.
             </p>
@@ -905,7 +903,18 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
               <Link href="/performance">
                 <Button variant="outline" className="gap-2">
                   See how the experiment is performing
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M5 12h14M12 5l7 7-7 7" />
+                  </svg>
                 </Button>
               </Link>
             </div>

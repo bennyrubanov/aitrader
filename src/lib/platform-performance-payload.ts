@@ -108,6 +108,16 @@ export type MonthlyQuintileSnapshot = {
   rows: Array<{ quintile: number; avgReturn: number; weekCount: number }>;
 };
 
+/** Cross-sectional regression averaged within each calendar month (from weekly rows). */
+export type MonthlyRegressionSnapshot = {
+  month: string; // "YYYY-MM"
+  weekCount: number;
+  sampleSize: number;
+  alpha: number | null;
+  beta: number | null;
+  rSquared: number | null;
+};
+
 export type QuintileWinRate = {
   total: number;
   wins: number;
@@ -178,6 +188,7 @@ export type PlatformPerformancePayload = {
     quintileWinRate: QuintileWinRate | null;
     // Monthly averages (aggregated from weekly data)
     monthlyQuintiles: MonthlyQuintileSnapshot[];
+    monthlyRegressionHistory: MonthlyRegressionSnapshot[];
     regression: {
       runDate: string;
       sampleSize: number;
@@ -296,6 +307,51 @@ const buildQuintileHistory = (rows: QuintileRow[]): QuintileSnapshot[] => {
           return: toNumber(r.return_value, 0),
         })),
     }));
+};
+
+const avgNullable = (vals: (number | null)[]): number | null => {
+  const nums = vals.filter((v): v is number => v != null && Number.isFinite(v));
+  if (!nums.length) return null;
+  return nums.reduce((a, b) => a + b, 0) / nums.length;
+};
+
+/**
+ * Aggregate weekly cross-sectional regressions into calendar-month averages.
+ */
+const buildMonthlyRegressions = (
+  history: Array<{
+    runDate: string;
+    sampleSize: number;
+    alpha: number | null;
+    beta: number | null;
+    rSquared: number | null;
+  }>
+): MonthlyRegressionSnapshot[] => {
+  if (!history.length) return [];
+  const byMonth = new Map<string, typeof history>();
+  for (const row of history) {
+    const month = row.runDate.slice(0, 7);
+    const arr = byMonth.get(month) ?? [];
+    arr.push(row);
+    byMonth.set(month, arr);
+  }
+  return Array.from(byMonth.entries())
+    .sort(([a], [b]) => b.localeCompare(a))
+    .map(([month, rows]) => {
+      const sampleSizes = rows.map((r) => r.sampleSize).filter((s) => Number.isFinite(s));
+      const avgSampleSize =
+        sampleSizes.length > 0
+          ? Math.round(sampleSizes.reduce((a, b) => a + b, 0) / sampleSizes.length)
+          : 0;
+      return {
+        month,
+        weekCount: rows.length,
+        sampleSize: avgSampleSize,
+        alpha: avgNullable(rows.map((r) => r.alpha)),
+        beta: avgNullable(rows.map((r) => r.beta)),
+        rSquared: avgNullable(rows.map((r) => r.rSquared)),
+      };
+    });
 };
 
 /**
@@ -538,6 +594,7 @@ const buildPayloadForStrategy = async (
   const regression = allRegressionRows[0] ?? null;
 
   const monthlyQuintiles = buildMonthlyQuintiles(quintileHistory);
+  const monthlyRegressionHistory = buildMonthlyRegressions(allRegressionRows);
   const quintileWinRate = computeQuintileWinRate(quintileHistory);
 
   return {
@@ -552,6 +609,7 @@ const buildPayloadForStrategy = async (
       quintileHistory,
       quintileWinRate,
       monthlyQuintiles,
+      monthlyRegressionHistory,
       regression,
       regressionHistory: allRegressionRows,
     },

@@ -20,6 +20,7 @@ import { StrategyModelSidebarSlot } from '@/components/strategy-models/strategy-
 import { formatStrategyDescriptionForDisplay } from '@/lib/format-strategy-description';
 import { getStrategyDetail, getStrategiesList } from '@/lib/platform-performance-payload';
 import { headerStatSentiment } from '@/lib/header-stat-sentiment';
+import { RegressionScatterExample } from '@/components/strategy-models/regression-scatter-example';
 import { cn } from '@/lib/utils';
 
 export const revalidate = 300;
@@ -99,12 +100,11 @@ export default async function StrategyModelDetailPage({ params }: Props) {
   const PROMPT_KEY_POINTS = [
     `Scores each stock from −5 (very unattractive) to +5 (very attractive) relative to the next ~30 days of expected performance.`,
     `Uses a single live web search per stock to gather the latest 30 days of news, earnings, guidance, analyst revisions, and market reactions.`,
-    `Graded on a curve against all other Nasdaq-100 members — not rated in isolation. A +3 means the stock looks meaningfully better than most of the index right now, regardless of whether the overall market is up or down.`,
-    `Assigns a continuous latent rank (0 to 1) as a fine-grained ordinal signal. This is what drives portfolio construction — not the integer score directly.`,
+    `Graded on a curve against all other Nasdaq-100 members (not rated in isolation). A +3 means the stock looks meaningfully better than most of the index right now, regardless of whether the overall market is up or down.`,
+    `Assigns a continuous latent rank (0 to 1) as a fine-grained ordinal signal. This is what drives portfolio construction (not the integer score directly).`,
     `Maps scores to buckets for transparency: buy (≥ +2), hold (−1 to +1), sell (≤ −2). Buckets are a readability layer; the actual sort is by latent rank.`,
     `Requires 2 to 6 explicit risks per rating. At least one must address information uncertainty, model error, or conflicting signals.`,
-    `Tracks change from the prior week's rating — if the bucket changes, the model must explain why.`,
-    `Confidence is a self-assessed epistemic measure (not a probability of being correct) and is logged for diagnostic purposes.`,
+    `Tracks change from the prior week's rating. If the bucket changes, the model must explain why.`,
   ];
 
   return (
@@ -479,7 +479,7 @@ export default async function StrategyModelDetailPage({ params }: Props) {
                 Signal metrics (Beta, R&sup2;, Alpha) measured on{' '}
                 {fmt.date(detail.latestRegressionDate)}.{' '}
                 <Link
-                  href={`/performance/${slug}`}
+                  href={`/performance/${slug}#research-validation`}
                   className="text-trader-blue hover:underline"
                 >
                   See full history
@@ -632,34 +632,41 @@ export default async function StrategyModelDetailPage({ params }: Props) {
               <div className="rounded-md bg-muted px-4 py-3 font-mono text-xs">
                 forward_return = &alpha; + &beta; &times; score
               </div>
-              <p>
-                This is a <strong>cross-sectional</strong> regression — not tracking one stock over time,
-                but comparing many stocks against each other at the same point in time. Imagine plotting
-                AI score on the x-axis and next-week return on the y-axis, then drawing the best-fit
-                line through those ~100 points.
-              </p>
-
-              <div className="space-y-4 mt-3">
-                <div className="rounded-lg border bg-card p-4 space-y-2">
-                  <p className="font-medium text-foreground">&beta; (Beta) — does the signal work?</p>
-                  <p>
-                    How much return increases per 1-point increase in score. This is the core signal
-                    metric — if beta isn&apos;t positive, nothing else matters.
+              <div className="flex flex-col md:flex-row gap-4 items-start">
+                <div className="md:w-[38%] shrink-0 space-y-4 w-full">
+                  <p className="text-sm text-foreground/80 leading-relaxed">
+                    This is a <strong>cross-sectional</strong> regression — not tracking one stock over
+                    time, but comparing many stocks against each other at the same point in time.
+                    AI score on the x-axis, next-week return on the y-axis, best-fit line through
+                    ~100 points. If the line slopes up (β &gt; 0), higher-rated stocks tend to
+                    outperform.
                   </p>
-                  <ul className="space-y-0.5 pl-1">
-                    <li>&beta; &gt; 0 &rarr; higher scores &rarr; higher returns (working)</li>
-                    <li>&beta; &asymp; 0 &rarr; no relationship</li>
-                    <li>&beta; &lt; 0 &rarr; signal is inverted</li>
-                  </ul>
-                  <p className="text-xs text-muted-foreground">
-                    Example: &beta; = 0.002 &rarr; a score of +5 vs 0 implies ~+1% return spread.
-                  </p>
-                  <div className="rounded-md bg-muted px-3 py-2 text-xs space-y-0.5">
-                    <p><strong>Good:</strong> any positive value</p>
-                    <p><strong>Strong:</strong> &gt; 0.002</p>
+                  <div className="rounded-lg border bg-card p-4 space-y-2 text-sm text-foreground/80">
+                    <p className="font-medium text-foreground">&beta; (Beta) — does the signal work?</p>
+                    <p>
+                      How much return increases per 1-point increase in score. This is the core signal
+                      metric — if beta isn&apos;t positive, nothing else matters.
+                    </p>
+                    <ul className="space-y-0.5 pl-1">
+                      <li>&beta; &gt; 0 &rarr; higher scores &rarr; higher returns (working)</li>
+                      <li>&beta; &asymp; 0 &rarr; no relationship</li>
+                      <li>&beta; &lt; 0 &rarr; signal is inverted</li>
+                    </ul>
+                    <p className="text-xs text-muted-foreground">
+                      Example: &beta; = 0.002 &rarr; a score of +5 vs 0 implies ~+1% return spread.
+                    </p>
+                    <div className="rounded-md bg-muted px-3 py-2 text-xs space-y-0.5">
+                      <p><strong>Good:</strong> any positive value</p>
+                      <p><strong>Strong:</strong> &gt; 0.002</p>
+                    </div>
                   </div>
                 </div>
+                <div className="flex-1 min-w-0 w-full">
+                  <RegressionScatterExample />
+                </div>
+              </div>
 
+              <div className="space-y-4 mt-3">
                 <div className="rounded-lg border bg-card p-4 space-y-2">
                   <p className="font-medium text-foreground">R&sup2; — how much does it explain?</p>
                   <p>
@@ -672,6 +679,22 @@ export default async function StrategyModelDetailPage({ params }: Props) {
                     <p><strong>Meaningful:</strong> 0.01 &ndash; 0.05</p>
                     <p><strong>Exceptional:</strong> &gt; 0.05</p>
                   </div>
+                </div>
+
+                <div className="rounded-lg border border-trader-blue/20 bg-trader-blue/5 dark:bg-trader-blue/10 dark:border-trader-blue/25 p-4 text-sm text-foreground/90 space-y-2 leading-relaxed">
+                  <p className="font-semibold text-foreground">Literature-derived benchmarks (not custom-tuned)</p>
+                  <p className="text-xs sm:text-sm">
+                    The <strong>β</strong> bands above come from cross-sectional equity research: any
+                    positive slope is the minimum bar; a weekly slope around <strong>0.002</strong> per
+                    score point is often treated as economically meaningful in academic settings (e.g.
+                    Fama–MacBeth–style regressions) — a rough guide, not a universal cutoff.
+                  </p>
+                  <p className="text-xs sm:text-sm">
+                    The <strong>R²</strong> bands reflect how noisy individual stock returns are: a
+                    single predictor rarely explains much of the cross-section. Values in the{' '}
+                    <strong>1–5%</strong> range are commonly cited as meaningful for one factor; above{' '}
+                    <strong>5%</strong> is unusually strong.
+                  </p>
                 </div>
 
                 <div className="rounded-lg border bg-card p-4 space-y-2">

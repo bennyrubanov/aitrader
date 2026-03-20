@@ -34,7 +34,7 @@ You must also keep this file up to date.
 
 ## Tables (5 layers)
 
-**Reference data**: `stocks` (canonical stock registry, `symbol` unique), `ai_prompts` (versioned by name+version), `ai_models` (versioned by provider+name+version).
+**Reference data**: `stocks` (canonical stock registry, `symbol` unique; advisor indexes `idx_stocks_is_premium_stock`, `idx_stocks_updated_at`, `idx_stocks_created_at`), `ai_prompts` (versioned by name+version), `ai_models` (versioned by provider+name+version).
 
 **NASDAQ-100 membership**: `nasdaq100_snapshots` (one row per distinct membership list, deduped by SHA-256 hash), `nasdaq100_snapshot_stocks` (join table: snapshot ↔ stocks), `nasdaq_100_daily_raw` (raw NASDAQ API data, not FK'd to stocks).
 

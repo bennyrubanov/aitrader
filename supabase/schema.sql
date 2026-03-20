@@ -209,6 +209,9 @@ create table if not exists public.stocks (
 );
 
 create index if not exists idx_stocks_symbol on public.stocks(symbol);
+create index if not exists idx_stocks_is_premium_stock on public.stocks(is_premium_stock);
+create index if not exists idx_stocks_updated_at on public.stocks(updated_at);
+create index if not exists idx_stocks_created_at on public.stocks(created_at);
 
 create table if not exists public.user_portfolio_stocks (
   id uuid primary key default gen_random_uuid(),

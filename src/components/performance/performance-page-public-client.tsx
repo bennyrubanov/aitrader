@@ -107,6 +107,18 @@ const fmt = {
   },
 };
 
+/** YYYY-MM → short label for regression month picker */
+function formatMonthLabel(ym: string) {
+  const [y, m] = ym.split('-');
+  if (!y || !m) return ym;
+  const d = new Date(Date.UTC(Number(y), Number(m) - 1, 1));
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(d);
+}
+
 // ─── Flip Card ───────────────────────────────────────────────────────────────
 
 function FlipCard({
@@ -233,6 +245,8 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
   const [quintileDate, setQuintileDate] = useState<string | null>(null);
   const [quintileView, setQuintileView] = useState<'weekly' | 'monthly'>('weekly');
   const [regressionDate, setRegressionDate] = useState<string | null>(null);
+  const [regressionView, setRegressionView] = useState<'weekly' | 'monthly'>('weekly');
+  const [regressionMonth, setRegressionMonth] = useState<string | null>(null);
 
   const [holdings, setHoldings] = useState<HoldingItem[]>([]);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -274,13 +288,48 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
   const selectedStrategyName = effectiveStrategy?.name ?? 'Strategy';
   const isBestSelected = !bestStrategy || bestStrategy.id === effectiveStrategy?.id;
 
-  // Regression data for selected week
   const regressionHistory = research?.regressionHistory ?? [];
-  const selectedRegression = useMemo(() => {
+  const monthlyRegressionHistory = research?.monthlyRegressionHistory ?? [];
+
+  const selectedWeeklyRegression = useMemo(() => {
     if (!regressionHistory.length) return research?.regression ?? null;
     const target = regressionDate ?? regressionHistory[0]?.runDate;
     return regressionHistory.find((r) => r.runDate === target) ?? regressionHistory[0] ?? null;
   }, [research, regressionDate, regressionHistory]);
+
+  const selectedMonthlyRegression = useMemo(() => {
+    if (!monthlyRegressionHistory.length) return null;
+    const target = regressionMonth ?? monthlyRegressionHistory[0]?.month;
+    return (
+      monthlyRegressionHistory.find((m) => m.month === target) ?? monthlyRegressionHistory[0] ?? null
+    );
+  }, [monthlyRegressionHistory, regressionMonth]);
+
+  const regressionDisplay = useMemo(() => {
+    if (regressionView === 'weekly') {
+      const r = selectedWeeklyRegression;
+      if (!r) return null;
+      return {
+        mode: 'weekly' as const,
+        runDate: r.runDate,
+        sampleSize: r.sampleSize,
+        alpha: r.alpha,
+        beta: r.beta,
+        rSquared: r.rSquared,
+      };
+    }
+    const r = selectedMonthlyRegression;
+    if (!r) return null;
+    return {
+      mode: 'monthly' as const,
+      month: r.month,
+      weekCount: r.weekCount,
+      sampleSize: r.sampleSize,
+      alpha: r.alpha,
+      beta: r.beta,
+      rSquared: r.rSquared,
+    };
+  }, [regressionView, selectedWeeklyRegression, selectedMonthlyRegression]);
 
   // Quintile data for selected date
   const selectedQuintileSnapshot: QuintileSnapshot | null = useMemo(() => {
@@ -832,7 +881,7 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
         {(research?.quintileHistory?.length ?? 0) > 0 && (
           <Card className="mb-4">
             <CardHeader className="pb-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="space-y-3">
                 <div>
                   <CardTitle className="text-base">Quintile analysis</CardTitle>
                   <CardDescription className="mt-1">
@@ -840,47 +889,66 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
                     rated. If the model has real signal, Q5 should consistently beat Q1.
                   </CardDescription>
                 </div>
-                {/* Weekly / Monthly toggle */}
-                <div className="flex items-center gap-1 rounded-md border p-0.5 shrink-0">
-                  <button
-                    onClick={() => setQuintileView('weekly')}
-                    className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                      quintileView === 'weekly'
-                        ? 'bg-trader-blue text-white'
-                        : 'text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
-                    Weekly
-                  </button>
-                  <button
-                    onClick={() => setQuintileView('monthly')}
-                    className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                      quintileView === 'monthly'
-                        ? 'bg-trader-blue text-white'
-                        : 'text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
-                    Monthly avg
-                  </button>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-1 rounded-md border bg-card p-0.5 shadow-sm">
+                    <button
+                      type="button"
+                      onClick={() => setQuintileView('weekly')}
+                      className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                        quintileView === 'weekly'
+                          ? 'bg-trader-blue text-white'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      Weekly
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setQuintileView('monthly')}
+                      className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                        quintileView === 'monthly'
+                          ? 'bg-trader-blue text-white'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      Monthly avg
+                    </button>
+                  </div>
+                  {quintileView === 'weekly' && (research?.quintileHistory?.length ?? 0) > 1 && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs gap-1.5 shrink-0"
+                        >
+                          Week of{' '}
+                          {fmt.date(
+                            quintileDate ?? research?.quintileHistory?.[0]?.runDate ?? ''
+                          )}
+                          <ChevronDown className="size-3" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="max-h-48 overflow-y-auto">
+                        {(research?.quintileHistory ?? []).map((s) => {
+                          const active =
+                            (quintileDate ?? research?.quintileHistory?.[0]?.runDate) ===
+                            s.runDate;
+                          return (
+                            <DropdownMenuItem
+                              key={s.runDate}
+                              onSelect={() => setQuintileDate(s.runDate)}
+                              className={active ? 'font-semibold bg-muted' : ''}
+                            >
+                              {fmt.date(s.runDate)}
+                            </DropdownMenuItem>
+                          );
+                        })}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
                 </div>
               </div>
-              {/* Date selector for weekly view */}
-              {quintileView === 'weekly' && (research?.quintileHistory?.length ?? 0) > 1 && (
-                <div className="flex items-center gap-2 pt-1">
-                  <span className="text-xs text-muted-foreground">Week:</span>
-                  <select
-                    value={quintileDate ?? research?.quintileHistory?.[0]?.runDate ?? ''}
-                    onChange={(e) => setQuintileDate(e.target.value)}
-                    className="text-xs rounded border bg-background px-2 py-1"
-                  >
-                    {(research?.quintileHistory ?? []).map((s) => (
-                      <option key={s.runDate} value={s.runDate}>
-                        {fmt.date(s.runDate)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
             </CardHeader>
             <CardContent>
               {/* Win rate summary */}
@@ -950,55 +1018,111 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
         )}
 
         {/* Signal strength */}
-        {selectedRegression &&
+        {regressionDisplay &&
           (() => {
-            const beta = selectedRegression.beta ?? 0;
-            const rSq = selectedRegression.rSquared ?? 0;
-            const alpha = selectedRegression.alpha ?? 0;
+            const beta = regressionDisplay.beta ?? 0;
+            const rSq = regressionDisplay.rSquared ?? 0;
+            const alpha = regressionDisplay.alpha ?? 0;
             const betaGood = beta > 0;
             const rSqGood = rSq >= 0.01;
             const alphaPct = (alpha * 100).toFixed(2);
             const betaSpread = (beta * 10 * 100).toFixed(2);
+            const isWeekly = regressionDisplay.mode === 'weekly';
 
             return (
               <Card>
                 <CardHeader className="pb-2">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="space-y-3">
                     <div>
                       <CardTitle className="text-base">Signal strength</CardTitle>
-                      <CardDescription>
+                      <CardDescription className="mt-1">
                         Does the AI score actually predict which stocks will do better next week?
                       </CardDescription>
                     </div>
-                    {regressionHistory.length > 1 && (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 text-xs gap-1.5 shrink-0"
-                          >
-                            Week of {fmt.date(selectedRegression.runDate)}
-                            <ChevronDown className="size-3" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="max-h-48 overflow-y-auto">
-                          {regressionHistory.map((r) => (
-                            <DropdownMenuItem
-                              key={r.runDate}
-                              onSelect={() => setRegressionDate(r.runDate)}
-                              className={
-                                r.runDate === selectedRegression.runDate
-                                  ? 'font-semibold bg-muted'
-                                  : ''
-                              }
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-1 rounded-md border bg-card p-0.5 shadow-sm">
+                        <button
+                          type="button"
+                          onClick={() => setRegressionView('weekly')}
+                          className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                            regressionView === 'weekly'
+                              ? 'bg-trader-blue text-white'
+                              : 'text-muted-foreground hover:text-foreground'
+                          }`}
+                        >
+                          Weekly
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setRegressionView('monthly')}
+                          className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                            regressionView === 'monthly'
+                              ? 'bg-trader-blue text-white'
+                              : 'text-muted-foreground hover:text-foreground'
+                          }`}
+                        >
+                          Monthly avg
+                        </button>
+                      </div>
+                      {regressionView === 'weekly' && regressionHistory.length > 1 && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-xs gap-1.5 shrink-0"
                             >
-                              {fmt.date(r.runDate)}
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    )}
+                              Week of {fmt.date(regressionDisplay.runDate)}
+                              <ChevronDown className="size-3" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="max-h-48 overflow-y-auto">
+                            {regressionHistory.map((r) => (
+                              <DropdownMenuItem
+                                key={r.runDate}
+                                onSelect={() => setRegressionDate(r.runDate)}
+                                className={
+                                  r.runDate === regressionDisplay.runDate
+                                    ? 'font-semibold bg-muted'
+                                    : ''
+                                }
+                              >
+                                {fmt.date(r.runDate)}
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                      {regressionView === 'monthly' && monthlyRegressionHistory.length > 1 && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-xs gap-1.5 shrink-0"
+                            >
+                              Avg: {formatMonthLabel(regressionDisplay.month)}
+                              <ChevronDown className="size-3" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="max-h-48 overflow-y-auto">
+                            {monthlyRegressionHistory.map((m) => (
+                              <DropdownMenuItem
+                                key={m.month}
+                                onSelect={() => setRegressionMonth(m.month)}
+                                className={
+                                  m.month === regressionDisplay.month
+                                    ? 'font-semibold bg-muted'
+                                    : ''
+                                }
+                              >
+                                {formatMonthLabel(m.month)}
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -1007,6 +1131,12 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
                     next-week returns, <strong>R&sup2;</strong> tells you how strong that
                     relationship is, and <strong>Alpha</strong> is weekly market backdrop (not AI
                     skill).
+                    {!isWeekly && (
+                      <span className="block mt-1.5">
+                        <strong>Monthly avg</strong> is the mean of those weekly regression
+                        coefficients across all runs in that calendar month.
+                      </span>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -1027,11 +1157,12 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
                       <p
                         className={`font-semibold text-lg ${betaGood ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}
                       >
-                        {fmt.num(selectedRegression.beta, 4)}
+                        {fmt.num(regressionDisplay.beta, 4)}
                       </p>
                       <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
-                        Extra next-week return per 1 score point. Positive is good. +5 vs &minus;5
-                        implies ~{betaSpread}% expected spread this week.
+                        Extra next-week return per +1 on the AI score. Positive means the model is
+                        working — higher-rated stocks outperform lower-rated ones.
+                        {!isWeekly && ' (Averaged across weeks in that month.)'}
                       </p>
                       <p className="text-[10px] text-muted-foreground mt-1.5 border-t pt-1.5">
                         <strong>Good:</strong> &gt; 0. <strong>Strong:</strong> &gt; 0.002.
@@ -1055,7 +1186,7 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
                       <p
                         className={`font-semibold text-lg ${rSqGood ? 'text-green-600 dark:text-green-400' : 'text-foreground'}`}
                       >
-                        {fmt.num(selectedRegression.rSquared, 4)}
+                        {fmt.num(regressionDisplay.rSquared, 4)}
                       </p>
                       <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
                         AI score explains about {fmt.num(rSq * 100, 1)}% of cross-stock next-week
@@ -1078,7 +1209,7 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
                         </span>
                       </div>
                       <p className="font-semibold text-lg">
-                        {fmt.num(selectedRegression.alpha, 4)}
+                        {fmt.num(regressionDisplay.alpha, 4)}
                       </p>
                       <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
                         Predicted return at AI score = 0. This mostly reflects weekly market
@@ -1093,8 +1224,18 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
 
                   <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                     <p>
-                      Measured on {fmt.date(selectedRegression.runDate)} &middot; n=
-                      {selectedRegression.sampleSize} stocks
+                      {isWeekly ? (
+                        <>
+                          Measured on {fmt.date(regressionDisplay.runDate)} &middot; n=
+                          {regressionDisplay.sampleSize} stocks
+                        </>
+                      ) : (
+                        <>
+                          Monthly average of {regressionDisplay.weekCount} weekly regressions &middot;{' '}
+                          {formatMonthLabel(regressionDisplay.month)} &middot; n≈
+                          {regressionDisplay.sampleSize} stocks
+                        </>
+                      )}
                     </p>
                     {effectiveStrategy && (
                       <Link

@@ -21,6 +21,7 @@ import {
   SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
@@ -122,6 +123,7 @@ export function AppSidebar() {
       ...platformItems.flatMap((item) => (item.href ? [item.href] : [])),
       ...advancedItems.flatMap((item) => (item.href ? [item.href] : [])),
       '/platform/settings',
+      '/performance',
       '/strategy-models',
     ];
     const prefetchAllRoutes = () => {
@@ -264,6 +266,31 @@ export function AppSidebar() {
           }))}
           label="Platform"
         />
+        <SidebarGroup>
+          <SidebarGroupLabel>Performance</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild tooltip="Performance (public)">
+                  <button type="button" onClick={() => openPath('/performance')}>
+                    <BarChart3 className="size-4 shrink-0" />
+                    <span className="truncate">Performance</span>
+                    <ArrowUpRight className="ml-auto size-3.5 shrink-0 text-muted-foreground" />
+                  </button>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild tooltip="Strategy models & methodology (public)">
+                  <button type="button" onClick={() => openPath('/strategy-models')}>
+                    <Cpu className="size-4 shrink-0" />
+                    <span className="truncate">Strategy models</span>
+                    <ArrowUpRight className="ml-auto size-3.5 shrink-0 text-muted-foreground" />
+                  </button>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
         <NavMain
           items={advancedItems.map((item) => ({
             title: item.title,
@@ -277,30 +304,6 @@ export function AppSidebar() {
           }))}
           label="Advanced Features"
         />
-        <SidebarGroup className="mt-auto">
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild tooltip="Performance (outside platform)">
-                  <button type="button" onClick={() => openPath('/performance')}>
-                    <BarChart3 className="size-4 shrink-0" />
-                    <span className="truncate">Performance</span>
-                    <ArrowUpRight className="ml-auto size-3.5 shrink-0 text-muted-foreground" />
-                  </button>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild tooltip="Strategy models (outside platform)">
-                  <button type="button" onClick={() => openPath('/strategy-models')}>
-                    <Cpu className="size-4 shrink-0" />
-                    <span className="truncate">Strategy models</span>
-                    <ArrowUpRight className="ml-auto size-3.5 shrink-0 text-muted-foreground" />
-                  </button>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
       </SidebarContent>
       <SidebarFooter className="sticky bottom-0 z-10 border-t border-sidebar-border/70 bg-sidebar">
         <NavSecondary
