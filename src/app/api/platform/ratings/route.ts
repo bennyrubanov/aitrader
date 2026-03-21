@@ -9,9 +9,10 @@ const OUTPERFORMER_TIER = 'outperformer';
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const strategySlug = searchParams.get('strategy');
+  const runDate = searchParams.get('date');
 
   if (!strategySlug) {
-    const data = await getRatingsPageData();
+    const data = await getRatingsPageData(null, runDate);
     return NextResponse.json(data);
   }
 
@@ -38,6 +39,6 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Outperformer plan required.' }, { status: 403 });
   }
 
-  const data = await getRatingsPageData(strategySlug);
+  const data = await getRatingsPageData(strategySlug, runDate);
   return NextResponse.json(data);
 }

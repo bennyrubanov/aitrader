@@ -1,0 +1,187 @@
+/**
+ * Build chart series + headline metrics from strategy_portfolio_config_performance rows.
+ * Mirrors strategy_performance_weekly handling in platform-performance-payload.ts.
+ */
+
+import type { ConfigPerfRow } from '@/lib/portfolio-config-utils';
+import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
+import { computePctMonthsBeating } from '@/lib/platform-performance-payload';
+import type { PlatformPerformancePayload } from '@/lib/platform-performance-payload';
+
+const INITIAL_CAPITAL = 10_000;
+
+function toNumber(value: unknown, fallback = 0): number {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function computeTotalReturn(startValue: number, endValue: number): number | null {
+  if (startValue <= 0) return null;
+  return endValue / startValue - 1;
+}
+
+function computeCagr(
+  startValue: number,
+  endValue: number,
+  startDate: string,
+  endDate: string
+): number | null {
+  if (startValue <= 0 || endValue <= 0 || startDate === endDate) return null;
+  const start = new Date(`${startDate}T00:00:00Z`);
+  const end = new Date(`${endDate}T00:00:00Z`);
+  const diffMs = end.getTime() - start.getTime();
+  if (!Number.isFinite(diffMs) || diffMs <= 0) return null;
+  const years = diffMs / (1000 * 60 * 60 * 24 * 365.25);
+  if (years <= 0) return null;
+  return Math.pow(endValue / startValue, 1 / years) - 1;
+}
+
+function computeMaxDrawdown(values: number[]): number | null {
+  if (!values.length) return null;
+  let peak = values[0]!;
+  let maxDrawdown = 0;
+  for (const value of values) {
+    if (value > peak) peak = value;
+    const drawdown = peak > 0 ? (value - peak) / peak : 0;
+    if (drawdown < maxDrawdown) maxDrawdown = drawdown;
+  }
+  return maxDrawdown;
+}
+
+function computeSharpeWeekly(returns: number[]): number | null {
+  if (returns.length < 2) return null;
+  const mean = returns.reduce((sum, v) => sum + v, 0) / returns.length;
+  const variance = returns.reduce((sum, v) => sum + (v - mean) ** 2, 0) / (returns.length - 1);
+  const stdDev = Math.sqrt(variance);
+  if (!Number.isFinite(stdDev) || stdDev <= 0) return null;
+  return (mean / stdDev) * Math.sqrt(52);
+}
+
+export type ConfigChartMetrics = {
+  sharpeRatio: number | null;
+  totalReturn: number | null;
+  cagr: number | null;
+  maxDrawdown: number | null;
+};
+
+export type FullConfigPerformanceMetrics = NonNullable<PlatformPerformancePayload['metrics']>;
+
+function buildFullMetricsFromSeries(
+  series: PerformanceSeriesPoint[],
+  netReturns: number[]
+): FullConfigPerformanceMetrics | null {
+  if (!series.length) return null;
+  const firstPoint = series[0]!;
+  const lastPoint = series[series.length - 1]!;
+  const firstDate = firstPoint.date;
+  const lastDate = lastPoint.date;
+
+  const totalReturnAi = computeTotalReturn(INITIAL_CAPITAL, lastPoint.aiTop20);
+  const totalReturnCap = computeTotalReturn(INITIAL_CAPITAL, lastPoint.nasdaq100CapWeight);
+  const totalReturnEqual = computeTotalReturn(INITIAL_CAPITAL, lastPoint.nasdaq100EqualWeight);
+  const totalReturnSp = computeTotalReturn(INITIAL_CAPITAL, lastPoint.sp500);
+
+  return {
+    startingCapital: INITIAL_CAPITAL,
+    endingValue: lastPoint.aiTop20,
+    totalReturn: totalReturnAi,
+    cagr: computeCagr(INITIAL_CAPITAL, lastPoint.aiTop20, firstDate, lastDate),
+    maxDrawdown: computeMaxDrawdown(series.map((p) => p.aiTop20)),
+    sharpeRatio: computeSharpeWeekly(netReturns),
+    pctMonthsBeatingNasdaq100: computePctMonthsBeating(
+      series.map((p) => ({
+        date: p.date,
+        aiValue: p.aiTop20,
+        benchmarkValue: p.nasdaq100CapWeight,
+      }))
+    ),
+    benchmarks: {
+      nasdaq100CapWeight: {
+        endingValue: lastPoint.nasdaq100CapWeight,
+        totalReturn: totalReturnCap,
+        cagr: computeCagr(INITIAL_CAPITAL, lastPoint.nasdaq100CapWeight, firstDate, lastDate),
+        maxDrawdown: computeMaxDrawdown(series.map((p) => p.nasdaq100CapWeight)),
+      },
+      nasdaq100EqualWeight: {
+        endingValue: lastPoint.nasdaq100EqualWeight,
+        totalReturn: totalReturnEqual,
+        cagr: computeCagr(INITIAL_CAPITAL, lastPoint.nasdaq100EqualWeight, firstDate, lastDate),
+        maxDrawdown: computeMaxDrawdown(series.map((p) => p.nasdaq100EqualWeight)),
+      },
+      sp500: {
+        endingValue: lastPoint.sp500,
+        totalReturn: totalReturnSp,
+        cagr: computeCagr(INITIAL_CAPITAL, lastPoint.sp500, firstDate, lastDate),
+        maxDrawdown: computeMaxDrawdown(series.map((p) => p.sp500)),
+      },
+    },
+  };
+}
+
+/**
+ * Rows on/after user_start_date, all equity columns scaled so the first row's strategy
+ * ending equity equals investmentSize (late user entry; same returns, different notional).
+ */
+export function filterAndRebaseConfigRows(
+  rows: ConfigPerfRow[],
+  userStartDate: string,
+  investmentSize: number
+): ConfigPerfRow[] {
+  const sorted = [...rows].sort((a, b) => a.run_date.localeCompare(b.run_date));
+  const from = sorted.filter((r) => r.run_date >= userStartDate);
+  if (!from.length) return [];
+
+  const firstEnd = toNumber(from[0]!.ending_equity, INITIAL_CAPITAL);
+  if (firstEnd <= 0) return from;
+
+  const k = investmentSize / firstEnd;
+  return from.map((r) => ({
+    ...r,
+    starting_equity: toNumber(r.starting_equity, INITIAL_CAPITAL) * k,
+    ending_equity: toNumber(r.ending_equity, INITIAL_CAPITAL) * k,
+    nasdaq100_cap_weight_equity: toNumber(r.nasdaq100_cap_weight_equity, INITIAL_CAPITAL) * k,
+    nasdaq100_equal_weight_equity: toNumber(r.nasdaq100_equal_weight_equity, INITIAL_CAPITAL) * k,
+    sp500_equity: toNumber(r.sp500_equity, INITIAL_CAPITAL) * k,
+  }));
+}
+
+export function buildConfigPerformanceChart(rows: ConfigPerfRow[]): {
+  series: PerformanceSeriesPoint[];
+  metrics: ConfigChartMetrics | null;
+  fullMetrics: FullConfigPerformanceMetrics | null;
+} {
+  if (!rows.length) {
+    return { series: [], metrics: null, fullMetrics: null };
+  }
+
+  const sorted = [...rows].sort((a, b) => a.run_date.localeCompare(b.run_date));
+
+  const series: PerformanceSeriesPoint[] = sorted.map((row) => ({
+    date: row.run_date,
+    aiTop20: toNumber(row.ending_equity, INITIAL_CAPITAL),
+    nasdaq100CapWeight: toNumber(row.nasdaq100_cap_weight_equity, INITIAL_CAPITAL),
+    nasdaq100EqualWeight: toNumber(row.nasdaq100_equal_weight_equity, INITIAL_CAPITAL),
+    sp500: toNumber(row.sp500_equity, INITIAL_CAPITAL),
+  }));
+
+  const netReturns = sorted.map((row) => toNumber(row.net_return, 0));
+  const firstPoint = series[0];
+  const lastPoint = series[series.length - 1];
+  const firstDate = firstPoint?.date ?? '';
+  const lastDate = lastPoint?.date ?? '';
+
+  if (!firstPoint || !lastPoint) {
+    return { series, metrics: null, fullMetrics: null };
+  }
+
+  const metrics: ConfigChartMetrics = {
+    totalReturn: computeTotalReturn(INITIAL_CAPITAL, lastPoint.aiTop20),
+    cagr: computeCagr(INITIAL_CAPITAL, lastPoint.aiTop20, firstDate, lastDate),
+    maxDrawdown: computeMaxDrawdown(series.map((p) => p.aiTop20)),
+    sharpeRatio: computeSharpeWeekly(netReturns),
+  };
+
+  const fullMetrics = buildFullMetricsFromSeries(series, netReturns);
+
+  return { series, metrics, fullMetrics };
+}

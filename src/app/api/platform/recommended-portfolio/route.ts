@@ -10,13 +10,15 @@ export const runtime = 'nodejs';
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const requestedDate = searchParams.get('date');
+  const slugParam = searchParams.get('slug');
 
   const strategies = await getStrategiesList();
   if (!strategies.length) {
     return NextResponse.json({ error: 'No strategies available.' }, { status: 404 });
   }
 
-  const bestStrategy = strategies[0];
+  const bySlug = slugParam ? strategies.find((s) => s.slug === slugParam) : undefined;
+  const bestStrategy = bySlug ?? strategies[0];
 
   const dates = await getPortfolioRunDates(bestStrategy.id);
   if (!dates.length) {
@@ -36,5 +38,6 @@ export async function GET(req: Request) {
     holdings,
     availableDates: dates,
     selectedDate,
+    runDate: selectedDate,
   });
 }

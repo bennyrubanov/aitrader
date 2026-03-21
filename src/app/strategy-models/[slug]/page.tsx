@@ -22,10 +22,10 @@ import { getStrategyDetail, getStrategiesList } from '@/lib/platform-performance
 import { headerStatSentiment } from '@/lib/header-stat-sentiment';
 import { RegressionScatterExample } from '@/components/strategy-models/regression-scatter-example';
 import { cn } from '@/lib/utils';
+import { getTopRankedConfigForSlug } from '@/lib/strategy-model-ranked-server';
 
 export const revalidate = 300;
 
-const WEEKDAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const displayDateFormatter = new Intl.DateTimeFormat('en-US', {
   weekday: 'short',
   month: 'short',
@@ -65,10 +65,10 @@ export async function generateMetadata({ params }: Props) {
 const MODEL_DETAIL_TOC = [
   { id: 'overview', label: 'Overview' },
   { id: 'ai-model', label: 'AI model' },
-  { id: 'portfolio-construction', label: 'Portfolio construction' },
   { id: 'how-it-works', label: 'How it works' },
   { id: 'performance-summary', label: 'Performance' },
   { id: 'methodology', label: 'Methodology' },
+  { id: 'portfolio-construction', label: '↳ Portfolio construction' },
   { id: 'methodology-scoring', label: '↳ Scoring' },
   { id: 'methodology-performance-metrics', label: '↳ Performance metrics' },
   { id: 'methodology-turnover', label: '↳ Turnover & costs' },
@@ -91,11 +91,20 @@ function ConfigRow({ label, value, mono }: { label: string; value: string; mono?
 
 export default async function StrategyModelDetailPage({ params }: Props) {
   const { slug } = await params;
-  const [detail, strategies] = await Promise.all([getStrategyDetail(slug), getStrategiesList()]);
+  const [detail, strategies, topRankedConfig] = await Promise.all([
+    getStrategyDetail(slug),
+    getStrategiesList(),
+    getTopRankedConfigForSlug(slug),
+  ]);
 
   if (!detail) notFound();
 
   const isTop = strategies[0]?.id === detail.id;
+
+  const headerSharpe = topRankedConfig?.metrics.sharpeRatio ?? detail.sharpeRatio;
+  const headerTotalReturn = topRankedConfig?.metrics.totalReturn ?? detail.totalReturn;
+  const headerCagr = topRankedConfig?.metrics.cagr ?? detail.cagr;
+  const headerMaxDd = topRankedConfig?.metrics.maxDrawdown ?? detail.maxDrawdown;
 
   const PROMPT_KEY_POINTS = [
     `Scores each stock from −5 (very unattractive) to +5 (very attractive) relative to the next ~30 days of expected performance.`,
@@ -120,11 +129,12 @@ export default async function StrategyModelDetailPage({ params }: Props) {
           performanceSlug={slug}
         />
       }
+      tocPosition="right"
     >
       {/* Back link */}
       <div className="mb-6">
         <Link
-          href="/strategy-models"
+          href="/strategy-model"
           className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft className="size-3.5" /> All strategy models
@@ -145,23 +155,23 @@ export default async function StrategyModelDetailPage({ params }: Props) {
             ? [
                 {
                   label: 'Sharpe',
-                  value: fmt.num(detail.sharpeRatio),
-                  ...headerStatSentiment('Sharpe', detail.sharpeRatio),
+                  value: fmt.num(headerSharpe),
+                  ...headerStatSentiment('Sharpe', headerSharpe),
                 },
                 {
                   label: 'Total return',
-                  value: fmt.pct(detail.totalReturn),
-                  ...headerStatSentiment('Total return', detail.totalReturn),
+                  value: fmt.pct(headerTotalReturn),
+                  ...headerStatSentiment('Total return', headerTotalReturn),
                 },
                 {
                   label: 'CAGR',
-                  value: fmt.pct(detail.cagr),
-                  ...headerStatSentiment('CAGR', detail.cagr),
+                  value: fmt.pct(headerCagr),
+                  ...headerStatSentiment('CAGR', headerCagr),
                 },
                 {
                   label: 'Max drawdown',
-                  value: fmt.pct(detail.maxDrawdown),
-                  ...headerStatSentiment('Max drawdown', detail.maxDrawdown),
+                  value: fmt.pct(headerMaxDd),
+                  ...headerStatSentiment('Max drawdown', headerMaxDd),
                 },
               ]
             : undefined
@@ -204,35 +214,6 @@ export default async function StrategyModelDetailPage({ params }: Props) {
         </div>
       </section>
 
-      {/* ── Portfolio Construction ─────────────────────────────────────────── */}
-      <section id="portfolio-construction" className="mb-10">
-        <h2 className="text-2xl font-bold mb-2 flex items-center gap-2">
-          <LayoutGrid className="size-5 text-trader-blue" /> Portfolio construction
-        </h2>
-        <p className="text-sm text-muted-foreground mb-5">
-          Portfolio construction is a <em>tracking layer</em> applied on top of the AI ratings. The
-          same underlying rating system could be used with different portfolio rules — this is one
-          configuration we track live.
-        </p>
-        <div className="rounded-lg border bg-card p-5 divide-y mb-5">
-          <ConfigRow label="Selection" value={`Top ${detail.portfolioSize} by latent rank`} />
-          <ConfigRow label="Weight per stock" value={`${(100 / detail.portfolioSize).toFixed(1)}% (equal weight)`} />
-          <ConfigRow label="Rebalance frequency" value={detail.rebalanceFrequency} />
-          <ConfigRow label="Rebalance day" value={WEEKDAY_LABELS[detail.rebalanceDayOfWeek] ?? 'N/A'} />
-          <ConfigRow
-            label="Transaction cost"
-            value={`${detail.transactionCostBps} bps per unit of turnover`}
-          />
-          <ConfigRow label="Taxes" value="Not deducted (pre-tax returns)" />
-        </div>
-        <div className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
-          <strong className="text-foreground">Why equal weight?</strong> Equal weighting ensures
-          every selected stock contributes equally to portfolio returns, avoiding over-concentration
-          in any single name. This also makes the portfolio relatively straightforward to replicate
-          and is consistent with the academic literature this strategy is based on.
-        </div>
-      </section>
-
       {/* ── How it works ──────────────────────────────────────────────────── */}
       <section id="how-it-works" className="mb-10">
         <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
@@ -253,12 +234,12 @@ export default async function StrategyModelDetailPage({ params }: Props) {
             {
               step: '3',
               title: 'Portfolio selection',
-              body: `Stocks are sorted by latent rank (highest = most attractive). The top ${detail.portfolioSize} become the portfolio. Each gets an equal weight of ${(100 / detail.portfolioSize).toFixed(1)}%. No discretionary overrides. Same inputs produce the same portfolio every week.`,
+              body: `Stocks are sorted by latent rank (highest = most attractive). Your portfolio construction config determines how many top-ranked stocks to hold (Top 5 through Top 30) and how to weight them (equal or cap weight). No discretionary overrides — same inputs produce the same portfolio every rebalance.`,
             },
             {
               step: '4',
               title: 'Cost deduction',
-              body: `Every rebalance, we compute the portfolio turnover (how much changed). We then deduct ${detail.transactionCostBps} basis points per unit of turnover from the gross return. This keeps results grounded in what you would actually earn after trading. Returns shown are pre-tax.`,
+              body: `Every rebalance, we compute portfolio turnover (how much changed). We then deduct ${detail.transactionCostBps} basis points per unit of turnover from the gross return. This keeps results grounded in what you would actually earn after trading. Returns shown are pre-tax.`,
             },
           ].map(({ step, title, body }) => (
             <div key={step} className="flex gap-4 rounded-lg border bg-card p-5">
@@ -289,17 +270,55 @@ export default async function StrategyModelDetailPage({ params }: Props) {
             </Link>
           </Button>
         </div>
+
+        <div className="mb-6 rounded-lg border bg-muted/20 p-4 text-sm text-muted-foreground">
+          <p>
+            Portfolio construction (risk level, rebalance cadence, weighting) is a separate layer.
+            The chart and full metrics for every configuration live on the{' '}
+            <Link href={`/performance/${slug}`} className="text-trader-blue font-medium hover:underline">
+              public performance page
+            </Link>
+            . Below: headline stats for the <strong>top-ranked construction</strong> for this model
+            {topRankedConfig ? (
+              <>
+                {' '}
+                ({topRankedConfig.riskLabel} · Top {topRankedConfig.topN} ·{' '}
+                {topRankedConfig.rebalanceFrequency} ·{' '}
+                {topRankedConfig.weightingMethod === 'cap' ? 'Cap weight' : 'Equal weight'}).
+              </>
+            ) : (
+              <> (defaults to model tracking portfolio when ranking data is not ready).</>
+            )}
+          </p>
+        </div>
+
         {detail.runCount > 0 ? (
           <div className="space-y-4">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {[
-                { label: 'Sharpe ratio', value: fmt.num(detail.sharpeRatio), note: 'Risk-adjusted return' },
-                { label: 'Total return', value: fmt.pct(detail.totalReturn), note: 'Since launch' },
-                { label: 'CAGR', value: fmt.pct(detail.cagr), note: 'Annualized' },
-                { label: 'Max drawdown', value: fmt.pct(detail.maxDrawdown), note: 'Worst stretch' },
+                {
+                  label: 'Sharpe ratio',
+                  value: fmt.num(headerSharpe),
+                  note: topRankedConfig ? 'Top-ranked construction' : 'Risk-adjusted return',
+                },
+                {
+                  label: 'Total return',
+                  value: fmt.pct(headerTotalReturn),
+                  note: topRankedConfig ? 'Top-ranked construction' : 'Since launch',
+                },
+                {
+                  label: 'CAGR',
+                  value: fmt.pct(headerCagr),
+                  note: topRankedConfig ? 'Top-ranked construction' : 'Annualized',
+                },
+                {
+                  label: 'Max drawdown',
+                  value: fmt.pct(headerMaxDd),
+                  note: topRankedConfig ? 'Top-ranked construction' : 'Worst stretch',
+                },
               ].map(({ label, value, note }) => {
                 const isSharpe = label === 'Sharpe ratio';
-                const sharpeGood = isSharpe && (detail.sharpeRatio ?? 0) > 1;
+                const sharpeGood = isSharpe && (headerSharpe ?? 0) > 1;
                 return (
                   <div
                     key={label}
@@ -488,12 +507,12 @@ export default async function StrategyModelDetailPage({ params }: Props) {
             )}
 
             <p className="text-xs text-muted-foreground -mt-1">
-              <span className="font-medium text-foreground">Sharpe ratio</span> ranks models on the
-              strategy models index. Higher values mean better return per unit of risk (see{' '}
-              <Link href="/strategy-models" className="text-trader-blue hover:underline">
-                Strategy models
-              </Link>
-              ).
+              Strategy models are ranked with a composite score (breadth, median config quality, and
+              best-config upside). See the{' '}
+              <Link href="/strategy-model" className="text-trader-blue hover:underline">
+                strategy models
+              </Link>{' '}
+              index.
             </p>
           </div>
         ) : (
@@ -513,8 +532,40 @@ export default async function StrategyModelDetailPage({ params }: Props) {
         </p>
 
         <div className="space-y-8">
+          {/* Portfolio construction (methodology) */}
+          <div id="portfolio-construction">
+            <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+              <LayoutGrid className="size-5 text-trader-blue shrink-0" />
+              Portfolio construction (layer on top of ratings)
+            </h3>
+            <div className="text-sm text-muted-foreground space-y-3 leading-relaxed">
+              <p>
+                The AI model only produces <strong>scores and ranks</strong> for every Nasdaq-100
+                name. How you turn that into a portfolio is configurable: <strong>six risk levels</strong>{' '}
+                (different top-N cuts), <strong>four rebalance cadences</strong> (weekly through
+                yearly), and <strong>equal vs. cap weighting</strong>.
+              </p>
+              <p>
+                Each combination is simulated with full history, ranked for you, and comparable on the{' '}
+                <Link href={`/performance/${slug}`} className="text-trader-blue hover:underline">
+                  performance page
+                </Link>
+                . Pick a preset, follow multiple portfolios, and separate <strong>model</strong>{' '}
+                research (quintiles, regression) from <strong>construction</strong> outcomes.
+              </p>
+              <p>
+                <Link
+                  href="/platform/explore-portfolios"
+                  className="inline-flex items-center gap-1 text-trader-blue hover:underline font-medium"
+                >
+                  Explore all portfolio configurations <ArrowRight className="size-3.5" />
+                </Link>
+              </p>
+            </div>
+          </div>
+
           {/* Scoring */}
-          <div id="methodology-scoring">
+          <div id="methodology-scoring" className="border-t pt-6">
             <h3 className="text-lg font-semibold mb-3">Scoring and ranking</h3>
             <div className="text-sm text-foreground/80 space-y-3 leading-relaxed">
               <p>
@@ -919,7 +970,7 @@ export default async function StrategyModelDetailPage({ params }: Props) {
               <div className="rounded-md border bg-muted/30 p-3">
                 <p className="font-medium text-foreground text-xs mb-1">Our alignment:</p>
                 <ul className="text-xs text-muted-foreground space-y-0.5">
-                  <li>Equal-weight portfolio from AI-ranked picks (Top {detail.portfolioSize})</li>
+                  <li>Portfolio from AI-ranked picks (Top 5 to Top 30, configurable)</li>
                   <li>Benchmarked against both cap-weight and equal-weight Nasdaq-100</li>
                   <li>Tracked live and unedited over multiple market conditions</li>
                 </ul>
@@ -947,7 +998,7 @@ export default async function StrategyModelDetailPage({ params }: Props) {
         </div>
         <div className="flex items-center justify-between gap-3">
           <Button asChild variant="ghost">
-            <Link href="/strategy-models">
+            <Link href="/strategy-model">
               <ArrowLeft className="size-4 mr-1" /> All models
             </Link>
           </Button>

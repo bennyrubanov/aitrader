@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   ArrowUpRight,
   BarChart3,
-  Briefcase,
+  Compass,
   Cpu,
   FlaskConical,
   Folders,
@@ -54,19 +54,19 @@ const mainItems: NavItem[] = [
 
 const platformItems: NavItem[] = [
   {
-    title: "This Week's Ratings",
+    title: 'Stock Ratings',
     href: '/platform/ratings',
     icon: ListOrdered,
   },
   {
-    title: 'Recommended Portfolio',
-    href: '/platform/recommended-portfolio',
-    icon: Briefcase,
-  },
-  {
-    title: 'Your Portfolio',
+    title: 'Your Portfolios',
     href: '/platform/your-portfolio',
     icon: Folders,
+  },
+  {
+    title: 'Explore Portfolios',
+    href: '/platform/explore-portfolios',
+    icon: Compass,
   },
 ];
 
@@ -124,7 +124,7 @@ export function AppSidebar() {
       ...advancedItems.flatMap((item) => (item.href ? [item.href] : [])),
       '/platform/settings',
       '/performance',
-      '/strategy-models',
+      '/strategy-model',
     ];
     const prefetchAllRoutes = () => {
       prefetchTargets.forEach((href) => {
@@ -281,7 +281,7 @@ export function AppSidebar() {
               </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton asChild tooltip="Strategy models & methodology (public)">
-                  <button type="button" onClick={() => openPath('/strategy-models')}>
+                  <button type="button" onClick={() => openPath('/strategy-model')}>
                     <Cpu className="size-4 shrink-0" />
                     <span className="truncate">Strategy models</span>
                     <ArrowUpRight className="ml-auto size-3.5 shrink-0 text-muted-foreground" />
@@ -304,6 +304,7 @@ export function AppSidebar() {
           }))}
           label="Advanced Features"
         />
+
       </SidebarContent>
       <SidebarFooter className="sticky bottom-0 z-10 border-t border-sidebar-border/70 bg-sidebar">
         <NavSecondary

@@ -29,6 +29,11 @@ interface ContentPageLayoutProps {
   sidebarSlot?: React.ReactNode;
   /** When true, skips rendering the title/subtitle header (e.g. when using a custom hero). */
   hideTitle?: boolean;
+  /**
+   * 'left' (default): TOC sits in the left sidebar below sidebarSlot.
+   * 'right': TOC floats on the right side (docs-style), left sidebar only shows sidebarSlot.
+   */
+  tocPosition?: 'left' | 'right';
 }
 
 export const ContentPageLayout: React.FC<ContentPageLayoutProps> = ({
@@ -39,9 +44,13 @@ export const ContentPageLayout: React.FC<ContentPageLayoutProps> = ({
   legalProse = false,
   sidebarSlot,
   hideTitle = false,
+  tocPosition = 'left',
 }) => {
   const [mobileOpen, setMobileOpen] = useState(false);
-  const hasSidebar = sidebarSlot || (tableOfContents && tableOfContents.length > 0);
+  const isRightToc = tocPosition === 'right';
+  const hasLeftSidebar = isRightToc ? !!sidebarSlot : !!(sidebarSlot || (tableOfContents && tableOfContents.length > 0));
+  const hasRightToc = isRightToc && tableOfContents && tableOfContents.length > 0;
+  const hasSidebar = hasLeftSidebar || hasRightToc;
 
   const tocKey = tableOfContents?.map((item) => item.id).join('|') ?? '';
 
@@ -77,31 +86,40 @@ export const ContentPageLayout: React.FC<ContentPageLayoutProps> = ({
     };
   }, [tocKey, tableOfContents]);
 
-  const sidebarContent = (
+  const tocNav = tableOfContents && tableOfContents.length > 0 ? (
+    <nav className="space-y-0.5" aria-label="On this page">
+      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+        On this page
+      </p>
+      {tableOfContents.map((item) => (
+        <Link
+          key={item.id}
+          href={`#${item.id}`}
+          onClick={() => setMobileOpen(false)}
+          className={cn(
+            'block text-sm py-1 border-l-2 pl-3 -ml-px transition-colors',
+            activeTocId === item.id
+              ? 'font-medium text-foreground border-trader-blue'
+              : 'text-muted-foreground border-transparent hover:text-trader-blue hover:border-trader-blue/50'
+          )}
+        >
+          {item.label}
+        </Link>
+      ))}
+    </nav>
+  ) : null;
+
+  const leftSidebarContent = (
     <>
       {sidebarSlot && <div>{sidebarSlot}</div>}
-      {tableOfContents && tableOfContents.length > 0 && (
-        <nav className="space-y-0.5" aria-label="On this page">
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-            On this page
-          </p>
-          {tableOfContents.map((item) => (
-            <Link
-              key={item.id}
-              href={`#${item.id}`}
-              onClick={() => setMobileOpen(false)}
-              className={cn(
-                'block text-sm py-1 border-l-2 pl-3 -ml-px transition-colors',
-                activeTocId === item.id
-                  ? 'font-medium text-foreground border-trader-blue'
-                  : 'text-muted-foreground border-transparent hover:text-trader-blue hover:border-trader-blue/50'
-              )}
-            >
-              {item.label}
-            </Link>
-          ))}
-        </nav>
-      )}
+      {!isRightToc && tocNav}
+    </>
+  );
+
+  const mobileSidebarContent = (
+    <>
+      {sidebarSlot && <div>{sidebarSlot}</div>}
+      {tocNav}
     </>
   );
 
@@ -112,13 +130,19 @@ export const ContentPageLayout: React.FC<ContentPageLayoutProps> = ({
       <div className="pointer-events-none fixed inset-x-0 top-0 h-64 bg-gradient-to-b from-trader-blue/5 to-transparent z-0" />
       <main className="flex-grow relative z-10">
         <section className="py-16 md:py-20">
-          <div className="container mx-auto px-4">
-            <div className="flex flex-col lg:flex-row gap-12 lg:gap-16 max-w-6xl mx-auto">
+          <div className={cn(
+            'container mx-auto px-4',
+            isRightToc ? 'max-w-[90rem]' : ''
+          )}>
+            <div className={cn(
+              'flex flex-col lg:flex-row gap-12 lg:gap-10',
+              isRightToc ? '' : 'max-w-6xl mx-auto lg:gap-16',
+            )}>
 
-              {/* Desktop sidebar — hidden on mobile */}
-              {hasSidebar && (
+              {/* Desktop left sidebar — hidden on mobile */}
+              {hasLeftSidebar && (
                 <aside className="hidden lg:block lg:w-56 flex-shrink-0 sticky top-24 self-start space-y-5">
-                  {sidebarContent}
+                  {leftSidebarContent}
                 </aside>
               )}
 
@@ -142,6 +166,13 @@ export const ContentPageLayout: React.FC<ContentPageLayoutProps> = ({
                   <div className="[&_[id]]:scroll-mt-[5.5rem] md:[&_[id]]:scroll-mt-[6.5rem]">{children}</div>
                 )}
               </div>
+
+              {/* Desktop right TOC — docs-style, only when tocPosition='right' */}
+              {hasRightToc && (
+                <aside className="hidden xl:block xl:w-48 flex-shrink-0 sticky top-24 self-start">
+                  {tocNav}
+                </aside>
+              )}
             </div>
           </div>
         </section>
@@ -176,7 +207,7 @@ export const ContentPageLayout: React.FC<ContentPageLayoutProps> = ({
                 </Button>
               </SheetClose>
               <div className="space-y-5 overflow-y-auto max-h-[calc(100vh-5rem)] pr-1">
-                {sidebarContent}
+                {mobileSidebarContent}
               </div>
             </SheetContent>
           </Sheet>

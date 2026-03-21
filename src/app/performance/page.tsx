@@ -9,7 +9,7 @@ const PerformancePage = async () => {
     redirect(`/performance/${slug}`);
   }
   // Fallback: render inline if no slug available (e.g. no data yet)
-  redirect('/strategy-models');
+  redirect('/strategy-model');
 };
 
 export default PerformancePage;

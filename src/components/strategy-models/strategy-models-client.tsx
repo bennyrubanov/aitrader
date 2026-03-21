@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight, BarChart2, SlidersHorizontal, Star, TrendingUp } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -45,11 +45,35 @@ type Props = { strategies: StrategyListItem[] };
 
 export function StrategyModelsClient({ strategies }: Props) {
   const [sort, setSort] = useState<SortKey>('performance');
+  const [compositeRankBySlug, setCompositeRankBySlug] = useState<Map<string, number>>(new Map());
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch('/api/platform/strategy-models-ranked')
+      .then((r) => r.json())
+      .then((d: { strategies?: Array<{ slug: string; rank: number | null }> }) => {
+        if (cancelled) return;
+        const m = new Map<string, number>();
+        for (const s of d.strategies ?? []) {
+          if (s.rank != null) m.set(s.slug, s.rank);
+        }
+        setCompositeRankBySlug(m);
+      })
+      .catch(() => {
+        if (!cancelled) setCompositeRankBySlug(new Map());
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const sorted = [...strategies].sort((a, b) => {
     if (sort === 'newest') {
       return (b.startDate ?? '').localeCompare(a.startDate ?? '');
     }
+    const ra = compositeRankBySlug.get(a.slug) ?? 999;
+    const rb = compositeRankBySlug.get(b.slug) ?? 999;
+    if (ra !== rb) return ra - rb;
     if (a.sharpeRatio === null && b.sharpeRatio === null) return 0;
     if (a.sharpeRatio === null) return 1;
     if (b.sharpeRatio === null) return -1;
@@ -107,11 +131,11 @@ export function StrategyModelsClient({ strategies }: Props) {
           How we rank models
         </p>
         <p>
-          Sorted by{' '}
-          <span className="font-medium text-foreground">Sharpe ratio</span> (return per unit of risk).
-          This is fairer than total return alone because strategies with different portfolio sizes or
-          rebalance frequencies are not directly comparable on raw returns. Higher Sharpe means
-          better risk-adjusted performance.
+          <span className="font-medium text-foreground">Top performing</span> uses a composite score:
+          50% <strong>breadth</strong> (share of portfolio configurations with positive excess
+          outcomes), 30% <strong>median</strong> risk-adjusted quality across configs, 20%{' '}
+          <strong>best-config</strong> upside — so one lucky construction doesn&apos;t dominate the
+          whole model ranking.
         </p>
       </div>
 
@@ -229,7 +253,7 @@ export function StrategyModelsClient({ strategies }: Props) {
                     {/* CTA buttons */}
                     <div className="flex flex-row sm:flex-col gap-2 shrink-0 sm:items-end sm:justify-center">
                       <Button asChild size="sm">
-                        <Link href={`/strategy-models/${strategy.slug}`} className="gap-1.5">
+                        <Link href={`/strategy-model/${strategy.slug}`} className="gap-1.5">
                           Model details <ArrowRight className="size-3.5" />
                         </Link>
                       </Button>

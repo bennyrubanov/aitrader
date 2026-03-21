@@ -469,7 +469,7 @@ const SettingsPageContent = () => {
                     href="/platform/your-portfolio"
                     className="font-medium text-foreground underline underline-offset-2 hover:no-underline"
                   >
-                    Your Portfolio
+                    Your Portfolios
                   </Link>
                 </p>
               </div>

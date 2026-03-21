@@ -108,7 +108,7 @@ export function ModelHeaderCard({
         <div className="flex items-center gap-2 shrink-0">
           {variant === 'performance' && (
             <Button asChild size="sm" variant="outline" className="gap-1.5">
-              <Link href={`/strategy-models/${slug}`}>
+              <Link href={`/strategy-model/${slug}`}>
                 Model details <ArrowRight className="size-3.5" />
               </Link>
             </Button>

@@ -84,6 +84,8 @@ type StrategyRow = {
   slug: string;
   name: string;
   version: string;
+  ait_code: string | null;
+  robot_name: string | null;
   index_name: string;
   rebalance_frequency: string;
   rebalance_day_of_week: number;
@@ -642,9 +644,9 @@ const getOrCreateStrategy = async (
   modelId: string
 ) => {
   const { data: existing, error: fetchError } = await supabase
-    .from('trading_strategies')
+    .from('strategy_models')
     .select(
-      'id, slug, name, version, index_name, rebalance_frequency, rebalance_day_of_week, portfolio_size, weighting_method, transaction_cost_bps, prompt_id, model_id, status'
+      'id, slug, name, version, ait_code, robot_name, index_name, rebalance_frequency, rebalance_day_of_week, portfolio_size, weighting_method, transaction_cost_bps, prompt_id, model_id, status'
     )
     .eq('slug', STRATEGY_CONFIG.slug)
     .maybeSingle();
@@ -655,22 +657,47 @@ const getOrCreateStrategy = async (
 
   if (existing) {
     const costBps = toNumber(existing.transaction_cost_bps, STRATEGY_CONFIG.transactionCostBps);
-    const mismatch =
-      existing.name !== STRATEGY_CONFIG.name ||
-      existing.version !== STRATEGY_CONFIG.version ||
+
+    // Structural params must NEVER change for an existing slug.
+    // Changing these requires a new AIT entry with a new slug.
+    const structuralMismatch =
       existing.index_name !== STRATEGY_CONFIG.indexName ||
       existing.rebalance_frequency !== STRATEGY_CONFIG.rebalanceFrequency ||
       Number(existing.rebalance_day_of_week) !== STRATEGY_CONFIG.rebalanceDayOfWeek ||
       Number(existing.portfolio_size) !== STRATEGY_CONFIG.portfolioSize ||
       existing.weighting_method !== STRATEGY_CONFIG.weightingMethod ||
-      Math.abs(costBps - STRATEGY_CONFIG.transactionCostBps) > 1e-9 ||
-      existing.prompt_id !== promptId ||
-      existing.model_id !== modelId;
+      Math.abs(costBps - STRATEGY_CONFIG.transactionCostBps) > 1e-9;
 
-    if (mismatch) {
+    if (structuralMismatch) {
       throw new Error(
-        'Strategy configuration mismatch detected for existing slug. Create a new strategy version/slug instead of mutating the existing one.'
+        'Strategy structural parameters (index, frequency, portfolio_size, weighting, cost) changed for existing slug. Create a new AIT entry with a new slug instead of mutating the existing one.'
       );
+    }
+
+    // Non-structural updates (version, prompt, model, name, description, AIT identity) are
+    // allowed in-place. Historical batch rows preserve their own prompt_id / model_id.
+    const needsUpdate =
+      existing.version !== STRATEGY_CONFIG.version ||
+      existing.prompt_id !== promptId ||
+      existing.model_id !== modelId ||
+      existing.name !== STRATEGY_CONFIG.name ||
+      existing.ait_code !== STRATEGY_CONFIG.aitCode ||
+      existing.robot_name !== STRATEGY_CONFIG.robotName;
+
+    if (needsUpdate) {
+      await supabase
+        .from('strategy_models')
+        .update({
+          name: STRATEGY_CONFIG.name,
+          version: STRATEGY_CONFIG.version,
+          ait_code: STRATEGY_CONFIG.aitCode,
+          robot_name: STRATEGY_CONFIG.robotName,
+          prompt_id: promptId,
+          model_id: modelId,
+          description: STRATEGY_CONFIG.description,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', existing.id);
     }
 
     return {
@@ -680,11 +707,13 @@ const getOrCreateStrategy = async (
   }
 
   const { data: inserted, error: insertError } = await supabase
-    .from('trading_strategies')
+    .from('strategy_models')
     .insert({
       slug: STRATEGY_CONFIG.slug,
       name: STRATEGY_CONFIG.name,
       version: STRATEGY_CONFIG.version,
+      ait_code: STRATEGY_CONFIG.aitCode,
+      robot_name: STRATEGY_CONFIG.robotName,
       index_name: STRATEGY_CONFIG.indexName,
       rebalance_frequency: STRATEGY_CONFIG.rebalanceFrequency,
       rebalance_day_of_week: STRATEGY_CONFIG.rebalanceDayOfWeek,
@@ -699,7 +728,7 @@ const getOrCreateStrategy = async (
       updated_at: new Date().toISOString(),
     })
     .select(
-      'id, slug, name, version, index_name, rebalance_frequency, rebalance_day_of_week, portfolio_size, weighting_method, transaction_cost_bps, prompt_id, model_id, status'
+      'id, slug, name, version, ait_code, robot_name, index_name, rebalance_frequency, rebalance_day_of_week, portfolio_size, weighting_method, transaction_cost_bps, prompt_id, model_id, status'
     )
     .single();
 
@@ -1906,6 +1935,14 @@ const handleRequest = async (req: Request) => {
       return NextResponse.json({ error: performanceUpsertError.message }, { status: 500 });
     }
 
+    // ----- Step 15b: Precompute all equal-weight configs (separate function, fire-and-forget) -----
+    try {
+      const { triggerPortfolioConfigsBatch } = await import('@/lib/trigger-config-compute');
+      triggerPortfolioConfigsBatch(strategy.id);
+    } catch (batchTriggerError) {
+      recordCronError('Portfolio config batch trigger failed', batchTriggerError);
+    }
+
     // ----- Step 16: Persist deterministic rebalance actions -----
     const eligibleSymbols = new Set(memberRows.map((member) => member.stock.symbol));
     const oldMapByStockId = new Map(previousHoldings.map((holding) => [holding.stock_id, holding]));
@@ -2069,10 +2106,10 @@ const handleRequest = async (req: Request) => {
     revalidatePath('/platform/performance');
     revalidatePath('/performance');
     revalidatePath('/performance', 'page');
-    revalidatePath('/strategy-models');
+    revalidatePath('/strategy-model');
     // Revalidate per-slug performance and model detail pages
     revalidatePath('/performance/[slug]', 'page');
-    revalidatePath('/strategy-models/[slug]', 'page');
+    revalidatePath('/strategy-model/[slug]', 'page');
 
     const summary = {
       ok: results.filter((result) => result.status === 'ok').length,

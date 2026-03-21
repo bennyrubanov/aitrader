@@ -80,7 +80,7 @@ const ContactPage = () => {
                     </li>
                     <li>
                       <Link
-                        href="/strategy-models"
+                        href="/strategy-model"
                         className="font-medium text-trader-blue hover:underline"
                       >
                         Strategy Models

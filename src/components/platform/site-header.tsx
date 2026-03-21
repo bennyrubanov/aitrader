@@ -18,7 +18,7 @@ type ViewMeta = {
 
 const viewMetaByPath: Record<string, ViewMeta> = {
   '/platform/ratings': {
-    title: "This Week's Ratings",
+    title: 'Stock Ratings',
     subtitle: 'AI ratings and rankings for all Nasdaq-100 stocks',
   },
   '/platform/recommended-portfolio': {
@@ -26,8 +26,8 @@ const viewMetaByPath: Record<string, ViewMeta> = {
     subtitle: 'AI-optimized portfolio based on top-performing strategy',
   },
   '/platform/your-portfolio': {
-    title: 'Your Portfolio',
-    subtitle: 'Track and manage your personal stock selections',
+    title: 'Your Portfolios',
+    subtitle: 'Track and manage the portfolios you follow',
   },
   '/performance': {
     title: 'Performance',

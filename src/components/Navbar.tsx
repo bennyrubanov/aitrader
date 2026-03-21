@@ -46,7 +46,7 @@ import { PlanLabel } from "@/components/account/plan-label";
 import { navigateWithFallback } from "@/lib/client-navigation";
 
 const platformNavItems = [
-  { label: "Strategy Models", href: "/strategy-models", icon: FlaskConical },
+  { label: "Strategy Models", href: "/strategy-model", icon: FlaskConical },
   { label: "Performance", href: "/performance", icon: Gauge },
   { label: "Pricing & Features", href: "/pricing", icon: Landmark },
   { label: "Explore Platform", href: "/platform/ratings", icon: LayoutDashboard },
@@ -73,7 +73,7 @@ type NavItem = {
 
 const MARKETING_PREFETCH_ROUTES = [
   "/",
-  "/strategy-models",
+  "/strategy-model",
   "/performance",
   "/platform/ratings",
   "/platform/settings",
@@ -220,7 +220,7 @@ const Navbar: React.FC = () => {
   };
 
   const isPlatformActive =
-    pathname.startsWith("/platform") || pathname.startsWith("/strategy-models") || pathname.startsWith("/performance") || pathname === "/pricing";
+    pathname.startsWith("/platform") || pathname.startsWith("/strategy-model") || pathname.startsWith("/performance") || pathname === "/pricing";
 
   const dropdownButtonClass = (active: boolean) =>
     `inline-flex items-center gap-1 transition-colors ${

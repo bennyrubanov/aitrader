@@ -10,6 +10,8 @@ import {
   ArrowUpRight,
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Loader2,
   Lock,
   Plus,
@@ -46,6 +48,7 @@ type RatingsPageClientProps = {
 };
 
 type BucketFilter = 'all' | 'buy' | 'hold' | 'sell';
+type PeriodStep = 'weekly' | 'monthly' | 'quarterly' | 'yearly';
 
 const PAGE_SIZE = 20;
 
@@ -55,6 +58,50 @@ const BUCKET_FILTERS: { value: BucketFilter; label: string }[] = [
   { value: 'hold', label: 'Hold' },
   { value: 'sell', label: 'Sell' },
 ];
+
+const PERIOD_STEPS: { value: PeriodStep; label: string; approxWeeks: number }[] = [
+  { value: 'weekly', label: 'Weekly', approxWeeks: 1 },
+  { value: 'monthly', label: 'Monthly', approxWeeks: 4 },
+  { value: 'quarterly', label: 'Quarterly', approxWeeks: 13 },
+  { value: 'yearly', label: 'Yearly', approxWeeks: 52 },
+];
+
+function findClosestDateIndex(dates: string[], target: string): number {
+  const targetMs = new Date(target).getTime();
+  let best = 0;
+  let bestDiff = Infinity;
+  for (let i = 0; i < dates.length; i++) {
+    const diff = Math.abs(new Date(dates[i]).getTime() - targetMs);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      best = i;
+    }
+  }
+  return best;
+}
+
+function stepDate(currentDate: string, direction: 'prev' | 'next', step: PeriodStep, allDates: string[]): string | null {
+  if (!allDates.length) return null;
+  const approxWeeks = PERIOD_STEPS.find((p) => p.value === step)?.approxWeeks ?? 1;
+  const ms = approxWeeks * 7 * 24 * 60 * 60 * 1000;
+  const targetMs = new Date(currentDate).getTime() + (direction === 'next' ? ms : -ms);
+  const targetDate = new Date(targetMs).toISOString().slice(0, 10);
+  const idx = findClosestDateIndex(allDates, targetDate);
+  const currentIdx = allDates.indexOf(currentDate);
+  if (direction === 'prev' && idx >= currentIdx && currentIdx < allDates.length - 1) return allDates[currentIdx + 1];
+  if (direction === 'next' && idx <= currentIdx && currentIdx > 0) return allDates[currentIdx - 1];
+  if (allDates[idx] === currentDate) {
+    if (direction === 'prev' && idx < allDates.length - 1) return allDates[idx + 1];
+    if (direction === 'next' && idx > 0) return allDates[idx - 1];
+    return null;
+  }
+  return allDates[idx];
+}
+
+function formatRunDate(dateStr: string): string {
+  const d = new Date(dateStr + 'T00:00:00');
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
 
 const getBucketClasses = (bucket: RatingsRow['bucket']) => {
   if (bucket === 'buy') {
@@ -105,10 +152,28 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
   const [isStrategyLoading, setIsStrategyLoading] = useState(false);
   const [portfolioStockIds, setPortfolioStockIds] = useState<Set<string>>(new Set());
   const [pendingPortfolioStockId, setPendingPortfolioStockId] = useState<string | null>(null);
+  const [availableRunDates, setAvailableRunDates] = useState<string[]>(initialData.availableRunDates ?? []);
+  const [selectedRunDate, setSelectedRunDate] = useState<string | null>(initialData.latestRunDate);
+  const [periodStep, setPeriodStep] = useState<PeriodStep>('weekly');
+  const [isDateLoading, setIsDateLoading] = useState(false);
 
   const defaultStrategy =
     strategies.find((s) => s.isDefault) ?? strategies[0] ?? { slug: 'default', name: 'Default strategy', isDefault: true };
   const canUseStrategyFilter = authState.subscriptionTier === 'outperformer';
+
+  const canGoPrev = useMemo(() => {
+    if (!selectedRunDate || !availableRunDates.length) return false;
+    const idx = availableRunDates.indexOf(selectedRunDate);
+    return idx < availableRunDates.length - 1;
+  }, [selectedRunDate, availableRunDates]);
+
+  const canGoNext = useMemo(() => {
+    if (!selectedRunDate || !availableRunDates.length) return false;
+    const idx = availableRunDates.indexOf(selectedRunDate);
+    return idx > 0;
+  }, [selectedRunDate, availableRunDates]);
+
+  const isViewingLatest = selectedRunDate === availableRunDates[0];
 
   useEffect(() => { setQuery(searchParams.get('query') ?? ''); }, [searchParams]);
 
@@ -145,6 +210,17 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
 
   useEffect(() => { setVisibleCount(PAGE_SIZE); }, [query, bucketFilter]);
 
+  const fetchRatings = useCallback(async (opts: { strategy?: string; date?: string | null }) => {
+    const params = new URLSearchParams();
+    if (opts.strategy) params.set('strategy', opts.strategy);
+    if (opts.date) params.set('date', opts.date);
+    const qs = params.toString();
+    const response = await fetch(`/api/platform/ratings${qs ? `?${qs}` : ''}`);
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload) throw new Error(payload?.error ?? 'Unable to load stock ratings.');
+    return payload as RatingsPageData;
+  }, []);
+
   const handleStrategyChange = useCallback(async (value: string) => {
     setSelectedStrategySlug(value);
     const isDefault = value === defaultStrategy.slug;
@@ -156,14 +232,13 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
     setIsStrategyLoading(true);
     setErrorMessage(null);
     try {
-      const params = isDefault ? '' : `?strategy=${encodeURIComponent(value)}`;
-      const response = await fetch(`/api/platform/ratings${params}`);
-      const payload = await response.json().catch(() => null);
-      if (!response.ok || !payload) throw new Error(payload?.error ?? "Unable to load this strategy's ratings.");
+      const payload = await fetchRatings({ strategy: isDefault ? undefined : value });
       setRows(payload.rows ?? []);
       setErrorMessage(payload.errorMessage ?? null);
       setSelectedStrategyName(payload.strategy?.name ?? defaultStrategy.name);
       setLatestRunDate(payload.latestRunDate ?? null);
+      setAvailableRunDates(payload.availableRunDates ?? []);
+      setSelectedRunDate(payload.latestRunDate ?? null);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unable to load this strategy's ratings.";
       setErrorMessage(msg);
@@ -171,7 +246,54 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
     } finally {
       setIsStrategyLoading(false);
     }
-  }, [canUseStrategyFilter, defaultStrategy.name, defaultStrategy.slug, toast]);
+  }, [canUseStrategyFilter, defaultStrategy.name, defaultStrategy.slug, fetchRatings, toast]);
+
+  const handleDateNav = useCallback(async (direction: 'prev' | 'next') => {
+    if (!selectedRunDate) return;
+    const nextDate = stepDate(selectedRunDate, direction, periodStep, availableRunDates);
+    if (!nextDate || nextDate === selectedRunDate) return;
+    setIsDateLoading(true);
+    setErrorMessage(null);
+    try {
+      const isDefault = selectedStrategySlug === defaultStrategy.slug;
+      const payload = await fetchRatings({
+        strategy: isDefault ? undefined : selectedStrategySlug,
+        date: nextDate,
+      });
+      setRows(payload.rows ?? []);
+      setErrorMessage(payload.errorMessage ?? null);
+      setLatestRunDate(payload.latestRunDate ?? null);
+      setSelectedRunDate(payload.latestRunDate ?? null);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unable to load ratings for this date.';
+      setErrorMessage(msg);
+      toast({ title: 'Unable to navigate', description: msg });
+    } finally {
+      setIsDateLoading(false);
+    }
+  }, [selectedRunDate, periodStep, availableRunDates, selectedStrategySlug, defaultStrategy.slug, fetchRatings, toast]);
+
+  const handleGoToLatest = useCallback(async () => {
+    if (!availableRunDates.length || isViewingLatest) return;
+    setIsDateLoading(true);
+    setErrorMessage(null);
+    try {
+      const isDefault = selectedStrategySlug === defaultStrategy.slug;
+      const payload = await fetchRatings({
+        strategy: isDefault ? undefined : selectedStrategySlug,
+        date: availableRunDates[0],
+      });
+      setRows(payload.rows ?? []);
+      setErrorMessage(payload.errorMessage ?? null);
+      setLatestRunDate(payload.latestRunDate ?? null);
+      setSelectedRunDate(payload.latestRunDate ?? null);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unable to load latest ratings.';
+      setErrorMessage(msg);
+    } finally {
+      setIsDateLoading(false);
+    }
+  }, [availableRunDates, isViewingLatest, selectedStrategySlug, defaultStrategy.slug, fetchRatings]);
 
   const handlePortfolioToggle = useCallback(async (row: RatingsRow) => {
     if (!authState.isAuthenticated) { router.push('/sign-in?next=/platform/ratings'); return; }
@@ -200,15 +322,72 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
   return (
     <TooltipProvider delayDuration={150}>
       <div className="flex h-full flex-col">
-        {/* Floating header: title + strategy dropdown */}
+        {/* Floating header: title + date nav + strategy dropdown */}
         <div className="sticky top-0 z-30 border-b bg-background/95 px-4 py-2.5 backdrop-blur-sm sm:px-6">
           <div className="flex items-center gap-3">
             <div className="min-w-0 shrink-0">
-              <h2 className="text-base font-semibold leading-tight">This week&apos;s ratings</h2>
+              <h2 className="text-base font-semibold leading-tight">Stock Ratings</h2>
               <p className="text-[11px] text-muted-foreground">
-                {latestRunDate ? `Run ${latestRunDate} · ` : ''}
                 {filteredRows.length} stocks
               </p>
+            </div>
+
+            {/* Date navigation */}
+            <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-0.5 rounded-md border p-0.5">
+                {PERIOD_STEPS.map((ps) => (
+                  <button
+                    key={ps.value}
+                    type="button"
+                    onClick={() => setPeriodStep(ps.value)}
+                    className={`rounded-sm px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                      periodStep === ps.value
+                        ? 'bg-primary text-primary-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {ps.label}
+                  </button>
+                ))}
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                disabled={!canGoPrev || isDateLoading}
+                onClick={() => handleDateNav('prev')}
+              >
+                <ChevronLeft className="size-4" />
+              </Button>
+              <span className="min-w-[7rem] text-center text-xs font-medium tabular-nums">
+                {isDateLoading ? (
+                  <Loader2 className="mx-auto size-3.5 animate-spin" />
+                ) : selectedRunDate ? (
+                  formatRunDate(selectedRunDate)
+                ) : (
+                  'No data'
+                )}
+              </span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                disabled={!canGoNext || isDateLoading}
+                onClick={() => handleDateNav('next')}
+              >
+                <ChevronRight className="size-4" />
+              </Button>
+              {!isViewingLatest && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 px-2 text-[11px]"
+                  disabled={isDateLoading}
+                  onClick={handleGoToLatest}
+                >
+                  Latest
+                </Button>
+              )}
             </div>
 
             <div className="ml-auto w-full max-w-xs min-w-0">
@@ -253,7 +432,7 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                           </span>
                         </div>
                         <Link
-                          href={`/strategy-models/${strategy.slug}`}
+                          href={`/strategy-model/${strategy.slug}`}
                           className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
                           onPointerDown={(e) => e.preventDefault()}
                           onClick={(e) => e.stopPropagation()}
@@ -288,7 +467,7 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                         <DropdownMenuContent align="end" className="min-w-64">
                           <DropdownMenuItem asChild className="py-2">
                             <Link
-                              href={`/strategy-models/${defaultStrategy.slug}`}
+                              href={`/strategy-model/${defaultStrategy.slug}`}
                               className="flex cursor-pointer items-center gap-1 text-sm font-medium"
                             >
                               View model details
@@ -308,7 +487,7 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
 
         {/* Table area */}
         <div className="flex-1 px-4 py-4 sm:px-6">
-          {isStrategyLoading ? (
+          {isStrategyLoading || isDateLoading ? (
             <div className="space-y-2">
               <Skeleton className="h-10 w-full" />
               <Skeleton className="h-[520px] w-full" />

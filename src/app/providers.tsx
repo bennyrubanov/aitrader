@@ -8,6 +8,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/components/theme-provider";
 import { type AuthState } from "@/lib/auth-state";
 import { AuthStateProvider } from "@/components/auth/auth-state-provider";
+import { PortfolioConfigProvider } from "@/components/portfolio-config/portfolio-config-context";
 
 type ProvidersProps = {
   children: React.ReactNode;
@@ -19,15 +20,17 @@ const Providers = ({ children, initialAuthState }: ProvidersProps) => {
 
   return (
     <AuthStateProvider initialState={initialAuthState}>
-      <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-        <QueryClientProvider client={queryClient}>
-          <TooltipProvider>
-            {children}
-            <Toaster />
-            <Sonner />
-          </TooltipProvider>
-        </QueryClientProvider>
-      </ThemeProvider>
+      <PortfolioConfigProvider>
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+          <QueryClientProvider client={queryClient}>
+            <TooltipProvider>
+              {children}
+              <Toaster />
+              <Sonner />
+            </TooltipProvider>
+          </QueryClientProvider>
+        </ThemeProvider>
+      </PortfolioConfigProvider>
     </AuthStateProvider>
   );
 };

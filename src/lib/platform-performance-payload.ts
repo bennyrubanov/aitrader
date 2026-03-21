@@ -259,7 +259,8 @@ const computeSharpeWeekly = (returns: number[]) => {
   return (mean / stdDev) * Math.sqrt(52);
 };
 
-const computePctMonthsBeating = (
+/** Month-over-month: % of month transitions where AI return beat Nasdaq-100 cap return. */
+export const computePctMonthsBeating = (
   points: Array<{ date: string; aiValue: number; benchmarkValue: number }>
 ) => {
   if (points.length < 2) return null;
@@ -636,7 +637,7 @@ const getPlatformPerformancePayloadCached = unstable_cache(
     try {
       const supabase = createPublicClient();
       const { data: strategyData, error: strategyError } = await supabase
-        .from('trading_strategies')
+        .from('strategy_models')
         .select(
           'id, slug, name, version, description, status, is_default, rebalance_frequency, rebalance_day_of_week, portfolio_size, transaction_cost_bps'
         )
@@ -666,7 +667,7 @@ const getPerformancePayloadBySlugCached = (slug: string) =>
       try {
         const supabase = createPublicClient();
         const { data: strategyData, error: strategyError } = await supabase
-          .from('trading_strategies')
+          .from('strategy_models')
           .select(
             'id, slug, name, version, description, status, is_default, rebalance_frequency, rebalance_day_of_week, portfolio_size, transaction_cost_bps'
           )
@@ -747,7 +748,7 @@ const getStrategiesListCached = unstable_cache(
       const supabase = createPublicClient();
 
       const { data, error } = await supabase
-        .from('trading_strategies')
+        .from('strategy_models')
         .select(
           'id, slug, name, version, description, status, portfolio_size, rebalance_frequency, weighting_method, transaction_cost_bps, is_default'
         )
@@ -832,7 +833,7 @@ const getStrategiesListCached = unstable_cache(
 
 export const getStrategiesList = async () => getStrategiesListCached();
 
-// ─── Strategy Detail (for /strategy-models/[slug]) ──────────────────────────
+// ─── Strategy Detail (for /strategy-model/[slug]) ───────────────────────────
 
 export type StrategyDetail = {
   id: string;
@@ -878,7 +879,7 @@ const getStrategyDetailCached = (slug: string) =>
         const supabase = createPublicClient();
 
         const { data, error } = await supabase
-          .from('trading_strategies')
+          .from('strategy_models')
           .select(
             'id, slug, name, version, description, status, is_default, index_name, portfolio_size, rebalance_frequency, rebalance_day_of_week, weighting_method, transaction_cost_bps, created_at, ai_prompts(name, version, template), ai_models(provider, name, version)'
           )

@@ -10,7 +10,7 @@ const nextConfig = {
       },
       {
         source: '/experiment-research',
-        destination: '/strategy-models',
+        destination: '/strategy-model',
         permanent: true,
       },
     ];

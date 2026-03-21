@@ -15,7 +15,7 @@
 -- drop table if exists public.nasdaq100_recommendations_current cascade;
 -- drop table if exists public.ai_analysis_runs cascade;
 -- drop table if exists public.ai_run_batches cascade;
--- drop table if exists public.trading_strategies cascade;
+-- drop table if exists public.strategy_models cascade;
 -- drop table if exists public.nasdaq_100_daily_raw cascade;
 -- drop table if exists public.nasdaq100_snapshot_stocks cascade;
 -- drop table if exists public.nasdaq100_snapshots cascade;
@@ -293,7 +293,7 @@ create index if not exists idx_nasdaq_100_daily_raw_symbol
 -- 6) Strategy versions (treat each as a separate fund)
 -- =========================
 
-create table if not exists public.trading_strategies (
+create table if not exists public.strategy_models (
   id uuid primary key default gen_random_uuid(),
   slug text not null unique,
   name text not null,
@@ -305,27 +305,28 @@ create table if not exists public.trading_strategies (
   weighting_method text not null default 'equal_weight',
   transaction_cost_bps numeric not null default 15,
   description text,
+  ait_code text,
+  robot_name text,
   status text not null default 'active',
   prompt_id uuid not null references public.ai_prompts(id) on delete restrict,
   model_id uuid not null references public.ai_models(id) on delete restrict,
   is_default boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  unique (name, version),
-  constraint trading_strategies_index_valid check (index_name in ('nasdaq100', 'sp500')),
-  constraint trading_strategies_frequency_valid check (rebalance_frequency in ('weekly')),
-  constraint trading_strategies_rebalance_day_valid check (rebalance_day_of_week between 0 and 6),
-  constraint trading_strategies_portfolio_size_valid check (portfolio_size > 0),
-  constraint trading_strategies_weighting_valid check (weighting_method in ('equal_weight')),
-  constraint trading_strategies_transaction_cost_bps_valid check (transaction_cost_bps >= 0),
-  constraint trading_strategies_status_valid check (status in ('active', 'discontinued'))
+  constraint strategy_models_index_valid check (index_name in ('nasdaq100', 'sp500')),
+  constraint strategy_models_frequency_valid check (rebalance_frequency in ('weekly')),
+  constraint strategy_models_rebalance_day_valid check (rebalance_day_of_week between 0 and 6),
+  constraint strategy_models_portfolio_size_valid check (portfolio_size > 0),
+  constraint strategy_models_weighting_valid check (weighting_method in ('equal_weight')),
+  constraint strategy_models_transaction_cost_bps_valid check (transaction_cost_bps >= 0),
+  constraint strategy_models_status_valid check (status in ('active', 'discontinued'))
 );
 
-create index if not exists idx_trading_strategies_index_name
-  on public.trading_strategies(index_name);
+create index if not exists idx_strategy_models_index_name
+  on public.strategy_models(index_name);
 
-create index if not exists idx_trading_strategies_status
-  on public.trading_strategies(status);
+create index if not exists idx_strategy_models_status
+  on public.strategy_models(status);
 
 -- =========================
 -- 7) Grouping AI runs by strategy + run date
@@ -335,7 +336,7 @@ create table if not exists public.ai_run_batches (
   id uuid primary key default gen_random_uuid(),
   run_date date not null,
   index_name text not null,
-  strategy_id uuid not null references public.trading_strategies(id) on delete restrict,
+  strategy_id uuid not null references public.strategy_models(id) on delete restrict,
   snapshot_id uuid references public.nasdaq100_snapshots(id),
   prompt_id uuid not null references public.ai_prompts(id) on delete restrict,
   model_id uuid not null references public.ai_models(id) on delete restrict,
@@ -425,7 +426,7 @@ create index if not exists idx_nasdaq100_recs_current_latest_run_id
 -- =========================
 
 create table if not exists public.strategy_portfolio_holdings (
-  strategy_id uuid not null references public.trading_strategies(id) on delete cascade,
+  strategy_id uuid not null references public.strategy_models(id) on delete cascade,
   run_date date not null,
   batch_id uuid not null references public.ai_run_batches(id) on delete cascade,
   stock_id uuid not null references public.stocks(id) on delete cascade,
@@ -454,7 +455,7 @@ create index if not exists idx_strategy_portfolio_holdings_batch_id
 
 create table if not exists public.strategy_rebalance_actions (
   id uuid primary key default gen_random_uuid(),
-  strategy_id uuid not null references public.trading_strategies(id) on delete cascade,
+  strategy_id uuid not null references public.strategy_models(id) on delete cascade,
   run_date date not null,
   stock_id uuid not null references public.stocks(id) on delete cascade,
   symbol text not null,
@@ -480,7 +481,7 @@ create index if not exists idx_strategy_rebalance_actions_strategy_run_date
 
 create table if not exists public.strategy_performance_weekly (
   id uuid primary key default gen_random_uuid(),
-  strategy_id uuid not null references public.trading_strategies(id) on delete cascade,
+  strategy_id uuid not null references public.strategy_models(id) on delete cascade,
   run_date date not null,
   previous_run_date date,
   sequence_number int not null,
@@ -521,7 +522,7 @@ create index if not exists idx_strategy_performance_weekly_strategy_run_date
 
 create table if not exists public.strategy_quintile_returns (
   id uuid primary key default gen_random_uuid(),
-  strategy_id uuid not null references public.trading_strategies(id) on delete cascade,
+  strategy_id uuid not null references public.strategy_models(id) on delete cascade,
   run_date date not null,
   horizon_weeks int not null,
   quintile int not null,
@@ -539,7 +540,7 @@ create index if not exists idx_strategy_quintile_returns_strategy_horizon_run_da
 
 create table if not exists public.strategy_cross_sectional_regressions (
   id uuid primary key default gen_random_uuid(),
-  strategy_id uuid not null references public.trading_strategies(id) on delete cascade,
+  strategy_id uuid not null references public.strategy_models(id) on delete cascade,
   run_date date not null,
   horizon_weeks int not null default 1,
   sample_size int not null,
@@ -582,3 +583,134 @@ select
     rows between 6 preceding and current row
   ) as score_7d_avg
 from runs;
+
+-- =========================
+-- 13) Portfolio construction configs (user-facing risk/frequency/weighting combos)
+-- =========================
+
+create table if not exists public.portfolio_construction_configs (
+  id uuid primary key default gen_random_uuid(),
+  risk_level int not null,
+  rebalance_frequency text not null,
+  weighting_method text not null default 'equal',
+  top_n int not null,
+  label text not null,
+  risk_label text not null,
+  description text,
+  is_default boolean not null default false,
+  min_suggested_investment numeric not null default 1000,
+  created_at timestamptz not null default now(),
+  unique (risk_level, rebalance_frequency, weighting_method),
+  constraint pcc_risk_valid check (risk_level between 1 and 6),
+  constraint pcc_freq_valid check (rebalance_frequency in ('weekly', 'monthly', 'quarterly', 'yearly')),
+  constraint pcc_weighting_valid check (weighting_method in ('equal', 'cap')),
+  constraint pcc_top_n_valid check (top_n > 0)
+);
+
+create index if not exists idx_pcc_risk_freq_weighting
+  on public.portfolio_construction_configs(risk_level, rebalance_frequency, weighting_method);
+
+-- =========================
+-- 14) Config-scoped strategy performance rows
+-- =========================
+
+create table if not exists public.strategy_portfolio_config_performance (
+  id uuid primary key default gen_random_uuid(),
+  strategy_id uuid not null references public.strategy_models(id) on delete cascade,
+  config_id uuid not null references public.portfolio_construction_configs(id) on delete cascade,
+  run_date date not null,
+  strategy_status text not null default 'in_progress',
+  first_rebalance_date date,
+  next_rebalance_date date,
+  compute_status text not null default 'pending',
+  holdings_count int,
+  turnover numeric,
+  transaction_cost_bps numeric,
+  transaction_cost numeric,
+  gross_return numeric,
+  net_return numeric,
+  starting_equity numeric,
+  ending_equity numeric,
+  nasdaq100_cap_weight_equity numeric,
+  nasdaq100_equal_weight_equity numeric,
+  sp500_equity numeric,
+  is_eligible_for_comparison boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (strategy_id, config_id, run_date),
+  constraint spcp_strategy_status_valid check (strategy_status in ('in_progress', 'active')),
+  constraint spcp_compute_status_valid check (compute_status in ('pending', 'ready', 'failed'))
+);
+
+create index if not exists idx_spcp_strategy_config_date
+  on public.strategy_portfolio_config_performance(strategy_id, config_id, run_date desc);
+
+create index if not exists idx_spcp_compute_status
+  on public.strategy_portfolio_config_performance(compute_status);
+
+-- =========================
+-- 15) User portfolio profiles (one active profile per user)
+-- =========================
+
+create table if not exists public.user_portfolio_profiles (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  strategy_id uuid references public.strategy_models(id) on delete set null,
+  config_id uuid references public.portfolio_construction_configs(id) on delete set null,
+  investment_size numeric not null default 10000,
+  user_start_date date,
+  entry_prices_snapshot_at timestamptz,
+  next_rebalance_date date,
+  is_active boolean not null default true,
+  notifications_enabled boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint upp_investment_size_valid check (investment_size > 0)
+);
+
+create index if not exists idx_user_portfolio_profiles_user_id
+  on public.user_portfolio_profiles(user_id);
+
+-- =========================
+-- 16) User portfolio positions (holdings per profile)
+-- =========================
+
+create table if not exists public.user_portfolio_positions (
+  id uuid primary key default gen_random_uuid(),
+  profile_id uuid not null references public.user_portfolio_profiles(id) on delete cascade,
+  stock_id uuid not null references public.stocks(id) on delete cascade,
+  symbol text not null,
+  target_weight numeric not null,
+  current_weight numeric,
+  units numeric,
+  entry_price numeric,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (profile_id, stock_id),
+  constraint upp_target_weight_valid check (target_weight >= 0 and target_weight <= 1),
+  constraint upp_current_weight_valid check (current_weight is null or (current_weight >= 0 and current_weight <= 1))
+);
+
+create index if not exists idx_user_portfolio_positions_profile_id
+  on public.user_portfolio_positions(profile_id);
+
+-- =========================
+-- 17) Compute queue for on-demand config performance
+-- =========================
+
+create table if not exists public.portfolio_config_compute_queue (
+  id uuid primary key default gen_random_uuid(),
+  strategy_id uuid not null references public.strategy_models(id) on delete cascade,
+  config_id uuid not null references public.portfolio_construction_configs(id) on delete cascade,
+  status text not null default 'pending',
+  attempts int not null default 0,
+  last_attempted_at timestamptz,
+  error_message text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (strategy_id, config_id),
+  constraint pcq_status_valid check (status in ('pending', 'processing', 'done', 'failed'))
+);
+
+create index if not exists idx_pcq_status_created_at
+  on public.portfolio_config_compute_queue(status, created_at asc);
