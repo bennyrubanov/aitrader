@@ -16,7 +16,7 @@
 //
 // Require a NEW AIT entry + new slug:
 //   - indexName (universe change)
-//   - portfolioSize / weightingMethod (model-layer construction change)
+//   - portfolioSize / weightingMethod (model-layer portfolio change)
 //   - rebalanceFrequency / rebalanceDayOfWeek
 //   - transactionCostBps
 //
@@ -43,7 +43,7 @@ export const STRATEGY_CONFIG = {
   // Universe
   indexName: ACTIVE_STRATEGY_ENTRY.universe.indexName,
 
-  // Model-layer portfolio construction (for strategy tracking — separate from user config layer)
+  // Model-layer tracking portfolio (for strategy tracking — separate from user portfolio construction layer)
   portfolioSize: ACTIVE_STRATEGY_ENTRY.defaultPortfolio.portfolioSize,
   weightingMethod: ACTIVE_STRATEGY_ENTRY.defaultPortfolio.weightingMethod,
   rebalanceFrequency: ACTIVE_STRATEGY_ENTRY.defaultPortfolio.rebalanceFrequency,

@@ -40,6 +40,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
 import type { StrategyListItem } from '@/lib/platform-performance-payload';
+import { strategyModelDropdownSubtitle } from '@/lib/strategy-list-meta';
 import type { RatingsPageData, RatingsRow } from '@/lib/platform-server-data';
 
 type RatingsPageClientProps = {
@@ -427,12 +428,11 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                             ) : null}
                           </div>
                           <span className="text-xs text-muted-foreground">
-                            Top {strategy.portfolioSize} · {strategy.rebalanceFrequency}
-                            {strategy.sharpeRatio != null ? ` · Sharpe ${strategy.sharpeRatio.toFixed(2)}` : ''}
+                            {strategyModelDropdownSubtitle(strategy)}
                           </span>
                         </div>
                         <Link
-                          href={`/strategy-model/${strategy.slug}`}
+                          href={`/strategy-models/${strategy.slug}`}
                           className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
                           onPointerDown={(e) => e.preventDefault()}
                           onClick={(e) => e.stopPropagation()}
@@ -467,7 +467,7 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                         <DropdownMenuContent align="end" className="min-w-64">
                           <DropdownMenuItem asChild className="py-2">
                             <Link
-                              href={`/strategy-model/${defaultStrategy.slug}`}
+                              href={`/strategy-models/${defaultStrategy.slug}`}
                               className="flex cursor-pointer items-center gap-1 text-sm font-medium"
                             >
                               View model details

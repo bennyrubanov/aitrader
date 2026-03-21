@@ -19,7 +19,7 @@ import {
   usePortfolioConfig,
   type PortfolioConfig,
 } from '@/components/portfolio-config/portfolio-config-context';
-import { PortfolioConstructionControls } from '@/components/platform/portfolio-construction-controls';
+import { PortfolioConfigControls } from '@/components/platform/portfolio-config-controls';
 
 function formatCurrency(n: number): string {
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
@@ -71,14 +71,14 @@ export function PortfolioConfigPanel({
       </SheetTrigger>
       <SheetContent side="right" className="flex w-full flex-col gap-0 sm:max-w-md">
         <SheetHeader className="px-6 py-5 border-b">
-          <SheetTitle>Portfolio construction</SheetTitle>
+          <SheetTitle>Portfolio</SheetTitle>
           <SheetDescription>
             Configure how your portfolio is built from AI strategy model ratings.
           </SheetDescription>
         </SheetHeader>
 
         <div className="flex-1 space-y-6 overflow-y-auto px-6 py-5">
-          <PortfolioConstructionControls
+          <PortfolioConfigControls
             value={{
               riskLevel: draft.riskLevel,
               rebalanceFrequency: draft.rebalanceFrequency,

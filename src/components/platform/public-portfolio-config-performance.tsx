@@ -1,10 +1,15 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
-import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import {
   FREQUENCY_LABELS,
   RISK_LABELS,
@@ -13,12 +18,18 @@ import {
   type RiskLevel,
   type WeightingMethod,
 } from '@/components/portfolio-config/portfolio-config-context';
+import type { PortfolioConfigSlice } from '@/components/platform/portfolio-config-controls';
+import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
 import {
-  PortfolioConstructionControls,
-  type PortfolioConstructionSlice,
-} from '@/components/platform/portfolio-construction-controls';
+  SingleStockWeightingTooltipContent,
+  WeightingMethodTooltipContent,
+} from '@/components/platform/weighting-method-tooltip';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
 import type { FullConfigPerformanceMetrics } from '@/lib/config-performance-chart';
+import { headerStatSentiment } from '@/lib/header-stat-sentiment';
+import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
+import { CalendarDays, Hash, Info, Scale, Shield, type LucideIcon } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 const PerformanceChart = dynamic(
   () => import('@/components/platform/performance-chart').then((m) => m.PerformanceChart),
@@ -43,17 +54,19 @@ type ApiPayload = {
     top_n?: number;
     risk_label?: string | null;
   } | null;
+  nextRebalanceDate?: string | null;
+  isHoldingPeriod?: boolean;
 };
 
 export type PublicConfigPerfSlice = {
   computeStatus: ApiPayload['computeStatus'];
   series: PerformanceSeriesPoint[];
   fullMetrics: FullConfigPerformanceMetrics | null;
-  construction: PortfolioConstructionSlice | null;
+  portfolioConfig: PortfolioConfigSlice | null;
   config: ApiPayload['config'];
 };
 
-function pickDefaultConstruction(configs: RankedConfig[]): PortfolioConstructionSlice {
+function pickDefaultPortfolioConfig(configs: RankedConfig[]): PortfolioConfigSlice {
   const top = configs.find((c) => c.rank === 1);
   if (top) {
     return {
@@ -73,7 +86,7 @@ function pickDefaultConstruction(configs: RankedConfig[]): PortfolioConstruction
   return { riskLevel: 3, rebalanceFrequency: 'weekly', weightingMethod: 'equal' };
 }
 
-function matchesRankOne(slice: PortfolioConstructionSlice, configs: RankedConfig[]): boolean {
+function matchesRankOne(slice: PortfolioConfigSlice, configs: RankedConfig[]): boolean {
   const r1 = configs.find((c) => c.rank === 1);
   if (!r1) return false;
   return (
@@ -90,41 +103,48 @@ const fmt = {
     v == null || !Number.isFinite(v) ? 'N/A' : v.toFixed(digits),
 };
 
-export function PublicPortfolioConfigPerformance({
-  slug,
-  strategyName,
-  fallbackSeries = [],
-  className,
-  onSliceChange,
-  constructionOverride,
-  onConstructionChange,
-}: {
+/** Same risk colors as explore / sidebar portfolio rows */
+const CONFIG_CARD_RISK_DOT: Record<RiskLevel, string> = {
+  1: 'bg-emerald-500',
+  2: 'bg-lime-500',
+  3: 'bg-amber-500',
+  4: 'bg-orange-500',
+  5: 'bg-orange-600',
+  6: 'bg-rose-600',
+};
+
+export type UsePublicPortfolioConfigPerformanceArgs = {
   slug: string;
   strategyName?: string | null;
   fallbackSeries?: PerformanceSeriesPoint[];
-  className?: string;
   onSliceChange?: (slice: PublicConfigPerfSlice) => void;
-  /** When provided, this overrides internal construction state (driven by parent/sidebar). */
-  constructionOverride?: PortfolioConstructionSlice | null;
-  /** Called when internal default construction is resolved (so parent can initialize its own state). */
-  onConstructionChange?: (c: PortfolioConstructionSlice) => void;
-}) {
-  const [rankedConfigs, setRankedConfigs] = useState<RankedConfig[]>([]);
-  const [internalConstruction, setInternalConstruction] = useState<PortfolioConstructionSlice | null>(null);
+  portfolioConfigOverride?: PortfolioConfigSlice | null;
+  onPortfolioConfigChange?: (c: PortfolioConfigSlice) => void;
+};
 
-  const construction = constructionOverride ?? internalConstruction;
-  const setConstruction = (c: PortfolioConstructionSlice | null) => {
-    setInternalConstruction(c);
-    if (c && onConstructionChange) onConstructionChange(c);
+export function usePublicPortfolioConfigPerformance({
+  slug,
+  strategyName,
+  fallbackSeries = [],
+  onSliceChange,
+  portfolioConfigOverride,
+  onPortfolioConfigChange,
+}: UsePublicPortfolioConfigPerformanceArgs) {
+  const [rankedConfigs, setRankedConfigs] = useState<RankedConfig[]>([]);
+  const [internalPortfolioConfig, setInternalPortfolioConfig] = useState<PortfolioConfigSlice | null>(null);
+
+  const portfolioConfig = portfolioConfigOverride ?? internalPortfolioConfig;
+  const setPortfolioConfig = (c: PortfolioConfigSlice | null) => {
+    setInternalPortfolioConfig(c);
+    if (c && onPortfolioConfigChange) onPortfolioConfigChange(c);
   };
 
   const [perf, setPerf] = useState<ApiPayload | null>(null);
   const [perfLoading, setPerfLoading] = useState(false);
 
-  // Load ranking defaults when slug changes
   useEffect(() => {
     if (!slug) return;
-    setConstruction(null);
+    setPortfolioConfig(null);
     setRankedConfigs([]);
     setPerf(null);
 
@@ -135,11 +155,11 @@ export function PublicPortfolioConfigPerformance({
         if (cancelled) return;
         const list = d.configs ?? [];
         setRankedConfigs(list);
-        setConstruction(pickDefaultConstruction(list));
+        setPortfolioConfig(pickDefaultPortfolioConfig(list));
       })
       .catch(() => {
         if (!cancelled) {
-          setConstruction({ riskLevel: 3, rebalanceFrequency: 'weekly', weightingMethod: 'equal' });
+          setPortfolioConfig({ riskLevel: 3, rebalanceFrequency: 'weekly', weightingMethod: 'equal' });
         }
       });
     return () => {
@@ -148,14 +168,14 @@ export function PublicPortfolioConfigPerformance({
   }, [slug]);
 
   const loadPerf = useCallback(async () => {
-    if (!slug || !construction) return;
+    if (!slug || !portfolioConfig) return;
     setPerfLoading(true);
     try {
       const params = new URLSearchParams({
         slug,
-        risk: String(construction.riskLevel),
-        frequency: construction.rebalanceFrequency,
-        weighting: construction.weightingMethod,
+        risk: String(portfolioConfig.riskLevel),
+        frequency: portfolioConfig.rebalanceFrequency,
+        weighting: portfolioConfig.weightingMethod,
       });
       const res = await fetch(`/api/platform/portfolio-config-performance?${params}`);
       if (res.ok) {
@@ -166,6 +186,8 @@ export function PublicPortfolioConfigPerformance({
           metrics: j.metrics ?? null,
           fullMetrics: j.fullMetrics ?? null,
           config: j.config ?? null,
+          nextRebalanceDate: j.nextRebalanceDate ?? null,
+          isHoldingPeriod: j.isHoldingPeriod ?? false,
         });
       } else {
         setPerf(null);
@@ -175,13 +197,12 @@ export function PublicPortfolioConfigPerformance({
     } finally {
       setPerfLoading(false);
     }
-  }, [slug, construction]);
+  }, [slug, portfolioConfig]);
 
   useEffect(() => {
     void loadPerf();
   }, [loadPerf]);
 
-  // Poll while server computes on-demand configs
   useEffect(() => {
     if (perf?.computeStatus !== 'in_progress') return;
     const id = setInterval(() => void loadPerf(), 4000);
@@ -194,19 +215,16 @@ export function PublicPortfolioConfigPerformance({
       computeStatus: perf?.computeStatus ?? 'empty',
       series: perf?.series ?? [],
       fullMetrics: perf?.fullMetrics ?? null,
-      construction,
+      portfolioConfig,
       config: perf?.config ?? null,
     });
-  }, [onSliceChange, perf, construction]);
+  }, [onSliceChange, perf, portfolioConfig]);
 
-  const isTopRanked = construction && matchesRankOne(construction, rankedConfigs);
+  const isTopRanked = Boolean(portfolioConfig && matchesRankOne(portfolioConfig, rankedConfigs));
 
-  const configChartReady = perf?.computeStatus === 'ready' && perf.series.length > 1;
-  /** Only use legacy weekly track while loading or before first response — never when we know config is empty/in progress */
+  const configChartReady = perf?.computeStatus === 'ready' && perf.series.length >= 1;
   const useFallbackTrack =
-    fallbackSeries.length > 1 &&
-    (perfLoading || perf == null) &&
-    !configChartReady;
+    fallbackSeries.length > 1 && (perfLoading || perf == null) && !configChartReady;
 
   const chartSeries: PerformanceSeriesPoint[] = configChartReady
     ? perf!.series
@@ -214,61 +232,440 @@ export function PublicPortfolioConfigPerformance({
       ? fallbackSeries
       : [];
 
-  const summaryLine = construction
-    ? `${RISK_LABELS[construction.riskLevel]} · Top ${RISK_TOP_N[construction.riskLevel]} · ${FREQUENCY_LABELS[construction.rebalanceFrequency]} · ${construction.weightingMethod === 'equal' ? 'Equal weight' : 'Cap weight'}`
-    : 'Loading portfolio construction…';
-
-  const chartTitle = strategyName ?? 'AI Strategy';
+  const chartTitle = useMemo(() => {
+    const name = strategyName?.trim() || 'AI strategy';
+    if (!portfolioConfig) return name;
+    const topNFromApi =
+      perf?.config?.top_n != null && Number.isFinite(Number(perf.config.top_n))
+        ? Number(perf.config.top_n)
+        : null;
+    const topN = topNFromApi ?? RISK_TOP_N[portfolioConfig.riskLevel];
+    const preset = formatPortfolioConfigLabel({
+      topN,
+      weightingMethod: portfolioConfig.weightingMethod,
+      rebalanceFrequency: portfolioConfig.rebalanceFrequency,
+    });
+    return `${name} · ${preset}`;
+  }, [strategyName, portfolioConfig, perf?.config?.top_n]);
 
   const statusMessage = useMemo(() => {
-    if (!construction || perfLoading) return null;
-    if (perf == null) return 'Could not load performance for this construction.';
+    if (!portfolioConfig || perfLoading) return null;
+    if (perf == null) return 'Could not load performance for this portfolio.';
     const s = perf.computeStatus;
-    if (s === 'in_progress') return 'Performance for this construction is computing — check back shortly.';
-    if (s === 'empty') return 'No performance rows yet for this construction — we queue calculation automatically.';
-    if (s === 'failed') return 'Could not load performance for this construction.';
-    if (s === 'unsupported') return 'This construction is not available in the database.';
+    if (s === 'in_progress') return 'Performance for this portfolio is computing — check back shortly.';
+    if (s === 'empty') return 'No performance rows yet for this portfolio — we queue calculation automatically.';
+    if (s === 'failed') return 'Could not load performance for this portfolio.';
+    if (s === 'unsupported') return 'This portfolio is not available in the database.';
+    if (s === 'ready' && perf.series.length === 0) {
+      return 'Performance was marked ready but no series points were returned — try refreshing.';
+    }
     return null;
-  }, [construction, perf, perfLoading]);
+  }, [portfolioConfig, perf, perfLoading]);
+
+  return {
+    rankedConfigs,
+    portfolioConfig,
+    perf,
+    perfLoading,
+    chartSeries,
+    configChartReady,
+    useFallbackTrack,
+    isTopRanked,
+    chartTitle,
+    statusMessage,
+  };
+}
+
+function InfoTooltip({
+  ariaLabel,
+  children,
+  className,
+  contentClassName,
+}: {
+  ariaLabel: string;
+  children: ReactNode;
+  className?: string;
+  /** Wider panel for rich content (e.g. weighting pies) */
+  contentClassName?: string;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            'inline-flex shrink-0 rounded-sm p-0.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+            className
+          )}
+          aria-label={ariaLabel}
+        >
+          <Info className="size-3.5" strokeWidth={2.25} />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent
+        side="top"
+        className={cn(
+          'max-w-[min(22rem,calc(100vw-2rem))] text-xs leading-snug',
+          contentClassName
+        )}
+      >
+        {children}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function ConfigRow({
+  icon: Icon,
+  label,
+  value,
+  tooltip,
+  tooltipContentClassName,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  tooltip: ReactNode;
+  tooltipContentClassName?: string;
+}) {
+  return (
+    <div className="flex gap-3 py-3 border-b border-border/60 last:border-0">
+      <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-background/80 text-trader-blue ring-1 ring-border/80">
+        <Icon className="size-4" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1">
+          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
+          <InfoTooltip
+            ariaLabel={`About ${label}`}
+            contentClassName={tooltipContentClassName}
+          >
+            {tooltip}
+          </InfoTooltip>
+        </div>
+        <p className="text-sm font-medium text-foreground leading-snug mt-0.5">{value}</p>
+      </div>
+    </div>
+  );
+}
+
+export function PortfolioAtAGlanceCard({
+  className,
+  portfolioConfig,
+  perf,
+  perfLoading,
+  isTopRanked,
+  strategySlug,
+  badges = [],
+}: {
+  className?: string;
+  portfolioConfig: PortfolioConfigSlice | null;
+  perf: ApiPayload | null;
+  perfLoading: boolean;
+  isTopRanked: boolean;
+  /** Strategy slug for badge pill links (e.g. Top ranked → methodology) */
+  strategySlug?: string;
+  /** From ranked config match (Top ranked, Default, etc.) */
+  badges?: string[];
+}) {
+  const m = perf?.metrics;
+  const fm = perf?.fullMetrics;
+  const pctWeeks = fm?.pctWeeksBeatingNasdaq100 ?? null;
+  const pctMonths = fm?.pctMonthsBeatingNasdaq100 ?? null;
+
+  const metricRows: {
+    label: string;
+    value: string;
+    hint?: string;
+    positive?: boolean;
+    positiveTone?: 'default' | 'brand';
+  }[] = [];
+
+  const metricsPeriodNote =
+    'Period: the full simulated track for this construction preset from model inception through the latest performance row, net of trading costs.';
+
+  if (m && perf?.computeStatus === 'ready') {
+    metricRows.push(
+      {
+        label: 'Sharpe ratio',
+        value: fmt.num(m.sharpeRatio),
+        hint: `Excess return per unit of risk, annualized from weekly step returns on the simulated equity curve (higher is better). ${metricsPeriodNote}`,
+        ...headerStatSentiment('Sharpe', m.sharpeRatio),
+      },
+      {
+        label: 'CAGR',
+        value: fmt.pct(m.cagr),
+        hint: `Compound annual growth rate of the same simulated $10k equity curve. ${metricsPeriodNote}`,
+        ...headerStatSentiment('CAGR', m.cagr),
+      },
+      {
+        label: 'Total return',
+        value: fmt.pct(m.totalReturn),
+        hint: `Cumulative gain or loss on the simulated stake over the entire history of this preset (not annualized). ${metricsPeriodNote}`,
+        ...headerStatSentiment('Total return', m.totalReturn),
+      },
+      {
+        label: 'Max drawdown',
+        value: fmt.pct(m.maxDrawdown),
+        hint: `Largest peak-to-trough percentage decline on that equity curve over the same full history (more negative is deeper drawdown). ${metricsPeriodNote}`,
+        ...headerStatSentiment('Max drawdown', m.maxDrawdown),
+      }
+    );
+    if (pctWeeks != null && Number.isFinite(pctWeeks)) {
+      metricRows.push({
+        label: '% weeks outperforming Nasdaq-100',
+        value: fmt.pct(pctWeeks, 0),
+        hint: `Share of weekly periods where this portfolio's return beat the Nasdaq-100 cap-weight benchmark that same week. Period: all overlapping weekly returns in the simulated track from inception through the latest row, net of costs.`,
+        ...headerStatSentiment('% weeks outperforming Nasdaq-100', pctWeeks),
+      });
+    }
+    if (pctMonths != null && Number.isFinite(pctMonths)) {
+      metricRows.push({
+        label: '% months outperforming Nasdaq-100',
+        value: fmt.pct(pctMonths, 0),
+        hint: `Share of calendar months where this portfolio's month return beat the Nasdaq-100 cap-weight benchmark. Period: all full calendar months covered by the simulated track from inception through the latest row, net of costs.`,
+        ...headerStatSentiment('% months outperforming Nasdaq-100', pctMonths),
+      });
+    }
+  }
+
+  const apiLabel = perf?.config?.label?.trim() || null;
+  const topNFromApi =
+    perf?.config?.top_n != null && Number.isFinite(Number(perf.config.top_n))
+      ? Number(perf.config.top_n)
+      : null;
+
+  const cardTitle =
+    apiLabel ||
+    (portfolioConfig != null
+      ? formatPortfolioConfigLabel({
+          topN: topNFromApi ?? RISK_TOP_N[portfolioConfig.riskLevel],
+          weightingMethod: portfolioConfig.weightingMethod,
+          rebalanceFrequency: portfolioConfig.rebalanceFrequency,
+        })
+      : null);
+
+  const riskValue =
+    portfolioConfig != null ? RISK_LABELS[portfolioConfig.riskLevel] : '—';
+  const stocksValue =
+    portfolioConfig != null
+      ? `Top ${topNFromApi ?? RISK_TOP_N[portfolioConfig.riskLevel]}`
+      : '—';
+  const freqValue =
+    portfolioConfig != null ? FREQUENCY_LABELS[portfolioConfig.rebalanceFrequency] : '—';
+  const weightValue =
+    portfolioConfig != null
+      ? portfolioConfig.weightingMethod === 'equal'
+        ? 'Equal weight'
+        : 'Cap weight'
+      : '—';
+
+  const configTopN =
+    portfolioConfig != null ? (topNFromApi ?? RISK_TOP_N[portfolioConfig.riskLevel]) : null;
+  const isSingleStockTier = configTopN === 1;
+
+  const riskPillTitle =
+    portfolioConfig != null
+      ? (perf?.config?.risk_label?.trim() || RISK_LABELS[portfolioConfig.riskLevel])
+      : '';
+  const riskDotClass =
+    portfolioConfig != null
+      ? (CONFIG_CARD_RISK_DOT[portfolioConfig.riskLevel] ?? 'bg-muted')
+      : 'bg-muted';
+
+  /** Ranking / accolade pills only — risk tier stays in the title row */
+  const rankingBadgePills = (() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    if (isTopRanked) {
+      out.push('Top ranked');
+      seen.add('Top ranked');
+    }
+    for (const b of badges) {
+      if (!seen.has(b)) {
+        out.push(b);
+        seen.add(b);
+      }
+    }
+    return out;
+  })();
 
   return (
-    <div className={className}>
-      <div className="mb-3 space-y-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Portfolio construction
-          </p>
-          {isTopRanked && (
-            <Badge className="text-[10px] bg-trader-blue text-white border-0 px-1.5 py-0">Top ranked</Badge>
+    <TooltipProvider delayDuration={300}>
+      <div className={cn('rounded-xl border bg-card shadow-sm overflow-hidden', className)}>
+        <div className="grid gap-0 md:grid-cols-2 md:divide-x divide-border">
+          <div className="p-5 md:p-6 bg-muted/25 dark:bg-muted/10">
+            <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+              {cardTitle ? (
+                <div className="flex min-w-0 flex-wrap items-center gap-1.5 gap-y-1">
+                  {portfolioConfig ? (
+                    <span
+                      className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border/80 bg-muted/50 px-2 py-0.5 text-[11px] font-semibold text-foreground"
+                      title={riskPillTitle}
+                    >
+                      <span className={cn('size-1.5 shrink-0 rounded-full', riskDotClass)} aria-hidden />
+                      {riskPillTitle}
+                    </span>
+                  ) : null}
+                  <p className="min-w-0 text-base font-semibold text-foreground tracking-tight">{cardTitle}</p>
+                </div>
+              ) : (
+                <Skeleton className="h-6 w-48" />
+              )}
+            </div>
+            <div className="mb-4 space-y-2">
+              <p className="text-[11px] text-muted-foreground">
+                Configuration for the selected portfolio
+              </p>
+              {rankingBadgePills.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {rankingBadgePills.map((b) => (
+                    <PortfolioConfigBadgePill key={b} name={b} strategySlug={strategySlug} />
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          {!portfolioConfig ? (
+            <div className="space-y-3">
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-5/6" />
+              <Skeleton className="h-4 w-4/6" />
+            </div>
+          ) : (
+            <div className="space-y-0">
+              <ConfigRow
+                icon={Shield}
+                label="Risk"
+                value={riskValue}
+                tooltip="How broad or concentrated the portfolio is."
+              />
+              <ConfigRow
+                icon={Hash}
+                label="Stocks included"
+                value={stocksValue}
+                tooltip="How many stocks we hold each period."
+              />
+              <ConfigRow
+                icon={CalendarDays}
+                label="Rebalance"
+                value={freqValue}
+                tooltip="How often positions refresh."
+              />
+              <ConfigRow
+                icon={Scale}
+                label="Weighting"
+                value={weightValue}
+                tooltip={
+                  isSingleStockTier ? (
+                    <SingleStockWeightingTooltipContent />
+                  ) : (
+                    <WeightingMethodTooltipContent />
+                  )
+                }
+                tooltipContentClassName="max-w-sm p-3 text-xs leading-relaxed"
+              />
+            </div>
           )}
         </div>
-        <p className="text-sm text-foreground">{summaryLine}</p>
-        <p className="text-[11px] text-muted-foreground">
-          Adjust construction in the sidebar to compare risk levels, cadences, and weighting.
-        </p>
-      </div>
 
-      {perf?.computeStatus === 'ready' && perf.metrics && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
-          {[
-            { label: 'Total return', value: fmt.pct(perf.metrics.totalReturn) },
-            { label: 'CAGR', value: fmt.pct(perf.metrics.cagr) },
-            { label: 'Sharpe', value: fmt.num(perf.metrics.sharpeRatio) },
-            { label: 'Max drawdown', value: fmt.pct(perf.metrics.maxDrawdown) },
-          ].map(({ label, value }) => (
-            <div key={label} className="rounded-lg border bg-muted/20 px-3 py-2">
-              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</p>
-              <p className="text-sm font-semibold tabular-nums">{value}</p>
+        <div className="p-5 md:p-6 flex flex-col justify-center min-h-[200px]">
+          <h3 className="mb-4 text-lg font-semibold tracking-tight text-foreground">Key metrics</h3>
+          {perfLoading || !portfolioConfig ? (
+            <div className="space-y-3">
+              {[1, 2, 3, 4, 5, 6].map((i) => (
+                <Skeleton key={i} className="h-12 w-full rounded-lg" />
+              ))}
             </div>
-          ))}
+          ) : metricRows.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              {perf?.computeStatus === 'in_progress'
+                ? 'Computing performance for this configuration…'
+                : 'Metrics appear when performance is ready.'}
+            </p>
+          ) : (
+            <ul className="space-y-4">
+              {metricRows.map((row) => {
+                const valueColor =
+                  row.positive === undefined
+                    ? 'text-foreground'
+                    : row.positive
+                      ? 'text-green-600 dark:text-green-400'
+                      : 'text-red-600 dark:text-red-400';
+                return (
+                  <li
+                    key={row.label}
+                    className="flex items-start justify-between gap-4 border-b border-border/40 pb-3 last:border-0 last:pb-0"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-1">
+                        <p className="text-xs text-muted-foreground">{row.label}</p>
+                        {row.hint ? (
+                          <InfoTooltip ariaLabel={`About ${row.label}`}>{row.hint}</InfoTooltip>
+                        ) : null}
+                      </div>
+                    </div>
+                    <span className={cn('text-lg font-semibold tabular-nums text-right shrink-0', valueColor)}>
+                      {row.value}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
-      )}
+      </div>
+    </div>
+    </TooltipProvider>
+  );
+}
 
-      {chartSeries.length > 1 ? (
-        <PerformanceChart series={chartSeries} strategyName={chartTitle} hideDrawdown />
+export function ConfigPerformanceChartBlock({
+  className,
+  chartSeries,
+  configChartReady,
+  useFallbackTrack,
+  perf,
+  perfLoading,
+  portfolioConfig,
+  chartTitle,
+  statusMessage,
+}: {
+  className?: string;
+  chartSeries: PerformanceSeriesPoint[];
+  configChartReady: boolean;
+  useFallbackTrack: boolean;
+  perf: ApiPayload | null;
+  perfLoading: boolean;
+  portfolioConfig: PortfolioConfigSlice | null;
+  chartTitle: string;
+  statusMessage: string | null;
+}) {
+  return (
+    <div className={className}>
+      {chartSeries.length >= 1 ? (
+        <div className="space-y-2">
+          {perf?.isHoldingPeriod && perf?.computeStatus === 'ready' && (
+            <p className="text-[11px] text-muted-foreground rounded-md border border-blue-500/25 bg-blue-500/5 px-3 py-2">
+              This portfolio is in a <strong>buy-and-hold</strong> period — the initial selection is held
+              unchanged until the next{' '}
+              {portfolioConfig?.rebalanceFrequency === 'quarterly' ? 'quarterly' : 'yearly'} rebalance
+              {perf.nextRebalanceDate ? (
+                <> on <strong>{new Date(perf.nextRebalanceDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</strong></>
+              ) : null}.
+              {' '}Performance reflects price movement of the held stocks.
+            </p>
+          )}
+          {!perf?.isHoldingPeriod && perf?.computeStatus === 'ready' && chartSeries.length === 1 && (
+            <p className="text-[11px] text-muted-foreground rounded-md border border-amber-500/25 bg-amber-500/5 px-3 py-2">
+              Only <strong>one</strong> data point is in the database so far. The chart will grow as more
+              periods are recorded.
+            </p>
+          )}
+          <PerformanceChart series={chartSeries} strategyName={chartTitle} hideDrawdown />
+        </div>
       ) : (
         <div className="flex flex-col items-center justify-center min-h-[200px] rounded-lg border bg-muted/30 px-4 py-8 text-center text-sm text-muted-foreground">
-          {perfLoading || !construction ? (
+          {perfLoading || !portfolioConfig ? (
             <>
               <Skeleton className="h-4 w-48 mb-2" />
               <Skeleton className="h-[200px] w-full max-w-xl" />
@@ -276,14 +673,14 @@ export function PublicPortfolioConfigPerformance({
           ) : statusMessage ? (
             <p>{statusMessage}</p>
           ) : (
-            <p>Not enough history to plot this construction yet.</p>
+            <p>Not enough history to plot this portfolio yet.</p>
           )}
         </div>
       )}
 
       {useFallbackTrack && (
         <p className="text-[11px] text-muted-foreground mt-2">
-          Showing the model&apos;s published weekly track until your selected construction finishes loading.
+          Showing the model&apos;s published weekly track until your selected portfolio finishes loading.
         </p>
       )}
     </div>

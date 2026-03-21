@@ -15,19 +15,27 @@ interface BlogPostPreview {
 
 const blogPosts: BlogPostPreview[] = [
   {
+    id: 'ai-investing-industry',
+    title: 'Can You Really Invest With AI? And Who Is Using It in Their Apps?',
+    excerpt:
+      'Where AI in investing is actually plausible, who is shipping it in apps, and how we treat AITrader as an open experiment instead of a sales pitch.',
+    date: 'March 19, 2026',
+    image: '/images/code-for-stocks.jpeg',
+  },
+  {
     id: 'chatgpt-stock-picking',
     title: 'Can ChatGPT Assist in Picking Stocks? Recent Research Says Yes',
     excerpt:
       'Recent studies show AI systems like ChatGPT can provide valuable investment advice and improve stock selection. We dive into the science behind these findings.',
-    date: 'March 6, 2025',
+    date: 'March 8, 2026',
     image: '/images/ai-chip.jpeg',
   },
   {
     id: 'blue-chip-investing',
-    title: 'Blue Chip Investing: Strategies for Market-Beating Returns',
+    title: 'Blue Chip Investing: Strategies for Outperforming the Market',
     excerpt:
       'Looking beyond index investing, blue chip stocks offer stability and growth potential. Learn strategies to identify winners in this segment.',
-    date: 'February 20, 2025',
+    date: 'February 18, 2026',
     image: '/images/investor-stock-picking.avif',
   },
 ];

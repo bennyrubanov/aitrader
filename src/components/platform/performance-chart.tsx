@@ -9,13 +9,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import {
-  ChartContainer,
-  ChartLegend,
-  ChartLegendContent,
-  ChartTooltip,
-  ChartTooltipContent,
-} from '@/components/ui/chart';
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import { Button } from '@/components/ui/button';
 import { toDrawdownPercentSeries } from '@/lib/performance-series-drawdown';
 
@@ -64,6 +58,31 @@ function formatDisplayDate(date: string) {
   const parsed = new Date(`${date}T00:00:00Z`);
   if (Number.isNaN(parsed.getTime())) return date;
   return displayDateFormatter.format(parsed);
+}
+
+const INITIAL_NOTIONAL = 10_000;
+
+/**
+ * Y-axis ticks: full dollars with grouping under $1M so adjacent Recharts ticks never collapse
+ * to the same label (the old $Nk + round-to-10 logic made many values near 10k all read as $10k).
+ */
+function formatEquityAxisTick(v: number): string {
+  if (Number.isNaN(v) || !Number.isFinite(v)) return '';
+  const abs = Math.abs(v);
+  if (abs >= 1_000_000) {
+    const m = v / 1_000_000;
+    const s =
+      Math.abs(m - Math.round(m)) < 0.05
+        ? Math.round(m).toString()
+        : m.toFixed(1).replace(/\.0$/, '');
+    return `$${s}M`;
+  }
+  return `$${Math.round(v).toLocaleString('en-US')}`;
+}
+
+function formatEquityTooltipValue(v: number): string {
+  if (Math.abs(v - INITIAL_NOTIONAL) < 1) return '$10,000';
+  return `$${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
 }
 
 /**
@@ -134,6 +153,7 @@ export function PerformanceChart({ series, strategyName, hideDrawdown = false }:
     const max = Math.max(...values);
     const span = max - min;
 
+    // Single point (or flat series): expand domain so the chart isn't collapsed.
     if (span <= 0) {
       const basePad = Math.max(Math.abs(min) * 0.01, view === 'drawdown' ? 0.25 : 50);
       return [min - basePad, max + basePad];
@@ -155,7 +175,10 @@ export function PerformanceChart({ series, strategyName, hideDrawdown = false }:
   }, [strategyName]);
 
   const yFormatter = (v: number) =>
-    view === 'drawdown' ? `${v.toFixed(1)}%` : `$${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+    view === 'drawdown' ? `${v.toFixed(1)}%` : formatEquityAxisTick(v);
+
+  /** Lines need 2+ points to draw; show dots for sparse history so single-period portfolios are visible. */
+  const usePointMarkers = chartData.length > 0 && chartData.length < 3;
 
   return (
     <div className="space-y-3">
@@ -229,28 +252,41 @@ export function PerformanceChart({ series, strategyName, hideDrawdown = false }:
           Object.entries(config).map(([key, cfg]) => [key, { label: cfg.label, color: cfg.color }])
         )}
       >
-        <LineChart data={chartData} margin={{ top: 8, right: 8, left: 4, bottom: 4 }}>
+        <LineChart data={chartData} margin={{ top: 8, right: 8, left: 8, bottom: 4 }}>
           <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.4} />
           <XAxis dataKey="shortDate" tick={{ fontSize: 11 }} />
-          <YAxis domain={yDomain} tickFormatter={yFormatter} tick={{ fontSize: 11 }} width={52} />
+          <YAxis
+            domain={yDomain}
+            tickFormatter={yFormatter}
+            tick={{ fontSize: 11 }}
+            width={72}
+            minTickGap={8}
+          />
           {view === 'drawdown' && <ReferenceLine y={0} stroke="#64748b" strokeDasharray="4 2" />}
+          {view === 'equity' && (
+            <ReferenceLine
+              y={INITIAL_NOTIONAL}
+              stroke="#64748b"
+              strokeDasharray="4 3"
+              strokeOpacity={0.4}
+            />
+          )}
           <ChartTooltip
             content={
               <ChartTooltipContent
                 formatter={(value, name) => {
                   const cfg = config[name as SeriesKey];
                   const label = cfg?.label ?? name;
+                  const num = Number(value);
                   const formatted =
                     view === 'drawdown'
-                      ? `${Number(value).toFixed(2)}%`
-                      : `$${Number(value).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+                      ? `${num.toFixed(2)}%`
+                      : formatEquityTooltipValue(num);
                   return [`${formatted} `, ` ${label}`];
                 }}
               />
             }
           />
-          <ChartLegend content={<ChartLegendContent />} />
-
           {(Object.keys(config) as SeriesKey[]).map((key) => (
             <Line
               key={key}
@@ -258,7 +294,7 @@ export function PerformanceChart({ series, strategyName, hideDrawdown = false }:
               dataKey={key}
               stroke={config[key].color}
               strokeWidth={key === 'aiTop20' ? 2.5 : 1.75}
-              dot={false}
+              dot={usePointMarkers ? { r: key === 'aiTop20' ? 5 : 3.5, strokeWidth: 1 } : false}
               hide={hidden.has(key)}
               connectNulls
             />
@@ -266,9 +302,22 @@ export function PerformanceChart({ series, strategyName, hideDrawdown = false }:
         </LineChart>
       </ChartContainer>
 
+      {/* Was Recharts legend (series names); chips above still toggle series. */}
+      {view === 'equity' && (
+        <div className="flex items-center justify-center pt-3">
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span
+              className="inline-block h-0 w-3 shrink-0 border-t-[1.5px] border-dashed border-[#64748b] opacity-90"
+              aria-hidden
+            />
+            <span>Starting investment ($10,000)</span>
+          </div>
+        </div>
+      )}
+
       <p className="text-[11px] text-muted-foreground">
         {view === 'equity'
-          ? `Growth of $10,000 rebased to start of selected window. Net of trading costs.`
+          ? `Growth rebased to the start of the selected window. Net of trading costs.`
           : `Drawdown from rolling peak for each series. Deeper troughs = larger losses from peak.`}
       </p>
     </div>

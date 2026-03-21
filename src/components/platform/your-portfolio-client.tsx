@@ -16,6 +16,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { useAuthState } from '@/components/auth/auth-state-context';
+import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
 import { StockChartDialog } from '@/components/platform/stock-chart-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -207,6 +208,7 @@ function PresetBentoGrid({
   title,
   subtitle,
   showCancel,
+  strategySlug,
 }: {
   rankedConfigs: RankedConfig[];
   busyKey: string | null;
@@ -215,6 +217,7 @@ function PresetBentoGrid({
   title: string;
   subtitle: string;
   showCancel: boolean;
+  strategySlug?: string;
 }) {
   return (
     <div className="flex h-full flex-col">
@@ -273,12 +276,7 @@ function PresetBentoGrid({
                     {ranked.badges
                       .filter((b) => b !== 'Default')
                       .map((b) => (
-                        <span
-                          key={b}
-                          className="inline-flex items-center rounded-full bg-trader-blue/10 px-2 py-0.5 text-[10px] font-medium text-trader-blue"
-                        >
-                          {b}
-                        </span>
+                        <PortfolioConfigBadgePill key={b} name={b} strategySlug={strategySlug} />
                       ))}
                   </div>
                 )}
@@ -304,7 +302,7 @@ function PresetBentoGrid({
           <Button variant="outline" size="sm" asChild>
             <Link href="/platform/explore-portfolios" className="gap-1.5">
               <Compass className="size-3.5" />
-              Explore all configurations
+              Explore all portfolios
             </Link>
           </Button>
         </div>
@@ -325,7 +323,6 @@ export function YourPortfolioClient() {
 
   const [profiles, setProfiles] = useState<UserPortfolioProfileRow[]>([]);
   const [isLoadingProfiles, setIsLoadingProfiles] = useState(true);
-  const [showAddBento, setShowAddBento] = useState(false);
   const [presetBusyKey, setPresetBusyKey] = useState<string | null>(null);
 
   const [isLoadingPerf, setIsLoadingPerf] = useState(true);
@@ -526,7 +523,6 @@ export function YourPortfolioClient() {
       if (j.profileId) {
         router.replace(`/platform/your-portfolio?profile=${j.profileId}`, { scroll: false });
       }
-      setShowAddBento(false);
     } finally {
       setPresetBusyKey(null);
     }
@@ -612,7 +608,7 @@ export function YourPortfolioClient() {
         <div className="space-y-1">
           <p className="text-lg font-semibold">No portfolios followed yet</p>
           <p className="text-sm text-muted-foreground max-w-sm">
-            Browse available portfolio configurations and follow the ones that match your style.
+            Browse available portfolio portfolios and follow the ones that match your style.
           </p>
         </div>
         <Button asChild>
@@ -642,22 +638,17 @@ export function YourPortfolioClient() {
 
   const showUserPerfToggle = Boolean(selectedProfile?.user_start_date && userChart && userChart.series.length > 1);
 
-  // Add-portfolio overlay → redirect to explore page
-  if (showAddBento) {
-    router.push('/platform/explore-portfolios');
-    setShowAddBento(false);
-    return null;
-  }
-
   return (
     <div className="flex h-full min-h-0 flex-col md:flex-row">
       {/* Sidebar */}
       <aside className="shrink-0 border-b md:border-b-0 md:border-r bg-muted/20 md:w-64 md:min-w-[14rem]">
         <div className="flex items-center justify-between gap-2 p-3 md:p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Portfolios</p>
-          <Button variant="ghost" size="icon" className="size-8 shrink-0" onClick={() => setShowAddBento(true)}>
-            <Plus className="size-4" />
-            <span className="sr-only">Follow portfolio</span>
+          <Button variant="ghost" size="icon" className="size-8 shrink-0" asChild>
+            <Link href="/platform/explore-portfolios">
+              <Plus className="size-4" />
+              <span className="sr-only">Follow portfolio</span>
+            </Link>
           </Button>
         </div>
         <nav className="flex gap-2 overflow-x-auto px-3 pb-3 md:flex-col md:overflow-visible md:px-2 md:pb-4">
@@ -771,7 +762,7 @@ export function YourPortfolioClient() {
             </div>
           ) : computeStatus === 'unsupported' ? (
             <div className="rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground">
-              This portfolio construction isn&apos;t available yet.
+              This portfolio isn&apos;t available yet.
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -805,7 +796,7 @@ export function YourPortfolioClient() {
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm flex items-center justify-between gap-2">
                   <span>
-                    {perfView === 'user' ? 'Your portfolio vs. benchmarks' : 'Model track vs. benchmarks'}
+                    {perfView === 'user' ? 'Portfolio vs. benchmarks' : 'Model track vs. benchmarks'}
                   </span>
                   <Button asChild variant="ghost" size="sm" className="text-xs gap-1 h-7 shrink-0">
                     <Link href={`/performance/${strategySlug}`}>

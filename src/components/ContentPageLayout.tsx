@@ -91,21 +91,33 @@ export const ContentPageLayout: React.FC<ContentPageLayoutProps> = ({
       <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
         On this page
       </p>
-      {tableOfContents.map((item) => (
-        <Link
-          key={item.id}
-          href={`#${item.id}`}
-          onClick={() => setMobileOpen(false)}
-          className={cn(
-            'block text-sm py-1 border-l-2 pl-3 -ml-px transition-colors',
-            activeTocId === item.id
-              ? 'font-medium text-foreground border-trader-blue'
-              : 'text-muted-foreground border-transparent hover:text-trader-blue hover:border-trader-blue/50'
-          )}
-        >
-          {item.label}
-        </Link>
-      ))}
+      {tableOfContents.map((item) => {
+        let rest = item.label.trimStart();
+        let depth = 0;
+        while (/^↳\s*/.test(rest)) {
+          rest = rest.replace(/^↳\s*/, '');
+          depth += 1;
+        }
+        const displayLabel = rest.trimStart();
+        const paddingClass =
+          depth >= 2 ? 'pl-9' : depth === 1 ? 'pl-6' : 'pl-3';
+        return (
+          <Link
+            key={item.id}
+            href={`#${item.id}`}
+            onClick={() => setMobileOpen(false)}
+            className={cn(
+              'block text-sm py-1 border-l-2 -ml-px transition-colors',
+              paddingClass,
+              activeTocId === item.id
+                ? 'font-medium text-foreground border-trader-blue'
+                : 'text-muted-foreground border-transparent hover:text-trader-blue hover:border-trader-blue/50'
+            )}
+          >
+            {displayLabel}
+          </Link>
+        );
+      })}
     </nav>
   ) : null;
 
@@ -141,8 +153,8 @@ export const ContentPageLayout: React.FC<ContentPageLayoutProps> = ({
 
               {/* Desktop left sidebar — hidden on mobile */}
               {hasLeftSidebar && (
-                <aside className="hidden lg:block lg:w-56 flex-shrink-0 sticky top-24 self-start space-y-5">
-                  {leftSidebarContent}
+                <aside className="hidden lg:block lg:w-56 shrink-0 sticky top-24 self-start max-h-[calc(100vh-7rem)] overflow-y-auto overscroll-y-contain [scrollbar-gutter:stable] px-1.5 min-w-0">
+                  <div className="space-y-5 pb-2">{leftSidebarContent}</div>
                 </aside>
               )}
 
@@ -169,8 +181,8 @@ export const ContentPageLayout: React.FC<ContentPageLayoutProps> = ({
 
               {/* Desktop right TOC — docs-style, only when tocPosition='right' */}
               {hasRightToc && (
-                <aside className="hidden xl:block xl:w-48 flex-shrink-0 sticky top-24 self-start">
-                  {tocNav}
+                <aside className="hidden xl:block xl:w-48 shrink-0 sticky top-24 self-start max-h-[calc(100vh-7rem)] overflow-y-auto overscroll-y-contain [scrollbar-gutter:stable] px-1.5 min-w-0">
+                  <div className="pb-2">{tocNav}</div>
                 </aside>
               )}
             </div>

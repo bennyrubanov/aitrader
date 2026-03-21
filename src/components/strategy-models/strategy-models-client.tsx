@@ -1,21 +1,33 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { ArrowRight, BarChart2, SlidersHorizontal, Star, TrendingUp } from 'lucide-react';
+import {
+  ArrowRight,
+  Baby,
+  BarChart2,
+  BarChart3,
+  Bot,
+  ExternalLink,
+  LineChart,
+  Sparkles,
+  Star,
+  TrendingUp,
+} from 'lucide-react';
+import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ContentPageLayout } from '@/components/ContentPageLayout';
 import { formatStrategyDescriptionForDisplay } from '@/lib/format-strategy-description';
 import { type StrategyListItem } from '@/lib/platform-performance-payload';
+import { type RankedStrategyModel } from '@/app/api/platform/strategy-models-ranked/route';
+import { cn } from '@/lib/utils';
+import {
+  pickBeatSlotToReplace,
+  type ModelHeaderQuintileInsight,
+} from '@/components/ModelHeaderCard';
 
 const fmt = {
-  pct: (v: number | null | undefined) =>
-    v == null || !Number.isFinite(v)
-      ? 'N/A'
-      : `${v >= 0 ? '+' : ''}${(v * 100).toFixed(1)}%`,
-  num: (v: number | null | undefined, digits = 2) =>
-    v == null || !Number.isFinite(v) ? 'N/A' : v.toFixed(digits),
   date: (d: string | null | undefined) => {
     if (!d) return 'N/A';
     const [y, m, day] = d.split('-');
@@ -23,6 +35,105 @@ const fmt = {
     return `${months[parseInt(m) - 1]} ${parseInt(day)}, ${y}`;
   },
 };
+
+function fmtBeatPct(pct: number | null): string {
+  if (pct == null || !Number.isFinite(pct)) return '—';
+  return `${pct % 1 === 0 ? pct.toFixed(0) : pct.toFixed(1)}%`;
+}
+
+function fmtBeta(b: number | null): string {
+  if (b == null || !Number.isFinite(b)) return '—';
+  return b.toFixed(4);
+}
+
+function fmtSignedPctFromDecimal(v: number | null, digits = 2): string {
+  if (v == null || !Number.isFinite(v)) return '—';
+  return `${v >= 0 ? '+' : ''}${(v * 100).toFixed(digits)}%`;
+}
+
+function QuintileInsightMini({
+  statsLoading,
+  insight,
+}: {
+  statsLoading: boolean;
+  insight: ModelHeaderQuintileInsight;
+}) {
+  const wr = insight.winRate;
+  const spread = insight.latestWeekSpread;
+  const showWin = wr != null && wr.total > 0;
+
+  return (
+    <div>
+      <p className="text-[10px] font-semibold text-muted-foreground mb-1 leading-snug">
+        Q5 vs Q1
+      </p>
+      {statsLoading ? (
+        <div className="h-10 w-20 rounded-md bg-muted animate-pulse mt-1" />
+      ) : showWin ? (
+        <>
+          <p
+            className={cn(
+              'text-lg font-bold tabular-nums tracking-tight',
+              wr!.rate > 0.5
+                ? 'text-green-600 dark:text-green-400'
+                : wr!.rate < 0.5
+                  ? 'text-red-600 dark:text-red-400'
+                  : 'text-foreground'
+            )}
+          >
+            {Math.round(wr!.rate * 100)}%
+          </p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">
+            <span className="font-medium text-foreground tabular-nums">{wr!.wins}</span>
+            {' of '}
+            <span className="font-medium text-foreground tabular-nums">{wr!.total}</span>
+            {' weeks Q5 outperformed Q1'}
+          </p>
+        </>
+      ) : spread != null && Number.isFinite(spread) ? (
+        <>
+          <p
+            className={cn(
+              'text-lg font-bold tabular-nums tracking-tight',
+              spread > 0
+                ? 'text-green-600 dark:text-green-400'
+                : spread < 0
+                  ? 'text-red-600 dark:text-red-400'
+                  : 'text-foreground'
+            )}
+          >
+            {fmtSignedPctFromDecimal(spread, 2)}
+          </p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">
+            Q5 minus Q1
+            {insight.latestWeekRunDate ? (
+              <>
+                {' · '}
+                <span className="font-medium text-foreground tabular-nums">
+                  {fmt.date(insight.latestWeekRunDate)}
+                </span>
+              </>
+            ) : null}
+          </p>
+        </>
+      ) : (
+        <>
+          <p className="text-lg font-bold tabular-nums text-muted-foreground">—</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">No quintile data yet.</p>
+        </>
+      )}
+      {!statsLoading && (showWin || (spread != null && Number.isFinite(spread))) ? (
+        <Link
+          href={`/strategy-models/${STRATEGY_CONFIG.slug}#methodology-quintiles`}
+          className="mt-1.5 inline-flex items-center gap-0.5 text-[10px] font-medium text-trader-blue hover:underline dark:text-trader-blue-light"
+        >
+          What this is
+          <ArrowRight className="size-2.5 shrink-0" />
+        </Link>
+      ) : null}
+    </div>
+  );
+}
 
 type SortKey = 'performance' | 'newest';
 
@@ -45,39 +156,43 @@ type Props = { strategies: StrategyListItem[] };
 
 export function StrategyModelsClient({ strategies }: Props) {
   const [sort, setSort] = useState<SortKey>('performance');
-  const [compositeRankBySlug, setCompositeRankBySlug] = useState<Map<string, number>>(new Map());
+  const [rankedStrategies, setRankedStrategies] = useState<RankedStrategyModel[] | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     void fetch('/api/platform/strategy-models-ranked')
       .then((r) => r.json())
-      .then((d: { strategies?: Array<{ slug: string; rank: number | null }> }) => {
+      .then((d: { strategies?: RankedStrategyModel[] }) => {
         if (cancelled) return;
-        const m = new Map<string, number>();
-        for (const s of d.strategies ?? []) {
-          if (s.rank != null) m.set(s.slug, s.rank);
-        }
-        setCompositeRankBySlug(m);
+        setRankedStrategies(d.strategies ?? []);
       })
       .catch(() => {
-        if (!cancelled) setCompositeRankBySlug(new Map());
+        if (!cancelled) setRankedStrategies([]);
       });
     return () => {
       cancelled = true;
     };
   }, []);
 
+  const rankedBySlug = useMemo(() => {
+    const m = new Map<string, RankedStrategyModel>();
+    for (const row of rankedStrategies ?? []) {
+      m.set(row.slug, row);
+    }
+    return m;
+  }, [rankedStrategies]);
+
   const sorted = [...strategies].sort((a, b) => {
     if (sort === 'newest') {
       return (b.startDate ?? '').localeCompare(a.startDate ?? '');
     }
-    const ra = compositeRankBySlug.get(a.slug) ?? 999;
-    const rb = compositeRankBySlug.get(b.slug) ?? 999;
+    const ra = rankedBySlug.get(a.slug)?.rank ?? 999;
+    const rb = rankedBySlug.get(b.slug)?.rank ?? 999;
     if (ra !== rb) return ra - rb;
-    if (a.sharpeRatio === null && b.sharpeRatio === null) return 0;
-    if (a.sharpeRatio === null) return 1;
-    if (b.sharpeRatio === null) return -1;
-    return b.sharpeRatio - a.sharpeRatio;
+    const pa = rankedBySlug.get(a.slug)?.beatNasdaqPct ?? -1;
+    const pb = rankedBySlug.get(b.slug)?.beatNasdaqPct ?? -1;
+    if (pa !== pb) return pb - pa;
+    return a.name.localeCompare(b.name);
   });
 
   const topModel = sorted[0];
@@ -110,7 +225,7 @@ export function StrategyModelsClient({ strategies }: Props) {
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              <SlidersHorizontal className="size-3" /> Newest
+              <Baby className="size-3" aria-hidden /> Newest
             </button>
           </div>
         </div>
@@ -124,20 +239,15 @@ export function StrategyModelsClient({ strategies }: Props) {
         </Button>
       </div>
 
-      {/* Ranking explanation */}
-      <div className="mb-6 rounded-lg border border-trader-blue/20 bg-trader-blue/5 dark:bg-trader-blue/10 dark:border-trader-blue/25 p-4 text-sm text-muted-foreground">
-        <p className="font-semibold text-foreground mb-1 flex items-center gap-2">
-          <TrendingUp className="size-4 text-trader-blue shrink-0" />
+      {sort === 'performance' ? (
+        <Link
+          href={`/strategy-models/${STRATEGY_CONFIG.slug}#model-ranking`}
+          className="mb-6 inline-flex items-center gap-1 text-sm font-medium text-trader-blue hover:underline dark:text-trader-blue-light"
+        >
           How we rank models
-        </p>
-        <p>
-          <span className="font-medium text-foreground">Top performing</span> uses a composite score:
-          50% <strong>breadth</strong> (share of portfolio configurations with positive excess
-          outcomes), 30% <strong>median</strong> risk-adjusted quality across configs, 20%{' '}
-          <strong>best-config</strong> upside — so one lucky construction doesn&apos;t dominate the
-          whole model ranking.
-        </p>
-      </div>
+          <ExternalLink className="size-3.5 shrink-0 opacity-80" />
+        </Link>
+      ) : null}
 
       {sorted.length === 0 ? (
         <p className="text-muted-foreground text-sm py-8 text-center">No strategy models found.</p>
@@ -148,7 +258,36 @@ export function StrategyModelsClient({ strategies }: Props) {
 
             const description =
               formatStrategyDescriptionForDisplay(strategy.description) ||
-              `AI-powered Nasdaq-100 strategy. Top ${strategy.portfolioSize} stocks ranked weekly by AI score, rebalanced ${strategy.rebalanceFrequency} with equal weighting.`;
+              'Nasdaq-100 AI ratings, live forward-only tracking, configurable portfolios.';
+
+            const ranked = rankedBySlug.get(strategy.slug);
+            const statsLoading = rankedStrategies === null;
+
+            const quintileInsight: ModelHeaderQuintileInsight | null =
+              ranked &&
+              (ranked.quintileWinRate != null ||
+                (ranked.quintileLatestWeekSpread != null &&
+                  Number.isFinite(ranked.quintileLatestWeekSpread)))
+                ? {
+                    winRate: ranked.quintileWinRate,
+                    latestWeekSpread: ranked.quintileLatestWeekSpread,
+                    latestWeekRunDate: ranked.quintileLatestWeekRunDate,
+                  }
+                : null;
+
+            const replaceSlot = pickBeatSlotToReplace(
+              {
+                pct: ranked?.beatNasdaqPct ?? null,
+                comparable: ranked?.beatNasdaqComparable ?? 0,
+              },
+              {
+                pct: ranked?.beatSp500Pct ?? null,
+                comparable: ranked?.beatSp500Comparable ?? 0,
+              },
+              quintileInsight,
+              statsLoading,
+              null
+            );
 
             return (
               <article
@@ -186,66 +325,150 @@ export function StrategyModelsClient({ strategies }: Props) {
                         {description}
                       </p>
 
-                      {/* Config pills */}
-                      <div className="flex flex-wrap gap-1.5 mb-3">
-                        {strategy.startDate && (
+                      {strategy.startDate ? (
+                        <div className="flex flex-wrap gap-1.5 mb-3">
                           <span className="rounded-full border bg-muted/40 px-2.5 py-0.5 text-xs text-muted-foreground">
-                            Started {fmt.date(strategy.startDate)}
+                            Since {fmt.date(strategy.startDate)}
                           </span>
-                        )}
-                        <span className="rounded-full border bg-muted/40 px-2.5 py-0.5 text-xs text-muted-foreground">
-                          Top {strategy.portfolioSize}
-                        </span>
-                        <span className="rounded-full border bg-muted/40 px-2.5 py-0.5 text-xs text-muted-foreground capitalize">
-                          {strategy.rebalanceFrequency} rebalance
-                        </span>
-                        <span className="rounded-full border bg-muted/40 px-2.5 py-0.5 text-xs text-muted-foreground">
-                          Equal weight
-                        </span>
-                        <span className="rounded-full border bg-muted/40 px-2.5 py-0.5 text-xs text-muted-foreground">
-                          {strategy.transactionCostBps} bps cost
-                        </span>
-                      </div>
+                        </div>
+                      ) : null}
 
-                      {/* Key stats */}
-                      <div className="grid grid-cols-3 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div>
-                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                            Sharpe
-                          </p>
-                          <p
-                            className={`text-sm font-semibold ${
-                              (strategy.sharpeRatio ?? 0) > 1
-                                ? 'text-trader-blue dark:text-trader-blue-light'
-                                : ''
-                            }`}
-                          >
-                            {fmt.num(strategy.sharpeRatio)}
-                          </p>
+                          {replaceSlot === 'nasdaq' && quintileInsight ? (
+                            <QuintileInsightMini
+                              statsLoading={statsLoading}
+                              insight={quintileInsight}
+                            />
+                          ) : (
+                            <>
+                              <p className="text-[10px] font-semibold text-muted-foreground mb-1 leading-snug">
+                                Outperformance vs Nasdaq (cap)
+                              </p>
+                              {statsLoading ? (
+                                <div className="h-10 w-20 rounded-md bg-muted animate-pulse mt-1" />
+                              ) : ranked && ranked.beatNasdaqComparable > 0 ? (
+                                <>
+                                  <p
+                                    className={cn(
+                                      'text-lg font-bold tabular-nums tracking-tight',
+                                      ranked.beatNasdaqPct != null && ranked.beatNasdaqPct > 50
+                                        ? 'text-green-600 dark:text-green-400'
+                                        : ranked.beatNasdaqPct != null && ranked.beatNasdaqPct < 50
+                                          ? 'text-red-600 dark:text-red-400'
+                                          : 'text-foreground'
+                                    )}
+                                  >
+                                    {fmtBeatPct(ranked.beatNasdaqPct)}
+                                  </p>
+                                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                                    <span className="font-medium text-foreground tabular-nums">
+                                      {ranked.beatNasdaqBeating}
+                                    </span>
+                                    {' of '}
+                                    <span className="font-medium text-foreground tabular-nums">
+                                      {ranked.beatNasdaqComparable}
+                                    </span>{' '}
+                                    portfolios outperforming
+                                  </p>
+                                </>
+                              ) : (
+                                <>
+                                  <p className="text-lg font-bold tabular-nums text-muted-foreground">—</p>
+                                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                                    Benchmark not ready.
+                                  </p>
+                                </>
+                              )}
+                            </>
+                          )}
                         </div>
                         <div>
-                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                            Total return
-                          </p>
-                          <p
-                            className={`text-sm font-semibold ${
-                              (strategy.totalReturn ?? 0) >= 0 ? 'text-green-600' : 'text-red-500'
-                            }`}
-                          >
-                            {fmt.pct(strategy.totalReturn)}
-                          </p>
+                          {replaceSlot === 'sp500' && quintileInsight ? (
+                            <QuintileInsightMini
+                              statsLoading={statsLoading}
+                              insight={quintileInsight}
+                            />
+                          ) : (
+                            <>
+                              <p className="text-[10px] font-semibold text-muted-foreground mb-1 leading-snug">
+                                Outperformance vs S&P (cap)
+                              </p>
+                              {statsLoading ? (
+                                <div className="h-10 w-20 rounded-md bg-muted animate-pulse mt-1" />
+                              ) : ranked && ranked.beatSp500Comparable > 0 ? (
+                                <>
+                                  <p
+                                    className={cn(
+                                      'text-lg font-bold tabular-nums tracking-tight',
+                                      ranked.beatSp500Pct != null && ranked.beatSp500Pct > 50
+                                        ? 'text-green-600 dark:text-green-400'
+                                        : ranked.beatSp500Pct != null && ranked.beatSp500Pct < 50
+                                          ? 'text-red-600 dark:text-red-400'
+                                          : 'text-foreground'
+                                    )}
+                                  >
+                                    {fmtBeatPct(ranked.beatSp500Pct)}
+                                  </p>
+                                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                                    <span className="font-medium text-foreground tabular-nums">
+                                      {ranked.beatSp500Beating}
+                                    </span>
+                                    {' of '}
+                                    <span className="font-medium text-foreground tabular-nums">
+                                      {ranked.beatSp500Comparable}
+                                    </span>{' '}
+                                    portfolios outperforming
+                                  </p>
+                                </>
+                              ) : (
+                                <>
+                                  <p className="text-lg font-bold tabular-nums text-muted-foreground">—</p>
+                                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                                    Benchmark not ready.
+                                  </p>
+                                </>
+                              )}
+                            </>
+                          )}
                         </div>
                         <div>
-                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                            Max drawdown
+                          <p className="text-[10px] font-semibold text-muted-foreground mb-1 leading-snug">
+                            {`Beta (\u03B2) · latest week`}
                           </p>
-                          <p
-                            className={`text-sm font-semibold ${
-                              (strategy.maxDrawdown ?? 0) > -0.2 ? 'text-green-600' : 'text-red-500'
-                            }`}
-                          >
-                            {fmt.pct(strategy.maxDrawdown)}
-                          </p>
+                          {statsLoading ? (
+                            <div className="h-10 w-24 rounded-md bg-muted animate-pulse mt-1" />
+                          ) : ranked?.latestBeta != null && Number.isFinite(ranked.latestBeta) ? (
+                            <>
+                              <p
+                                className={cn(
+                                  'text-lg font-bold tabular-nums tracking-tight',
+                                  ranked.latestBeta > 0
+                                    ? 'text-green-600 dark:text-green-400'
+                                    : ranked.latestBeta < 0
+                                      ? 'text-red-600 dark:text-red-400'
+                                      : 'text-foreground'
+                                )}
+                              >
+                                {fmtBeta(ranked.latestBeta)}
+                              </p>
+                              <p className="text-[10px] text-muted-foreground mt-0.5">
+                                Score vs next-week return.
+                              </p>
+                              <Link
+                                href={`/strategy-models/${STRATEGY_CONFIG.slug}#methodology-regression`}
+                                className="mt-1.5 inline-flex items-center gap-0.5 text-[10px] font-medium text-trader-blue hover:underline dark:text-trader-blue-light"
+                              >
+                                What this is
+                                <ArrowRight className="size-2.5 shrink-0" />
+                              </Link>
+                            </>
+                          ) : (
+                            <>
+                              <p className="text-lg font-bold tabular-nums text-muted-foreground">—</p>
+                              <p className="text-[10px] text-muted-foreground mt-0.5">No regression yet.</p>
+                            </>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -253,12 +476,17 @@ export function StrategyModelsClient({ strategies }: Props) {
                     {/* CTA buttons */}
                     <div className="flex flex-row sm:flex-col gap-2 shrink-0 sm:items-end sm:justify-center">
                       <Button asChild size="sm">
-                        <Link href={`/strategy-model/${strategy.slug}`} className="gap-1.5">
-                          Model details <ArrowRight className="size-3.5" />
+                        <Link href={`/strategy-models/${strategy.slug}`} className="gap-1.5">
+                          <Bot className="size-3.5 shrink-0" />
+                          Model details
+                          <ArrowRight className="size-3.5 shrink-0" />
                         </Link>
                       </Button>
                       <Button asChild variant="outline" size="sm">
-                        <Link href={`/performance/${strategy.slug}`}>See performance</Link>
+                        <Link href={`/performance/${strategy.slug}`} className="gap-1.5">
+                          <LineChart className="size-3.5 shrink-0" />
+                          See performance
+                        </Link>
                       </Button>
                     </div>
                   </div>
@@ -268,6 +496,19 @@ export function StrategyModelsClient({ strategies }: Props) {
           })}
         </div>
       )}
+
+      <div className="rounded-xl border border-dashed border-muted-foreground/30 bg-muted/20 px-5 py-4 mb-10 flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted/80 text-muted-foreground">
+          <Sparkles className="size-5" aria-hidden />
+        </div>
+        <div className="min-w-0">
+          <p className="font-medium text-foreground">More models coming soon</p>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            New AI strategy lineages will appear here as we ship them, each with its own versioned
+            tracking and benchmarks.
+          </p>
+        </div>
+      </div>
 
       {/* CTA to performance */}
       <div className="rounded-xl border border-trader-blue/20 bg-trader-blue/5 p-6 flex flex-col sm:flex-row items-start sm:items-center gap-4">
@@ -279,7 +520,8 @@ export function StrategyModelsClient({ strategies }: Props) {
         </div>
         <Button asChild>
           <Link href="/performance" className="gap-2 shrink-0">
-            Full performance <ArrowRight className="size-4" />
+            <BarChart3 className="size-4 shrink-0" />
+            Model Performances
           </Link>
         </Button>
       </div>

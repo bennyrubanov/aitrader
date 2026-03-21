@@ -15,10 +15,10 @@ export function PlatformShell({ children }: PlatformShellProps) {
     <div className="[--header-height:3.5rem] min-h-screen bg-muted/30">
       <SidebarProvider className="flex flex-col">
         <SiteHeader />
-        <div className="flex min-w-0 flex-1 overflow-x-hidden">
+        <div className="flex min-w-0 flex-1 overflow-x-clip">
           <AppSidebar />
           <SidebarInset className="min-w-0 bg-transparent">
-            <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden p-4 md:p-6">
+            <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-x-clip p-4 md:p-6">
               {children}
             </div>
           </SidebarInset>

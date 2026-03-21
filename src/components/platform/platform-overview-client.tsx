@@ -261,7 +261,7 @@ export function PlatformOverviewClient() {
       { href: '/platform/explore-portfolios', label: 'Explore portfolios', icon: Compass },
       { href: '/platform/your-portfolio', label: 'Your portfolios', icon: Folders },
       { href: '/performance', label: 'Performance', icon: LineChart },
-      { href: '/strategy-model', label: 'Strategy models', icon: BarChart2 },
+      { href: '/strategy-models', label: 'Strategy models', icon: BarChart2 },
     ],
     []
   );

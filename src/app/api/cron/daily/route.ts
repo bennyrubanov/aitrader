@@ -79,6 +79,34 @@ type CronErrorEntry = {
   at: string;
 };
 
+type CronRatingDigestMeta = {
+  forceRun?: boolean;
+  nasdaqSource?: 'api' | 'fallback';
+  nasdaqSymbolCount?: number;
+  strategySlug?: string;
+  strategyName?: string;
+  strategyVersion?: string;
+  indexName?: string;
+  modelName?: string;
+  promptVersion?: string;
+  batchId?: string;
+  snapshotIsNew?: boolean;
+  snapshotMembers?: number;
+  aiConcurrency?: number;
+  aiOk?: number;
+  aiFailed?: number;
+  aiMissing?: number;
+  turnover?: number;
+  netReturn?: number;
+  grossReturn?: number;
+  rebalanceActionsCount?: number;
+  sequenceNumber?: number;
+  portfolioConfigBatchTriggered?: boolean;
+  benchmarkNasdaqCap?: number;
+  benchmarkNasdaqEqual?: number;
+  benchmarkSp500?: number;
+};
+
 type StrategyRow = {
   id: string;
   slug: string;
@@ -198,6 +226,26 @@ const getUtcWeekday = (dateString: string) => {
 };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+const formatSectionSeconds = (startMs: number | null, endMs: number | null) => {
+  if (
+    startMs === null ||
+    endMs === null ||
+    !Number.isFinite(startMs) ||
+    !Number.isFinite(endMs) ||
+    endMs < startMs
+  ) {
+    return 'unavailable';
+  }
+  return `${((endMs - startMs) / 1000).toFixed(1)}s`;
+};
 
 const sendEmailWithRetry = async (
   email: string,
@@ -1145,6 +1193,16 @@ const handleRequest = async (req: Request) => {
   const errorKeys = new Set<string>();
   const runStartedAt = new Date().toISOString();
 
+  let cronRatingDigestEnabled = false;
+  let cronDigestFatalMessage: string | null = null;
+  const digestMarks = {
+    prepEndMs: null as number | null,
+    aiEndMs: null as number | null,
+    perfEndMs: null as number | null,
+    doneMs: null as number | null,
+  };
+  const digestMeta: CronRatingDigestMeta = {};
+
   const recordCronError = (subject: string, error: unknown, context?: string) => {
     const message = error instanceof Error ? error.message : JSON.stringify(error, null, 2);
     const key = `${subject}::${context || ''}::${message}`;
@@ -1160,7 +1218,7 @@ const handleRequest = async (req: Request) => {
     });
   };
 
-  const sendCronSummary = async () => {
+  const sendCronErrorEmail = async () => {
     if (!errors.length) {
       return;
     }
@@ -1172,14 +1230,14 @@ const handleRequest = async (req: Request) => {
     const errorItems = errors
       .map((entry) => {
         const context = entry.context
-          ? `<div><strong>Context:</strong> ${entry.context}</div>`
+          ? `<div><strong>Context:</strong> ${escapeHtml(entry.context)}</div>`
           : '';
         return `
           <li style="margin-bottom: 12px;">
-            <div><strong>Subject:</strong> ${entry.subject}</div>
+            <div><strong>Subject:</strong> ${escapeHtml(entry.subject)}</div>
             ${context}
-            <div><strong>Time:</strong> ${entry.at}</div>
-            <pre style="background:#f8fafc;padding:12px;border-radius:8px;">${entry.message}</pre>
+            <div><strong>Time:</strong> ${escapeHtml(entry.at)}</div>
+            <pre style="background:#f8fafc;padding:12px;border-radius:8px;">${escapeHtml(entry.message)}</pre>
           </li>
         `;
       })
@@ -1188,8 +1246,8 @@ const handleRequest = async (req: Request) => {
     const htmlBody = `
       <div style="font-family: Arial, sans-serif; padding: 20px;">
         <h2 style="color: #b91c1c;">AITrader Cron Job Errors</h2>
-        <p><strong>Run date:</strong> ${runDate}</p>
-        <p><strong>Run started:</strong> ${runStartedAt}</p>
+        <p><strong>Run date:</strong> ${escapeHtml(runDate)}</p>
+        <p><strong>Run started:</strong> ${escapeHtml(runStartedAt)}</p>
         <p><strong>Total unique errors:</strong> ${errors.length}</p>
         <ul style="padding-left: 18px;">${errorItems}</ul>
       </div>
@@ -1202,13 +1260,190 @@ const handleRequest = async (req: Request) => {
     }
   };
 
+  const formatMeta = (value: string | number | boolean | undefined | null) => {
+    if (value === undefined || value === null) {
+      return 'unavailable';
+    }
+    if (typeof value === 'number' && !Number.isFinite(value)) {
+      return 'unavailable';
+    }
+    if (typeof value === 'number') {
+      if (Math.abs(value) < 1 && value !== 0) {
+        return `${(value * 100).toFixed(2)}%`;
+      }
+      return Number.isInteger(value) ? String(value) : String(value);
+    }
+    return String(value);
+  };
+
+  const formatPct = (value: number | undefined) => {
+    if (value === undefined || !Number.isFinite(value)) {
+      return 'unavailable';
+    }
+    return `${(value * 100).toFixed(2)}%`;
+  };
+
+  const sendCronRatingDigestEmail = async () => {
+    if (!CRON_ERROR_EMAIL) {
+      log('CRON RATING DIGEST', 'skipped (CRON_ERROR_EMAIL unset)');
+      return;
+    }
+
+    let htmlBody: string;
+    let subject: string;
+
+    try {
+      const endMs = digestMarks.doneMs ?? Date.now();
+      const totalSec = ((endMs - t0) / 1000).toFixed(1);
+      const hadFatal = Boolean(cronDigestFatalMessage);
+      const hadRecordedErrors = errors.length > 0;
+      const statusLabel = hadFatal ? 'Failed' : hadRecordedErrors ? 'Completed with warnings' : 'Completed';
+
+      const sectionRows = [
+        [
+          'Preparation (NASDAQ list, stocks, snapshot, batch, members)',
+          formatSectionSeconds(t0, digestMarks.prepEndMs),
+        ],
+        ['AI ratings (parallel)', formatSectionSeconds(digestMarks.prepEndMs, digestMarks.aiEndMs)],
+        [
+          'Model portfolio + weekly performance row (DB)',
+          formatSectionSeconds(digestMarks.aiEndMs, digestMarks.perfEndMs),
+        ],
+        [
+          'After performance: 48-config fan-out, rebalance log, research, revalidation',
+          formatSectionSeconds(digestMarks.perfEndMs, digestMarks.doneMs),
+        ],
+      ];
+
+      const sectionTable = sectionRows
+        .map(
+          ([label, dur]) =>
+            `<tr><td style="padding:6px 12px;border:1px solid #e2e8f0;">${escapeHtml(label)}</td>` +
+            `<td style="padding:6px 12px;border:1px solid #e2e8f0;">${escapeHtml(dur)}</td></tr>`
+        )
+        .join('');
+
+      const errorBlock =
+        errors.length > 0
+          ? `<h3 style="margin-top:20px;">Recorded issues (${errors.length})</h3><ul style="padding-left:18px;">${errors
+              .map((entry) => {
+                const ctx = entry.context ? ` — ${escapeHtml(entry.context)}` : '';
+                return `<li style="margin-bottom:8px;"><strong>${escapeHtml(entry.subject)}</strong>${ctx}<br/><span style="font-size:12px;color:#64748b;">${escapeHtml(entry.at)}</span><pre style="background:#f8fafc;padding:8px;border-radius:6px;font-size:12px;">${escapeHtml(entry.message)}</pre></li>`;
+              })
+              .join('')}</ul>`
+          : '';
+
+      const fatalBlock = cronDigestFatalMessage
+        ? `<h3 style="color:#b91c1c;">Fatal / thrown error</h3><pre style="background:#fef2f2;padding:12px;border-radius:8px;">${escapeHtml(cronDigestFatalMessage)}</pre>`
+        : '';
+
+      const digestNote =
+        digestMarks.prepEndMs === null && digestMarks.aiEndMs === null
+          ? '<p style="color:#64748b;">Section timings were not fully recorded (run may have ended before the rating pipeline completed).</p>'
+          : '';
+
+      htmlBody = `
+      <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 720px;">
+        <h2 style="color: ${hadFatal ? '#b91c1c' : '#0f172a'};">AITrader — Rating day cron digest</h2>
+        <p><strong>Status:</strong> ${escapeHtml(statusLabel)}</p>
+        <p><strong>Run date (UTC):</strong> ${escapeHtml(runDate)}</p>
+        <p><strong>Started:</strong> ${escapeHtml(runStartedAt)}</p>
+        <p><strong>Total wall time:</strong> ${escapeHtml(`${totalSec}s`)}</p>
+        <p><strong>Force run:</strong> ${escapeHtml(formatMeta(digestMeta.forceRun))}</p>
+        <p><strong>Git commit (deploy):</strong> ${escapeHtml(GIT_COMMIT_SHA || 'unavailable')}</p>
+        <hr style="margin: 16px 0;" />
+        <h3>Universe</h3>
+        <ul>
+          <li><strong>Index / universe:</strong> ${escapeHtml(formatMeta(digestMeta.indexName))}</li>
+          <li><strong>Symbols (this run):</strong> ${escapeHtml(formatMeta(digestMeta.nasdaqSymbolCount))}</li>
+          <li><strong>NASDAQ list source:</strong> ${escapeHtml(digestMeta.nasdaqSource ?? 'unavailable')}</li>
+        </ul>
+        <h3>Strategy / model</h3>
+        <ul>
+          <li><strong>Slug:</strong> ${escapeHtml(formatMeta(digestMeta.strategySlug))}</li>
+          <li><strong>Name:</strong> ${escapeHtml(formatMeta(digestMeta.strategyName))}</li>
+          <li><strong>Strategy version (APP_VERSION):</strong> ${escapeHtml(formatMeta(digestMeta.strategyVersion))}</li>
+          <li><strong>OpenAI model:</strong> ${escapeHtml(formatMeta(digestMeta.modelName))}</li>
+          <li><strong>Prompt version:</strong> ${escapeHtml(formatMeta(digestMeta.promptVersion))}</li>
+        </ul>
+        <h3>Run identifiers</h3>
+        <ul>
+          <li><strong>Batch id:</strong> ${escapeHtml(formatMeta(digestMeta.batchId))}</li>
+          <li><strong>Snapshot:</strong> ${escapeHtml(
+            digestMeta.snapshotIsNew === undefined
+              ? 'unavailable'
+              : digestMeta.snapshotIsNew
+                ? 'new'
+                : 'reused'
+          )} · <strong>Members:</strong> ${escapeHtml(formatMeta(digestMeta.snapshotMembers))}</li>
+          <li><strong>AI concurrency:</strong> ${escapeHtml(formatMeta(digestMeta.aiConcurrency))}</li>
+        </ul>
+        <h3>AI outcomes</h3>
+        <ul>
+          <li><strong>OK:</strong> ${escapeHtml(formatMeta(digestMeta.aiOk))}</li>
+          <li><strong>Failed (rating or DB upsert):</strong> ${escapeHtml(formatMeta(digestMeta.aiFailed))}</li>
+          <li><strong>Missing stock row:</strong> ${escapeHtml(formatMeta(digestMeta.aiMissing))}</li>
+        </ul>
+        <h3>Portfolio / performance (model layer)</h3>
+        <ul>
+          <li><strong>Weekly sequence #:</strong> ${escapeHtml(formatMeta(digestMeta.sequenceNumber))}</li>
+          <li><strong>Turnover:</strong> ${escapeHtml(formatPct(digestMeta.turnover))}</li>
+          <li><strong>Gross return (week):</strong> ${escapeHtml(formatPct(digestMeta.grossReturn))}</li>
+          <li><strong>Net return (week, after costs):</strong> ${escapeHtml(formatPct(digestMeta.netReturn))}</li>
+          <li><strong>Benchmark week (approx):</strong> NDX cap ${escapeHtml(formatPct(digestMeta.benchmarkNasdaqCap))}, QQQEW / equal proxy ${escapeHtml(formatPct(digestMeta.benchmarkNasdaqEqual))}, S&amp;P 500 ${escapeHtml(formatPct(digestMeta.benchmarkSp500))}</li>
+          <li><strong>Rebalance actions logged:</strong> ${escapeHtml(formatMeta(digestMeta.rebalanceActionsCount))}</li>
+          <li><strong>48-config precompute triggered:</strong> ${escapeHtml(formatMeta(digestMeta.portfolioConfigBatchTriggered))}</li>
+        </ul>
+        <h3>Time by section</h3>
+        ${digestNote}
+        <table style="border-collapse:collapse;width:100%;font-size:14px;">${sectionTable}</table>
+        ${fatalBlock}
+        ${errorBlock}
+        <p style="margin-top:24px;font-size:12px;color:#64748b;">If any line reads &quot;unavailable&quot;, that statistic could not be collected for this run.</p>
+      </div>
+    `;
+
+      subject = `AITrader Cron — ${runDate} (${statusLabel})`;
+    } catch (buildError) {
+      const buildMsg = buildError instanceof Error ? buildError.message : JSON.stringify(buildError);
+      log('CRON RATING DIGEST BUILD FAILED', buildMsg);
+      subject = `AITrader Cron — ${runDate} (digest incomplete)`;
+      htmlBody = `
+        <div style="font-family: Arial, sans-serif; padding: 20px;">
+          <h2>AITrader — Rating day cron digest</h2>
+          <p>The digest template failed to render. Run started: ${escapeHtml(runStartedAt)}</p>
+          <p><strong>Build error:</strong></p>
+          <pre style="background:#f8fafc;padding:12px;border-radius:8px;">${escapeHtml(buildMsg)}</pre>
+          ${
+            cronDigestFatalMessage
+              ? `<p><strong>Fatal run error (if any):</strong></p><pre style="background:#fef2f2;padding:12px;border-radius:8px;">${escapeHtml(cronDigestFatalMessage)}</pre>`
+              : ''
+          }
+        </div>
+      `;
+    }
+
+    const sent = await sendEmailWithRetry(CRON_ERROR_EMAIL, htmlBody, subject);
+    if (!sent) {
+      log('CRON RATING DIGEST EMAIL FAILED', 'Could not send after retries');
+    } else {
+      log('CRON RATING DIGEST EMAIL SENT');
+    }
+  };
+
   let summarySent = false;
   const sendCronSummaryOnce = async () => {
     if (summarySent) {
       return;
     }
     summarySent = true;
-    await sendCronSummary();
+
+    if (cronRatingDigestEnabled && CRON_ERROR_EMAIL) {
+      await sendCronRatingDigestEmail();
+      return;
+    }
+
+    await sendCronErrorEmail();
   };
 
   let timeoutWarningTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1274,6 +1509,11 @@ const handleRequest = async (req: Request) => {
     const runWeekday = getUtcWeekday(runDate);
     const isRebalanceDay = forceRun || runWeekday === STRATEGY_CONFIG.rebalanceDayOfWeek;
 
+    if (isRebalanceDay) {
+      cronRatingDigestEnabled = true;
+    }
+    digestMeta.forceRun = forceRun;
+
     if (!isRebalanceDay) {
       log(
         'DAILY MODE',
@@ -1288,6 +1528,8 @@ const handleRequest = async (req: Request) => {
     let nasdaqRows: NasdaqRow[] = [];
     try {
       nasdaqRows = await fetchNasdaq100();
+      digestMeta.nasdaqSource = 'api';
+      digestMeta.nasdaqSymbolCount = nasdaqRows.length;
       log('NASDAQ FETCH OK', `${nasdaqRows.length} symbols from API`);
     } catch (error) {
       log('NASDAQ FETCH FAILED', error instanceof Error ? error.message : error);
@@ -1336,6 +1578,8 @@ const handleRequest = async (req: Request) => {
 
         if (dbRows.length) {
           nasdaqRows = dbRows;
+          digestMeta.nasdaqSource = 'fallback';
+          digestMeta.nasdaqSymbolCount = nasdaqRows.length;
           log('NASDAQ FALLBACK DB', `${nasdaqRows.length} symbols from latest snapshot`);
         }
       }
@@ -1359,6 +1603,13 @@ const handleRequest = async (req: Request) => {
       'STRATEGY',
       `${strategy.slug} (${strategy.version}), rebalance_day=${strategy.rebalance_day_of_week}`
     );
+
+    digestMeta.strategySlug = strategy.slug;
+    digestMeta.strategyName = strategy.name;
+    digestMeta.strategyVersion = strategy.version;
+    digestMeta.indexName = strategy.index_name;
+    digestMeta.modelName = STRATEGY_CONFIG.model.name;
+    digestMeta.promptVersion = STRATEGY_CONFIG.prompt.version;
 
     // ----- Step 3: Upsert stocks -----
     const stockPayload = nasdaqRows.map((row) => ({
@@ -1467,6 +1718,9 @@ const handleRequest = async (req: Request) => {
       `${snapshot.isNew ? 'new' : 'reused'} id=${snapshot.id}, members=${snapshotStocks.length}`
     );
 
+    digestMeta.snapshotIsNew = snapshot.isNew;
+    digestMeta.snapshotMembers = snapshotStocks.length;
+
     // ----- Step 6: Create/reuse strategy batch -----
     const { data: batchRow, error: batchError } = await supabase
       .from('ai_run_batches')
@@ -1491,6 +1745,8 @@ const handleRequest = async (req: Request) => {
       return NextResponse.json({ error: batchError.message }, { status: 500 });
     }
     log('BATCH UPSERTED', `id=${batchRow.id}`);
+
+    digestMeta.batchId = batchRow.id;
 
     // ----- Step 7: Previous batch + previous score map -----
     const { data: previousBatch, error: previousBatchError } = await supabase
@@ -1549,8 +1805,11 @@ const handleRequest = async (req: Request) => {
     }
     log('MEMBERS LOADED', `${memberRows.length} stocks`);
 
+    digestMarks.prepEndMs = Date.now();
+
     // ----- Step 9: Run AI analysis weekly across all constituents -----
     const concurrency = Number(process.env.AI_CONCURRENCY || 20);
+    digestMeta.aiConcurrency = Number.isFinite(concurrency) ? concurrency : undefined;
     log('AI START', `concurrency=${concurrency}, stocks=${memberRows.length}`);
 
     let completed = 0;
@@ -1730,6 +1989,11 @@ const handleRequest = async (req: Request) => {
 
     log('AI COMPLETE', `${completed} processed, ${failed} failed`);
 
+    digestMarks.aiEndMs = Date.now();
+    digestMeta.aiOk = results.filter((result) => result.status === 'ok').length;
+    digestMeta.aiFailed = results.filter((result) => result.status === 'failed').length;
+    digestMeta.aiMissing = results.filter((result) => result.status === 'missing_stock').length;
+
     // ----- Step 10: Remove stale recommendation rows -----
     const memberIds = memberRows.map((member) => member.stock_id);
     if (memberIds.length) {
@@ -1745,7 +2009,7 @@ const handleRequest = async (req: Request) => {
       }
     }
 
-    // ----- Step 11: Deterministic Top-20 equal-weight construction -----
+    // ----- Step 11: Deterministic Top-20 equal-weight portfolio -----
     const scoredRows = results
       .map((row) => {
         if (row.status === 'missing_stock') {
@@ -1772,7 +2036,7 @@ const handleRequest = async (req: Request) => {
     const topHoldings = buildTopHoldings(scoredRows, strategy.portfolio_size);
     if (topHoldings.length !== strategy.portfolio_size) {
       const message = `Expected ${strategy.portfolio_size} holdings, got ${topHoldings.length}`;
-      recordCronError('Top-20 construction failed', message);
+      recordCronError('Top-20 portfolio failed', message);
       return NextResponse.json({ error: message }, { status: 500 });
     }
 
@@ -1935,11 +2199,22 @@ const handleRequest = async (req: Request) => {
       return NextResponse.json({ error: performanceUpsertError.message }, { status: 500 });
     }
 
-    // ----- Step 15b: Precompute all equal-weight configs (separate function, fire-and-forget) -----
+    digestMarks.perfEndMs = Date.now();
+    digestMeta.sequenceNumber = sequenceNumber;
+    digestMeta.turnover = turnover;
+    digestMeta.grossReturn = grossReturn;
+    digestMeta.netReturn = netReturn;
+    digestMeta.benchmarkNasdaqCap = nasdaqCapWeightReturn;
+    digestMeta.benchmarkNasdaqEqual = nasdaqEqualWeightReturn;
+    digestMeta.benchmarkSp500 = sp500Return;
+
+    // ----- Step 15b: Precompute all portfolio configs (fan-out, fire-and-forget) -----
     try {
       const { triggerPortfolioConfigsBatch } = await import('@/lib/trigger-config-compute');
       triggerPortfolioConfigsBatch(strategy.id);
+      digestMeta.portfolioConfigBatchTriggered = true;
     } catch (batchTriggerError) {
+      digestMeta.portfolioConfigBatchTriggered = false;
       recordCronError('Portfolio config batch trigger failed', batchTriggerError);
     }
 
@@ -2019,6 +2294,8 @@ const handleRequest = async (req: Request) => {
         return NextResponse.json({ error: insertActionsError.message }, { status: 500 });
       }
     }
+
+    digestMeta.rebalanceActionsCount = actions.length;
 
     // ----- Step 17: Weekly research layer (quintiles + regression) -----
     if (previousBatch?.id && previousBatch.run_date) {
@@ -2106,16 +2383,17 @@ const handleRequest = async (req: Request) => {
     revalidatePath('/platform/performance');
     revalidatePath('/performance');
     revalidatePath('/performance', 'page');
-    revalidatePath('/strategy-model');
+    revalidatePath('/strategy-models');
     // Revalidate per-slug performance and model detail pages
     revalidatePath('/performance/[slug]', 'page');
-    revalidatePath('/strategy-model/[slug]', 'page');
+    revalidatePath('/strategy-models/[slug]', 'page');
 
     const summary = {
       ok: results.filter((result) => result.status === 'ok').length,
       failed: results.filter((result) => result.status === 'failed').length,
       missingStock: results.filter((result) => result.status === 'missing_stock').length,
     };
+    digestMarks.doneMs = Date.now();
     const totalSeconds = ((Date.now() - t0) / 1000).toFixed(1);
     log(
       'DONE',
@@ -2145,6 +2423,8 @@ const handleRequest = async (req: Request) => {
       elapsedSeconds: Number(totalSeconds),
     });
   } catch (error) {
+    cronDigestFatalMessage =
+      error instanceof Error ? error.message : JSON.stringify(error, null, 2);
     recordCronError('Fatal cron failure', error);
     log('FATAL', error instanceof Error ? error.message : 'unknown error');
     return NextResponse.json(

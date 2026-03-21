@@ -81,6 +81,8 @@ export async function GET(req: NextRequest) {
       rebalanceFrequency: s.rebalanceFrequency,
       isDefault: s.isDefault,
       sharpeRatio: s.sharpeRatio,
+      startDate: s.startDate,
+      runCount: s.runCount,
     })),
     selectedSlug: resolvedSlug,
     modelInceptionDate,

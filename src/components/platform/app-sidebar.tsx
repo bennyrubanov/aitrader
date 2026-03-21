@@ -16,23 +16,22 @@ import {
   MessageSquare,
 } from 'lucide-react';
 import {
+  SIDEBAR_MENU_TRAILING_CLASSNAME,
   Sidebar,
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
-  SidebarGroupLabel,
-  SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarSeparator,
 } from '@/components/ui/sidebar';
 import { NavMain } from '@/components/platform/nav-main';
 import { NavSecondary } from '@/components/platform/nav-secondary';
 import { NavUser } from '@/components/platform/nav-user';
 import { getSupabaseBrowserClient } from '@/utils/supabase/browser';
 import { useAuthState } from '@/components/auth/auth-state-context';
-import { PlanLabel } from '@/components/account/plan-label';
 import { navigateWithFallback } from '@/lib/client-navigation';
 import { Disclaimer } from '@/components/Disclaimer';
 
@@ -124,7 +123,7 @@ export function AppSidebar() {
       ...advancedItems.flatMap((item) => (item.href ? [item.href] : [])),
       '/platform/settings',
       '/performance',
-      '/strategy-model',
+      '/strategy-models',
     ];
     const prefetchAllRoutes = () => {
       prefetchTargets.forEach((href) => {
@@ -215,46 +214,11 @@ export function AppSidebar() {
     <Sidebar
       className="top-[var(--header-height)] h-[calc(100svh-var(--header-height))]!"
       variant="inset"
+      collapsible="icon"
     >
-      <SidebarHeader>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton size="lg" asChild>
-              <button type="button" onClick={() => openPath('/platform/settings')}>
-                <div className="grid flex-1 text-left text-sm leading-tight">
-                  <PlanLabel
-                    isPremium={account.isPremium}
-                    subscriptionTier={account.subscriptionTier}
-                    className={`truncate text-xs uppercase tracking-[0.18em] ${
-                      account.isPremium
-                        ? '-skew-x-12 text-trader-blue font-semibold'
-                        : 'text-sidebar-foreground/70'
-                    }`}
-                    iconClassName="size-3.5"
-                  />
-                </div>
-              </button>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
-      </SidebarHeader>
       <SidebarContent>
         <NavMain
-          items={mainItems.map((item) => ({
-            title: item.title,
-            url: item.href,
-            icon: item.icon,
-            isActive: item.href ? isItemActive(pathname, item.href) : false,
-            onNavigate: handleNavigateStart,
-            onPrefetch: handlePrefetchIntent,
-            disabled: item.disabled,
-            badge: item.badge,
-          }))}
-          label="Overview"
-          hideLabel
-        />
-        <NavMain
-          items={platformItems.map((item) => ({
+          items={[...mainItems, ...platformItems].map((item) => ({
             title: item.title,
             url: item.href,
             icon: item.icon,
@@ -266,31 +230,6 @@ export function AppSidebar() {
           }))}
           label="Platform"
         />
-        <SidebarGroup>
-          <SidebarGroupLabel>Performance</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild tooltip="Performance (public)">
-                  <button type="button" onClick={() => openPath('/performance')}>
-                    <BarChart3 className="size-4 shrink-0" />
-                    <span className="truncate">Performance</span>
-                    <ArrowUpRight className="ml-auto size-3.5 shrink-0 text-muted-foreground" />
-                  </button>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild tooltip="Strategy models & methodology (public)">
-                  <button type="button" onClick={() => openPath('/strategy-model')}>
-                    <Cpu className="size-4 shrink-0" />
-                    <span className="truncate">Strategy models</span>
-                    <ArrowUpRight className="ml-auto size-3.5 shrink-0 text-muted-foreground" />
-                  </button>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
         <NavMain
           items={advancedItems.map((item) => ({
             title: item.title,
@@ -306,7 +245,36 @@ export function AppSidebar() {
         />
 
       </SidebarContent>
-      <SidebarFooter className="sticky bottom-0 z-10 border-t border-sidebar-border/70 bg-sidebar">
+      <SidebarFooter className="sticky bottom-0 z-10 bg-sidebar">
+        <SidebarGroup>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild size="sm" tooltip="Performance (public)">
+                  <button type="button" onClick={() => openPath('/performance')}>
+                    <BarChart3 className="size-4 shrink-0" />
+                    <span className={SIDEBAR_MENU_TRAILING_CLASSNAME}>
+                      <span className="min-w-0 flex-1 truncate">Performance</span>
+                      <ArrowUpRight className="ml-auto size-3.5 shrink-0 text-muted-foreground" />
+                    </span>
+                  </button>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild size="sm" tooltip="Strategy models & methodology (public)">
+                  <button type="button" onClick={() => openPath('/strategy-models')}>
+                    <Cpu className="size-4 shrink-0" />
+                    <span className={SIDEBAR_MENU_TRAILING_CLASSNAME}>
+                      <span className="min-w-0 flex-1 truncate">Strategy models</span>
+                      <ArrowUpRight className="ml-auto size-3.5 shrink-0 text-muted-foreground" />
+                    </span>
+                  </button>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarSeparator className="my-0" />
         <NavSecondary
           items={[
             {

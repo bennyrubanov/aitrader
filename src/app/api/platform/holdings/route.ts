@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
+import { createAdminClient } from '@/utils/supabase/admin';
 import { createClient } from '@/utils/supabase/server';
+import { getLatestHoldingsForPortfolioConfig } from '@/lib/portfolio-config-holdings';
 import { getHoldingsForStrategy, getPerformancePayloadBySlug, getPlatformPerformancePayload } from '@/lib/platform-performance-payload';
 
 export const runtime = 'nodejs';
@@ -27,6 +29,9 @@ export async function GET(req: Request) {
 
   const { searchParams } = new URL(req.url);
   const slug = searchParams.get('slug');
+  const riskParam = searchParams.get('risk');
+  const frequency = searchParams.get('frequency');
+  const weighting = searchParams.get('weighting');
 
   let strategyId: string | null = null;
   let runDate: string | null = null;
@@ -41,10 +46,53 @@ export async function GET(req: Request) {
     runDate = payload.latestRunDate ?? null;
   }
 
-  if (!strategyId || !runDate) {
-    return NextResponse.json([]);
+  if (!strategyId) {
+    return NextResponse.json({
+      holdings: [],
+      asOfDate: null,
+      configSummary: null,
+    });
+  }
+
+  const hasConfigParams =
+    slug &&
+    riskParam != null &&
+    riskParam !== '' &&
+    frequency &&
+    weighting &&
+    ['equal', 'cap'].includes(weighting);
+
+  if (hasConfigParams) {
+    const riskLevel = parseInt(riskParam, 10);
+    if (!Number.isNaN(riskLevel) && riskLevel >= 1 && riskLevel <= 6) {
+      const admin = createAdminClient();
+      const { holdings, asOfDate, configSummary } = await getLatestHoldingsForPortfolioConfig(
+        admin,
+        strategyId,
+        riskLevel,
+        frequency,
+        weighting
+      );
+      return NextResponse.json({
+        holdings,
+        asOfDate,
+        configSummary,
+      });
+    }
+  }
+
+  if (!runDate) {
+    return NextResponse.json({
+      holdings: [],
+      asOfDate: null,
+      configSummary: null,
+    });
   }
 
   const holdings = await getHoldingsForStrategy(strategyId, runDate);
-  return NextResponse.json(holdings);
+  return NextResponse.json({
+    holdings,
+    asOfDate: runDate,
+    configSummary: null,
+  });
 }

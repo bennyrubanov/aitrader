@@ -1,9 +1,35 @@
 import { NextResponse } from 'next/server';
-import { getStrategiesList } from '@/lib/platform-performance-payload';
+import {
+  buildQuintileHistory,
+  computeQuintileWinRate,
+  getStrategiesList,
+} from '@/lib/platform-performance-payload';
 import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
+import { createPublicClient } from '@/utils/supabase/public';
 
 export const runtime = 'nodejs';
 export const revalidate = 300;
+
+function toNullableNumber(v: unknown): number | null {
+  const n = typeof v === 'string' ? parseFloat(v) : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function summarizeBeatsNasdaq(configs: RankedConfig[]) {
+  const comparable = configs.filter((c) => c.metrics.beatsMarket !== null);
+  const beating = comparable.filter((c) => c.metrics.beatsMarket === true).length;
+  const pct =
+    comparable.length > 0 ? Math.round((1000 * beating) / comparable.length) / 10 : null;
+  return { beatNasdaqPct: pct, beatNasdaqBeating: beating, beatNasdaqComparable: comparable.length };
+}
+
+function summarizeBeatsSp500(configs: RankedConfig[]) {
+  const comparable = configs.filter((c) => c.metrics.beatsSp500 != null);
+  const beating = comparable.filter((c) => c.metrics.beatsSp500 === true).length;
+  const pct =
+    comparable.length > 0 ? Math.round((1000 * beating) / comparable.length) / 10 : null;
+  return { beatSp500Pct: pct, beatSp500Beating: beating, beatSp500Comparable: comparable.length };
+}
 
 function internalOrigin(): string {
   return (
@@ -44,6 +70,19 @@ export type RankedStrategyModel = {
   modelScore: number | null;
   rank: number | null;
   eligibleConfigCount: number;
+  /** Share of portfolio configs outperforming Nasdaq-100 cap (same window as ranked configs). */
+  beatNasdaqPct: number | null;
+  beatNasdaqBeating: number;
+  beatNasdaqComparable: number;
+  beatSp500Pct: number | null;
+  beatSp500Beating: number;
+  beatSp500Comparable: number;
+  /** Latest weekly cross-sectional regression beta (1-week horizon). */
+  latestBeta: number | null;
+  /** Q5 vs Q1 weekly win rate (same definition as performance research). */
+  quintileWinRate: { total: number; wins: number; rate: number } | null;
+  quintileLatestWeekSpread: number | null;
+  quintileLatestWeekRunDate: string | null;
 };
 
 export async function GET() {
@@ -54,9 +93,67 @@ export async function GET() {
 
   const base = internalOrigin();
 
+  const supabase = createPublicClient();
+  const strategyIds = strategies.map((s) => s.id);
+  const { data: regRows } = await supabase
+    .from('strategy_cross_sectional_regressions')
+    .select('strategy_id, beta, run_date')
+    .in('strategy_id', strategyIds)
+    .eq('horizon_weeks', 1)
+    .order('run_date', { ascending: false });
+
+  const latestBetaByStrategyId = new Map<string, number | null>();
+  for (const row of regRows ?? []) {
+    const sid = row.strategy_id as string;
+    if (!latestBetaByStrategyId.has(sid)) {
+      latestBetaByStrategyId.set(sid, toNullableNumber(row.beta));
+    }
+  }
+
+  const { data: quintileRaw } = await supabase
+    .from('strategy_quintile_returns')
+    .select('strategy_id, run_date, quintile, stock_count, return_value')
+    .in('strategy_id', strategyIds)
+    .eq('horizon_weeks', 1);
+
+  const quintileRowsByStrategyId = new Map<
+    string,
+    Array<{
+      run_date: string;
+      quintile: number;
+      stock_count: number;
+      return_value: number | string;
+    }>
+  >();
+  for (const row of quintileRaw ?? []) {
+    const sid = row.strategy_id as string;
+    const list = quintileRowsByStrategyId.get(sid) ?? [];
+    list.push({
+      run_date: row.run_date as string,
+      quintile: row.quintile as number,
+      stock_count: row.stock_count as number,
+      return_value: row.return_value,
+    });
+    quintileRowsByStrategyId.set(sid, list);
+  }
+
   const rows: Omit<RankedStrategyModel, 'modelScore' | 'rank'>[] = [];
 
   for (const s of strategies) {
+    const latestBeta = latestBetaByStrategyId.get(s.id) ?? null;
+    const qHistory = buildQuintileHistory(quintileRowsByStrategyId.get(s.id) ?? []);
+    const quintileWinRate = computeQuintileWinRate(qHistory);
+    const latestQuintileSnap = qHistory[0];
+    let quintileLatestWeekSpread: number | null = null;
+    let quintileLatestWeekRunDate: string | null = null;
+    if (latestQuintileSnap?.rows?.length) {
+      const q1 = latestQuintileSnap.rows.find((r) => r.quintile === 1)?.return;
+      const q5 = latestQuintileSnap.rows.find((r) => r.quintile === 5)?.return;
+      if (typeof q1 === 'number' && typeof q5 === 'number') {
+        quintileLatestWeekSpread = q5 - q1;
+        quintileLatestWeekRunDate = latestQuintileSnap.runDate;
+      }
+    }
     try {
       const res = await fetch(
         `${base}/api/platform/portfolio-configs-ranked?slug=${encodeURIComponent(s.slug)}`
@@ -72,6 +169,8 @@ export async function GET() {
         (c) => c.metrics.totalReturn != null && (c.metrics.totalReturn as number) > 0
       );
       const breadthPct = eligible.length ? beating.length / eligible.length : 0;
+      const nasdaqBeats = summarizeBeatsNasdaq(configs);
+      const spBeats = summarizeBeatsSp500(configs);
       rows.push({
         id: s.id,
         slug: s.slug,
@@ -87,6 +186,12 @@ export async function GET() {
         medianConfigSharpe: median(sharpes),
         bestConfigSharpe: sharpes.length ? Math.max(...sharpes) : null,
         eligibleConfigCount: eligible.length,
+        latestBeta,
+        quintileWinRate,
+        quintileLatestWeekSpread,
+        quintileLatestWeekRunDate,
+        ...nasdaqBeats,
+        ...spBeats,
       });
     } catch {
       rows.push({
@@ -104,6 +209,16 @@ export async function GET() {
         medianConfigSharpe: s.sharpeRatio,
         bestConfigSharpe: s.sharpeRatio,
         eligibleConfigCount: 0,
+        latestBeta,
+        quintileWinRate,
+        quintileLatestWeekSpread,
+        quintileLatestWeekRunDate,
+        beatNasdaqPct: null,
+        beatNasdaqBeating: 0,
+        beatNasdaqComparable: 0,
+        beatSp500Pct: null,
+        beatSp500Beating: 0,
+        beatSp500Comparable: 0,
       });
     }
   }

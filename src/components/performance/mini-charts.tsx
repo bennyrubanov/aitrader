@@ -15,8 +15,6 @@ import {
 } from 'recharts';
 import {
   ChartContainer,
-  ChartLegend,
-  ChartLegendContent,
   ChartTooltip,
   ChartTooltipContent,
 } from '@/components/ui/chart';
@@ -56,6 +54,7 @@ export function WeeklyReturnsChart({
   strategyName,
 }: {
   series: SeriesPoint[];
+  /** Model name, or full overview-style track title (`model · Top n · weight · frequency`). */
   strategyName?: string;
 }) {
   const weeklyReturns = useMemo(() => {
@@ -70,13 +69,14 @@ export function WeeklyReturnsChart({
   }, [series]);
 
   if (weeklyReturns.length < 2) return null;
-  const aiLabel = `${strategyName ?? 'AI Strategy'} (equal-weighted Top-20)`;
+  const aiLabel = strategyName ?? 'AI Strategy';
 
   return (
     <div className="rounded-lg border bg-card p-4">
-      <p className="text-sm font-semibold mb-1">Weekly returns (AI Top-20, equal-weighted)</p>
+      <p className="text-sm font-semibold mb-1">Weekly returns</p>
       <p className="text-xs text-muted-foreground mb-3">
-        Week-over-week percentage change for the equal-weighted AI Top-20 portfolio.
+        Week-over-week percentage change. The series label matches the performance overview chart (model
+        and portfolio construction).
       </p>
       <ChartContainer
         className="h-[180px] w-full"
@@ -105,6 +105,7 @@ export function CagrOverTimeChart({
   startingCapital = 10_000,
 }: {
   series: SeriesPoint[];
+  /** Model name, or full overview-style track title (`model · Top n · weight · frequency`). */
   strategyName?: string;
   startingCapital?: number;
 }) {
@@ -134,7 +135,8 @@ export function CagrOverTimeChart({
     <div className="rounded-lg border bg-card p-4">
       <p className="text-sm font-semibold mb-1">CAGR over time</p>
       <p className="text-xs text-muted-foreground mb-3">
-        Annualized growth from inception using a ${startingCapital.toLocaleString()} starting value.
+        Annualized growth from inception using a ${startingCapital.toLocaleString()} starting value. AI line
+        label matches the performance overview chart.
       </p>
       <ChartContainer
         className="h-[180px] w-full"
@@ -175,6 +177,7 @@ export function RiskChart({
   strategyName,
 }: {
   series: SeriesPoint[];
+  /** Model name, or full overview-style track title (`model · Top n · weight · frequency`). */
   strategyName?: string;
 }) {
   const [view, setView] = useState<'drawdown' | 'sharpe'>('drawdown');
@@ -395,7 +398,6 @@ export function RiskChart({
                   />
                 }
               />
-              <ChartLegend content={<ChartLegendContent />} />
               {(Object.keys(RETURNS_SERIES) as ReturnsKey[]).map((key) => (
                 <Line
                   key={key}
@@ -463,7 +465,6 @@ export function RiskChart({
                   />
                 }
               />
-              <ChartLegend content={<ChartLegendContent />} />
               {(Object.keys(RETURNS_SERIES) as ReturnsKey[]).map((key) => (
                 <Line
                   key={key}
@@ -499,6 +500,7 @@ export function CumulativeReturnsChart({
   startingCapital = 10_000,
 }: {
   series: SeriesPoint[];
+  /** Model name, or full overview-style track title (`model · Top n · weight · frequency`). */
   strategyName?: string;
   startingCapital?: number;
 }) {
@@ -537,7 +539,8 @@ export function CumulativeReturnsChart({
     <div className="rounded-lg border bg-card p-4">
       <p className="text-sm font-semibold mb-1">Cumulative returns</p>
       <p className="text-xs text-muted-foreground mb-3">
-        Total percentage return from inception for each strategy and benchmark.
+        Total percentage return from inception. The AI line uses the same label as the performance overview
+        (model and portfolio construction); benchmarks unchanged.
       </p>
 
       <div className="flex flex-wrap gap-1.5 mb-3">
@@ -616,6 +619,7 @@ export function RelativeOutperformanceChart({
   strategyName,
 }: {
   series: SeriesPoint[];
+  /** Model name, or full overview-style track title (`model · Top n · weight · frequency`). */
   strategyName?: string;
 }) {
   const [hidden, setHidden] = useState<Set<OutperfKey>>(new Set());

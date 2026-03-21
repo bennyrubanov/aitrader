@@ -232,7 +232,7 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
     { title: 'CAGR', description: 'Average yearly return.' },
     { title: 'Max Drawdown', description: 'Largest temporary loss.' },
     { title: 'Sharpe Ratio', description: 'Return compared to risk.' },
-    { title: '% Months Beating Market', description: 'How often the system wins.' },
+    { title: '% Months Outperforming Market', description: 'How often the system wins.' },
     { title: 'Growth Chart', description: 'Visual $10K comparison over time.' },
   ];
 
@@ -769,7 +769,7 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
                 <CarouselItem>
                   <div className="rounded-lg border border-border p-5 bg-muted/20">
                     <p className="font-semibold text-sm mb-3 text-trader-blue">
-                      % Months Beating Market
+                      % Months Outperforming Market
                     </p>
                     <ChartContainer
                       className="h-[250px] w-full"

@@ -3,6 +3,7 @@
 import type { ComponentType } from "react";
 import Link from "next/link";
 import {
+  SIDEBAR_MENU_TRAILING_CLASSNAME,
   SidebarGroup,
   SidebarGroupLabel,
   SidebarMenu,
@@ -37,12 +38,17 @@ export function NavMain({ items, label, hideLabel = false }: NavMainProps) {
           const content = (
             <>
               <item.icon className="size-4 shrink-0" />
-              <span className="truncate">{item.title}</span>
-              {item.badge ? (
-                <Badge variant="outline" className="ml-auto shrink-0 rounded-md px-1.5 py-0 text-[10px] uppercase tracking-wide">
-                  {item.badge}
-                </Badge>
-              ) : null}
+              <span className={SIDEBAR_MENU_TRAILING_CLASSNAME}>
+                <span className="min-w-0 flex-1 truncate">{item.title}</span>
+                {item.badge ? (
+                  <Badge
+                    variant="outline"
+                    className="ml-auto shrink-0 rounded-md px-1.5 py-0 text-[10px] uppercase tracking-wide"
+                  >
+                    {item.badge}
+                  </Badge>
+                ) : null}
+              </span>
             </>
           );
 

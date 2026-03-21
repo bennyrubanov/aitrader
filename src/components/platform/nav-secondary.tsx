@@ -4,6 +4,7 @@ import type { LucideIcon } from 'lucide-react';
 import Link from 'next/link';
 import { ChevronDown } from 'lucide-react';
 import {
+  SIDEBAR_MENU_TRAILING_CLASSNAME,
   SidebarGroup,
   SidebarGroupContent,
   SidebarMenu,
@@ -37,23 +38,29 @@ export function NavSecondary({ items, ...props }: NavSecondaryProps) {
                 <Collapsible className="group/collapsible">
                   <CollapsibleTrigger asChild>
                     <SidebarMenuButton size="sm" className="data-[state=open]:bg-sidebar-accent">
-                      <item.icon />
-                      <span>{item.title}</span>
-                      <ChevronDown className="ml-auto size-4 transition-transform duration-200 group-data-[state=open]/collapsible:rotate-180" />
+                      <item.icon className="size-4 shrink-0" />
+                      <span className={SIDEBAR_MENU_TRAILING_CLASSNAME}>
+                        <span className="min-w-0 flex-1 truncate">{item.title}</span>
+                        <ChevronDown className="ml-auto size-4 shrink-0 transition-transform duration-200 group-data-[state=open]/collapsible:rotate-180" />
+                      </span>
                     </SidebarMenuButton>
                   </CollapsibleTrigger>
                   <CollapsibleContent>{item.collapsible.content}</CollapsibleContent>
                 </Collapsible>
               ) : item.onClick ? (
                 <SidebarMenuButton size="sm" onClick={item.onClick}>
-                  <item.icon />
-                  <span>{item.title}</span>
+                  <item.icon className="size-4 shrink-0" />
+                  <span className={SIDEBAR_MENU_TRAILING_CLASSNAME}>
+                    <span className="min-w-0 flex-1 truncate">{item.title}</span>
+                  </span>
                 </SidebarMenuButton>
               ) : (
                 <SidebarMenuButton asChild size="sm">
                   <Link href={item.url}>
-                    <item.icon />
-                    <span>{item.title}</span>
+                    <item.icon className="size-4 shrink-0" />
+                    <span className={SIDEBAR_MENU_TRAILING_CLASSNAME}>
+                      <span className="min-w-0 flex-1 truncate">{item.title}</span>
+                    </span>
                   </Link>
                 </SidebarMenuButton>
               )}

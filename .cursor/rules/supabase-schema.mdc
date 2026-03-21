@@ -11,7 +11,7 @@ Schema files live in `supabase/`:
 - `supabase/schema.sql` – table/view definitions (run first)
 - `supabase/rls_policies.sql` – Row Level Security policies (run second)
 
-The daily cron job is at `src/app/api/cron/daily/route.ts` (runs every weekday; AI ratings + portfolio only execute on rebalance day, prices saved daily).
+The daily cron job is at `src/app/api/cron/daily/route.ts` (runs every weekday; AI ratings + portfolio only execute on rebalance day, prices saved daily). On rebalance days it emails `CRON_ERROR_EMAIL` a run digest (timings, universe, model, counts); on price-only days it emails only when errors were recorded.
 The AI prompt template and JSON schema are at `src/lib/aiPrompt.ts`.
 
 ## Versioning
@@ -23,7 +23,7 @@ All strategy identity/version configuration derives from two files:
 Single strategy lineage axis:
 
 - `APP_VERSION` (semver, e.g. `v1.0.1`) — sole lineage axis. Bump for all changes: prompt text, model, portfolio rules, universe, ranking, etc.
-- `STRATEGY_CONFIG` re-exports from the registry: canonical slug (`ait-1-daneel`), display name, aitCode, robotName, prompt, model, and defaultPortfolio construction params.
+- `STRATEGY_CONFIG` re-exports from the registry: canonical slug (`ait-1-daneel`), display name, aitCode, robotName, prompt, model, and defaultPortfolio tracking params.
 - `GIT_COMMIT_SHA` captures the deploy commit (from `VERCEL_GIT_COMMIT_SHA`) stored in `ai_run_batches.git_commit_sha`.
 - **Cron mismatch guard** (structural params only): throws if `index_name`, `rebalance_frequency`, `portfolio_size`, `weighting_method`, or `transaction_cost_bps` differ for the existing slug. Non-structural changes (`version`, `prompt_id`, `model_id`, `name`, `description`) are updated in-place.
 - `MODEL_VERSION` is **removed**. All changes (prompt, model, portfolio rules) use `APP_VERSION`.
@@ -49,7 +49,7 @@ You must also keep this file up to date.
 
 **Model-layer performance + research**: `strategy_portfolio_holdings`, `strategy_rebalance_actions`, `strategy_performance_weekly`, `strategy_quintile_returns`, `strategy_cross_sectional_regressions`.
 
-**Portfolio construction layer (Layer B)**: `portfolio_construction_configs` (risk 1-6 × weekly/monthly/quarterly/yearly × equal/cap; seeded with 26 standard configs; default = risk 3 / weekly / equal), `strategy_portfolio_config_performance` (config-scoped performance rows keyed by strategy_id + config_id + run_date; includes `strategy_status` (in_progress/active), `compute_status` (pending/ready/failed)), `portfolio_config_compute_queue` (on-demand compute queue for non-precomputed configs; service role only).
+**Portfolio construction layer (Layer B)**: `portfolio_construction_configs` (risk 1-5 × 4 freq × 2 weighting + risk 6 × 4 freq × equal only = 44 configs; risk 6 has top_n=1 so cap/equal are identical, only equal kept). Display names: `label` = `Top {n} · Equal|Cap · Weekly|Monthly|Quarterly|Yearly`; `risk_label` = tier badge (Conservative, Balanced, …). Canonical formatter: `src/lib/portfolio-config-display.ts` + migration `20260320140000_portfolio_config_display_labels.sql`. `strategy_portfolio_config_performance` (config-scoped performance rows keyed by strategy_id + config_id + run_date; includes `strategy_status` (in_progress/active), `compute_status` (pending/ready/failed), `next_rebalance_date`), `portfolio_config_compute_queue` (compute queue; service role only).
 
 **User portfolio tables**: `user_portfolio_profiles` (active profiles per user; stores `config_id`, `investment_size`, `user_start_date`, `notifications_enabled` — separate from model-level performance), `user_portfolio_positions` (holdings snapshot per profile), plus existing `user_portfolio_stocks` (watchlist/saved holdings).
 
@@ -62,7 +62,7 @@ You must also keep this file up to date.
 - All PKs are UUID (`gen_random_uuid()`).
 - The cron job uses `createAdminClient()` (service role key), bypassing RLS.
 - Frontend reads use anon/authenticated key with RLS policies.
-- Cron precomputes: risk 1-6 × weekly+monthly × equal + risk-3 × weekly+monthly × cap. All other configs use on-demand async compute.
+- Cron precomputes ALL 48 configs via fan-out orchestrator (`/api/internal/compute-portfolio-configs-batch` → parallel `/api/internal/compute-portfolio-config` workers). Quarterly/yearly configs track weekly equity in buy-and-hold between rebalances. Manual backfill: `npm run backfill-configs`.
 - **Model performance vs. user performance are always separate**: `strategy_performance_weekly` and `strategy_portfolio_config_performance` track the strategy since inception; `user_portfolio_profiles.user_start_date` tracks the user's entry point.
 - When modifying the schema, update `supabase/schema.sql`, `supabase/rls_policies.sql`, the cron job, and this rule file.
 - When modifying strategy parameters, prompt, model, or portfolio rules, bump `appVersion` in the active `AI_STRATEGIES` entry in `src/lib/ai-strategy-registry.ts`.

@@ -101,8 +101,10 @@ const ChatGPTStockPickingPost = () => (
       investment decisions are made.
     </p>
     <p className="text-foreground/90 mb-4">
-      At AITrader, we're building on these research insights to provide you with AI-powered stock
-      analysis that brings institutional-quality research to everyday investors.
+      We run AITrader as an experiment in the same spirit as that research: a defined universe
+      (Nasdaq-100), AI-generated scores, explicit portfolio construction rules, and performance you
+      can inspect. The question we care about is what happens when you hold that setup to real data,
+      not whether it sounds impressive in a pitch deck.
     </p>
   </>
 );
@@ -111,7 +113,7 @@ const BlueChipInvestingPost = () => (
   <>
     <p className="text-lg text-foreground/90 mb-6">
       While index investing has gained popularity for its simplicity and low costs, investors
-      seeking market-beating returns often turn to blue chip stocks - shares of large,
+      seeking returns that outperform the market often turn to blue chip stocks - shares of large,
       well-established companies with a history of reliable performance. Let's explore strategies
       for investing in these stalwarts while aiming to outperform the broader market.
     </p>
@@ -141,7 +143,7 @@ const BlueChipInvestingPost = () => (
       className="w-full rounded-xl my-8"
     />
 
-    <h2 className="text-2xl font-bold mt-10 mb-4">Strategies for Market-Beating Returns</h2>
+    <h2 className="text-2xl font-bold mt-10 mb-4">Strategies for Outperforming the Market</h2>
     <p className="text-foreground/90 mb-4">
       While blue chip stocks are known for stability, not all will outperform the market. Here are
       key strategies to identify potential winners:
@@ -193,7 +195,7 @@ const BlueChipInvestingPost = () => (
       4. Consider Value Opportunities in Quality Names
     </h3>
     <p className="text-foreground/90 mb-4">
-      Market-beating returns often come from quality companies experiencing temporary setbacks:
+      Above-market returns often come from quality companies experiencing temporary setbacks:
     </p>
     <ul className="list-disc pl-6 mb-6 text-foreground/90 space-y-2">
       <li>Overreactions to quarterly earnings misses</li>
@@ -226,8 +228,9 @@ const BlueChipInvestingPost = () => (
     </ul>
 
     <p className="text-foreground/90 mb-4">
-      At AITrader, our AI systems are specifically designed to help you identify blue chip
-      opportunities with the potential to outperform the broader market.
+      In our experiment, many of the names that show up are large, liquid stocks you would call blue
+      chips. We are not promising you will beat the market; we are logging how AI-assisted selection
+      behaves inside fixed rules so the results speak for themselves over time.
     </p>
 
     <div className="bg-muted/50 border border-border rounded-lg p-6 mb-6">
@@ -245,18 +248,139 @@ const BlueChipInvestingPost = () => (
   </>
 );
 
+const AiInvestingIndustryPost = () => (
+  <>
+    <p className="text-lg text-foreground/90 mb-6">
+      AI is no longer just a flashy add-on. It is starting to show up in real investing products:
+      summarizing filings, answering questions about portfolios, and helping people work through
+      research faster. The more useful question now is not whether finance apps will use AI, but
+      where it actually helps and where people should still be skeptical.
+    </p>
+
+    <h2 className="text-2xl font-bold mt-10 mb-4">So, is “investing with AI” actually plausible?</h2>
+    <p className="text-foreground/90 mb-4">
+      Yes, to a point. Research from both academia and industry suggests AI can be genuinely useful
+      on structured tasks such as sorting information, spotting patterns in text, and helping
+      investors compare competing narratives. It tends to work best when the output is grounded in
+      real data and used inside a clear process rather than treated like a final answer.
+    </p>
+    <p className="text-foreground/90 mb-4">
+      Where it gets less convincing is when people expect too much from a single prompt, rely on a
+      model with no context, or believe claims of easy outperformance. Models can sound persuasive
+      and still be wrong. Markets change. And for many investors, taxes, fees, and execution still
+      matter just as much as the idea itself.
+    </p>
+    <p className="text-foreground/90 mb-6">
+      The most believable version of AI investing is simple: a human stays in charge, while AI
+      helps with research, filtering, and consistency. That means repeatable inputs, clear rules,
+      and accountability, instead of pretending the model is some kind of oracle.
+    </p>
+
+    <div className="bg-muted/50 border border-border rounded-lg p-6 mb-6">
+      <p className="text-foreground/90 mb-0">
+        If an app promises amazing results without explaining the method, the data, or the limits,
+        it is probably more marketing than substance. The more credible products usually lead with
+        guardrails, transparency, and compliance.
+      </p>
+    </div>
+
+    <h2 className="text-2xl font-bold mt-10 mb-4">Who is implementing AI in investing apps today?</h2>
+    <p className="text-foreground/90 mb-4">
+      Adoption is happening across several parts of the market. Some apps use AI mainly for search,
+      education, or summarization. Others place it much closer to portfolio analytics, research
+      workflows, or advisor tools. The depth varies, but the direction is clear.
+    </p>
+
+    <h3 className="text-xl font-semibold mt-6 mb-3">Retail brokerages and trading platforms</h3>
+    <p className="text-foreground/90 mb-4">
+      Large online brokers have been adding assistant-style features such as plain-English help,
+      summaries of market news, and portfolio question-and-answer tools. In most cases, AI is there
+      to make the product easier to use, while the actual trading, routing, and risk controls stay
+      in more traditional systems.
+    </p>
+
+    <h3 className="text-xl font-semibold mt-6 mb-3">Roboadvisors and automated allocation</h3>
+    <p className="text-foreground/90 mb-4">
+      Roboadvisors were algorithmic long before generative AI became mainstream. What is changing
+      now is the interface around those systems. Many are adding conversational explanations and
+      more personalized guidance on top of portfolio engines that are still rules based and easier
+      to audit.
+    </p>
+
+    <h3 className="text-xl font-semibold mt-6 mb-3">Market data and institutional terminals</h3>
+    <p className="text-foreground/90 mb-4">
+      Market data vendors and institutional terminals are using AI to help professionals move
+      through documents, transcripts, and time series faster. Bloomberg is one obvious example of a
+      company pushing AI into research workflows. This part of the market is especially focused on
+      reliability, sourcing, and permissions because professional users expect that.
+    </p>
+
+    <Image
+      src="/images/person-typing-on-laptop.jpeg"
+      alt="Investor using software for market research"
+      width={1200}
+      height={675}
+      className="w-full rounded-xl my-8"
+    />
+
+    <h3 className="text-xl font-semibold mt-6 mb-3">Banks, wealth managers, and advisor tools</h3>
+    <p className="text-foreground/90 mb-4">
+      Large financial institutions are also using internal copilots for advisor and relationship
+      manager workflows. These tools can help prepare for meetings, compare holdings against policy,
+      or summarize client communications, usually with strict review and guardrails. On the retail
+      side, similar technology is showing up in bank apps for support, budgeting, and investment
+      guidance.
+    </p>
+
+    <h3 className="text-xl font-semibold mt-6 mb-3">Specialized fintech and research startups</h3>
+    <p className="text-foreground/90 mb-4">
+      Smaller fintech and research startups tend to focus on one workflow at a time. That might be
+      earnings-call analysis, ESG screening, factor attribution chat, or a second opinion on a
+      thesis built from your own notes. In this part of the market, product design and data lineage
+      often matter just as much as the model itself.
+    </p>
+
+    <h2 className="text-2xl font-bold mt-10 mb-4">What we are trying at AITrader</h2>
+    <p className="text-foreground/90 mb-4">
+      The rest of the industry can market however it wants. Here we are treating the product as a
+      long-running experiment: AI produces ratings on a fixed universe, we apply portfolio
+      construction rules we document upfront, and we track outcomes over time. No hidden edge case,
+      no “trust us” story. If the setup is wrong or the model drifts, that should show up in the
+      numbers and in how we iterate.
+    </p>
+    <p className="text-foreground/90 mb-4">
+      We are sharing that work in public so anyone who cares about AI and markets can see what
+      breaks, what holds, and what still needs a human in the loop. That is the whole point of the
+      project, not a funnel to convince you of anything.
+    </p>
+  </>
+);
+
+const blogHeroImage: Record<string, string> = {
+  'ai-investing-industry': '/images/code-for-stocks.jpeg',
+  'chatgpt-stock-picking': '/images/ai-chip.jpeg',
+  'blue-chip-investing': '/images/investor-stock-picking.avif',
+};
+
 const blogPosts: Record<string, BlogContent> = {
+  'ai-investing-industry': {
+    id: 'ai-investing-industry',
+    title: 'Can You Really Invest With AI? And Who Is Using It in Their Apps?',
+    date: 'March 19, 2026',
+    author: 'AITrader Research Team',
+    content: <AiInvestingIndustryPost />,
+  },
   'chatgpt-stock-picking': {
     id: 'chatgpt-stock-picking',
     title: 'Can ChatGPT Assist in Picking Stocks? Recent Research Says Yes',
-    date: 'March 6, 2025',
+    date: 'March 8, 2026',
     author: 'AITrader Research Team',
     content: <ChatGPTStockPickingPost />,
   },
   'blue-chip-investing': {
     id: 'blue-chip-investing',
-    title: 'Blue Chip Investing: Strategies for Market-Beating Returns',
-    date: 'February 20, 2025',
+    title: 'Blue Chip Investing: Strategies for Outperforming the Market',
+    date: 'February 18, 2026',
     author: 'AITrader Research Team',
     content: <BlueChipInvestingPost />,
   },
@@ -289,11 +413,7 @@ const BlogPostPage = async ({ params }: BlogPostPageProps) => {
               </div>
 
               <Image
-                src={
-                  id === 'chatgpt-stock-picking'
-                    ? '/images/ai-chip.jpeg'
-                    : '/images/investor-stock-picking.avif'
-                }
+                src={blogHeroImage[id] ?? '/images/ai-chip.jpeg'}
                 alt={post.title}
                 width={1200}
                 height={576}

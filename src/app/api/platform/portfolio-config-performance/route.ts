@@ -26,8 +26,10 @@ import {
   resolveConfigId,
   getConfigPerformance,
   enqueueConfigCompute,
+  prependModelInceptionToConfigRows,
 } from '@/lib/portfolio-config-utils';
 import { buildConfigPerformanceChart } from '@/lib/config-performance-chart';
+import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
 import { triggerPortfolioConfigCompute } from '@/lib/trigger-config-compute';
 
 function mapComputeStatusForClient(
@@ -99,6 +101,7 @@ export async function GET(req: Request) {
 
     // Fetch performance data
     let { rows, computeStatus: rawStatus } = await getConfigPerformance(supabase, strategyId, configId);
+    rows = await prependModelInceptionToConfigRows(supabase, strategyId, rows);
 
     // Cache miss: enqueue + trigger internal worker (cap-weight / on-demand paths)
     if (rawStatus === 'empty') {
@@ -111,6 +114,33 @@ export async function GET(req: Request) {
 
     const { series, metrics, fullMetrics } = buildConfigPerformanceChart(rows);
 
+    const configPayload =
+      configMeta &&
+      typeof configMeta === 'object' &&
+      'top_n' in configMeta &&
+      'weighting_method' in configMeta &&
+      'rebalance_frequency' in configMeta
+        ? {
+            ...configMeta,
+            label:
+              configMeta.label && String(configMeta.label).trim() !== ''
+                ? configMeta.label
+                : formatPortfolioConfigLabel({
+                    topN: Number((configMeta as { top_n: number }).top_n),
+                    weightingMethod: String((configMeta as { weighting_method: string }).weighting_method),
+                    rebalanceFrequency: String(
+                      (configMeta as { rebalance_frequency: string }).rebalance_frequency
+                    ),
+                  }),
+          }
+        : configMeta;
+
+    const lastRow = rows.length ? rows[rows.length - 1] : null;
+    const nextRebalanceDate = lastRow?.next_rebalance_date ?? null;
+    const hasRebalanced = rows.some((r) => (r.turnover ?? 0) > 0);
+    const isHoldingPeriod =
+      rows.length > 0 && frequency !== 'weekly' && !hasRebalanced;
+
     return NextResponse.json({
       configId,
       computeStatus,
@@ -118,7 +148,9 @@ export async function GET(req: Request) {
       series,
       metrics,
       fullMetrics,
-      config: configMeta ?? null,
+      config: configPayload ?? null,
+      nextRebalanceDate,
+      isHoldingPeriod,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Internal error';

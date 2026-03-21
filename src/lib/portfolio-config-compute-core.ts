@@ -217,11 +217,21 @@ export function buildPricesAndCapsByDate(
   return { pricesByDate, capsByDate };
 }
 
+/**
+ * Computes the equity curve for a portfolio config.
+ *
+ * `allBatches` provides every weekly tracking date (for price-tracking).
+ * `rebalanceBatches` is the subset where holdings actually change.
+ * Between rebalances the portfolio is held unchanged (buy-and-hold) and
+ * weekly returns are still tracked, so quarterly/yearly configs produce a
+ * full weekly equity curve from inception.
+ */
 export function computeEquityUpsertRows(params: {
   strategy_id: string;
   config_id: string;
   top_n: number;
   weighting_method: 'equal' | 'cap';
+  allBatches: BatchRow[];
   rebalanceBatches: BatchRow[];
   scoresByBatch: Map<string, ScoreRow[]>;
   pricesByDate: Map<string, Map<string, number>>;
@@ -232,46 +242,107 @@ export function computeEquityUpsertRows(params: {
     config_id,
     top_n,
     weighting_method,
+    allBatches,
     rebalanceBatches,
     scoresByBatch,
     pricesByDate,
     capsByDate,
   } = params;
 
+  if (rebalanceBatches.length === 0) return [];
+
+  const rebalanceDateSet = new Set(rebalanceBatches.map((b) => b.run_date));
+  const rebalanceBatchByDate = new Map(rebalanceBatches.map((b) => [b.run_date, b]));
+  const rebalanceDates = rebalanceBatches.map((b) => b.run_date);
+
+  const firstRebalanceDate = rebalanceBatches[0]!.run_date;
+  const trackingBatches = allBatches.filter((b) => b.run_date >= firstRebalanceDate);
+
+  if (trackingBatches.length < 2) return [];
+
   const upsertRows: object[] = [];
-  let prevHoldings: HoldingWithWeight[] = [];
+  let holdings: HoldingWithWeight[] = [];
   let equity = INITIAL_CAPITAL;
   const transactionCostBps = 15;
+  let lastRebalanceIdx = 0;
 
-  for (let i = 0; i < rebalanceBatches.length; i++) {
-    const batch = rebalanceBatches[i]!;
-    const scores = scoresByBatch.get(batch.id) ?? [];
-    if (scores.length === 0) continue;
+  for (let i = 0; i < trackingBatches.length; i++) {
+    const batch = trackingBatches[i]!;
+    const isRebalance = rebalanceDateSet.has(batch.run_date);
 
-    const capMap = capsByDate.get(batch.run_date) ?? new Map<string, number>();
-    const currHoldings =
-      weighting_method === 'cap'
-        ? buildCapWeightHoldings(scores, top_n, capMap)
-        : buildEqualWeightHoldings(scores, top_n);
+    if (isRebalance) {
+      const ridx = rebalanceDates.indexOf(batch.run_date);
+      if (ridx >= 0) lastRebalanceIdx = ridx;
+    }
+    const nextRebalanceDate =
+      lastRebalanceIdx + 1 < rebalanceDates.length
+        ? rebalanceDates[lastRebalanceIdx + 1]!
+        : null;
 
     if (i === 0) {
-      prevHoldings = currHoldings;
+      const rebalBatch = rebalanceBatchByDate.get(batch.run_date);
+      const scores = rebalBatch ? (scoresByBatch.get(rebalBatch.id) ?? []) : [];
+      if (scores.length === 0) continue;
+
+      const capMap = capsByDate.get(batch.run_date) ?? new Map<string, number>();
+      holdings =
+        weighting_method === 'cap'
+          ? buildCapWeightHoldings(scores, top_n, capMap)
+          : buildEqualWeightHoldings(scores, top_n);
+
+      upsertRows.push({
+        strategy_id,
+        config_id,
+        run_date: batch.run_date,
+        strategy_status: 'in_progress',
+        compute_status: 'ready',
+        holdings_count: holdings.length,
+        turnover: 0,
+        transaction_cost_bps: transactionCostBps,
+        transaction_cost: 0,
+        gross_return: 0,
+        net_return: 0,
+        starting_equity: INITIAL_CAPITAL,
+        ending_equity: INITIAL_CAPITAL,
+        nasdaq100_cap_weight_equity: null,
+        nasdaq100_equal_weight_equity: null,
+        sp500_equity: null,
+        is_eligible_for_comparison: false,
+        first_rebalance_date: batch.run_date,
+        next_rebalance_date: nextRebalanceDate,
+        updated_at: new Date().toISOString(),
+      });
       continue;
     }
 
-    const prevBatch = rebalanceBatches[i - 1]!;
+    const prevBatch = trackingBatches[i - 1]!;
     const prevPrices = pricesByDate.get(prevBatch.run_date) ?? new Map<string, number>();
     const currPrices = pricesByDate.get(batch.run_date) ?? new Map<string, number>();
+    const grossReturn = computeWeightedReturn(holdings, prevPrices, currPrices);
 
-    const grossReturn = computeWeightedReturn(prevHoldings, prevPrices, currPrices);
-    const turnover = prevHoldings.length ? computeTurnover(prevHoldings, currHoldings) : 1;
-    const transactionCost = turnover * (transactionCostBps / 10_000);
+    let turnover = 0;
+    let transactionCost = 0;
+    let newHoldings = holdings;
+
+    if (isRebalance) {
+      const rebalBatch = rebalanceBatchByDate.get(batch.run_date);
+      const scores = rebalBatch ? (scoresByBatch.get(rebalBatch.id) ?? []) : [];
+      if (scores.length > 0) {
+        const capMap = capsByDate.get(batch.run_date) ?? new Map<string, number>();
+        newHoldings =
+          weighting_method === 'cap'
+            ? buildCapWeightHoldings(scores, top_n, capMap)
+            : buildEqualWeightHoldings(scores, top_n);
+        turnover = holdings.length ? computeTurnover(holdings, newHoldings) : 1;
+        transactionCost = turnover * (transactionCostBps / 10_000);
+      }
+    }
+
     const netReturn = grossReturn - transactionCost;
     const startingEquity = equity;
     equity = Math.max(0.01, equity * (1 + netReturn));
 
-    const isFirstRebalance = upsertRows.length === 0;
-    const strategyStatus = isFirstRebalance ? 'in_progress' : 'active';
+    const strategyStatus = upsertRows.length < 2 ? 'in_progress' : 'active';
 
     upsertRows.push({
       strategy_id,
@@ -279,7 +350,7 @@ export function computeEquityUpsertRows(params: {
       run_date: batch.run_date,
       strategy_status: strategyStatus,
       compute_status: 'ready',
-      holdings_count: currHoldings.length,
+      holdings_count: newHoldings.length,
       turnover,
       transaction_cost_bps: transactionCostBps,
       transaction_cost: transactionCost,
@@ -290,13 +361,13 @@ export function computeEquityUpsertRows(params: {
       nasdaq100_cap_weight_equity: null,
       nasdaq100_equal_weight_equity: null,
       sp500_equity: null,
-      is_eligible_for_comparison: !isFirstRebalance,
-      first_rebalance_date: upsertRows.length === 0 ? batch.run_date : null,
-      next_rebalance_date: null,
+      is_eligible_for_comparison: upsertRows.length >= 2,
+      first_rebalance_date: upsertRows.length === 1 ? batch.run_date : null,
+      next_rebalance_date: nextRebalanceDate,
       updated_at: new Date().toISOString(),
     });
 
-    prevHoldings = currHoldings;
+    holdings = newHoldings;
   }
 
   return upsertRows;

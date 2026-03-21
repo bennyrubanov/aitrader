@@ -5,7 +5,10 @@
 
 import type { ConfigPerfRow } from '@/lib/portfolio-config-utils';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
-import { computePctMonthsBeating } from '@/lib/platform-performance-payload';
+import {
+  computePctMonthsBeating,
+  computePctWeeksBeatingNasdaq100,
+} from '@/lib/platform-performance-payload';
 import type { PlatformPerformancePayload } from '@/lib/platform-performance-payload';
 
 const INITIAL_CAPITAL = 10_000;
@@ -88,6 +91,9 @@ function buildFullMetricsFromSeries(
     cagr: computeCagr(INITIAL_CAPITAL, lastPoint.aiTop20, firstDate, lastDate),
     maxDrawdown: computeMaxDrawdown(series.map((p) => p.aiTop20)),
     sharpeRatio: computeSharpeWeekly(netReturns),
+    pctWeeksBeatingNasdaq100: computePctWeeksBeatingNasdaq100(
+      series.map((p) => ({ aiValue: p.aiTop20, benchmarkValue: p.nasdaq100CapWeight }))
+    ),
     pctMonthsBeatingNasdaq100: computePctMonthsBeating(
       series.map((p) => ({
         date: p.date,

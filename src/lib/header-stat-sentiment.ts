@@ -13,6 +13,11 @@ export function headerStatSentiment(
   if (lower.includes('cagr')) return { positive: value > 0 };
   if (lower.includes('total return')) return { positive: value > 0 };
   if (lower.includes('drawdown')) return { positive: value > -0.2 };
-  if (lower.includes('months') && lower.includes('nasdaq')) return { positive: value > 0.5 };
+  if (
+    lower.includes('nasdaq') &&
+    (lower.includes('month') || lower.includes('week'))
+  ) {
+    return { positive: value > 0.5 };
+  }
   return {};
 }

@@ -9,7 +9,9 @@ import {
   Cpu,
   FileText,
   FlaskConical,
+  Info,
   LayoutGrid,
+  Scale,
   TrendingUp,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -19,34 +21,9 @@ import { ModelHeaderCard } from '@/components/ModelHeaderCard';
 import { StrategyModelSidebarSlot } from '@/components/strategy-models/strategy-model-sidebar-slot';
 import { formatStrategyDescriptionForDisplay } from '@/lib/format-strategy-description';
 import { getStrategyDetail, getStrategiesList } from '@/lib/platform-performance-payload';
-import { headerStatSentiment } from '@/lib/header-stat-sentiment';
 import { RegressionScatterExample } from '@/components/strategy-models/regression-scatter-example';
-import { cn } from '@/lib/utils';
-import { getTopRankedConfigForSlug } from '@/lib/strategy-model-ranked-server';
 
 export const revalidate = 300;
-
-const displayDateFormatter = new Intl.DateTimeFormat('en-US', {
-  weekday: 'short',
-  month: 'short',
-  day: 'numeric',
-  timeZone: 'UTC',
-});
-
-const fmt = {
-  pct: (v: number | null | undefined, digits = 1) =>
-    v == null || !Number.isFinite(v)
-      ? 'N/A'
-      : `${v >= 0 ? '+' : ''}${(v * 100).toFixed(digits)}%`,
-  num: (v: number | null | undefined, digits = 2) =>
-    v == null || !Number.isFinite(v) ? 'N/A' : v.toFixed(digits),
-  date: (d: string | null | undefined) => {
-    if (!d) return 'N/A';
-    const parsed = new Date(`${d}T00:00:00Z`);
-    if (Number.isNaN(parsed.getTime())) return d;
-    return displayDateFormatter.format(parsed);
-  },
-};
 
 type Props = { params: Promise<{ slug: string }> };
 
@@ -63,12 +40,13 @@ export async function generateMetadata({ params }: Props) {
 }
 
 const MODEL_DETAIL_TOC = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'ai-model', label: 'AI model' },
-  { id: 'how-it-works', label: 'How it works' },
-  { id: 'performance-summary', label: 'Performance' },
+  { id: 'model-overview', label: 'Model overview' },
+  { id: 'model-overview-prompt-design', label: '↳ Prompt design' },
+  { id: 'model-overview-how-it-works', label: '↳ How it works' },
+  { id: 'model-ranking', label: 'Model ranking' },
   { id: 'methodology', label: 'Methodology' },
-  { id: 'portfolio-construction', label: '↳ Portfolio construction' },
+  { id: 'portfolios', label: '↳ Portfolios' },
+  { id: 'portfolio-ranking-how', label: '↳ ↳ How we rank portfolios' },
   { id: 'methodology-scoring', label: '↳ Scoring' },
   { id: 'methodology-performance-metrics', label: '↳ Performance metrics' },
   { id: 'methodology-turnover', label: '↳ Turnover & costs' },
@@ -91,26 +69,22 @@ function ConfigRow({ label, value, mono }: { label: string; value: string; mono?
 
 export default async function StrategyModelDetailPage({ params }: Props) {
   const { slug } = await params;
-  const [detail, strategies, topRankedConfig] = await Promise.all([
-    getStrategyDetail(slug),
-    getStrategiesList(),
-    getTopRankedConfigForSlug(slug),
-  ]);
+  const [detail, strategies] = await Promise.all([getStrategyDetail(slug), getStrategiesList()]);
 
   if (!detail) notFound();
 
   const isTop = strategies[0]?.id === detail.id;
 
-  const headerSharpe = topRankedConfig?.metrics.sharpeRatio ?? detail.sharpeRatio;
-  const headerTotalReturn = topRankedConfig?.metrics.totalReturn ?? detail.totalReturn;
-  const headerCagr = topRankedConfig?.metrics.cagr ?? detail.cagr;
-  const headerMaxDd = topRankedConfig?.metrics.maxDrawdown ?? detail.maxDrawdown;
+  const headerCrossSectionRegression =
+    detail.latestBeta != null || detail.latestRSquared != null
+      ? { beta: detail.latestBeta }
+      : null;
 
   const PROMPT_KEY_POINTS = [
     `Scores each stock from −5 (very unattractive) to +5 (very attractive) relative to the next ~30 days of expected performance.`,
     `Uses a single live web search per stock to gather the latest 30 days of news, earnings, guidance, analyst revisions, and market reactions.`,
     `Graded on a curve against all other Nasdaq-100 members (not rated in isolation). A +3 means the stock looks meaningfully better than most of the index right now, regardless of whether the overall market is up or down.`,
-    `Assigns a continuous latent rank (0 to 1) as a fine-grained ordinal signal. This is what drives portfolio construction (not the integer score directly).`,
+    `Assigns a continuous latent rank (0 to 1) as a fine-grained ordinal signal. This is what drives how the portfolio is built from ratings (not the integer score directly).`,
     `Maps scores to buckets for transparency: buy (≥ +2), hold (−1 to +1), sell (≤ −2). Buckets are a readability layer; the actual sort is by latent rank.`,
     `Requires 2 to 6 explicit risks per rating. At least one must address information uncertainty, model error, or conflicting signals.`,
     `Tracks change from the prior week's rating. If the bucket changes, the model must explain why.`,
@@ -134,15 +108,14 @@ export default async function StrategyModelDetailPage({ params }: Props) {
       {/* Back link */}
       <div className="mb-6">
         <Link
-          href="/strategy-model"
+          href="/strategy-models"
           className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft className="size-3.5" /> All strategy models
         </Link>
       </div>
 
-      {/* ── Overview (OpenAI-style header card) ───────────────────────────── */}
-      <section id="overview" className="mb-10">
+      <div className="mb-10">
         <ModelHeaderCard
           name={detail.name}
           slug={slug}
@@ -150,423 +123,231 @@ export default async function StrategyModelDetailPage({ params }: Props) {
           status={detail.status}
           isTopPerformer={isTop}
           startDate={detail.startDate}
+          weeklyRunCount={detail.runCount}
+          rebalanceFrequency={detail.rebalanceFrequency}
+          modelProvider={detail.modelProvider}
+          modelName={detail.modelName}
           variant="model"
-          stats={detail.runCount > 0
-            ? [
-                {
-                  label: 'Sharpe',
-                  value: fmt.num(headerSharpe),
-                  ...headerStatSentiment('Sharpe', headerSharpe),
-                },
-                {
-                  label: 'Total return',
-                  value: fmt.pct(headerTotalReturn),
-                  ...headerStatSentiment('Total return', headerTotalReturn),
-                },
-                {
-                  label: 'CAGR',
-                  value: fmt.pct(headerCagr),
-                  ...headerStatSentiment('CAGR', headerCagr),
-                },
-                {
-                  label: 'Max drawdown',
-                  value: fmt.pct(headerMaxDd),
-                  ...headerStatSentiment('Max drawdown', headerMaxDd),
-                },
-              ]
-            : undefined
+          beatMarketSlug={slug}
+          quintileHeaderInsight={
+            detail.quintileWinRate != null ||
+            (detail.quintileLatestWeekSpread != null &&
+              Number.isFinite(detail.quintileLatestWeekSpread))
+              ? {
+                  winRate: detail.quintileWinRate,
+                  latestWeekSpread: detail.quintileLatestWeekSpread,
+                  latestWeekRunDate: detail.quintileLatestWeekRunDate,
+                }
+              : null
           }
+          quintileInsightHref={`/performance/${slug}#research-validation`}
+          crossSectionRegression={headerCrossSectionRegression}
+          researchValidationHref={`/performance/${slug}#research-signal-strength`}
         />
-      </section>
+      </div>
 
-      {/* ── AI Model ──────────────────────────────────────────────────────── */}
-      <section id="ai-model" className="mb-10">
-        <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
-          <Cpu className="size-5 text-trader-blue" /> AI model
+      {/* ── Model overview (AI model, prompt, pipeline) ─────── */}
+      <section
+        id="model-overview"
+        className="mb-10 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
+      >
+        <h2 className="text-2xl font-bold tracking-tight mb-4 flex items-center gap-2">
+          <Cpu className="size-5 text-trader-blue shrink-0" /> Model overview
         </h2>
-        <div className="rounded-lg border bg-card p-5 divide-y">
-          <ConfigRow label="Provider" value={detail.modelProvider ?? 'OpenAI'} />
-          <ConfigRow label="Model" value={detail.modelName ?? 'N/A'} mono />
-          <ConfigRow label="Universe" value={`${detail.indexName.toUpperCase()} (all ~100 members)`} />
-          <ConfigRow label="Stocks rated per run" value="100" />
-          <ConfigRow label="Rating scale" value="−5 to +5 (integer) + latent rank 0–1" />
-          <ConfigRow label="Data per stock" value="Live web search, last 30 days" />
-          <ConfigRow label="Run frequency" value={detail.rebalanceFrequency} />
+
+        <div
+          id="model-overview-ai"
+          className="mb-10 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
+        >
+          <div className="rounded-lg border bg-card p-5 divide-y">
+            <ConfigRow label="Provider" value={detail.modelProvider ?? 'OpenAI'} />
+            <ConfigRow label="Model" value={detail.modelName ?? 'N/A'} mono />
+            <ConfigRow label="Universe" value={`${detail.indexName.toUpperCase()} (all ~100 members)`} />
+            <ConfigRow label="Stocks rated per run" value="100" />
+            <ConfigRow label="Rating scale" value="−5 to +5 (integer) + latent rank 0–1" />
+            <ConfigRow label="Data per stock" value="Live web search, last 30 days" />
+            <ConfigRow label="Run frequency" value={detail.rebalanceFrequency} />
+          </div>
         </div>
 
-        <div className="mt-4 space-y-4">
-          <div>
-            <h3 className="text-base font-semibold mb-3 flex items-center gap-2">
-              <FileText className="size-4 text-trader-blue" /> Prompt design
-            </h3>
-            <p className="text-sm text-muted-foreground mb-3">
-              Every stock is evaluated using the same structured prompt. Key instructions:
-            </p>
-            <ul className="space-y-2">
-              {PROMPT_KEY_POINTS.map((point) => (
-                <li key={point} className="flex items-start gap-2 text-sm text-foreground/80">
-                  <CheckCircle2 className="size-4 text-trader-blue shrink-0 mt-0.5" />
-                  {point}
-                </li>
-              ))}
-            </ul>
+        <div
+          id="model-overview-prompt-design"
+          className="mb-10 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
+        >
+          <h3 className="text-xl font-bold mb-3 flex items-center gap-2">
+            <FileText className="size-5 text-trader-blue shrink-0" /> Prompt design
+          </h3>
+          <p className="text-sm text-muted-foreground mb-3">
+            Every stock is evaluated using the same structured prompt. Key instructions:
+          </p>
+          <ul className="space-y-2">
+            {PROMPT_KEY_POINTS.map((point) => (
+              <li key={point} className="flex items-start gap-2 text-sm text-foreground/80">
+                <CheckCircle2 className="size-4 text-trader-blue shrink-0 mt-0.5" />
+                {point}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div
+          id="model-overview-how-it-works"
+          className="mb-10 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
+        >
+          <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
+            <FlaskConical className="size-5 text-trader-blue shrink-0" /> How it works
+          </h3>
+          <div className="space-y-3">
+            {[
+              {
+                step: '1',
+                title: 'Universe selection',
+                body: `We evaluate all ~100 current members of the Nasdaq-100 every week. The Nasdaq-100 is a curated index of the largest non-financial US companies — high liquidity, broad sector coverage, and globally recognized names. This gives the AI enough diversity to surface real cross-sectional signal.`,
+              },
+              {
+                step: '2',
+                title: 'AI scoring',
+                body: `Each stock receives a live web search for the latest 30 days of news, earnings, guidance, and analyst revisions. The AI scores it from −5 to +5 relative to the other 99 stocks — not in isolation. This cross-sectional comparison is what makes the signal useful: the AI doesn't need to predict the market, just which stocks look stronger than the rest. It also outputs a continuous latent rank (0–1) for fine-grained ordering.`,
+              },
+              {
+                step: '3',
+                title: 'Portfolio selection',
+                body: `Stocks are sorted by latent rank (highest = most attractive). Your portfolio settings determine how many top-ranked stocks to hold (Top 5 through Top 30) and how to weight them (equal or cap weight). No discretionary overrides — same inputs produce the same portfolio every rebalance.`,
+              },
+              {
+                step: '4',
+                title: 'Cost deduction',
+                body: `Every rebalance, we compute portfolio turnover (how much changed). We then deduct ${detail.transactionCostBps} basis points per unit of turnover from the gross return. This keeps results grounded in what you would actually earn after trading. Returns shown are pre-tax.`,
+              },
+            ].map(({ step, title, body }) => (
+              <div key={step} className="flex gap-4 rounded-lg border bg-card p-5">
+                <div className="size-7 rounded-full bg-trader-blue/10 text-trader-blue font-bold text-sm flex items-center justify-center shrink-0 mt-0.5">
+                  {step}
+                </div>
+                <div>
+                  <p className="font-semibold mb-1">{title}</p>
+                  <p className="text-sm text-foreground/80 leading-relaxed">{body}</p>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </section>
 
-      {/* ── How it works ──────────────────────────────────────────────────── */}
-      <section id="how-it-works" className="mb-10">
-        <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
-          <FlaskConical className="size-5 text-trader-blue" /> How it works
-        </h2>
-        <div className="space-y-3">
-          {[
-            {
-              step: '1',
-              title: 'Universe selection',
-              body: `We evaluate all ~100 current members of the Nasdaq-100 every week. The Nasdaq-100 is a curated index of the largest non-financial US companies — high liquidity, broad sector coverage, and globally recognized names. This gives the AI enough diversity to surface real cross-sectional signal.`,
-            },
-            {
-              step: '2',
-              title: 'AI scoring',
-              body: `Each stock receives a live web search for the latest 30 days of news, earnings, guidance, and analyst revisions. The AI scores it from −5 to +5 relative to the other 99 stocks — not in isolation. This cross-sectional comparison is what makes the signal useful: the AI doesn't need to predict the market, just which stocks look stronger than the rest. It also outputs a continuous latent rank (0–1) for fine-grained ordering.`,
-            },
-            {
-              step: '3',
-              title: 'Portfolio selection',
-              body: `Stocks are sorted by latent rank (highest = most attractive). Your portfolio construction config determines how many top-ranked stocks to hold (Top 5 through Top 30) and how to weight them (equal or cap weight). No discretionary overrides — same inputs produce the same portfolio every rebalance.`,
-            },
-            {
-              step: '4',
-              title: 'Cost deduction',
-              body: `Every rebalance, we compute portfolio turnover (how much changed). We then deduct ${detail.transactionCostBps} basis points per unit of turnover from the gross return. This keeps results grounded in what you would actually earn after trading. Returns shown are pre-tax.`,
-            },
-          ].map(({ step, title, body }) => (
-            <div key={step} className="flex gap-4 rounded-lg border bg-card p-5">
-              <div className="size-7 rounded-full bg-trader-blue/10 text-trader-blue font-bold text-sm flex items-center justify-center shrink-0 mt-0.5">
-                {step}
-              </div>
-              <div>
-                <p className="font-semibold mb-1">{title}</p>
-                <p className="text-sm text-foreground/80 leading-relaxed">{body}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ── Performance summary ───────────────────────────────────────────── */}
-      <section id="performance-summary" className="mb-10">
-        <h2 className="text-2xl font-bold mb-3 flex items-center gap-2">
-          <TrendingUp className="size-5 text-trader-blue" /> Performance
-        </h2>
-        <div className="flex items-center gap-3 text-sm flex-wrap mb-4">
-          <span className="text-muted-foreground">
-            {detail.runCount} weekly runs &middot; latest: {fmt.date(detail.latestRunDate)}
-          </span>
-          <Button asChild variant="outline" size="sm">
-            <Link href={`/performance/${slug}`} className="gap-1.5">
-              Full performance chart <ArrowRight className="size-3.5" />
-            </Link>
-          </Button>
-        </div>
-
-        <div className="mb-6 rounded-lg border bg-muted/20 p-4 text-sm text-muted-foreground">
-          <p>
-            Portfolio construction (risk level, rebalance cadence, weighting) is a separate layer.
-            The chart and full metrics for every configuration live on the{' '}
-            <Link href={`/performance/${slug}`} className="text-trader-blue font-medium hover:underline">
-              public performance page
-            </Link>
-            . Below: headline stats for the <strong>top-ranked construction</strong> for this model
-            {topRankedConfig ? (
-              <>
-                {' '}
-                ({topRankedConfig.riskLabel} · Top {topRankedConfig.topN} ·{' '}
-                {topRankedConfig.rebalanceFrequency} ·{' '}
-                {topRankedConfig.weightingMethod === 'cap' ? 'Cap weight' : 'Equal weight'}).
-              </>
-            ) : (
-              <> (defaults to model tracking portfolio when ranking data is not ready).</>
-            )}
+      <section
+        id="model-ranking"
+        className="mb-10 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
+      >
+        <h3 className="text-2xl font-bold tracking-tight mb-3 flex items-center gap-2">
+          <Scale className="size-5 text-trader-blue shrink-0" />
+          How we rank models
+        </h3>
+        <div className="text-sm text-muted-foreground space-y-3 leading-relaxed max-w-3xl">
+          <p className="text-foreground/90">
+            Composite rank blends three signals so no single portfolio skews the headline:{' '}
+            <strong className="text-foreground">50%</strong> breadth (share of portfolio constructions
+            with positive excess), <strong className="text-foreground">30%</strong> median quality across
+            eligible portfolios, and <strong className="text-foreground">20%</strong> upside from the
+            best-performing portfolio.
           </p>
         </div>
-
-        {detail.runCount > 0 ? (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {[
-                {
-                  label: 'Sharpe ratio',
-                  value: fmt.num(headerSharpe),
-                  note: topRankedConfig ? 'Top-ranked construction' : 'Risk-adjusted return',
-                },
-                {
-                  label: 'Total return',
-                  value: fmt.pct(headerTotalReturn),
-                  note: topRankedConfig ? 'Top-ranked construction' : 'Since launch',
-                },
-                {
-                  label: 'CAGR',
-                  value: fmt.pct(headerCagr),
-                  note: topRankedConfig ? 'Top-ranked construction' : 'Annualized',
-                },
-                {
-                  label: 'Max drawdown',
-                  value: fmt.pct(headerMaxDd),
-                  note: topRankedConfig ? 'Top-ranked construction' : 'Worst stretch',
-                },
-              ].map(({ label, value, note }) => {
-                const isSharpe = label === 'Sharpe ratio';
-                const sharpeGood = isSharpe && (headerSharpe ?? 0) > 1;
-                return (
-                  <div
-                    key={label}
-                    className={cn(
-                      'rounded-lg border bg-background p-4',
-                      isSharpe &&
-                        'border-trader-blue/25 bg-trader-blue/5 dark:bg-trader-blue/10 dark:border-trader-blue/30'
-                    )}
-                  >
-                    <p
-                      className={cn(
-                        'text-xs uppercase tracking-wide text-muted-foreground',
-                        isSharpe && 'text-trader-blue dark:text-trader-blue-light font-semibold'
-                      )}
-                    >
-                      {label}
-                    </p>
-                    <p
-                      className={cn(
-                        'text-xl font-semibold mt-1',
-                        sharpeGood && 'text-trader-blue dark:text-trader-blue-light'
-                      )}
-                    >
-                      {value}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{note}</p>
-                  </div>
-                );
-              })}
-            </div>
-
-            {(detail.pctMonthsBeatingNasdaq100 != null ||
-              detail.quintileWinRate != null ||
-              detail.latestBeta != null) && (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {detail.benchmarkCapWeightReturn != null && detail.totalReturn != null && (() => {
-                  const outperf = detail.totalReturn - detail.benchmarkCapWeightReturn;
-                  return (
-                    <div className="rounded-lg border bg-background p-4">
-                      <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                        vs Nasdaq-100
-                      </p>
-                      <p
-                        className={cn(
-                          'text-xl font-semibold mt-1',
-                          outperf >= 0
-                            ? 'text-green-600 dark:text-green-400'
-                            : 'text-red-600 dark:text-red-400'
-                        )}
-                      >
-                        {fmt.pct(outperf)}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        Cumulative outperformance
-                      </p>
-                    </div>
-                  );
-                })()}
-                {detail.pctMonthsBeatingNasdaq100 != null && (
-                  <div className="rounded-lg border bg-background p-4">
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                      % months beating Nasdaq-100
-                    </p>
-                    <p
-                      className={cn(
-                        'text-xl font-semibold mt-1',
-                        detail.pctMonthsBeatingNasdaq100 > 0.5
-                          ? 'text-green-600 dark:text-green-400'
-                          : 'text-red-600 dark:text-red-400'
-                      )}
-                    >
-                      {fmt.pct(detail.pctMonthsBeatingNasdaq100, 0)}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      vs cap-weighted index
-                    </p>
-                  </div>
-                )}
-                {detail.quintileWinRate != null && (
-                  <div className="rounded-lg border bg-background p-4">
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                      Q5 beat Q1 rate
-                    </p>
-                    <p
-                      className={cn(
-                        'text-xl font-semibold mt-1',
-                        detail.quintileWinRate.rate > 0.5
-                          ? 'text-green-600 dark:text-green-400'
-                          : 'text-red-600 dark:text-red-400'
-                      )}
-                    >
-                      {Math.round(detail.quintileWinRate.rate * 100)}%
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {detail.quintileWinRate.wins}/{detail.quintileWinRate.total} weeks
-                    </p>
-                  </div>
-                )}
-                {detail.latestBeta != null && (() => {
-                  const betaGood = detail.latestBeta > 0;
-                  return (
-                    <div
-                      className={cn(
-                        'rounded-lg border p-4',
-                        betaGood
-                          ? 'border-green-500/30 bg-green-50/50 dark:bg-green-950/20'
-                          : 'border-red-500/30 bg-red-50/50 dark:bg-red-950/20'
-                      )}
-                    >
-                      <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                        Beta (latest)
-                      </p>
-                      <p
-                        className={cn(
-                          'text-xl font-semibold mt-1',
-                          betaGood
-                            ? 'text-green-600 dark:text-green-400'
-                            : 'text-red-600 dark:text-red-400'
-                        )}
-                      >
-                        {fmt.num(detail.latestBeta, 4)}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {betaGood ? 'Signal working' : 'Signal weak'}
-                      </p>
-                    </div>
-                  );
-                })()}
-                {detail.latestRSquared != null && (() => {
-                  const rSqGood = (detail.latestRSquared ?? 0) >= 0.01;
-                  return (
-                    <div
-                      className={cn(
-                        'rounded-lg border p-4',
-                        rSqGood
-                          ? 'border-green-500/30 bg-green-50/50 dark:bg-green-950/20'
-                          : 'bg-background'
-                      )}
-                    >
-                      <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                        R&sup2; (latest)
-                      </p>
-                      <p
-                        className={cn(
-                          'text-xl font-semibold mt-1',
-                          rSqGood
-                            ? 'text-green-600 dark:text-green-400'
-                            : 'text-foreground'
-                        )}
-                      >
-                        {fmt.num(detail.latestRSquared, 4)}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {rSqGood ? 'Meaningful' : 'Baseline'}
-                      </p>
-                    </div>
-                  );
-                })()}
-                {detail.latestAlpha != null && (
-                  <div className="rounded-lg border bg-background p-4">
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                      Alpha (latest)
-                    </p>
-                    <p className="text-xl font-semibold mt-1">
-                      {fmt.num(detail.latestAlpha, 4)}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {(detail.latestAlpha ?? 0) >= 0 ? 'Up-market week' : 'Down-market week'}
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {detail.latestRegressionDate && (
-              <p className="text-xs text-muted-foreground -mt-2">
-                Signal metrics (Beta, R&sup2;, Alpha) measured on{' '}
-                {fmt.date(detail.latestRegressionDate)}.{' '}
-                <Link
-                  href={`/performance/${slug}#research-validation`}
-                  className="text-trader-blue hover:underline"
-                >
-                  See full history
-                </Link>
-              </p>
-            )}
-
-            <p className="text-xs text-muted-foreground -mt-1">
-              Strategy models are ranked with a composite score (breadth, median config quality, and
-              best-config upside). See the{' '}
-              <Link href="/strategy-model" className="text-trader-blue hover:underline">
-                strategy models
-              </Link>{' '}
-              index.
-            </p>
-          </div>
-        ) : (
-          <p className="text-muted-foreground text-sm">
-            Performance data will appear after the first weekly run.
-          </p>
-        )}
       </section>
 
       {/* ── Methodology ───────────────────────────────────────────────────── */}
-      <section id="methodology" className="mb-10">
-        <h2 className="text-2xl font-bold mb-2 flex items-center gap-2">
-          <FileText className="size-5 text-trader-blue" /> Methodology
+      <section
+        id="methodology"
+        className="mb-10 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
+      >
+        <h2 className="text-2xl font-bold tracking-tight mb-2 flex items-center gap-2">
+          <FileText className="size-5 text-trader-blue shrink-0" /> Methodology
         </h2>
         <p className="text-sm text-muted-foreground mb-6">
           Detailed technical notes on how each component is designed and measured.
         </p>
 
         <div className="space-y-8">
-          {/* Portfolio construction (methodology) */}
-          <div id="portfolio-construction">
-            <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+          {/* Portfolio (methodology) */}
+          <div
+            id="portfolio-ranking"
+            className="scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
+          >
+            <h3 className="text-xl font-bold mb-3 flex items-center gap-2">
               <LayoutGrid className="size-5 text-trader-blue shrink-0" />
-              Portfolio construction (layer on top of ratings)
+              Portfolios
             </h3>
             <div className="text-sm text-muted-foreground space-y-3 leading-relaxed">
               <p>
                 The AI model only produces <strong>scores and ranks</strong> for every Nasdaq-100
-                name. How you turn that into a portfolio is configurable: <strong>six risk levels</strong>{' '}
-                (different top-N cuts), <strong>four rebalance cadences</strong> (weekly through
-                yearly), and <strong>equal vs. cap weighting</strong>.
-              </p>
-              <p>
-                Each combination is simulated with full history, ranked for you, and comparable on the{' '}
-                <Link href={`/performance/${slug}`} className="text-trader-blue hover:underline">
-                  performance page
-                </Link>
-                . Pick a preset, follow multiple portfolios, and separate <strong>model</strong>{' '}
-                research (quintiles, regression) from <strong>construction</strong> outcomes.
+                stock. How you turn that into a portfolio is configurable: <strong>six risk levels</strong>{' '}
+                (different top-N cuts), <strong>four rebalance cadences</strong> (weekly, monthly, quarterly, yearly), and <strong>equal vs. cap weighting</strong>.
               </p>
               <p>
                 <Link
                   href="/platform/explore-portfolios"
-                  className="inline-flex items-center gap-1 text-trader-blue hover:underline font-medium"
+                  className="flex items-center justify-end gap-1 text-trader-blue hover:underline font-medium"
                 >
-                  Explore all portfolio configurations <ArrowRight className="size-3.5" />
+                  Explore all portfolio portfolios <ArrowRight className="size-3.5" />
                 </Link>
               </p>
+            </div>
+
+            <div
+              id="portfolio-ranking-how"
+              className="mt-2 scroll-mt-[5.5rem] space-y-3 pt-2 md:scroll-mt-[6.5rem]"
+            >
+              <h4 className="text-base font-bold text-foreground flex items-center gap-2">
+                <Info className="size-5 text-trader-blue shrink-0" />
+                How we rank portfolios
+              </h4>
+              <div className="text-sm text-muted-foreground space-y-3 leading-relaxed">
+                <p>
+                  We rank portfolios by{' '}
+                  <strong className="text-foreground">risk-adjusted return and stability</strong>, not
+                  raw return or a single headline number.
+                </p>
+                <p>
+                  Each portfolio gets a{' '}
+                  <strong className="text-foreground">composite score</strong> that blends four
+                  dimensions:
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {[
+                  { label: 'Sharpe ratio', weight: '40%', note: 'Risk-adjusted return' },
+                  { label: 'CAGR', weight: '30%', note: 'Annualized return' },
+                  { label: 'Consistency', weight: '20%', note: '% weeks outperforming benchmark' },
+                  { label: 'Drawdown', weight: '10%', note: 'Penalized for deep losses' },
+                ].map(({ label, weight, note }) => (
+                  <div key={label} className="rounded-lg border bg-card p-3">
+                    <p className="font-medium text-foreground">{label}</p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">{note}</p>
+                    <p className="text-xs font-semibold text-trader-blue mt-1">{weight}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="text-sm text-muted-foreground space-y-2 leading-relaxed">
+                <p>
+                  <strong className="text-foreground">What this balances:</strong> absolute return
+                  (CAGR), risk-adjusted quality (Sharpe),{' '}
+                  <strong className="text-foreground">stability</strong> (how often you outperform the
+                  benchmark week to week), and <strong className="text-foreground">pain</strong>{' '}
+                  (depth of drawdowns). Together that pushes back on configs that win from one lucky
+                  stretch or that top the chart only by being ultra-defensive.
+                </p>
+                <p className="text-xs">
+                  Portfolios require at least 2 weeks of data to be ranked. Those with fewer
+                  observations are shown with a &quot;building track record&quot; status.
+                </p>
+              </div>
             </div>
           </div>
 
           {/* Scoring */}
-          <div id="methodology-scoring" className="border-t pt-6">
-            <h3 className="text-lg font-semibold mb-3">Scoring and ranking</h3>
+          <div
+            id="methodology-scoring"
+            className="border-t pt-6 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
+          >
+            <h3 className="text-xl font-bold mb-3">Scoring</h3>
             <div className="text-sm text-foreground/80 space-y-3 leading-relaxed">
               <p>
                 Each stock is scored on a discrete integer scale from −5 to +5. The score reflects
@@ -576,7 +357,7 @@ export default async function StrategyModelDetailPage({ params }: Props) {
               </p>
               <p>
                 In addition to the integer score, the AI produces a <strong>latent rank</strong>{' '}
-                — a continuous value between 0 and 1. Portfolio construction sorts by latent rank
+                — a continuous value between 0 and 1. The portfolio layer sorts by latent rank
                 (highest first). This separation allows the portfolio to capture ordering signal even
                 when two stocks share the same integer score.
               </p>
@@ -593,15 +374,18 @@ export default async function StrategyModelDetailPage({ params }: Props) {
                 falling market, every stock might drop, but the highest-ranked ones tend to drop
                 less. In a rising market, they tend to rise more. Pelster &amp; Val (2024) confirmed
                 this in a live experiment: even during a stretch when every portfolio lost money
-                in absolute terms, the top-rated stocks still beat the bottom-rated ones by a
+                in absolute terms, the top-rated stocks still outperformed the bottom-rated ones by a
                 statistically significant margin. The relative signal held when absolute scores
                 would have been meaningless.
               </p>
             </div>
           </div>
 
-          <div id="methodology-performance-metrics" className="border-t pt-6">
-            <h3 className="text-lg font-semibold mb-3">Performance metric calculations</h3>
+          <div
+            id="methodology-performance-metrics"
+            className="border-t pt-6 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
+          >
+            <h3 className="text-xl font-bold mb-3">Performance metrics</h3>
             <div className="text-sm text-foreground/80 space-y-3 leading-relaxed">
               <p>
                 <strong>Total return</strong> is calculated from inception capital:
@@ -622,8 +406,11 @@ export default async function StrategyModelDetailPage({ params }: Props) {
             </div>
           </div>
 
-          <div id="methodology-turnover" className="border-t pt-6">
-            <h3 className="text-lg font-semibold mb-3">Turnover and transaction cost</h3>
+          <div
+            id="methodology-turnover"
+            className="border-t pt-6 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
+          >
+            <h3 className="text-xl font-bold mb-3">Turnover &amp; costs</h3>
             <div className="text-sm text-foreground/80 space-y-3 leading-relaxed">
               <p>
                 <strong>Turnover</strong> measures how much the portfolio changes each week. Formally:
@@ -648,8 +435,11 @@ export default async function StrategyModelDetailPage({ params }: Props) {
             </div>
           </div>
 
-          <div id="methodology-quintiles" className="border-t pt-6">
-            <h3 className="text-lg font-semibold mb-3">Quintile analysis</h3>
+          <div
+            id="methodology-quintiles"
+            className="border-t pt-6 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
+          >
+            <h3 className="text-xl font-bold mb-3">Quintile analysis</h3>
             <div className="text-sm text-foreground/80 space-y-3 leading-relaxed">
               <p>
                 Every week, all ~100 Nasdaq-100 stocks are sorted by latent rank and split into 5
@@ -667,13 +457,16 @@ export default async function StrategyModelDetailPage({ params }: Props) {
               </p>
               <p>
                 The <strong>Q5 win rate</strong> is the fraction of weeks where Q5 outperformed Q1.
-                Above 50% means the AI's top picks beat its bottom picks more often than not.
+                Above 50% means the AI's top picks outperformed its bottom picks more often than not.
               </p>
             </div>
           </div>
 
-          <div id="methodology-regression" className="border-t pt-6">
-            <h3 className="text-lg font-semibold mb-3">Cross-sectional regression (weekly signal check)</h3>
+          <div
+            id="methodology-regression"
+            className="border-t pt-6 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
+          >
+            <h3 className="text-xl font-bold mb-3">Regression</h3>
             <div className="text-sm text-foreground/80 space-y-3 leading-relaxed">
               <p>
                 Each week, we test a single question: <em>do higher AI scores lead to higher
@@ -764,7 +557,7 @@ export default async function StrategyModelDetailPage({ params }: Props) {
                   <p>&beta; negative &rarr; inverted signal</p>
                   <p className="text-muted-foreground mt-2">
                     This test isolates the pure ranking ability of the model — it ignores portfolio
-                    construction, position sizing, and trading strategy. It answers only: &ldquo;if I rank
+                    portfolio, position sizing, and trading strategy. It answers only: &ldquo;if I rank
                     stocks by score, do the higher-ranked ones actually outperform?&rdquo;
                   </p>
                 </div>
@@ -772,8 +565,11 @@ export default async function StrategyModelDetailPage({ params }: Props) {
             </div>
           </div>
 
-          <div id="methodology-quintile-vs-regression" className="border-t pt-6">
-            <h3 className="text-lg font-semibold mb-3">Quintile vs. regression — when each is useful</h3>
+          <div
+            id="methodology-quintile-vs-regression"
+            className="border-t pt-6 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
+          >
+            <h3 className="text-xl font-bold mb-3">Quintile vs. regression</h3>
             <div className="text-sm text-foreground/80 space-y-3 leading-relaxed">
               <p>
                 Both tests ask the same underlying question — <em>does score predict return?</em> —
@@ -803,11 +599,11 @@ export default async function StrategyModelDetailPage({ params }: Props) {
                   <p>
                     Throws away precision and groups stocks into 5 buckets. Both +5 and +3 land in
                     &ldquo;top bucket&rdquo;; both &minus;4 and &minus;1 land in &ldquo;bottom bucket.&rdquo;
-                    Then compares: did the top beat the bottom?
+                    Then compares: did the top outperform the bottom?
                   </p>
                   <ul className="list-disc list-inside pl-1 space-y-0.5 text-xs">
                     <li>Measures practical portfolio outcome</li>
-                    <li>Very intuitive — &ldquo;did the best beat the worst?&rdquo;</li>
+                    <li>Very intuitive — &ldquo;did the best outperform the worst?&rdquo;</li>
                     <li>Robust to noise and outliers</li>
                     <li>Ignores granularity within buckets</li>
                   </ul>
@@ -846,9 +642,12 @@ export default async function StrategyModelDetailPage({ params }: Props) {
       </section>
 
       {/* ── Scientific grounding ──────────────────────────────────────────── */}
-      <section id="scientific-grounding" className="mb-10">
-        <h2 className="text-2xl font-bold mb-2 flex items-center gap-2">
-          <BookOpen className="size-5 text-trader-blue" /> Scientific grounding
+      <section
+        id="scientific-grounding"
+        className="mb-10 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
+      >
+        <h2 className="text-2xl font-bold tracking-tight mb-2 flex items-center gap-2">
+          <BookOpen className="size-5 text-trader-blue shrink-0" /> Scientific grounding
         </h2>
         <p className="text-sm text-foreground/80 mb-5 leading-relaxed">
           This strategy is inspired by two peer-reviewed papers published in{' '}
@@ -981,7 +780,7 @@ export default async function StrategyModelDetailPage({ params }: Props) {
 
         <div className="mt-5 rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
           <strong className="text-foreground">What we add beyond the papers:</strong> A fully
-          automated, live production system with real-time web search, versioned model configurations,
+          automated, live production system with real-time web search, versioned model portfolios,
           forward-only performance tracking, transparent cost modeling, and public auditability.
           No backtests used as marketing. No retroactive edits.
         </div>
@@ -998,7 +797,7 @@ export default async function StrategyModelDetailPage({ params }: Props) {
         </div>
         <div className="flex items-center justify-between gap-3">
           <Button asChild variant="ghost">
-            <Link href="/strategy-model">
+            <Link href="/strategy-models">
               <ArrowLeft className="size-4 mr-1" /> All models
             </Link>
           </Button>

@@ -1,42 +1,14 @@
 /**
  * Portfolio construction config utilities.
  *
- * Provides config resolution (risk/freq/weighting -> config_id),
- * the precompute core set definition (what the cron enqueues),
+ * Provides config resolution (risk/freq/weighting -> config_id)
  * and helpers for querying config-scoped performance.
+ *
+ * All 48 configs are precomputed by the cron via the batch fan-out
+ * orchestrator in /api/internal/compute-portfolio-configs-batch.
  */
 
 import { createPublicClient } from '@/utils/supabase/public';
-
-// ── Core precompute set ────────────────────────────────────────────────────────
-// Cron enqueues these after each weekly performance write.
-// Risk 1-6 × weekly+monthly × equal  +  risk-3 × weekly+monthly × cap.
-
-export type CoreConfigSpec = {
-  riskLevel: number;
-  rebalanceFrequency: string;
-  weightingMethod: string;
-};
-
-export const PRECOMPUTE_CORE_CONFIGS: CoreConfigSpec[] = [
-  // Equal weight, weekly
-  { riskLevel: 1, rebalanceFrequency: 'weekly',  weightingMethod: 'equal' },
-  { riskLevel: 2, rebalanceFrequency: 'weekly',  weightingMethod: 'equal' },
-  { riskLevel: 3, rebalanceFrequency: 'weekly',  weightingMethod: 'equal' }, // default
-  { riskLevel: 4, rebalanceFrequency: 'weekly',  weightingMethod: 'equal' },
-  { riskLevel: 5, rebalanceFrequency: 'weekly',  weightingMethod: 'equal' },
-  { riskLevel: 6, rebalanceFrequency: 'weekly',  weightingMethod: 'equal' },
-  // Equal weight, monthly
-  { riskLevel: 1, rebalanceFrequency: 'monthly', weightingMethod: 'equal' },
-  { riskLevel: 2, rebalanceFrequency: 'monthly', weightingMethod: 'equal' },
-  { riskLevel: 3, rebalanceFrequency: 'monthly', weightingMethod: 'equal' },
-  { riskLevel: 4, rebalanceFrequency: 'monthly', weightingMethod: 'equal' },
-  { riskLevel: 5, rebalanceFrequency: 'monthly', weightingMethod: 'equal' },
-  { riskLevel: 6, rebalanceFrequency: 'monthly', weightingMethod: 'equal' },
-  // Cap weight, risk 3 (balanced)
-  { riskLevel: 3, rebalanceFrequency: 'weekly',  weightingMethod: 'cap' },
-  { riskLevel: 3, rebalanceFrequency: 'monthly', weightingMethod: 'cap' },
-];
 
 // ── Config resolution ─────────────────────────────────────────────────────────
 
@@ -103,6 +75,57 @@ export type ConfigPerfRow = {
   first_rebalance_date: string | null;
   next_rebalance_date: string | null;
 };
+
+const MODEL_INCEPTION_INITIAL = 10_000;
+
+/**
+ * Ensures every portfolio's first point is the strategy's first AI run date with $10k in
+ * portfolio + benchmarks (aligned across weekly/monthly/etc.). No-op if data already starts
+ * on or before that date (e.g. after compute core inception row or weekly backfill).
+ */
+export async function prependModelInceptionToConfigRows(
+  supabase: ReturnType<typeof createPublicClient>,
+  strategyId: string,
+  rows: ConfigPerfRow[]
+): Promise<ConfigPerfRow[]> {
+  if (!rows.length) return rows;
+
+  const { data: batch } = await supabase
+    .from('ai_run_batches')
+    .select('run_date')
+    .eq('strategy_id', strategyId)
+    .order('run_date', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  const inception = (batch as { run_date: string } | null)?.run_date;
+  if (!inception) return rows;
+
+  const first = rows[0]!.run_date;
+  if (first <= inception) return rows;
+
+  const head = rows[0]!;
+  const synthetic: ConfigPerfRow = {
+    run_date: inception,
+    strategy_status: 'in_progress',
+    compute_status: 'ready',
+    net_return: 0,
+    gross_return: 0,
+    starting_equity: MODEL_INCEPTION_INITIAL,
+    ending_equity: MODEL_INCEPTION_INITIAL,
+    holdings_count: head.holdings_count,
+    turnover: 0,
+    transaction_cost_bps: head.transaction_cost_bps,
+    nasdaq100_cap_weight_equity: MODEL_INCEPTION_INITIAL,
+    nasdaq100_equal_weight_equity: MODEL_INCEPTION_INITIAL,
+    sp500_equity: MODEL_INCEPTION_INITIAL,
+    is_eligible_for_comparison: false,
+    first_rebalance_date: inception,
+    next_rebalance_date: null,
+  };
+
+  return [synthetic, ...rows];
+}
 
 export async function getConfigPerformance(
   supabase: ReturnType<typeof createPublicClient>,

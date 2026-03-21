@@ -1,9 +1,12 @@
 /**
- * Internal compute worker for portfolio config performance.
+ * Internal compute worker for a single portfolio config's performance.
  *
  * POST /api/internal/compute-portfolio-config
  * Body: { strategy_id: string; config_id: string }
  * Header: Authorization: Bearer <CRON_SECRET>
+ *
+ * Tracks weekly equity between rebalances (buy-and-hold) so quarterly/yearly
+ * configs produce a full curve from inception.
  */
 
 import { NextResponse } from 'next/server';
@@ -22,20 +25,26 @@ export const maxDuration = 60;
 
 type Supabase = ReturnType<typeof createAdminClient>;
 
-async function markDone(supabase: Supabase, strategyId: string, configId: string) {
+async function upsertQueueStatus(
+  supabase: Supabase,
+  strategyId: string,
+  configId: string,
+  status: string,
+  errorMessage?: string
+) {
   await supabase
     .from('portfolio_config_compute_queue')
-    .update({ status: 'done', updated_at: new Date().toISOString() })
-    .eq('strategy_id', strategyId)
-    .eq('config_id', configId);
-}
-
-async function markFailed(supabase: Supabase, strategyId: string, configId: string, reason: string) {
-  await supabase
-    .from('portfolio_config_compute_queue')
-    .update({ status: 'failed', error_message: reason, updated_at: new Date().toISOString() })
-    .eq('strategy_id', strategyId)
-    .eq('config_id', configId);
+    .upsert(
+      {
+        strategy_id: strategyId,
+        config_id: configId,
+        status,
+        error_message: errorMessage ?? null,
+        ...(status === 'processing' ? { last_attempted_at: new Date().toISOString() } : {}),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'strategy_id,config_id', ignoreDuplicates: false }
+    );
 }
 
 type RequestBody = {
@@ -64,11 +73,7 @@ export async function POST(req: Request) {
 
   const supabase = createAdminClient();
 
-  await supabase
-    .from('portfolio_config_compute_queue')
-    .update({ status: 'processing', last_attempted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-    .eq('strategy_id', strategy_id)
-    .eq('config_id', config_id);
+  await upsertQueueStatus(supabase, strategy_id, config_id, 'processing');
 
   try {
     const { data: configData, error: configErr } = await supabase
@@ -96,7 +101,7 @@ export async function POST(req: Request) {
       const { data: bfResult } = await supabase.rpc('backfill_portfolio_config_mappings');
       const bf = bfResult as { rows_inserted?: number; error?: string } | null;
       if (bf?.error) throw new Error(bf.error);
-      await markDone(supabase, strategy_id, config_id);
+      await upsertQueueStatus(supabase, strategy_id, config_id, 'done');
       return NextResponse.json({ ok: true, mode: 'backfill', rows: bf?.rows_inserted ?? 0 });
     }
 
@@ -111,21 +116,16 @@ export async function POST(req: Request) {
     const allBatches = batchData as Array<{ id: string; run_date: string }>;
     const rebalanceBatches = filterRebalanceBatches(allBatches, config.rebalance_frequency);
 
-    if (rebalanceBatches.length < 2) {
-      await markFailed(
-        supabase,
-        strategy_id,
-        config_id,
-        'Insufficient historical data for this rebalance frequency'
-      );
-      return NextResponse.json({ ok: false, reason: 'Insufficient data' });
+    if (rebalanceBatches.length === 0) {
+      await upsertQueueStatus(supabase, strategy_id, config_id, 'done');
+      return NextResponse.json({ ok: true, mode: 'no_rebalance_dates', rows: 0 });
     }
 
-    const rebalanceBatchIds = rebalanceBatches.map((b) => b.id);
+    const allBatchIds = allBatches.map((b) => b.id);
     const { data: scoreData, error: scoreErr } = await supabase
       .from('ai_analysis_runs')
       .select('batch_id, stock_id, score, latent_rank, stocks(symbol)')
-      .in('batch_id', rebalanceBatchIds);
+      .in('batch_id', allBatchIds);
 
     if (scoreErr) throw new Error(`Score fetch failed: ${scoreErr.message}`);
 
@@ -133,11 +133,11 @@ export async function POST(req: Request) {
       (scoreData ?? []) as Parameters<typeof buildScoresByBatch>[0]
     );
 
-    const rebalanceRunDates = rebalanceBatches.map((b) => b.run_date);
+    const uniqueDates = [...new Set(allBatches.map((b) => b.run_date))];
     const { data: rawData, error: rawErr } = await supabase
       .from('nasdaq_100_daily_raw')
       .select('run_date, symbol, last_sale_price, market_cap')
-      .in('run_date', rebalanceRunDates);
+      .in('run_date', uniqueDates);
 
     if (rawErr) throw new Error(`Price fetch failed: ${rawErr.message}`);
 
@@ -150,6 +150,7 @@ export async function POST(req: Request) {
       config_id,
       top_n: config.top_n,
       weighting_method: config.weighting_method === 'cap' ? 'cap' : 'equal',
+      allBatches,
       rebalanceBatches,
       scoresByBatch,
       pricesByDate,
@@ -157,8 +158,8 @@ export async function POST(req: Request) {
     });
 
     if (!upsertRows.length) {
-      await markFailed(supabase, strategy_id, config_id, 'No computable periods found');
-      return NextResponse.json({ ok: false, reason: 'No computable periods' });
+      await upsertQueueStatus(supabase, strategy_id, config_id, 'done');
+      return NextResponse.json({ ok: true, mode: 'no_computable_periods', rows: 0 });
     }
 
     await backfillBenchmarkEquities(supabase, strategy_id, upsertRows as PerformanceRowLite[]);
@@ -173,7 +174,7 @@ export async function POST(req: Request) {
       inserted += chunk.length;
     }
 
-    await markDone(supabase, strategy_id, config_id);
+    await upsertQueueStatus(supabase, strategy_id, config_id, 'done');
 
     return NextResponse.json({
       ok: true,
@@ -185,7 +186,7 @@ export async function POST(req: Request) {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    await markFailed(supabase, strategy_id, config_id, message);
+    await upsertQueueStatus(supabase, strategy_id, config_id, 'failed', message);
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

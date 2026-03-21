@@ -56,36 +56,36 @@ insert into public.portfolio_construction_configs
   (risk_level, rebalance_frequency, weighting_method, top_n, label, risk_label, is_default, min_suggested_investment)
 values
   -- Weekly equal (cron precomputes all 6)
-  (1, 'weekly',    'equal', 30, 'Conservative weekly',             'Conservative',   false, 3000),
-  (2, 'weekly',    'equal', 25, 'Careful weekly',                  'Careful',        false, 2500),
-  (3, 'weekly',    'equal', 20, 'Balanced weekly',                 'Balanced',       true,  2000),
-  (4, 'weekly',    'equal', 10, 'Aggressive weekly',               'Aggressive',     false, 1000),
-  (5, 'weekly',    'equal',  5, 'Max aggression weekly',           'Max Aggression', false,  500),
-  (6, 'weekly',    'equal',  1, 'Experimental weekly',             'Experimental',   false,  100),
+  (1, 'weekly',    'equal', 30, 'Top 30 · Equal · Weekly',       'Conservative',   false, 3000),
+  (2, 'weekly',    'equal', 25, 'Top 25 · Equal · Weekly',         'Careful',        false, 2500),
+  (3, 'weekly',    'equal', 20, 'Top 20 · Equal · Weekly',         'Balanced',       true,  2000),
+  (4, 'weekly',    'equal', 10, 'Top 10 · Equal · Weekly',         'Aggressive',     false, 1000),
+  (5, 'weekly',    'equal',  5, 'Top 5 · Equal · Weekly',          'Max Aggression', false,  500),
+  (6, 'weekly',    'equal',  1, 'Top 1 · Equal · Weekly',          'Experimental',   false,  100),
   -- Monthly equal (cron precomputes all 6)
-  (1, 'monthly',   'equal', 30, 'Conservative monthly',            'Conservative',   false, 3000),
-  (2, 'monthly',   'equal', 25, 'Careful monthly',                 'Careful',        false, 2500),
-  (3, 'monthly',   'equal', 20, 'Balanced monthly',                'Balanced',       false, 2000),
-  (4, 'monthly',   'equal', 10, 'Aggressive monthly',              'Aggressive',     false, 1000),
-  (5, 'monthly',   'equal',  5, 'Max aggression monthly',          'Max Aggression', false,  500),
-  (6, 'monthly',   'equal',  1, 'Experimental monthly',            'Experimental',   false,  100),
+  (1, 'monthly',   'equal', 30, 'Top 30 · Equal · Monthly',        'Conservative',   false, 3000),
+  (2, 'monthly',   'equal', 25, 'Top 25 · Equal · Monthly',        'Careful',        false, 2500),
+  (3, 'monthly',   'equal', 20, 'Top 20 · Equal · Monthly',        'Balanced',       false, 2000),
+  (4, 'monthly',   'equal', 10, 'Top 10 · Equal · Monthly',        'Aggressive',     false, 1000),
+  (5, 'monthly',   'equal',  5, 'Top 5 · Equal · Monthly',         'Max Aggression', false,  500),
+  (6, 'monthly',   'equal',  1, 'Top 1 · Equal · Monthly',         'Experimental',   false,  100),
   -- Quarterly equal (on-demand compute)
-  (1, 'quarterly', 'equal', 30, 'Conservative quarterly',          'Conservative',   false, 3000),
-  (2, 'quarterly', 'equal', 25, 'Careful quarterly',               'Careful',        false, 2500),
-  (3, 'quarterly', 'equal', 20, 'Balanced quarterly',              'Balanced',       false, 2000),
-  (4, 'quarterly', 'equal', 10, 'Aggressive quarterly',            'Aggressive',     false, 1000),
-  (5, 'quarterly', 'equal',  5, 'Max aggression quarterly',        'Max Aggression', false,  500),
-  (6, 'quarterly', 'equal',  1, 'Experimental quarterly',          'Experimental',   false,  100),
+  (1, 'quarterly', 'equal', 30, 'Top 30 · Equal · Quarterly',      'Conservative',   false, 3000),
+  (2, 'quarterly', 'equal', 25, 'Top 25 · Equal · Quarterly',      'Careful',        false, 2500),
+  (3, 'quarterly', 'equal', 20, 'Top 20 · Equal · Quarterly',      'Balanced',       false, 2000),
+  (4, 'quarterly', 'equal', 10, 'Top 10 · Equal · Quarterly',      'Aggressive',     false, 1000),
+  (5, 'quarterly', 'equal',  5, 'Top 5 · Equal · Quarterly',       'Max Aggression', false,  500),
+  (6, 'quarterly', 'equal',  1, 'Top 1 · Equal · Quarterly',       'Experimental',   false,  100),
   -- Yearly equal (on-demand compute)
-  (1, 'yearly',    'equal', 30, 'Conservative yearly',             'Conservative',   false, 3000),
-  (2, 'yearly',    'equal', 25, 'Careful yearly',                  'Careful',        false, 2500),
-  (3, 'yearly',    'equal', 20, 'Balanced yearly',                 'Balanced',       false, 2000),
-  (4, 'yearly',    'equal', 10, 'Aggressive yearly',               'Aggressive',     false, 1000),
-  (5, 'yearly',    'equal',  5, 'Max aggression yearly',           'Max Aggression', false,  500),
-  (6, 'yearly',    'equal',  1, 'Experimental yearly',             'Experimental',   false,  100),
+  (1, 'yearly',    'equal', 30, 'Top 30 · Equal · Yearly',         'Conservative',   false, 3000),
+  (2, 'yearly',    'equal', 25, 'Top 25 · Equal · Yearly',         'Careful',        false, 2500),
+  (3, 'yearly',    'equal', 20, 'Top 20 · Equal · Yearly',         'Balanced',       false, 2000),
+  (4, 'yearly',    'equal', 10, 'Top 10 · Equal · Yearly',         'Aggressive',     false, 1000),
+  (5, 'yearly',    'equal',  5, 'Top 5 · Equal · Yearly',          'Max Aggression', false,  500),
+  (6, 'yearly',    'equal',  1, 'Top 1 · Equal · Yearly',          'Experimental',   false,  100),
   -- Cap-weighted variants for Balanced (cron precomputes)
-  (3, 'weekly',    'cap',   20, 'Balanced cap-weighted weekly',    'Balanced',       false, 2000),
-  (3, 'monthly',   'cap',   20, 'Balanced cap-weighted monthly',   'Balanced',       false, 2000)
+  (3, 'weekly',    'cap',   20, 'Top 20 · Cap · Weekly',           'Balanced',       false, 2000),
+  (3, 'monthly',   'cap',   20, 'Top 20 · Cap · Monthly',          'Balanced',       false, 2000)
 on conflict (risk_level, rebalance_frequency, weighting_method) do nothing;
 
 -- -------------------------------------------------------

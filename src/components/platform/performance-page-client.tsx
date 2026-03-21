@@ -205,7 +205,7 @@ export function PerformancePageClient({ payload }: PerformancePageClientProps) {
               </div>
               <div className="rounded-lg border bg-background p-4">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                  % months beating Nasdaq-100
+                  % months outperforming Nasdaq-100
                 </p>
                 <p className="mt-2 text-xl font-semibold">
                   {formatPercent(metrics.pctMonthsBeatingNasdaq100, 1)}

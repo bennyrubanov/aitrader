@@ -18,6 +18,8 @@ export type StrategyListItem = {
   transactionCostBps: number;
   isDefault: boolean;
   startDate: string | null;
+  /** Count of weekly performance rows (AI run weeks with saved performance). */
+  runCount: number;
   sharpeRatio: number | null;
   totalReturn: number | null;
   cagr: number | null;
@@ -36,6 +38,10 @@ type StrategyRow = {
   rebalance_day_of_week: number;
   portfolio_size: number;
   transaction_cost_bps: number | string;
+  ai_models?:
+    | { provider: string; name: string; version: string }
+    | { provider: string; name: string; version: string }[]
+    | null;
 };
 
 type PerformanceRow = {
@@ -73,12 +79,15 @@ type ActionRow = {
   new_weight: number | string | null;
 };
 
-type QuintileRow = {
+/** Weekly horizon rows from `strategy_quintile_returns` (no strategy_id — filter before calling). */
+export type StrategyQuintileReturnRow = {
   run_date: string;
   quintile: number;
   stock_count: number;
   return_value: number | string;
 };
+
+type QuintileRow = StrategyQuintileReturnRow;
 
 type RegressionRow = {
   run_date: string;
@@ -138,6 +147,10 @@ export type PlatformPerformancePayload = {
     portfolioSize: number;
     transactionCostBps: number;
     startDate: string | null;
+    /** Weekly performance rows (same as weeks with saved model performance). */
+    runCount: number;
+    modelProvider: string | null;
+    modelName: string | null;
   } | null;
   latestRunDate?: string | null;
   series: SeriesPoint[];
@@ -148,6 +161,7 @@ export type PlatformPerformancePayload = {
     cagr: number | null;
     maxDrawdown: number | null;
     sharpeRatio: number | null;
+    pctWeeksBeatingNasdaq100: number | null;
     pctMonthsBeatingNasdaq100: number | null;
     benchmarks: {
       nasdaq100CapWeight: {
@@ -184,7 +198,7 @@ export type PlatformPerformancePayload = {
     fourWeekQuintiles: QuintileSnapshot | null;
     // Full history for the week selector (all run dates, weekly horizon)
     quintileHistory: QuintileSnapshot[];
-    // Q5 beat Q1 win rate across all weeks
+    // Q5 vs Q1 win rate across all weeks
     quintileWinRate: QuintileWinRate | null;
     // Monthly averages (aggregated from weekly data)
     monthlyQuintiles: MonthlyQuintileSnapshot[];
@@ -284,11 +298,32 @@ export const computePctMonthsBeating = (
   return beats / total;
 };
 
+/** % of consecutive rebalance periods where portfolio return beat Nasdaq-100 cap (period-over-period on cumulative equity). */
+export const computePctWeeksBeatingNasdaq100 = (
+  points: Array<{ aiValue: number; benchmarkValue: number }>
+): number | null => {
+  if (points.length < 2) return null;
+  let beats = 0;
+  let total = 0;
+  for (let i = 1; i < points.length; i++) {
+    const prev = points[i - 1]!;
+    const curr = points[i]!;
+    if (prev.aiValue <= 0 || prev.benchmarkValue <= 0) continue;
+    const aiRet = curr.aiValue / prev.aiValue - 1;
+    const benchRet = curr.benchmarkValue / prev.benchmarkValue - 1;
+    if (!Number.isFinite(aiRet) || !Number.isFinite(benchRet)) continue;
+    total += 1;
+    if (aiRet > benchRet) beats += 1;
+  }
+  if (total === 0) return null;
+  return beats / total;
+};
+
 /**
  * Build full quintile history from all rows, grouped by run_date.
  * Returns snapshots sorted newest-first.
  */
-const buildQuintileHistory = (rows: QuintileRow[]): QuintileSnapshot[] => {
+export function buildQuintileHistory(rows: StrategyQuintileReturnRow[]): QuintileSnapshot[] {
   if (!rows.length) return [];
   const byDate = new Map<string, QuintileRow[]>();
   for (const row of rows) {
@@ -308,7 +343,7 @@ const buildQuintileHistory = (rows: QuintileRow[]): QuintileSnapshot[] => {
           return: toNumber(r.return_value, 0),
         })),
     }));
-};
+}
 
 const avgNullable = (vals: (number | null)[]): number | null => {
   const nums = vals.filter((v): v is number => v != null && Number.isFinite(v));
@@ -389,7 +424,7 @@ const buildMonthlyQuintiles = (history: QuintileSnapshot[]): MonthlyQuintileSnap
 /**
  * Compute how often Q5 outperforms Q1 across all weekly snapshots.
  */
-const computeQuintileWinRate = (history: QuintileSnapshot[]): QuintileWinRate | null => {
+export function computeQuintileWinRate(history: QuintileSnapshot[]): QuintileWinRate | null {
   if (!history.length) return null;
   let total = 0;
   let wins = 0;
@@ -403,7 +438,7 @@ const computeQuintileWinRate = (history: QuintileSnapshot[]): QuintileWinRate | 
   }
   if (total === 0) return null;
   return { total, wins, rate: wins / total };
-};
+}
 
 // ─── Main performance payload ────────────────────────────────────────────────
 
@@ -419,6 +454,8 @@ const buildPayloadForStrategy = async (
     .eq('strategy_id', strategy.id)
     .order('run_date', { ascending: true });
 
+  const modelJoin = Array.isArray(strategy.ai_models) ? strategy.ai_models[0] : strategy.ai_models;
+
   const baseStrategy = {
     id: strategy.id,
     slug: strategy.slug,
@@ -432,6 +469,9 @@ const buildPayloadForStrategy = async (
     portfolioSize: strategy.portfolio_size,
     transactionCostBps: toNumber(strategy.transaction_cost_bps, 15),
     startDate: null as string | null,
+    runCount: 0,
+    modelProvider: modelJoin?.provider ?? null,
+    modelName: modelJoin?.name ?? null,
   };
 
   if (performanceError || !performanceData?.length) {
@@ -446,6 +486,7 @@ const buildPayloadForStrategy = async (
 
   const perfRows = performanceData as PerformanceRow[];
   baseStrategy.startDate = perfRows[0]?.run_date ?? null;
+  baseStrategy.runCount = perfRows.length;
 
   const series: SeriesPoint[] = perfRows.map((row) => ({
     date: row.run_date,
@@ -483,6 +524,9 @@ const buildPayloadForStrategy = async (
           cagr: computeCagr(INITIAL_CAPITAL, lastPoint.aiTop20, firstDate, lastDate),
           maxDrawdown: computeMaxDrawdown(series.map((p) => p.aiTop20)),
           sharpeRatio: computeSharpeWeekly(netReturns),
+          pctWeeksBeatingNasdaq100: computePctWeeksBeatingNasdaq100(
+            series.map((p) => ({ aiValue: p.aiTop20, benchmarkValue: p.nasdaq100CapWeight }))
+          ),
           pctMonthsBeatingNasdaq100: computePctMonthsBeating(
             series.map((p) => ({ date: p.date, aiValue: p.aiTop20, benchmarkValue: p.nasdaq100CapWeight }))
           ),
@@ -639,7 +683,7 @@ const getPlatformPerformancePayloadCached = unstable_cache(
       const { data: strategyData, error: strategyError } = await supabase
         .from('strategy_models')
         .select(
-          'id, slug, name, version, description, status, is_default, rebalance_frequency, rebalance_day_of_week, portfolio_size, transaction_cost_bps'
+          'id, slug, name, version, description, status, is_default, rebalance_frequency, rebalance_day_of_week, portfolio_size, transaction_cost_bps, ai_models(provider, name, version)'
         )
         .eq('is_default', true)
         .eq('status', 'active')
@@ -668,10 +712,10 @@ const getPerformancePayloadBySlugCached = (slug: string) =>
         const supabase = createPublicClient();
         const { data: strategyData, error: strategyError } = await supabase
           .from('strategy_models')
-          .select(
-            'id, slug, name, version, description, status, is_default, rebalance_frequency, rebalance_day_of_week, portfolio_size, transaction_cost_bps'
-          )
-          .eq('slug', slug)
+        .select(
+          'id, slug, name, version, description, status, is_default, rebalance_frequency, rebalance_day_of_week, portfolio_size, transaction_cost_bps, ai_models(provider, name, version)'
+        )
+        .eq('slug', slug)
           .eq('status', 'active')
           .maybeSingle();
 
@@ -803,6 +847,7 @@ const getStrategiesListCached = unstable_cache(
             transactionCostBps: toNumber(strategy.transaction_cost_bps, 15),
             isDefault: strategy.is_default,
             startDate: firstRow?.run_date ?? null,
+            runCount: rows.length,
             sharpeRatio: computeSharpeWeekly(netReturns),
             totalReturn: rows.length >= 2 ? computeTotalReturn(INITIAL_CAPITAL, endEquity) : null,
             cagr:
@@ -833,7 +878,7 @@ const getStrategiesListCached = unstable_cache(
 
 export const getStrategiesList = async () => getStrategiesListCached();
 
-// ─── Strategy Detail (for /strategy-model/[slug]) ───────────────────────────
+// ─── Strategy Detail (for /strategy-models/[slug]) ───────────────────────────
 
 export type StrategyDetail = {
   id: string;
@@ -863,8 +908,12 @@ export type StrategyDetail = {
   maxDrawdown: number | null;
   runCount: number;
   latestRunDate: string | null;
+  pctWeeksBeatingNasdaq100: number | null;
   pctMonthsBeatingNasdaq100: number | null;
   quintileWinRate: { total: number; wins: number; rate: number } | null;
+  /** Latest weekly snapshot: Q5 minus Q1 forward return. */
+  quintileLatestWeekSpread: number | null;
+  quintileLatestWeekRunDate: string | null;
   latestBeta: number | null;
   latestRSquared: number | null;
   latestAlpha: number | null;
@@ -955,21 +1004,35 @@ const getStrategyDetailCached = (slug: string) =>
           ? toNumber(lastRow.nasdaq100_cap_weight_equity, INITIAL_CAPITAL)
           : INITIAL_CAPITAL;
 
-        const pctMonthsBeatingNasdaq100 =
+        const seriesPoints = perfRows.map((r) => ({
+          date: r.run_date,
+          aiValue: toNumber(r.ending_equity, INITIAL_CAPITAL),
+          benchmarkValue: toNumber(r.nasdaq100_cap_weight_equity, INITIAL_CAPITAL),
+        }));
+        const pctWeeksBeatingNasdaq100 =
           perfRows.length >= 2
-            ? computePctMonthsBeating(
-                perfRows.map((r) => ({
-                  date: r.run_date,
-                  aiValue: toNumber(r.ending_equity, INITIAL_CAPITAL),
-                  benchmarkValue: toNumber(r.nasdaq100_cap_weight_equity, INITIAL_CAPITAL),
-                }))
+            ? computePctWeeksBeatingNasdaq100(
+                seriesPoints.map((p) => ({ aiValue: p.aiValue, benchmarkValue: p.benchmarkValue }))
               )
             : null;
+        const pctMonthsBeatingNasdaq100 =
+          perfRows.length >= 2 ? computePctMonthsBeating(seriesPoints) : null;
 
         const quintileHistory = buildQuintileHistory(
           (quintileResponse.data ?? []) as QuintileRow[]
         );
         const quintileWinRate = computeQuintileWinRate(quintileHistory);
+        const latestQuintileSnap = quintileHistory[0];
+        let quintileLatestWeekSpread: number | null = null;
+        let quintileLatestWeekRunDate: string | null = null;
+        if (latestQuintileSnap?.rows?.length) {
+          const q1 = latestQuintileSnap.rows.find((r) => r.quintile === 1)?.return;
+          const q5 = latestQuintileSnap.rows.find((r) => r.quintile === 5)?.return;
+          if (typeof q1 === 'number' && typeof q5 === 'number') {
+            quintileLatestWeekSpread = q5 - q1;
+            quintileLatestWeekRunDate = latestQuintileSnap.runDate;
+          }
+        }
 
         const regRow = regressionResponse.data as RegressionRow | null;
 
@@ -1007,8 +1070,11 @@ const getStrategyDetailCached = (slug: string) =>
               : null,
           runCount: perfRows.length,
           latestRunDate: lastRow?.run_date ?? null,
+          pctWeeksBeatingNasdaq100,
           pctMonthsBeatingNasdaq100,
           quintileWinRate,
+          quintileLatestWeekSpread,
+          quintileLatestWeekRunDate,
           latestBeta: regRow ? toNullableNumber(regRow.beta) : null,
           latestRSquared: regRow ? toNullableNumber(regRow.r_squared) : null,
           latestAlpha: regRow ? toNullableNumber(regRow.alpha) : null,

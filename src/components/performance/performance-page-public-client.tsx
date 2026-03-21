@@ -3,7 +3,7 @@
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowRight,
   BadgeCheck,
@@ -40,8 +40,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ContentPageLayout } from '@/components/ContentPageLayout';
+import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import { Disclaimer } from '@/components/Disclaimer';
-import { ModelHeaderCard } from '@/components/ModelHeaderCard';
+import { ModelHeaderCard, type ModelHeaderQuintileInsight } from '@/components/ModelHeaderCard';
 import {
   CagrOverTimeChart,
   CumulativeReturnsChart,
@@ -57,15 +58,16 @@ import {
   type MonthlyQuintileSnapshot,
 } from '@/lib/platform-performance-payload';
 import { formatStrategyDescriptionForDisplay } from '@/lib/format-strategy-description';
-import { headerStatSentiment } from '@/lib/header-stat-sentiment';
 import {
-  PublicPortfolioConfigPerformance,
+  ConfigPerformanceChartBlock,
+  PortfolioAtAGlanceCard,
+  usePublicPortfolioConfigPerformance,
   type PublicConfigPerfSlice,
 } from '@/components/platform/public-portfolio-config-performance';
-import {
-  PortfolioConstructionControls,
-  type PortfolioConstructionSlice,
-} from '@/components/platform/portfolio-construction-controls';
+import { type PortfolioConfigSlice } from '@/components/platform/portfolio-config-controls';
+import { SidebarPortfolioConfigPicker } from '@/components/platform/sidebar-portfolio-config-picker';
+import { StrategyModelSidebarDropdown } from '@/components/platform/strategy-model-sidebar-dropdown';
+import { CapWeightMiniPie, EqualWeightMiniPie } from '@/components/platform/weighting-mini-pies';
 
 const PerformanceChart = dynamic(
   () => import('@/components/platform/performance-chart').then((module) => module.PerformanceChart),
@@ -76,6 +78,8 @@ const PerformanceChart = dynamic(
 );
 
 const PERFORMANCE_TOC = [
+  { id: 'strategy-model', label: 'Strategy model' },
+  { id: 'selected-portfolio', label: 'Selected portfolio' },
   { id: 'overview', label: 'Overview' },
   { id: 'what-you-see', label: 'What you are looking at' },
   { id: 'returns', label: 'Returns' },
@@ -250,8 +254,14 @@ type Props = {
 
 export function PerformancePagePublicClient({ payload, strategies, slug }: Props) {
   const router = useRouter();
-  const [sidebarConstruction, setSidebarConstruction] = useState<PortfolioConstructionSlice | null>(null);
+  const [sidebarPortfolioConfig, setSidebarPortfolioConfig] = useState<PortfolioConfigSlice | null>(
+    null
+  );
   const [configPerfSlice, setConfigPerfSlice] = useState<PublicConfigPerfSlice | null>(null);
+
+  useLayoutEffect(() => {
+    setSidebarPortfolioConfig(null);
+  }, [slug]);
   const [quintileDate, setQuintileDate] = useState<string | null>(null);
   const [quintileView, setQuintileView] = useState<'weekly' | 'monthly'>('weekly');
   const [regressionDate, setRegressionDate] = useState<string | null>(null);
@@ -262,6 +272,15 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isPremium, setIsPremium] = useState(false);
   const [holdingsLoading, setHoldingsLoading] = useState(true);
+
+  const portfolioPerf = usePublicPortfolioConfigPerformance({
+    slug: slug ?? '',
+    strategyName: payload.strategy?.name ?? null,
+    fallbackSeries: payload.series ?? [],
+    portfolioConfigOverride: sidebarPortfolioConfig,
+    onPortfolioConfigChange: setSidebarPortfolioConfig,
+    onSliceChange: setConfigPerfSlice,
+  });
 
   useEffect(() => {
     const fetchHoldings = async () => {
@@ -294,14 +313,36 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
   const metrics = payload.metrics ?? null;
   const research = payload.research ?? null;
 
+  const headerQuintileInsight = useMemo((): ModelHeaderQuintileInsight | null => {
+    const history = research?.quintileHistory ?? [];
+    const qwr = research?.quintileWinRate;
+    const hasWin =
+      qwr != null &&
+      typeof qwr.total === 'number' &&
+      qwr.total > 0 &&
+      typeof qwr.wins === 'number' &&
+      Number.isFinite(qwr.rate);
+    const latest = history[0];
+    let latestWeekSpread: number | null = null;
+    if (latest?.rows?.length) {
+      const q1 = latest.rows.find((r) => r.quintile === 1)?.return;
+      const q5 = latest.rows.find((r) => r.quintile === 5)?.return;
+      if (typeof q1 === 'number' && typeof q5 === 'number') latestWeekSpread = q5 - q1;
+    }
+    if (!hasWin && (latestWeekSpread == null || !Number.isFinite(latestWeekSpread))) return null;
+    return {
+      winRate: hasWin ? { wins: qwr!.wins, total: qwr!.total, rate: qwr!.rate } : null,
+      latestWeekSpread,
+      latestWeekRunDate: latest?.runDate ?? null,
+    };
+  }, [research]);
+
   const configMetricsReady =
     Boolean(slug) &&
     configPerfSlice?.computeStatus === 'ready' &&
     configPerfSlice.fullMetrics != null;
 
-  const displayMetrics = configMetricsReady
-    ? configPerfSlice!.fullMetrics!
-    : metrics;
+  const displayMetrics = configMetricsReady ? configPerfSlice!.fullMetrics! : metrics;
   const displaySeries =
     configMetricsReady && (configPerfSlice?.series?.length ?? 0) > 1
       ? configPerfSlice!.series
@@ -310,7 +351,7 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
   const latestDisplayDate =
     displaySeries.length > 0
       ? displaySeries[displaySeries.length - 1]!.date
-      : payload.latestRunDate ?? null;
+      : (payload.latestRunDate ?? null);
 
   const whatYouSeeTopN = useMemo(() => {
     if (configMetricsReady && configPerfSlice?.config?.top_n != null) {
@@ -320,15 +361,15 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
   }, [configMetricsReady, configPerfSlice, effectiveStrategy?.portfolioSize]);
 
   const whatYouSeeFreq = useMemo(() => {
-    if (configMetricsReady && configPerfSlice?.construction) {
-      return configPerfSlice.construction.rebalanceFrequency;
+    if (configMetricsReady && configPerfSlice?.portfolioConfig) {
+      return configPerfSlice.portfolioConfig.rebalanceFrequency;
     }
     return effectiveStrategy?.rebalanceFrequency ?? 'weekly';
   }, [configMetricsReady, configPerfSlice, effectiveStrategy?.rebalanceFrequency]);
 
   const whatYouSeeWeightCap = useMemo(() => {
-    if (configMetricsReady && configPerfSlice?.construction) {
-      return configPerfSlice.construction.weightingMethod === 'cap';
+    if (configMetricsReady && configPerfSlice?.portfolioConfig) {
+      return configPerfSlice.portfolioConfig.weightingMethod === 'cap';
     }
     return false;
   }, [configMetricsReady, configPerfSlice]);
@@ -343,11 +384,19 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
   }, [whatYouSeeFreq]);
 
   const bestStrategy = strategies[0] ?? null;
-  const selectedStrategyName = effectiveStrategy?.name ?? 'Strategy';
   const isBestSelected = !bestStrategy || bestStrategy.id === effectiveStrategy?.id;
 
   const regressionHistory = research?.regressionHistory ?? [];
   const monthlyRegressionHistory = research?.monthlyRegressionHistory ?? [];
+
+  /** Latest weekly regression — matches default “Signal strength” view in Research validation. */
+  const headerCrossSectionRegression = useMemo(() => {
+    if (!research) return null;
+    const r = research.regressionHistory?.[0] ?? research.regression ?? null;
+    if (!r) return null;
+    const beta = typeof r.beta === 'number' && Number.isFinite(r.beta) ? r.beta : null;
+    return { beta };
+  }, [research]);
 
   const selectedWeeklyRegression = useMemo(() => {
     if (!regressionHistory.length) return research?.regression ?? null;
@@ -359,7 +408,9 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
     if (!monthlyRegressionHistory.length) return null;
     const target = regressionMonth ?? monthlyRegressionHistory[0]?.month;
     return (
-      monthlyRegressionHistory.find((m) => m.month === target) ?? monthlyRegressionHistory[0] ?? null
+      monthlyRegressionHistory.find((m) => m.month === target) ??
+      monthlyRegressionHistory[0] ??
+      null
     );
   }, [monthlyRegressionHistory, regressionMonth]);
 
@@ -433,121 +484,131 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
   const sidebarSlot =
     strategies.length > 0 ? (
       <>
-      <div className="space-y-4 pb-4 border-b border-border">
-        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Strategy model
-        </p>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="w-full justify-between gap-2 text-left">
-              <span className="truncate">{selectedStrategyName}</span>
-              <div className="flex items-center gap-1 shrink-0">
-                {isBestSelected && (
-                  <Badge className="text-xs bg-trader-blue text-white border-0 px-1.5 py-0">
-                    Top
-                  </Badge>
-                )}
-                <ChevronDown className="size-3.5" />
-              </div>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="min-w-56">
-            {strategies.map((strategy, index) => (
-              <DropdownMenuItem
-                key={strategy.id}
-                onSelect={() => {
-                  if (strategy.slug !== effectiveStrategy?.slug) {
-                    router.push(`/performance/${strategy.slug}`);
-                  }
-                }}
-                className="flex flex-col items-start gap-0.5 py-2"
+        <StrategyModelSidebarDropdown
+          strategies={strategies}
+          selectedSlug={effectiveStrategy?.slug}
+          onSelectStrategy={(s) => {
+            router.push(`/performance/${s}`);
+          }}
+        >
+          {effectiveStrategy && (
+            <div className="space-y-0.5">
+              {isBestSelected ? (
+                <>
+                  <div className="flex items-start gap-1.5 text-xs min-h-7 py-1.5 px-1 whitespace-normal text-left leading-snug text-muted-foreground">
+                    <Star className="size-3 shrink-0 mt-0.5" fill="currentColor" />
+                    <span>
+                      Top performing strategy model{' '}
+                      <span className="text-trader-blue dark:text-trader-blue-light">
+                        (by composite ranking)
+                      </span>
+                    </span>
+                  </div>
+                  <Button
+                    asChild
+                    variant="ghost"
+                    size="sm"
+                    className="w-full justify-start gap-1.5 text-xs min-h-7 h-auto py-1 px-1 whitespace-normal text-left"
+                  >
+                    <Link href={`/strategy-models/${STRATEGY_CONFIG.slug}#model-ranking`}>
+                      <ExternalLink className="size-3 shrink-0 mt-0.5" />
+                      See how we calculate the composite ranking
+                    </Link>
+                  </Button>
+                </>
+              ) : null}
+              <Button
+                asChild
+                variant="ghost"
+                size="sm"
+                className="w-full justify-start gap-1.5 text-xs h-7 px-1"
               >
-                <div className="flex items-center gap-1.5 w-full">
-                  <span className="font-medium text-sm">{strategy.name}</span>
-                  {index === 0 && (
-                    <Badge className="text-xs bg-trader-blue text-white border-0 px-1.5 py-0 ml-auto">
-                      Top
-                    </Badge>
-                  )}
-                </div>
-                <span className="text-xs text-muted-foreground">
-                  Top {strategy.portfolioSize} &middot; {strategy.rebalanceFrequency}
-                  {strategy.sharpeRatio != null
-                    ? ` · Sharpe ${strategy.sharpeRatio.toFixed(2)}`
-                    : ''}
-                </span>
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+                <Link href={`/strategy-models/${effectiveStrategy.slug}`}>
+                  <ExternalLink className="size-3 shrink-0" />
+                  How this model works
+                </Link>
+              </Button>
+            </div>
+          )}
+        </StrategyModelSidebarDropdown>
 
-        {effectiveStrategy && (
-          <Button
-            asChild
-            variant="ghost"
-            size="sm"
-            className="w-full justify-start gap-1.5 text-xs h-7 px-1"
-          >
-            <Link href={`/strategy-model/${effectiveStrategy.slug}`}>
-              <ExternalLink className="size-3" />
-              How this model works
-            </Link>
-          </Button>
-        )}
-      </div>
-
-      {/* Portfolio construction controls */}
-      <div className="space-y-3 pb-4 border-b border-border">
-        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Portfolio construction
-        </p>
-        {sidebarConstruction ? (
-          <PortfolioConstructionControls
-            value={sidebarConstruction}
-            onChange={setSidebarConstruction}
-            compact
-          />
-        ) : (
-          <Skeleton className="h-48 w-full" />
-        )}
-      </div>
+        {slug ? (
+          <div className="pt-6 pb-4">
+            <SidebarPortfolioConfigPicker
+              key={slug}
+              slug={slug}
+              portfolioConfig={sidebarPortfolioConfig}
+              onPortfolioConfigChange={setSidebarPortfolioConfig}
+            />
+          </div>
+        ) : null}
       </>
     ) : null;
 
   return (
     <ContentPageLayout
       title="Strategy Model Performance"
-      subtitle={
-        effectiveStrategy
-          ? `${effectiveStrategy.name} · Started ${fmt.date(effectiveStrategy.startDate)} · Updated ${fmt.date(payload.latestRunDate)}`
-          : 'Live performance tracking'
-      }
       tableOfContents={PERFORMANCE_TOC}
       sidebarSlot={sidebarSlot}
       tocPosition="right"
     >
+      {effectiveStrategy ? (
+        <section id="strategy-model" className="mb-10 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]">
+          <h2 className="text-2xl font-bold tracking-tight text-foreground mb-4">Strategy model</h2>
+          <ModelHeaderCard
+            name={effectiveStrategy.name}
+            slug={effectiveStrategy.slug}
+            description={formatStrategyDescriptionForDisplay(effectiveStrategy.description)}
+            status={effectiveStrategy.status}
+            isTopPerformer={isBestSelected}
+            startDate={effectiveStrategy.startDate}
+            weeklyRunCount={effectiveStrategy.runCount}
+            rebalanceFrequency={effectiveStrategy.rebalanceFrequency}
+            modelProvider={effectiveStrategy.modelProvider}
+            modelName={effectiveStrategy.modelName}
+            variant="performance"
+            beatMarketSlug={effectiveStrategy.slug}
+            quintileHeaderInsight={headerQuintileInsight}
+            crossSectionRegression={headerCrossSectionRegression}
+            researchValidationHref="#research-signal-strength"
+          />
+        </section>
+      ) : null}
+
+      {slug ? (
+        <section id="selected-portfolio" className="mb-10 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]">
+          <h2 className="text-2xl font-bold tracking-tight text-foreground mb-4">
+            Selected portfolio
+          </h2>
+          <PortfolioAtAGlanceCard
+            portfolioConfig={portfolioPerf.portfolioConfig}
+            perf={portfolioPerf.perf}
+            perfLoading={portfolioPerf.perfLoading}
+            isTopRanked={portfolioPerf.isTopRanked}
+          />
+        </section>
+      ) : null}
+
       {/* ── A: Overview ─────────────────────────────────────────────────── */}
       <section id="overview" className="space-y-5 mb-10">
-        <h2 className="text-2xl font-bold mb-2">Overview</h2>
+        <h2 className="text-2xl font-bold mb-2">Performance Overview</h2>
 
-        <p className="text-sm text-muted-foreground">
-          How <strong>$10,000</strong> would have grown from the strategy&apos;s start date,
-          compared to passive index benchmarks over the exact same dates. Choose{' '}
-          <strong>portfolio construction</strong> first (top-ranked by default); all headline
-          metrics, returns, risk, and consistency sections below follow that selection once data is
-          ready.
+        <p className="text-sm text-muted-foreground max-w-3xl">
+          Simulated growth of <strong>$10,000</strong> from the strategy start date, net of trading
+          costs, versus benchmarks.
         </p>
 
-        {/* Config-scoped chart + construction (dominant) */}
         {slug ? (
-          <PublicPortfolioConfigPerformance
-            slug={slug}
-            strategyName={effectiveStrategy?.name}
-            fallbackSeries={series}
-            className="rounded-lg border bg-card p-4"
-            onSliceChange={setConfigPerfSlice}
-            constructionOverride={sidebarConstruction}
-            onConstructionChange={setSidebarConstruction}
+          <ConfigPerformanceChartBlock
+            className="rounded-xl border bg-card p-4"
+            chartSeries={portfolioPerf.chartSeries}
+            configChartReady={portfolioPerf.configChartReady}
+            useFallbackTrack={portfolioPerf.useFallbackTrack}
+            perf={portfolioPerf.perf}
+            perfLoading={portfolioPerf.perfLoading}
+            portfolioConfig={portfolioPerf.portfolioConfig}
+            chartTitle={portfolioPerf.chartTitle}
+            statusMessage={portfolioPerf.statusMessage}
           />
         ) : series.length > 1 ? (
           <PerformanceChart series={series} strategyName={effectiveStrategy?.name} hideDrawdown />
@@ -560,47 +621,69 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
         {(slug || series.length > 1) && (
           <Accordion type="single" collapsible className="rounded-lg border bg-card px-4">
             <AccordionItem value="chart-lines" className="border-0">
-              <AccordionTrigger className="text-sm font-medium py-3 hover:no-underline">
-                What do the chart lines mean? (equal vs. cap-weighted)
+              <AccordionTrigger className="text-sm font-medium py-3 hover:no-underline text-left">
+                Equal vs. cap weighting (and what each line shows)
               </AccordionTrigger>
-              <AccordionContent className="text-sm text-muted-foreground space-y-4 pb-4">
+              <AccordionContent className="text-sm text-muted-foreground space-y-5 pb-4">
+                <p className="text-foreground/90 leading-relaxed">
+                  <strong className="text-foreground">Equal weight</strong> splits dollars evenly
+                  across holdings. <strong className="text-foreground">Cap weight</strong> tilts
+                  toward larger companies. Major indices often do this.
+                </p>
+
                 <div>
-                  <p className="text-[11px] uppercase tracking-wide text-foreground font-semibold mb-1">
+                  <p className="text-[11px] uppercase tracking-wide text-foreground font-semibold mb-2">
                     AI strategy ({effectiveStrategy?.name ?? 'selected model'})
                   </p>
-                  <p>
+                  <p className="leading-relaxed">
                     The strategy line shows simulated growth of this model&apos;s portfolio rules
-                    (see &ldquo;What you are looking at&rdquo; below), starting from $10,000 and
-                    <strong> net of trading costs</strong>. Use the colored chips on the chart to
-                    show or hide series.
+                    (see &ldquo;What you are looking at&rdquo; below), starting from $10,000 and{' '}
+                    <strong className="text-foreground">net of trading costs</strong>. Your
+                    portfolio may use equal or cap weighting depending on settings—use the colored
+                    chips on the chart to show or hide each series.
                   </p>
                 </div>
-                <div>
-                  <p className="text-[11px] uppercase tracking-wide text-foreground font-semibold mb-1">
-                    Nasdaq-100 (cap-weighted)
-                  </p>
-                  <p>
-                    Bigger companies carry more weight. Apple, Microsoft, and Nvidia have far more
-                    influence on this index than smaller Nasdaq-100 names.
-                  </p>
+
+                <div className="flex flex-col gap-3 rounded-lg border border-border/80 bg-muted/20 p-3 sm:flex-row sm:items-start sm:gap-4">
+                  <CapWeightMiniPie className="size-16 sm:size-[4.5rem] mx-auto sm:mx-0 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-[11px] uppercase tracking-wide text-foreground font-semibold mb-1">
+                      Nasdaq-100 (cap-weighted)
+                    </p>
+                    <p className="leading-relaxed">
+                      Bigger companies carry more weight. Apple, Microsoft, and Nvidia have far more
+                      influence on this index than smaller Nasdaq-100 names—similar to the
+                      cap-weight pie (one large slice, many small ones).
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-[11px] uppercase tracking-wide text-foreground font-semibold mb-1">
-                    Nasdaq-100 (equal-weighted)
-                  </p>
-                  <p>
-                    Every Nasdaq-100 stock has the same weight. Mega-cap stocks do not dominate
-                    results, making this a fairer comparison for concentrated strategies.
-                  </p>
+
+                <div className="flex flex-col gap-3 rounded-lg border border-border/80 bg-muted/20 p-3 sm:flex-row sm:items-start sm:gap-4">
+                  <EqualWeightMiniPie className="size-16 sm:size-[4.5rem] mx-auto sm:mx-0 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-[11px] uppercase tracking-wide text-foreground font-semibold mb-1">
+                      Nasdaq-100 (equal-weighted)
+                    </p>
+                    <p className="leading-relaxed">
+                      Every Nasdaq-100 stock has the same weight. Mega-cap stocks do not dominate
+                      results, making this a fairer comparison for concentrated strategies—like the
+                      equal slices in the pie.
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-[11px] uppercase tracking-wide text-foreground font-semibold mb-1">
-                    S&amp;P 500 (cap-weighted)
-                  </p>
-                  <p>
-                    A broad US market benchmark of 500 large companies, weighted by market cap.
-                    Widely used as the standard for comparing active strategies.
-                  </p>
+
+                <div className="flex flex-col gap-3 rounded-lg border border-border/80 bg-muted/20 p-3 sm:flex-row sm:items-start sm:gap-4">
+                  <CapWeightMiniPie className="size-16 sm:size-[4.5rem] mx-auto sm:mx-0 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-[11px] uppercase tracking-wide text-foreground font-semibold mb-1">
+                      S&amp;P 500 (cap-weighted)
+                    </p>
+                    <p className="leading-relaxed">
+                      A broad US market benchmark of 500 large companies, weighted by market cap.
+                      Widely used as the standard for comparing active strategies—again, larger
+                      names drive more of the return than small ones.
+                    </p>
+                  </div>
                 </div>
               </AccordionContent>
             </AccordionItem>
@@ -609,126 +692,59 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
 
         {slug && configPerfSlice?.computeStatus === 'in_progress' && !configMetricsReady && (
           <p className="text-xs text-amber-700 dark:text-amber-400">
-            This construction is still computing — flip cards and sections below use the model
-            tracking portfolio until data is ready.
+            This portfolio is still computing — flip cards and sections below use the model tracking
+            portfolio until data is ready.
           </p>
         )}
-        {slug && configMetricsReady && (
-          <p className="text-xs text-muted-foreground">
-            Stats below match the <strong>selected portfolio construction</strong> (chart above).
-            Research validation (quintiles, regression) stays at the <strong>model</strong> layer
-            (all 100 names).
-          </p>
-        )}
-
-        {effectiveStrategy && displayMetrics && (
-          <ModelHeaderCard
-            name={effectiveStrategy.name}
-            slug={effectiveStrategy.slug}
-            description={formatStrategyDescriptionForDisplay(effectiveStrategy.description)}
-            status={effectiveStrategy.status}
-            isTopPerformer={isBestSelected}
-            startDate={effectiveStrategy.startDate}
-            variant="performance"
-            stats={[
-              {
-                label: 'Sharpe',
-                value: fmt.num(displayMetrics.sharpeRatio),
-                ...headerStatSentiment('Sharpe', displayMetrics.sharpeRatio),
-              },
-              {
-                label: 'CAGR',
-                value: fmt.pct(displayMetrics.cagr),
-                ...headerStatSentiment('CAGR', displayMetrics.cagr),
-              },
-              {
-                label: 'Total return',
-                value: fmt.pct(displayMetrics.totalReturn),
-                ...headerStatSentiment('Total return', displayMetrics.totalReturn),
-              },
-              {
-                label: 'Max drawdown',
-                value: fmt.pct(displayMetrics.maxDrawdown),
-                ...headerStatSentiment('Max drawdown', displayMetrics.maxDrawdown),
-              },
-              ...(displayMetrics.pctMonthsBeatingNasdaq100 != null
-                ? [
-                    {
-                      label: '% months > Nasdaq',
-                      value: fmt.pct(displayMetrics.pctMonthsBeatingNasdaq100, 0),
-                      ...headerStatSentiment(
-                        '% months > Nasdaq',
-                        displayMetrics.pctMonthsBeatingNasdaq100
-                      ),
-                    },
-                  ]
-                : []),
-            ]}
-          />
-        )}
-
-        {isBestSelected && (
-          <div className="flex items-start gap-3 rounded-lg border border-trader-blue/25 bg-trader-blue/5 dark:bg-trader-blue/10 dark:border-trader-blue/30 p-4">
-            <Star className="size-5 text-trader-blue shrink-0 mt-0.5" fill="currentColor" />
-            <div className="text-sm">
-              <p className="font-semibold text-foreground">
-                Top performing strategy model{' '}
-                <span className="text-trader-blue dark:text-trader-blue-light">
-                  (by composite ranking)
-                </span>
-              </p>
-              <p className="text-muted-foreground mt-1">
-                Models are ranked using breadth, median config quality, and best-config upside — not
-                Sharpe alone — so construction choice doesn&apos;t skew the headline model pick.
-              </p>
-            </div>
-          </div>
-        )}
-
         {/* Bento box flip-card stats */}
         {displayMetrics && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            <FlipCard
-              label="CAGR"
-              value={fmt.pct(displayMetrics.cagr)}
-              explanation="Annualized compound growth rate. If the strategy grew at this exact pace every calendar year since launch, this is the annual return you would have seen."
-              positive={(displayMetrics.cagr ?? 0) > 0}
-            />
-            <FlipCard
-              label="Total return"
-              value={fmt.pct(displayMetrics.totalReturn)}
-              explanation="How much the $10,000 starting capital has grown in total since the strategy launched. This is the raw cumulative gain, before any annualization."
-              positive={(displayMetrics.totalReturn ?? 0) > 0}
-            />
-            <FlipCard
-              label="Max drawdown"
-              value={fmt.pct(displayMetrics.maxDrawdown)}
-              explanation="The worst peak-to-trough decline since launch. If you had invested at the peak and sold at the worst point, this is how much you would have lost. Closer to zero is better."
-              positive={(displayMetrics.maxDrawdown ?? 0) > -0.2}
-            />
-            <FlipCard
-              label="Sharpe ratio"
-              value={fmt.num(displayMetrics.sharpeRatio)}
-              explanation="Return per unit of risk. It divides the strategy's average return by how much the returns fluctuate week to week. Above 1.0 is generally considered good for a stock strategy. Higher is better."
-              positive={(displayMetrics.sharpeRatio ?? 0) > 1}
-              positiveTone="brand"
-            />
-            {displayMetrics.pctMonthsBeatingNasdaq100 != null && (
+          <div>
+            <h3 className="text-lg font-semibold tracking-tight text-foreground mb-3">
+              Metrics at-a-glance
+            </h3>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               <FlipCard
-                label="% months beating Nasdaq-100"
-                value={fmt.pct(displayMetrics.pctMonthsBeatingNasdaq100, 0)}
-                explanation="How often the AI strategy beat the Nasdaq-100 cap-weighted index in a given calendar month. 50% means it beat the benchmark exactly half the time. Above 50% means it wins more often than it loses."
-                positive={(displayMetrics.pctMonthsBeatingNasdaq100 ?? 0) > 0.5}
+                label="CAGR"
+                value={fmt.pct(displayMetrics.cagr)}
+                explanation="Annualized compound growth rate. If the strategy grew at this exact pace every calendar year since launch, this is the annual return you would have seen."
+                positive={(displayMetrics.cagr ?? 0) > 0}
               />
-            )}
-            {research?.quintileWinRate != null && (
               <FlipCard
-                label="Q5 beat Q1 rate"
-                value={`${Math.round(research.quintileWinRate.rate * 100)}%`}
-                explanation={`In ${research.quintileWinRate.wins} out of ${research.quintileWinRate.total} weeks, the top-rated stocks (Q5) outperformed the bottom-rated stocks (Q1). This measures whether the AI ratings actually predict relative performance.`}
-                positive={(research.quintileWinRate?.rate ?? 0) > 0.5}
+                label="Total return"
+                value={fmt.pct(displayMetrics.totalReturn)}
+                explanation="How much the $10,000 starting capital has grown in total since the strategy launched. This is the raw cumulative gain, before any annualization."
+                positive={(displayMetrics.totalReturn ?? 0) > 0}
               />
-            )}
+              <FlipCard
+                label="Max drawdown"
+                value={fmt.pct(displayMetrics.maxDrawdown)}
+                explanation="The worst peak-to-trough decline since launch. If you had invested at the peak and sold at the worst point, this is how much you would have lost. Closer to zero is better."
+                positive={(displayMetrics.maxDrawdown ?? 0) > -0.2}
+              />
+              <FlipCard
+                label="Sharpe ratio"
+                value={fmt.num(displayMetrics.sharpeRatio)}
+                explanation="Return per unit of risk. It divides the strategy's average return by how much the returns fluctuate week to week. Above 1.0 is generally considered good for a stock strategy. Higher is better."
+                positive={(displayMetrics.sharpeRatio ?? 0) > 1}
+                positiveTone="brand"
+              />
+              {displayMetrics.pctMonthsBeatingNasdaq100 != null && (
+                <FlipCard
+                  label="% months outperforming Nasdaq-100"
+                  value={fmt.pct(displayMetrics.pctMonthsBeatingNasdaq100, 0)}
+                  explanation="How often the AI strategy outperformed the Nasdaq-100 cap-weighted index in a given calendar month. 50% means it matched the benchmark half the time on a month-by-month basis. Above 50% means it wins more often than it loses."
+                  positive={(displayMetrics.pctMonthsBeatingNasdaq100 ?? 0) > 0.5}
+                />
+              )}
+              {research?.quintileWinRate != null && (
+                <FlipCard
+                  label="Q5 vs Q1 win rate"
+                  value={`${Math.round(research.quintileWinRate.rate * 100)}%`}
+                  explanation={`In ${research.quintileWinRate.wins} out of ${research.quintileWinRate.total} weeks, the top-rated stocks (Q5) outperformed the bottom-rated stocks (Q1). This measures whether the AI ratings actually predict relative performance.`}
+                  positive={(research.quintileWinRate?.rate ?? 0) > 0.5}
+                />
+              )}
+            </div>
           </div>
         )}
       </section>
@@ -744,7 +760,7 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
                 <span>
                   We pick the <strong>top {whatYouSeeTopN} stocks</strong> every{' '}
                   <strong>{whatYouSeeFreqLabel}</strong> from the Nasdaq-100, ranked by AI score
-                  (selected construction).
+                  (selected portfolio).
                 </span>
               </li>
               <li className="flex items-start gap-2">
@@ -851,7 +867,9 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
                       {fmt.pct(displayMetrics.totalReturn)}
                     </TableCell>
                     <TableCell className="text-right">{fmt.pct(displayMetrics.cagr)}</TableCell>
-                    <TableCell className="text-right">{fmt.pct(displayMetrics.maxDrawdown)}</TableCell>
+                    <TableCell className="text-right">
+                      {fmt.pct(displayMetrics.maxDrawdown)}
+                    </TableCell>
                   </TableRow>
                   <TableRow>
                     <TableCell className="text-muted-foreground">
@@ -904,14 +922,17 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
               <>
                 <CumulativeReturnsChart
                   series={displaySeries}
-                  strategyName={effectiveStrategy?.name}
+                  strategyName={portfolioPerf.chartTitle}
                   startingCapital={displayMetrics.startingCapital}
                 />
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <WeeklyReturnsChart series={displaySeries} strategyName={effectiveStrategy?.name} />
+                  <WeeklyReturnsChart
+                    series={displaySeries}
+                    strategyName={portfolioPerf.chartTitle}
+                  />
                   <CagrOverTimeChart
                     series={displaySeries}
-                    strategyName={effectiveStrategy?.name}
+                    strategyName={portfolioPerf.chartTitle}
                     startingCapital={displayMetrics.startingCapital}
                   />
                 </div>
@@ -946,7 +967,7 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
               />
             </div>
             {displaySeries.length > 2 && (
-              <RiskChart series={displaySeries} strategyName={effectiveStrategy?.name} />
+              <RiskChart series={displaySeries} strategyName={portfolioPerf.chartTitle} />
             )}
           </div>
         ) : (
@@ -961,16 +982,16 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <FlipCard
-                label="% months beating Nasdaq-100 (cap-weighted)"
+                label="% months outperforming Nasdaq-100 (cap-weighted)"
                 value={fmt.pct(displayMetrics.pctMonthsBeatingNasdaq100, 0)}
-                explanation="How often the AI strategy beat the Nasdaq-100 cap-weighted benchmark in a given calendar month. Above 50% means it wins more months than it loses."
+                explanation="How often the AI strategy outperformed the Nasdaq-100 cap-weighted benchmark in a given calendar month. Above 50% means it wins more months than it loses."
                 positive={(displayMetrics.pctMonthsBeatingNasdaq100 ?? 0) > 0.5}
               />
             </div>
             {displaySeries.length > 2 && (
               <RelativeOutperformanceChart
                 series={displaySeries}
-                strategyName={effectiveStrategy?.name}
+                strategyName={portfolioPerf.chartTitle}
               />
             )}
           </div>
@@ -987,8 +1008,8 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
         <p className="text-sm text-muted-foreground mb-5">
           Beyond portfolio returns, we track whether the AI scores actually predict which stocks
           will outperform across <em>all 100</em> Nasdaq-100 stocks, not just our top picks. This
-          layer is tied to the <strong>model</strong> (ratings engine), not the portfolio
-          construction slice you selected above.
+          layer is tied to the <strong>strategy model</strong> (AI ratings engine), not the
+          portfolio.
         </p>
 
         {/* Quintile analysis */}
@@ -1000,7 +1021,7 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
                   <CardTitle className="text-base">Quintile analysis</CardTitle>
                   <CardDescription className="mt-1">
                     Stocks split into 5 equal groups by AI score. Q1 = lowest rated, Q5 = highest
-                    rated. If the model has real signal, Q5 should consistently beat Q1.
+                    rated. If the model has real signal, Q5 should consistently outperform Q1.
                   </CardDescription>
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1037,17 +1058,14 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
                           className="h-7 text-xs gap-1.5 shrink-0"
                         >
                           Week of{' '}
-                          {fmt.date(
-                            quintileDate ?? research?.quintileHistory?.[0]?.runDate ?? ''
-                          )}
+                          {fmt.date(quintileDate ?? research?.quintileHistory?.[0]?.runDate ?? '')}
                           <ChevronDown className="size-3" />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="max-h-48 overflow-y-auto">
                         {(research?.quintileHistory ?? []).map((s) => {
                           const active =
-                            (quintileDate ?? research?.quintileHistory?.[0]?.runDate) ===
-                            s.runDate;
+                            (quintileDate ?? research?.quintileHistory?.[0]?.runDate) === s.runDate;
                           return (
                             <DropdownMenuItem
                               key={s.runDate}
@@ -1069,7 +1087,7 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
               {research?.quintileWinRate && (
                 <div className="mb-4 rounded-lg border bg-muted/30 px-4 py-3">
                   <p className="text-sm font-medium">
-                    Q5 beat Q1 in{' '}
+                    Q5 outperformed Q1 in{' '}
                     <span
                       className={
                         research.quintileWinRate.rate >= 0.5 ? 'text-green-600' : 'text-red-500'
@@ -1119,7 +1137,7 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
 
               {weeklySpread != null && (
                 <p className="text-sm text-muted-foreground mt-3">
-                  Q5 beat Q1 by{' '}
+                  Q5 outperformed Q1 by{' '}
                   <strong className={weeklySpread >= 0 ? 'text-green-600' : 'text-red-600'}>
                     {fmt.pct(weeklySpread, 2)}
                   </strong>{' '}
@@ -1144,7 +1162,10 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
             const isWeekly = regressionDisplay.mode === 'weekly';
 
             return (
-              <Card>
+              <Card
+                id="research-signal-strength"
+                className="scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
+              >
                 <CardHeader className="pb-2">
                   <div className="space-y-3">
                     <div>
@@ -1322,9 +1343,7 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
                           Context
                         </span>
                       </div>
-                      <p className="font-semibold text-lg">
-                        {fmt.num(regressionDisplay.alpha, 4)}
-                      </p>
+                      <p className="font-semibold text-lg">{fmt.num(regressionDisplay.alpha, 4)}</p>
                       <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
                         Predicted return at AI score = 0. This mostly reflects weekly market
                         direction.
@@ -1345,15 +1364,15 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
                         </>
                       ) : (
                         <>
-                          Monthly average of {regressionDisplay.weekCount} weekly regressions &middot;{' '}
-                          {formatMonthLabel(regressionDisplay.month)} &middot; n≈
+                          Monthly average of {regressionDisplay.weekCount} weekly regressions
+                          &middot; {formatMonthLabel(regressionDisplay.month)} &middot; n≈
                           {regressionDisplay.sampleSize} stocks
                         </>
                       )}
                     </p>
                     {effectiveStrategy && (
                       <Link
-                        href={`/strategy-model/${effectiveStrategy.slug}#methodology-regression`}
+                        href={`/strategy-models/${effectiveStrategy.slug}#methodology-regression`}
                         className="text-trader-blue hover:underline inline-flex items-center gap-1"
                       >
                         Full calculation details <ArrowRight className="size-3" />
@@ -1378,7 +1397,7 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
             returns. We test this hypothesis live.{' '}
             {effectiveStrategy && (
               <Link
-                href={`/strategy-model/${effectiveStrategy.slug}`}
+                href={`/strategy-models/${effectiveStrategy.slug}`}
                 className="text-trader-blue hover:underline inline-flex items-center gap-1"
               >
                 See how this model works <ArrowRight className="size-3" />
@@ -1528,7 +1547,7 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
             </p>
           </div>
           <Button asChild>
-            <Link href={`/strategy-model/${effectiveStrategy.slug}`} className="gap-2 shrink-0">
+            <Link href={`/strategy-models/${effectiveStrategy.slug}`} className="gap-2 shrink-0">
               Model details <ArrowRight className="size-4" />
             </Link>
           </Button>

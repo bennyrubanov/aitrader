@@ -44,6 +44,7 @@ import {
   type RiskLevel,
 } from '@/components/portfolio-config/portfolio-config-context';
 import type { OnboardingRebalanceCounts } from '@/lib/onboarding-meta';
+import { strategyModelDropdownSubtitle } from '@/lib/strategy-list-meta';
 import { cn } from '@/lib/utils';
 
 const RISK_LEVELS: RiskLevel[] = [1, 2, 3, 4, 5, 6];
@@ -132,6 +133,8 @@ type OnboardingStrategyRow = {
   rebalanceFrequency: string;
   isDefault: boolean;
   sharpeRatio: number | null;
+  startDate: string | null;
+  runCount: number;
 };
 
 function formatCurrency(n: number): string {
@@ -351,7 +354,7 @@ export function PortfolioOnboardingDialog() {
                 },
                 {
                   icon: <Layers className="size-4 text-trader-blue shrink-0 mt-0.5" />,
-                  text: 'You can follow multiple portfolios with different configurations from Explore Portfolios.',
+                  text: 'You can follow multiple portfolios with different portfolios from Explore Portfolios.',
                 },
               ].map(({ icon, text }) => (
                 <div
@@ -398,10 +401,7 @@ export function PortfolioOnboardingDialog() {
                   <div className="rounded-lg border bg-card p-3">
                     <p className="text-sm font-semibold">{selectedStrategy.name}</p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Top {selectedStrategy.portfolioSize} · {selectedStrategy.rebalanceFrequency}
-                      {selectedStrategy.sharpeRatio != null
-                        ? ` · Sharpe ${selectedStrategy.sharpeRatio.toFixed(2)}`
-                        : ''}
+                      {strategyModelDropdownSubtitle(selectedStrategy)}
                     </p>
                   </div>
                   <Button asChild variant="outline" size="sm" className="w-full gap-1.5">
@@ -446,10 +446,7 @@ export function PortfolioOnboardingDialog() {
                               )}
                             </div>
                             <span className="text-xs text-muted-foreground">
-                              Top {strategy.portfolioSize} · {strategy.rebalanceFrequency}
-                              {strategy.sharpeRatio != null
-                                ? ` · Sharpe ${strategy.sharpeRatio.toFixed(2)}`
-                                : ''}
+                              {strategyModelDropdownSubtitle(strategy)}
                             </span>
                           </DropdownMenuItem>
                         ))}
@@ -458,7 +455,7 @@ export function PortfolioOnboardingDialog() {
                   </div>
                   {selectedStrategy && (
                     <Button asChild variant="ghost" size="sm" className="w-full justify-start gap-1.5 text-xs h-8 px-1">
-                      <Link href={`/strategy-model/${selectedStrategy.slug}`} target="_blank" rel="noopener noreferrer">
+                      <Link href={`/strategy-models/${selectedStrategy.slug}`} target="_blank" rel="noopener noreferrer">
                         <ExternalLink className="size-3" />
                         How this model works
                       </Link>

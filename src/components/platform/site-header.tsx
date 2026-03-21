@@ -5,10 +5,11 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Home } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { SidebarTrigger } from '@/components/ui/sidebar';
+import { SidebarControlDialog } from '@/components/platform/sidebar-control-dialog';
 import { Separator } from '@/components/ui/separator';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { MiniStockSearch } from '@/components/platform/mini-stock-search';
+import { PlanLabel } from '@/components/account/plan-label';
 import { useAuthState } from '@/components/auth/auth-state-context';
 
 type ViewMeta = {
@@ -59,9 +60,22 @@ const getMetaFromPath = (pathname: string): ViewMeta => {
 export function SiteHeader() {
   const pathname = usePathname();
   const router = useRouter();
-  const { isAuthenticated, isLoaded, hasPremiumAccess } = useAuthState();
+  const {
+    isAuthenticated,
+    isLoaded,
+    hasPremiumAccess,
+    subscriptionTier,
+    name: authName,
+    email,
+  } = useAuthState();
   const viewMeta = getMetaFromPath(pathname);
   const getStartedHref = hasPremiumAccess ? '/platform/ratings' : isAuthenticated ? '/pricing' : '/sign-up';
+
+  const displayName = !isLoaded
+    ? ''
+    : !isAuthenticated
+      ? 'Guest'
+      : authName?.trim() || email?.split('@')[0] || 'Account';
 
   return (
     <header className="bg-background sticky top-0 z-50 border-b">
@@ -78,20 +92,50 @@ export function SiteHeader() {
           <Image src="/favicon.ico" alt="AITrader home" width={24} height={24} />
         </Link>
 
-        <Separator orientation="vertical" className="h-5" />
+        <Separator orientation="vertical" className="h-5 shrink-0" />
 
-        <SidebarTrigger />
+        <SidebarControlDialog />
 
-        <Separator orientation="vertical" className="h-5 hidden md:block" />
+        <Separator orientation="vertical" className="hidden h-5 shrink-0 md:block" />
 
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold">{viewMeta.title}</p>
-          <p className="truncate text-xs text-muted-foreground">{viewMeta.subtitle}</p>
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          {isLoaded ? (
+            <>
+              <Link
+                href="/platform/settings"
+                prefetch
+                onMouseEnter={() => router.prefetch('/platform/settings')}
+                onFocus={() => router.prefetch('/platform/settings')}
+                onPointerDown={() => router.prefetch('/platform/settings')}
+                className="flex min-w-0 shrink-0 items-center gap-3 rounded-md outline-none ring-offset-background transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label="Account and plan settings"
+              >
+                <span className="max-w-[6.5rem] truncate text-sm font-medium sm:max-w-[11rem]">
+                  {displayName}
+                </span>
+                <span className="inline-flex max-w-[min(12rem,45vw)] items-center rounded-full border border-border px-2.5 py-0.5">
+                  <PlanLabel
+                    isPremium={hasPremiumAccess}
+                    subscriptionTier={subscriptionTier}
+                    className="min-w-0 truncate text-xs normal-case tracking-normal"
+                    iconClassName="size-3.5"
+                  />
+                </span>
+              </Link>
+              <Separator orientation="vertical" className="h-5 shrink-0" />
+            </>
+          ) : null}
+          <div className="min-w-0 flex-1 max-w-lg">
+            <p className="truncate text-sm font-semibold">{viewMeta.title}</p>
+            <p className="truncate text-xs text-muted-foreground">{viewMeta.subtitle}</p>
+          </div>
         </div>
+
+        <Separator orientation="vertical" className="h-5 shrink-0" />
 
         <MiniStockSearch />
 
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-3">
           <ThemeToggle />
           {isLoaded && !isAuthenticated ? (
             <>
