@@ -28,11 +28,14 @@ import { Skeleton } from '@/components/ui/skeleton';
 import type { PortfolioConfigSlice } from '@/components/platform/portfolio-config-controls';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
+  FREQUENCY_LABELS,
   RISK_LABELS,
+  RISK_TOP_N,
   type RebalanceFrequency,
   type RiskLevel,
 } from '@/components/portfolio-config/portfolio-config-context';
 import { PORTFOLIO_EXPLORE_QUICK_PICKS } from '@/lib/portfolio-explore-quick-picks';
+import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
 import { cn } from '@/lib/utils';
 
 function fmtUsd(n: number | null | undefined): string {
@@ -67,6 +70,14 @@ function sliceFromConfig(c: RankedConfig): PortfolioConfigSlice {
     rebalanceFrequency: c.rebalanceFrequency as PortfolioConfigSlice['rebalanceFrequency'],
     weightingMethod: c.weightingMethod as PortfolioConfigSlice['weightingMethod'],
   };
+}
+
+function portfolioLabelFromSlice(p: PortfolioConfigSlice): string {
+  return formatPortfolioConfigLabel({
+    topN: RISK_TOP_N[p.riskLevel],
+    weightingMethod: p.weightingMethod,
+    rebalanceFrequency: p.rebalanceFrequency,
+  });
 }
 
 /** Default slice when parent has not set a portfolio yet (e.g. strategy model sidebar). */
@@ -367,6 +378,8 @@ type Props = {
   slug: string;
   portfolioConfig: PortfolioConfigSlice | null;
   onPortfolioConfigChange: (next: PortfolioConfigSlice) => void;
+  /** Called after the user commits a choice from the dialog (list or chart), before the dialog closes. */
+  onDialogPortfolioCommitted?: () => void;
   className?: string;
 };
 
@@ -374,9 +387,11 @@ export function SidebarPortfolioConfigPicker({
   slug,
   portfolioConfig,
   onPortfolioConfigChange,
+  onDialogPortfolioCommitted,
   className,
 }: Props) {
   const [rankedConfigs, setRankedConfigs] = useState<RankedConfig[]>([]);
+  const [latestPerformanceDate, setLatestPerformanceDate] = useState<string | null>(null);
   const [benchmarkEndingValues, setBenchmarkEndingValues] = useState<BenchmarkEndingValues | null>(
     null
   );
@@ -402,6 +417,7 @@ export function SidebarPortfolioConfigPicker({
     setLoading(true);
     setRankedConfigs([]);
     setBenchmarkEndingValues(null);
+    setLatestPerformanceDate(null);
     try {
       const res = await fetch(
         `/api/platform/portfolio-configs-ranked?slug=${encodeURIComponent(slug)}`
@@ -410,9 +426,11 @@ export function SidebarPortfolioConfigPicker({
         const data = (await res.json()) as {
           configs?: RankedConfig[];
           benchmarkEndingValues?: BenchmarkEndingValues | null;
+          latestPerformanceDate?: string | null;
         };
         setRankedConfigs(data.configs ?? []);
         setBenchmarkEndingValues(data.benchmarkEndingValues ?? null);
+        setLatestPerformanceDate(data.latestPerformanceDate ?? null);
       } else {
         setRankedConfigs([]);
         setBenchmarkEndingValues(null);
@@ -530,43 +548,34 @@ export function SidebarPortfolioConfigPicker({
     [filteredList, benchmarkEndingValues]
   );
 
-  const firstBenchmarkRowIndex = useMemo(
-    () => mergedRankRows.findIndex((r) => r.kind === 'benchmark'),
-    [mergedRankRows]
-  );
+  /** Display order of benchmark rows (0 = highest ending value in the merged list). */
+  const benchmarkOrderByRowIndex = useMemo(() => {
+    const m = new Map<number, number>();
+    let o = 0;
+    mergedRankRows.forEach((r, i) => {
+      if (r.kind === 'benchmark') m.set(i, o++);
+    });
+    return m;
+  }, [mergedRankRows]);
+
+  const benchmarkCount = benchmarkOrderByRowIndex.size;
 
   const listScrollRef = useRef<HTMLDivElement | null>(null);
-  const firstBenchmarkElRef = useRef<HTMLDivElement | null>(null);
-  const captureFirstBenchmarkRef = useCallback((el: HTMLDivElement | null) => {
-    firstBenchmarkElRef.current = el;
-  }, []);
-
-  const [indicesOutOfView, setIndicesOutOfView] = useState(false);
+  const benchmarkElByOrderRef = useRef<(HTMLDivElement | null)[]>([]);
+  const indicesScrollCursorRef = useRef(0);
 
   useLayoutEffect(() => {
-    if (!dialogOpen || browseMode !== 'list' || firstBenchmarkRowIndex < 0) {
-      setIndicesOutOfView(false);
-      return;
-    }
-    const root = listScrollRef.current;
-    const target = firstBenchmarkElRef.current;
-    if (!root || !target) {
-      setIndicesOutOfView(false);
-      return;
-    }
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        setIndicesOutOfView(!entry.isIntersecting);
-      },
-      { root, rootMargin: '0px 0px -4px 0px', threshold: 0 }
-    );
-    observer.observe(target);
-    return () => observer.disconnect();
-  }, [dialogOpen, browseMode, firstBenchmarkRowIndex, mergedRankRows]);
+    benchmarkElByOrderRef.current = new Array(benchmarkCount).fill(null);
+    indicesScrollCursorRef.current = 0;
+  }, [benchmarkCount]);
 
-  const scrollToFirstIndex = useCallback(() => {
-    firstBenchmarkElRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  }, []);
+  const cycleScrollToNextIndex = useCallback(() => {
+    if (benchmarkCount === 0) return;
+    const els = benchmarkElByOrderRef.current;
+    const i = indicesScrollCursorRef.current % benchmarkCount;
+    els[i]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    indicesScrollCursorRef.current = (i + 1) % benchmarkCount;
+  }, [benchmarkCount]);
 
   const selectedId = useMemo(() => {
     if (!portfolioConfig || !rankedConfigs.length) return '';
@@ -586,6 +595,7 @@ export function SidebarPortfolioConfigPicker({
 
   const handlePick = (c: RankedConfig) => {
     onPortfolioConfigChange(sliceFromConfig(c));
+    onDialogPortfolioCommitted?.();
     setDialogOpen(false);
   };
 
@@ -593,6 +603,7 @@ export function SidebarPortfolioConfigPicker({
     const c = rankedConfigs.find((x) => x.id === configId);
     if (c) {
       onPortfolioConfigChange(sliceFromConfig(c));
+      onDialogPortfolioCommitted?.();
       setDialogOpen(false);
     }
     setBrowseMode('list');
@@ -633,21 +644,47 @@ export function SidebarPortfolioConfigPicker({
             <DialogTrigger asChild>
               <Button
                 variant="outline"
-                className="h-auto min-h-10 w-full justify-between gap-2 py-2 text-left font-normal"
+                className="h-auto min-h-10 w-full justify-between gap-2 py-2.5 text-left font-normal"
               >
-                <span className="line-clamp-3 text-sm">
+                <span className="flex min-w-0 flex-1 flex-col items-start gap-1 text-left">
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Selected portfolio
+                  </span>
                   {selectedConfig ? (
-                    <>
-                      {selectedConfig.label} · $10k →{' '}
-                      <span className="font-bold">
-                        {fmtUsd(selectedConfig.metrics.endingValuePortfolio)}
+                    <span className="flex min-w-0 w-full items-start gap-1.5 text-sm font-medium text-foreground">
+                      <span
+                        className={cn(
+                          'mt-1.5 size-1.5 shrink-0 rounded-full',
+                          CONFIG_CARD_RISK_DOT[selectedConfig.riskLevel as RiskLevel] ?? 'bg-muted'
+                        )}
+                        aria-hidden
+                      />
+                      <span className="min-w-0 break-words text-left leading-snug">
+                        {formatPortfolioConfigLabel({
+                          topN: selectedConfig.topN,
+                          weightingMethod: selectedConfig.weightingMethod,
+                          rebalanceFrequency: selectedConfig.rebalanceFrequency,
+                        })}
                       </span>
-                    </>
+                    </span>
+                  ) : portfolioConfig ? (
+                    <span className="flex min-w-0 w-full items-start gap-1.5 text-sm font-medium text-foreground">
+                      <span
+                        className={cn(
+                          'mt-1.5 size-1.5 shrink-0 rounded-full',
+                          CONFIG_CARD_RISK_DOT[portfolioConfig.riskLevel as RiskLevel] ?? 'bg-muted'
+                        )}
+                        aria-hidden
+                      />
+                      <span className="min-w-0 break-words text-left leading-snug">
+                        {portfolioLabelFromSlice(portfolioConfig)}
+                      </span>
+                    </span>
                   ) : (
-                    'Choose portfolio'
+                    <span className="text-sm text-muted-foreground">Choose a portfolio</span>
                   )}
                 </span>
-                <ChevronDown className="size-4 shrink-0 opacity-60" />
+                <ChevronDown className="size-4 shrink-0 self-center opacity-60" />
               </Button>
             </DialogTrigger>
             <DialogContent
@@ -766,6 +803,7 @@ export function SidebarPortfolioConfigPicker({
                                 <Skeleton className="h-[min(380px,50vh)] w-full rounded-lg" />
                               ) : (
                                 <ExplorePortfoliosEquityChart
+                                  variant="performancePicker"
                                   dates={equitySeriesPayload.dates}
                                   series={equitySeriesPayload.series.map((s) => ({
                                     ...s,
@@ -803,28 +841,29 @@ export function SidebarPortfolioConfigPicker({
                                 would sit in a pure ending-value ranking.
                               </TooltipContent>
                             </Tooltip>
-                            <div className="relative rounded-lg bg-muted/10 px-1 py-1.5 sm:px-2">
+                            <div className="rounded-lg bg-muted/10 px-1 py-1.5 sm:px-2">
                               <div className="mb-2 flex items-end justify-between gap-3 px-0.5 sm:px-1">
                                 <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                                   Portfolios
                                 </span>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <span
-                                      className={cn(
-                                        'block text-right text-[10px] font-semibold uppercase tracking-wide text-muted-foreground',
-                                        INDEX_RAIL_W,
-                                        'min-w-[4.5rem] sm:min-w-0'
-                                      )}
-                                    >
-                                      Indices
-                                    </span>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="bottom" className="max-w-[240px] text-xs">
-                                    Benchmark rows on the same $10k track, ordered by ending value
-                                    with portfolios.
-                                  </TooltipContent>
-                                </Tooltip>
+                                <button
+                                  type="button"
+                                  onClick={cycleScrollToNextIndex}
+                                  disabled={benchmarkCount === 0}
+                                  className={cn(
+                                    'inline-flex items-center justify-end gap-0.5 text-right text-[10px] font-semibold uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-50',
+                                    INDEX_RAIL_W,
+                                    'min-w-[4.5rem] sm:min-w-0'
+                                  )}
+                                  aria-label="Scroll to indices — click again for each index in value order"
+                                >
+                                  Indices
+                                  <ArrowDown
+                                    className="size-3.5 shrink-0 opacity-80"
+                                    strokeWidth={2.25}
+                                    aria-hidden
+                                  />
+                                </button>
                               </div>
                               <div
                                 ref={listScrollRef}
@@ -844,33 +883,18 @@ export function SidebarPortfolioConfigPicker({
                                     }
                                     benchmarks={benchmarkEndingValues}
                                     benchmarkAnchorRef={
-                                      row.kind === 'benchmark' &&
-                                      rowIndex === firstBenchmarkRowIndex
-                                        ? captureFirstBenchmarkRef
+                                      row.kind === 'benchmark'
+                                        ? (el) => {
+                                            const order = benchmarkOrderByRowIndex.get(rowIndex);
+                                            if (order == null) return;
+                                            benchmarkElByOrderRef.current[order] = el;
+                                          }
                                         : undefined
                                     }
                                     onPick={handlePick}
                                   />
                                 ))}
                               </div>
-                              {indicesOutOfView && firstBenchmarkRowIndex >= 0 ? (
-                                <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center pb-1 pt-10">
-                                  <button
-                                    type="button"
-                                    onClick={scrollToFirstIndex}
-                                    className="pointer-events-auto inline-flex flex-col items-center gap-0.5 rounded-full border border-border/60 bg-background/95 px-2.5 py-1.5 text-[10px] font-medium text-muted-foreground shadow-md backdrop-blur-sm transition-colors hover:bg-muted hover:text-foreground"
-                                    aria-label="Scroll to indices"
-                                  >
-                                    <ArrowDown
-                                      className="size-4 animate-bounce text-trader-blue dark:text-trader-blue-light"
-                                      aria-hidden
-                                    />
-                                    <span className="max-w-[8rem] text-center leading-tight">
-                                      Indices below
-                                    </span>
-                                  </button>
-                                </div>
-                              ) : null}
                             </div>
                           </div>
                         )}
@@ -883,22 +907,20 @@ export function SidebarPortfolioConfigPicker({
                       id="portfolio-picker-filters-panel"
                       className="flex max-h-[min(42vh,360px)] w-full shrink-0 flex-col gap-4 overflow-y-auto overscroll-y-contain border-t border-border bg-muted/20 px-4 py-4 md:max-h-none md:w-[min(19.5rem,100%)] md:border-l md:border-t-0 md:py-5"
                     >
-                      <div className="flex h-6 items-center gap-1.5">
-                        <p className="min-w-0 truncate text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      <div className="flex h-6 items-center gap-1">
+                        <p className="min-w-0 truncate text-xs font-semibold uppercase tracking-wider text-muted-foreground leading-none">
                           Filter portfolios
                         </p>
                         {activeFilterCount > 0 ? (
-                          <Button
+                          <button
                             type="button"
-                            variant="ghost"
-                            size="icon"
                             title="Clear filters"
-                            className="size-6 shrink-0 rounded-md text-muted-foreground hover:text-foreground"
-                            onClick={clearFilters}
                             aria-label="Clear filters"
+                            onClick={clearFilters}
+                            className="inline-flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                           >
-                            <FilterX className="size-3.5 shrink-0" aria-hidden />
-                          </Button>
+                            <FilterX className="size-3 shrink-0" strokeWidth={2} aria-hidden />
+                          </button>
                         ) : null}
                       </div>
                       <ExplorePortfolioFilterControls
@@ -912,75 +934,78 @@ export function SidebarPortfolioConfigPicker({
                         onRiskChange={setRiskFilter}
                         onFreqChange={setFreqFilter}
                         onWeightChange={setWeightFilter}
-                      />
-                      <div className="space-y-2 border-t border-border/60 pt-4">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Quick picks
-                        </p>
-                        <div className="grid grid-cols-2 gap-2">
-                          {PORTFOLIO_EXPLORE_QUICK_PICKS.map((pick) => {
-                            const matched = rankedConfigs.find(
-                              (c) =>
-                                c.riskLevel === pick.riskLevel &&
-                                c.rebalanceFrequency === pick.rebalanceFrequency &&
-                                c.weightingMethod === pick.weightingMethod
-                            );
-                            const isQuickPickActive =
-                              !filterBeatNasdaq &&
-                              !filterBeatSp500 &&
-                              riskFilter === pick.riskLevel &&
-                              freqFilter === pick.rebalanceFrequency &&
-                              (pick.riskLevel === 6 && pick.weightingMethod === 'equal'
-                                ? weightFilter === 'equal' || weightFilter === null
-                                : weightFilter === pick.weightingMethod);
-                            return (
-                              <button
-                                key={pick.key}
-                                type="button"
-                                aria-pressed={isQuickPickActive}
-                                onClick={() => {
-                                  if (isQuickPickActive) {
-                                    clearFilters();
-                                  } else {
-                                    setFilterBeatNasdaq(false);
-                                    setFilterBeatSp500(false);
-                                    setRiskFilter(pick.riskLevel);
-                                    setFreqFilter(pick.rebalanceFrequency);
-                                    setWeightFilter(pick.weightingMethod);
-                                  }
-                                }}
-                                className={cn(
-                                  'rounded-lg border px-2.5 py-2 text-left transition-all hover:shadow-sm',
-                                  isQuickPickActive
-                                    ? 'border-trader-blue bg-trader-blue/10 shadow-sm ring-2 ring-trader-blue/35 hover:border-trader-blue'
-                                    : pick.highlight
-                                      ? 'border-trader-blue/25 bg-trader-blue/[0.04] hover:border-trader-blue/50'
-                                      : 'border-border hover:border-foreground/20 hover:bg-muted/30'
-                                )}
-                              >
-                                <p className="text-[11px] font-semibold leading-tight">
-                                  {pick.label}
-                                </p>
-                                <p className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-muted-foreground">
-                                  {pick.description}
-                                </p>
-                                {matched?.metrics.totalReturn != null && (
-                                  <p
+                        benchmarkOutperformanceAsOf={latestPerformanceDate}
+                        betweenBenchmarkAndRisk={
+                          <div className="space-y-2 border-t border-border/60 pt-4">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                              Quick picks
+                            </p>
+                            <div className="grid grid-cols-2 gap-2">
+                              {PORTFOLIO_EXPLORE_QUICK_PICKS.map((pick) => {
+                                const matched = rankedConfigs.find(
+                                  (c) =>
+                                    c.riskLevel === pick.riskLevel &&
+                                    c.rebalanceFrequency === pick.rebalanceFrequency &&
+                                    c.weightingMethod === pick.weightingMethod
+                                );
+                                const isQuickPickActive =
+                                  !filterBeatNasdaq &&
+                                  !filterBeatSp500 &&
+                                  riskFilter === pick.riskLevel &&
+                                  freqFilter === pick.rebalanceFrequency &&
+                                  (pick.riskLevel === 6 && pick.weightingMethod === 'equal'
+                                    ? weightFilter === 'equal' || weightFilter === null
+                                    : weightFilter === pick.weightingMethod);
+                                return (
+                                  <button
+                                    key={pick.key}
+                                    type="button"
+                                    aria-pressed={isQuickPickActive}
+                                    onClick={() => {
+                                      if (isQuickPickActive) {
+                                        clearFilters();
+                                      } else {
+                                        setFilterBeatNasdaq(false);
+                                        setFilterBeatSp500(false);
+                                        setRiskFilter(pick.riskLevel);
+                                        setFreqFilter(pick.rebalanceFrequency);
+                                        setWeightFilter(pick.weightingMethod);
+                                      }
+                                    }}
                                     className={cn(
-                                      'mt-1 text-[10px] font-medium',
-                                      matched.metrics.totalReturn >= 0
-                                        ? 'text-green-600 dark:text-green-400'
-                                        : 'text-red-600 dark:text-red-400'
+                                      'rounded-lg border px-2.5 py-2 text-left transition-all hover:shadow-sm',
+                                      isQuickPickActive
+                                        ? 'border-trader-blue bg-trader-blue/10 shadow-sm ring-2 ring-trader-blue/35 hover:border-trader-blue'
+                                        : pick.highlight
+                                          ? 'border-trader-blue/25 bg-trader-blue/[0.04] hover:border-trader-blue/50'
+                                          : 'border-border hover:border-foreground/20 hover:bg-muted/30'
                                     )}
                                   >
-                                    {fmtQuickPickReturn(matched.metrics.totalReturn)}
-                                  </p>
-                                )}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
+                                    <p className="text-[11px] font-semibold leading-tight">
+                                      {pick.label}
+                                    </p>
+                                    <p className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-muted-foreground">
+                                      {pick.description}
+                                    </p>
+                                    {matched?.metrics.totalReturn != null && (
+                                      <p
+                                        className={cn(
+                                          'mt-1 text-[10px] font-medium',
+                                          matched.metrics.totalReturn >= 0
+                                            ? 'text-green-600 dark:text-green-400'
+                                            : 'text-red-600 dark:text-red-400'
+                                        )}
+                                      >
+                                        {fmtQuickPickReturn(matched.metrics.totalReturn)}
+                                      </p>
+                                    )}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        }
+                      />
                     </aside>
                   ) : null}
                 </div>

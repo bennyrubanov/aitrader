@@ -75,8 +75,7 @@ export function WeeklyReturnsChart({
     <div className="rounded-lg border bg-card p-4">
       <p className="text-sm font-semibold mb-1">Weekly returns</p>
       <p className="text-xs text-muted-foreground mb-3">
-        Week-over-week percentage change. The series label matches the performance overview chart (model
-        and portfolio construction).
+        Week-over-week percentage change.
       </p>
       <ChartContainer
         className="h-[180px] w-full"
@@ -135,8 +134,7 @@ export function CagrOverTimeChart({
     <div className="rounded-lg border bg-card p-4">
       <p className="text-sm font-semibold mb-1">CAGR over time</p>
       <p className="text-xs text-muted-foreground mb-3">
-        Annualized growth from inception using a ${startingCapital.toLocaleString()} starting value. AI line
-        label matches the performance overview chart.
+        Annualized growth from inception using a ${startingCapital.toLocaleString()} starting value.
       </p>
       <ChartContainer
         className="h-[180px] w-full"
@@ -345,8 +343,8 @@ export function RiskChart({
         </p>
         <p className="text-xs text-muted-foreground mt-0.5">
           {view === 'drawdown'
-            ? 'Drawdown from rolling peak for each series — same benchmarks as the overview chart. Tap chips to show or hide lines.'
-            : `Rolling ${sharpeWindow}-week Sharpe (annualized) for each series — same benchmarks as the overview. Tap chips to show or hide lines. Above 1.0 is often cited as “good” for equities.`}
+            ? 'Drawdown from rolling peak for each series. Tap chips to show or hide lines.'
+            : `Rolling ${sharpeWindow}-week Sharpe (annualized) for each series. Tap chips to show or hide lines. Above 1.0 is often cited as “good” for equities.`}
         </p>
       </div>
 
@@ -539,8 +537,7 @@ export function CumulativeReturnsChart({
     <div className="rounded-lg border bg-card p-4">
       <p className="text-sm font-semibold mb-1">Cumulative returns</p>
       <p className="text-xs text-muted-foreground mb-3">
-        Total percentage return from inception. The AI line uses the same label as the performance overview
-        (model and portfolio construction); benchmarks unchanged.
+        Total percentage return from inception.
       </p>
 
       <div className="flex flex-wrap gap-1.5 mb-3">
@@ -654,7 +651,14 @@ export function RelativeOutperformanceChart({
     <div className="rounded-lg border bg-card p-4">
       <p className="text-sm font-semibold mb-1">Cumulative outperformance</p>
       <p className="text-xs text-muted-foreground mb-3">
-        How much {aiLabel} is ahead of (or behind) each benchmark over time. Above zero = AI is winning.
+        How much{' '}
+        <span
+          className="inline-flex max-w-full min-w-0 items-center truncate rounded-full border border-border bg-muted/40 px-2.5 py-0.5 align-middle text-[0.8125rem] font-medium text-foreground"
+          title={aiLabel}
+        >
+          {aiLabel}
+        </span>{' '}
+        is ahead of (or behind) each benchmark over time. Above zero = AI is winning.
       </p>
 
       <div className="flex flex-wrap gap-1.5 mb-3">

@@ -153,8 +153,13 @@ export const ContentPageLayout: React.FC<ContentPageLayoutProps> = ({
 
               {/* Desktop left sidebar — hidden on mobile */}
               {hasLeftSidebar && (
-                <aside className="hidden lg:block lg:w-56 shrink-0 sticky top-24 self-start max-h-[calc(100vh-7rem)] overflow-y-auto overscroll-y-contain [scrollbar-gutter:stable] px-1.5 min-w-0">
-                  <div className="space-y-5 pb-2">{leftSidebarContent}</div>
+                <aside
+                  className={cn(
+                    'hidden lg:block shrink-0 sticky top-24 self-start max-h-[calc(100vh-7rem)] overflow-y-auto overscroll-y-contain [scrollbar-gutter:stable] pl-3 pr-7 min-w-0',
+                    isRightToc ? 'lg:w-64' : 'lg:w-56'
+                  )}
+                >
+                  <div className="space-y-5 pb-2 pr-1">{leftSidebarContent}</div>
                 </aside>
               )}
 
@@ -181,8 +186,8 @@ export const ContentPageLayout: React.FC<ContentPageLayoutProps> = ({
 
               {/* Desktop right TOC — docs-style, only when tocPosition='right' */}
               {hasRightToc && (
-                <aside className="hidden xl:block xl:w-48 shrink-0 sticky top-24 self-start max-h-[calc(100vh-7rem)] overflow-y-auto overscroll-y-contain [scrollbar-gutter:stable] px-1.5 min-w-0">
-                  <div className="pb-2">{tocNav}</div>
+                <aside className="hidden xl:block xl:w-48 shrink-0 sticky top-24 self-start max-h-[calc(100vh-7rem)] overflow-y-auto overscroll-y-contain [scrollbar-gutter:stable] pl-3 pr-7 min-w-0">
+                  <div className="pb-2 pr-1">{tocNav}</div>
                 </aside>
               )}
             </div>

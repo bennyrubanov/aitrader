@@ -3,7 +3,7 @@
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowRight,
   BadgeCheck,
@@ -18,6 +18,14 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
@@ -57,7 +65,10 @@ import {
   type QuintileSnapshot,
   type MonthlyQuintileSnapshot,
 } from '@/lib/platform-performance-payload';
+import type { ConfigHoldingsSummary } from '@/lib/portfolio-config-holdings';
 import { formatStrategyDescriptionForDisplay } from '@/lib/format-strategy-description';
+import { formatPortfolioHoldingsSubtitle } from '@/lib/portfolio-config-display';
+import { cn } from '@/lib/utils';
 import {
   ConfigPerformanceChartBlock,
   PortfolioAtAGlanceCard,
@@ -77,16 +88,16 @@ const PerformanceChart = dynamic(
   }
 );
 
-const PERFORMANCE_TOC = [
+const PERFORMANCE_TOC_BASE = [
   { id: 'strategy-model', label: 'Strategy model' },
   { id: 'selected-portfolio', label: 'Selected portfolio' },
-  { id: 'overview', label: 'Overview' },
+  { id: 'overview', label: 'Performance overview' },
   { id: 'what-you-see', label: 'What you are looking at' },
+  { id: 'holdings', label: 'Portfolio holdings' },
   { id: 'returns', label: 'Returns' },
   { id: 'risk', label: 'Risk' },
   { id: 'consistency', label: 'Consistency' },
   { id: 'research-validation', label: 'Research validation' },
-  { id: 'holdings', label: 'Latest holdings' },
   { id: 'reality-checks', label: 'Reality checks' },
 ];
 
@@ -118,6 +129,24 @@ const fmt = {
     return displayDateFormatter.format(parsed);
   },
 };
+
+function holdingScoreBucketClass(bucket: HoldingItem['bucket']) {
+  if (bucket === 'buy') {
+    return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300';
+  }
+  if (bucket === 'sell') {
+    return 'border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300';
+  }
+  if (bucket === 'hold') {
+    return 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300';
+  }
+  return 'border-muted-foreground/25 bg-muted/40 text-muted-foreground';
+}
+
+function holdingScoreBucketLabel(bucket: HoldingItem['bucket']) {
+  if (!bucket) return '—';
+  return bucket.charAt(0).toUpperCase() + bucket.slice(1);
+}
 
 /** YYYY-MM → short label for regression month picker */
 function formatMonthLabel(ym: string) {
@@ -269,9 +298,27 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
   const [regressionMonth, setRegressionMonth] = useState<string | null>(null);
 
   const [holdings, setHoldings] = useState<HoldingItem[]>([]);
+  const [holdingsAsOfDate, setHoldingsAsOfDate] = useState<string | null>(null);
+  const [holdingsConfigSummary, setHoldingsConfigSummary] = useState<ConfigHoldingsSummary | null>(
+    null
+  );
+  const [holdingsRebalanceDates, setHoldingsRebalanceDates] = useState<string[]>([]);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isPremium, setIsPremium] = useState(false);
   const [holdingsLoading, setHoldingsLoading] = useState(true);
+
+  const navigateToSelectedPortfolioSection = useCallback(() => {
+    if (!slug) return;
+    const href = `/performance/${slug}#selected-portfolio`;
+    router.replace(href, { scroll: false });
+    const runScroll = () => {
+      document.getElementById('selected-portfolio')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    };
+    requestAnimationFrame(() => requestAnimationFrame(runScroll));
+  }, [router, slug]);
 
   const portfolioPerf = usePublicPortfolioConfigPerformance({
     slug: slug ?? '',
@@ -282,31 +329,82 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
     onSliceChange: setConfigPerfSlice,
   });
 
+  const holdingsPortfolioConfig = portfolioPerf.portfolioConfig;
+
   useEffect(() => {
-    const fetchHoldings = async () => {
+    setHoldingsAsOfDate(null);
+  }, [slug, holdingsPortfolioConfig]);
+
+  useEffect(() => {
+    if (!slug) {
+      setHoldingsLoading(false);
+    }
+  }, [slug]);
+
+  useEffect(() => {
+    if (!slug || !holdingsPortfolioConfig) {
+      return;
+    }
+
+    let cancelled = false;
+    setHoldingsLoading(true);
+
+    const params = new URLSearchParams({
+      slug,
+      risk: String(holdingsPortfolioConfig.riskLevel),
+      frequency: holdingsPortfolioConfig.rebalanceFrequency,
+      weighting: holdingsPortfolioConfig.weightingMethod,
+    });
+    if (holdingsAsOfDate) {
+      params.set('asOfDate', holdingsAsOfDate);
+    }
+
+    void (async () => {
       try {
-        const params = slug ? `?slug=${encodeURIComponent(slug)}` : '';
-        const res = await fetch(`/api/platform/holdings${params}`);
+        const res = await fetch(`/api/platform/holdings?${params}`);
+        if (cancelled) return;
         if (res.ok) {
-          const data = await res.json();
-          setHoldings(data);
+          const data = (await res.json()) as {
+            holdings?: HoldingItem[];
+            asOfDate?: string | null;
+            configSummary?: ConfigHoldingsSummary | null;
+            rebalanceDates?: string[];
+          };
+          setHoldings(Array.isArray(data.holdings) ? data.holdings : []);
+          setHoldingsConfigSummary(data.configSummary ?? null);
+          setHoldingsRebalanceDates(Array.isArray(data.rebalanceDates) ? data.rebalanceDates : []);
           setIsAuthenticated(true);
           setIsPremium(true);
         } else if (res.status === 403) {
+          setHoldings([]);
+          setHoldingsConfigSummary(null);
+          setHoldingsRebalanceDates([]);
           setIsAuthenticated(true);
           setIsPremium(false);
         } else if (res.status === 401) {
+          setHoldings([]);
+          setHoldingsConfigSummary(null);
+          setHoldingsRebalanceDates([]);
           setIsAuthenticated(false);
           setIsPremium(false);
         }
       } catch {
-        // Network error — leave defaults
+        if (!cancelled) {
+          setHoldings([]);
+          setHoldingsConfigSummary(null);
+          setHoldingsRebalanceDates([]);
+        }
       } finally {
-        setHoldingsLoading(false);
+        if (!cancelled) {
+          setHoldingsLoading(false);
+        }
       }
+    })();
+
+    return () => {
+      cancelled = true;
     };
-    fetchHoldings();
-  }, [slug]);
+  }, [slug, holdingsPortfolioConfig, holdingsAsOfDate]);
 
   const effectiveStrategy = payload.strategy ?? null;
   const series = payload.series ?? [];
@@ -343,6 +441,19 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
     configPerfSlice.fullMetrics != null;
 
   const displayMetrics = configMetricsReady ? configPerfSlice!.fullMetrics! : metrics;
+
+  const performanceTableOfContents = useMemo(() => {
+    const entries = PERFORMANCE_TOC_BASE.map((item) => ({ ...item }));
+    if (!displayMetrics) return entries;
+    const overviewIdx = entries.findIndex((e) => e.id === 'overview');
+    if (overviewIdx < 0) return entries;
+    entries.splice(overviewIdx + 1, 0, {
+      id: 'overview-metrics',
+      label: '↳ Metrics at-a-glance',
+    });
+    return entries;
+  }, [displayMetrics]);
+
   const displaySeries =
     configMetricsReady && (configPerfSlice?.series?.length ?? 0) > 1
       ? configPerfSlice!.series
@@ -382,6 +493,17 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
     if (f === 'yearly') return 'year';
     return f.replace('ly', '');
   }, [whatYouSeeFreq]);
+
+  const portfolioHoldingsSubtitle = useMemo(() => {
+    const topN = holdingsConfigSummary?.topN ?? whatYouSeeTopN;
+    const freq = holdingsConfigSummary?.rebalanceFrequency ?? whatYouSeeFreq;
+    return formatPortfolioHoldingsSubtitle(topN, freq);
+  }, [
+    holdingsConfigSummary?.topN,
+    holdingsConfigSummary?.rebalanceFrequency,
+    whatYouSeeTopN,
+    whatYouSeeFreq,
+  ]);
 
   const bestStrategy = strategies[0] ?? null;
   const isBestSelected = !bestStrategy || bestStrategy.id === effectiveStrategy?.id;
@@ -539,6 +661,7 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
               slug={slug}
               portfolioConfig={sidebarPortfolioConfig}
               onPortfolioConfigChange={setSidebarPortfolioConfig}
+              onDialogPortfolioCommitted={navigateToSelectedPortfolioSection}
             />
           </div>
         ) : null}
@@ -548,7 +671,7 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
   return (
     <ContentPageLayout
       title="Strategy Model Performance"
-      tableOfContents={PERFORMANCE_TOC}
+      tableOfContents={performanceTableOfContents}
       sidebarSlot={sidebarSlot}
       tocPosition="right"
     >
@@ -585,6 +708,8 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
             perf={portfolioPerf.perf}
             perfLoading={portfolioPerf.perfLoading}
             isTopRanked={portfolioPerf.isTopRanked}
+            badges={portfolioPerf.rankedConfigBadges}
+            strategySlug={slug}
           />
         </section>
       ) : null}
@@ -698,7 +823,10 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
         )}
         {/* Bento box flip-card stats */}
         {displayMetrics && (
-          <div>
+          <div
+            id="overview-metrics"
+            className="scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
+          >
             <h3 className="text-lg font-semibold tracking-tight text-foreground mb-3">
               Metrics at-a-glance
             </h3>
@@ -808,6 +936,151 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
                 Disclaimer
               </Link>
             </p>
+          </div>
+        )}
+      </section>
+
+      {/* ── Portfolio holdings (supporter / outperformer) ─────────────── */}
+      <section id="holdings" className="mb-10">
+        <h2 className="text-2xl font-bold mb-3">Portfolio holdings</h2>
+        {!slug || !holdingsPortfolioConfig ? (
+          <Skeleton className="h-[200px] w-full rounded-xl" />
+        ) : holdingsLoading ? (
+          <Skeleton className="h-[200px] w-full rounded-xl" />
+        ) : isPremium ? (
+          <>
+            <p className="text-sm text-muted-foreground mb-3">
+              Positions for the selected portfolio ({portfolioHoldingsSubtitle}).
+            </p>
+            {holdingsRebalanceDates.length > 1 ? (
+              <div className="mb-4 flex justify-end">
+                <div className="flex w-full max-w-[200px] flex-col items-end gap-1">
+                  <Label
+                    htmlFor="holdings-rebalance-date"
+                    className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+                  >
+                    Rebalance date
+                  </Label>
+                  <Select
+                    value={holdingsAsOfDate ?? '__latest__'}
+                    onValueChange={(v) => setHoldingsAsOfDate(v === '__latest__' ? null : v)}
+                  >
+                    <SelectTrigger
+                      id="holdings-rebalance-date"
+                      className="h-8 min-h-8 w-full px-2 text-xs [&_svg]:size-3.5"
+                    >
+                      <SelectValue placeholder="Choose date" />
+                    </SelectTrigger>
+                    <SelectContent className="text-xs">
+                      <SelectItem value="__latest__" className="py-1.5 text-xs">
+                        Latest ({fmt.date(holdingsRebalanceDates[0])})
+                      </SelectItem>
+                      {holdingsRebalanceDates.slice(1).map((d) => (
+                        <SelectItem key={d} value={d} className="py-1.5 text-xs">
+                          {fmt.date(d)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            ) : null}
+            {holdings.length > 0 ? (
+              <div className="rounded-lg border overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Rank</TableHead>
+                      <TableHead>Stock</TableHead>
+                      <TableHead className="text-right">Weight</TableHead>
+                      <TableHead className="text-right">AI score</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {holdings.map((holding) => (
+                      <TableRow key={`${holding.symbol}-${holding.rank}`}>
+                        <TableCell className="text-muted-foreground">#{holding.rank}</TableCell>
+                        <TableCell>
+                          <span className="font-medium">{holding.symbol}</span>
+                          {holding.companyName && holding.companyName !== holding.symbol && (
+                            <span className="text-xs text-muted-foreground ml-1.5">
+                              {holding.companyName}
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {(holding.weight * 100).toFixed(1)}%
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <span className="inline-flex items-center justify-end gap-1.5 font-mono">
+                            <span>
+                              {holding.score != null
+                                ? (holding.score > 0 ? '+' : '') + holding.score
+                                : 'N/A'}
+                            </span>
+                            <Badge
+                              variant="outline"
+                              className={cn(
+                                'px-1.5 py-0 text-[10px] font-normal leading-tight',
+                                holdingScoreBucketClass(holding.bucket)
+                              )}
+                            >
+                              {holdingScoreBucketLabel(holding.bucket)}
+                            </Badge>
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                No holdings are available for this rebalance yet.
+              </p>
+            )}
+          </>
+        ) : (
+          <div className="relative rounded-xl border bg-card overflow-hidden">
+            <div className="select-none pointer-events-none" aria-hidden>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Rank</TableHead>
+                    <TableHead>Stock</TableHead>
+                    <TableHead className="text-right">Weight</TableHead>
+                    <TableHead className="text-right">AI score</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <TableRow key={i} className="blur-sm opacity-60">
+                      <TableCell>#{i + 1}</TableCell>
+                      <TableCell>
+                        <span className="font-medium">XXXX</span>
+                        <span className="text-xs text-muted-foreground ml-1.5">Company Name</span>
+                      </TableCell>
+                      <TableCell className="text-right">5.0%</TableCell>
+                      <TableCell className="text-right font-mono">+{5 - i}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm gap-3 p-6 text-center">
+              <Lock className="size-7 text-muted-foreground" />
+              <p className="font-semibold text-sm">Supporter &amp; Outperformer</p>
+              <p className="text-xs text-muted-foreground max-w-xs">
+                {isAuthenticated
+                  ? 'Upgrade to Supporter or Outperformer to see full holdings for your selected portfolio and browse past rebalance dates.'
+                  : 'Sign in and subscribe to Supporter or Outperformer to see holdings for each portfolio preset and past rebalances.'}
+              </p>
+              <Button asChild size="sm">
+                <Link href={isAuthenticated ? '/pricing' : '/sign-up'}>
+                  {isAuthenticated ? 'View plans' : 'Get started'}
+                </Link>
+              </Button>
+            </div>
           </div>
         )}
       </section>
@@ -1405,100 +1678,6 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
             )}
           </p>
         </div>
-      </section>
-
-      {/* ── G: Latest holdings ──────────────────────────────────────────── */}
-      <section id="holdings" className="mb-10">
-        <h2 className="text-2xl font-bold mb-3">Latest holdings</h2>
-        {holdingsLoading ? (
-          <Skeleton className="h-[200px] w-full rounded-xl" />
-        ) : isPremium && holdings.length > 0 ? (
-          <>
-            <p className="text-sm text-muted-foreground mb-4">
-              The current Top {effectiveStrategy?.portfolioSize ?? 20} portfolio as of{' '}
-              {fmt.date(payload.latestRunDate)}. Each position receives equal weight.
-            </p>
-            <div className="rounded-lg border overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Rank</TableHead>
-                    <TableHead>Stock</TableHead>
-                    <TableHead className="text-right">Weight</TableHead>
-                    <TableHead className="text-right">AI score</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {holdings.map((holding) => (
-                    <TableRow key={holding.symbol}>
-                      <TableCell className="text-muted-foreground">#{holding.rank}</TableCell>
-                      <TableCell>
-                        <span className="font-medium">{holding.symbol}</span>
-                        {holding.companyName && holding.companyName !== holding.symbol && (
-                          <span className="text-xs text-muted-foreground ml-1.5">
-                            {holding.companyName}
-                          </span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {(holding.weight * 100).toFixed(1)}%
-                      </TableCell>
-                      <TableCell className="text-right font-mono">
-                        {holding.score != null
-                          ? (holding.score > 0 ? '+' : '') + holding.score
-                          : 'N/A'}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </>
-        ) : (
-          <div className="relative rounded-xl border bg-card overflow-hidden">
-            {/* Blurred placeholder rows */}
-            <div className="select-none pointer-events-none" aria-hidden>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Rank</TableHead>
-                    <TableHead>Stock</TableHead>
-                    <TableHead className="text-right">Weight</TableHead>
-                    <TableHead className="text-right">AI score</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {Array.from({ length: 5 }).map((_, i) => (
-                    <TableRow key={i} className="blur-sm opacity-60">
-                      <TableCell>#{i + 1}</TableCell>
-                      <TableCell>
-                        <span className="font-medium">XXXX</span>
-                        <span className="text-xs text-muted-foreground ml-1.5">Company Name</span>
-                      </TableCell>
-                      <TableCell className="text-right">5.0%</TableCell>
-                      <TableCell className="text-right font-mono">+{5 - i}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-            {/* Paywall overlay */}
-            <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm gap-3 p-6 text-center">
-              <Lock className="size-7 text-muted-foreground" />
-              <p className="font-semibold text-sm">Premium feature</p>
-              <p className="text-xs text-muted-foreground max-w-xs">
-                {isAuthenticated
-                  ? 'Upgrade to a premium plan to see the full current holdings and weekly rebalance actions.'
-                  : 'Sign up for a premium plan to see the full current holdings updated every week.'}
-              </p>
-              <Button asChild size="sm">
-                <Link href={isAuthenticated ? '/pricing' : '/sign-up'}>
-                  {isAuthenticated ? 'Upgrade to premium' : 'Get started'}
-                </Link>
-              </Button>
-            </div>
-          </div>
-        )}
       </section>
 
       {/* ── H: Reality checks ───────────────────────────────────────────── */}

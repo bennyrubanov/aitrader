@@ -67,7 +67,9 @@ type FrequencyMeta = {
   tone: 'green' | 'amber' | 'red';
 };
 
-function frequencyMetaFromCounts(counts: OnboardingRebalanceCounts): Record<RebalanceFrequency, FrequencyMeta> {
+function frequencyMetaFromCounts(
+  counts: OnboardingRebalanceCounts
+): Record<RebalanceFrequency, FrequencyMeta> {
   const w = counts.weekly;
   const m = counts.monthly;
   const q = counts.quarterly;
@@ -95,10 +97,7 @@ function frequencyMetaFromCounts(counts: OnboardingRebalanceCounts): Record<Reba
       tone: m >= 6 ? 'green' : m >= 2 ? 'amber' : 'red',
     },
     quarterly: {
-      dataLabel:
-        q === 1
-          ? '1 quarter with data (no rebalances yet)'
-          : `${q} quarters with data`,
+      dataLabel: q === 1 ? '1 quarter with data (no rebalances yet)' : `${q} quarters with data`,
       implication:
         q >= 3
           ? 'Several quarters to compare quarterly rebalancing.'
@@ -246,14 +245,10 @@ export function PortfolioOnboardingDialog() {
     };
   }, [draft.strategySlug]);
 
-  const frequencyMeta = rebalanceCounts
-    ? frequencyMetaFromCounts(rebalanceCounts)
-    : null;
+  const frequencyMeta = rebalanceCounts ? frequencyMetaFromCounts(rebalanceCounts) : null;
 
-  const defaultStrategy =
-    strategies.find((s) => s.isDefault) ?? strategies[0] ?? null;
-  const selectedStrategy =
-    strategies.find((s) => s.slug === draft.strategySlug) ?? defaultStrategy;
+  const defaultStrategy = strategies.find((s) => s.isDefault) ?? strategies[0] ?? null;
+  const selectedStrategy = strategies.find((s) => s.slug === draft.strategySlug) ?? defaultStrategy;
   const isBestStrategy =
     selectedStrategy && strategies[0] && strategies[0].id === selectedStrategy.id;
 
@@ -367,7 +362,12 @@ export function PortfolioOnboardingDialog() {
               ))}
             </div>
             <div className="flex justify-between pt-1">
-              <Button variant="ghost" size="sm" onClick={handleSkip} className="text-muted-foreground">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleSkip}
+                className="text-muted-foreground"
+              >
                 Use defaults
               </Button>
               <Button size="sm" onClick={() => goToStep('model')} className="gap-1.5">
@@ -416,7 +416,11 @@ export function PortfolioOnboardingDialog() {
                     </p>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="outline" size="sm" className="w-full justify-between gap-2 text-left">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full justify-between gap-2 text-left"
+                        >
                           <span className="truncate">{selectedStrategy.name}</span>
                           <div className="flex items-center gap-1 shrink-0">
                             {isBestStrategy && (
@@ -454,8 +458,17 @@ export function PortfolioOnboardingDialog() {
                     </DropdownMenu>
                   </div>
                   {selectedStrategy && (
-                    <Button asChild variant="ghost" size="sm" className="w-full justify-start gap-1.5 text-xs h-8 px-1">
-                      <Link href={`/strategy-models/${selectedStrategy.slug}`} target="_blank" rel="noopener noreferrer">
+                    <Button
+                      asChild
+                      variant="ghost"
+                      size="sm"
+                      className="w-full justify-start gap-1.5 text-xs h-8 px-1"
+                    >
+                      <Link
+                        href={`/strategy-models/${selectedStrategy.slug}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
                         <ExternalLink className="size-3" />
                         How this model works
                       </Link>
@@ -595,7 +608,9 @@ export function PortfolioOnboardingDialog() {
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="text-sm font-semibold">{FREQUENCY_LABELS[f]}</span>
-                            <span className={`text-[11px] font-medium ${toneClass}`}>{meta.dataLabel}</span>
+                            <span className={`text-[11px] font-medium ${toneClass}`}>
+                              {meta.dataLabel}
+                            </span>
                           </div>
                           <p className="mt-0.5 text-xs text-muted-foreground leading-snug">
                             {meta.implication}
@@ -679,8 +694,9 @@ export function PortfolioOnboardingDialog() {
               </div>
               <p className="text-xs text-muted-foreground">
                 Current:{' '}
-                <span className="font-medium text-foreground">{formatCurrency(draft.investmentSize)}</span>
-                {' '}
+                <span className="font-medium text-foreground">
+                  {formatCurrency(draft.investmentSize)}
+                </span>{' '}
                 → ~{formatCurrency(draft.investmentSize / RISK_TOP_N[draft.riskLevel])} per position
               </p>
             </div>
@@ -702,13 +718,10 @@ export function PortfolioOnboardingDialog() {
                 When do you want to enter this portfolio?
               </DialogTitle>
               <DialogDescription>
-                Sets your personal tracking start date. Full model performance history can be found on its{' '}
+                Sets your personal tracking start date. Full model performance history can be found
+                on its{' '}
                 <a
-                  href={
-                    selectedStrategy
-                      ? `/performance/${selectedStrategy.slug}`
-                      : '/performance'
-                  }
+                  href={selectedStrategy ? `/performance/${selectedStrategy.slug}` : '/performance'}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-trader-blue"
@@ -741,13 +754,17 @@ export function PortfolioOnboardingDialog() {
                     <span className="text-sm font-semibold">Today</span>
                     <span className="ml-2 text-xs text-muted-foreground">{localTodayYmd()}</span>
                   </div>
-                  {draftEntryDate === localTodayYmd() && <Check className="size-3.5 text-primary" />}
+                  {draftEntryDate === localTodayYmd() && (
+                    <Check className="size-3.5 text-primary" />
+                  )}
                 </div>
                 <p className="mt-0.5 text-xs text-muted-foreground">Track returns from now.</p>
               </button>
 
               <div className="space-y-1.5">
-                <p className="text-xs text-muted-foreground px-0.5">Or pick a date from model launch:</p>
+                <p className="text-xs text-muted-foreground px-0.5">
+                  Or pick a date from model launch:
+                </p>
                 <Popover open={datePopoverOpen} onOpenChange={setDatePopoverOpen}>
                   <PopoverTrigger asChild>
                     <Button
@@ -867,7 +884,12 @@ export function PortfolioOnboardingDialog() {
               You can follow additional portfolios anytime from the Explore Portfolios page.
             </div>
             <div className="flex items-center justify-between gap-2 pt-1">
-              <Button variant="ghost" size="sm" onClick={() => goToStep('entry-date')} className="gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => goToStep('entry-date')}
+                className="gap-1"
+              >
                 <ArrowLeft className="size-3.5" />
                 Back
               </Button>

@@ -1,11 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   portfolioConfigBadgeClassName,
   portfolioConfigBadgeTooltip,
@@ -25,9 +21,7 @@ export function PortfolioConfigBadgePill({ name, className, strategySlug }: Prop
   const styles = portfolioConfigBadgeClassName(name);
   const slugForLinks = strategySlug?.trim() || STRATEGY_CONFIG.slug;
   const rankingHowHref =
-    name === 'Top ranked'
-      ? `/strategy-models/${slugForLinks}#portfolio-ranking-how`
-      : null;
+    name === 'Top ranked' ? `/strategy-models/${slugForLinks}#portfolio-ranking-how` : null;
 
   const pill = (
     <span
@@ -44,7 +38,10 @@ export function PortfolioConfigBadgePill({ name, className, strategySlug }: Prop
   return (
     <Tooltip>
       <TooltipTrigger asChild>{pill}</TooltipTrigger>
-      <TooltipContent side="top" className="max-w-[min(22rem,calc(100vw-2rem))] text-xs leading-relaxed">
+      <TooltipContent
+        side="top"
+        className="max-w-[min(22rem,calc(100vw-2rem))] text-xs leading-relaxed"
+      >
         <div className="space-y-2">
           <p>{tip}</p>
           {rankingHowHref ? (

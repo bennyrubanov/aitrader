@@ -23,8 +23,10 @@ export const PORTFOLIO_CONFIG_BADGE_TOOLTIPS: Record<string, string> = {
 
 export const PORTFOLIO_CONFIG_BADGE_CLASSES: Record<string, string> = {
   'Top ranked': 'bg-trader-blue/10 text-trader-blue border-trader-blue/30',
-  'Best risk-adjusted': 'bg-violet-500/10 text-violet-700 dark:text-violet-300 border-violet-500/30',
-  'Most consistent': 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30',
+  'Best risk-adjusted':
+    'bg-violet-500/10 text-violet-700 dark:text-violet-300 border-violet-500/30',
+  'Most consistent':
+    'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30',
   Default: 'bg-muted text-muted-foreground border-border',
 
   'Best CAGR': 'bg-sky-500/10 text-sky-800 dark:text-sky-300 border-sky-500/30',

@@ -87,6 +87,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [configs, setConfigs] = useState<RankedConfig[]>([]);
   const [rankingNote, setRankingNote] = useState<string | null>(null);
+  const [latestPerformanceDate, setLatestPerformanceDate] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   // Filter state
@@ -119,9 +120,11 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
         const data = (await res.json()) as {
           configs?: RankedConfig[];
           rankingNote?: string | null;
+          latestPerformanceDate?: string | null;
         };
         setConfigs(data.configs ?? []);
         setRankingNote(data.rankingNote ?? null);
+        setLatestPerformanceDate(data.latestPerformanceDate ?? null);
       }
     } catch {
       /* silent */
@@ -291,18 +294,23 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
 
   return (
     <TooltipProvider delayDuration={150}>
-      <div className="flex h-full flex-col lg:flex-row lg:gap-8 lg:items-start">
-        <aside
-          className={cn(
-            'w-full shrink-0 lg:w-72 lg:sticky lg:top-2 lg:max-h-[calc(100vh-var(--header-height)-2rem)] lg:overflow-y-auto lg:overflow-x-hidden lg:pr-1 px-4 pt-2 sm:px-6 lg:px-0 lg:pt-0 space-y-0',
-            // Thin, low-contrast scrollbar (WebKit + Firefox)
-            '[scrollbar-width:thin] [scrollbar-color:hsl(var(--border)/0.55)_transparent]',
-            'lg:[&::-webkit-scrollbar]:w-1.5 lg:[&::-webkit-scrollbar]:h-1.5',
-            'lg:[&::-webkit-scrollbar-track]:bg-transparent',
-            'lg:[&::-webkit-scrollbar-thumb]:rounded-full lg:[&::-webkit-scrollbar-thumb]:bg-border/50',
-            'lg:hover:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/35'
-          )}
-        >
+      <div
+        className={cn(
+          'flex min-h-0 flex-1 flex-col lg:h-full lg:max-h-full lg:flex-row lg:items-stretch lg:overscroll-y-contain lg:overflow-hidden'
+        )}
+      >
+        <aside className="flex w-full shrink-0 flex-col lg:min-h-0 lg:w-72">
+          <div
+            className={cn(
+              'min-h-0 flex-1 space-y-0 px-4 pt-2 sm:px-6 lg:overflow-x-hidden lg:overflow-y-auto lg:overscroll-y-contain lg:px-0 lg:pr-1 lg:pt-0',
+              // Thin, low-contrast scrollbar (WebKit + Firefox)
+              '[scrollbar-width:thin] [scrollbar-color:hsl(var(--border)/0.55)_transparent]',
+              'lg:[&::-webkit-scrollbar]:w-1.5 lg:[&::-webkit-scrollbar]:h-1.5',
+              'lg:[&::-webkit-scrollbar-track]:bg-transparent',
+              'lg:[&::-webkit-scrollbar-thumb]:rounded-full lg:[&::-webkit-scrollbar-thumb]:bg-border/50',
+              'lg:hover:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/35'
+            )}
+          >
           {strategies.length > 0 ? (
             <StrategyModelSidebarDropdown
               strategies={strategies}
@@ -328,23 +336,27 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
           <div
             className={cn('space-y-3 pt-3', strategies.length > 0 && 'mt-4 border-t border-border')}
           >
-            <div className="flex h-6 items-center gap-1.5">
-              <p className="min-w-0 truncate text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            <div className="flex min-h-8 flex-wrap items-center justify-between gap-2">
+              <p className="min-w-0 truncate text-xs font-semibold uppercase tracking-wider text-muted-foreground leading-none">
                 Filter portfolios
               </p>
-              {activeFilterCount > 0 ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  title="Clear filters"
-                  className="size-6 shrink-0 rounded-md text-muted-foreground hover:text-foreground"
-                  onClick={clearFilters}
-                  aria-label="Clear filters"
-                >
-                  <FilterX className="size-3.5 shrink-0" aria-hidden />
-                </Button>
-              ) : null}
+              <div className="flex min-h-8 shrink-0 items-center justify-end">
+                {activeFilterCount > 0 ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                    onClick={clearFilters}
+                  >
+                    <FilterX className="size-3.5 shrink-0" aria-hidden />
+                    Clear filters
+                    <span className="rounded-full bg-primary/15 px-1.5 text-[10px] font-semibold tabular-nums text-foreground">
+                      {activeFilterCount}
+                    </span>
+                  </Button>
+                ) : null}
+              </div>
             </div>
             <ExplorePortfolioFilterControls
               filterBeatNasdaq={filterBeatNasdaq}
@@ -357,13 +369,15 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
               onRiskChange={setRiskFilter}
               onFreqChange={setFreqFilter}
               onWeightChange={setWeightFilter}
+              benchmarkOutperformanceAsOf={latestPerformanceDate}
             />
+          </div>
           </div>
         </aside>
 
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-y-contain lg:pl-8">
           {/* Header */}
-          <div className="sticky top-0 z-30 border-b bg-background/95 px-4 py-3 backdrop-blur-sm sm:px-6">
+          <div className="border-b px-4 py-3 sm:px-6">
             <h2 className="text-base font-semibold">Explore Portfolios</h2>
             <p className="text-xs text-muted-foreground">
               Pick between any portfolio, and follow it to track its performance.
@@ -666,12 +680,7 @@ function ConfigCard({
         {/* Rank badge — prominent left column */}
         <div className="flex flex-col items-center justify-center w-14 shrink-0 border-r bg-muted/20">
           {config.rank != null ? (
-            <>
-              <span className="text-lg font-bold tabular-nums text-foreground">{config.rank}</span>
-              <span className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">
-                rank
-              </span>
-            </>
+            <span className="text-lg font-bold tabular-nums text-foreground">{config.rank}</span>
           ) : (
             <span className="text-sm text-muted-foreground/50">—</span>
           )}

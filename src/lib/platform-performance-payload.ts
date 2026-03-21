@@ -60,6 +60,8 @@ export type HoldingItem = {
   weight: number;
   score: number | null;
   latentRank: number | null;
+  /** AI output bucket for this run (from `ai_analysis_runs`). */
+  bucket: 'buy' | 'hold' | 'sell' | null;
 };
 
 type HoldingRow = {
@@ -68,6 +70,8 @@ type HoldingRow = {
   target_weight: number | string;
   score: number | null;
   latent_rank: number | null;
+  batch_id: string;
+  stock_id: string;
   stocks: { company_name: string | null } | { company_name: string | null }[] | null;
 };
 
@@ -742,14 +746,35 @@ export const getHoldingsForStrategy = async (
     const supabase = createPublicClient();
     const { data, error } = await supabase
       .from('strategy_portfolio_holdings')
-      .select('symbol, rank_position, target_weight, score, latent_rank, stocks(company_name)')
+      .select(
+        'symbol, rank_position, target_weight, score, latent_rank, batch_id, stock_id, stocks(company_name)'
+      )
       .eq('strategy_id', strategyId)
       .eq('run_date', runDate)
       .order('rank_position', { ascending: true });
 
-    if (error || !data) return [];
+    if (error || !data?.length) return [];
 
-    return (data as HoldingRow[]).map((row) => {
+    const rows = data as HoldingRow[];
+    const batchId = rows[0]!.batch_id;
+    const stockIds = rows.map((r) => r.stock_id);
+
+    const { data: runRows } = await supabase
+      .from('ai_analysis_runs')
+      .select('stock_id, bucket')
+      .eq('batch_id', batchId)
+      .in('stock_id', stockIds);
+
+    const bucketByStock = new Map<string, 'buy' | 'hold' | 'sell'>();
+    for (const r of runRows ?? []) {
+      const row = r as { stock_id: string; bucket: string };
+      const b = row.bucket;
+      if (b === 'buy' || b === 'hold' || b === 'sell') {
+        bucketByStock.set(row.stock_id, b);
+      }
+    }
+
+    return rows.map((row) => {
       const stock = Array.isArray(row.stocks) ? row.stocks[0] : row.stocks;
       return {
         symbol: row.symbol,
@@ -758,6 +783,7 @@ export const getHoldingsForStrategy = async (
         weight: toNumber(row.target_weight, 0),
         score: toNullableNumber(row.score),
         latentRank: toNullableNumber(row.latent_rank),
+        bucket: bucketByStock.get(row.stock_id) ?? null,
       };
     });
   } catch {

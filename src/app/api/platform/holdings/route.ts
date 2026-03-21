@@ -1,8 +1,13 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { createClient } from '@/utils/supabase/server';
-import { getLatestHoldingsForPortfolioConfig } from '@/lib/portfolio-config-holdings';
-import { getHoldingsForStrategy, getPerformancePayloadBySlug, getPlatformPerformancePayload } from '@/lib/platform-performance-payload';
+import { getPortfolioConfigHoldings } from '@/lib/portfolio-config-holdings';
+import {
+  getHoldingsForStrategy,
+  getPerformancePayloadBySlug,
+  getPlatformPerformancePayload,
+  getPortfolioRunDates,
+} from '@/lib/platform-performance-payload';
 
 export const runtime = 'nodejs';
 
@@ -32,6 +37,7 @@ export async function GET(req: Request) {
   const riskParam = searchParams.get('risk');
   const frequency = searchParams.get('frequency');
   const weighting = searchParams.get('weighting');
+  const asOfDateParam = searchParams.get('asOfDate');
 
   let strategyId: string | null = null;
   let runDate: string | null = null;
@@ -51,6 +57,7 @@ export async function GET(req: Request) {
       holdings: [],
       asOfDate: null,
       configSummary: null,
+      rebalanceDates: [] as string[],
     });
   }
 
@@ -66,33 +73,45 @@ export async function GET(req: Request) {
     const riskLevel = parseInt(riskParam, 10);
     if (!Number.isNaN(riskLevel) && riskLevel >= 1 && riskLevel <= 6) {
       const admin = createAdminClient();
-      const { holdings, asOfDate, configSummary } = await getLatestHoldingsForPortfolioConfig(
+      const asOfRunDate =
+        asOfDateParam && /^\d{4}-\d{2}-\d{2}$/.test(asOfDateParam) ? asOfDateParam : null;
+      const { holdings, asOfDate, configSummary, rebalanceDates } = await getPortfolioConfigHoldings(
         admin,
         strategyId,
         riskLevel,
         frequency,
-        weighting
+        weighting,
+        asOfRunDate
       );
       return NextResponse.json({
         holdings,
         asOfDate,
         configSummary,
+        rebalanceDates,
       });
     }
   }
 
-  if (!runDate) {
+  const weeklyDates = await getPortfolioRunDates(strategyId);
+  const fallbackRunDate =
+    asOfDateParam && weeklyDates.includes(asOfDateParam)
+      ? asOfDateParam
+      : (runDate ?? weeklyDates[0] ?? null);
+
+  if (!fallbackRunDate) {
     return NextResponse.json({
       holdings: [],
       asOfDate: null,
       configSummary: null,
+      rebalanceDates: weeklyDates,
     });
   }
 
-  const holdings = await getHoldingsForStrategy(strategyId, runDate);
+  const holdings = await getHoldingsForStrategy(strategyId, fallbackRunDate);
   return NextResponse.json({
     holdings,
-    asOfDate: runDate,
+    asOfDate: fallbackRunDate,
     configSummary: null,
+    rebalanceDates: weeklyDates,
   });
 }

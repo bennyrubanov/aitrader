@@ -1,7 +1,14 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+} from 'react';
 import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -86,14 +93,22 @@ function pickDefaultPortfolioConfig(configs: RankedConfig[]): PortfolioConfigSli
   return { riskLevel: 3, rebalanceFrequency: 'weekly', weightingMethod: 'equal' };
 }
 
+function normKey(s: string) {
+  return String(s).trim().toLowerCase();
+}
+
+function portfolioMatchesRankedRow(slice: PortfolioConfigSlice, c: RankedConfig): boolean {
+  return (
+    Number(slice.riskLevel) === Number(c.riskLevel) &&
+    normKey(slice.rebalanceFrequency) === normKey(c.rebalanceFrequency) &&
+    normKey(slice.weightingMethod) === normKey(c.weightingMethod)
+  );
+}
+
 function matchesRankOne(slice: PortfolioConfigSlice, configs: RankedConfig[]): boolean {
   const r1 = configs.find((c) => c.rank === 1);
   if (!r1) return false;
-  return (
-    slice.riskLevel === r1.riskLevel &&
-    slice.rebalanceFrequency === r1.rebalanceFrequency &&
-    slice.weightingMethod === r1.weightingMethod
-  );
+  return portfolioMatchesRankedRow(slice, r1);
 }
 
 const fmt = {
@@ -119,7 +134,7 @@ export type UsePublicPortfolioConfigPerformanceArgs = {
   fallbackSeries?: PerformanceSeriesPoint[];
   onSliceChange?: (slice: PublicConfigPerfSlice) => void;
   portfolioConfigOverride?: PortfolioConfigSlice | null;
-  onPortfolioConfigChange?: (c: PortfolioConfigSlice) => void;
+  onPortfolioConfigChange?: (c: PortfolioConfigSlice | null) => void;
 };
 
 export function usePublicPortfolioConfigPerformance({
@@ -141,6 +156,7 @@ export function usePublicPortfolioConfigPerformance({
 
   const [perf, setPerf] = useState<ApiPayload | null>(null);
   const [perfLoading, setPerfLoading] = useState(false);
+  const [rankedConfigBadges, setRankedConfigBadges] = useState<string[]>([]);
 
   useEffect(() => {
     if (!slug) return;
@@ -222,6 +238,15 @@ export function usePublicPortfolioConfigPerformance({
 
   const isTopRanked = Boolean(portfolioConfig && matchesRankOne(portfolioConfig, rankedConfigs));
 
+  useLayoutEffect(() => {
+    if (!portfolioConfig || rankedConfigs.length === 0) {
+      setRankedConfigBadges([]);
+      return;
+    }
+    const m = rankedConfigs.find((c) => portfolioMatchesRankedRow(portfolioConfig, c));
+    setRankedConfigBadges(m?.badges ?? []);
+  }, [portfolioConfig, rankedConfigs]);
+
   const configChartReady = perf?.computeStatus === 'ready' && perf.series.length >= 1;
   const useFallbackTrack =
     fallbackSeries.length > 1 && (perfLoading || perf == null) && !configChartReady;
@@ -271,6 +296,7 @@ export function usePublicPortfolioConfigPerformance({
     configChartReady,
     useFallbackTrack,
     isTopRanked,
+    rankedConfigBadges,
     chartTitle,
     statusMessage,
   };

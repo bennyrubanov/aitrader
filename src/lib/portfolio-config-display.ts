@@ -25,3 +25,11 @@ export function formatPortfolioConfigLabel(params: {
   const weight = params.weightingMethod === 'cap' ? 'Cap' : 'Equal';
   return `Top ${params.topN} · ${weight} · ${freq}`;
 }
+
+/** Short line for subtitles: `Top 20 · Weekly` (frequency only, no weighting). */
+export function formatPortfolioHoldingsSubtitle(topN: number, rebalanceFrequency: string): string {
+  const freq =
+    FREQ_DISPLAY[rebalanceFrequency] ??
+    rebalanceFrequency.charAt(0).toUpperCase() + rebalanceFrequency.slice(1);
+  return `Top ${topN} · ${freq}`;
+}

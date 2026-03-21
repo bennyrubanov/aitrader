@@ -1,5 +1,7 @@
 'use client';
 
+import type { ReactNode } from 'react';
+import { Info } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import {
   Tooltip,
@@ -26,10 +28,16 @@ import {
 } from '@/components/platform/weighting-method-tooltip';
 import { cn } from '@/lib/utils';
 
-const BENCHMARK_FILTER_NASDAQ_TOOLTIP =
-  'Simulated portfolio value at the end of the track is higher than the Nasdaq-100 cap-weight benchmark over the same dates.';
-const BENCHMARK_FILTER_SP500_TOOLTIP =
-  'Simulated portfolio value at the end of the track is higher than the S&P 500 cap-weight series over the same dates.';
+function formatBenchmarkValuationDate(isoYmd: string): string {
+  const d = new Date(`${isoYmd}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return isoYmd;
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(d);
+}
 
 const RISK_LEVELS: RiskLevel[] = [1, 2, 3, 4, 5, 6];
 const FREQUENCIES: RebalanceFrequency[] = ['weekly', 'monthly', 'quarterly', 'yearly'];
@@ -64,6 +72,10 @@ export type ExplorePortfolioFilterControlsProps = {
   onRiskChange: (next: RiskLevel | null) => void;
   onFreqChange: (next: RebalanceFrequency | null) => void;
   onWeightChange: (next: 'equal' | 'cap' | null) => void;
+  /** Rendered after outperforming-benchmark toggles and before risk level (e.g. quick picks in portfolio picker dialog). */
+  betweenBenchmarkAndRisk?: ReactNode;
+  /** ISO `YYYY-MM-DD` of latest portfolio valuation (from ranked-configs API); drives benchmark outperformance tooltip. */
+  benchmarkOutperformanceAsOf?: string | null;
 };
 
 /**
@@ -82,56 +94,68 @@ export function ExplorePortfolioFilterControls({
   onRiskChange,
   onFreqChange,
   onWeightChange,
+  betweenBenchmarkAndRisk,
+  benchmarkOutperformanceAsOf,
 }: ExplorePortfolioFilterControlsProps) {
   const dataNote = freqFilter != null ? FREQUENCY_DATA_NOTES[freqFilter] : null;
   const isSingleStockTier = riskFilter === 6;
+
+  const benchmarkOutperformanceTooltip =
+    benchmarkOutperformanceAsOf != null && benchmarkOutperformanceAsOf.length > 0
+      ? `Outperformance is based on total portfolio value as of the most recent valuation on ${formatBenchmarkValuationDate(benchmarkOutperformanceAsOf)}.`
+      : 'Outperformance is based on total portfolio value at the most recent valuation for this model.';
 
   return (
     <TooltipProvider delayDuration={200}>
       <div className="space-y-4">
         <div className="space-y-2">
-          <Label className="text-xs font-medium">Outperforming benchmark</Label>
+          <Tooltip delayDuration={200}>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label="About outperforming benchmark filters"
+                className="group inline-flex max-w-full items-center gap-1 rounded-sm text-left text-xs font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              >
+                <span className="min-w-0">Outperforming benchmark</span>
+                <Info
+                  className="size-3.5 shrink-0 text-muted-foreground opacity-70 group-hover:opacity-100"
+                  aria-hidden
+                />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-[min(20rem,calc(100vw-2rem))] text-xs leading-snug">
+              {benchmarkOutperformanceTooltip}
+            </TooltipContent>
+          </Tooltip>
           <div className="grid grid-cols-1 gap-1">
-            <Tooltip delayDuration={200}>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() => onFilterBeatNasdaqChange(!filterBeatNasdaq)}
-                  className={cn(
-                    'rounded-lg border px-2 py-1.5 text-left text-xs font-medium transition-colors',
-                    filterBeatNasdaq
-                      ? 'border-primary bg-primary text-primary-foreground'
-                      : 'border-border bg-card text-muted-foreground hover:border-foreground/30 hover:text-foreground'
-                  )}
-                >
-                  Outperforming Nasdaq-100
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="top" className="max-w-[min(20rem,calc(100vw-2rem))] text-xs leading-snug">
-                {BENCHMARK_FILTER_NASDAQ_TOOLTIP}
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip delayDuration={200}>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() => onFilterBeatSp500Change(!filterBeatSp500)}
-                  className={cn(
-                    'rounded-lg border px-2 py-1.5 text-left text-xs font-medium transition-colors',
-                    filterBeatSp500
-                      ? 'border-primary bg-primary text-primary-foreground'
-                      : 'border-border bg-card text-muted-foreground hover:border-foreground/30 hover:text-foreground'
-                  )}
-                >
-                  Outperforming S&P 500
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="top" className="max-w-[min(20rem,calc(100vw-2rem))] text-xs leading-snug">
-                {BENCHMARK_FILTER_SP500_TOOLTIP}
-              </TooltipContent>
-            </Tooltip>
+            <button
+              type="button"
+              onClick={() => onFilterBeatNasdaqChange(!filterBeatNasdaq)}
+              className={cn(
+                'rounded-lg border px-2 py-1.5 text-left text-xs font-medium transition-colors',
+                filterBeatNasdaq
+                  ? 'border-primary bg-primary text-primary-foreground'
+                  : 'border-border bg-card text-muted-foreground hover:border-foreground/30 hover:text-foreground'
+              )}
+            >
+              Outperforming Nasdaq-100
+            </button>
+            <button
+              type="button"
+              onClick={() => onFilterBeatSp500Change(!filterBeatSp500)}
+              className={cn(
+                'rounded-lg border px-2 py-1.5 text-left text-xs font-medium transition-colors',
+                filterBeatSp500
+                  ? 'border-primary bg-primary text-primary-foreground'
+                  : 'border-border bg-card text-muted-foreground hover:border-foreground/30 hover:text-foreground'
+              )}
+            >
+              Outperforming S&P 500
+            </button>
           </div>
         </div>
+
+        {betweenBenchmarkAndRisk}
 
         <div className="space-y-2">
           <Label className="text-xs font-medium">Risk level</Label>

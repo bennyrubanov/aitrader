@@ -1,6 +1,6 @@
 /**
- * Latest holdings for a portfolio construction preset (Layer B), derived from the
- * most recent rebalance batch for that preset's cadence — same logic as config performance compute.
+ * Holdings for a portfolio construction preset (Layer B), derived from rebalance
+ * batches for that preset's cadence — same logic as config performance compute.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -17,6 +17,8 @@ import { createPublicClient } from '@/utils/supabase/public';
 
 type PublicSupabase = ReturnType<typeof createPublicClient>;
 
+type BatchRow = { id: string; run_date: string };
+
 function toNullableNumber(value: unknown): number | null {
   if (value === null || value === undefined) return null;
   const n = Number(value);
@@ -30,17 +32,16 @@ export type ConfigHoldingsSummary = {
   label: string | null;
 };
 
-export async function getLatestHoldingsForPortfolioConfig(
+async function resolvePortfolioConfigRebalanceContext(
   supabase: SupabaseClient,
   strategyId: string,
   riskLevel: number,
   rebalanceFrequency: string,
   weightingMethod: string
 ): Promise<{
-  holdings: HoldingItem[];
-  asOfDate: string | null;
-  configSummary: ConfigHoldingsSummary | null;
-}> {
+  configSummary: ConfigHoldingsSummary;
+  rebalanceBatches: BatchRow[];
+} | null> {
   const configId = await resolveConfigId(
     supabase as unknown as PublicSupabase,
     riskLevel,
@@ -48,7 +49,7 @@ export async function getLatestHoldingsForPortfolioConfig(
     weightingMethod
   );
   if (!configId) {
-    return { holdings: [], asOfDate: null, configSummary: null };
+    return null;
   }
 
   const { data: configMeta, error: configErr } = await supabase
@@ -58,7 +59,7 @@ export async function getLatestHoldingsForPortfolioConfig(
     .single();
 
   if (configErr || !configMeta) {
-    return { holdings: [], asOfDate: null, configSummary: null };
+    return null;
   }
 
   const meta = configMeta as {
@@ -83,43 +84,55 @@ export async function getLatestHoldingsForPortfolioConfig(
     .order('run_date', { ascending: true });
 
   if (batchErr || !batchData?.length) {
-    return { holdings: [], asOfDate: null, configSummary };
+    return { configSummary, rebalanceBatches: [] };
   }
 
-  const allBatches = batchData as Array<{ id: string; run_date: string }>;
+  const allBatches = batchData as BatchRow[];
   const rebalanceBatches = filterRebalanceBatches(allBatches, meta.rebalance_frequency);
-  const lastBatch = rebalanceBatches[rebalanceBatches.length - 1];
-  if (!lastBatch) {
-    return { holdings: [], asOfDate: null, configSummary };
-  }
+  return { configSummary, rebalanceBatches };
+}
+
+async function buildHoldingsForBatch(
+  supabase: SupabaseClient,
+  batch: BatchRow,
+  configSummary: ConfigHoldingsSummary
+): Promise<{ holdings: HoldingItem[]; asOfDate: string }> {
+  const topN = configSummary.topN;
+  const wm = configSummary.weightingMethod === 'cap' ? 'cap' : 'equal';
 
   const { data: scoreData, error: scoreErr } = await supabase
     .from('ai_analysis_runs')
-    .select('batch_id, stock_id, score, latent_rank, stocks(symbol, company_name)')
-    .eq('batch_id', lastBatch.id);
+    .select('batch_id, stock_id, score, latent_rank, bucket, stocks(symbol, company_name)')
+    .eq('batch_id', batch.id);
 
   if (scoreErr || !scoreData?.length) {
-    return { holdings: [], asOfDate: lastBatch.run_date, configSummary };
+    return { holdings: [], asOfDate: batch.run_date };
   }
 
   const scoresByBatch = buildScoresByBatch(
     scoreData as Parameters<typeof buildScoresByBatch>[0]
   );
-  const scores = scoresByBatch.get(lastBatch.id) ?? [];
+  const scores = scoresByBatch.get(batch.id) ?? [];
   if (scores.length === 0) {
-    return { holdings: [], asOfDate: lastBatch.run_date, configSummary };
+    return { holdings: [], asOfDate: batch.run_date };
   }
 
   const scoreByStockId = new Map(scores.map((s) => [s.stock_id, s]));
   const companyByStockId = new Map<string, string>();
+  const bucketByStockId = new Map<string, 'buy' | 'hold' | 'sell'>();
   for (const row of scoreData as Array<{
     stock_id: string;
+    bucket?: string | null;
     stocks: { symbol: string; company_name: string | null } | { symbol: string; company_name: string | null }[] | null;
   }>) {
     const st = Array.isArray(row.stocks) ? row.stocks[0] : row.stocks;
     const sym = st?.symbol?.toUpperCase() ?? '';
     const name = st?.company_name?.trim();
     companyByStockId.set(row.stock_id, name || sym || row.stock_id);
+    const b = row.bucket;
+    if (b === 'buy' || b === 'hold' || b === 'sell') {
+      bucketByStockId.set(row.stock_id, b);
+    }
   }
 
   let weighted: ReturnType<typeof buildEqualWeightHoldings>;
@@ -127,7 +140,7 @@ export async function getLatestHoldingsForPortfolioConfig(
     const { data: rawData, error: rawErr } = await supabase
       .from('nasdaq_100_daily_raw')
       .select('run_date, symbol, last_sale_price, market_cap')
-      .eq('run_date', lastBatch.run_date);
+      .eq('run_date', batch.run_date);
 
     if (rawErr || !rawData?.length) {
       weighted = buildEqualWeightHoldings(scores, topN);
@@ -135,7 +148,7 @@ export async function getLatestHoldingsForPortfolioConfig(
       const { capsByDate } = buildPricesAndCapsByDate(
         rawData as Parameters<typeof buildPricesAndCapsByDate>[0]
       );
-      const capMap = capsByDate.get(lastBatch.run_date) ?? new Map<string, number>();
+      const capMap = capsByDate.get(batch.run_date) ?? new Map<string, number>();
       weighted = buildCapWeightHoldings(scores, topN, capMap);
     }
   } else {
@@ -151,8 +164,83 @@ export async function getLatestHoldingsForPortfolioConfig(
       weight: h.weight,
       score: s != null ? toNullableNumber(s.score) : null,
       latentRank: s != null ? toNullableNumber(s.latent_rank) : null,
+      bucket: bucketByStockId.get(h.stock_id) ?? null,
     };
   });
 
-  return { holdings, asOfDate: lastBatch.run_date, configSummary };
+  return { holdings, asOfDate: batch.run_date };
+}
+
+/**
+ * Holdings for a construction preset as of a rebalance `run_date`, or latest when `asOfRunDate` is null.
+ * `rebalanceDates` is newest-first (aligned with the preset's rebalance cadence).
+ */
+export async function getPortfolioConfigHoldings(
+  supabase: SupabaseClient,
+  strategyId: string,
+  riskLevel: number,
+  rebalanceFrequency: string,
+  weightingMethod: string,
+  asOfRunDate: string | null
+): Promise<{
+  holdings: HoldingItem[];
+  asOfDate: string | null;
+  configSummary: ConfigHoldingsSummary | null;
+  rebalanceDates: string[];
+}> {
+  const ctx = await resolvePortfolioConfigRebalanceContext(
+    supabase,
+    strategyId,
+    riskLevel,
+    rebalanceFrequency,
+    weightingMethod
+  );
+
+  if (!ctx) {
+    return { holdings: [], asOfDate: null, configSummary: null, rebalanceDates: [] };
+  }
+
+  const { configSummary, rebalanceBatches } = ctx;
+  const rebalanceDates = [...rebalanceBatches].reverse().map((b) => b.run_date);
+
+  if (rebalanceBatches.length === 0) {
+    return { holdings: [], asOfDate: null, configSummary, rebalanceDates: [] };
+  }
+
+  let batch: BatchRow | undefined;
+  if (asOfRunDate) {
+    batch = rebalanceBatches.find((b) => b.run_date === asOfRunDate);
+  }
+  if (!batch) {
+    batch = rebalanceBatches[rebalanceBatches.length - 1];
+  }
+
+  const { holdings, asOfDate } = await buildHoldingsForBatch(supabase, batch, configSummary);
+  return { holdings, asOfDate, configSummary, rebalanceDates };
+}
+
+export async function getLatestHoldingsForPortfolioConfig(
+  supabase: SupabaseClient,
+  strategyId: string,
+  riskLevel: number,
+  rebalanceFrequency: string,
+  weightingMethod: string
+): Promise<{
+  holdings: HoldingItem[];
+  asOfDate: string | null;
+  configSummary: ConfigHoldingsSummary | null;
+}> {
+  const r = await getPortfolioConfigHoldings(
+    supabase,
+    strategyId,
+    riskLevel,
+    rebalanceFrequency,
+    weightingMethod,
+    null
+  );
+  return {
+    holdings: r.holdings,
+    asOfDate: r.asOfDate,
+    configSummary: r.configSummary,
+  };
 }

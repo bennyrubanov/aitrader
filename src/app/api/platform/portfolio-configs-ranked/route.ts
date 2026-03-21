@@ -78,12 +78,19 @@ const toNum = (v: unknown, fallback = 0): number => {
   return Number.isFinite(n) ? n : fallback;
 };
 
-function extractLatestBenchmarkEndingValues(perfRows: PerfRow[]): BenchmarkEndingValues | null {
+/** Latest weekly valuation `run_date` across all config performance rows (ISO `YYYY-MM-DD`). */
+function latestRunDateFromPerfRows(perfRows: PerfRow[]): string | null {
   if (!perfRows.length) return null;
   let maxDate = perfRows[0]!.run_date;
   for (const r of perfRows) {
     if (r.run_date > maxDate) maxDate = r.run_date;
   }
+  return maxDate;
+}
+
+function extractLatestBenchmarkEndingValues(perfRows: PerfRow[]): BenchmarkEndingValues | null {
+  const maxDate = latestRunDateFromPerfRows(perfRows);
+  if (!maxDate) return null;
   const onDate = perfRows.filter((r) => r.run_date === maxDate);
   const row =
     onDate.find(
@@ -264,7 +271,12 @@ export async function GET(req: NextRequest) {
     .order('weighting_method', { ascending: true });
 
   if (!configs || configs.length === 0) {
-    return NextResponse.json({ strategyId: strategy.id, configs: [], benchmarkEndingValues: null });
+    return NextResponse.json({
+      strategyId: strategy.id,
+      configs: [],
+      benchmarkEndingValues: null,
+      latestPerformanceDate: null,
+    });
   }
 
   // 3. Fetch all performance rows for this strategy in one query
@@ -457,12 +469,15 @@ export async function GET(req: NextRequest) {
     } catch { /* best-effort */ }
   }
 
-  const benchmarkEndingValues = extractLatestBenchmarkEndingValues((perfRows ?? []) as PerfRow[]);
+  const perfRowsTyped = (perfRows ?? []) as PerfRow[];
+  const benchmarkEndingValues = extractLatestBenchmarkEndingValues(perfRowsTyped);
+  const latestPerformanceDate = latestRunDateFromPerfRows(perfRowsTyped);
 
   return NextResponse.json({
     strategyId: strategy.id,
     strategyName: strategy.name,
     eligibleCount: eligible.length,
+    latestPerformanceDate,
     rankingNote:
       eligible.length === 0
         ? 'Performance data is being computed — metrics will appear shortly.'

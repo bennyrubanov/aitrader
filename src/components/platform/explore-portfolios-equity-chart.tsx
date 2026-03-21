@@ -42,6 +42,24 @@ const EXPLORE_BM_CONFIG: Record<ExploreBenchmarkKey, { label: string; color: str
   [EXPLORE_BM_KEYS.sp]: { label: 'S&P 500 (cap-weighted)', color: '#a855f7' },
 };
 
+type ExploreSidebarListRow =
+  | {
+      kind: 'portfolio';
+      dataKey: string;
+      configId: string;
+      label: string;
+      value: number;
+      riskLevel?: number;
+      portfolioRank: number;
+    }
+  | {
+      kind: 'benchmark';
+      dataKey: ExploreBenchmarkKey;
+      label: string;
+      value: number;
+      color: string;
+    };
+
 function clampRiskLevel(n: number | undefined): RiskLevel {
   const r = Math.round(Number(n));
   if (r < 1) return 1;
@@ -119,6 +137,17 @@ function formatEquityTooltipValue(v: number): string {
   return `$${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
 }
 
+/** Scroll `el` within `root` only — avoids `scrollIntoView` scrolling outer page columns. */
+function scrollWithinContainer(root: HTMLElement, el: HTMLElement, margin = 4) {
+  const rootRect = root.getBoundingClientRect();
+  const elRect = el.getBoundingClientRect();
+  if (elRect.top < rootRect.top + margin) {
+    root.scrollTop += elRect.top - rootRect.top - margin;
+  } else if (elRect.bottom > rootRect.bottom - margin) {
+    root.scrollTop += elRect.bottom - rootRect.bottom + margin;
+  }
+}
+
 type CategoricalChartState = {
   activeTooltipIndex?: number;
   isTooltipActive?: boolean;
@@ -133,7 +162,25 @@ type Props = {
   selectedConfigId: string | null;
   onSelectConfig: (configId: string) => void;
   className?: string;
+  /**
+   * `performancePicker`: no vertical tooltip cursor, no pin/dots, no X-scrub; lines ↔ sidebar and
+   * benchmark pills ↔ lines still highlight on hover. Pills and sidebar $ values stay at the latest
+   * run in the full series (nominal $), even when the chart range is zoomed or rebased.
+   */
+  variant?: 'explore' | 'performancePicker';
 };
+
+export function formatModelInceptionFootnoteDate(isoDate: string | undefined): string {
+  if (!isoDate) return '—';
+  const parsed = new Date(`${isoDate}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return '—';
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(parsed);
+}
 
 export function ExplorePortfoliosEquityChart({
   dates,
@@ -143,10 +190,14 @@ export function ExplorePortfoliosEquityChart({
   selectedConfigId,
   onSelectConfig,
   className,
+  variant = 'explore',
 }: Props) {
+  const isPicker = variant === 'performancePicker';
   const [range, setRange] = useState<TimeRange>('All');
   /** Hidden benchmark lines — same interaction pattern as `PerformanceChart` legend pills */
-  const [hiddenBenchmarkKeys, setHiddenBenchmarkKeys] = useState<Set<ExploreBenchmarkKey>>(() => new Set());
+  const [hiddenBenchmarkKeys, setHiddenBenchmarkKeys] = useState<Set<ExploreBenchmarkKey>>(
+    () => new Set()
+  );
   /** Follows cursor while unpinned */
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   /** Set on chart click; freezes date for sidebar until cleared */
@@ -240,48 +291,119 @@ export function ExplorePortfoliosEquityChart({
     return { chartData: rows, dataKeys: keys, chartConfig: chCfg, benchmarkKeys: bmKeys };
   }, [dates, range, visibleSeries, benchmarks, benchmarksValid, hiddenBenchmarkKeys]);
 
-  const effectiveIndex = pinnedIndex != null ? pinnedIndex : hoverIndex != null ? hoverIndex : null;
+  const latestIdx = chartData.length > 0 ? chartData.length - 1 : null;
 
-  /** Row used for pill values: hover/pin, else latest point in the visible window */
-  const displayValueIndex = effectiveIndex ?? (chartData.length > 0 ? chartData.length - 1 : null);
-  const displayValueRow = displayValueIndex != null ? chartData[displayValueIndex] : null;
+  /** Picker pills/sidebar: nominal $ at last API date (unchanged when chart range is 1M/3M/rebased). */
+  const pickerLatestRow = useMemo(() => {
+    if (!isPicker || !dates.length || !visibleSeries.length) return null;
+    const i = dates.length - 1;
+    const row: Record<string, string | number> = {
+      date: dates[i]!,
+      shortDate: formatDisplayDate(dates[i]!),
+    };
+    for (const s of visibleSeries) {
+      row[dataKeyForExploreConfig(s.configId)] = s.equities[i] ?? 10_000;
+    }
+    if (benchmarksValid && benchmarks) {
+      row[EXPLORE_BM_KEYS.cap] = benchmarks.nasdaq100Cap[i] ?? 10_000;
+      row[EXPLORE_BM_KEYS.eq] = benchmarks.nasdaq100Equal[i] ?? 10_000;
+      row[EXPLORE_BM_KEYS.sp] = benchmarks.sp500[i] ?? 10_000;
+    }
+    return row;
+  }, [isPicker, dates, visibleSeries, benchmarks, benchmarksValid]);
 
-  const sidebarRows = useMemo(() => {
-    if (effectiveIndex == null || !chartData[effectiveIndex]) return [];
-    const row = chartData[effectiveIndex]!;
-    return dataKeys
-      .map((k) => {
-        const s = visibleSeries.find((x) => dataKeyForExploreConfig(x.configId) === k);
-        return {
-          dataKey: k,
-          configId: s?.configId ?? '',
-          label: chartConfig[k]?.label ?? k,
-          value: Number(row[k]),
-          riskLevel: s?.riskLevel,
-        };
-      })
-      .filter((r) => r.configId)
-      .sort((a, b) => b.value - a.value);
-  }, [effectiveIndex, chartData, dataKeys, visibleSeries, chartConfig]);
+  const effectiveIndex = isPicker
+    ? null
+    : pinnedIndex != null
+      ? pinnedIndex
+      : hoverIndex != null
+        ? hoverIndex
+        : null;
 
-  /** When hovering a line, scroll the matching row into view in the sidebar */
+  const displayValueIndex = effectiveIndex ?? latestIdx;
+  const displayValueRow = isPicker
+    ? pickerLatestRow
+    : displayValueIndex != null
+      ? chartData[displayValueIndex]
+      : null;
+
+  const sidebarSourceIndex = effectiveIndex;
+
+  const sidebarRows = useMemo((): ExploreSidebarListRow[] => {
+    const row = isPicker ? pickerLatestRow : sidebarSourceIndex != null ? chartData[sidebarSourceIndex] : null;
+    if (!row) return [];
+
+    const portfolios: Omit<Extract<ExploreSidebarListRow, { kind: 'portfolio' }>, 'portfolioRank'>[] =
+      dataKeys
+        .map((k) => {
+          const s = visibleSeries.find((x) => dataKeyForExploreConfig(x.configId) === k);
+          return {
+            kind: 'portfolio' as const,
+            dataKey: k,
+            configId: s?.configId ?? '',
+            label: chartConfig[k]?.label ?? k,
+            value: Number(row[k]),
+            riskLevel: s?.riskLevel,
+          };
+        })
+        .filter((r) => r.configId)
+        .filter((r) => Number.isFinite(r.value));
+
+    const visibleBmKeys = EXPLORE_BM_ORDER.filter((k) => !hiddenBenchmarkKeys.has(k));
+    const benchmarks: Extract<ExploreSidebarListRow, { kind: 'benchmark' }>[] = benchmarksValid
+      ? visibleBmKeys.map((k) => {
+          const cfg = EXPLORE_BM_CONFIG[k];
+          const v = Number(row[k]);
+          return {
+            kind: 'benchmark' as const,
+            dataKey: k,
+            label: cfg.label,
+            value: v,
+            color: cfg.color,
+          };
+        }).filter((r) => Number.isFinite(r.value))
+      : [];
+
+    const merged = [...portfolios, ...benchmarks].sort((a, b) => b.value - a.value);
+    let rank = 0;
+    return merged.map((item) => {
+      if (item.kind === 'portfolio') {
+        rank += 1;
+        return { ...item, portfolioRank: rank };
+      }
+      return item;
+    });
+  }, [
+    isPicker,
+    pickerLatestRow,
+    sidebarSourceIndex,
+    chartData,
+    dataKeys,
+    visibleSeries,
+    chartConfig,
+    benchmarksValid,
+    hiddenBenchmarkKeys,
+  ]);
+
+  /** When hovering a line, scroll the matching row within the sidebar only (not the page). */
   useLayoutEffect(() => {
     if (!hoveredLineKey || hoverSourceRef.current !== 'chart') return;
     const root = sidebarScrollRef.current;
     if (!root) return;
     const el = root.querySelector<HTMLElement>(`[data-explore-sidebar-row="${hoveredLineKey}"]`);
-    el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    if (el) scrollWithinContainer(root, el);
   }, [hoveredLineKey, sidebarRows, effectiveIndex]);
 
   const clearPin = useCallback(() => setPinnedIndex(null), []);
 
   useEffect(() => {
+    if (isPicker) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') clearPin();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [clearPin]);
+  }, [isPicker, clearPin]);
 
   /** Range / data length changes: drop invalid indices */
   useEffect(() => {
@@ -370,11 +492,14 @@ export function ExplorePortfoliosEquityChart({
     );
   }
 
-  const sidebarDateLabel =
-    effectiveIndex != null ? (chartData[effectiveIndex]?.shortDate ?? '—') : null;
+  const sidebarDateLabel = isPicker
+    ? (pickerLatestRow?.shortDate ?? '—')
+    : effectiveIndex != null
+      ? (chartData[effectiveIndex]?.shortDate ?? '—')
+      : null;
 
   const pinnedXLabel =
-    pinnedIndex != null && chartData[pinnedIndex] != null
+    !isPicker && pinnedIndex != null && chartData[pinnedIndex] != null
       ? String(chartData[pinnedIndex]!.shortDate)
       : null;
 
@@ -387,10 +512,10 @@ export function ExplorePortfoliosEquityChart({
               key={r}
               type="button"
               onClick={() => setRange(r)}
-              className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+              className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
                 range === r
                   ? 'bg-trader-blue text-white'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
               }`}
             >
               {r}
@@ -398,7 +523,7 @@ export function ExplorePortfoliosEquityChart({
           ))}
         </div>
         {range !== 'All' ? (
-          <p className="text-[11px] text-muted-foreground max-w-[240px] leading-snug text-right">
+          <p className="max-w-[240px] text-right text-[11px] leading-snug text-muted-foreground">
             Shorter windows are rebased to $10,000 at the start of the range.
           </p>
         ) : null}
@@ -450,15 +575,15 @@ export function ExplorePortfoliosEquityChart({
         </div>
       ) : null}
 
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-stretch lg:gap-4">
-        <div className="min-h-[320px] min-w-0 flex-1">
+      <div className="grid min-h-0 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(260px,300px)] lg:items-stretch lg:gap-4">
+        <div className="min-h-[320px] min-w-0">
           <ChartContainer config={chartConfig} className="h-[320px] w-full">
             <LineChart
               data={chartData}
               margin={{ top: 8, right: 8, left: 8, bottom: 4 }}
-              onMouseMove={handleChartMouseMove}
-              onMouseLeave={handleChartMouseLeave}
-              onClick={handleChartClick}
+              onMouseMove={isPicker ? undefined : handleChartMouseMove}
+              onMouseLeave={isPicker ? undefined : handleChartMouseLeave}
+              onClick={isPicker ? undefined : handleChartClick}
             >
               <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.4} />
               <XAxis dataKey="shortDate" tick={{ fontSize: 10 }} />
@@ -472,8 +597,9 @@ export function ExplorePortfoliosEquityChart({
               <ReferenceLine
                 y={10_000}
                 stroke="#64748b"
-                strokeDasharray="4 3"
-                strokeOpacity={0.35}
+                strokeWidth={1}
+                strokeDasharray="5 4"
+                strokeOpacity={0.55}
               />
               {pinnedXLabel != null ? (
                 <ReferenceLine
@@ -485,7 +611,11 @@ export function ExplorePortfoliosEquityChart({
                 />
               ) : null}
               <Tooltip
-                cursor={{ stroke: '#64748b', strokeWidth: 1, strokeOpacity: 0.45 }}
+                cursor={
+                  isPicker
+                    ? false
+                    : { stroke: '#64748b', strokeWidth: 1, strokeOpacity: 0.45 }
+                }
                 content={() => null}
                 isAnimationActive={false}
               />
@@ -496,7 +626,7 @@ export function ExplorePortfoliosEquityChart({
                 const sel = selectedConfigId === cfgId;
                 const lineHover = hoveredLineKey === k;
                 const color = chartConfig[k]?.color ?? '#64748b';
-                const showPinDots = pinnedIndex != null;
+                const showPinDots = !isPicker && pinnedIndex != null;
                 return (
                   <Line
                     key={k}
@@ -544,7 +674,7 @@ export function ExplorePortfoliosEquityChart({
                           ? { r: sel ? 4 : 2, strokeWidth: 0, fill: color }
                           : false
                     }
-                    activeDot={showPinDots ? false : { r: 3, strokeWidth: 1 }}
+                    activeDot={isPicker || showPinDots ? false : { r: 3, strokeWidth: 1 }}
                     connectNulls
                     isAnimationActive={false}
                     onMouseEnter={() => {
@@ -565,7 +695,7 @@ export function ExplorePortfoliosEquityChart({
               {benchmarkKeys.map((k) => {
                 const color = chartConfig[k]?.color ?? '#64748b';
                 const lineHover = hoveredLineKey === k;
-                const showPinDots = pinnedIndex != null;
+                const showPinDots = !isPicker && pinnedIndex != null;
                 return (
                   <Line
                     key={k}
@@ -576,7 +706,7 @@ export function ExplorePortfoliosEquityChart({
                     strokeWidth={lineHover ? 2.5 : 2}
                     strokeOpacity={lineHover ? 1 : selectedConfigId ? 0.88 : 0.92}
                     dot={false}
-                    activeDot={showPinDots ? false : { r: 3, strokeWidth: 1, fill: color }}
+                    activeDot={isPicker || showPinDots ? false : { r: 3, strokeWidth: 1, fill: color }}
                     connectNulls
                     isAnimationActive={false}
                     onMouseEnter={() => {
@@ -593,54 +723,130 @@ export function ExplorePortfoliosEquityChart({
               })}
             </LineChart>
           </ChartContainer>
+          <div
+            className="mt-2 flex w-full items-center justify-center gap-2"
+            role="note"
+            aria-label="$10k initial investment reference"
+          >
+            <span
+              className="h-0 w-9 shrink-0 border-t border-dashed border-[#64748b]/80 dark:border-[#94a3b8]/80"
+              aria-hidden
+            />
+            <span className="text-[10px] leading-none text-muted-foreground">
+              $10k initial investment
+            </span>
+          </div>
         </div>
 
-        <aside className="flex w-full min-h-[220px] flex-col rounded-lg border border-border bg-card lg:max-h-[360px] lg:w-[min(100%,300px)] lg:shrink-0">
+        <aside className="flex w-full max-h-[360px] min-h-[280px] flex-col overflow-hidden rounded-lg border border-border bg-card lg:min-h-0 lg:h-full lg:w-full">
           <div className="shrink-0 space-y-2 border-b border-border px-3 py-2.5">
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
+            {isPicker ? (
+              <div className="flex items-center justify-between gap-2">
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Portfolio Value at date
+                  Portfolio values
                 </p>
-                <p className="text-sm font-semibold text-foreground truncate">
-                  {sidebarDateLabel ?? '—'}
+                <p className="shrink-0 text-xs font-semibold text-foreground tabular-nums">
+                  {sidebarDateLabel}
                 </p>
               </div>
-              {pinnedIndex != null ? (
-                <span className="shrink-0 rounded-full bg-trader-blue/15 px-2 py-0.5 text-[10px] font-medium text-trader-blue">
-                  Pinned
-                </span>
-              ) : null}
-            </div>
-            {pinnedIndex != null ? (
-              <button
-                type="button"
-                onClick={clearPin}
-                className="flex w-full items-center justify-between gap-2 rounded-md border border-border bg-background px-2 py-1.5 text-left text-xs font-medium text-foreground hover:bg-muted/60 transition-colors"
-              >
-                <span>Resume following pointer</span>
-                <kbd className="shrink-0 rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px] font-normal text-muted-foreground">
-                  Esc
-                </kbd>
-              </button>
-            ) : null}
+            ) : (
+              <>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Portfolio Value at date
+                    </p>
+                    <p className="truncate text-sm font-semibold text-foreground">
+                      {sidebarDateLabel ?? '—'}
+                    </p>
+                  </div>
+                  {pinnedIndex != null ? (
+                    <span className="shrink-0 rounded-full bg-trader-blue/15 px-2 py-0.5 text-[10px] font-medium text-trader-blue">
+                      Pinned
+                    </span>
+                  ) : null}
+                </div>
+                {pinnedIndex != null ? (
+                  <button
+                    type="button"
+                    onClick={clearPin}
+                    className="flex w-full items-center justify-between gap-2 rounded-md border border-border bg-background px-2 py-1.5 text-left text-xs font-medium text-foreground transition-colors hover:bg-muted/60"
+                  >
+                    <span>Resume following pointer</span>
+                    <kbd className="shrink-0 rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px] font-normal text-muted-foreground">
+                      Esc
+                    </kbd>
+                  </button>
+                ) : null}
+              </>
+            )}
           </div>
           <div
             ref={sidebarScrollRef}
             className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-2 py-2"
           >
             {sidebarRows.length === 0 ? (
-              <p className="px-1 py-4 text-center text-xs text-muted-foreground leading-relaxed">
-                <strong className="font-semibold text-foreground">Hover</strong> over the chart to
-                see portfolio values;{' '}
-                <strong className="font-semibold text-foreground">click</strong> to pin.
+              <p className="px-1 py-4 text-center text-xs leading-relaxed text-muted-foreground">
+                {isPicker ? (
+                  'No portfolio lines in view.'
+                ) : (
+                  <>
+                    <strong className="font-semibold text-foreground">Hover</strong> over the chart
+                    to see portfolio values;{' '}
+                    <strong className="font-semibold text-foreground">click</strong> to pin.
+                  </>
+                )}
               </p>
             ) : (
               <ul className="space-y-0.5">
-                {sidebarRows.map((r, idx) => {
+                {sidebarRows.map((r) => {
+                  const rowActive = hoveredLineKey === r.dataKey;
+                  if (r.kind === 'benchmark') {
+                    return (
+                      <li key={r.dataKey}>
+                        <button
+                          type="button"
+                          data-explore-sidebar-row={r.dataKey}
+                          onClick={(e) => e.preventDefault()}
+                          onMouseEnter={() => {
+                            hoverSourceRef.current = 'sidebar';
+                            setHoveredLineKey(r.dataKey);
+                          }}
+                          onMouseLeave={() => {
+                            setHoveredLineKey((cur) => (cur === r.dataKey ? null : cur));
+                            hoverSourceRef.current = null;
+                          }}
+                          className={cn(
+                            'flex w-full cursor-default items-center gap-2 rounded-md border border-transparent px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted/70 hover:border-border',
+                            rowActive && 'ring-2 ring-primary/25 bg-muted/40'
+                          )}
+                        >
+                          <span
+                            className="flex size-5 shrink-0 items-center justify-center rounded text-[10px] tabular-nums text-muted-foreground/50"
+                            aria-hidden
+                          >
+                            —
+                          </span>
+                          <span
+                            className="size-1.5 shrink-0 rounded-full"
+                            style={{ backgroundColor: r.color }}
+                            aria-hidden
+                          />
+                          <span
+                            className="min-w-0 flex-1 truncate font-medium text-foreground"
+                            title={r.label}
+                          >
+                            {r.label}
+                          </span>
+                          <span className="shrink-0 tabular-nums font-semibold text-foreground">
+                            {formatEquityTooltipValue(r.value)}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  }
                   const risk = clampRiskLevel(r.riskLevel);
                   const riskStyle = RISK_DOT[risk];
-                  const rowActive = hoveredLineKey === r.dataKey;
                   return (
                     <li key={r.configId}>
                       <button
@@ -665,10 +871,10 @@ export function ExplorePortfoliosEquityChart({
                         <span
                           className={cn(
                             'flex size-5 shrink-0 items-center justify-center rounded text-[10px] font-bold tabular-nums text-muted-foreground',
-                            idx < 3 && 'text-foreground'
+                            r.portfolioRank <= 3 && 'text-foreground'
                           )}
                         >
-                          {idx + 1}
+                          {r.portfolioRank}
                         </span>
                         <span
                           className={cn('size-1.5 shrink-0 rounded-full', riskStyle.dot)}
@@ -697,16 +903,9 @@ export function ExplorePortfoliosEquityChart({
         Simulated portfolio value starting from <strong className="text-foreground">$10,000</strong>{' '}
         at model inception on{' '}
         <strong className="text-foreground">
-          {chartData?.[0]?.date
-            ? new Intl.DateTimeFormat('en-US', {
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric',
-              }).format(new Date(chartData[0].date))
-            : '—'}
+          {formatModelInceptionFootnoteDate(dates[0])}
         </strong>
-        . Net of trading costs. Sidebar filters apply to portfolio lines only. Click a benchmark pill to
-        show or hide it (same as the performance overview chart).
+        . Net of trading costs.
       </p>
     </div>
   );
