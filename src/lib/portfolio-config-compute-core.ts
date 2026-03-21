@@ -10,7 +10,7 @@ export const INITIAL_CAPITAL = 10_000;
 
 export function parseNumericText(value: string | null | undefined): number | null {
   if (!value) return null;
-  let s = value.trim();
+  const s = value.trim();
   const multipliers: Record<string, number> = { T: 1e12, B: 1e9, M: 1e6, K: 1e3 };
   const suffix = s.slice(-1).toUpperCase();
   if (multipliers[suffix]) {

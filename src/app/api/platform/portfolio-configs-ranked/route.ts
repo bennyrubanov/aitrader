@@ -145,15 +145,7 @@ function computeConsistency(
   sorted: PerfRow[]
 ): number | null {
   if (sorted.length < 4) return null;
-  let beats = 0;
-  for (const row of sorted) {
-    const ai = toNum(row.ending_equity, INITIAL_CAPITAL);
-    const bench = toNum(row.nasdaq100_cap_weight_equity, INITIAL_CAPITAL);
-    // Use weekly returns — just check sign of relative return for each week
-    // Simpler: track month-end equity and compare monthly return vs benchmark
-  }
-  // Weekly consistency: % weeks where AI equity beat benchmark equity (cumulative)
-  // by comparing the change each week
+  // Weekly consistency: % weeks where AI weekly return beat benchmark weekly return
   if (sorted.length < 2) return null;
   let total = 0;
   let wins = 0;
