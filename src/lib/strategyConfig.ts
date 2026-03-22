@@ -43,7 +43,7 @@ export const STRATEGY_CONFIG = {
   // Universe
   indexName: ACTIVE_STRATEGY_ENTRY.universe.indexName,
 
-  // Model-layer tracking portfolio (for strategy tracking — separate from user portfolio construction layer)
+  // Model-layer tracking portfolio (for strategy tracking — separate from user portfolio configs layer)
   portfolioSize: ACTIVE_STRATEGY_ENTRY.defaultPortfolio.portfolioSize,
   weightingMethod: ACTIVE_STRATEGY_ENTRY.defaultPortfolio.weightingMethod,
   rebalanceFrequency: ACTIVE_STRATEGY_ENTRY.defaultPortfolio.rebalanceFrequency,

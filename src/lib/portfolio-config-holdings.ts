@@ -1,5 +1,5 @@
 /**
- * Holdings for a portfolio construction preset (Layer B), derived from rebalance
+ * Holdings for a portfolio, derived from rebalance
  * batches for that preset's cadence — same logic as config performance compute.
  */
 
@@ -172,7 +172,7 @@ async function buildHoldingsForBatch(
 }
 
 /**
- * Holdings for a construction preset as of a rebalance `run_date`, or latest when `asOfRunDate` is null.
+ * Holdings for a portfolio as of a rebalance `run_date`, or latest when `asOfRunDate` is null.
  * `rebalanceDates` is newest-first (aligned with the preset's rebalance cadence).
  */
 export async function getPortfolioConfigHoldings(

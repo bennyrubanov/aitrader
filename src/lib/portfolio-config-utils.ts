@@ -1,5 +1,5 @@
 /**
- * Portfolio construction config utilities.
+ * Portfolio config utilities.
  *
  * Provides config resolution (risk/freq/weighting -> config_id)
  * and helpers for querying config-scoped performance.

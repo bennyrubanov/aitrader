@@ -585,7 +585,7 @@ select
 from runs;
 
 -- =========================
--- 13) Portfolio construction configs (user-facing risk/frequency/weighting combos)
+-- 13) Portfolio configs (user-facing risk/frequency/weighting combos; table portfolio_construction_configs)
 -- =========================
 
 create table if not exists public.portfolio_construction_configs (

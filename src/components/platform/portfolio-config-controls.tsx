@@ -22,6 +22,8 @@ import {
   SingleStockMiniPie,
 } from '@/components/platform/weighting-mini-pies';
 import {
+  RebalanceFrequencyTooltip,
+  RiskLevelTooltip,
   SingleStockWeightingTooltipContent,
   WeightingMethodTooltip,
 } from '@/components/platform/weighting-method-tooltip';
@@ -92,7 +94,10 @@ export function PortfolioConfigControls({
 
   const riskHorizontal = (
     <div className="space-y-2">
-      <Label className={cn('font-medium', tight ? 'text-xs' : 'text-sm')}>Risk level</Label>
+      <div className="flex items-center gap-1.5">
+        <Label className={cn('font-medium', tight ? 'text-xs' : 'text-sm')}>Risk level</Label>
+        <RiskLevelTooltip />
+      </div>
       <div className="flex justify-between text-[9px] uppercase tracking-wide text-muted-foreground px-0.5">
         <span>Safer</span>
         <span>Higher risk</span>
@@ -140,7 +145,10 @@ export function PortfolioConfigControls({
 
   const riskVertical = (
     <div className="space-y-2">
-      <Label className="text-xs font-medium">Risk level</Label>
+      <div className="flex items-center gap-1.5">
+        <Label className="text-xs font-medium">Risk level</Label>
+        <RiskLevelTooltip />
+      </div>
       <div className="flex gap-2.5">
         <div className="flex flex-col items-center gap-1 shrink-0 py-0.5">
           <span className="text-[8px] font-medium uppercase tracking-wide text-muted-foreground text-center leading-tight">
@@ -192,7 +200,12 @@ export function PortfolioConfigControls({
 
   const frequencyBlock = (
     <div className="space-y-2">
-      <Label className={cn('font-medium', tight ? 'text-xs' : 'text-sm')}>Rebalance frequency</Label>
+      <div className="flex items-center gap-1.5">
+        <Label className={cn('font-medium', tight ? 'text-xs' : 'text-sm')}>
+          Rebalance frequency
+        </Label>
+        <RebalanceFrequencyTooltip />
+      </div>
       <div className={cn('grid gap-1', freqGridCols)}>
         {FREQUENCIES.map((f) => (
           <button

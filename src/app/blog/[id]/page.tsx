@@ -90,7 +90,7 @@ const ChatGPTStockPickingPost = () => (
       For everyday investors, this means having access to a tool that can potentially:
     </p>
     <ul className="list-disc pl-6 mb-6 text-foreground/90 space-y-2">
-      <li>Provide more diversified asset selection for portfolio construction</li>
+      <li>Provide more diversified asset selection for building portfolios</li>
       <li>Offer timely evaluations of earnings announcements and news events</li>
       <li>Identify stocks with higher potential for future returns</li>
       <li>Process vast amounts of financial information quickly and effectively</li>
@@ -102,7 +102,7 @@ const ChatGPTStockPickingPost = () => (
     </p>
     <p className="text-foreground/90 mb-4">
       We run AITrader as an experiment in the same spirit as that research: a defined universe
-      (Nasdaq-100), AI-generated scores, explicit portfolio construction rules, and performance you
+      (Nasdaq-100), AI-generated scores, explicit portfolio rules, and performance you
       can inspect. The question we care about is what happens when you hold that setup to real data,
       not whether it sounds impressive in a pitch deck.
     </p>
@@ -344,7 +344,7 @@ const AiInvestingIndustryPost = () => (
     <p className="text-foreground/90 mb-4">
       The rest of the industry can market however it wants. Here we are treating the product as a
       long-running experiment: AI produces ratings on a fixed universe, we apply portfolio
-      construction rules we document upfront, and we track outcomes over time. No hidden edge case,
+      rules we document upfront, and we track outcomes over time. No hidden edge case,
       no “trust us” story. If the setup is wrong or the model drifts, that should show up in the
       numbers and in how we iterate.
     </p>

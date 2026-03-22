@@ -218,7 +218,7 @@ create policy "Public read strategy cross sectional regressions"
   using (true);
 
 -- -------------------------------------------------------
--- 14) Portfolio construction configs – public read
+-- 14) Portfolio configs – public read
 -- -------------------------------------------------------
 alter table public.portfolio_construction_configs enable row level security;
 

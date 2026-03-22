@@ -639,7 +639,7 @@ export function YourPortfolioClient() {
   const showUserPerfToggle = Boolean(selectedProfile?.user_start_date && userChart && userChart.series.length > 1);
 
   return (
-    <div className="flex h-full min-h-0 flex-col md:flex-row">
+    <div className="flex h-full min-h-0 flex-1 flex-col md:flex-row">
       {/* Sidebar */}
       <aside className="shrink-0 border-b md:border-b-0 md:border-r bg-muted/20 md:w-64 md:min-w-[14rem]">
         <div className="flex items-center justify-between gap-2 p-3 md:p-4">
@@ -742,7 +742,7 @@ export function YourPortfolioClient() {
           </div>
         </div>
 
-        <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-6">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-y-contain px-4 py-4 sm:px-6">
           {isLoadingPerf ? (
             <Skeleton className="h-24 w-full" />
           ) : computeStatus === 'empty' ? (

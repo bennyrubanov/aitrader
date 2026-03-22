@@ -1,7 +1,7 @@
 -- ============================================================
--- Migration: Portfolio construction layer
+-- Migration: Portfolio configs layer
 -- Adds AIT identity fields to strategy_models, creates portfolio
--- construction config and performance tables, seeds standard configs,
+-- config and performance tables, seeds standard configs,
 -- and provides backfill / verification helper functions.
 -- ============================================================
 
@@ -26,7 +26,7 @@ where slug = 'ait-1-daneel'
   and ait_code is null;
 
 -- -------------------------------------------------------
--- 2) Portfolio construction configs
+-- 2) Portfolio configs
 -- -------------------------------------------------------
 create table if not exists public.portfolio_construction_configs (
   id uuid primary key default gen_random_uuid(),

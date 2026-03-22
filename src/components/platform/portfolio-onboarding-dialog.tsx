@@ -382,8 +382,8 @@ export function PortfolioOnboardingDialog() {
             <DialogHeader>
               <DialogTitle>Which strategy model?</DialogTitle>
               <DialogDescription>
-                Ratings and rankings come from the model you pick. Construction (top-N, cadence) is
-                configured in the next steps.
+                Ratings and rankings come from the model you pick. Portfolio settings (top-N, cadence)
+                are configured in the next steps.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-3 py-2">

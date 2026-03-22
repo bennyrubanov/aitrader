@@ -23,6 +23,8 @@ import {
   SingleStockMiniPie,
 } from '@/components/platform/weighting-mini-pies';
 import {
+  RebalanceFrequencyTooltip,
+  RiskLevelTooltip,
   SingleStockWeightingTooltipContent,
   WeightingMethodTooltip,
 } from '@/components/platform/weighting-method-tooltip';
@@ -158,7 +160,10 @@ export function ExplorePortfolioFilterControls({
         {betweenBenchmarkAndRisk}
 
         <div className="space-y-2">
-          <Label className="text-xs font-medium">Risk level</Label>
+          <div className="flex items-center gap-1.5">
+            <Label className="text-xs font-medium">Risk level</Label>
+            <RiskLevelTooltip />
+          </div>
           <div className="flex gap-2.5">
             <div className="flex flex-col items-center gap-1 shrink-0 py-0.5">
               <span className="text-[8px] font-medium uppercase tracking-wide text-muted-foreground text-center leading-tight">
@@ -214,7 +219,10 @@ export function ExplorePortfolioFilterControls({
         </div>
 
         <div className="space-y-2">
-          <Label className="text-xs font-medium">Rebalance frequency</Label>
+          <div className="flex items-center gap-1.5">
+            <Label className="text-xs font-medium">Rebalance frequency</Label>
+            <RebalanceFrequencyTooltip />
+          </div>
           <div className="grid grid-cols-2 gap-1">
             {FREQUENCIES.map((f) => (
               <button

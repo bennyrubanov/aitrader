@@ -408,32 +408,32 @@ export function PortfolioAtAGlanceCard({
   }[] = [];
 
   const metricsPeriodNote =
-    'Period: the full simulated track for this construction preset from model inception through the latest performance row, net of trading costs.';
+    'Tracked from model inception through the latest AI ratings day, net of trading costs.';
 
   if (m && perf?.computeStatus === 'ready') {
     metricRows.push(
       {
         label: 'Sharpe ratio',
         value: fmt.num(m.sharpeRatio),
-        hint: `Excess return per unit of risk, annualized from weekly step returns on the simulated equity curve (higher is better). ${metricsPeriodNote}`,
+        hint: `Excess return per unit of risk (volatility), annualized (higher is better, above 1 is good). ${metricsPeriodNote}`,
         ...headerStatSentiment('Sharpe', m.sharpeRatio),
       },
       {
         label: 'CAGR',
         value: fmt.pct(m.cagr),
-        hint: `Compound annual growth rate of the same simulated $10k equity curve. ${metricsPeriodNote}`,
+        hint: `Compound annual growth rate: the yearly returns implied by the growth rate thus far. ${metricsPeriodNote}`,
         ...headerStatSentiment('CAGR', m.cagr),
       },
       {
         label: 'Total return',
         value: fmt.pct(m.totalReturn),
-        hint: `Cumulative gain or loss on the simulated stake over the entire history of this preset (not annualized). ${metricsPeriodNote}`,
+        hint: `Cumulative gain or loss so far. ${metricsPeriodNote}`,
         ...headerStatSentiment('Total return', m.totalReturn),
       },
       {
         label: 'Max drawdown',
         value: fmt.pct(m.maxDrawdown),
-        hint: `Largest peak-to-trough percentage decline on that equity curve over the same full history (more negative is deeper drawdown). ${metricsPeriodNote}`,
+        hint: `Largest peak-to-trough percentage decline (more negative is deeper drawdown). ${metricsPeriodNote}`,
         ...headerStatSentiment('Max drawdown', m.maxDrawdown),
       }
     );
@@ -441,7 +441,7 @@ export function PortfolioAtAGlanceCard({
       metricRows.push({
         label: '% weeks outperforming Nasdaq-100',
         value: fmt.pct(pctWeeks, 0),
-        hint: `Share of weekly periods where this portfolio's return beat the Nasdaq-100 cap-weight benchmark that same week. Period: all overlapping weekly returns in the simulated track from inception through the latest row, net of costs.`,
+        hint: `Share of weekly periods where this portfolio's return beat the Nasdaq-100 cap-weight benchmark that same week. Tracked from model inception through the latest AI ratings day, net of trading costs.`,
         ...headerStatSentiment('% weeks outperforming Nasdaq-100', pctWeeks),
       });
     }
@@ -449,7 +449,7 @@ export function PortfolioAtAGlanceCard({
       metricRows.push({
         label: '% months outperforming Nasdaq-100',
         value: fmt.pct(pctMonths, 0),
-        hint: `Share of calendar months where this portfolio's month return beat the Nasdaq-100 cap-weight benchmark. Period: all full calendar months covered by the simulated track from inception through the latest row, net of costs.`,
+        hint: `Share of calendar months where this portfolio's month return beat the Nasdaq-100 cap-weight benchmark. Tracked from model inception through the latest AI ratings day, net of trading costs.`,
         ...headerStatSentiment('% months outperforming Nasdaq-100', pctMonths),
       });
     }

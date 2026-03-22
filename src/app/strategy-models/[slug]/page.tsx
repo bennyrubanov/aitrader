@@ -245,7 +245,7 @@ export default async function StrategyModelDetailPage({ params }: Props) {
         <div className="text-sm text-muted-foreground space-y-3 leading-relaxed max-w-3xl">
           <p className="text-foreground/90">
             Composite rank blends three signals so no single portfolio skews the headline:{' '}
-            <strong className="text-foreground">50%</strong> breadth (share of portfolio constructions
+            <strong className="text-foreground">50%</strong> breadth (share of portfolio configs
             with positive excess), <strong className="text-foreground">30%</strong> median quality across
             eligible portfolios, and <strong className="text-foreground">20%</strong> upside from the
             best-performing portfolio.
@@ -301,22 +301,40 @@ export default async function StrategyModelDetailPage({ params }: Props) {
               </h4>
               <div className="text-sm text-muted-foreground space-y-3 leading-relaxed">
                 <p>
-                  We rank portfolios by{' '}
-                  <strong className="text-foreground">risk-adjusted return and stability</strong>, not
-                  raw return or a single headline number.
+                  We rank portfolios with a <strong className="text-foreground">composite score</strong>{' '}
+                  so order reflects both{' '}
+                  <strong className="text-foreground">how money grew</strong> (total return and vs the
+                  Nasdaq-100 cap-weight benchmark) and{' '}
+                  <strong className="text-foreground">how you got there</strong> (risk-adjusted return,
+                  week-to-week steadiness vs that benchmark, and drawdown depth).
                 </p>
                 <p>
-                  Each portfolio gets a{' '}
-                  <strong className="text-foreground">composite score</strong> that blends four
-                  dimensions:
+                  Each metric is scaled <strong className="text-foreground">relative to other portfolios</strong>{' '}
+                  for this model (min–max normalization), then combined with the weights below. That
+                  means rank is not “highest ending dollar wins,” but it does reward strong outcomes
+                  alongside discipline.
+                </p>
+                <p>
+                  The score blends{' '}
+                  <strong className="text-foreground">six</strong> dimensions:
                 </p>
               </div>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {[
-                  { label: 'Sharpe ratio', weight: '40%', note: 'Risk-adjusted return' },
-                  { label: 'CAGR', weight: '30%', note: 'Annualized return' },
-                  { label: 'Consistency', weight: '20%', note: '% weeks outperforming benchmark' },
-                  { label: 'Drawdown', weight: '10%', note: 'Penalized for deep losses' },
+                  { label: 'Sharpe ratio', weight: '30%', note: 'Risk-adjusted weekly return' },
+                  { label: 'CAGR', weight: '25%', note: 'Annualized return from inception' },
+                  {
+                    label: 'Consistency',
+                    weight: '15%',
+                    note: '% of weeks beating Nasdaq-100 (cap) that week',
+                  },
+                  { label: 'Max drawdown', weight: '10%', note: 'Shallower losses score higher' },
+                  { label: 'Total return', weight: '10%', note: 'Cumulative return vs $10k start' },
+                  {
+                    label: 'vs Nasdaq-100 (cap)',
+                    weight: '10%',
+                    note: 'Portfolio total return minus benchmark over the same dates',
+                  },
                 ].map(({ label, weight, note }) => (
                   <div key={label} className="rounded-lg border bg-card p-3">
                     <p className="font-medium text-foreground">{label}</p>
@@ -327,12 +345,10 @@ export default async function StrategyModelDetailPage({ params }: Props) {
               </div>
               <div className="text-sm text-muted-foreground space-y-2 leading-relaxed">
                 <p>
-                  <strong className="text-foreground">What this balances:</strong> absolute return
-                  (CAGR), risk-adjusted quality (Sharpe),{' '}
-                  <strong className="text-foreground">stability</strong> (how often you outperform the
-                  benchmark week to week), and <strong className="text-foreground">pain</strong>{' '}
-                  (depth of drawdowns). Together that pushes back on configs that win from one lucky
-                  stretch or that top the chart only by being ultra-defensive.
+                  <strong className="text-foreground">Why both growth and risk:</strong> total return
+                  and benchmark-relative return keep the list aligned with what you see on portfolio
+                  cards, while Sharpe, consistency, and drawdown still down-rank configs that only
+                  looked good from one lucky stretch or extreme risk-taking.
                 </p>
                 <p className="text-xs">
                   Portfolios require at least 2 weeks of data to be ranked. Those with fewer
@@ -753,7 +769,7 @@ export default async function StrategyModelDetailPage({ params }: Props) {
             <CardContent className="text-sm text-foreground/80 space-y-3">
               <p>
                 <strong>Core idea:</strong> Extended the research from individual stock ratings
-                to full portfolio construction. Asked whether ChatGPT can select assets and build
+                to building full portfolios. Asked whether ChatGPT can select assets and build
                 diversified portfolios that outperform random selection — across stocks, bonds,
                 commodities, and more.
               </p>
@@ -761,7 +777,7 @@ export default async function StrategyModelDetailPage({ params }: Props) {
                 <p className="font-medium text-foreground mb-2">Key findings:</p>
                 <ul className="space-y-1 list-disc list-inside pl-2">
                   <li>AI-selected portfolios show statistically better diversification than random selection</li>
-                  <li>Portfolios built from AI picks outperform randomly constructed portfolios</li>
+                  <li>Portfolios built from AI picks outperform random portfolios</li>
                   <li>AI identifies abstract relationships between assets across different classes</li>
                   <li>Demonstrates AI potential as a co-pilot for portfolio management decisions</li>
                 </ul>

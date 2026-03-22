@@ -27,12 +27,24 @@ type NavMainProps = {
   items: NavMainItem[];
   label: string;
   hideLabel?: boolean;
+  /** Extra classes on the section label (e.g. `mt-1` for spacing above the first group). */
+  labelClassName?: string;
+  /** Merged into `SidebarGroup` (e.g. `px-2 pb-2 pt-0` to tune top padding). */
+  groupClassName?: string;
 };
 
-export function NavMain({ items, label, hideLabel = false }: NavMainProps) {
+export function NavMain({
+  items,
+  label,
+  hideLabel = false,
+  labelClassName,
+  groupClassName,
+}: NavMainProps) {
   return (
-    <SidebarGroup>
-      {!hideLabel ? <SidebarGroupLabel>{label}</SidebarGroupLabel> : null}
+    <SidebarGroup className={groupClassName}>
+      {!hideLabel ? (
+        <SidebarGroupLabel className={labelClassName}>{label}</SidebarGroupLabel>
+      ) : null}
       <SidebarMenu>
         {items.map((item) => {
           const content = (

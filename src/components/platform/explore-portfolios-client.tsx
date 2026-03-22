@@ -7,14 +7,13 @@ import {
   type ExploreBenchmarkSeries,
   type ExploreEquitySeriesRow,
 } from '@/components/platform/explore-portfolios-equity-chart';
+import { ExplorePortfolioDetailDialog } from '@/components/platform/explore-portfolio-detail-dialog';
 import { ExplorePortfolioFilterControls } from '@/components/platform/explore-portfolio-filter-controls';
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
 import { StrategyModelSidebarDropdown } from '@/components/platform/strategy-model-sidebar-dropdown';
 import { useRouter } from 'next/navigation';
 import {
   ArrowUpRight,
-  ChevronDown,
-  ChevronUp,
   ExternalLink,
   FilterX,
   Info,
@@ -49,15 +48,27 @@ import { useToast } from '@/hooks/use-toast';
 import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
 import { useAuthState } from '@/components/auth/auth-state-context';
 import { PORTFOLIO_EXPLORE_QUICK_PICKS } from '@/lib/portfolio-explore-quick-picks';
+import { sharpeRatioValueClass } from '@/lib/sharpe-value-class';
 import { type StrategyListItem } from '@/lib/platform-performance-payload';
 import { cn } from '@/lib/utils';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+const INITIAL_CAPITAL = 10_000;
+
 function fmt(n: number | null | undefined, type: 'pct' | 'num'): string {
   if (n == null || !Number.isFinite(n)) return '—';
   if (type === 'pct') return `${n >= 0 ? '+' : ''}${(n * 100).toFixed(1)}%`;
   return n.toFixed(2);
+}
+
+function fmtUsd(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return '—';
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(n);
 }
 
 function localTodayYmd(): string {
@@ -84,10 +95,17 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
   );
   const strategyName = effectiveStrategy?.name ?? strategySlug;
 
+  /** Matches strategy sidebar: first ranked model in the list is "Top". */
+  const strategyIsTop = useMemo(
+    () => strategies.length > 0 && strategies[0]?.slug === strategySlug,
+    [strategies, strategySlug]
+  );
+
   const [isLoading, setIsLoading] = useState(true);
   const [configs, setConfigs] = useState<RankedConfig[]>([]);
   const [rankingNote, setRankingNote] = useState<string | null>(null);
   const [latestPerformanceDate, setLatestPerformanceDate] = useState<string | null>(null);
+  const [modelInceptionDate, setModelInceptionDate] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   // Filter state
@@ -103,6 +121,9 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
   const [addStartDate, setAddStartDate] = useState(localTodayYmd);
   const [addInvestment, setAddInvestment] = useState('10000');
   const [addBusy, setAddBusy] = useState(false);
+
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailConfig, setDetailConfig] = useState<RankedConfig | null>(null);
 
   const [browseMode, setBrowseMode] = useState<'list' | 'chart'>('list');
   const [equitySeriesPayload, setEquitySeriesPayload] = useState<{
@@ -121,10 +142,12 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
           configs?: RankedConfig[];
           rankingNote?: string | null;
           latestPerformanceDate?: string | null;
+          modelInceptionDate?: string | null;
         };
         setConfigs(data.configs ?? []);
         setRankingNote(data.rankingNote ?? null);
         setLatestPerformanceDate(data.latestPerformanceDate ?? null);
+        setModelInceptionDate(data.modelInceptionDate ?? null);
       }
     } catch {
       /* silent */
@@ -218,7 +241,12 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
 
   const handleChartSeriesPick = (configId: string) => {
     setExpandedId(configId);
-    setBrowseMode('list');
+    const c =
+      filteredConfigs.find((x) => x.id === configId) ?? configs.find((x) => x.id === configId);
+    if (c) {
+      setDetailConfig(c);
+      setDetailOpen(true);
+    }
   };
 
   const activeFilterCount = useMemo(() => {
@@ -296,13 +324,13 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
     <TooltipProvider delayDuration={150}>
       <div
         className={cn(
-          'flex min-h-0 flex-1 flex-col lg:h-full lg:max-h-full lg:flex-row lg:items-stretch lg:overscroll-y-contain lg:overflow-hidden'
+          'flex min-h-0 flex-1 flex-col lg:h-full lg:max-h-full lg:flex-row lg:items-stretch lg:overflow-hidden lg:overscroll-y-contain'
         )}
       >
-        <aside className="flex w-full shrink-0 flex-col lg:min-h-0 lg:w-72">
+        <aside className="flex w-full shrink-0 flex-col lg:h-full lg:min-h-0 lg:w-72 lg:max-h-full">
           <div
             className={cn(
-              'min-h-0 flex-1 space-y-0 px-4 pt-2 sm:px-6 lg:overflow-x-hidden lg:overflow-y-auto lg:overscroll-y-contain lg:px-0 lg:pr-1 lg:pt-0',
+              'min-h-0 flex-1 space-y-0 px-4 pt-2 sm:px-6 lg:min-h-0 lg:flex-1 lg:overflow-x-hidden lg:overflow-y-auto lg:overscroll-y-contain lg:px-0 lg:pr-1 lg:pt-0',
               // Thin, low-contrast scrollbar (WebKit + Firefox)
               '[scrollbar-width:thin] [scrollbar-color:hsl(var(--border)/0.55)_transparent]',
               'lg:[&::-webkit-scrollbar]:w-1.5 lg:[&::-webkit-scrollbar]:h-1.5',
@@ -375,16 +403,16 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
           </div>
         </aside>
 
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-y-contain lg:pl-8">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-y-contain lg:h-full lg:max-h-full lg:min-h-0 lg:pl-8">
           {/* Header */}
-          <div className="border-b px-4 py-3 sm:px-6">
-            <h2 className="text-base font-semibold">Explore Portfolios</h2>
+          <div className="border-b px-4 pb-2 pt-0.5 sm:px-6 sm:pb-2.5">
+            <h2 className="text-base font-semibold leading-tight">Explore Portfolios</h2>
             <p className="text-xs text-muted-foreground">
               Pick between any portfolio, and follow it to track its performance.
             </p>
           </div>
 
-          <div className="flex-1 px-4 py-4 sm:px-6 space-y-4">
+          <div className="flex-1 space-y-4 px-4 pb-8 pt-2.5 sm:px-6 sm:pb-10 sm:pt-3">
             {/* Quick picks — preset portfolios */}
             <div className="space-y-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -495,20 +523,26 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
                   </div>
                 </div>
                 {browseMode === 'list' ? (
-                  <div className="flex flex-wrap items-center gap-2 min-w-0">
-                    <Trophy className="size-4 text-amber-500 shrink-0" aria-hidden />
-                    <h3 className="text-sm font-semibold">Ranked by Performance</h3>
-                    <span className="text-xs text-muted-foreground">
-                      {filteredConfigs.length} portfolio{filteredConfigs.length !== 1 ? 's' : ''}
-                      {activeFilterCount > 0 ? ' matching filters' : ''}
-                    </span>
-                    <Link
-                      href={`/strategy-models/${strategySlug}#portfolio-ranking-how`}
-                      className="inline-flex items-center gap-1 text-xs font-medium text-trader-blue underline-offset-2 hover:underline dark:text-trader-blue-light shrink-0"
-                    >
-                      How portfolios are ranked
-                      <ArrowUpRight className="size-3.5 shrink-0 opacity-80" aria-hidden />
-                    </Link>
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <Trophy className="size-4 text-amber-500 shrink-0" aria-hidden />
+                      <h3 className="text-sm font-semibold">Ranked by composite score</h3>
+                      <span className="text-xs text-muted-foreground">
+                        {filteredConfigs.length} portfolio{filteredConfigs.length !== 1 ? 's' : ''}
+                        {activeFilterCount > 0 ? ' matching filters' : ''}
+                      </span>
+                      <Link
+                        href={`/strategy-models/${strategySlug}#portfolio-ranking-how`}
+                        className="inline-flex items-center gap-1 text-xs font-medium text-trader-blue underline-offset-2 hover:underline dark:text-trader-blue-light shrink-0"
+                      >
+                        How portfolios are ranked
+                        <ArrowUpRight className="size-3.5 shrink-0 opacity-80" aria-hidden />
+                      </Link>
+                    </div>
+                    <p className="w-full min-w-0 text-[11px] leading-snug text-muted-foreground">
+                      Sharpe, CAGR, consistency, drawdown, total return, and vs Nasdaq-100 (cap) — each
+                      vs other portfolios for this model. Not sorted by ending value alone.
+                    </p>
                   </div>
                 ) : (
                   <div className="flex flex-wrap items-center gap-2 min-w-0">
@@ -530,7 +564,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
             {isLoading ? (
               <div className="space-y-3">
                 {Array.from({ length: 6 }).map((_, i) => (
-                  <Skeleton key={i} className="h-28 w-full" />
+                  <Skeleton key={i} className="h-32 w-full" />
                 ))}
               </div>
             ) : filteredConfigs.length === 0 ? (
@@ -563,8 +597,10 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
                     listDomId={`explore-config-${c.id}`}
                     config={c}
                     strategySlug={strategySlug}
-                    isExpanded={expandedId === c.id}
-                    onExpand={() => setExpandedId(expandedId === c.id ? null : c.id)}
+                    onOpenDetails={() => {
+                      setDetailConfig(c);
+                      setDetailOpen(true);
+                    }}
                     onAdd={() => openAddDialog(c)}
                   />
                 ))}
@@ -635,6 +671,26 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ExplorePortfolioDetailDialog
+        open={detailOpen}
+        onOpenChange={(o) => {
+          setDetailOpen(o);
+          if (!o) setDetailConfig(null);
+        }}
+        config={detailConfig}
+        strategySlug={strategySlug}
+        strategyName={strategyName}
+        strategyIsTop={strategyIsTop}
+        modelInceptionDate={modelInceptionDate}
+        onFollow={() => {
+          if (!detailConfig) return;
+          const c = detailConfig;
+          setDetailOpen(false);
+          setDetailConfig(null);
+          openAddDialog(c);
+        }}
+      />
     </TooltipProvider>
   );
 }
@@ -654,15 +710,13 @@ function ConfigCard({
   listDomId,
   config,
   strategySlug,
-  isExpanded,
-  onExpand,
+  onOpenDetails,
   onAdd,
 }: {
   listDomId?: string;
   config: RankedConfig;
   strategySlug: string;
-  isExpanded: boolean;
-  onExpand: () => void;
+  onOpenDetails: () => void;
   onAdd: () => void;
 }) {
   const hasMetrics = config.dataStatus === 'ready';
@@ -670,6 +724,15 @@ function ConfigCard({
   const riskColor = CONFIG_CARD_RISK_DOT[config.riskLevel as RiskLevel] ?? 'bg-muted';
   const riskTitle =
     (config.riskLabel && config.riskLabel.trim()) || RISK_LABELS[config.riskLevel as RiskLevel];
+
+  const benchNasdaqTotalReturn =
+    config.metrics.endingValueMarket != null
+      ? config.metrics.endingValueMarket / INITIAL_CAPITAL - 1
+      : null;
+  const outperformanceVsNasdaqCap =
+    config.metrics.totalReturn != null && benchNasdaqTotalReturn != null
+      ? config.metrics.totalReturn - benchNasdaqTotalReturn
+      : null;
 
   return (
     <div
@@ -708,22 +771,15 @@ function ConfigCard({
               </div>
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={onExpand}
-                    className="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-                  >
-                    {isExpanded ? (
-                      <ChevronUp className="size-4" />
-                    ) : (
-                      <ChevronDown className="size-4" />
-                    )}
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{isExpanded ? 'Collapse' : 'Details'}</TooltipContent>
-              </Tooltip>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={onOpenDetails}
+              >
+                Details
+              </Button>
               <Button size="sm" className="h-7 text-xs gap-1" onClick={onAdd}>
                 <Plus className="size-3" />
                 Follow
@@ -731,42 +787,72 @@ function ConfigCard({
             </div>
           </div>
 
-          {/* Always-visible key metrics */}
+          {/* Highlight metrics — first four columns share space; last column fits label in one line */}
           {hasMetrics ? (
-            <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-              <MetricPill
-                label="Return"
-                value={fmt(config.metrics.totalReturn, 'pct')}
-                positive={(config.metrics.totalReturn ?? 0) >= 0}
-              />
-              <MetricPill
-                label="Sharpe"
-                value={fmt(config.metrics.sharpeRatio, 'num')}
-                positive={(config.metrics.sharpeRatio ?? 0) >= 1}
-              />
-              <MetricPill
-                label="CAGR"
-                value={fmt(config.metrics.cagr, 'pct')}
-                positive={(config.metrics.cagr ?? 0) >= 0}
-              />
-              <MetricPill
-                label="Max DD"
-                value={fmt(config.metrics.maxDrawdown, 'pct')}
-                positive={false}
-                className="hidden sm:block"
-              />
-              <MetricPill
-                label="Consistency"
-                value={
-                  config.metrics.consistency != null
-                    ? `${(config.metrics.consistency * 100).toFixed(0)}%`
-                    : '—'
-                }
-                positive={
-                  config.metrics.consistency != null ? config.metrics.consistency > 0.5 : undefined
-                }
-                className="hidden sm:block"
-              />
+            <div className="w-full overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch] sm:overflow-visible">
+              <div className="grid w-full min-w-[28rem] grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] gap-x-2 pl-6 pr-6 sm:min-w-0 sm:gap-x-3 sm:pl-8 sm:pr-8 sm:items-end">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="min-w-0 cursor-default">
+                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                        Value
+                      </p>
+                      <p className="text-xs font-semibold tabular-nums mt-0.5 text-foreground">
+                        {fmtUsd(
+                          config.metrics.endingValuePortfolio ??
+                            (config.metrics.totalReturn != null
+                              ? INITIAL_CAPITAL * (1 + config.metrics.totalReturn)
+                              : null)
+                        )}{' '}
+                        <span
+                          className={cn(
+                            'font-semibold',
+                            (config.metrics.totalReturn ?? 0) >= 0
+                              ? 'text-green-600 dark:text-green-400'
+                              : 'text-red-600 dark:text-red-400'
+                          )}
+                        >
+                          ({fmt(config.metrics.totalReturn, 'pct')})
+                        </span>
+                      </p>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs text-xs">
+                    Model track: hypothetical portfolio value from $10,000 at inception through the
+                    latest performance date. Parentheses show total return over that period.
+                  </TooltipContent>
+                </Tooltip>
+                <MetricPill
+                  className="min-w-0"
+                  label="Sharpe"
+                  value={fmt(config.metrics.sharpeRatio, 'num')}
+                  valueClassName={
+                    config.metrics.sharpeRatio != null &&
+                    Number.isFinite(config.metrics.sharpeRatio)
+                      ? sharpeRatioValueClass(config.metrics.sharpeRatio)
+                      : undefined
+                  }
+                />
+                <MetricPill
+                  className="min-w-0"
+                  label="CAGR"
+                  value={fmt(config.metrics.cagr, 'pct')}
+                  positive={(config.metrics.cagr ?? 0) >= 0}
+                />
+                <MetricPill
+                  className="min-w-0"
+                  label="Max drawdown"
+                  value={fmt(config.metrics.maxDrawdown, 'pct')}
+                  positive={false}
+                />
+                <MetricPill
+                  label="Performance vs NDX-100 (cap)"
+                  value={fmt(outperformanceVsNasdaqCap, 'pct')}
+                  positive={(outperformanceVsNasdaqCap ?? 0) > 0}
+                  title="Portfolio cumulative return minus Nasdaq-100 cap-weight benchmark cumulative return over the same period ($10k start)."
+                  labelClassName="whitespace-nowrap"
+                />
+              </div>
             </div>
           ) : isLimited ? (
             <p className="text-[11px] text-amber-600 dark:text-amber-400">
@@ -777,41 +863,6 @@ function ConfigCard({
           )}
         </div>
       </div>
-
-      {/* Expanded detail */}
-      {isExpanded && (
-        <div className="border-t px-4 py-4 space-y-3 ml-14">
-          {hasMetrics && (
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-              <MetricCard
-                label="Total return"
-                value={fmt(config.metrics.totalReturn, 'pct')}
-                positive={(config.metrics.totalReturn ?? 0) >= 0}
-              />
-              <MetricCard label="Sharpe ratio" value={fmt(config.metrics.sharpeRatio, 'num')} />
-              <MetricCard
-                label="CAGR"
-                value={fmt(config.metrics.cagr, 'pct')}
-                positive={(config.metrics.cagr ?? 0) >= 0}
-              />
-              <MetricCard label="Max drawdown" value={fmt(config.metrics.maxDrawdown, 'pct')} />
-              <MetricCard
-                label="% weeks outperforming benchmark"
-                value={
-                  config.metrics.consistency != null
-                    ? `${(config.metrics.consistency * 100).toFixed(0)}%`
-                    : '—'
-                }
-              />
-            </div>
-          )}
-          <p className="text-xs text-muted-foreground">
-            {config.metrics.weeksOfData > 0
-              ? `${config.metrics.weeksOfData} weeks of tracked performance since model inception.`
-              : 'Performance data will appear after the next rebalance cycle.'}
-          </p>
-        </div>
-      )}
     </div>
   );
 }
@@ -820,42 +871,39 @@ function MetricPill({
   label,
   value,
   positive,
+  valueClassName,
   className,
+  title,
+  labelClassName,
 }: {
   label: string;
   value: string;
   positive?: boolean;
+  /** When set, overrides `positive` for value text color. */
+  valueClassName?: string;
   className?: string;
+  title?: string;
+  labelClassName?: string;
 }) {
-  return (
-    <div className={className}>
-      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p
-        className={`text-xs font-semibold tabular-nums mt-0.5 ${value !== '—' && positive !== undefined ? (positive ? 'text-green-600 dark:text-green-400' : 'text-foreground') : 'text-muted-foreground'}`}
-      >
-        {value}
-      </p>
-    </div>
-  );
-}
+  const valueToneClass =
+    valueClassName ??
+    (value !== '—' && positive !== undefined
+      ? positive
+        ? 'text-green-600 dark:text-green-400'
+        : 'text-foreground'
+      : 'text-muted-foreground');
 
-function MetricCard({
-  label,
-  value,
-  positive,
-}: {
-  label: string;
-  value: string;
-  positive?: boolean;
-}) {
   return (
-    <div className="rounded-lg border bg-background p-3 flex-1 min-w-[80px]">
-      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</p>
+    <div className={className} title={title}>
       <p
-        className={`text-sm font-semibold mt-1 tabular-nums ${value !== '—' && positive !== undefined ? (positive ? 'text-green-600 dark:text-green-400' : 'text-foreground') : ''}`}
+        className={cn(
+          'text-[10px] uppercase tracking-wide text-muted-foreground',
+          labelClassName
+        )}
       >
-        {value}
+        {label}
       </p>
+      <p className={cn('text-xs font-semibold tabular-nums mt-0.5', valueToneClass)}>{value}</p>
     </div>
   );
 }

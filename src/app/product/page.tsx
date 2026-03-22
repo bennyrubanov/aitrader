@@ -10,7 +10,7 @@ const productPillars = [
       "Track model-generated ratings across the NASDAQ-100 with transparent score updates and directional buckets.",
   },
   {
-    title: "Portfolio Construction",
+    title: "Portfolios",
     description:
       "Convert stock-level signals into a repeatable Top-20 portfolio process with explicit ranking and rebalancing logic.",
   },

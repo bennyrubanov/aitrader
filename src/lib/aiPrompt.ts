@@ -50,7 +50,7 @@ export const STOCK_RATING_PROMPT_TEMPLATE = [
   '- Calibrate the score relative to other Nasdaq-100 constituents, not in absolute isolation.',
   '- Avoid defaulting to 0 unless information is genuinely mixed.',
   'In addition to the integer score, provide a latent_rank between 0 and 1 that reflects fine-grained relative attractiveness compared to other Nasdaq-100 stocks. Use latent_rank only as an ordinal ranking signal; it does not need to be calibrated across days.',
-  'Portfolio construction is determined downstream by sorting latent_rank and taking Top-20 equal weight. Bucket labels are for transparency, not portfolio construction.',
+  'How the portfolio is built is determined downstream by sorting latent_rank and taking Top-20 equal weight. Bucket labels are for transparency, not portfolio weighting.',
   '',
   'Bucket mapping (MUST be used to populate current_bucket). Buckets are an application-layer',
   'abstraction; the underlying signal is the continuous attractiveness score:',

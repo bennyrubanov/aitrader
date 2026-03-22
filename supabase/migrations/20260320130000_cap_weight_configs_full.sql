@@ -1,4 +1,4 @@
--- Add cap-weight portfolio construction configs for all risk levels and frequencies.
+-- Add cap-weight portfolio configs for all risk levels and frequencies.
 -- The initial migration only seeded risk-3 weekly+monthly cap-weight.
 
 insert into public.portfolio_construction_configs

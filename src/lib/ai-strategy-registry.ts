@@ -43,7 +43,7 @@ export type AIStrategyEntry = {
   universe: {
     indexName: 'nasdaq100' | 'sp500';
   };
-  /** Default tracking portfolio parameters (model layer — separate from user-facing portfolio construction). */
+  /** Default tracking portfolio parameters (model layer — separate from user-facing portfolio configs). */
   defaultPortfolio: {
     portfolioSize: number;
     weightingMethod: 'equal_weight' | 'cap_weight';
@@ -59,7 +59,7 @@ export const AI_STRATEGIES: AIStrategyEntry[] = [
     robotName: 'Daneel',
     slug: 'ait-1-daneel',
     displayName: 'AIT-1 Daneel',
-    appVersion: 'v1.0.2',
+    appVersion: 'v1.0.3',
     prompt: {
       name: 'nasdaq100_weekly_rating',
       version: 'nasdaq100-websearch-v1.0.2-top20-weekly',

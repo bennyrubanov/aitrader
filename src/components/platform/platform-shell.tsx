@@ -12,13 +12,13 @@ type PlatformShellProps = {
 
 export function PlatformShell({ children }: PlatformShellProps) {
   return (
-    <div className="[--header-height:3.5rem] min-h-screen bg-muted/30">
-      <SidebarProvider className="flex flex-col">
+    <div className="[--header-height:3.5rem] flex h-svh max-h-svh flex-col overflow-hidden bg-muted/30">
+      <SidebarProvider className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <SiteHeader />
-        <div className="flex min-h-0 min-w-0 flex-1 overflow-x-clip">
+        <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
           <AppSidebar />
-          <SidebarInset className="min-h-0 min-w-0 bg-transparent">
-            <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-x-clip p-4 md:p-6">
+          <SidebarInset className="min-h-0 min-w-0 flex-1 overflow-hidden bg-transparent">
+            <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-x-clip overflow-y-auto overscroll-y-contain p-4 md:p-6">
               {children}
             </div>
           </SidebarInset>

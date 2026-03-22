@@ -31,7 +31,7 @@ function computeBeatRates(configs: RankedConfig[]): PortfolioBeatRates {
 }
 
 /**
- * Aggregate outperformance rates across all portfolio construction configs (Layer B) for a strategy slug.
+ * Aggregate outperformance rates across all portfolio configs (Layer B) for a strategy slug.
  */
 export async function getPortfolioBeatRatesForSlug(slug: string): Promise<PortfolioBeatRates | null> {
   const base =

@@ -269,7 +269,7 @@ export function PlatformOverviewClient() {
   return (
     <>
       <PortfolioOnboardingDialog />
-      <div className="flex h-full flex-col">
+      <div className="flex h-full min-h-0 flex-1 flex-col">
         <div className="sticky top-0 z-30 border-b bg-background/95 px-4 py-3 backdrop-blur-sm sm:px-6">
           <div className="flex flex-col gap-1">
             <h2 className="text-base font-semibold flex items-center gap-2">
@@ -282,7 +282,7 @@ export function PlatformOverviewClient() {
           </div>
         </div>
 
-        <div className="flex-1 space-y-6 px-4 py-4 sm:px-6">
+        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-y-contain px-4 py-4 sm:px-6">
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
             {quickLinks.map(({ href, label, icon: Icon }) => (
               <Link

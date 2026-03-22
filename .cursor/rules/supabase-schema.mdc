@@ -37,7 +37,7 @@ You must also keep this file up to date.
 ## Two-layer Architecture
 
 - **Layer A (AI rating model)**: `strategy_models` defines the AI strategy (prompt, model, universe, tracking portfolio). This is the rating engine.
-- **Layer B (portfolio construction)**: `portfolio_construction_configs` defines how a portfolio is built from the ratings (risk level, rebalance frequency, weighting, top_n). Users configure this layer independently.
+- **Layer B (portfolios)**: `portfolio_construction_configs` defines how a portfolio is built from the ratings (risk level, rebalance frequency, weighting, top_n). Users configure this layer independently.
 
 ## Tables (6 layers)
 
@@ -49,7 +49,7 @@ You must also keep this file up to date.
 
 **Model-layer performance + research**: `strategy_portfolio_holdings`, `strategy_rebalance_actions`, `strategy_performance_weekly`, `strategy_quintile_returns`, `strategy_cross_sectional_regressions`.
 
-**Portfolio construction layer (Layer B)**: `portfolio_construction_configs` (risk 1-5 × 4 freq × 2 weighting + risk 6 × 4 freq × equal only = 44 configs; risk 6 has top_n=1 so cap/equal are identical, only equal kept). Display names: `label` = `Top {n} · Equal|Cap · Weekly|Monthly|Quarterly|Yearly`; `risk_label` = tier badge (Conservative, Balanced, …). Canonical formatter: `src/lib/portfolio-config-display.ts` + migration `20260320140000_portfolio_config_display_labels.sql`. `strategy_portfolio_config_performance` (config-scoped performance rows keyed by strategy_id + config_id + run_date; includes `strategy_status` (in_progress/active), `compute_status` (pending/ready/failed), `next_rebalance_date`), `portfolio_config_compute_queue` (compute queue; service role only).
+**Portfolio configs (Layer B)**: `portfolio_construction_configs` (risk 1-5 × 4 freq × 2 weighting + risk 6 × 4 freq × equal only = 44 configs; risk 6 has top_n=1 so cap/equal are identical, only equal kept). Display names: `label` = `Top {n} · Equal|Cap · Weekly|Monthly|Quarterly|Yearly`; `risk_label` = tier badge (Conservative, Balanced, …). Canonical formatter: `src/lib/portfolio-config-display.ts` + migration `20260320140000_portfolio_config_display_labels.sql`. `strategy_portfolio_config_performance` (config-scoped performance rows keyed by strategy_id + config_id + run_date; includes `strategy_status` (in_progress/active), `compute_status` (pending/ready/failed), `next_rebalance_date`), `portfolio_config_compute_queue` (compute queue; service role only).
 
 **User portfolio tables**: `user_portfolio_profiles` (active profiles per user; stores `config_id`, `investment_size`, `user_start_date`, `notifications_enabled` — separate from model-level performance), `user_portfolio_positions` (holdings snapshot per profile), plus existing `user_portfolio_stocks` (watchlist/saved holdings).
 

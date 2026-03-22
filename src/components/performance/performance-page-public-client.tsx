@@ -79,6 +79,13 @@ import { type PortfolioConfigSlice } from '@/components/platform/portfolio-confi
 import { SidebarPortfolioConfigPicker } from '@/components/platform/sidebar-portfolio-config-picker';
 import { StrategyModelSidebarDropdown } from '@/components/platform/strategy-model-sidebar-dropdown';
 import { CapWeightMiniPie, EqualWeightMiniPie } from '@/components/platform/weighting-mini-pies';
+import {
+  FREQUENCY_LABELS,
+  RISK_LABELS,
+  RISK_TOP_N,
+  type RebalanceFrequency,
+  type RiskLevel,
+} from '@/components/portfolio-config/portfolio-config-context';
 
 const PerformanceChart = dynamic(
   () => import('@/components/platform/performance-chart').then((module) => module.PerformanceChart),
@@ -475,15 +482,65 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
     if (configMetricsReady && configPerfSlice?.portfolioConfig) {
       return configPerfSlice.portfolioConfig.rebalanceFrequency;
     }
+    if (slug && portfolioPerf.portfolioConfig) {
+      return portfolioPerf.portfolioConfig.rebalanceFrequency;
+    }
     return effectiveStrategy?.rebalanceFrequency ?? 'weekly';
-  }, [configMetricsReady, configPerfSlice, effectiveStrategy?.rebalanceFrequency]);
+  }, [
+    configMetricsReady,
+    configPerfSlice,
+    slug,
+    portfolioPerf.portfolioConfig,
+    effectiveStrategy?.rebalanceFrequency,
+  ]);
 
   const whatYouSeeWeightCap = useMemo(() => {
     if (configMetricsReady && configPerfSlice?.portfolioConfig) {
       return configPerfSlice.portfolioConfig.weightingMethod === 'cap';
     }
+    if (slug && portfolioPerf.portfolioConfig) {
+      return portfolioPerf.portfolioConfig.weightingMethod === 'cap';
+    }
     return false;
-  }, [configMetricsReady, configPerfSlice]);
+  }, [configMetricsReady, configPerfSlice, slug, portfolioPerf.portfolioConfig]);
+
+  /** Selected portfolio risk tier (Layer B), for overview subtitle; DB strategy status is separate. */
+  const whatYouSeeRiskLevel = useMemo((): RiskLevel | null => {
+    if (configMetricsReady && configPerfSlice?.portfolioConfig?.riskLevel != null) {
+      return configPerfSlice.portfolioConfig.riskLevel as RiskLevel;
+    }
+    if (slug && portfolioPerf.portfolioConfig?.riskLevel != null) {
+      return portfolioPerf.portfolioConfig.riskLevel as RiskLevel;
+    }
+    const n = whatYouSeeTopN;
+    for (const level of [1, 2, 3, 4, 5, 6] as const) {
+      if (RISK_TOP_N[level] === n) return level;
+    }
+    return null;
+  }, [configMetricsReady, configPerfSlice, slug, portfolioPerf.portfolioConfig, whatYouSeeTopN]);
+
+  /** Gray text after Performance Overview: tier · top n · cadence · weighting. */
+  const performanceOverviewDetailLine = useMemo(() => {
+    if (!effectiveStrategy) return null;
+    const parts: string[] = [];
+    const st = (effectiveStrategy.status ?? '').trim().toLowerCase();
+    if (st === 'discontinued') parts.push('Discontinued');
+    if (whatYouSeeRiskLevel != null) {
+      parts.push(RISK_LABELS[whatYouSeeRiskLevel]);
+    }
+    parts.push(`top ${whatYouSeeTopN}`);
+    const freqKey = whatYouSeeFreq as RebalanceFrequency;
+    const freqWord = (FREQUENCY_LABELS[freqKey] ?? String(freqKey)).toLowerCase();
+    parts.push(freqWord);
+    parts.push(whatYouSeeWeightCap ? 'cap' : 'equal');
+    return parts.join(' · ');
+  }, [
+    effectiveStrategy,
+    whatYouSeeRiskLevel,
+    whatYouSeeTopN,
+    whatYouSeeFreq,
+    whatYouSeeWeightCap,
+  ]);
 
   const whatYouSeeFreqLabel = useMemo(() => {
     const f = whatYouSeeFreq;
@@ -716,7 +773,14 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
 
       {/* ── A: Overview ─────────────────────────────────────────────────── */}
       <section id="overview" className="space-y-5 mb-10">
-        <h2 className="text-2xl font-bold mb-2">Performance Overview</h2>
+        <div className="mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <h2 className="text-2xl font-bold">Performance Overview</h2>
+          {performanceOverviewDetailLine ? (
+            <span className="text-sm font-normal normal-case tracking-normal text-muted-foreground">
+              {performanceOverviewDetailLine}
+            </span>
+          ) : null}
+        </div>
 
         <p className="text-sm text-muted-foreground max-w-3xl">
           Simulated growth of <strong>$10,000</strong> from the strategy start date, net of trading
@@ -942,22 +1006,30 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
 
       {/* ── Portfolio holdings (supporter / outperformer) ─────────────── */}
       <section id="holdings" className="mb-10">
-        <h2 className="text-2xl font-bold mb-3">Portfolio holdings</h2>
         {!slug || !holdingsPortfolioConfig ? (
-          <Skeleton className="h-[200px] w-full rounded-xl" />
+          <>
+            <h2 className="text-2xl font-bold mb-2">Portfolio holdings</h2>
+            <Skeleton className="h-[200px] w-full rounded-xl" />
+          </>
         ) : holdingsLoading ? (
-          <Skeleton className="h-[200px] w-full rounded-xl" />
+          <>
+            <h2 className="text-2xl font-bold mb-2">Portfolio holdings</h2>
+            <Skeleton className="h-[200px] w-full rounded-xl" />
+          </>
         ) : isPremium ? (
           <>
-            <p className="text-sm text-muted-foreground mb-3">
-              Positions for the selected portfolio ({portfolioHoldingsSubtitle}).
-            </p>
-            {holdingsRebalanceDates.length > 1 ? (
-              <div className="mb-4 flex justify-end">
-                <div className="flex w-full max-w-[200px] flex-col items-end gap-1">
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
+              <div className="min-w-0 flex-1">
+                <h2 className="text-2xl font-bold mb-1">Portfolio holdings</h2>
+                <p className="text-sm text-muted-foreground">
+                  Positions for the selected portfolio ({portfolioHoldingsSubtitle}).
+                </p>
+              </div>
+              {holdingsRebalanceDates.length > 1 ? (
+                <div className="flex w-full max-w-[220px] flex-col gap-1 sm:shrink-0 sm:items-end">
                   <Label
                     htmlFor="holdings-rebalance-date"
-                    className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+                    className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:text-right"
                   >
                     Rebalance date
                   </Label>
@@ -983,8 +1055,8 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
                     </SelectContent>
                   </Select>
                 </div>
-              </div>
-            ) : null}
+              ) : null}
+            </div>
             {holdings.length > 0 ? (
               <div className="rounded-lg border overflow-hidden">
                 <Table>
@@ -1041,7 +1113,9 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
             )}
           </>
         ) : (
-          <div className="relative rounded-xl border bg-card overflow-hidden">
+          <>
+            <h2 className="text-2xl font-bold mb-2">Portfolio holdings</h2>
+            <div className="relative rounded-xl border bg-card overflow-hidden">
             <div className="select-none pointer-events-none" aria-hidden>
               <Table>
                 <TableHeader>
@@ -1082,6 +1156,7 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
               </Button>
             </div>
           </div>
+          </>
         )}
       </section>
 
@@ -1100,7 +1175,7 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
               <FlipCard
                 label="CAGR"
                 value={fmt.pct(displayMetrics.cagr)}
-                explanation="Annualized compound growth rate — what the strategy would look like if it grew at this pace every year."
+                explanation="Annualized compound growth rate — what the portfolio's growth would look like if it grew at this pace every year."
                 positive={(displayMetrics.cagr ?? 0) > 0}
               />
             </div>

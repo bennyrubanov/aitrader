@@ -1,11 +1,11 @@
 /**
- * Canonical display label for a portfolio construction preset (matches DB migration).
+ * Canonical display label for a portfolio (matches DB migration).
  * Tier/risk is shown separately via risk_label in the UI.
  */
 
 /** Shown when weighting is disabled (top_n === 1: single-stock portfolios). */
 export const SINGLE_STOCK_WEIGHTING_TOOLTIP =
-  'This tier holds only one stock, so equal and cap weighting are identical—100% in that position. Weighting does not apply.';
+  'This tier holds only one stock, so equal and cap weighting are identical (100% in that position). Weighting does not apply.';
 const FREQ_DISPLAY: Record<string, string> = {
   weekly: 'Weekly',
   monthly: 'Monthly',

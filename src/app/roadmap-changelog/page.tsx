@@ -3,34 +3,93 @@ import Footer from "@/components/Footer";
 
 export const revalidate = 3600;
 
-const roadmapItems = [
+const roadmapItems: Array<{
+  title: string;
+  timeline: string;
+  detail: string;
+  link?: { href: string; label: string };
+}> = [
   {
-    title: "Methodology Expansion",
-    timeline: "Planned",
-    detail: "Add deeper model diagnostics and paper-style methodology appendices.",
-  },
-  {
-    title: "Performance Explorer",
+    title: "Performance tracking",
     timeline: "In progress",
-    detail: "Improve public performance pages with richer charts and period-level comparisons.",
+    detail:
+      "Better statistics, composite scoring for portfolios and models, and clearer model-level vs. portfolio-level metrics.",
   },
   {
-    title: "Signal Transparency",
-    timeline: "Shipped",
-    detail: "Expanded clarity around score ranges, buckets, and ranking behavior.",
+    title: "Chat with strategy models",
+    timeline: "Planned",
+    detail:
+      "Talk with any strategy model about any stock, with real-time ratings in the loop.",
+  },
+  {
+    title: "Daily stock ratings",
+    timeline: "Planned",
+    detail: "Surface daily ratings and signals in a way that fits how you scan the market.",
+  },
+  {
+    title: "More strategy models",
+    timeline: "Planned",
+    detail:
+      "Additional prompt strategies, multi-agent rating systems, and different underlying models.",
+  },
+  {
+    title: "Experimental strategy models",
+    timeline: "Exploring",
+    detail:
+      "Try unconventional engines—for example swarm-style prediction inspired by multi-agent simulation research.",
+    link: { href: "https://github.com/666ghj/MiroFish", label: "MiroFish (reference)" },
+  },
+  {
+    title: "Build your own strategy models",
+    timeline: "Planned",
+    detail: "Let power users define and iterate on their own rating strategies inside the platform.",
+  },
+  {
+    title: "Strategy model leaderboards",
+    timeline: "Planned",
+    detail: "Compare models side by side with fair, transparent ranking.",
+  },
+  {
+    title: "Fully customizable portfolios",
+    timeline: "Planned",
+    detail: "Go beyond presets so portfolio rules match how you actually invest.",
+  },
+  {
+    title: "Newsletter upgrades",
+    timeline: "Planned",
+    detail: "More customization, real-time signals, and other improvements to what hits your inbox.",
+  },
+  {
+    title: "Tax-aware portfolio guidance",
+    timeline: "Planned",
+    detail:
+      "Help users understand buy/sell tax implications when choosing portfolios and rebalances.",
+  },
+  {
+    title: "Brokerage execution",
+    timeline: "Exploring",
+    detail: "Potential integration with brokerage APIs so trades can be placed on your behalf—where regulations and partners allow.",
   },
 ];
 
 const changelogItems = [
   {
+    version: "Production MVP",
+    date: "March 2026",
+    notes:
+      "First production cut: portfolio configs on top of the AI rating engine—Explore Portfolios, Your Portfolios, and per-portfolio performance metrics. Performance tracking across the platform, plus the rating execution pipeline (cron, batch runs, config-scoped performance).",
+  },
+  {
     version: "v1.0.0",
     date: "March 2026",
-    notes: "Introduced the public-facing navigation redesign and supporting page structure.",
+    notes:
+      "Public navigation and page structure refresh; platform tabs and remade performance and strategy model experiences; subscription tiers and premium stock access; email/password auth with forgot/reset; ongoing speed and UI polish.",
   },
   {
     version: "v0.9.x",
     date: "February 2026",
-    notes: "Improved platform data flow and account experience.",
+    notes:
+      "Portfolio config layer atop the AI rating layer, weekly strategy performance framework, schema and cron hardening, RLS and account sync improvements, and earlier AI analysis pipeline work.",
   },
 ];
 
@@ -61,7 +120,22 @@ const RoadmapChangelogPage = () => {
                             {item.timeline}
                           </span>
                         </div>
-                        <p className="text-sm text-muted-foreground">{item.detail}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {item.detail}
+                          {item.link ? (
+                            <>
+                              {" "}
+                              <a
+                                href={item.link.href}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-trader-blue hover:underline"
+                              >
+                                {item.link.label}
+                              </a>
+                            </>
+                          ) : null}
+                        </p>
                       </article>
                     ))}
                   </div>

@@ -575,8 +575,8 @@ export function ExplorePortfoliosEquityChart({
         </div>
       ) : null}
 
-      <div className="grid min-h-0 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(260px,300px)] lg:items-stretch lg:gap-4">
-        <div className="min-h-[320px] min-w-0">
+      <div className="grid min-h-0 gap-3 lg:h-[360px] lg:min-h-[360px] lg:max-h-[360px] lg:grid-cols-[minmax(0,1fr)_minmax(260px,300px)] lg:items-stretch lg:gap-4">
+        <div className="flex min-h-[320px] min-w-0 flex-col lg:min-h-0">
           <ChartContainer config={chartConfig} className="h-[320px] w-full">
             <LineChart
               data={chartData}
@@ -738,7 +738,7 @@ export function ExplorePortfoliosEquityChart({
           </div>
         </div>
 
-        <aside className="flex w-full max-h-[360px] min-h-[280px] flex-col overflow-hidden rounded-lg border border-border bg-card lg:min-h-0 lg:h-full lg:w-full">
+        <aside className="flex w-full max-h-[360px] min-h-[280px] flex-col overflow-hidden rounded-lg border border-border bg-card lg:h-full lg:min-h-0 lg:max-h-full lg:w-full">
           <div className="shrink-0 space-y-2 border-b border-border px-3 py-2.5">
             {isPicker ? (
               <div className="flex items-center justify-between gap-2">

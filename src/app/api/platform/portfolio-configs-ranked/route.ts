@@ -39,6 +39,8 @@ export type ConfigMetrics = {
   endingValuePortfolio: number | null;
   /** Nasdaq-100 cap-weight benchmark ending value on same dates. */
   endingValueMarket: number | null;
+  /** S&P 500 cap-weight benchmark ending value on same dates. */
+  endingValueSp500: number | null;
   /** True if portfolio ending value exceeds cap-weight benchmark over the period. */
   beatsMarket: boolean | null;
   /** True if portfolio ending value exceeds S&P 500 (cap) series over the same period. */
@@ -72,6 +74,24 @@ export type BenchmarkEndingValues = {
 
 const INITIAL_CAPITAL = 10_000;
 const MIN_WEEKS_FOR_RANKING = 2;
+
+/** Composite rank weights (sum = 1). Each factor is min–max normalized across eligible configs. */
+const W_SHARPE = 0.3;
+const W_CAGR = 0.25;
+const W_CONSISTENCY = 0.15;
+const W_DRAWDOWN = 0.1;
+const W_TOTAL_RETURN = 0.1;
+const W_EXCESS_VS_NDX_CAP = 0.1;
+
+/** Cumulative portfolio return minus Nasdaq-100 cap-weight benchmark over the same period. */
+function excessReturnVsNasdaqCap(m: ConfigMetrics): number | null {
+  const tr = m.totalReturn;
+  const mkt = m.endingValueMarket;
+  if (tr == null || !Number.isFinite(tr) || mkt == null || mkt <= 0) return null;
+  const benchRet = mkt / INITIAL_CAPITAL - 1;
+  if (!Number.isFinite(benchRet)) return null;
+  return tr - benchRet;
+}
 
 const toNum = (v: unknown, fallback = 0): number => {
   const n = Number(v);
@@ -176,6 +196,7 @@ function metricsForConfig(rows: PerfRow[]): ConfigMetrics {
       weeksOfData: 0,
       endingValuePortfolio: null,
       endingValueMarket: null,
+      endingValueSp500: null,
       beatsMarket: null,
       beatsSp500: null,
     };
@@ -213,6 +234,7 @@ function metricsForConfig(rows: PerfRow[]): ConfigMetrics {
     weeksOfData: rows.length,
     endingValuePortfolio: endPortfolioVal,
     endingValueMarket: endMarketVal,
+    endingValueSp500: endSp500Val,
     beatsMarket,
     beatsSp500,
   };
@@ -340,23 +362,40 @@ export async function GET(req: NextRequest) {
   const cagrs = eligible.map((c) => c.metrics.cagr);
   const consistencies = eligible.map((c) => c.metrics.consistency);
   const drawdowns = eligible.map((c) => c.metrics.maxDrawdown);
+  const totalReturns = eligible.map((c) => c.metrics.totalReturn);
+  const excessVsNdx = eligible.map((c) => excessReturnVsNasdaqCap(c.metrics));
 
   const normSharpes = normalize(sharpes, true);
   const normCagrs = normalize(cagrs, true);
   const normConsistencies = normalize(consistencies, true);
   const normDrawdowns = normalize(drawdowns, false); // lower drawdown = better
+  const normTotalReturns = normalize(totalReturns, true);
+  const normExcessVsNdx = normalize(excessVsNdx, true);
 
   const scores = eligible.map((c, i) => {
     const s = normSharpes[i];
     const ca = normCagrs[i];
     const co = normConsistencies[i];
     const d = normDrawdowns[i];
-    if (s === null && ca === null && co === null && d === null) return null;
+    const tr = normTotalReturns[i];
+    const ex = normExcessVsNdx[i];
+    if (
+      s === null &&
+      ca === null &&
+      co === null &&
+      d === null &&
+      tr === null &&
+      ex === null
+    ) {
+      return null;
+    }
     const score =
-      (s ?? 0) * 0.4 +
-      (ca ?? 0) * 0.3 +
-      (co ?? 0) * 0.2 +
-      (d ?? 0) * 0.1;
+      (s ?? 0) * W_SHARPE +
+      (ca ?? 0) * W_CAGR +
+      (co ?? 0) * W_CONSISTENCY +
+      (d ?? 0) * W_DRAWDOWN +
+      (tr ?? 0) * W_TOTAL_RETURN +
+      (ex ?? 0) * W_EXCESS_VS_NDX_CAP;
     return score;
   });
 
@@ -468,6 +507,8 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     strategyId: strategy.id,
     strategyName: strategy.name,
+    /** First AI run date for this strategy; performance is tracked from here. */
+    modelInceptionDate: inceptionDate ?? null,
     eligibleCount: eligible.length,
     latestPerformanceDate,
     rankingNote:

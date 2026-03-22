@@ -20,7 +20,7 @@ drop view if exists public.nasdaq100_scores_7d_view cascade;
 drop view if exists public.nasdaq100_current_members cascade;
 drop view if exists public.nasdaq100_latest_snapshot cascade;
 
--- Portfolio construction + user portfolio layer
+-- Portfolio configs + user portfolio layer
 drop table if exists public.portfolio_config_compute_queue cascade;
 drop table if exists public.user_portfolio_positions cascade;
 drop table if exists public.user_portfolio_profiles cascade;
