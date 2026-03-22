@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   Table,
   TableBody,
@@ -37,7 +38,8 @@ import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config
 import type { HoldingItem } from '@/lib/platform-performance-payload';
 import type { ConfigHoldingsSummary } from '@/lib/portfolio-config-holdings';
 import { sharpeRatioValueClass } from '@/lib/sharpe-value-class';
-import { ChevronDown, Plus } from 'lucide-react';
+import Link from 'next/link';
+import { ChevronDown, ExternalLink, Plus, UserMinus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const INITIAL_CAPITAL = 10_000;
@@ -229,6 +231,12 @@ export function ExplorePortfolioDetailDialog({
   strategyIsTop,
   modelInceptionDate,
   onFollow,
+  footerMode = 'follow',
+  manageHref = null,
+  isFollowing = false,
+  followProfileId = null,
+  onUnfollow,
+  unfollowBusy = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -239,6 +247,14 @@ export function ExplorePortfolioDetailDialog({
   strategyIsTop: boolean;
   modelInceptionDate: string | null;
   onFollow: () => void;
+  /** `manage`: replace Follow with a link to the user's profile (overview / your-portfolio). */
+  footerMode?: 'follow' | 'manage';
+  manageHref?: string | null;
+  /** When true and `footerMode` is follow, show a non-actionable "Following" state. */
+  isFollowing?: boolean;
+  followProfileId?: string | null;
+  onUnfollow?: () => void;
+  unfollowBusy?: boolean;
 }) {
   const [loading, setLoading] = useState(false);
   const [holdings, setHoldings] = useState<HoldingItem[]>([]);
@@ -333,7 +349,7 @@ export function ExplorePortfolioDetailDialog({
             {config ? `${config.label} — ${strategyName}` : 'Portfolio details'}
           </DialogTitle>
           <DialogDescription>
-            Performance metrics and holdings for the selected portfolio.
+            Performance metrics and holdings for the selected portfolio config.
           </DialogDescription>
         </DialogHeader>
 
@@ -566,7 +582,34 @@ export function ExplorePortfolioDetailDialog({
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             Close
           </Button>
-          {config ? (
+          {config && footerMode === 'manage' && manageHref ? (
+            <Button type="button" className="gap-1" asChild>
+              <Link href={manageHref}>
+                <ExternalLink className="size-4" />
+                Your portfolio
+              </Link>
+            </Button>
+          ) : null}
+          {config && footerMode === 'follow' && isFollowing && followProfileId && onUnfollow ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="gap-1.5 text-muted-foreground hover:text-rose-600"
+                  disabled={unfollowBusy}
+                  onClick={onUnfollow}
+                >
+                  <UserMinus className="size-4 shrink-0" aria-hidden />
+                  Unfollow
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-xs text-xs">
+                Remove from Your Portfolios. You can undo from the notice.
+              </TooltipContent>
+            </Tooltip>
+          ) : null}
+          {config && footerMode === 'follow' && !isFollowing ? (
             <Button type="button" className="gap-1" onClick={onFollow}>
               <Plus className="size-4" />
               Follow

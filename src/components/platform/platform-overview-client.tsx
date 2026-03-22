@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   ArrowRight,
@@ -11,21 +11,29 @@ import {
   BellOff,
   Compass,
   Folders,
+  Heart,
   LayoutDashboard,
   LineChart,
   Sparkles,
 } from 'lucide-react';
+import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
 import { useAuthState } from '@/components/auth/auth-state-context';
 import { usePortfolioConfig } from '@/components/portfolio-config/portfolio-config-context';
+import {
+  RISK_LABELS,
+  type RiskLevel,
+} from '@/components/portfolio-config/portfolio-config-context';
+import { ExplorePortfolioDetailDialog } from '@/components/platform/explore-portfolio-detail-dialog';
 import { PortfolioOnboardingDialog } from '@/components/platform/portfolio-onboarding-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
-import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
+import type { PerformanceSeriesPoint, StrategyListItem } from '@/lib/platform-performance-payload';
 import { buildConfigPerformanceChart, filterAndRebaseConfigRows } from '@/lib/config-performance-chart';
 import type { ConfigPerfRow } from '@/lib/portfolio-config-utils';
+import { cn } from '@/lib/utils';
 
 type RebalanceAction = {
   symbol: string;
@@ -53,8 +61,11 @@ type ProfileRow = {
   investment_size: number;
   user_start_date: string | null;
   notifications_enabled: boolean;
+  is_favorited: boolean;
+  is_starting_portfolio: boolean;
   strategy_models: { slug: string; name: string } | null;
-  portfolio_construction_configs: {
+  portfolio_config: {
+    id: string;
     risk_level: number;
     rebalance_frequency: string;
     weighting_method: string;
@@ -63,6 +74,80 @@ type ProfileRow = {
     risk_label: string;
   } | null;
 };
+
+type RankedBundle = {
+  configs: RankedConfig[];
+  modelInceptionDate: string | null;
+  strategyName: string;
+};
+
+function normalizeOverviewProfile(p: ProfileRow): ProfileRow {
+  return {
+    ...p,
+    is_favorited: Boolean(p.is_favorited),
+    is_starting_portfolio: Boolean(p.is_starting_portfolio),
+  };
+}
+
+const BENTO_RISK_DOT: Record<RiskLevel, string> = {
+  1: 'bg-emerald-500',
+  2: 'bg-lime-500',
+  3: 'bg-amber-500',
+  4: 'bg-orange-500',
+  5: 'bg-orange-600',
+  6: 'bg-rose-600',
+};
+
+function bentoCellClass(index: number, total: number): string {
+  if (total <= 1) {
+    return 'col-span-full min-h-[200px] sm:min-h-[220px]';
+  }
+  if (total === 2) {
+    return 'col-span-full sm:col-span-1 min-h-[168px]';
+  }
+  if (index === 0) {
+    return 'col-span-full md:col-span-2 md:row-span-2 min-h-[200px] md:min-h-0';
+  }
+  return 'col-span-full sm:col-span-1 min-h-[156px]';
+}
+
+function resolveRankedConfigForProfile(
+  p: ProfileRow,
+  bundle: RankedBundle | undefined
+): RankedConfig | null {
+  const cfg = p.portfolio_config;
+  const slug = p.strategy_models?.slug;
+  if (!cfg?.id || !slug) return null;
+  const found = bundle?.configs.find((c) => c.id === cfg.id);
+  if (found) return found;
+  return {
+    id: cfg.id,
+    riskLevel: cfg.risk_level,
+    rebalanceFrequency: cfg.rebalance_frequency,
+    weightingMethod: cfg.weighting_method,
+    topN: cfg.top_n,
+    label: cfg.label,
+    riskLabel: cfg.risk_label,
+    isDefault: false,
+    metrics: {
+      sharpeRatio: null,
+      cagr: null,
+      totalReturn: null,
+      maxDrawdown: null,
+      consistency: null,
+      weeksOfData: 0,
+      endingValuePortfolio: null,
+      endingValueMarket: null,
+      endingValueSp500: null,
+      beatsMarket: null,
+      beatsSp500: null,
+    },
+    compositeScore: null,
+    rank: null,
+    badges: [],
+    dataStatus: 'empty',
+  };
+}
 
 const fmt = {
   pct: (v: number | null | undefined, digits = 1) =>
@@ -91,14 +176,56 @@ function MiniSparkline({ points }: { points: number[] }) {
   );
 }
 
-export function PlatformOverviewClient() {
+type OverviewProps = {
+  strategies: StrategyListItem[];
+};
+
+export function PlatformOverviewClient({ strategies }: OverviewProps) {
   const authState = useAuthState();
   const { resetOnboarding } = usePortfolioConfig();
   const [loading, setLoading] = useState(true);
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
+
+  const syncFollowedProfileToOverview = useCallback(async (profileId: string) => {
+    if (!authState.isAuthenticated || !authState.isLoaded) return false;
+    const maxAttempts = 40;
+    const delayMs = 150;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        const r = await fetch('/api/platform/user-portfolio-profile', { cache: 'no-store' });
+        if (!r.ok) {
+          await new Promise((res) => setTimeout(res, delayMs));
+          continue;
+        }
+        const d = (await r.json()) as { profiles?: ProfileRow[] };
+        const raw = d.profiles ?? [];
+        const next = raw.map((p) => normalizeOverviewProfile({ ...p } as ProfileRow));
+        setProfiles(next);
+        if (next.some((p) => p.id === profileId && p.is_favorited)) {
+          return true;
+        }
+      } catch {
+        // keep polling
+      }
+      await new Promise((res) => setTimeout(res, delayMs));
+    }
+    return false;
+  }, [authState.isAuthenticated, authState.isLoaded]);
+  const [rankedBySlug, setRankedBySlug] = useState<Record<string, RankedBundle>>({});
+  const [rankedLoading, setRankedLoading] = useState(false);
   const [cardState, setCardState] = useState<
-    Record<string, { series: PerformanceSeriesPoint[]; totalReturn: number | null; loading: boolean }>
+    Record<
+      string,
+      {
+        series: PerformanceSeriesPoint[];
+        totalReturn: number | null;
+        cagr: number | null;
+        loading: boolean;
+      }
+    >
   >({});
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailProfileId, setDetailProfileId] = useState<string | null>(null);
 
   // TODO: Remove for production — resets onboarding every page visit for testing
   useEffect(() => {
@@ -115,10 +242,12 @@ export function PlatformOverviewClient() {
       return;
     }
     setLoading(true);
-    void fetch('/api/platform/user-portfolio-profile')
+    void fetch('/api/platform/user-portfolio-profile', { cache: 'no-store' })
       .then((r) => r.json())
       .then((d: { profiles?: ProfileRow[] }) => {
-        if (mounted) setProfiles(d.profiles ?? []);
+        if (!mounted) return;
+        const raw = d.profiles ?? [];
+        setProfiles(raw.map((p) => normalizeOverviewProfile({ ...p } as ProfileRow)));
       })
       .catch(() => {
         if (mounted) setProfiles([]);
@@ -131,16 +260,74 @@ export function PlatformOverviewClient() {
     };
   }, [authState.isAuthenticated, authState.isLoaded]);
 
+  const favoritedProfiles = useMemo(
+    () => profiles.filter((p) => p.is_favorited),
+    [profiles]
+  );
+
   useEffect(() => {
-    if (!profiles.length) return;
-    for (const p of profiles) {
+    if (!authState.isAuthenticated || !favoritedProfiles.length) {
+      setRankedBySlug({});
+      setRankedLoading(false);
+      return;
+    }
+    const slugs = [
+      ...new Set(favoritedProfiles.map((p) => p.strategy_models?.slug).filter(Boolean)),
+    ] as string[];
+    let cancelled = false;
+    setRankedLoading(true);
+    void Promise.all(
+      slugs.map((slug) =>
+        fetch(`/api/platform/portfolio-configs-ranked?slug=${encodeURIComponent(slug)}`)
+          .then((r) => r.json())
+          .then(
+            (d: {
+              configs?: RankedConfig[];
+              modelInceptionDate?: string | null;
+              strategyName?: string;
+            }) => ({
+              slug,
+              bundle: {
+                configs: d.configs ?? [],
+                modelInceptionDate: d.modelInceptionDate ?? null,
+                strategyName: d.strategyName ?? slug,
+              },
+            })
+          )
+          .catch(() => ({
+            slug,
+            bundle: {
+              configs: [] as RankedConfig[],
+              modelInceptionDate: null as string | null,
+              strategyName: slug,
+            },
+          }))
+      )
+    ).then((rows) => {
+      if (cancelled) return;
+      const next: Record<string, RankedBundle> = {};
+      for (const { slug, bundle } of rows) next[slug] = bundle;
+      setRankedBySlug(next);
+      setRankedLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [authState.isAuthenticated, favoritedProfiles]);
+
+  useEffect(() => {
+    if (!favoritedProfiles.length) return;
+    for (const p of favoritedProfiles) {
       const slug = p.strategy_models?.slug;
-      const cfg = p.portfolio_construction_configs;
+      const cfg = p.portfolio_config;
       if (!slug || !cfg) continue;
       const key = p.id;
       setCardState((s) => ({
         ...s,
-        [key]: { ...(s[key] ?? { series: [], totalReturn: null, loading: false }), loading: true },
+        [key]: {
+          ...(s[key] ?? { series: [], totalReturn: null, cagr: null, loading: false }),
+          loading: true,
+        },
       }));
       const params = new URLSearchParams({
         slug,
@@ -155,7 +342,7 @@ export function PlatformOverviewClient() {
           if (!rows.length || d.computeStatus !== 'ready') {
             setCardState((s) => ({
               ...s,
-              [key]: { series: [], totalReturn: null, loading: false },
+              [key]: { series: [], totalReturn: null, cagr: null, loading: false },
             }));
             return;
           }
@@ -169,6 +356,7 @@ export function PlatformOverviewClient() {
             [key]: {
               series,
               totalReturn: fullMetrics?.totalReturn ?? null,
+              cagr: fullMetrics?.cagr ?? null,
               loading: false,
             },
           }));
@@ -176,11 +364,11 @@ export function PlatformOverviewClient() {
         .catch(() => {
           setCardState((s) => ({
             ...s,
-            [key]: { series: [], totalReturn: null, loading: false },
+            [key]: { series: [], totalReturn: null, cagr: null, loading: false },
           }));
         });
     }
-  }, [profiles]);
+  }, [favoritedProfiles]);
 
   const toggleNotify = async (profileId: string, next: boolean) => {
     await fetch('/api/platform/user-portfolio-profile', {
@@ -266,9 +454,49 @@ export function PlatformOverviewClient() {
     []
   );
 
+  const detailProfile = useMemo(
+    () => (detailProfileId ? (profiles.find((x) => x.id === detailProfileId) ?? null) : null),
+    [detailProfileId, profiles]
+  );
+  const detailSlug = detailProfile?.strategy_models?.slug ?? '';
+  const detailBundle = detailSlug ? rankedBySlug[detailSlug] : undefined;
+  const detailConfig = useMemo(
+    () => (detailProfile ? resolveRankedConfigForProfile(detailProfile, detailBundle) : null),
+    [detailBundle, detailProfile]
+  );
+  const detailStrategyIsTop =
+    strategies.length > 0 && detailSlug.length > 0 && strategies[0]?.slug === detailSlug;
+  const detailStrategyName =
+    detailBundle?.strategyName ?? detailProfile?.strategy_models?.name ?? detailSlug;
+  const detailModelInception = detailBundle?.modelInceptionDate ?? null;
+
+  const openPortfolioDetail = useCallback((profileId: string) => {
+    setDetailProfileId(profileId);
+    setDetailOpen(true);
+  }, []);
+
   return (
     <>
-      <PortfolioOnboardingDialog />
+      <PortfolioOnboardingDialog onFollowPortfolioSynced={syncFollowedProfileToOverview} />
+      <ExplorePortfolioDetailDialog
+        open={detailOpen}
+        onOpenChange={(o) => {
+          setDetailOpen(o);
+          if (!o) setDetailProfileId(null);
+        }}
+        config={detailConfig}
+        strategySlug={detailSlug}
+        strategyName={detailStrategyName}
+        strategyIsTop={detailStrategyIsTop}
+        modelInceptionDate={detailModelInception}
+        footerMode="manage"
+        manageHref={
+          detailProfileId
+            ? `/platform/your-portfolio?profile=${encodeURIComponent(detailProfileId)}`
+            : null
+        }
+        onFollow={() => {}}
+      />
       <div className="flex h-full min-h-0 flex-1 flex-col">
         <div className="sticky top-0 z-30 border-b bg-background/95 px-4 py-3 backdrop-blur-sm sm:px-6">
           <div className="flex flex-col gap-1">
@@ -277,7 +505,8 @@ export function PlatformOverviewClient() {
               Overview
             </h2>
             <p className="text-xs text-muted-foreground">
-              Portfolios you follow, quick links, and per-portfolio performance snapshots.
+              Favorited portfolios (heart on Your Portfolios) appear here; open any tile for full
+              metrics and holdings history.
             </p>
           </div>
         </div>
@@ -328,62 +557,168 @@ export function PlatformOverviewClient() {
                 </Button>
               </CardContent>
             </Card>
+          ) : favoritedProfiles.length === 0 ? (
+            <Card className="border-dashed">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Heart className="size-4 text-muted-foreground" />
+                  No favorited portfolios yet
+                </CardTitle>
+                <CardDescription>
+                  Open Your Portfolios and tap the heart on any followed portfolio to pin it to this
+                  overview.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button asChild size="sm">
+                  <Link href="/platform/your-portfolio">Your portfolios</Link>
+                </Button>
+              </CardContent>
+            </Card>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2">
-              {profiles.map((p) => {
-                const cfg = p.portfolio_construction_configs;
-                const st = cardState[p.id];
-                const spark = (st?.series ?? []).slice(-12).map((x) => x.aiTop20);
-                return (
-                  <Card key={p.id} className="overflow-hidden">
-                    <CardHeader className="pb-2">
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Heart className="size-4 text-rose-500 fill-rose-500/25" aria-hidden />
+                <h3 className="text-sm font-semibold">Favorited portfolios</h3>
+                {rankedLoading ? (
+                  <span className="text-[11px] text-muted-foreground">Syncing metrics…</span>
+                ) : null}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 md:grid-flow-dense md:auto-rows-[minmax(148px,auto)] gap-3">
+                {favoritedProfiles.map((p, index) => {
+                  const cfg = p.portfolio_config;
+                  const st = cardState[p.id];
+                  const spark = (st?.series ?? []).slice(-12).map((x) => x.aiTop20);
+                  const slug = p.strategy_models?.slug;
+                  const bundle = slug ? rankedBySlug[slug] : undefined;
+                  const rankedCfg = resolveRankedConfigForProfile(p, bundle);
+                  const modelTr = rankedCfg?.metrics?.totalReturn ?? null;
+                  const modelCagr = rankedCfg?.metrics?.cagr ?? null;
+                  const riskTitle =
+                    cfg &&
+                    ((cfg.risk_label && cfg.risk_label.trim()) ||
+                      RISK_LABELS[cfg.risk_level as RiskLevel]);
+                  const riskDot =
+                    cfg && BENTO_RISK_DOT[cfg.risk_level as RiskLevel]
+                      ? BENTO_RISK_DOT[cfg.risk_level as RiskLevel]
+                      : 'bg-muted';
+
+                  return (
+                    <div
+                      key={p.id}
+                      role="button"
+                      tabIndex={0}
+                      className={cn(
+                        'group relative flex flex-col rounded-2xl border bg-card p-4 text-left shadow-sm transition-colors',
+                        'hover:border-trader-blue/35 hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-trader-blue/40',
+                        bentoCellClass(index, favoritedProfiles.length)
+                      )}
+                      onClick={() => openPortfolioDetail(p.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          openPortfolioDetail(p.id);
+                        }
+                      }}
+                    >
                       <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <CardTitle className="text-base">{p.strategy_models?.name ?? 'Portfolio'}</CardTitle>
-                          <CardDescription className="text-xs mt-1">
-                            {cfg
-                              ? `${cfg.risk_label} · Top ${cfg.top_n} · ${cfg.rebalance_frequency} · ${cfg.weighting_method === 'cap' ? 'Cap' : 'Equal'}`
-                              : 'Configuration'}
-                          </CardDescription>
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                              Model
+                            </p>
+                            {p.is_starting_portfolio ? (
+                              <Badge
+                                variant="outline"
+                                className="h-5 border-trader-blue/35 bg-trader-blue/5 px-1.5 py-0 text-[9px] font-semibold uppercase tracking-wide text-trader-blue"
+                              >
+                                Starting portfolio
+                              </Badge>
+                            ) : null}
+                          </div>
+                          <p className="truncate text-sm font-semibold leading-tight">
+                            {p.strategy_models?.name ?? 'Portfolio'}
+                          </p>
+                          {cfg ? (
+                            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                              <span
+                                className="inline-flex items-center gap-1 rounded-full border border-border/80 bg-muted/40 px-2 py-0.5 text-[10px] font-semibold"
+                                title={riskTitle}
+                              >
+                                <span
+                                  className={cn('size-1.5 shrink-0 rounded-full', riskDot)}
+                                  aria-hidden
+                                />
+                                {riskTitle}
+                              </span>
+                              <span className="truncate text-xs text-muted-foreground">
+                                {cfg.label}
+                              </span>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-muted-foreground">Configuration</p>
+                          )}
                         </div>
-                        <Badge variant="outline" className="shrink-0 text-[10px]">
+                        <Badge variant="secondary" className="shrink-0 text-[10px] tabular-nums">
                           Since {p.user_start_date ?? '—'}
                         </Badge>
                       </div>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <p className="text-[10px] uppercase text-muted-foreground">Return (your window)</p>
-                          <p className="text-lg font-semibold tabular-nums">
+
+                      <div className="mt-3 grid grid-cols-2 gap-2 sm:gap-3">
+                        <div className="rounded-xl border bg-background/60 px-2.5 py-2">
+                          <p className="text-[9px] uppercase text-muted-foreground">Your return</p>
+                          <p className="text-base font-bold tabular-nums leading-tight">
                             {st?.loading ? '…' : fmt.pct(st?.totalReturn ?? null)}
                           </p>
+                          <p className="text-[10px] text-muted-foreground tabular-nums">
+                            CAGR {st?.loading ? '…' : fmt.pct(st?.cagr ?? null)}
+                          </p>
                         </div>
-                        <MiniSparkline points={spark} />
+                        <div className="rounded-xl border bg-background/60 px-2.5 py-2">
+                          <p className="text-[9px] uppercase text-muted-foreground">Model (full)</p>
+                          <p className="text-base font-bold tabular-nums leading-tight">
+                            {rankedLoading && modelTr == null
+                              ? '…'
+                              : fmt.pct(modelTr)}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground tabular-nums">
+                            CAGR{' '}
+                            {rankedLoading && modelCagr == null
+                              ? '…'
+                              : fmt.pct(modelCagr)}
+                          </p>
+                        </div>
                       </div>
-                      <div className="flex items-center justify-between rounded-lg border bg-muted/20 px-3 py-2">
-                        <div className="flex items-center gap-2 text-sm">
+
+                      <div className="mt-3 flex items-center justify-between gap-2">
+                        <MiniSparkline points={spark} />
+                        <span className="text-[10px] text-trader-blue opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+                          Details →
+                        </span>
+                      </div>
+
+                      <div
+                        className="mt-3 flex items-center justify-between rounded-xl border bg-muted/15 px-3 py-2"
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => e.stopPropagation()}
+                      >
+                        <div className="flex items-center gap-2 text-xs">
                           {p.notifications_enabled ? (
-                            <Bell className="size-4 text-trader-blue" />
+                            <Bell className="size-3.5 text-trader-blue" />
                           ) : (
-                            <BellOff className="size-4 text-muted-foreground" />
+                            <BellOff className="size-3.5 text-muted-foreground" />
                           )}
-                          <span>Notifications</span>
+                          <span>Alerts</span>
                         </div>
                         <Switch
                           checked={p.notifications_enabled}
                           onCheckedChange={(v) => void toggleNotify(p.id, v)}
                         />
                       </div>
-                      <Button asChild variant="outline" size="sm" className="w-full">
-                        <Link href={`/platform/your-portfolio?profile=${encodeURIComponent(p.id)}`}>
-                          Open in Your portfolios
-                        </Link>
-                      </Button>
-                    </CardContent>
-                  </Card>
-                );
-              })}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
 

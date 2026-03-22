@@ -53,7 +53,7 @@ async function resolvePortfolioConfigRebalanceContext(
   }
 
   const { data: configMeta, error: configErr } = await supabase
-    .from('portfolio_construction_configs')
+    .from('portfolio_configs')
     .select('top_n, weighting_method, label, rebalance_frequency')
     .eq('id', configId)
     .single();

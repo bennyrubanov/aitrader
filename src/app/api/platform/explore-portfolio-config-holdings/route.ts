@@ -10,7 +10,7 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
- * Public holdings for a portfolio on the explore page.
+ * Public holdings for a portfolio config on the explore page.
  * Uses service role for cap-weighting (nasdaq_100_daily_raw is not publicly readable).
  */
 export async function GET(req: NextRequest) {
@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
   }
 
   const { data: cfg } = await pub
-    .from('portfolio_construction_configs')
+    .from('portfolio_configs')
     .select('id, risk_level, rebalance_frequency, weighting_method')
     .eq('id', configId)
     .maybeSingle();

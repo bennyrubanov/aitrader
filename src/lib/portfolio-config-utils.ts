@@ -30,7 +30,7 @@ export async function resolveConfigId(
   weightingMethod: string
 ): Promise<string | null> {
   const { data, error } = await supabase
-    .from('portfolio_construction_configs')
+    .from('portfolio_configs')
     .select('id')
     .eq('risk_level', riskLevel)
     .eq('rebalance_frequency', rebalanceFrequency)
@@ -45,7 +45,7 @@ export async function getAllConfigs(
   supabase: ReturnType<typeof createPublicClient>
 ): Promise<PortfolioConfigRow[]> {
   const { data, error } = await supabase
-    .from('portfolio_construction_configs')
+    .from('portfolio_configs')
     .select('id, risk_level, rebalance_frequency, weighting_method, top_n, label, risk_label, is_default')
     .order('risk_level')
     .order('rebalance_frequency')

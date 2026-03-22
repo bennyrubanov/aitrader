@@ -77,7 +77,7 @@ export async function POST(req: Request) {
 
   try {
     const { data: configData, error: configErr } = await supabase
-      .from('portfolio_construction_configs')
+      .from('portfolio_configs')
       .select('id, risk_level, rebalance_frequency, weighting_method, top_n')
       .eq('id', config_id)
       .single();

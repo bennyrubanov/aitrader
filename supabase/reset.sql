@@ -25,7 +25,7 @@ drop table if exists public.portfolio_config_compute_queue cascade;
 drop table if exists public.user_portfolio_positions cascade;
 drop table if exists public.user_portfolio_profiles cascade;
 drop table if exists public.strategy_portfolio_config_performance cascade;
-drop table if exists public.portfolio_construction_configs cascade;
+drop table if exists public.portfolio_configs cascade;
 
 -- Research + performance layer
 drop table if exists public.strategy_cross_sectional_regressions cascade;

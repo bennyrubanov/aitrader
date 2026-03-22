@@ -28,10 +28,12 @@ export async function GET() {
     entry_prices_snapshot_at,
     is_active,
     notifications_enabled,
+    is_favorited,
+    is_starting_portfolio,
     created_at,
     updated_at,
     strategy_models ( slug, name ),
-    portfolio_construction_configs (
+    portfolio_config:portfolio_configs (
       id, risk_level, rebalance_frequency, weighting_method, top_n, label, risk_label
     ),
     user_portfolio_positions (
@@ -53,7 +55,7 @@ export async function GET() {
     created_at,
     updated_at,
     strategy_models ( slug, name ),
-    portfolio_construction_configs (
+    portfolio_config:portfolio_configs (
       id, risk_level, rebalance_frequency, weighting_method, top_n, label, risk_label
     ),
     user_portfolio_positions (
@@ -88,6 +90,8 @@ export async function GET() {
       data = (fallback.data ?? []).map((row: Record<string, unknown>) => ({
         ...row,
         notifications_enabled: false,
+        is_favorited: false,
+        is_starting_portfolio: false,
       }));
     }
   } else {
@@ -122,6 +126,8 @@ export async function POST(req: Request) {
   const weightingMethod = typeof body?.weighting === 'string' ? body.weighting : '';
   const investmentSize = Number(body?.investmentSize);
   const userStartDate = typeof body?.userStartDate === 'string' ? body.userStartDate.trim() : '';
+  const pinToOverview = body?.isFavorited === true;
+  const markStartingPortfolio = body?.startingPortfolio === true;
 
   if (!strategySlug || !userStartDate) {
     return NextResponse.json(
@@ -200,6 +206,8 @@ export async function POST(req: Request) {
     entry_prices_snapshot_at: now,
     is_active: true,
     updated_at: now,
+    ...(pinToOverview ? { is_favorited: true } : {}),
+    ...(pinToOverview && markStartingPortfolio ? { is_starting_portfolio: true } : {}),
   };
 
   const { data: profile, error: insErr } = await supabase
@@ -257,11 +265,18 @@ export async function PATCH(req: Request) {
   if (typeof body?.notificationsEnabled === 'boolean') {
     updates.notifications_enabled = body.notificationsEnabled;
   }
+  if (typeof body?.isFavorited === 'boolean') {
+    updates.is_favorited = body.isFavorited;
+  }
   if (typeof body?.investmentSize === 'number' && body.investmentSize > 0) {
     updates.investment_size = body.investmentSize;
   }
-  if (body?.isActive === false) {
-    updates.is_active = false;
+  if (typeof body?.isActive === 'boolean') {
+    updates.is_active = body.isActive;
+  }
+
+  if (updates.is_active === false) {
+    updates.is_favorited = false;
   }
 
   const { data, error } = await supabase
@@ -297,7 +312,11 @@ export async function DELETE(req: Request) {
 
   const { error } = await supabase
     .from('user_portfolio_profiles')
-    .update({ is_active: false, updated_at: new Date().toISOString() })
+    .update({
+      is_active: false,
+      is_favorited: false,
+      updated_at: new Date().toISOString(),
+    })
     .eq('id', profileId)
     .eq('user_id', user.id);
 

@@ -4,26 +4,43 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
+import type { LucideIcon } from 'lucide-react';
 import {
   ArrowRight,
   Bell,
   BellOff,
-  Check,
+  Bookmark,
   Compass,
+  ExternalLink,
   FolderHeart,
+  Heart,
+  HelpCircle,
+  Layers,
   LogIn,
+  Percent,
   Plus,
+  Scale,
+  Shield,
   Sparkles,
+  TrendingUp,
+  Trophy,
+  UserMinus,
 } from 'lucide-react';
 import { useAuthState } from '@/components/auth/auth-state-context';
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
+import { StrategyModelSidebarDropdown } from '@/components/platform/strategy-model-sidebar-dropdown';
 import { StockChartDialog } from '@/components/platform/stock-chart-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
+import {
+  showPortfolioUnfollowToast,
+  setUserPortfolioProfileActive,
+} from '@/components/platform/portfolio-unfollow-toast';
 import {
   usePortfolioConfig,
   RISK_LABELS,
@@ -32,6 +49,13 @@ import {
   type RebalanceFrequency,
 } from '@/components/portfolio-config/portfolio-config-context';
 import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
+import type { StrategyListItem } from '@/lib/platform-performance-payload';
+import {
+  portfolioConfigBadgeClassName,
+  portfolioConfigBadgeTooltip,
+} from '@/lib/portfolio-config-badges';
+import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
+import { cn } from '@/lib/utils';
 import type { ConfigPerfRow } from '@/lib/portfolio-config-utils';
 import {
   buildConfigPerformanceChart,
@@ -70,8 +94,10 @@ export type UserPortfolioProfileRow = {
   investment_size: number | string;
   user_start_date: string | null;
   notifications_enabled: boolean;
+  is_favorited: boolean;
+  is_starting_portfolio?: boolean;
   strategy_models: StrategyModelEmbed;
-  portfolio_construction_configs: PortfolioConfigEmbed;
+  portfolio_config: PortfolioConfigEmbed;
   user_portfolio_positions: PositionRow[] | null;
 };
 
@@ -191,17 +217,107 @@ function num(v: number | string | null | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-function profileSummary(p: UserPortfolioProfileRow): string {
-  const cfg = p.portfolio_construction_configs;
-  if (!cfg) return 'Portfolio';
-  const w = cfg.weighting_method === 'cap' ? 'Cap' : 'Equal';
-  return `${cfg.risk_label ?? RISK_LABELS[cfg.risk_level as RiskLevel] ?? 'Risk'} · ${FREQUENCY_LABELS[cfg.rebalance_frequency as RebalanceFrequency] ?? cfg.rebalance_frequency} · ${w}`;
+/** ISO `YYYY-MM-DD` → compact label for sidebar (e.g. Mar 22, 2026). */
+function abbrevProfileStartDate(iso: string | null | undefined): string | null {
+  if (!iso || !String(iso).trim()) return null;
+  const d = new Date(`${iso.trim()}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+/** Risk tier dot colors — aligned with explore portfolio cards. */
+const SIDEBAR_RISK_DOT: Record<RiskLevel, string> = {
+  1: 'bg-emerald-500',
+  2: 'bg-lime-500',
+  3: 'bg-amber-500',
+  4: 'bg-orange-500',
+  5: 'bg-orange-600',
+  6: 'bg-rose-600',
+};
+
+function rankedConfigForProfile(
+  p: UserPortfolioProfileRow,
+  rankedBySlug: Record<string, RankedConfig[]>
+): RankedConfig | null {
+  const slug = p.strategy_models?.slug;
+  if (!slug) return null;
+  const list = rankedBySlug[slug];
+  if (!list?.length) return null;
+  return list.find((c) => c.id === p.config_id) ?? null;
+}
+
+const SIDEBAR_BADGE_ICON: Record<string, LucideIcon> = {
+  'Top ranked': Trophy,
+  'Best risk-adjusted': Scale,
+  'Most consistent': Layers,
+  Default: Bookmark,
+  'Best CAGR': TrendingUp,
+  'Best total return': Percent,
+  Steadiest: Shield,
+};
+
+/** Compact badge affordance for the your-portfolio sidebar only (icons + titled tooltips). */
+function SidebarPortfolioBadgeIcon({
+  name,
+  strategySlug,
+}: {
+  name: string;
+  strategySlug: string;
+}) {
+  const tip = portfolioConfigBadgeTooltip(name);
+  const styles = portfolioConfigBadgeClassName(name);
+  const Icon = SIDEBAR_BADGE_ICON[name] ?? HelpCircle;
+  const slugForLinks = strategySlug.trim() || STRATEGY_CONFIG.slug;
+  const rankingHowHref =
+    name === 'Top ranked' ? `/strategy-models/${slugForLinks}#portfolio-ranking-how` : null;
+
+  const trigger = (
+    <span
+      role="img"
+      aria-label={name}
+      className={cn(
+        'inline-flex size-6 shrink-0 cursor-default items-center justify-center rounded-full border',
+        styles
+      )}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <Icon className="size-3.5 stroke-[2.25]" aria-hidden />
+    </span>
+  );
+
+  return (
+    <Tooltip delayDuration={200}>
+      <TooltipTrigger asChild>{trigger}</TooltipTrigger>
+      <TooltipContent
+        side="top"
+        className="max-w-[min(22rem,calc(100vw-2rem))] text-xs leading-relaxed"
+      >
+        <div className="space-y-2">
+          <p className="text-sm font-semibold leading-snug text-foreground">{name}</p>
+          {tip ? <p>{tip}</p> : null}
+          {rankingHowHref ? (
+            <Link
+              href={rankingHowHref}
+              className="inline-flex font-medium text-trader-blue underline-offset-2 hover:underline dark:text-trader-blue-light"
+              onClick={(e) => e.stopPropagation()}
+            >
+              Composite ranking — how it works
+            </Link>
+          ) : null}
+        </div>
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 // ── Bento grid (add / empty state) ────────────────────────────────────────────
 
 function PresetBentoGrid({
-  rankedConfigs,
+  rankedConfigs = [],
   busyKey,
   onPick,
   onCancel,
@@ -210,7 +326,7 @@ function PresetBentoGrid({
   showCancel,
   strategySlug,
 }: {
-  rankedConfigs: RankedConfig[];
+  rankedConfigs?: RankedConfig[];
   busyKey: string | null;
   onPick: (preset: PresetConfig) => void;
   onCancel?: () => void;
@@ -313,7 +429,11 @@ function PresetBentoGrid({
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function YourPortfolioClient() {
+type YourPortfolioClientProps = {
+  strategies: StrategyListItem[];
+};
+
+export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const profileParam = searchParams.get('profile');
@@ -333,8 +453,10 @@ export function YourPortfolioClient() {
   const [scoreBySymbol, setScoreBySymbol] = useState<Map<string, number | null>>(new Map());
   const [runDate, setRunDate] = useState<string | null>(null);
 
-  const [rankedConfigs, setRankedConfigs] = useState<RankedConfig[]>([]);
+  const [rankedBySlug, setRankedBySlug] = useState<Record<string, RankedConfig[]>>({});
   const [notifyPending, setNotifyPending] = useState(false);
+  const [favoritePendingId, setFavoritePendingId] = useState<string | null>(null);
+  const [unfollowBusy, setUnfollowBusy] = useState(false);
   const [perfView, setPerfView] = useState<'user' | 'model'>('user');
 
   const loadProfiles = useCallback(async () => {
@@ -343,24 +465,19 @@ export function YourPortfolioClient() {
       const res = await fetch('/api/platform/user-portfolio-profile');
       if (res.ok) {
         const data = (await res.json()) as { profiles?: UserPortfolioProfileRow[] };
-        setProfiles(data.profiles ?? []);
+        const list = data.profiles ?? [];
+        setProfiles(
+          list.map((p) => ({
+            ...p,
+            is_favorited: Boolean(p.is_favorited),
+            is_starting_portfolio: Boolean(p.is_starting_portfolio),
+          }))
+        );
       }
     } catch {
       // silent
     } finally {
       setIsLoadingProfiles(false);
-    }
-  }, []);
-
-  const loadRankedForSlug = useCallback(async (slug: string) => {
-    try {
-      const res = await fetch(`/api/platform/portfolio-configs-ranked?slug=${encodeURIComponent(slug)}`);
-      if (res.ok) {
-        const data = await res.json() as { configs?: RankedConfig[] };
-        setRankedConfigs(data.configs ?? []);
-      }
-    } catch {
-      // silent
     }
   }, []);
 
@@ -377,6 +494,25 @@ export function YourPortfolioClient() {
     return profiles[0]!;
   }, [profiles, profileParam]);
 
+  const strategyPickerList = useMemo(() => {
+    const slugs = new Set(
+      profiles.map((p) => p.strategy_models?.slug).filter((s): s is string => Boolean(s))
+    );
+    return strategies.filter((s) => slugs.has(s.slug));
+  }, [strategies, profiles]);
+
+  const sidebarProfiles = useMemo(() => {
+    if (!profiles.length) return [];
+    const slug = selectedProfile?.strategy_models?.slug;
+    if (!slug) return profiles;
+    return profiles.filter((p) => p.strategy_models?.slug === slug);
+  }, [profiles, selectedProfile?.strategy_models?.slug]);
+
+  const selectedRanked = useMemo(
+    () => (selectedProfile ? rankedConfigForProfile(selectedProfile, rankedBySlug) : null),
+    [selectedProfile, rankedBySlug]
+  );
+
   // Sync ?profile= to a valid id
   useEffect(() => {
     if (!authState.isAuthenticated || isLoadingProfiles) return;
@@ -390,18 +526,44 @@ export function YourPortfolioClient() {
   const strategySlug = selectedProfile?.strategy_models?.slug ?? config.strategySlug;
 
   useEffect(() => {
-    if (!strategySlug) return;
-    void loadRankedForSlug(strategySlug);
-  }, [strategySlug, loadRankedForSlug]);
+    if (!profiles.length) return;
+    const slugs = [
+      ...new Set(
+        profiles.map((p) => p.strategy_models?.slug).filter((s): s is string => Boolean(s))
+      ),
+    ];
+    if (!slugs.length) return;
+    let cancelled = false;
+    void Promise.all(
+      slugs.map(async (slug) => {
+        try {
+          const res = await fetch(
+            `/api/platform/portfolio-configs-ranked?slug=${encodeURIComponent(slug)}`
+          );
+          if (!res.ok) return [slug, [] as RankedConfig[]] as const;
+          const data = (await res.json()) as { configs?: RankedConfig[] };
+          return [slug, data.configs ?? []] as const;
+        } catch {
+          return [slug, [] as RankedConfig[]] as const;
+        }
+      })
+    ).then((entries) => {
+      if (cancelled) return;
+      setRankedBySlug(Object.fromEntries(entries));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [profiles]);
 
   const loadPerf = useCallback(async () => {
-    if (!selectedProfile?.portfolio_construction_configs || !strategySlug) {
+    if (!selectedProfile?.portfolio_config || !strategySlug) {
       setPerfPayload(null);
       setRawRows([]);
       setIsLoadingPerf(false);
       return;
     }
-    const cfg = selectedProfile.portfolio_construction_configs;
+    const cfg = selectedProfile.portfolio_config;
     setIsLoadingPerf(true);
     try {
       const params = new URLSearchParams({
@@ -490,7 +652,7 @@ export function YourPortfolioClient() {
     }));
   }, [selectedProfile, scoreBySymbol]);
 
-  const topN = selectedProfile?.portfolio_construction_configs?.top_n ?? 20;
+  const topN = selectedProfile?.portfolio_config?.top_n ?? 20;
 
   const handleCreatePreset = async (preset: PresetConfig) => {
     setPresetBusyKey(preset.key);
@@ -557,6 +719,68 @@ export function YourPortfolioClient() {
     }
   };
 
+  const handleToggleFavorite = async (profileId: string) => {
+    const p = profiles.find((x) => x.id === profileId);
+    if (!p) return;
+    const next = !p.is_favorited;
+    setFavoritePendingId(profileId);
+    try {
+      const res = await fetch('/api/platform/user-portfolio-profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profileId, isFavorited: next }),
+      });
+      if (!res.ok) {
+        toast({ title: 'Could not update favorite', variant: 'destructive' });
+        return;
+      }
+      setProfiles((prev) =>
+        prev.map((x) => (x.id === profileId ? { ...x, is_favorited: next } : x))
+      );
+      toast({
+        title: next ? 'Pinned to overview' : 'Removed from overview',
+        description: next
+          ? 'This portfolio appears on your platform overview.'
+          : 'It no longer appears in the overview grid.',
+      });
+    } finally {
+      setFavoritePendingId(null);
+    }
+  };
+
+  const handleUnfollowSelected = useCallback(async () => {
+    if (!selectedProfile) return;
+    setUnfollowBusy(true);
+    const snapshot = selectedProfile;
+    const profileId = snapshot.id;
+    const label = snapshot.portfolio_config?.label ?? 'Portfolio';
+    try {
+      const ok = await setUserPortfolioProfileActive(profileId, false);
+      if (!ok) {
+        toast({ title: 'Could not unfollow', variant: 'destructive' });
+        return;
+      }
+      setProfiles((prev) => prev.filter((p) => p.id !== profileId));
+      showPortfolioUnfollowToast({
+        profileId,
+        portfolioLabel: label,
+        onAfterUndo: () => {
+          setProfiles((prev) =>
+            prev.some((p) => p.id === profileId)
+              ? prev
+              : [...prev, { ...snapshot, is_favorited: false }]
+          );
+          router.replace(
+            `/platform/your-portfolio?profile=${encodeURIComponent(profileId)}`,
+            { scroll: false }
+          );
+        },
+      });
+    } finally {
+      setUnfollowBusy(false);
+    }
+  }, [selectedProfile, toast, router]);
+
   const selectProfile = (id: string) => {
     router.push(`/platform/your-portfolio?profile=${id}`);
     setPerfView('user');
@@ -564,7 +788,7 @@ export function YourPortfolioClient() {
 
   if (!authState.isLoaded) {
     return (
-      <div className="space-y-4 p-6">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-6">
         <Skeleton className="h-10 w-64" />
         <Skeleton className="h-[200px] w-full" />
         <Skeleton className="h-[300px] w-full" />
@@ -574,7 +798,7 @@ export function YourPortfolioClient() {
 
   if (!authState.isAuthenticated) {
     return (
-      <div className="flex h-full flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center">
+      <div className="flex h-full min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto rounded-lg border border-dashed p-12 text-center">
         <FolderHeart className="mb-3 size-10 text-muted-foreground/40" />
         <p className="text-sm font-medium">Sign in to save portfolios</p>
         <p className="mt-1 text-xs text-muted-foreground">
@@ -590,7 +814,7 @@ export function YourPortfolioClient() {
 
   if (isLoadingProfiles) {
     return (
-      <div className="space-y-4 p-6">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-6">
         <Skeleton className="h-10 w-64" />
         <Skeleton className="h-[200px] w-full" />
         <Skeleton className="h-[300px] w-full" />
@@ -601,7 +825,7 @@ export function YourPortfolioClient() {
   // Empty — point user to explore page
   if (profiles.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center gap-4 py-20 px-6 text-center">
+      <div className="flex h-full min-h-0 flex-1 flex-col items-center justify-center gap-4 overflow-y-auto px-6 py-20 text-center">
         <div className="rounded-full bg-muted p-4">
           <Compass className="size-8 text-muted-foreground" />
         </div>
@@ -626,8 +850,11 @@ export function YourPortfolioClient() {
       ? 'in_progress'
       : (perfPayload?.computeStatus ?? 'empty');
 
-  const strategyName = selectedProfile?.strategy_models?.name ?? strategySlug;
-  const cfg = selectedProfile?.portfolio_construction_configs;
+  const cfg = selectedProfile?.portfolio_config;
+  const headerRiskLevel = (cfg?.risk_level ?? 3) as RiskLevel;
+  const headerRiskTitle =
+    (cfg?.risk_label && cfg.risk_label.trim()) || (RISK_LABELS[headerRiskLevel] ?? 'Risk');
+  const headerRiskDot = SIDEBAR_RISK_DOT[headerRiskLevel] ?? 'bg-muted';
   const entryLabel = selectedProfile?.user_start_date
     ? new Date(selectedProfile.user_start_date + 'T00:00:00Z').toLocaleDateString('en-US', {
         month: 'short',
@@ -639,64 +866,183 @@ export function YourPortfolioClient() {
   const showUserPerfToggle = Boolean(selectedProfile?.user_start_date && userChart && userChart.series.length > 1);
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col md:flex-row">
-      {/* Sidebar */}
-      <aside className="shrink-0 border-b md:border-b-0 md:border-r bg-muted/20 md:w-64 md:min-w-[14rem]">
-        <div className="flex items-center justify-between gap-2 p-3 md:p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Portfolios</p>
-          <Button variant="ghost" size="icon" className="size-8 shrink-0" asChild>
-            <Link href="/platform/explore-portfolios">
-              <Plus className="size-4" />
-              <span className="sr-only">Follow portfolio</span>
-            </Link>
-          </Button>
-        </div>
-        <nav className="flex gap-2 overflow-x-auto px-3 pb-3 md:flex-col md:overflow-visible md:px-2 md:pb-4">
-          {profiles.map((p) => {
-            const active = p.id === selectedProfile?.id;
-            return (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => selectProfile(p.id)}
-                className={`rounded-lg border px-3 py-2 text-left text-sm transition-colors shrink-0 md:shrink md:w-full ${
-                  active
-                    ? 'border-primary bg-primary/5 ring-1 ring-primary/20'
-                    : 'border-transparent bg-background/80 hover:bg-muted/60'
-                }`}
+    <div
+      className={cn(
+        'flex min-h-0 flex-1 flex-col lg:h-full lg:max-h-full lg:flex-row lg:items-stretch lg:overflow-hidden lg:overscroll-y-contain'
+      )}
+    >
+      {/* Sidebar — same bounded scroll pattern as explore-portfolios */}
+      <aside className="flex w-full shrink-0 flex-col border-b bg-muted/20 lg:h-full lg:min-h-0 lg:w-64 lg:min-w-[14rem] lg:max-h-full lg:overflow-hidden lg:border-b-0 lg:border-r">
+        <div
+          className={cn(
+            'min-h-0 flex-1 px-4 pt-2 sm:px-6 lg:min-h-0 lg:flex-1 lg:overflow-x-hidden lg:overflow-y-auto lg:overscroll-y-contain lg:px-0 lg:pr-1 lg:pt-0',
+            '[scrollbar-width:thin] [scrollbar-color:hsl(var(--border)/0.55)_transparent]',
+            'lg:[&::-webkit-scrollbar]:w-1.5 lg:[&::-webkit-scrollbar]:h-1.5',
+            'lg:[&::-webkit-scrollbar-track]:bg-transparent',
+            'lg:[&::-webkit-scrollbar-thumb]:rounded-full lg:[&::-webkit-scrollbar-thumb]:bg-border/50',
+            'lg:hover:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/35'
+          )}
+        >
+          {strategyPickerList.length > 0 ? (
+            <div className="px-3 pt-3 sm:px-6 lg:px-0 lg:pr-1 lg:pt-2">
+              <StrategyModelSidebarDropdown
+                strategies={strategyPickerList}
+                selectedSlug={
+                  selectedProfile?.strategy_models?.slug ?? strategyPickerList[0]?.slug ?? null
+                }
+                onSelectStrategy={(slug) => {
+                  const next = profiles.find((p) => p.strategy_models?.slug === slug);
+                  if (next) {
+                    router.replace(`/platform/your-portfolio?profile=${next.id}`, { scroll: false });
+                  }
+                }}
               >
-                <p className="font-medium line-clamp-1">{p.strategy_models?.name ?? 'Strategy'}</p>
-                <p className="text-[11px] text-muted-foreground line-clamp-2">{profileSummary(p)}</p>
-                {p.notifications_enabled && (
-                  <Badge variant="secondary" className="mt-1 text-[9px] h-5">
-                    Notify on
-                  </Badge>
-                )}
-              </button>
-            );
-          })}
-        </nav>
+                <div className="space-y-0.5">
+                  <Button
+                    asChild
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-full justify-start gap-1.5 px-1 text-xs"
+                  >
+                    <Link
+                      href={`/strategy-models/${selectedProfile?.strategy_models?.slug ?? strategySlug}`}
+                    >
+                      <ExternalLink className="size-3 shrink-0" />
+                      How this model works
+                    </Link>
+                  </Button>
+                </div>
+              </StrategyModelSidebarDropdown>
+            </div>
+          ) : null}
+          <div
+            className={cn(
+              'flex items-center justify-between gap-2 p-3 sm:px-6 lg:px-0 lg:pr-1',
+              strategyPickerList.length > 0 ? 'pt-2 lg:pt-2' : 'lg:pt-2'
+            )}
+          >
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Portfolios
+            </p>
+            <Button variant="ghost" size="icon" className="size-8 shrink-0" asChild>
+              <Link href="/platform/explore-portfolios">
+                <Plus className="size-4" />
+                <span className="sr-only">Follow portfolio</span>
+              </Link>
+            </Button>
+          </div>
+          <nav className="flex gap-2 overflow-x-auto px-3 pb-3 sm:px-6 lg:flex-col lg:overflow-x-hidden lg:px-0 lg:pr-1 lg:pb-4">
+            {sidebarProfiles.map((p) => {
+              const active = p.id === selectedProfile?.id;
+              const pc = p.portfolio_config;
+              const rowRisk = (pc?.risk_level ?? 3) as RiskLevel;
+              const rowRiskTitle =
+                (pc?.risk_label && pc.risk_label.trim()) || (RISK_LABELS[rowRisk] ?? 'Risk');
+              const rowRiskDot = SIDEBAR_RISK_DOT[rowRisk] ?? 'bg-muted';
+              const rowRanked = rankedConfigForProfile(p, rankedBySlug);
+              const rowStrategySlug = p.strategy_models?.slug ?? strategySlug;
+              const rowStartAbbrev = abbrevProfileStartDate(p.user_start_date);
+              return (
+                <div
+                  key={p.id}
+                  className={cn(
+                    'flex gap-0.5 rounded-lg border text-sm transition-colors shrink-0 lg:shrink lg:w-full',
+                    active
+                      ? 'border-primary bg-primary/5 ring-1 ring-primary/20'
+                      : 'border-transparent bg-background/80 hover:bg-muted/60'
+                  )}
+                >
+                  <button
+                    type="button"
+                    onClick={() => selectProfile(p.id)}
+                    className="min-w-0 flex-1 px-3 py-2 text-left"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 gap-y-1">
+                        <span
+                          className="inline-flex shrink-0 self-center"
+                          title={rowRiskTitle}
+                          aria-label={`Risk level: ${rowRiskTitle}`}
+                        >
+                          <span
+                            className={cn('size-2 shrink-0 rounded-full', rowRiskDot)}
+                            aria-hidden
+                          />
+                        </span>
+                        <span className="min-w-0 text-sm font-semibold text-foreground line-clamp-2">
+                          {pc?.label ?? 'Portfolio'}
+                        </span>
+                        {(rowRanked?.badges ?? []).map((b) => (
+                          <SidebarPortfolioBadgeIcon key={b} name={b} strategySlug={rowStrategySlug} />
+                        ))}
+                      </div>
+                      {rowStartAbbrev ? (
+                        <span className="shrink-0 pt-0.5 text-right text-[10px] leading-snug text-muted-foreground tabular-nums">
+                          {rowStartAbbrev}
+                        </span>
+                      ) : null}
+                    </div>
+                    {p.notifications_enabled && (
+                      <Badge variant="secondary" className="mt-1.5 text-[9px] h-5">
+                        Notify on
+                      </Badge>
+                    )}
+                  </button>
+                  <div className="flex shrink-0 items-start pt-1 pr-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 shrink-0 text-muted-foreground hover:text-rose-600"
+                      disabled={favoritePendingId === p.id}
+                      aria-label={p.is_favorited ? 'Remove from overview' : 'Pin to overview'}
+                      aria-pressed={p.is_favorited}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        void handleToggleFavorite(p.id);
+                      }}
+                    >
+                      <Heart
+                        className={cn(
+                          'size-4',
+                          p.is_favorited && 'fill-rose-500 text-rose-500'
+                        )}
+                      />
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </nav>
+        </div>
       </aside>
 
-      {/* Main */}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <div className="sticky top-0 z-30 border-b bg-background/95 px-4 py-3 backdrop-blur-sm sm:px-6">
+      {/* Main — single scroll column (header + body), same as explore-portfolios */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-y-contain lg:h-full lg:max-h-full lg:min-h-0 lg:pl-8">
+        <div className="shrink-0 border-b bg-background/95 px-4 py-3 sm:px-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-base font-semibold truncate">{strategyName}</h2>
+              <div className="flex flex-wrap items-center gap-1.5 gap-y-2">
+                <span
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border/80 bg-muted/50 px-2 py-0.5 text-[11px] font-semibold text-foreground"
+                  title={headerRiskTitle}
+                >
+                  <span className={cn('size-1.5 shrink-0 rounded-full', headerRiskDot)} aria-hidden />
+                  {headerRiskTitle}
+                </span>
                 {cfg?.label ? (
-                  <Badge variant="outline" className="text-[10px] font-normal shrink-0">
-                    {cfg.label}
-                  </Badge>
-                ) : null}
+                  <h2 className="min-w-0 text-base font-semibold text-foreground">{cfg.label}</h2>
+                ) : (
+                  <h2 className="min-w-0 text-base font-semibold text-foreground">Portfolio</h2>
+                )}
+                {(selectedRanked?.badges ?? []).map((b) => (
+                  <PortfolioConfigBadgePill key={b} name={b} strategySlug={strategySlug} />
+                ))}
               </div>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {cfg
-                  ? `${cfg.risk_label} · Top ${cfg.top_n} · ${FREQUENCY_LABELS[cfg.rebalance_frequency as RebalanceFrequency] ?? cfg.rebalance_frequency} · ${cfg.weighting_method === 'cap' ? 'Cap-weighted' : 'Equal-weighted'}`
-                  : null}
-                {entryLabel ? ` · started ${entryLabel}` : ''}
-              </p>
+              {entryLabel ? (
+                <p className="mt-1 text-xs text-muted-foreground">Started {entryLabel}</p>
+              ) : null}
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {showUserPerfToggle ? (
@@ -716,6 +1062,22 @@ export function YourPortfolioClient() {
                   </ToggleGroupItem>
                 </ToggleGroup>
               ) : null}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8 shrink-0 text-muted-foreground hover:text-rose-600"
+                aria-label={selectedProfile?.is_favorited ? 'Remove from overview' : 'Pin to overview'}
+                aria-pressed={selectedProfile?.is_favorited}
+                disabled={!selectedProfile || favoritePendingId === selectedProfile.id}
+                onClick={() => selectedProfile && void handleToggleFavorite(selectedProfile.id)}
+              >
+                <Heart
+                  className={cn(
+                    'size-4',
+                    selectedProfile?.is_favorited && 'fill-rose-500 text-rose-500'
+                  )}
+                />
+              </Button>
               <Button
                 variant="ghost"
                 size="sm"
@@ -738,11 +1100,28 @@ export function YourPortfolioClient() {
                   Explore
                 </Link>
               </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 text-muted-foreground hover:text-rose-600"
+                    disabled={!selectedProfile || unfollowBusy}
+                    onClick={() => void handleUnfollowSelected()}
+                  >
+                    <UserMinus className="size-3.5 shrink-0" aria-hidden />
+                    <span className="hidden sm:inline">Unfollow</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-xs text-xs">
+                  Stop following this portfolio.
+                </TooltipContent>
+              </Tooltip>
             </div>
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-y-contain px-4 py-4 sm:px-6">
+        <div className="flex-1 space-y-4 px-4 py-4 sm:px-6 sm:pb-10">
           {isLoadingPerf ? (
             <Skeleton className="h-24 w-full" />
           ) : computeStatus === 'empty' ? (

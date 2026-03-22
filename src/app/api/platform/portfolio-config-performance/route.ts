@@ -94,7 +94,7 @@ export async function GET(req: Request) {
 
     // Fetch config metadata
     const { data: configMeta } = await supabase
-      .from('portfolio_construction_configs')
+      .from('portfolio_configs')
       .select('risk_level, rebalance_frequency, weighting_method, top_n, label, risk_label')
       .eq('id', configId)
       .single();

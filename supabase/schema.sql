@@ -585,10 +585,10 @@ select
 from runs;
 
 -- =========================
--- 13) Portfolio configs (user-facing risk/frequency/weighting combos; table portfolio_construction_configs)
+-- 13) Portfolio configs (user-facing risk/frequency/weighting combos)
 -- =========================
 
-create table if not exists public.portfolio_construction_configs (
+create table if not exists public.portfolio_configs (
   id uuid primary key default gen_random_uuid(),
   risk_level int not null,
   rebalance_frequency text not null,
@@ -608,7 +608,7 @@ create table if not exists public.portfolio_construction_configs (
 );
 
 create index if not exists idx_pcc_risk_freq_weighting
-  on public.portfolio_construction_configs(risk_level, rebalance_frequency, weighting_method);
+  on public.portfolio_configs(risk_level, rebalance_frequency, weighting_method);
 
 -- =========================
 -- 14) Config-scoped strategy performance rows
@@ -617,7 +617,7 @@ create index if not exists idx_pcc_risk_freq_weighting
 create table if not exists public.strategy_portfolio_config_performance (
   id uuid primary key default gen_random_uuid(),
   strategy_id uuid not null references public.strategy_models(id) on delete cascade,
-  config_id uuid not null references public.portfolio_construction_configs(id) on delete cascade,
+  config_id uuid not null references public.portfolio_configs(id) on delete cascade,
   run_date date not null,
   strategy_status text not null default 'in_progress',
   first_rebalance_date date,
@@ -656,13 +656,15 @@ create table if not exists public.user_portfolio_profiles (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   strategy_id uuid references public.strategy_models(id) on delete set null,
-  config_id uuid references public.portfolio_construction_configs(id) on delete set null,
+  config_id uuid references public.portfolio_configs(id) on delete set null,
   investment_size numeric not null default 10000,
   user_start_date date,
   entry_prices_snapshot_at timestamptz,
   next_rebalance_date date,
   is_active boolean not null default true,
   notifications_enabled boolean not null default false,
+  is_favorited boolean not null default false,
+  is_starting_portfolio boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint upp_investment_size_valid check (investment_size > 0)
@@ -701,7 +703,7 @@ create index if not exists idx_user_portfolio_positions_profile_id
 create table if not exists public.portfolio_config_compute_queue (
   id uuid primary key default gen_random_uuid(),
   strategy_id uuid not null references public.strategy_models(id) on delete cascade,
-  config_id uuid not null references public.portfolio_construction_configs(id) on delete cascade,
+  config_id uuid not null references public.portfolio_configs(id) on delete cascade,
   status text not null default 'pending',
   attempts int not null default 0,
   last_attempted_at timestamptz,

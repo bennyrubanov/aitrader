@@ -17,8 +17,8 @@ export function PlatformShell({ children }: PlatformShellProps) {
         <SiteHeader />
         <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
           <AppSidebar />
-          <SidebarInset className="min-h-0 min-w-0 flex-1 overflow-hidden bg-transparent">
-            <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-x-clip overflow-y-auto overscroll-y-contain p-4 md:p-6">
+          <SidebarInset className="!min-h-0 max-h-full min-w-0 flex-1 overflow-hidden bg-transparent md:peer-data-[variant=inset]:!min-h-0">
+            <div className="relative flex min-h-0 min-w-0 max-h-full flex-1 flex-col overflow-x-clip overflow-y-auto overscroll-y-contain p-4 md:p-6">
               {children}
             </div>
           </SidebarInset>

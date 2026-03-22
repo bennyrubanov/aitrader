@@ -132,7 +132,7 @@ export async function POST(req: Request) {
   }
 
   const { data: configs, error: cfgErr } = await supabase
-    .from('portfolio_construction_configs')
+    .from('portfolio_configs')
     .select('id, risk_level, rebalance_frequency, weighting_method, top_n')
     .order('risk_level')
     .order('rebalance_frequency')

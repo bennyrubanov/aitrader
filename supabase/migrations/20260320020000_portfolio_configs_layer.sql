@@ -28,7 +28,7 @@ where slug = 'ait-1-daneel'
 -- -------------------------------------------------------
 -- 2) Portfolio configs
 -- -------------------------------------------------------
-create table if not exists public.portfolio_construction_configs (
+create table if not exists public.portfolio_configs (
   id uuid primary key default gen_random_uuid(),
   risk_level int not null,
   rebalance_frequency text not null,
@@ -48,11 +48,11 @@ create table if not exists public.portfolio_construction_configs (
 );
 
 create index if not exists idx_pcc_risk_freq_weighting
-  on public.portfolio_construction_configs(risk_level, rebalance_frequency, weighting_method);
+  on public.portfolio_configs(risk_level, rebalance_frequency, weighting_method);
 
 -- Seed standard configs: risk 1-6 × weekly/monthly/quarterly/yearly × equal,
 -- plus risk-3 cap-weighted variants (cron precompute targets).
-insert into public.portfolio_construction_configs
+insert into public.portfolio_configs
   (risk_level, rebalance_frequency, weighting_method, top_n, label, risk_label, is_default, min_suggested_investment)
 values
   -- Weekly equal (cron precomputes all 6)
@@ -94,7 +94,7 @@ on conflict (risk_level, rebalance_frequency, weighting_method) do nothing;
 create table if not exists public.strategy_portfolio_config_performance (
   id uuid primary key default gen_random_uuid(),
   strategy_id uuid not null references public.strategy_models(id) on delete cascade,
-  config_id uuid not null references public.portfolio_construction_configs(id) on delete cascade,
+  config_id uuid not null references public.portfolio_configs(id) on delete cascade,
   run_date date not null,
   strategy_status text not null default 'in_progress',
   first_rebalance_date date,
@@ -132,7 +132,7 @@ create table if not exists public.user_portfolio_profiles (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   strategy_id uuid references public.strategy_models(id) on delete set null,
-  config_id uuid references public.portfolio_construction_configs(id) on delete set null,
+  config_id uuid references public.portfolio_configs(id) on delete set null,
   investment_size numeric not null default 10000,
   user_start_date date,
   entry_prices_snapshot_at timestamptz,
@@ -174,7 +174,7 @@ create index if not exists idx_user_portfolio_positions_profile_id
 create table if not exists public.portfolio_config_compute_queue (
   id uuid primary key default gen_random_uuid(),
   strategy_id uuid not null references public.strategy_models(id) on delete cascade,
-  config_id uuid not null references public.portfolio_construction_configs(id) on delete cascade,
+  config_id uuid not null references public.portfolio_configs(id) on delete cascade,
   status text not null default 'pending',
   attempts int not null default 0,
   last_attempted_at timestamptz,
@@ -191,11 +191,11 @@ create index if not exists idx_pcq_status_created_at
 -- -------------------------------------------------------
 -- 7) RLS for new tables
 -- -------------------------------------------------------
-alter table public.portfolio_construction_configs enable row level security;
+alter table public.portfolio_configs enable row level security;
 
-drop policy if exists "Public read portfolio configs" on public.portfolio_construction_configs;
+drop policy if exists "Public read portfolio configs" on public.portfolio_configs;
 create policy "Public read portfolio configs"
-  on public.portfolio_construction_configs for select using (true);
+  on public.portfolio_configs for select using (true);
 
 alter table public.strategy_portfolio_config_performance enable row level security;
 
@@ -262,7 +262,7 @@ declare
 begin
   -- Resolve default config (risk 3, weekly, equal = Balanced weekly)
   select id into v_config_id
-  from public.portfolio_construction_configs
+  from public.portfolio_configs
   where risk_level = 3 and rebalance_frequency = 'weekly' and weighting_method = 'equal'
   limit 1;
 
@@ -345,11 +345,11 @@ begin
   v_result := v_result || jsonb_build_object('duplicate_slugs', v_count);
 
   -- Check portfolio configs seeded
-  select count(*) into v_count from public.portfolio_construction_configs;
+  select count(*) into v_count from public.portfolio_configs;
   v_result := v_result || jsonb_build_object('portfolio_configs_count', v_count);
 
   -- Check default config exists
-  select count(*) into v_count from public.portfolio_construction_configs
+  select count(*) into v_count from public.portfolio_configs
     where risk_level = 3 and rebalance_frequency = 'weekly' and weighting_method = 'equal' and is_default = true;
   v_result := v_result || jsonb_build_object('default_config_exists', v_count > 0);
 

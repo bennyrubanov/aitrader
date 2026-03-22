@@ -1,7 +1,7 @@
 -- Standard portfolio display names: Top N · Equal|Cap · Weekly|Monthly|Quarterly|Yearly
 -- (risk_label remains the human tier badge; label encodes holdings, weighting, cadence only.)
 
-update public.portfolio_construction_configs
+update public.portfolio_configs
 set label =
   'Top ' || top_n::text || ' · ' ||
   case weighting_method

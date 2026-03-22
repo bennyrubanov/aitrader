@@ -278,7 +278,7 @@ export async function GET(req: NextRequest) {
 
   // 2. Fetch all portfolio configs
   const { data: configs } = await supabase
-    .from('portfolio_construction_configs')
+    .from('portfolio_configs')
     .select('id, risk_level, rebalance_frequency, weighting_method, top_n, label, risk_label, is_default')
     .order('risk_level', { ascending: true })
     .order('rebalance_frequency', { ascending: true })

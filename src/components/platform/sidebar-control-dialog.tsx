@@ -1,16 +1,17 @@
 'use client';
 
 import { useState } from 'react';
-import { PanelLeft } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import { LayoutPanelLeft, PanelLeft, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useSidebar, type SidebarLayoutMode } from '@/components/ui/sidebar';
 import { cn } from '@/lib/utils';
 
-const OPTIONS: { mode: SidebarLayoutMode; label: string }[] = [
-  { mode: 'expanded', label: 'Expanded' },
-  { mode: 'collapsed', label: 'Collapsed' },
-  { mode: 'hover_expand', label: 'Expand on hover' },
+const OPTIONS: { mode: SidebarLayoutMode; label: string; icon: LucideIcon }[] = [
+  { mode: 'expanded', label: 'Expanded', icon: LayoutPanelLeft },
+  { mode: 'collapsed', label: 'Collapsed', icon: PanelLeftClose },
+  { mode: 'hover_expand', label: 'Expand on hover', icon: PanelLeftOpen },
 ];
 
 export function SidebarControlDialog() {
@@ -41,7 +42,7 @@ export function SidebarControlDialog() {
           Sidebar control
         </p>
         <div className="flex flex-col gap-0.5">
-          {OPTIONS.map(({ mode, label }) => {
+          {OPTIONS.map(({ mode, label, icon: Icon }) => {
             const selected = sidebarMode === mode;
             return (
               <button
@@ -52,11 +53,12 @@ export function SidebarControlDialog() {
                   setOpen(false);
                 }}
                 className={cn(
-                  'rounded-md px-2 py-1.5 text-left text-sm transition-colors',
-                  selected ? 'bg-trader-blue/15 font-medium text-foreground' : 'hover:bg-muted/80'
+                  'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
+                  selected ? 'bg-trader-blue/15 font-medium text-foreground' : 'hover:bg-muted/80 text-muted-foreground'
                 )}
               >
-                {label}
+                <Icon className="size-4 shrink-0 opacity-80" aria-hidden />
+                <span>{label}</span>
               </button>
             );
           })}

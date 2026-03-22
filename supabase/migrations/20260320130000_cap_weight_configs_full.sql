@@ -1,7 +1,7 @@
 -- Add cap-weight portfolio configs for all risk levels and frequencies.
 -- The initial migration only seeded risk-3 weekly+monthly cap-weight.
 
-insert into public.portfolio_construction_configs
+insert into public.portfolio_configs
   (risk_level, rebalance_frequency, weighting_method, top_n, label, risk_label, is_default, min_suggested_investment)
 values
   -- Weekly cap

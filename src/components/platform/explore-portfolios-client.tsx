@@ -8,7 +8,12 @@ import {
   type ExploreEquitySeriesRow,
 } from '@/components/platform/explore-portfolios-equity-chart';
 import { ExplorePortfolioDetailDialog } from '@/components/platform/explore-portfolio-detail-dialog';
+import {
+  showPortfolioUnfollowToast,
+  setUserPortfolioProfileActive,
+} from '@/components/platform/portfolio-unfollow-toast';
 import { ExplorePortfolioFilterControls } from '@/components/platform/explore-portfolio-filter-controls';
+import { PortfolioRankingTooltipBody } from '@/components/platform/portfolio-ranking-tooltip-body';
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
 import { StrategyModelSidebarDropdown } from '@/components/platform/strategy-model-sidebar-dropdown';
 import { useRouter } from 'next/navigation';
@@ -21,6 +26,7 @@ import {
   LineChart,
   Plus,
   Trophy,
+  UserMinus,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -76,6 +82,12 @@ function localTodayYmd(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+type UserProfileFollowRow = {
+  id: string;
+  config_id: string;
+  strategy_models: { slug?: string } | null;
+};
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 type ExploreProps = {
@@ -122,6 +134,12 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
   const [addInvestment, setAddInvestment] = useState('10000');
   const [addBusy, setAddBusy] = useState(false);
 
+  /** Maps portfolio config id → user profile row id for the selected strategy (newest row wins). */
+  const [followedProfileIdByConfigId, setFollowedProfileIdByConfigId] = useState<
+    Record<string, string>
+  >({});
+  const [unfollowBusyProfileId, setUnfollowBusyProfileId] = useState<string | null>(null);
+
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailConfig, setDetailConfig] = useState<RankedConfig | null>(null);
 
@@ -159,6 +177,67 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
   useEffect(() => {
     void loadConfigs();
   }, [loadConfigs, strategySlug]);
+
+  const loadFollowedProfiles = useCallback(async () => {
+    if (!authState.isAuthenticated) {
+      setFollowedProfileIdByConfigId({});
+      return;
+    }
+    try {
+      const r = await fetch('/api/platform/user-portfolio-profile');
+      if (!r.ok) return;
+      const data = (await r.json()) as { profiles?: UserProfileFollowRow[] };
+      const map: Record<string, string> = {};
+      for (const p of data.profiles ?? []) {
+        if (p.strategy_models?.slug !== strategySlug) continue;
+        if (map[p.config_id] == null) map[p.config_id] = p.id;
+      }
+      setFollowedProfileIdByConfigId(map);
+    } catch {
+      setFollowedProfileIdByConfigId({});
+    }
+  }, [authState.isAuthenticated, strategySlug]);
+
+  useEffect(() => {
+    void loadFollowedProfiles();
+  }, [loadFollowedProfiles]);
+
+  const followedConfigIdSet = useMemo(
+    () => new Set(Object.keys(followedProfileIdByConfigId)),
+    [followedProfileIdByConfigId]
+  );
+
+  const handleUnfollowProfile = useCallback(
+    async (profileId: string, configId: string, label: string) => {
+      setUnfollowBusyProfileId(profileId);
+      try {
+        const ok = await setUserPortfolioProfileActive(profileId, false);
+        if (!ok) {
+          toast({
+            title: 'Could not unfollow',
+            description: 'Try again in a moment.',
+            variant: 'destructive',
+          });
+          return;
+        }
+        setFollowedProfileIdByConfigId((prev) => {
+          const next = { ...prev };
+          delete next[configId];
+          return next;
+        });
+        showPortfolioUnfollowToast({
+          profileId,
+          portfolioLabel: label,
+          onAfterUndo: () => {
+            setFollowedProfileIdByConfigId((prev) => ({ ...prev, [configId]: profileId }));
+          },
+        });
+      } finally {
+        setUnfollowBusyProfileId(null);
+      }
+    },
+    [toast]
+  );
 
   useEffect(() => {
     setEquitySeriesPayload(null);
@@ -264,6 +343,13 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
       router.push('/sign-in?next=/platform/explore-portfolios');
       return;
     }
+    if (followedConfigIdSet.has(c.id)) {
+      toast({
+        title: 'Already following',
+        description: 'You already follow this portfolio for this model.',
+      });
+      return;
+    }
     setAddTarget(c);
     setAddStartDate(localTodayYmd());
     setAddInvestment('10000');
@@ -305,6 +391,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
         return;
       }
       toast({ title: `Following: ${addTarget.label}` });
+      await loadFollowedProfiles();
       setAddDialogOpen(false);
       router.push('/platform/your-portfolio');
     } finally {
@@ -591,19 +678,29 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
               </div>
             ) : (
               <div className="space-y-2">
-                {filteredConfigs.map((c) => (
-                  <ConfigCard
-                    key={c.id}
-                    listDomId={`explore-config-${c.id}`}
-                    config={c}
-                    strategySlug={strategySlug}
-                    onOpenDetails={() => {
-                      setDetailConfig(c);
-                      setDetailOpen(true);
-                    }}
-                    onAdd={() => openAddDialog(c)}
-                  />
-                ))}
+                {filteredConfigs.map((c) => {
+                  const followPid = followedProfileIdByConfigId[c.id] ?? null;
+                  return (
+                    <ConfigCard
+                      key={c.id}
+                      listDomId={`explore-config-${c.id}`}
+                      config={c}
+                      strategySlug={strategySlug}
+                      isFollowing={followedConfigIdSet.has(c.id)}
+                      followProfileId={followPid}
+                      unfollowBusy={followPid != null && unfollowBusyProfileId === followPid}
+                      onOpenDetails={() => {
+                        setDetailConfig(c);
+                        setDetailOpen(true);
+                      }}
+                      onAdd={() => openAddDialog(c)}
+                      onUnfollow={() => {
+                        if (!followPid) return;
+                        void handleUnfollowProfile(followPid, c.id, c.label);
+                      }}
+                    />
+                  );
+                })}
               </div>
             )}
           </div>
@@ -683,6 +780,23 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
         strategyName={strategyName}
         strategyIsTop={strategyIsTop}
         modelInceptionDate={modelInceptionDate}
+        isFollowing={detailConfig ? followedConfigIdSet.has(detailConfig.id) : false}
+        followProfileId={
+          detailConfig ? followedProfileIdByConfigId[detailConfig.id] ?? null : null
+        }
+        unfollowBusy={
+          detailConfig
+            ? unfollowBusyProfileId === followedProfileIdByConfigId[detailConfig.id]
+            : false
+        }
+        onUnfollow={
+          detailConfig && followedProfileIdByConfigId[detailConfig.id]
+            ? () => {
+                const pid = followedProfileIdByConfigId[detailConfig.id]!;
+                void handleUnfollowProfile(pid, detailConfig.id, detailConfig.label);
+              }
+            : undefined
+        }
         onFollow={() => {
           if (!detailConfig) return;
           const c = detailConfig;
@@ -710,14 +824,22 @@ function ConfigCard({
   listDomId,
   config,
   strategySlug,
+  isFollowing,
+  followProfileId,
+  unfollowBusy,
   onOpenDetails,
   onAdd,
+  onUnfollow,
 }: {
   listDomId?: string;
   config: RankedConfig;
   strategySlug: string;
+  isFollowing: boolean;
+  followProfileId: string | null;
+  unfollowBusy: boolean;
   onOpenDetails: () => void;
   onAdd: () => void;
+  onUnfollow: () => void;
 }) {
   const hasMetrics = config.dataStatus === 'ready';
   const isLimited = config.dataStatus === 'limited';
@@ -743,7 +865,20 @@ function ConfigCard({
         {/* Rank badge — prominent left column */}
         <div className="flex flex-col items-center justify-center w-14 shrink-0 border-r bg-muted/20">
           {config.rank != null ? (
-            <span className="text-lg font-bold tabular-nums text-foreground">{config.rank}</span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="flex h-full min-h-[3.25rem] w-full flex-col items-center justify-center border-0 bg-transparent p-0 text-lg font-bold tabular-nums text-foreground cursor-help hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  aria-label={`Rank ${config.rank}, more info`}
+                >
+                  {config.rank}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right" className="max-w-xs text-xs">
+                <PortfolioRankingTooltipBody rank={config.rank} strategySlug={strategySlug} />
+              </TooltipContent>
+            </Tooltip>
           ) : (
             <span className="text-sm text-muted-foreground/50">—</span>
           )}
@@ -780,17 +915,38 @@ function ConfigCard({
               >
                 Details
               </Button>
-              <Button size="sm" className="h-7 text-xs gap-1" onClick={onAdd}>
-                <Plus className="size-3" />
-                Follow
-              </Button>
+              {isFollowing && followProfileId ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 gap-1 text-xs text-muted-foreground hover:text-rose-600"
+                      disabled={unfollowBusy}
+                      onClick={onUnfollow}
+                    >
+                      <UserMinus className="size-3 shrink-0" aria-hidden />
+                      Unfollow
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-xs text-xs">
+                    Remove from Your Portfolios. You can undo from the notice.
+                  </TooltipContent>
+                </Tooltip>
+              ) : isFollowing ? null : (
+                <Button size="sm" className="h-7 text-xs gap-1" onClick={onAdd}>
+                  <Plus className="size-3" />
+                  Follow
+                </Button>
+              )}
             </div>
           </div>
 
           {/* Highlight metrics — first four columns share space; last column fits label in one line */}
           {hasMetrics ? (
             <div className="w-full overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch] sm:overflow-visible">
-              <div className="grid w-full min-w-[28rem] grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] gap-x-2 pl-6 pr-6 sm:min-w-0 sm:gap-x-3 sm:pl-8 sm:pr-8 sm:items-end">
+              <div className="grid w-full min-w-[28rem] grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] gap-x-2 pl-1 pr-6 sm:min-w-0 sm:gap-x-3 sm:pl-2 sm:pr-8 sm:items-end">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <div className="min-w-0 cursor-default">
@@ -818,7 +974,7 @@ function ConfigCard({
                     </div>
                   </TooltipTrigger>
                   <TooltipContent className="max-w-xs text-xs">
-                    Model track: hypothetical portfolio value from $10,000 at inception through the
+                    Hypothetical portfolio value from $10,000 at inception through the
                     latest performance date. Parentheses show total return over that period.
                   </TooltipContent>
                 </Tooltip>
