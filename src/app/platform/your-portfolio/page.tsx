@@ -7,7 +7,7 @@ export const revalidate = 300;
 
 function YourPortfolioFallback() {
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-6">
+    <div className="flex min-h-0 flex-1 flex-col p-6">
       <Skeleton className="h-10 w-64" />
       <Skeleton className="h-[200px] w-full" />
       <Skeleton className="h-[300px] w-full" />

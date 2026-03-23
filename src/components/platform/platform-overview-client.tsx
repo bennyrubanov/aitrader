@@ -7,13 +7,11 @@ import {
   ArrowRight,
   ArrowUpRight,
   ArrowDownRight,
-  BarChart2,
   Bell,
   BellOff,
   Compass,
   Folders,
   LayoutDashboard,
-  LineChart,
   Plus,
   Sparkles,
   X,
@@ -43,6 +41,7 @@ import { Switch } from '@/components/ui/switch';
 import type { PerformanceSeriesPoint, StrategyListItem } from '@/lib/platform-performance-payload';
 import { buildConfigPerformanceChart, filterAndRebaseConfigRows } from '@/lib/config-performance-chart';
 import type { ConfigPerfRow } from '@/lib/portfolio-config-utils';
+import { formatPortfolioConfigOverviewLine } from '@/lib/portfolio-config-display';
 import { visibleOverviewSlotCount, isValidOverviewSlot } from '@/lib/overview-slots';
 import { cn } from '@/lib/utils';
 
@@ -165,6 +164,23 @@ const fmt = {
     v == null || !Number.isFinite(v) ? '—' : `${v >= 0 ? '+' : ''}${(v * 100).toFixed(digits)}%`,
 };
 
+function formatOverviewUserStartDate(isoDate: string): string {
+  return new Date(`${isoDate}T00:00:00Z`).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+function formatOverviewInvestmentSize(amount: number): string | null {
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
+
 function MiniSparkline({ points }: { points: number[] }) {
   if (points.length < 2) return <div className="h-10 w-full rounded bg-muted/40" />;
   const min = Math.min(...points);
@@ -213,6 +229,14 @@ function OverviewPortfolioTile({
   const slug = p.strategy_models?.slug;
   const bundle = slug ? rankedBySlug[slug] : undefined;
   const rankedCfg = resolveRankedConfigForProfile(p, bundle);
+  const overviewConfigLine =
+    cfg &&
+    formatPortfolioConfigOverviewLine({
+      topN: cfg.top_n,
+      weightingMethod: cfg.weighting_method,
+      rebalanceFrequency: cfg.rebalance_frequency,
+    });
+  const configBadges = rankedCfg?.badges ?? [];
   const modelTr = rankedCfg?.metrics?.totalReturn ?? null;
   const modelCagr = rankedCfg?.metrics?.cagr ?? null;
   const riskTitle =
@@ -222,6 +246,11 @@ function OverviewPortfolioTile({
     cfg && BENTO_RISK_DOT[cfg.risk_level as RiskLevel]
       ? BENTO_RISK_DOT[cfg.risk_level as RiskLevel]
       : 'bg-muted';
+  const startDateLabel =
+    p.user_start_date && String(p.user_start_date).trim()
+      ? formatOverviewUserStartDate(String(p.user_start_date).trim())
+      : null;
+  const investmentLabel = formatOverviewInvestmentSize(p.investment_size);
 
   return (
     <div
@@ -241,20 +270,30 @@ function OverviewPortfolioTile({
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1 space-y-1">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Model</p>
-            {p.is_starting_portfolio ? (
+          {p.is_starting_portfolio ? (
+            <div className="flex flex-wrap items-center gap-1.5">
               <Badge
                 variant="outline"
                 className="h-5 border-trader-blue/35 bg-trader-blue/5 px-1.5 py-0 text-[9px] font-semibold uppercase tracking-wide text-trader-blue"
               >
                 Starting portfolio
               </Badge>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
           <p className="truncate text-sm font-semibold leading-tight">
             {p.strategy_models?.name ?? 'Portfolio'}
           </p>
+          {startDateLabel || investmentLabel ? (
+            <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+              {startDateLabel ? <span>Since {startDateLabel}</span> : null}
+              {startDateLabel && investmentLabel ? (
+                <span className="text-muted-foreground/50" aria-hidden>
+                  ·
+                </span>
+              ) : null}
+              {investmentLabel ? <span>{investmentLabel}</span> : null}
+            </p>
+          ) : null}
           {cfg ? (
             <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
               <span
@@ -264,18 +303,18 @@ function OverviewPortfolioTile({
                 <span className={cn('size-1.5 shrink-0 rounded-full', riskDot)} aria-hidden />
                 {riskTitle}
               </span>
-              <span className="truncate text-xs text-muted-foreground">{cfg.label}</span>
+              {overviewConfigLine ? (
+                <span className="truncate text-xs text-muted-foreground">{overviewConfigLine}</span>
+              ) : null}
+              {configBadges.map((b) => (
+                <PortfolioConfigBadgePill key={b} name={b} strategySlug={slug} />
+              ))}
             </div>
           ) : (
             <p className="text-xs text-muted-foreground">Configuration</p>
           )}
         </div>
-        <div className="flex shrink-0 items-start gap-1">
-          <Badge variant="secondary" className="shrink-0 text-[10px] tabular-nums">
-            Since {p.user_start_date ?? '—'}
-          </Badge>
-          {headerRight}
-        </div>
+        <div className="flex shrink-0 items-start gap-1">{headerRight}</div>
       </div>
 
       <div className="mt-3 grid grid-cols-2 gap-2 sm:gap-3">
@@ -421,8 +460,28 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     };
   }, [authState.isAuthenticated, authState.isLoaded]);
 
-  /** Onboarding follow should own overview slot 1; fix legacy rows where the flag exists but slot ≠ 1. */
-  const startingProfileIdNeedingSlot1 = useMemo(() => {
+  /**
+   * Once per mount, after the first time loading finishes: if `is_starting_portfolio` is set but slot 1 is
+   * missing or wrong (legacy data), assign slot 1. Deliberately not tied to later `overviewSlotAssignments`
+   * updates so clearing slot 1 is not immediately undone.
+   */
+  const didInitialStartingSlot1Reconcile = useRef(false);
+  const prevLoading = useRef(true);
+  useEffect(() => {
+    if (!authState.isAuthenticated) {
+      prevLoading.current = true;
+      didInitialStartingSlot1Reconcile.current = false;
+    }
+  }, [authState.isAuthenticated]);
+
+  useEffect(() => {
+    if (!authState.isAuthenticated) return;
+    const justFinishedLoad = prevLoading.current && !loading;
+    prevLoading.current = loading;
+    if (!justFinishedLoad) return;
+    if (didInitialStartingSlot1Reconcile.current) return;
+    didInitialStartingSlot1Reconcile.current = true;
+
     const startingProfiles = profiles
       .filter((p) => p.is_starting_portfolio)
       .sort(
@@ -430,40 +489,24 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
           new Date(a.created_at ?? 0).getTime() - new Date(b.created_at ?? 0).getTime()
       );
     const starting = startingProfiles[0];
-    if (!starting) return null;
-    if (overviewSlotAssignments.get(1) === starting.id) return null;
-    return starting.id;
-  }, [profiles, overviewSlotAssignments]);
+    if (!starting) return;
+    if (overviewSlotAssignments.get(1) === starting.id) return;
 
-  const startingSlot1ReconcileInFlight = useRef(false);
-  useEffect(() => {
-    if (!authState.isAuthenticated || loading) return;
-    if (!startingProfileIdNeedingSlot1) {
-      startingSlot1ReconcileInFlight.current = false;
-      return;
-    }
-    if (startingSlot1ReconcileInFlight.current) return;
-    startingSlot1ReconcileInFlight.current = true;
-    const profileId = startingProfileIdNeedingSlot1;
     void (async () => {
-      try {
-        const res = await fetch('/api/platform/user-portfolio-profile', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ profileId, overviewSlot: 1 }),
+      const res = await fetch('/api/platform/user-portfolio-profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profileId: starting.id, overviewSlot: 1 }),
+      });
+      if (res.ok) {
+        setOverviewSlotAssignments((prev) => {
+          const next = new Map(prev);
+          next.set(1, starting.id);
+          return next;
         });
-        if (res.ok) {
-          setOverviewSlotAssignments((prev) => {
-            const next = new Map(prev);
-            next.set(1, profileId);
-            return next;
-          });
-        }
-      } finally {
-        startingSlot1ReconcileInFlight.current = false;
       }
     })();
-  }, [authState.isAuthenticated, loading, startingProfileIdNeedingSlot1]);
+  }, [authState.isAuthenticated, loading, profiles, overviewSlotAssignments]);
 
   const { slotDisplay, overviewTrackedProfiles, visibleSlotCount } = useMemo(() => {
     const explicitMap = new Map<number, ProfileRow>();
@@ -476,21 +519,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
       }
     });
     const visibleCount = visibleOverviewSlotCount(maxAssigned);
-    const slot1Fallback: ProfileRow | null = explicitMap.has(1)
-      ? null
-      : profiles.find((p) => p.is_starting_portfolio) ??
-        [...profiles].sort(
-          (a, b) =>
-            new Date(a.created_at ?? 0).getTime() - new Date(b.created_at ?? 0).getTime()
-        )[0] ??
-        null;
-    const profileForSlot = (slot: number): ProfileRow | null => {
-      const ex = explicitMap.get(slot);
-      if (ex) return ex;
-      if (slot !== 1 || !slot1Fallback) return null;
-      if (overviewSlotAssignments.has(1)) return null;
-      return slot1Fallback;
-    };
+    const profileForSlot = (slot: number): ProfileRow | null => explicitMap.get(slot) ?? null;
     const display: (ProfileRow | null)[] = [];
     const seen = new Set<string>();
     const tracked: ProfileRow[] = [];
@@ -735,13 +764,11 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     };
   }, [notifyProfiles]);
 
-  const quickLinks = useMemo(
+  const overviewNavLinks = useMemo(
     () => [
       { href: '/platform/ratings', label: 'Stock Ratings', icon: Sparkles },
-      { href: '/platform/explore-portfolios', label: 'Explore portfolios', icon: Compass },
       { href: '/platform/your-portfolio', label: 'Your portfolios', icon: Folders },
-      { href: '/performance', label: 'Performance', icon: LineChart },
-      { href: '/strategy-models', label: 'Strategy models', icon: BarChart2 },
+      { href: '/platform/explore-portfolios', label: 'Explore portfolios', icon: Compass },
     ],
     []
   );
@@ -794,7 +821,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
       />
       <div className="flex h-full min-h-0 flex-1 flex-col">
         <div className="sticky top-0 z-30 border-b bg-background/95 px-4 py-3 backdrop-blur-sm sm:px-6">
-          <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
             <div className="flex min-w-0 flex-col gap-1">
               <h2 className="text-base font-semibold flex items-center gap-2">
                 <LayoutDashboard className="size-4 text-trader-blue" />
@@ -804,38 +831,37 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                 View your top portfolios and their holdings.
               </p>
             </div>
-            {process.env.NODE_ENV === 'development' ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-8 shrink-0 text-[11px] font-normal"
-                onClick={() => {
-                  resetOnboarding();
-                  setOnboardingDevKey((k) => k + 1);
-                }}
-              >
-                Open onboarding
-              </Button>
-            ) : null}
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {process.env.NODE_ENV === 'development' ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 shrink-0 text-[11px] font-normal"
+                  onClick={() => {
+                    resetOnboarding();
+                    setOnboardingDevKey((k) => k + 1);
+                  }}
+                >
+                  Open onboarding
+                </Button>
+              ) : null}
+              {overviewNavLinks.map(({ href, label, icon: Icon }) => (
+                <Link
+                  key={href}
+                  href={href}
+                  className="inline-flex items-center gap-2 rounded-xl border bg-card px-3 py-2 text-sm font-medium transition-colors hover:bg-muted/40"
+                >
+                  <Icon className="size-4 shrink-0 text-trader-blue" />
+                  <span className="leading-tight">{label}</span>
+                  <ArrowRight className="size-3.5 shrink-0 text-muted-foreground" />
+                </Link>
+              ))}
+            </div>
           </div>
         </div>
 
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-y-contain px-4 py-4 sm:px-6">
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-            {quickLinks.map(({ href, label, icon: Icon }) => (
-              <Link
-                key={href}
-                href={href}
-                className="flex flex-col gap-2 rounded-xl border bg-card p-3 text-sm font-medium hover:bg-muted/40 transition-colors"
-              >
-                <Icon className="size-4 text-trader-blue" />
-                <span className="leading-tight">{label}</span>
-                <ArrowRight className="size-3.5 text-muted-foreground" />
-              </Link>
-            ))}
-          </div>
-
           {loading ? (
             <div
               className="grid grid-cols-2 gap-3 sm:grid-cols-3"
@@ -894,7 +920,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
               >
                 <DialogContent className="sm:max-w-lg">
                   <DialogHeader>
-                    <DialogTitle>Add to overview</DialogTitle>
+                    <DialogTitle>Add to overview tiles</DialogTitle>
                     <DialogDescription>
                       Choose from the portfolios you follow already.
                     </DialogDescription>
@@ -917,6 +943,13 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                         const bundle = slug ? rankedBySlug[slug] : undefined;
                         const rankedCfg = resolveRankedConfigForProfile(c, bundle);
                         const badges = rankedCfg?.badges ?? [];
+                        const overviewLine =
+                          pc &&
+                          formatPortfolioConfigOverviewLine({
+                            topN: pc.top_n,
+                            weightingMethod: pc.weighting_method,
+                            rebalanceFrequency: pc.rebalance_frequency,
+                          });
                         return (
                           <Button
                             key={c.id}
@@ -940,9 +973,9 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                 />
                                 {rowRiskTitle}
                               </span>
-                              {pc?.label ? (
-                                <span className="inline-flex max-w-full min-w-0 items-center rounded-full border border-border/70 bg-background/90 px-2 py-0.5 text-[10px] font-medium leading-tight text-muted-foreground">
-                                  <span className="min-w-0 truncate">{pc.label}</span>
+                              {overviewLine ? (
+                                <span className="min-w-0 max-w-full truncate text-[10px] font-medium leading-tight text-muted-foreground">
+                                  {overviewLine}
                                 </span>
                               ) : null}
                               {badges.map((b) => (
@@ -1001,7 +1034,9 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                               className={cn(
                                 'pointer-events-none absolute inset-0 z-0 flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-muted-foreground/30 bg-muted/20 shadow-[inset_0_1px_0_0_hsl(var(--border)/0.3)]',
                                 'opacity-50 transition-opacity duration-300 ease-out',
-                                'sm:opacity-0 sm:group-hover/addCell:opacity-100 sm:group-hover/addCell:border-muted-foreground/45 sm:group-hover/addCell:bg-muted/30'
+                                'sm:opacity-0 sm:group-hover/addCell:opacity-100 sm:group-hover/addCell:border-muted-foreground/45 sm:group-hover/addCell:bg-muted/30',
+                                // Mobile: inner button already shows copy; this layer sat under transparent buttons and read as “something below” the label.
+                                'max-sm:hidden'
                               )}
                               aria-hidden
                             >
@@ -1018,7 +1053,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                 <button
                                   type="button"
                                   onClick={() => router.push('/platform/explore-portfolios')}
-                                  className="relative flex h-full min-h-0 w-full flex-1 flex-col items-center justify-center overflow-hidden rounded-2xl border border-transparent bg-transparent text-center transition-colors hover:bg-muted/10"
+                                  className="relative flex h-full min-h-0 w-full flex-1 flex-col items-center justify-center overflow-hidden rounded-2xl border border-transparent bg-background text-center transition-colors hover:bg-muted/10"
                                 >
                                   <span className="pointer-events-none absolute inset-0 z-[1] hidden flex-col items-center justify-center gap-3 rounded-2xl bg-background/88 opacity-0 backdrop-blur-sm transition-all duration-300 ease-out sm:flex sm:group-hover/addCell:opacity-100">
                                     <Plus className="size-14 text-trader-blue" strokeWidth={1.15} />
@@ -1042,7 +1077,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                   onClick={() => openSlotPicker(slot)}
                                   disabled={!canPickPortfolio}
                                   className={cn(
-                                    'relative flex h-full min-h-0 w-full flex-1 flex-col items-center justify-center overflow-hidden rounded-2xl border border-transparent bg-transparent text-center transition-colors',
+                                    'relative flex h-full min-h-0 w-full flex-1 flex-col items-center justify-center overflow-hidden rounded-2xl border border-transparent bg-background text-center transition-colors',
                                     canPickPortfolio
                                       ? 'cursor-pointer hover:bg-muted/10'
                                       : 'cursor-not-allowed opacity-50'

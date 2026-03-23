@@ -828,19 +828,6 @@ export function SidebarPortfolioConfigPicker({
                               />
                               <h3 className="text-sm font-semibold">Ranked by total return</h3>
                             </div>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <p className="cursor-help px-0.5 text-[11px] leading-snug text-muted-foreground">
-                                  Indices on the right use the same $10k track; each slots in where
-                                  its ending value belongs in the list.
-                                </p>
-                              </TooltipTrigger>
-                              <TooltipContent side="bottom" className="max-w-[260px] text-xs">
-                                S&amp;P 500 cap, Nasdaq-100 cap, and Nasdaq-100 equal weight — same
-                                period as portfolios. Each index appears beside the gap where it
-                                would sit in a pure ending-value ranking.
-                              </TooltipContent>
-                            </Tooltip>
                             <div className="rounded-lg bg-muted/10 px-1 py-1.5 sm:px-2">
                               <div className="mb-2 flex items-end justify-between gap-3 px-0.5 sm:px-1">
                                 <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">

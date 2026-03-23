@@ -939,7 +939,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
                   </Popover>
                   {addStartDate !== entryMaxYmd ? (
                     <p className="text-xs text-muted-foreground px-0.5">
-                      Past entry is hypothetical — assumes you held this portfolio since then.
+                      Past entry is hypothetical (assumes you held this portfolio since then).
                     </p>
                   ) : null}
                 </div>

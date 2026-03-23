@@ -76,6 +76,8 @@ export type ExplorePortfolioFilterControlsProps = {
   onWeightChange: (next: 'equal' | 'cap' | null) => void;
   /** Rendered after outperforming-benchmark toggles and before risk level (e.g. quick picks in portfolio picker dialog). */
   betweenBenchmarkAndRisk?: ReactNode;
+  /** Aligned on the same row as the outperforming-benchmark label (e.g. Clear filters). */
+  benchmarkHeaderEnd?: ReactNode;
   /** ISO `YYYY-MM-DD` of latest portfolio valuation (from ranked-configs API); drives benchmark outperformance tooltip. */
   benchmarkOutperformanceAsOf?: string | null;
 };
@@ -97,6 +99,7 @@ export function ExplorePortfolioFilterControls({
   onFreqChange,
   onWeightChange,
   betweenBenchmarkAndRisk,
+  benchmarkHeaderEnd,
   benchmarkOutperformanceAsOf,
 }: ExplorePortfolioFilterControlsProps) {
   const dataNote = freqFilter != null ? FREQUENCY_DATA_NOTES[freqFilter] : null;
@@ -111,24 +114,31 @@ export function ExplorePortfolioFilterControls({
     <TooltipProvider delayDuration={200}>
       <div className="space-y-4">
         <div className="space-y-2">
-          <Tooltip delayDuration={200}>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                aria-label="About outperforming benchmark filters"
-                className="group inline-flex max-w-full items-center gap-1 rounded-sm text-left text-xs font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              >
-                <span className="min-w-0">Outperforming benchmark</span>
-                <Info
-                  className="size-3.5 shrink-0 text-muted-foreground opacity-70 group-hover:opacity-100"
-                  aria-hidden
-                />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="top" className="max-w-[min(20rem,calc(100vw-2rem))] text-xs leading-snug">
-              {benchmarkOutperformanceTooltip}
-            </TooltipContent>
-          </Tooltip>
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <Tooltip delayDuration={200}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label="About outperforming benchmark filters"
+                    className="group inline-flex max-w-full items-center gap-1 rounded-sm text-left text-xs font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  >
+                    <span className="min-w-0">Outperforming benchmark</span>
+                    <Info
+                      className="size-3.5 shrink-0 text-muted-foreground opacity-70 group-hover:opacity-100"
+                      aria-hidden
+                    />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-[min(20rem,calc(100vw-2rem))] text-xs leading-snug">
+                  {benchmarkOutperformanceTooltip}
+                </TooltipContent>
+              </Tooltip>
+            </div>
+            {benchmarkHeaderEnd ? (
+              <div className="flex shrink-0 items-center">{benchmarkHeaderEnd}</div>
+            ) : null}
+          </div>
           <div className="grid grid-cols-1 gap-1">
             <button
               type="button"

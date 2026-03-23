@@ -12,29 +12,39 @@ import {
   Bookmark,
   Compass,
   ExternalLink,
+  FilterX,
   FolderHeart,
   HelpCircle,
   Layers,
+  ListFilter,
   LogIn,
   Percent,
   Plus,
   Scale,
   Shield,
-  Sparkles,
   TrendingUp,
   Trophy,
   UserMinus,
 } from 'lucide-react';
 import { useAuthState } from '@/components/auth/auth-state-context';
+import { ExplorePortfolioFilterControls } from '@/components/platform/explore-portfolio-filter-controls';
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
 import { StrategyModelSidebarDropdown } from '@/components/platform/strategy-model-sidebar-dropdown';
 import { StockChartDialog } from '@/components/platform/stock-chart-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
 import {
   showPortfolioUnfollowToast,
@@ -53,6 +63,7 @@ import {
   portfolioConfigBadgeClassName,
   portfolioConfigBadgeTooltip,
 } from '@/lib/portfolio-config-badges';
+import { PORTFOLIO_EXPLORE_QUICK_PICKS } from '@/lib/portfolio-explore-quick-picks';
 import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import { cn } from '@/lib/utils';
 import type { ConfigPerfRow } from '@/lib/portfolio-config-utils';
@@ -246,6 +257,36 @@ function rankedConfigForProfile(
   const list = rankedBySlug[slug];
   if (!list?.length) return null;
   return list.find((c) => c.id === p.config_id) ?? null;
+}
+
+function fmtQuickPickReturn(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return '';
+  return `${n >= 0 ? '+' : ''}${(n * 100).toFixed(1)}%`;
+}
+
+function profileMatchesYourPortfolioFilters(
+  p: UserPortfolioProfileRow,
+  rankedBySlug: Record<string, RankedConfig[]>,
+  opts: {
+    filterBeatNasdaq: boolean;
+    filterBeatSp500: boolean;
+    riskFilter: RiskLevel | null;
+    freqFilter: RebalanceFrequency | null;
+    weightFilter: 'equal' | 'cap' | null;
+  }
+): boolean {
+  const pc = p.portfolio_config;
+  if (!pc) return false;
+  const risk = pc.risk_level as RiskLevel;
+  const freq = pc.rebalance_frequency as RebalanceFrequency;
+  const weight = pc.weighting_method as 'equal' | 'cap';
+  if (opts.riskFilter != null && risk !== opts.riskFilter) return false;
+  if (opts.freqFilter != null && freq !== opts.freqFilter) return false;
+  if (opts.weightFilter != null && weight !== opts.weightFilter) return false;
+  const ranked = rankedConfigForProfile(p, rankedBySlug);
+  if (opts.filterBeatNasdaq && ranked?.metrics.beatsMarket !== true) return false;
+  if (opts.filterBeatSp500 && ranked?.metrics.beatsSp500 !== true) return false;
+  return true;
 }
 
 const SIDEBAR_BADGE_ICON: Record<string, LucideIcon> = {
@@ -452,6 +493,15 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const [runDate, setRunDate] = useState<string | null>(null);
 
   const [rankedBySlug, setRankedBySlug] = useState<Record<string, RankedConfig[]>>({});
+  const [latestPerfDateBySlug, setLatestPerfDateBySlug] = useState<
+    Record<string, string | null>
+  >({});
+  const [filtersDialogOpen, setFiltersDialogOpen] = useState(false);
+  const [filterBeatNasdaq, setFilterBeatNasdaq] = useState(false);
+  const [filterBeatSp500, setFilterBeatSp500] = useState(false);
+  const [riskFilter, setRiskFilter] = useState<RiskLevel | null>(null);
+  const [freqFilter, setFreqFilter] = useState<RebalanceFrequency | null>(null);
+  const [weightFilter, setWeightFilter] = useState<'equal' | 'cap' | null>(null);
   const [notifyPending, setNotifyPending] = useState(false);
   const [unfollowBusy, setUnfollowBusy] = useState(false);
   const [perfView, setPerfView] = useState<'user' | 'model'>('user');
@@ -504,6 +554,66 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     return profiles.filter((p) => p.strategy_models?.slug === slug);
   }, [profiles, selectedProfile?.strategy_models?.slug]);
 
+  const filteredSidebarProfiles = useMemo(() => {
+    const opts = {
+      filterBeatNasdaq,
+      filterBeatSp500,
+      riskFilter,
+      freqFilter,
+      weightFilter,
+    };
+    return sidebarProfiles.filter((p) =>
+      profileMatchesYourPortfolioFilters(p, rankedBySlug, opts)
+    );
+  }, [
+    sidebarProfiles,
+    rankedBySlug,
+    filterBeatNasdaq,
+    filterBeatSp500,
+    riskFilter,
+    freqFilter,
+    weightFilter,
+  ]);
+
+  const activeSidebarFilterCount = useMemo(() => {
+    let n = 0;
+    if (filterBeatNasdaq) n++;
+    if (filterBeatSp500) n++;
+    if (riskFilter != null) n++;
+    if (freqFilter != null) n++;
+    if (weightFilter != null) n++;
+    return n;
+  }, [filterBeatNasdaq, filterBeatSp500, riskFilter, freqFilter, weightFilter]);
+
+  const clearSidebarFilters = useCallback(() => {
+    setFilterBeatNasdaq(false);
+    setFilterBeatSp500(false);
+    setRiskFilter(null);
+    setFreqFilter(null);
+    setWeightFilter(null);
+  }, []);
+
+  useEffect(() => {
+    if (!authState.isAuthenticated || isLoadingProfiles) return;
+    if (activeSidebarFilterCount === 0) return;
+    if (!selectedProfile) return;
+    if (filteredSidebarProfiles.length === 0) return;
+    const stillVisible = filteredSidebarProfiles.some((p) => p.id === selectedProfile.id);
+    if (!stillVisible) {
+      router.replace(
+        `/platform/your-portfolio?profile=${encodeURIComponent(filteredSidebarProfiles[0]!.id)}`,
+        { scroll: false }
+      );
+    }
+  }, [
+    activeSidebarFilterCount,
+    authState.isAuthenticated,
+    filteredSidebarProfiles,
+    isLoadingProfiles,
+    router,
+    selectedProfile,
+  ]);
+
   const selectedRanked = useMemo(
     () => (selectedProfile ? rankedConfigForProfile(selectedProfile, rankedBySlug) : null),
     [selectedProfile, rankedBySlug]
@@ -521,6 +631,15 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
 
   const strategySlug = selectedProfile?.strategy_models?.slug ?? config.strategySlug;
 
+  const rankedConfigsForFilters = rankedBySlug[strategySlug] ?? [];
+  const latestBenchmarkAsOf = latestPerfDateBySlug[strategySlug] ?? null;
+
+  useEffect(() => {
+    if (riskFilter === 6 && weightFilter === 'cap') {
+      setWeightFilter(null);
+    }
+  }, [riskFilter, weightFilter]);
+
   useEffect(() => {
     if (!profiles.length) return;
     const slugs = [
@@ -536,16 +655,32 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
           const res = await fetch(
             `/api/platform/portfolio-configs-ranked?slug=${encodeURIComponent(slug)}`
           );
-          if (!res.ok) return [slug, [] as RankedConfig[]] as const;
-          const data = (await res.json()) as { configs?: RankedConfig[] };
-          return [slug, data.configs ?? []] as const;
+          if (!res.ok) {
+            return [slug, [] as RankedConfig[], null as string | null] as const;
+          }
+          const data = (await res.json()) as {
+            configs?: RankedConfig[];
+            latestPerformanceDate?: string | null;
+          };
+          return [
+            slug,
+            data.configs ?? [],
+            data.latestPerformanceDate ?? null,
+          ] as const;
         } catch {
-          return [slug, [] as RankedConfig[]] as const;
+          return [slug, [] as RankedConfig[], null] as const;
         }
       })
     ).then((entries) => {
       if (cancelled) return;
-      setRankedBySlug(Object.fromEntries(entries));
+      const ranked: Record<string, RankedConfig[]> = {};
+      const dates: Record<string, string | null> = {};
+      for (const [slug, configs, latest] of entries) {
+        ranked[slug] = configs;
+        dates[slug] = latest;
+      }
+      setRankedBySlug(ranked);
+      setLatestPerfDateBySlug(dates);
     });
     return () => {
       cancelled = true;
@@ -833,16 +968,17 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const showUserPerfToggle = Boolean(selectedProfile?.user_start_date && userChart && userChart.series.length > 1);
 
   return (
-    <div
-      className={cn(
-        'flex min-h-0 flex-1 flex-col lg:h-full lg:max-h-full lg:flex-row lg:items-stretch lg:overflow-hidden lg:overscroll-y-contain'
-      )}
-    >
-      {/* Sidebar — same bounded scroll pattern as explore-portfolios */}
-      <aside className="flex w-full shrink-0 flex-col border-b bg-muted/20 lg:h-full lg:min-h-0 lg:w-72 lg:min-w-[16rem] lg:max-h-full lg:overflow-hidden lg:border-b-0 lg:border-r">
+    <TooltipProvider delayDuration={150}>
+      <div
+        className={cn(
+          'flex min-h-0 flex-1 flex-col lg:h-full lg:max-h-full lg:flex-row lg:items-stretch lg:overflow-hidden lg:overscroll-y-contain'
+        )}
+      >
+      {/* Sidebar — mirror explore-portfolios flex/scroll structure */}
+      <aside className="flex w-full shrink-0 flex-col border-b bg-muted/20 lg:h-full lg:min-h-0 lg:w-72 lg:max-h-full lg:border-b-0 lg:border-r">
         <div
           className={cn(
-            'min-h-0 flex-1 px-4 pt-2 sm:px-6 lg:min-h-0 lg:flex-1 lg:overflow-x-hidden lg:overflow-y-auto lg:overscroll-y-contain lg:px-0 lg:pr-1 lg:pt-0',
+            'min-h-0 flex-1 space-y-0 px-4 pt-2 sm:px-6 lg:min-h-0 lg:flex-1 lg:overflow-x-hidden lg:overflow-y-auto lg:overscroll-y-contain lg:px-0 lg:pr-1 lg:pt-0',
             '[scrollbar-width:thin] [scrollbar-color:hsl(var(--border)/0.55)_transparent]',
             'lg:[&::-webkit-scrollbar]:w-1.5 lg:[&::-webkit-scrollbar]:h-1.5',
             'lg:[&::-webkit-scrollbar-track]:bg-transparent',
@@ -851,36 +987,34 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
           )}
         >
           {strategyPickerList.length > 0 ? (
-            <div className="px-3 pt-3 sm:px-6 lg:px-0 lg:pr-1 lg:pt-2">
-              <StrategyModelSidebarDropdown
-                strategies={strategyPickerList}
-                selectedSlug={
-                  selectedProfile?.strategy_models?.slug ?? strategyPickerList[0]?.slug ?? null
+            <StrategyModelSidebarDropdown
+              strategies={strategyPickerList}
+              selectedSlug={
+                selectedProfile?.strategy_models?.slug ?? strategyPickerList[0]?.slug ?? null
+              }
+              onSelectStrategy={(slug) => {
+                const next = profiles.find((p) => p.strategy_models?.slug === slug);
+                if (next) {
+                  router.replace(`/platform/your-portfolio?profile=${next.id}`, { scroll: false });
                 }
-                onSelectStrategy={(slug) => {
-                  const next = profiles.find((p) => p.strategy_models?.slug === slug);
-                  if (next) {
-                    router.replace(`/platform/your-portfolio?profile=${next.id}`, { scroll: false });
-                  }
-                }}
-              >
-                <div className="space-y-0.5">
-                  <Button
-                    asChild
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 w-full justify-start gap-1.5 px-1 text-xs"
+              }}
+            >
+              <div className="space-y-0.5">
+                <Button
+                  asChild
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-full justify-start gap-1.5 px-1 text-xs"
+                >
+                  <Link
+                    href={`/strategy-models/${selectedProfile?.strategy_models?.slug ?? strategySlug}`}
                   >
-                    <Link
-                      href={`/strategy-models/${selectedProfile?.strategy_models?.slug ?? strategySlug}`}
-                    >
-                      <ExternalLink className="size-3 shrink-0" />
-                      How this model works
-                    </Link>
-                  </Button>
-                </div>
-              </StrategyModelSidebarDropdown>
-            </div>
+                    <ExternalLink className="size-3 shrink-0" />
+                    How this model works
+                  </Link>
+                </Button>
+              </div>
+            </StrategyModelSidebarDropdown>
           ) : null}
           <div
             className={cn(
@@ -891,15 +1025,37 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Portfolios
             </p>
-            <Button variant="ghost" size="icon" className="size-8 shrink-0" asChild>
-              <Link href="/platform/explore-portfolios">
-                <Plus className="size-4" />
-                <span className="sr-only">Follow portfolio</span>
-              </Link>
-            </Button>
+            <div className="flex shrink-0 items-center gap-0.5">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="relative size-8 shrink-0"
+                aria-label="Filter portfolios"
+                onClick={() => setFiltersDialogOpen(true)}
+              >
+                <ListFilter className="size-4" />
+                {activeSidebarFilterCount > 0 ? (
+                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold tabular-nums text-primary-foreground">
+                    {activeSidebarFilterCount}
+                  </span>
+                ) : null}
+              </Button>
+              <Button variant="ghost" size="icon" className="size-8 shrink-0" asChild>
+                <Link href="/platform/explore-portfolios">
+                  <Plus className="size-4" />
+                  <span className="sr-only">Follow portfolio</span>
+                </Link>
+              </Button>
+            </div>
           </div>
           <nav className="flex gap-2 overflow-x-auto px-3 pb-3 sm:px-6 lg:flex-col lg:overflow-x-hidden lg:px-0 lg:pr-1 lg:pb-4">
-            {sidebarProfiles.map((p) => {
+            {sidebarProfiles.length > 0 && filteredSidebarProfiles.length === 0 ? (
+              <p className="w-full px-1 py-4 text-center text-xs text-muted-foreground">
+                No portfolios match these filters. Open filters to adjust or clear.
+              </p>
+            ) : null}
+            {filteredSidebarProfiles.map((p) => {
               const active = p.id === selectedProfile?.id;
               const pc = p.portfolio_config;
               const rowRisk = (pc?.risk_level ?? 3) as RiskLevel;
@@ -961,7 +1117,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                     </div>
                     {p.notifications_enabled && (
                       <Badge variant="secondary" className="mt-1.5 text-[9px] h-5">
-                        Notify on
+                        Notifications on
                       </Badge>
                     )}
                   </button>
@@ -1033,14 +1189,8 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                   <BellOff className="size-3.5 text-muted-foreground" />
                 )}
                 <span className="hidden sm:inline">
-                  {selectedProfile?.notifications_enabled ? 'Notify on' : 'Notify off'}
+                  {selectedProfile?.notifications_enabled ? 'Notifications on' : 'Notifications off'}
                 </span>
-              </Button>
-              <Button size="sm" variant="outline" className="gap-1.5" asChild>
-                <Link href="/platform/explore-portfolios">
-                  <Sparkles className="size-3.5" />
-                  Explore
-                </Link>
               </Button>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1222,6 +1372,125 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
           </Card>
         </div>
       </div>
-    </div>
+
+      <Dialog open={filtersDialogOpen} onOpenChange={setFiltersDialogOpen}>
+        <DialogContent className="flex max-h-[min(90vh,720px)] w-[calc(100vw-1.5rem)] max-w-lg flex-col gap-0 overflow-hidden p-0 sm:w-full">
+          <DialogHeader className="shrink-0 space-y-1 border-b px-6 py-5 text-left">
+            <DialogTitle>Filter portfolios</DialogTitle>
+            <DialogDescription>
+              Narrow the sidebar list the same way as the performance page portfolio picker.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-6 py-4">
+            <ExplorePortfolioFilterControls
+              filterBeatNasdaq={filterBeatNasdaq}
+              filterBeatSp500={filterBeatSp500}
+              onFilterBeatNasdaqChange={setFilterBeatNasdaq}
+              onFilterBeatSp500Change={setFilterBeatSp500}
+              riskFilter={riskFilter}
+              freqFilter={freqFilter}
+              weightFilter={weightFilter}
+              onRiskChange={setRiskFilter}
+              onFreqChange={setFreqFilter}
+              onWeightChange={setWeightFilter}
+              benchmarkOutperformanceAsOf={latestBenchmarkAsOf}
+              benchmarkHeaderEnd={
+                activeSidebarFilterCount > 0 ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                    onClick={clearSidebarFilters}
+                  >
+                    <FilterX className="size-3.5 shrink-0" aria-hidden />
+                    Clear
+                  </Button>
+                ) : null
+              }
+              betweenBenchmarkAndRisk={
+                <div className="space-y-2 border-t border-border/60 pt-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Quick picks
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {PORTFOLIO_EXPLORE_QUICK_PICKS.map((pick) => {
+                      const matched = rankedConfigsForFilters.find(
+                        (c) =>
+                          c.riskLevel === pick.riskLevel &&
+                          c.rebalanceFrequency === pick.rebalanceFrequency &&
+                          c.weightingMethod === pick.weightingMethod
+                      );
+                      const isQuickPickActive =
+                        !filterBeatNasdaq &&
+                        !filterBeatSp500 &&
+                        riskFilter === pick.riskLevel &&
+                        freqFilter === pick.rebalanceFrequency &&
+                        (pick.riskLevel === 6 && pick.weightingMethod === 'equal'
+                          ? weightFilter === 'equal' || weightFilter === null
+                          : weightFilter === pick.weightingMethod);
+                      return (
+                        <button
+                          key={pick.key}
+                          type="button"
+                          aria-pressed={isQuickPickActive}
+                          onClick={() => {
+                            if (isQuickPickActive) {
+                              clearSidebarFilters();
+                            } else {
+                              setFilterBeatNasdaq(false);
+                              setFilterBeatSp500(false);
+                              setRiskFilter(pick.riskLevel);
+                              setFreqFilter(pick.rebalanceFrequency);
+                              setWeightFilter(pick.weightingMethod);
+                            }
+                          }}
+                          className={cn(
+                            'rounded-lg border px-2.5 py-2 text-left transition-all hover:shadow-sm',
+                            isQuickPickActive
+                              ? 'border-trader-blue bg-trader-blue/10 shadow-sm ring-2 ring-trader-blue/35 hover:border-trader-blue'
+                              : pick.highlight
+                                ? 'border-trader-blue/25 bg-trader-blue/[0.04] hover:border-trader-blue/50'
+                                : 'border-border hover:border-foreground/20 hover:bg-muted/30'
+                          )}
+                        >
+                          <p className="text-[11px] font-semibold leading-tight">{pick.label}</p>
+                          <p className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-muted-foreground">
+                            {pick.description}
+                          </p>
+                          {matched?.metrics.totalReturn != null && (
+                            <p
+                              className={cn(
+                                'mt-1 text-[10px] font-medium',
+                                matched.metrics.totalReturn >= 0
+                                  ? 'text-green-600 dark:text-green-400'
+                                  : 'text-red-600 dark:text-red-400'
+                              )}
+                            >
+                              {fmtQuickPickReturn(matched.metrics.totalReturn)}
+                            </p>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              }
+            />
+          </div>
+          <DialogFooter className="shrink-0 flex-col gap-2 border-t px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-muted-foreground">
+              {activeSidebarFilterCount > 0
+                ? `${filteredSidebarProfiles.length} of ${sidebarProfiles.length} match filters`
+                : `${sidebarProfiles.length} portfolio${sidebarProfiles.length === 1 ? '' : 's'}`}
+            </p>
+            <Button type="button" size="sm" onClick={() => setFiltersDialogOpen(false)}>
+              Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      </div>
+    </TooltipProvider>
   );
 }
