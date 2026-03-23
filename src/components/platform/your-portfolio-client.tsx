@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import type { LucideIcon } from 'lucide-react';
 import {
@@ -80,6 +80,13 @@ import type {
   PerformanceSeriesPoint,
   StrategyListItem,
 } from '@/lib/platform-performance-payload';
+import {
+  getCachedExploreHoldings,
+  HOLDINGS_DATE_SWITCH_MIN_SKELETON_MS,
+  loadExplorePortfolioConfigHoldings,
+  prefetchExploreHoldingsDates,
+  sleepMs,
+} from '@/lib/portfolio-config-holdings-cache';
 import { sharpeRatioValueClass } from '@/lib/sharpe-value-class';
 import { computeWeeklyConsistencyVsNasdaqCap } from '@/lib/user-entry-performance';
 import {
@@ -92,6 +99,14 @@ import { formatYmdDisplay } from '@/lib/format-ymd-display';
 import { cn } from '@/lib/utils';
 import type { ConfigPerfRow } from '@/lib/portfolio-config-utils';
 import { buildConfigPerformanceChart } from '@/lib/config-performance-chart';
+import {
+  getCachedConfigPerfPayload,
+  getCachedUserEntryPayload,
+  invalidateUserEntryPerformanceCache,
+  loadConfigPerfPayloadCached,
+  loadUserEntryPayloadCached,
+  prefetchYourPortfolioMainData,
+} from '@/lib/your-portfolio-data-cache';
 
 const PerformanceChart = dynamic(
   () => import('@/components/platform/performance-chart').then((m) => m.PerformanceChart),
@@ -588,8 +603,12 @@ type YourPortfolioClientProps = {
 
 export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const profileParam = searchParams.get('profile');
+  const isYourPortfoliosRoute =
+    pathname === '/platform/your-portfolios' ||
+    pathname.startsWith('/platform/your-portfolios/');
   const { toast } = useToast();
   const authState = useAuthState();
   const { config } = usePortfolioConfig();
@@ -601,12 +620,16 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const [isLoadingPerf, setIsLoadingPerf] = useState(true);
   const [perfPayload, setPerfPayload] = useState<ConfigPerfApiResponse | null>(null);
   const [rawRows, setRawRows] = useState<ConfigPerfRow[]>([]);
+  const perfRequestIdRef = useRef(0);
 
   const yourPortfolioHoldingsRequestIdRef = useRef(0);
   const [configHoldings, setConfigHoldings] = useState<HoldingItem[]>([]);
   const [configHoldingsLoading, setConfigHoldingsLoading] = useState(false);
+  const [configHoldingsRefreshing, setConfigHoldingsRefreshing] = useState(false);
   const [configHoldingsAsOf, setConfigHoldingsAsOf] = useState<string | null>(null);
   const [configHoldingsRebalanceDates, setConfigHoldingsRebalanceDates] = useState<string[]>([]);
+  const configHoldingsLenRef = useRef(0);
+  configHoldingsLenRef.current = configHoldings.length;
 
   const [rankedBySlug, setRankedBySlug] = useState<Record<string, RankedConfig[]>>({});
   const [latestPerfDateBySlug, setLatestPerfDateBySlug] = useState<
@@ -622,6 +645,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const [unfollowBusy, setUnfollowBusy] = useState(false);
   const [userEntryPayload, setUserEntryPayload] = useState<UserEntryPerfApiResponse | null>(null);
   const [isLoadingUserEntry, setIsLoadingUserEntry] = useState(false);
+  const userEntryRequestIdRef = useRef(0);
   const [entrySettingsOpen, setEntrySettingsOpen] = useState(false);
   const [holdingsRowChartSymbol, setHoldingsRowChartSymbol] = useState<string | null>(null);
 
@@ -650,6 +674,11 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     if (!authState.isLoaded || !authState.isAuthenticated) return;
     void loadProfiles();
   }, [authState.isLoaded, authState.isAuthenticated, loadProfiles]);
+
+  useEffect(() => {
+    if (!authState.isAuthenticated || profiles.length === 0) return;
+    prefetchYourPortfolioMainData(profiles);
+  }, [authState.isAuthenticated, profiles]);
 
   const selectedProfile = useMemo(() => {
     if (!profiles.length) return null;
@@ -713,6 +742,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   }, []);
 
   useEffect(() => {
+    if (!isYourPortfoliosRoute) return;
     if (!authState.isAuthenticated || isLoadingProfiles) return;
     if (activeSidebarFilterCount === 0) return;
     if (!selectedProfile) return;
@@ -729,6 +759,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     authState.isAuthenticated,
     filteredSidebarProfiles,
     isLoadingProfiles,
+    isYourPortfoliosRoute,
     router,
     selectedProfile,
   ]);
@@ -738,15 +769,23 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     [selectedProfile, rankedBySlug]
   );
 
-  // Sync ?profile= to a valid id
+  // Sync ?profile= only on this route — workspace keeps this tree mounted while other platform tabs are open.
   useEffect(() => {
+    if (!isYourPortfoliosRoute) return;
     if (!authState.isAuthenticated || isLoadingProfiles) return;
     if (profiles.length === 0) return;
     const valid = profileParam && profiles.some((p) => p.id === profileParam);
     if (!valid) {
       router.replace(`/platform/your-portfolios?profile=${profiles[0]!.id}`, { scroll: false });
     }
-  }, [authState.isAuthenticated, isLoadingProfiles, profiles, profileParam, router]);
+  }, [
+    authState.isAuthenticated,
+    isLoadingProfiles,
+    isYourPortfoliosRoute,
+    profiles,
+    profileParam,
+    router,
+  ]);
 
   const strategySlug = selectedProfile?.strategy_models?.slug ?? config.strategySlug;
 
@@ -806,32 +845,53 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     };
   }, [profiles]);
 
-  const loadPerf = useCallback(async () => {
+  const loadPerf = useCallback(async (opts?: { bypassCache?: boolean }) => {
     if (!selectedProfile?.portfolio_config || !strategySlug) {
+      perfRequestIdRef.current += 1;
       setPerfPayload(null);
       setRawRows([]);
       setIsLoadingPerf(false);
       return;
     }
     const cfg = selectedProfile.portfolio_config;
-    setIsLoadingPerf(true);
+    const slug = strategySlug.trim();
+    const frequency = cfg.rebalance_frequency;
+    const weighting = cfg.weighting_method;
+    const reqId = ++perfRequestIdRef.current;
+
+    if (!opts?.bypassCache) {
+      const syncHit = getCachedConfigPerfPayload(slug, cfg.risk_level, frequency, weighting);
+      if (syncHit) {
+        if (perfRequestIdRef.current !== reqId) return;
+        setPerfPayload(syncHit as ConfigPerfApiResponse);
+        setRawRows(Array.isArray(syncHit.rows) ? syncHit.rows : []);
+        setIsLoadingPerf(false);
+        return;
+      }
+    }
+
+    if (!opts?.bypassCache) {
+      setIsLoadingPerf(true);
+    }
     try {
-      const params = new URLSearchParams({
-        slug: strategySlug,
-        risk: String(cfg.risk_level),
-        frequency: cfg.rebalance_frequency,
-        weighting: cfg.weighting_method,
-      });
-      const res = await fetch(`/api/platform/portfolio-config-performance?${params}`);
-      if (res.ok) {
-        const data = (await res.json()) as ConfigPerfApiResponse;
-        setPerfPayload(data);
+      const data = await loadConfigPerfPayloadCached(
+        slug,
+        cfg.risk_level,
+        frequency,
+        weighting,
+        opts
+      );
+      if (perfRequestIdRef.current !== reqId) return;
+      if (data) {
+        setPerfPayload(data as ConfigPerfApiResponse);
         setRawRows(Array.isArray(data.rows) ? data.rows : []);
       }
     } catch {
       // silent
     } finally {
-      setIsLoadingPerf(false);
+      if (perfRequestIdRef.current === reqId) {
+        setIsLoadingPerf(false);
+      }
     }
   }, [selectedProfile, strategySlug]);
 
@@ -839,27 +899,41 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     void loadPerf();
   }, [loadPerf]);
 
-  const loadUserEntry = useCallback(async () => {
+  const loadUserEntry = useCallback(async (opts?: { bypassCache?: boolean }) => {
     if (!selectedProfile?.id || !selectedProfile.user_start_date) {
+      userEntryRequestIdRef.current += 1;
       setUserEntryPayload(null);
       setIsLoadingUserEntry(false);
       return;
     }
-    setIsLoadingUserEntry(true);
+    const profileId = selectedProfile.id;
+    const reqId = ++userEntryRequestIdRef.current;
+
+    if (!opts?.bypassCache) {
+      const syncHit = getCachedUserEntryPayload(profileId);
+      if (syncHit) {
+        if (userEntryRequestIdRef.current !== reqId) return;
+        setUserEntryPayload(syncHit as UserEntryPerfApiResponse);
+        setIsLoadingUserEntry(false);
+        return;
+      }
+    }
+
+    if (!opts?.bypassCache) {
+      setIsLoadingUserEntry(true);
+    }
     try {
-      const res = await fetch(
-        `/api/platform/user-portfolio-performance?profileId=${encodeURIComponent(selectedProfile.id)}`
-      );
-      const data = (await res.json()) as UserEntryPerfApiResponse;
-      if (res.ok) {
-        setUserEntryPayload(data);
-      } else {
+      const data = await loadUserEntryPayloadCached(profileId, opts);
+      if (userEntryRequestIdRef.current !== reqId) return;
+      setUserEntryPayload(data as UserEntryPerfApiResponse);
+    } catch {
+      if (userEntryRequestIdRef.current === reqId) {
         setUserEntryPayload({ computeStatus: 'failed', series: [], metrics: null });
       }
-    } catch {
-      setUserEntryPayload({ computeStatus: 'failed', series: [], metrics: null });
     } finally {
-      setIsLoadingUserEntry(false);
+      if (userEntryRequestIdRef.current === reqId) {
+        setIsLoadingUserEntry(false);
+      }
     }
   }, [selectedProfile?.id, selectedProfile?.user_start_date]);
 
@@ -872,7 +946,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     const st = perfPayload?.computeStatus;
     const active = st === 'pending' || st === 'in_progress';
     if (!active || !selectedProfile) return;
-    const t = setInterval(() => void loadPerf(), 4000);
+    const t = setInterval(() => void loadPerf({ bypassCache: true }), 4000);
     return () => clearInterval(t);
   }, [perfPayload?.computeStatus, loadPerf, selectedProfile]);
 
@@ -881,7 +955,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     const entrySt = userEntryPayload?.computeStatus;
     const needsData = cfgSt === 'pending' || entrySt === 'pending';
     if (!needsData || !selectedProfile?.id) return;
-    const t = setInterval(() => void loadUserEntry(), 4000);
+    const t = setInterval(() => void loadUserEntry({ bypassCache: true }), 4000);
     return () => clearInterval(t);
   }, [
     userEntryPayload?.configComputeStatus,
@@ -899,37 +973,55 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       const configId = selectedProfileConfigId;
       if (!selectedProfile?.id || !configId || !slug) return;
       const reqId = ++yourPortfolioHoldingsRequestIdRef.current;
-      setConfigHoldingsLoading(true);
-      try {
-        const q = new URLSearchParams({ slug, configId });
-        if (asOf) q.set('asOfDate', asOf);
-        const res = await fetch(`/api/platform/explore-portfolio-config-holdings?${q}`);
-        const d = (await res.json()) as {
-          holdings?: HoldingItem[];
-          asOfDate?: string | null;
-          rebalanceDates?: string[];
-        };
+
+      const hadTableData = configHoldingsLenRef.current > 0;
+      const isDatePick = asOf != null;
+      const useRefreshChrome = isDatePick && hadTableData;
+
+      const syncHit = getCachedExploreHoldings(slug, configId, asOf);
+      if (syncHit) {
         if (yourPortfolioHoldingsRequestIdRef.current !== reqId) return;
-        if (!res.ok) {
+        setConfigHoldings(syncHit.holdings);
+        setConfigHoldingsAsOf(syncHit.asOfDate);
+        setConfigHoldingsRebalanceDates(syncHit.rebalanceDates);
+        setConfigHoldingsLoading(false);
+        setConfigHoldingsRefreshing(false);
+        prefetchExploreHoldingsDates(slug, configId, syncHit.rebalanceDates);
+        return;
+      }
+
+      if (useRefreshChrome) {
+        setConfigHoldingsRefreshing(true);
+      } else {
+        setConfigHoldingsLoading(true);
+      }
+
+      const started = Date.now();
+      try {
+        const data = await loadExplorePortfolioConfigHoldings(slug, configId, asOf);
+        if (yourPortfolioHoldingsRequestIdRef.current !== reqId) return;
+
+        if (!data) {
           setConfigHoldings([]);
           setConfigHoldingsAsOf(null);
           setConfigHoldingsRebalanceDates([]);
-          return;
-        }
-        setConfigHoldings(Array.isArray(d.holdings) ? d.holdings : []);
-        setConfigHoldingsAsOf(typeof d.asOfDate === 'string' ? d.asOfDate : null);
-        setConfigHoldingsRebalanceDates(
-          Array.isArray(d.rebalanceDates) ? d.rebalanceDates : []
-        );
-      } catch {
-        if (yourPortfolioHoldingsRequestIdRef.current === reqId) {
-          setConfigHoldings([]);
-          setConfigHoldingsAsOf(null);
-          setConfigHoldingsRebalanceDates([]);
+        } else {
+          if (useRefreshChrome) {
+            const elapsed = Date.now() - started;
+            if (elapsed < HOLDINGS_DATE_SWITCH_MIN_SKELETON_MS) {
+              await sleepMs(HOLDINGS_DATE_SWITCH_MIN_SKELETON_MS - elapsed);
+            }
+            if (yourPortfolioHoldingsRequestIdRef.current !== reqId) return;
+          }
+          setConfigHoldings(data.holdings);
+          setConfigHoldingsAsOf(data.asOfDate);
+          setConfigHoldingsRebalanceDates(data.rebalanceDates);
+          prefetchExploreHoldingsDates(slug, configId, data.rebalanceDates);
         }
       } finally {
         if (yourPortfolioHoldingsRequestIdRef.current === reqId) {
           setConfigHoldingsLoading(false);
+          setConfigHoldingsRefreshing(false);
         }
       }
     },
@@ -943,6 +1035,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       setConfigHoldingsAsOf(null);
       setConfigHoldingsRebalanceDates([]);
       setConfigHoldingsLoading(false);
+      setConfigHoldingsRefreshing(false);
       return;
     }
     void fetchYourPortfolioConfigHoldings(null);
@@ -1464,58 +1557,52 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
             </div>
           </div>
 
-          <div className="flex w-full min-w-0 flex-1 flex-col space-y-4 px-5 py-4 sm:px-7 sm:pb-10">
+          {/* No horizontal padding here so the main portfolio section can span the full main column
+              (negative margins fight overflow-x-clip on the platform shell and often clip the right edge). */}
+          <div className="flex w-full min-w-0 max-w-full flex-1 flex-col space-y-4 py-4 sm:pb-10">
             {perfLoading ? (
-              <Skeleton className="h-24 w-full" />
+              <div className="px-5 sm:px-7">
+                <Skeleton className="h-24 w-full" />
+              </div>
             ) : selectedProfile?.user_start_date && userEntryStatus === 'no_positions' ? (
-              <div className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
+              <div className="mx-5 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground sm:mx-7">
                 <p className="font-medium">No saved entry positions</p>
                 <p className="text-xs mt-1">Update your entry in entry settings to rebuild holdings.</p>
               </div>
             ) : selectedProfile?.user_start_date && userEntryStatus === 'no_holdings_run' ? (
-              <div className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
+              <div className="mx-5 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground sm:mx-7">
                 <p className="font-medium">No model snapshot for that entry</p>
                 <p className="text-xs mt-1">Pick an entry on or after the strategy&apos;s first rebalance.</p>
               </div>
             ) : activeComputeStatus === 'empty' ? (
-              <div className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
+              <div className="mx-5 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground sm:mx-7">
                 <p className="font-medium">Performance data computing…</p>
                 <p className="text-xs mt-1">
                   Historical performance for this configuration is being calculated. This page refreshes automatically.
                 </p>
               </div>
             ) : activeComputeStatus === 'in_progress' ? (
-              <div className="rounded-lg border bg-amber-500/10 border-amber-500/30 p-4 text-sm text-amber-700 dark:text-amber-300">
+              <div className="mx-5 rounded-lg border bg-amber-500/10 border-amber-500/30 p-4 text-sm text-amber-700 dark:text-amber-300 sm:mx-7">
                 Performance data is being computed. Checking every few seconds…
               </div>
             ) : activeComputeStatus === 'failed' ? (
-              <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+              <div className="mx-5 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive sm:mx-7">
                 Couldn&apos;t load performance for this configuration. Try again later.
               </div>
             ) : activeComputeStatus === 'unsupported' ? (
-              <div className="rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground">
+              <div className="mx-5 rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground sm:mx-7">
                 This portfolio isn&apos;t available yet.
               </div>
             ) : (
-              <section className="-mx-5 w-full min-w-0 max-w-none space-y-4 rounded-xl border border-border bg-card/50 py-4 sm:-mx-7 sm:space-y-5 sm:py-5">
+              <div className="flex w-full min-w-0 max-w-full flex-col space-y-4 sm:space-y-5">
               {activeComputeStatus === 'gathering' ? (
-                <div className="mx-4 rounded-lg border border-border/60 bg-muted/30 p-3 text-sm text-muted-foreground sm:mx-5">
+                <div className="mx-5 rounded-lg border border-border/60 bg-muted/30 p-3 text-sm text-muted-foreground sm:mx-7">
                   <p className="font-medium text-foreground">Tracking from your entry</p>
                   <p className="text-xs mt-1 leading-relaxed">
                     You have a starting point at your chosen investment. Return and risk stats will
                     populate after more market closes; this page refreshes automatically.
                   </p>
                 </div>
-              ) : null}
-
-              {selectedProfile?.user_start_date ? (
-                <p className="mx-4 text-[11px] leading-snug text-muted-foreground sm:mx-5">
-                  Showing returns since you entered ({entryLabel}) with a starting balance of $
-                  {num(selectedProfile.investment_size).toLocaleString('en-US', {
-                    maximumFractionDigits: 0,
-                  })}
-                  .
-                </p>
               ) : null}
 
               <div className="grid w-full min-w-0 grid-cols-1 gap-4 rounded-lg border border-border/70 bg-muted/20 p-3 sm:gap-5 sm:p-4 lg:p-5">
@@ -1671,6 +1758,21 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                     </p>
                   ) : (
                     <TooltipProvider delayDuration={200}>
+                      <div className="relative w-full min-w-0">
+                        {configHoldingsRefreshing ? (
+                          <div
+                            className="pointer-events-none absolute inset-0 z-[1] flex justify-center rounded-md bg-background/50 pt-6 backdrop-blur-[0.5px]"
+                            aria-hidden
+                          >
+                            <Skeleton className="h-36 w-full max-w-lg rounded-md" />
+                          </div>
+                        ) : null}
+                        <div
+                          className={cn(
+                            configHoldingsRefreshing && 'opacity-[0.65]',
+                            'w-full min-w-0'
+                          )}
+                        >
                       <div className="max-h-[min(56vh,400px)] w-full min-w-0 overflow-auto rounded-md border">
                         <Table className="w-full min-w-0">
                           <TableHeader>
@@ -1760,6 +1862,8 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                           Showing top {topN} of {configHoldings.length} positions.
                         </p>
                       ) : null}
+                        </div>
+                      </div>
                     </TooltipProvider>
                   )}
                 </div>
@@ -1786,7 +1890,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                   )}
                 </div>
               </div>
-              </section>
+              </div>
             )}
           </div>
         </div>
@@ -1930,6 +2034,9 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
             : null
         }
         onSaved={() => {
+          if (selectedProfile?.id) {
+            invalidateUserEntryPerformanceCache(selectedProfile.id);
+          }
           void loadProfiles();
           void loadUserEntry();
         }}

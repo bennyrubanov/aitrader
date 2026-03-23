@@ -74,6 +74,13 @@ import { formatYmdDisplay } from '@/lib/format-ymd-display';
 import { visibleOverviewSlotCount, isValidOverviewSlot } from '@/lib/overview-slots';
 import type { PortfolioMovementLine } from '@/lib/portfolio-movement';
 import {
+  getCachedExploreHoldings,
+  HOLDINGS_DATE_SWITCH_MIN_SKELETON_MS,
+  loadExplorePortfolioConfigHoldings,
+  prefetchExploreHoldingsDates,
+  sleepMs,
+} from '@/lib/portfolio-config-holdings-cache';
+import {
   parsePlatformOverviewTab,
   platformOverviewPath,
   PLATFORM_OVERVIEW_TAB_PARAM,
@@ -900,9 +907,12 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   const [cardState, setCardState] = useState<Record<string, OverviewCardPerfState>>({});
   const [topSpotlightHoldings, setTopSpotlightHoldings] = useState<HoldingItem[]>([]);
   const [topSpotlightHoldingsLoading, setTopSpotlightHoldingsLoading] = useState(false);
+  const [topSpotlightHoldingsRefreshing, setTopSpotlightHoldingsRefreshing] = useState(false);
   const [topSpotlightHoldingsAsOf, setTopSpotlightHoldingsAsOf] = useState<string | null>(null);
   const [topSpotlightRebalanceDates, setTopSpotlightRebalanceDates] = useState<string[]>([]);
   const spotlightHoldingsRequestIdRef = useRef(0);
+  const spotlightHoldingsLenRef = useRef(0);
+  spotlightHoldingsLenRef.current = topSpotlightHoldings.length;
   const [spotlightStockChartSymbol, setSpotlightStockChartSymbol] = useState<string | null>(null);
   const [entrySettingsProfileId, setEntrySettingsProfileId] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -1242,35 +1252,55 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
       const configId = topSpotlightConfigId;
       if (!topSpotlightProfileId || !configId || !slug) return;
       const reqId = ++spotlightHoldingsRequestIdRef.current;
-      setTopSpotlightHoldingsLoading(true);
-      try {
-        const q = new URLSearchParams({ slug, configId });
-        if (asOf) q.set('asOfDate', asOf);
-        const res = await fetch(`/api/platform/explore-portfolio-config-holdings?${q}`);
-        const d = (await res.json()) as {
-          holdings?: HoldingItem[];
-          asOfDate?: string | null;
-          rebalanceDates?: string[];
-        };
+
+      const hadTableData = spotlightHoldingsLenRef.current > 0;
+      const isDatePick = asOf != null;
+      const useRefreshChrome = isDatePick && hadTableData;
+
+      const syncHit = getCachedExploreHoldings(slug, configId, asOf);
+      if (syncHit) {
         if (spotlightHoldingsRequestIdRef.current !== reqId) return;
-        if (!res.ok) {
+        setTopSpotlightHoldings(syncHit.holdings);
+        setTopSpotlightHoldingsAsOf(syncHit.asOfDate);
+        setTopSpotlightRebalanceDates(syncHit.rebalanceDates);
+        setTopSpotlightHoldingsLoading(false);
+        setTopSpotlightHoldingsRefreshing(false);
+        prefetchExploreHoldingsDates(slug, configId, syncHit.rebalanceDates);
+        return;
+      }
+
+      if (useRefreshChrome) {
+        setTopSpotlightHoldingsRefreshing(true);
+      } else {
+        setTopSpotlightHoldingsLoading(true);
+      }
+
+      const started = Date.now();
+      try {
+        const data = await loadExplorePortfolioConfigHoldings(slug, configId, asOf);
+        if (spotlightHoldingsRequestIdRef.current !== reqId) return;
+
+        if (!data) {
           setTopSpotlightHoldings([]);
           setTopSpotlightHoldingsAsOf(null);
           setTopSpotlightRebalanceDates([]);
-          return;
-        }
-        setTopSpotlightHoldings(Array.isArray(d.holdings) ? d.holdings : []);
-        setTopSpotlightHoldingsAsOf(typeof d.asOfDate === 'string' ? d.asOfDate : null);
-        setTopSpotlightRebalanceDates(Array.isArray(d.rebalanceDates) ? d.rebalanceDates : []);
-      } catch {
-        if (spotlightHoldingsRequestIdRef.current === reqId) {
-          setTopSpotlightHoldings([]);
-          setTopSpotlightHoldingsAsOf(null);
-          setTopSpotlightRebalanceDates([]);
+        } else {
+          if (useRefreshChrome) {
+            const elapsed = Date.now() - started;
+            if (elapsed < HOLDINGS_DATE_SWITCH_MIN_SKELETON_MS) {
+              await sleepMs(HOLDINGS_DATE_SWITCH_MIN_SKELETON_MS - elapsed);
+            }
+            if (spotlightHoldingsRequestIdRef.current !== reqId) return;
+          }
+          setTopSpotlightHoldings(data.holdings);
+          setTopSpotlightHoldingsAsOf(data.asOfDate);
+          setTopSpotlightRebalanceDates(data.rebalanceDates);
+          prefetchExploreHoldingsDates(slug, configId, data.rebalanceDates);
         }
       } finally {
         if (spotlightHoldingsRequestIdRef.current === reqId) {
           setTopSpotlightHoldingsLoading(false);
+          setTopSpotlightHoldingsRefreshing(false);
         }
       }
     },
@@ -1284,6 +1314,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
       setTopSpotlightHoldingsAsOf(null);
       setTopSpotlightRebalanceDates([]);
       setTopSpotlightHoldingsLoading(false);
+      setTopSpotlightHoldingsRefreshing(false);
       return;
     }
     void fetchTopSpotlightHoldings(null);
@@ -1821,6 +1852,20 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                   </p>
                                 ) : (
                                   <TooltipProvider delayDuration={200}>
+                                    <div className="relative">
+                                      {topSpotlightHoldingsRefreshing ? (
+                                        <div
+                                          className="pointer-events-none absolute inset-0 z-[1] flex justify-center rounded-md bg-background/50 pt-6 backdrop-blur-[0.5px]"
+                                          aria-hidden
+                                        >
+                                          <Skeleton className="h-36 w-full max-w-lg rounded-md" />
+                                        </div>
+                                      ) : null}
+                                      <div
+                                        className={cn(
+                                          topSpotlightHoldingsRefreshing && 'opacity-[0.65]'
+                                        )}
+                                      >
                                     <div className="max-h-[min(56vh,400px)] overflow-auto rounded-md border">
                                       <Table>
                                         <TableHeader>
@@ -1911,6 +1956,8 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                           })}
                                         </TableBody>
                                       </Table>
+                                    </div>
+                                      </div>
                                     </div>
                                   </TooltipProvider>
                                 )}

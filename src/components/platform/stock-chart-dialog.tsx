@@ -1,6 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react';
 import {
   CartesianGrid,
   Line,
@@ -120,7 +127,8 @@ export function StockChartDialog({
   const [scoreAxisHovered, setScoreAxisHovered] = useState(false);
   const cacheKey = `${symbol.toUpperCase()}::${strategySlug ?? 'default'}`;
 
-  useEffect(() => {
+  /** Before paint: apply cache or enter loading so we never flash “no history” pre-fetch. */
+  useLayoutEffect(() => {
     if (!open) return;
     const cached = stockHistoryCache.get(cacheKey);
     if (cached) {
@@ -129,13 +137,19 @@ export function StockChartDialog({
       setIsLoading(false);
       return;
     }
+    setData(null);
+    setErrorMessage(null);
+    setIsLoading(true);
+  }, [cacheKey, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const cached = stockHistoryCache.get(cacheKey);
+    if (cached) return;
 
     const controller = new AbortController();
     const params = new URLSearchParams({ symbol });
     if (strategySlug) params.set('strategy', strategySlug);
-
-    setIsLoading(true);
-    setErrorMessage(null);
 
     fetch(`/api/platform/stock-history?${params.toString()}`, { signal: controller.signal })
       .then(async (r) => {
