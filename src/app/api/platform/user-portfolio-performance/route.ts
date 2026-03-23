@@ -1,9 +1,10 @@
 /**
  * GET /api/platform/user-portfolio-performance?profileId=
  *
- * Authenticated: performance from saved entry positions, daily prices, and
- * config-scoped benchmark curves (same source as model track). Does not modify
- * stored strategy or explore data.
+ * Authenticated: personal-track performance derived from config-scoped strategy
+ * performance rows, rebased to the user's selected entry date and investment
+ * size. Holdings snapshots are managed elsewhere and are not the source of the
+ * long-run chart or headline metrics here.
  */
 
 import { NextResponse } from 'next/server';
@@ -15,15 +16,12 @@ import {
   prependModelInceptionToConfigRows,
 } from '@/lib/portfolio-config-utils';
 import {
-  buildConfigPerformanceChart,
-  filterAndRebaseConfigRows,
+  buildUserEntryConfigTrack,
 } from '@/lib/config-performance-chart';
 import { pickHoldingsRunDate } from '@/lib/user-portfolio-entry';
 import {
-  buildUserEntryPerformance,
   computeExcessReturnVsNasdaqCap,
   computeWeeklyConsistencyVsNasdaqCap,
-  type UserEntryRawPriceRow,
 } from '@/lib/user-entry-performance';
 
 export const runtime = 'nodejs';
@@ -31,84 +29,6 @@ export const runtime = 'nodejs';
 const unauthorized = () => NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
-
-function emptyUserMetrics() {
-  return {
-    sharpeRatio: null,
-    totalReturn: null,
-    cagr: null,
-    maxDrawdown: null,
-    consistency: null,
-    excessReturnVsNasdaqCap: null,
-  };
-}
-
-function buildExactConfigEntryTrack(
-  cfgRows: Awaited<ReturnType<typeof prependModelInceptionToConfigRows>>,
-  userStartDate: string,
-  investmentSize: number
-) {
-  const rebasedRows = filterAndRebaseConfigRows(cfgRows, userStartDate, investmentSize);
-  if (!rebasedRows.length || rebasedRows[0]?.run_date !== userStartDate) {
-    return null;
-  }
-
-  const chart = buildConfigPerformanceChart(rebasedRows);
-  if (!chart.series.length) {
-    return null;
-  }
-
-  const hasMultipleObservations = chart.series.length >= 2;
-  return {
-    hasMultipleObservations,
-    series: chart.series,
-    metrics: hasMultipleObservations
-      ? {
-          sharpeRatio: chart.metrics?.sharpeRatio ?? null,
-          totalReturn: chart.metrics?.totalReturn ?? null,
-          cagr: chart.metrics?.cagr ?? null,
-          maxDrawdown: chart.metrics?.maxDrawdown ?? null,
-          consistency: computeWeeklyConsistencyVsNasdaqCap(chart.series),
-          excessReturnVsNasdaqCap: computeExcessReturnVsNasdaqCap(chart.series),
-        }
-      : emptyUserMetrics(),
-  };
-}
-
-async function fetchRawPriceRowsPaged(
-  admin: ReturnType<typeof createAdminClient>,
-  symbols: string[],
-  fromDate: string
-): Promise<UserEntryRawPriceRow[]> {
-  const sym = [...new Set(symbols.map((s) => s.toUpperCase()))];
-  if (!sym.length) return [];
-
-  const pageSize = 1000;
-  let offset = 0;
-  const out: UserEntryRawPriceRow[] = [];
-
-  for (;;) {
-    const { data, error } = await admin
-      .from('nasdaq_100_daily_raw')
-      .select('run_date, symbol, last_sale_price')
-      .in('symbol', sym)
-      .gte('run_date', fromDate)
-      .order('run_date', { ascending: true })
-      .order('symbol', { ascending: true })
-      .range(offset, offset + pageSize - 1);
-
-    if (error) {
-      console.error('[user-portfolio-performance] raw prices:', error.message);
-      return out;
-    }
-    if (!data?.length) break;
-    out.push(...(data as UserEntryRawPriceRow[]));
-    if (data.length < pageSize) break;
-    offset += pageSize;
-  }
-
-  return out;
-}
 
 export async function GET(req: Request) {
   const supabase = await createClient();
@@ -131,8 +51,7 @@ export async function GET(req: Request) {
       strategy_id,
       config_id,
       investment_size,
-      user_start_date,
-      user_portfolio_positions ( symbol, target_weight, entry_price )
+      user_start_date
     `
     )
     .eq('id', profileId)
@@ -152,11 +71,6 @@ export async function GET(req: Request) {
     config_id: string;
     investment_size: number | string;
     user_start_date: string | null;
-    user_portfolio_positions: Array<{
-      symbol: string;
-      target_weight: number | string;
-      entry_price: number | string | null;
-    }> | null;
   };
 
   const userStart = row.user_start_date?.trim() ?? '';
@@ -187,27 +101,6 @@ export async function GET(req: Request) {
     row.strategy_id,
     initialCfgRows
   );
-  const exactConfigTrack = buildExactConfigEntryTrack(cfgRows, userStart, investmentSize);
-
-  const positions = (row.user_portfolio_positions ?? []).map((p) => ({
-    symbol: p.symbol.toUpperCase(),
-    target_weight: Number(p.target_weight),
-    entry_price:
-      p.entry_price != null && String(p.entry_price).trim() !== ''
-        ? Number(p.entry_price)
-        : null,
-  }));
-
-  if (!positions.length) {
-    return NextResponse.json({
-      profileId,
-      computeStatus: 'no_positions' as const,
-      anchorHoldingsRunDate: null,
-      userStartDate: userStart,
-      series: [],
-      metrics: null,
-    });
-  }
 
   const dates = await getPortfolioRunDates(row.strategy_id);
   const anchorHoldingsRunDate = pickHoldingsRunDate(dates, userStart);
@@ -222,23 +115,30 @@ export async function GET(req: Request) {
     });
   }
 
-  const symbols = positions.map((p) => p.symbol);
-
-  const built = exactConfigTrack
-    ? {
-        anchorHoldingsRunDate,
-        hasMultipleObservations: exactConfigTrack.hasMultipleObservations,
-        series: exactConfigTrack.series,
-        metrics: exactConfigTrack.metrics,
-      }
-    : buildUserEntryPerformance({
-        anchorHoldingsRunDate,
-        userStartDate: userStart,
-        investmentSize,
-        positions,
-        rawPriceRows: await fetchRawPriceRowsPaged(admin, symbols, anchorHoldingsRunDate),
-        configPerfRows: cfgRows,
-      });
+  const configTrack = buildUserEntryConfigTrack(cfgRows, userStart, investmentSize);
+  const built = {
+    anchorHoldingsRunDate,
+    hasMultipleObservations: configTrack.hasMultipleObservations,
+    series: configTrack.series,
+    metrics:
+      configTrack.hasMultipleObservations && configTrack.metrics
+        ? {
+            sharpeRatio: configTrack.metrics.sharpeRatio,
+            totalReturn: configTrack.metrics.totalReturn,
+            cagr: configTrack.metrics.cagr,
+            maxDrawdown: configTrack.metrics.maxDrawdown,
+            consistency: computeWeeklyConsistencyVsNasdaqCap(configTrack.series),
+            excessReturnVsNasdaqCap: computeExcessReturnVsNasdaqCap(configTrack.series),
+          }
+        : {
+            sharpeRatio: null,
+            totalReturn: null,
+            cagr: null,
+            maxDrawdown: null,
+            consistency: null,
+            excessReturnVsNasdaqCap: null,
+          },
+  };
 
   const clientStatus =
     computeStatus !== 'ready' && !cfgRows.length

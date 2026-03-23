@@ -69,6 +69,13 @@ export type ConfigChartMetrics = {
 
 export type FullConfigPerformanceMetrics = NonNullable<PlatformPerformancePayload['metrics']>;
 
+export type UserEntryConfigTrack = {
+  series: PerformanceSeriesPoint[];
+  metrics: ConfigChartMetrics | null;
+  fullMetrics: FullConfigPerformanceMetrics | null;
+  hasMultipleObservations: boolean;
+};
+
 function buildFullMetricsFromSeries(
   series: PerformanceSeriesPoint[],
   netReturns: number[]
@@ -121,6 +128,93 @@ function buildFullMetricsFromSeries(
         maxDrawdown: computeMaxDrawdown(series.map((p) => p.sp500)),
       },
     },
+  };
+}
+
+function scaleConfigEquities(row: ConfigPerfRow, scale: number): PerformanceSeriesPoint {
+  return {
+    date: row.run_date,
+    aiTop20: toNumber(row.ending_equity, INITIAL_CAPITAL) * scale,
+    nasdaq100CapWeight: toNumber(row.nasdaq100_cap_weight_equity, INITIAL_CAPITAL) * scale,
+    nasdaq100EqualWeight: toNumber(row.nasdaq100_equal_weight_equity, INITIAL_CAPITAL) * scale,
+    sp500: toNumber(row.sp500_equity, INITIAL_CAPITAL) * scale,
+  };
+}
+
+/**
+ * Personal-track config series rebased to the user's entry date and investment size.
+ * Uses the latest ready config row on or before the entry date as the baseline, then
+ * applies all later ready config rows on the same scaled strategy path.
+ */
+export function buildUserEntryConfigTrack(
+  rows: ConfigPerfRow[],
+  userStartDate: string,
+  investmentSize: number
+): UserEntryConfigTrack {
+  const empty: UserEntryConfigTrack = {
+    series: [],
+    metrics: null,
+    fullMetrics: null,
+    hasMultipleObservations: false,
+  };
+
+  if (!userStartDate || !Number.isFinite(investmentSize) || investmentSize <= 0) {
+    return empty;
+  }
+
+  const readyRows = [...rows]
+    .filter((row) => row.compute_status === 'ready')
+    .sort((a, b) => a.run_date.localeCompare(b.run_date));
+  if (!readyRows.length) {
+    return empty;
+  }
+
+  let baseIndex = -1;
+  for (let i = 0; i < readyRows.length; i++) {
+    if (readyRows[i]!.run_date <= userStartDate) {
+      baseIndex = i;
+    } else {
+      break;
+    }
+  }
+  if (baseIndex < 0) {
+    return empty;
+  }
+
+  const baseRow = readyRows[baseIndex]!;
+  const baseEnd = toNumber(baseRow.ending_equity, INITIAL_CAPITAL);
+  if (baseEnd <= 0) {
+    return empty;
+  }
+
+  const scale = investmentSize / baseEnd;
+  const futureRows = readyRows.slice(baseIndex + 1);
+  const series: PerformanceSeriesPoint[] = [
+    {
+      date: userStartDate,
+      aiTop20: investmentSize,
+      nasdaq100CapWeight: investmentSize,
+      nasdaq100EqualWeight: investmentSize,
+      sp500: investmentSize,
+    },
+    ...futureRows.map((row) => scaleConfigEquities(row, scale)),
+  ];
+
+  const metricReturns = futureRows.map((row) => toNumber(row.net_return, 0));
+  const fullMetrics = buildFullMetricsFromSeries(series, metricReturns);
+
+  return {
+    series,
+    metrics: fullMetrics
+      ? {
+          sharpeRatio: fullMetrics.sharpeRatio,
+          totalReturn: fullMetrics.totalReturn,
+          cagr: fullMetrics.cagr,
+          maxDrawdown: fullMetrics.maxDrawdown,
+        }
+      : null,
+    fullMetrics,
+    hasMultipleObservations: series.length >= 2,
   };
 }
 

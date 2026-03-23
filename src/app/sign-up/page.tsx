@@ -17,6 +17,7 @@ import {
   rememberSignInMethod,
   clearPreAuthReturnUrl,
 } from "@/lib/auth-storage";
+import { useAuthState } from "@/components/auth/auth-state-context";
 
 const sanitizeNextPath = (value: string | null, fallback: string) => {
   if (!value || !value.startsWith("/")) {
@@ -36,6 +37,7 @@ function SignUpPageContent() {
   const router = useRouter();
   const { toast, dismiss } = useToast();
   const searchParams = useSearchParams();
+  const { isAuthenticated, isLoaded } = useAuthState();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -48,7 +50,7 @@ function SignUpPageContent() {
   const oauthInFlightRef = useRef(false);
 
   const nextPath = useMemo(
-    () => sanitizeNextPath(searchParams.get("next"), "/pricing"),
+    () => sanitizeNextPath(searchParams.get("next"), "/platform/overview"),
     [searchParams],
   );
 
@@ -56,6 +58,13 @@ function SignUpPageContent() {
     setLastMethod(getLastSignInMethod());
     clearPreAuthReturnUrl();
   }, []);
+
+  useEffect(() => {
+    if (!isLoaded) return;
+    if (isAuthenticated) {
+      router.replace(nextPath);
+    }
+  }, [isAuthenticated, isLoaded, nextPath, router]);
 
   useEffect(() => {
     [
@@ -204,7 +213,7 @@ function SignUpPageContent() {
       return;
     }
 
-    setStatusMessage("Check your email to confirm your account, then continue to pricing.");
+    setStatusMessage("Check your email to confirm your account, then continue to the platform.");
     setIsSubmitting(false);
   };
 

@@ -1427,7 +1427,8 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
             <p className="text-[11px] text-muted-foreground">
               Showing returns since you entered ({entryLabel}) with a starting balance of $
               {num(selectedProfile.investment_size).toLocaleString('en-US', { maximumFractionDigits: 0 })}
-              . Holdings and entry prices use the model snapshot on{' '}
+              . Performance is rebased to your entry date on the same strategy track. Holdings and
+              entry prices below use the model snapshot on{' '}
               {userEntryPayload?.anchorHoldingsRunDate
                 ? new Date(userEntryPayload.anchorHoldingsRunDate + 'T00:00:00Z').toLocaleDateString(
                     'en-US',

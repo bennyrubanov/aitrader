@@ -741,7 +741,9 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
           const slots = parseOverviewSlotAssignments(d.overviewSlotAssignments);
           setProfiles(next);
           setOverviewSlotAssignments(slots);
-          if (slots.get(1) === profileId) {
+          // “Your top portfolio” ranks from `profiles`, not tiles — succeed as soon as the new
+          // follow appears in GET (slot 1 can lag or fail independently).
+          if (next.some((p) => p.id === profileId)) {
             return true;
           }
         } catch {
@@ -867,6 +869,14 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
         bestVal = v;
         best = p;
       }
+    }
+    if (!best && profiles.length > 0) {
+      const p = profiles[0]!;
+      return {
+        profile: p,
+        state: cardState[p.id] ?? emptyOverviewCardPerfState(false),
+        sortValue: bestVal,
+      };
     }
     if (!best) return null;
     return {
@@ -1407,8 +1417,8 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
           ) : (
             <Tabs defaultValue="top-portfolio" className="w-full">
               <TabsList className="w-auto">
-                <TabsTrigger value="top-portfolio">Your top portfolio</TabsTrigger>
-                <TabsTrigger value="overview-tiles">Portfolio overview tiles</TabsTrigger>
+                <TabsTrigger value="top-portfolio">Your top portfolios</TabsTrigger>
+                <TabsTrigger value="overview-tiles">Overview Tiles</TabsTrigger>
                 <TabsTrigger value="tracked-stocks">Tracked stocks</TabsTrigger>
               </TabsList>
 

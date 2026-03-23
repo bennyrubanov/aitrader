@@ -52,7 +52,10 @@ import { formatYmdDisplay } from '@/lib/format-ymd-display';
 import { strategyModelDropdownSubtitle } from '@/lib/strategy-list-meta';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
-import { showPortfolioFollowToast } from '@/components/platform/portfolio-unfollow-toast';
+import {
+  invalidateUserPortfolioProfiles,
+  showPortfolioFollowToast,
+} from '@/components/platform/portfolio-unfollow-toast';
 import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
 import type { FullConfigPerformanceMetrics } from '@/lib/config-performance-chart';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
@@ -648,6 +651,7 @@ export function PortfolioOnboardingDialog({
       }
       setFollowPhase('syncing');
       const synced = onFollowPortfolioSynced ? await onFollowPortfolioSynced(profileId) : true;
+      invalidateUserPortfolioProfiles();
       setEntryDate(entryYmd);
       requestAnimationFrame(() => {
         void fireHeartConfettiBurst();
