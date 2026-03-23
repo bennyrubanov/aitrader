@@ -23,6 +23,11 @@ const nextConfig = {
         destination: '/strategy-models',
         permanent: true,
       },
+      {
+        source: '/platform/your-portfolio',
+        destination: '/platform/your-portfolios',
+        permanent: true,
+      },
     ];
   },
 };

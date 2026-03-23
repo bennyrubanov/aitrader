@@ -818,7 +818,7 @@ export default async function StrategyModelDetailPage({ params }: Props) {
             </Link>
           </Button>
           <Button asChild variant="ghost">
-            <Link href="/platform/current" className="gap-2">
+            <Link href="/platform/overview" className="gap-2">
               Get started <ArrowRight className="size-4" />
             </Link>
           </Button>

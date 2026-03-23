@@ -8,7 +8,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/components/theme-provider";
 import { type AuthState } from "@/lib/auth-state";
 import { AuthStateProvider } from "@/components/auth/auth-state-provider";
-import { PortfolioConfigProvider } from "@/components/portfolio-config/portfolio-config-context";
+import { PortfolioConfigProvider } from "@/components/portfolio-config";
 
 type ProvidersProps = {
   children: React.ReactNode;

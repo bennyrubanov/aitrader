@@ -66,7 +66,7 @@ const ExperimentResearchPage = () => {
                     <Link href="/performance">View Performance</Link>
                   </Button>
                   <Button variant="outline" asChild>
-                    <Link href="/platform/current">Follow the Experiment</Link>
+                    <Link href="/platform/overview">Follow the Experiment</Link>
                   </Button>
                 </div>
               </div>

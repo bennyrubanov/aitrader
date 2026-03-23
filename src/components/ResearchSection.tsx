@@ -59,7 +59,7 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
   const [isCarouselHovered, setIsCarouselHovered] = useState(false);
   const { hasPremiumAccess, isAuthenticated } = useAuthState();
   const unlockHref = hasPremiumAccess
-    ? '/platform/current'
+    ? '/platform/overview'
     : isAuthenticated
       ? '/pricing'
       : '/sign-up';
@@ -272,7 +272,7 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
       title: 'You already have access',
       description: 'Opening your platform dashboard.',
     });
-    router.push('/platform/current');
+    router.push('/platform/overview');
   };
 
   return (

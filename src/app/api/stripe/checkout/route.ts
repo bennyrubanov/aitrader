@@ -93,14 +93,14 @@ const normalizeEmail = (value: unknown) => {
 
 const sanitizeSuccessPath = (value: unknown) => {
   if (typeof value !== 'string') {
-    return '/platform/current';
+    return '/platform/overview';
   }
 
   if (!value.startsWith('/platform')) {
-    return '/platform/current';
+    return '/platform/overview';
   }
 
-  return value.split('#')[0] || '/platform/current';
+  return value.split('#')[0] || '/platform/overview';
 };
 
 export async function POST(req: Request) {

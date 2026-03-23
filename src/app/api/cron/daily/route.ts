@@ -1679,7 +1679,8 @@ const handleRequest = async (req: Request) => {
         `Prices saved for ${rawPayload.length} symbols. Snapshot updated. AI ratings skipped (not rebalance day).`
       );
 
-      revalidatePath('/platform/current');
+      revalidatePath('/platform');
+      revalidatePath('/platform/overview');
 
       const totalSeconds = ((Date.now() - t0) / 1000).toFixed(1);
       return NextResponse.json({
@@ -2378,7 +2379,8 @@ const handleRequest = async (req: Request) => {
       }
     }
 
-    revalidatePath('/platform/current');
+    revalidatePath('/platform');
+    revalidatePath('/platform/overview');
     revalidatePath('/platform/weekly');
     revalidatePath('/platform/performance');
     revalidatePath('/performance');

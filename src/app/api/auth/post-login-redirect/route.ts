@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 
-/** Returns the redirect path after sign-in: free → /pricing, premium → /platform/ratings */
+/** Returns the redirect path after sign-in: free → /pricing, premium → /platform/overview */
 export async function GET() {
   try {
     const supabase = await createClient();
@@ -21,7 +21,7 @@ export async function GET() {
 
     const tier = data?.subscription_tier as string | undefined;
     const hasPremiumAccess = tier === 'supporter' || tier === 'outperformer';
-    const redirectTo = hasPremiumAccess ? '/platform/ratings' : '/pricing';
+    const redirectTo = hasPremiumAccess ? '/platform/overview' : '/pricing';
 
     return NextResponse.json({ redirectTo }, { status: 200 });
   } catch {

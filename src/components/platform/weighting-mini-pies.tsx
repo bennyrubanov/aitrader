@@ -8,7 +8,7 @@ function svgNum(n: number): string {
 }
 
 /** SVG pie slice from center; angles in degrees, 0° = top, clockwise. */
-export function pieSlicePath(
+function pieSlicePath(
   cx: number,
   cy: number,
   r: number,

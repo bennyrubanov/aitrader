@@ -33,10 +33,8 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import {
-  PortfolioEntryDatePicker,
-  portfolioEntryDateBounds,
-} from '@/components/platform/portfolio-entry-date-picker';
+import { PortfolioEntryDatePicker } from '@/components/platform/portfolio-entry-date-picker';
+import { portfolioEntryDateBounds } from '@/components/platform/portfolio-entry-date-utils';
 import { PortfolioRankingTooltipBody } from '@/components/tooltips';
 import { useAuthState } from '@/components/auth/auth-state-context';
 import {
@@ -48,7 +46,7 @@ import {
   type PortfolioConfig,
   type RebalanceFrequency,
   type RiskLevel,
-} from '@/components/portfolio-config/portfolio-config-context';
+} from '@/components/portfolio-config';
 import type { OnboardingRebalanceCounts } from '@/lib/onboarding-meta';
 import { formatYmdDisplay } from '@/lib/format-ymd-display';
 import { strategyModelDropdownSubtitle } from '@/lib/strategy-list-meta';
@@ -616,7 +614,7 @@ export function PortfolioOnboardingDialog({
     }
     setFollowPhase('posting');
     try {
-      const today = localTodayYmd();
+      const entryYmd = draftEntryDate || localTodayYmd();
       const res = await fetch('/api/platform/user-portfolio-profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -626,7 +624,7 @@ export function PortfolioOnboardingDialog({
           frequency: draft.rebalanceFrequency,
           weighting: draft.weightingMethod,
           investmentSize: draft.investmentSize,
-          userStartDate: today,
+          userStartDate: entryYmd,
           startingPortfolio: true,
         }),
       });
@@ -650,7 +648,7 @@ export function PortfolioOnboardingDialog({
       }
       setFollowPhase('syncing');
       const synced = onFollowPortfolioSynced ? await onFollowPortfolioSynced(profileId) : true;
-      setEntryDate(today);
+      setEntryDate(entryYmd);
       requestAnimationFrame(() => {
         void fireHeartConfettiBurst();
       });
@@ -658,8 +656,8 @@ export function PortfolioOnboardingDialog({
         profileId,
         title: 'You’re following this portfolio',
         description: synced
-          ? `Added to your overview and tracking with ${formatCurrency(draft.investmentSize)} from today.`
-          : `Your portfolio is saved. If it doesn’t appear on the overview yet, refresh the page — tracking with ${formatCurrency(draft.investmentSize)} from today.`,
+          ? `Added to your overview and tracking with ${formatCurrency(draft.investmentSize)} from ${entryYmd === localTodayYmd() ? 'today' : formatYmdDisplay(entryYmd)}.`
+          : `Your portfolio is saved. If it doesn’t appear on the overview yet, refresh the page — tracking with ${formatCurrency(draft.investmentSize)} from ${entryYmd === localTodayYmd() ? 'today' : formatYmdDisplay(entryYmd)}.`,
         onAfterUndo: () => {
           router.refresh();
         },
@@ -790,7 +788,7 @@ export function PortfolioOnboardingDialog({
                     },
                     {
                       n: 2,
-                      text: 'You choose how to build your portfolio: how many stocks to hold, how often to buy/sell, and how much to invest.',
+                      text: 'For each model, you choose how to build your portfolio (how many stocks to hold, how often to buy/sell, and how much to invest).',
                     },
                     {
                       n: 3,
@@ -958,14 +956,6 @@ export function PortfolioOnboardingDialog({
               )}
             </div>
             </div>
-            {inceptionDisplayDate ? (
-              <p className="shrink-0 border-t border-border/50 pt-2 text-xs text-muted-foreground dark:border-border/40">
-                Inception — {selectedStrategy?.name ?? draft.strategySlug}:{' '}
-                <span className="font-medium text-foreground tabular-nums">
-                  {format(inceptionDisplayDate, 'MMM d, yyyy', { locale: enUS })}
-                </span>
-              </p>
-            ) : null}
             <OnboardingDialogFooter>
               <StepIndicator />
               <StepNav
@@ -983,7 +973,7 @@ export function PortfolioOnboardingDialog({
             <DialogHeader className="shrink-0">
               <DialogTitle>How large is your starting portfolio?</DialogTitle>
               <DialogDescription>
-                Used for dollar-per-position guidance. Change it anytime.
+                Used for performance guidance. Change it anytime.
               </DialogDescription>
             </DialogHeader>
             <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain py-2">
@@ -1065,10 +1055,11 @@ export function PortfolioOnboardingDialog({
             <DialogHeader className="shrink-0">
               <DialogTitle className="flex items-center gap-2">
                 <CalendarIcon className="size-4 text-trader-blue" />
-                When do you want to enter this portfolio?
+                When do you want to start tracking this portfolio?
               </DialogTitle>
               <DialogDescription>
-                Sets your personal performance track from when you enter.
+                This is the hypothetical date that you'll invest in this portfolio.
+                It can be changed anytime.
               </DialogDescription>
             </DialogHeader>
             <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain py-2">
@@ -1080,20 +1071,6 @@ export function PortfolioOnboardingDialog({
                 modelInceptionYmd={modelInceptionDate}
               />
             </div>
-            <p className="shrink-0 border-t border-border/50 pt-2 text-xs text-muted-foreground dark:border-border/40">
-              To see performance since inception, see its{' '}
-              <a
-                href={selectedStrategy ? `/performance/${selectedStrategy.slug}` : '/performance'}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-trader-blue"
-              >
-                <span className="underline underline-offset-2">performance page</span>
-                <span aria-hidden="true" className="no-underline">
-                  ↗
-                </span>
-              </a>
-            </p>
             <OnboardingDialogFooter>
               <StepIndicator />
               <StepNav
@@ -1326,7 +1303,7 @@ export function PortfolioOnboardingDialog({
                 <div className="space-y-3 rounded-xl border bg-muted/20 p-3 sm:p-4">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      <p className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                         Starting portfolio
                       </p>
                       <div className="flex flex-wrap items-center gap-2 min-w-0">
@@ -1344,12 +1321,9 @@ export function PortfolioOnboardingDialog({
                           {RISK_LABELS[draft.riskLevel]}
                         </span>
                         <p className="text-sm font-semibold leading-snug min-w-0">
-                          {celebratePortfolioLabel}
+                          {celebrateChartTitle}
                         </p>
                       </div>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {selectedStrategy?.name ?? draft.strategySlug}
-                      </p>
                     </div>
                     {finaleRanked.matched?.rank != null ? (
                       <Tooltip>
@@ -1391,7 +1365,7 @@ export function PortfolioOnboardingDialog({
                       ) : celebrateFm ? (
                         <>
                           <CelebrateMetricBlock
-                            label="Total return"
+                            label="Portfolio value"
                             value={
                               celebrateScaledEndingValue != null
                                 ? formatUsdWhole(celebrateScaledEndingValue)

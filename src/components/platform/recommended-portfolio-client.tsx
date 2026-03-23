@@ -13,7 +13,7 @@ import {
   usePortfolioConfig,
   RISK_LABELS,
   FREQUENCY_LABELS,
-} from '@/components/portfolio-config/portfolio-config-context';
+} from '@/components/portfolio-config';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {

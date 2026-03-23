@@ -63,7 +63,7 @@ function SignUpPageContent() {
       "/sign-in",
       "/forgot-password",
       "/pricing",
-      "/platform/current",
+      "/platform/overview",
       "/privacy",
       "/terms",
     ].forEach((href) => {

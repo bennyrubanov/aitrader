@@ -58,7 +58,7 @@ function SignInPageContent() {
   useEffect(() => {
     if (!isLoaded) return;
     if (hasPremiumAccess) {
-      router.replace("/platform/current");
+      router.replace("/platform/overview");
     }
   }, [hasPremiumAccess, isLoaded, router]);
 
@@ -88,7 +88,7 @@ function SignInPageContent() {
       "/sign-up",
       "/forgot-password",
       "/pricing",
-      "/platform/current",
+      "/platform/overview",
       "/privacy",
       "/terms",
     ].forEach((href) => {

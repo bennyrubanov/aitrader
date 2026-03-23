@@ -64,7 +64,7 @@ const ProductPage = () => {
                     <Link href="/strategy-models">Read Strategy Models</Link>
                   </Button>
                   <Button variant="outline" asChild>
-                    <Link href="/platform/current">Follow the Experiment</Link>
+                    <Link href="/platform/overview">Follow the Experiment</Link>
                   </Button>
                 </div>
               </div>

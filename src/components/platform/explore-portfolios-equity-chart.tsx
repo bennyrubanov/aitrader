@@ -3,23 +3,14 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { CartesianGrid, Line, LineChart, ReferenceLine, Tooltip, XAxis, YAxis } from 'recharts';
 import { ChartContainer } from '@/components/ui/chart';
-import type { RiskLevel } from '@/components/portfolio-config/portfolio-config-context';
+import type { RiskLevel } from '@/components/portfolio-config';
+import {
+  dataKeyForExploreConfig,
+  formatModelInceptionFootnoteDate,
+  type ExploreBenchmarkSeries,
+  type ExploreEquitySeriesRow,
+} from '@/components/platform/explore-portfolios-equity-chart-shared';
 import { cn } from '@/lib/utils';
-
-export type ExploreEquitySeriesRow = {
-  configId: string;
-  label: string;
-  equities: number[];
-  /** Sidebar risk dot; defaults to 3 if missing */
-  riskLevel?: number;
-};
-
-/** Aligned to `dates` from explore-portfolios-equity-series API */
-export type ExploreBenchmarkSeries = {
-  nasdaq100Cap: number[];
-  nasdaq100Equal: number[];
-  sp500: number[];
-};
 
 /** Same labels/colors as `performance-chart.tsx` benchmarks */
 const EXPLORE_BM_KEYS = {
@@ -75,10 +66,6 @@ const RISK_DOT: Record<RiskLevel, { dot: string; rowActive: string }> = {
   5: { dot: 'bg-orange-600', rowActive: 'ring-2 ring-orange-600/50 bg-orange-600/10' },
   6: { dot: 'bg-rose-600', rowActive: 'ring-2 ring-rose-600/50 bg-rose-600/10' },
 };
-
-export function dataKeyForExploreConfig(configId: string) {
-  return `c_${configId.replace(/-/g, '')}`;
-}
 
 function colorForConfigId(id: string): string {
   let h = 0;
@@ -169,18 +156,6 @@ type Props = {
    */
   variant?: 'explore' | 'performancePicker';
 };
-
-export function formatModelInceptionFootnoteDate(isoDate: string | undefined): string {
-  if (!isoDate) return '—';
-  const parsed = new Date(`${isoDate}T00:00:00Z`);
-  if (Number.isNaN(parsed.getTime())) return '—';
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    timeZone: 'UTC',
-  }).format(parsed);
-}
 
 export function ExplorePortfoliosEquityChart({
   dates,

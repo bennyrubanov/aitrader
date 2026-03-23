@@ -16,7 +16,7 @@ import {
   RISK_TOP_N,
   type RebalanceFrequency,
   type RiskLevel,
-} from '@/components/portfolio-config/portfolio-config-context';
+} from '@/components/portfolio-config';
 import {
   CapWeightMiniPie,
   EqualWeightMiniPie,

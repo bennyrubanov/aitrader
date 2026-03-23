@@ -72,9 +72,11 @@ import { cn } from '@/lib/utils';
 import {
   ConfigPerformanceChartBlock,
   PortfolioAtAGlanceCard,
+} from '@/components/platform/public-portfolio-config-performance';
+import {
   usePublicPortfolioConfigPerformance,
   type PublicConfigPerfSlice,
-} from '@/components/platform/public-portfolio-config-performance';
+} from '@/components/platform/use-public-portfolio-config-performance';
 import { type PortfolioConfigSlice } from '@/components/platform/portfolio-config-controls';
 import { SidebarPortfolioConfigPicker } from '@/components/platform/sidebar-portfolio-config-picker';
 import { StrategyModelSidebarDropdown } from '@/components/platform/strategy-model-sidebar-dropdown';
@@ -85,7 +87,7 @@ import {
   RISK_TOP_N,
   type RebalanceFrequency,
   type RiskLevel,
-} from '@/components/portfolio-config/portfolio-config-context';
+} from '@/components/portfolio-config';
 
 const PerformanceChart = dynamic(
   () => import('@/components/platform/performance-chart').then((module) => module.PerformanceChart),
@@ -565,8 +567,14 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
   const bestStrategy = strategies[0] ?? null;
   const isBestSelected = !bestStrategy || bestStrategy.id === effectiveStrategy?.id;
 
-  const regressionHistory = research?.regressionHistory ?? [];
-  const monthlyRegressionHistory = research?.monthlyRegressionHistory ?? [];
+  const regressionHistory = useMemo(
+    () => research?.regressionHistory ?? [],
+    [research?.regressionHistory]
+  );
+  const monthlyRegressionHistory = useMemo(
+    () => research?.monthlyRegressionHistory ?? [],
+    [research?.monthlyRegressionHistory]
+  );
 
   /** Latest weekly regression — matches default “Signal strength” view in Research validation. */
   const headerCrossSectionRegression = useMemo(() => {
@@ -633,14 +641,16 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
     return monthly[0] ?? null;
   }, [research]);
 
-  const activeQuintileRows =
-    quintileView === 'weekly'
-      ? (selectedQuintileSnapshot?.rows ?? [])
-      : (selectedMonthlySnapshot?.rows?.map((r) => ({
-          quintile: r.quintile,
-          stockCount: r.weekCount,
-          return: r.avgReturn,
-        })) ?? []);
+  const activeQuintileRows = useMemo(() => {
+    if (quintileView === 'weekly') return selectedQuintileSnapshot?.rows ?? [];
+    return (
+      selectedMonthlySnapshot?.rows?.map((r) => ({
+        quintile: r.quintile,
+        stockCount: r.weekCount,
+        return: r.avgReturn,
+      })) ?? []
+    );
+  }, [quintileView, selectedQuintileSnapshot?.rows, selectedMonthlySnapshot?.rows]);
 
   const weeklySpread = useMemo(() => {
     const rows = activeQuintileRows;

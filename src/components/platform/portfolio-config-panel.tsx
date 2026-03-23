@@ -18,7 +18,7 @@ import {
   INVESTMENT_PRESETS,
   usePortfolioConfig,
   type PortfolioConfig,
-} from '@/components/portfolio-config/portfolio-config-context';
+} from '@/components/portfolio-config';
 import { PortfolioConfigControls } from '@/components/platform/portfolio-config-controls';
 
 function formatCurrency(n: number): string {

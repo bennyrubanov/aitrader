@@ -19,7 +19,7 @@ const FALLBACK_NAMES: Record<(typeof LANDING_SYMBOLS)[number], string> = {
 
 const CTA: React.FC = () => {
   const { hasPremiumAccess, isAuthenticated } = useAuthState();
-  const ctaHref = isAuthenticated ? '/platform/current' : '/sign-up';
+  const ctaHref = isAuthenticated ? '/platform/overview' : '/sign-up';
   const ctaLabel = 'Go to Platform';
 
   const [stocks, setStocks] = useState<Stock[]>([]);

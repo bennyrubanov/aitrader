@@ -171,7 +171,7 @@ const StockDetailClient = ({ symbol, stockName, isPremiumStock, price, latest, n
 
   useEffect(() => {
     router.prefetch('/');
-    router.prefetch('/platform/current');
+    router.prefetch('/platform/overview');
     router.prefetch('/sign-in');
     router.prefetch('/pricing');
     router.prefetch('/sign-up');
@@ -229,11 +229,11 @@ const StockDetailClient = ({ symbol, stockName, isPremiumStock, price, latest, n
                   ) : null}
                 </div>
                 <Link
-                  href="/platform/current"
+                  href="/platform/overview"
                   prefetch
-                  onMouseEnter={() => router.prefetch('/platform/current')}
-                  onFocus={() => router.prefetch('/platform/current')}
-                  onPointerDown={() => router.prefetch('/platform/current')}
+                  onMouseEnter={() => router.prefetch('/platform/overview')}
+                  onFocus={() => router.prefetch('/platform/overview')}
+                  onPointerDown={() => router.prefetch('/platform/overview')}
                 >
                   <Button variant="outline">Back to search</Button>
                 </Link>
@@ -280,7 +280,7 @@ const StockDetailClient = ({ symbol, stockName, isPremiumStock, price, latest, n
                               <Button size="sm">Upgrade plan</Button>
                             </Link>
                             {!isAuthenticated && (
-                              <Link href="/sign-in?next=/platform/current">
+                              <Link href="/sign-in?next=/platform/overview">
                                 <Button size="sm" variant="outline">
                                   Sign in
                                 </Button>
@@ -391,7 +391,7 @@ const StockDetailClient = ({ symbol, stockName, isPremiumStock, price, latest, n
                             <Button size="sm">Upgrade plan</Button>
                           </Link>
                           {!isAuthenticated && (
-                            <Link href="/sign-in?next=/platform/current">
+                            <Link href="/sign-in?next=/platform/overview">
                               <Button size="sm" variant="outline">
                                 Sign in
                               </Button>

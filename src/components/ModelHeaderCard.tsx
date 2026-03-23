@@ -6,6 +6,12 @@ import { Activity, ArrowRight, BarChart3, LayoutGrid, Star, TrendingUp } from 'l
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import {
+  pickBeatSlotToReplace,
+  type ModelHeaderQuintileInsight,
+} from '@/components/model-header-card-insights';
+
+export type { ModelHeaderQuintileInsight };
 
 export type ModelHeaderStat = {
   label: string;
@@ -15,14 +21,6 @@ export type ModelHeaderStat = {
   positive?: boolean;
   /** Use `brand` for Sharpe-style metrics (trader-blue when positive). */
   positiveTone?: 'default' | 'brand';
-};
-
-/** Passed from performance page; when present, may replace the weaker benchmark outperformance card. */
-export type ModelHeaderQuintileInsight = {
-  winRate: { wins: number; total: number; rate: number } | null;
-  /** Latest week in history: Q5 return minus Q1 return (e.g. 0.012 = +1.2%). */
-  latestWeekSpread: number | null;
-  latestWeekRunDate: string | null;
 };
 
 type ModelHeaderCardProps = {
@@ -138,36 +136,6 @@ function computeBeatSp500Summary(configs: RankedApiConfig[]): {
   const pct =
     comparable.length > 0 ? Math.round((1000 * beating) / comparable.length) / 10 : null;
   return { pct, beating, comparable: comparable.length };
-}
-
-export function hasQuintileInsight(q: ModelHeaderQuintileInsight | null | undefined): boolean {
-  if (!q) return false;
-  if (q.winRate && q.winRate.total > 0) return true;
-  return q.latestWeekSpread != null && Number.isFinite(q.latestWeekSpread);
-}
-
-/**
- * Lower outperformance % = worse vs benchmark. Replace that card with Q5 vs Q1 when we can compare;
- * if only one benchmark has data, replace the empty slot; tie → replace S&P.
- */
-export function pickBeatSlotToReplace(
-  nasdaq: { pct: number | null; comparable: number },
-  sp500: { pct: number | null; comparable: number },
-  quintile: ModelHeaderQuintileInsight | null | undefined,
-  beatLoading: boolean,
-  beatError: string | null
-): 'nasdaq' | 'sp500' | null {
-  if (beatLoading || beatError || !hasQuintileInsight(quintile)) return null;
-  const nOk = nasdaq.comparable > 0 && nasdaq.pct != null && Number.isFinite(nasdaq.pct);
-  const sOk = sp500.comparable > 0 && sp500.pct != null && Number.isFinite(sp500.pct);
-  if (nOk && sOk) {
-    if (nasdaq.pct! < sp500.pct!) return 'nasdaq';
-    if (sp500.pct! < nasdaq.pct!) return 'sp500';
-    return 'sp500';
-  }
-  if (nOk && !sOk) return 'sp500';
-  if (!nOk && sOk) return 'nasdaq';
-  return null;
 }
 
 function fmtSignedPctFromDecimal(v: number | null, digits = 2): string {

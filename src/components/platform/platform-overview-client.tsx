@@ -1,13 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import {
   ArrowRight,
   ArrowUpRight,
   ArrowDownRight,
-  Bell,
   Compass,
   Folders,
   LayoutDashboard,
@@ -22,7 +21,7 @@ import {
   RISK_LABELS,
   usePortfolioConfig,
   type RiskLevel,
-} from '@/components/portfolio-config/portfolio-config-context';
+} from '@/components/portfolio-config';
 import { ExplorePortfolioDetailDialog } from '@/components/platform/explore-portfolio-detail-dialog';
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
 import { PortfolioOnboardingDialog } from '@/components/platform/portfolio-onboarding-dialog';
@@ -54,10 +53,9 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import {
-  SpotlightAllocationHeaderTooltip,
-  SpotlightStatCard,
-} from '@/components/tooltips';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { SpotlightStatCard } from '@/components/tooltips';
+import { StockChartDialog } from '@/components/platform/stock-chart-dialog';
 import { computeOverviewUserCompositeScores } from '@/lib/overview-user-composite';
 import type {
   HoldingItem,
@@ -75,7 +73,7 @@ import { cn } from '@/lib/utils';
 
 const PerformanceChart = dynamic(
   () => import('@/components/platform/performance-chart').then((m) => m.PerformanceChart),
-  { ssr: false, loading: () => <Skeleton className="h-[300px] w-full rounded-lg" /> }
+  { ssr: false, loading: () => <Skeleton className="h-[320px] w-full rounded-lg" /> }
 );
 
 /** Every overview grid cell (portfolio tile or “add”) uses this fixed row height — layout does not grow/shrink per content. */
@@ -83,6 +81,32 @@ const OVERVIEW_TILE_ROW_HEIGHT = '20rem';
 
 /** Matches `INITIAL_CAPITAL` in config performance / model track rows before user-specific rebase. */
 const OVERVIEW_MODEL_INITIAL = 10_000;
+
+/** Rebalance date labels in spotlight holdings picker (aligned with explore portfolio detail dialog). */
+const spotlightHoldingsShortDateFmt = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+  timeZone: 'UTC',
+});
+
+function spotlightHoldingScoreBucketClass(bucket: HoldingItem['bucket']) {
+  if (bucket === 'buy') {
+    return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300';
+  }
+  if (bucket === 'sell') {
+    return 'border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300';
+  }
+  if (bucket === 'hold') {
+    return 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300';
+  }
+  return 'border-muted-foreground/25 bg-muted/40 text-muted-foreground';
+}
+
+function spotlightHoldingScoreBucketLabel(bucket: HoldingItem['bucket']) {
+  if (!bucket) return '—';
+  return bucket.charAt(0).toUpperCase() + bucket.slice(1);
+}
 
 function parseOverviewSlotAssignments(raw: unknown): Map<number, string> {
   const m = new Map<number, string>();
@@ -535,6 +559,152 @@ function OverviewPortfolioTile({
   );
 }
 
+function OverviewTrackedStocksPanel({
+  notifyProfiles,
+  stockNotif,
+}: {
+  notifyProfiles: ProfileRow[];
+  stockNotif: StockNotifState;
+}) {
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">
+        Auto-tracked from portfolios with notifications on
+      </p>
+
+      {notifyProfiles.length === 0 ? (
+        <Card className="border-dashed">
+          <CardContent className="py-6">
+            <p className="text-center text-sm text-muted-foreground">
+              Enable notifications on at least one portfolio to automatically track stock entries,
+              exits, and rating changes.
+            </p>
+          </CardContent>
+        </Card>
+      ) : stockNotif.loading ? (
+        <div className="space-y-2">
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-16 w-full" />
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {stockNotif.actions.length > 0 && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Recent portfolio changes</CardTitle>
+                <CardDescription className="text-xs">
+                  Stocks entering or exiting your tracked portfolios
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="divide-y">
+                  {stockNotif.actions.slice(0, 8).map((a, i) => (
+                    <div
+                      key={`${a.symbol}-${a.run_date}-${a.action_type}-${i}`}
+                      className="flex items-center gap-3 py-2 first:pt-0 last:pb-0"
+                    >
+                      {a.action_type === 'enter' ? (
+                        <div className="flex size-6 items-center justify-center rounded-full bg-emerald-500/10">
+                          <ArrowUpRight className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+                        </div>
+                      ) : (
+                        <div className="flex size-6 items-center justify-center rounded-full bg-rose-500/10">
+                          <ArrowDownRight className="size-3.5 text-rose-600 dark:text-rose-400" />
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold">{a.symbol}</span>
+                          <Badge
+                            variant="outline"
+                            className={`text-[10px] ${
+                              a.action_type === 'enter'
+                                ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                                : 'border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300'
+                            }`}
+                          >
+                            {a.action_label}
+                          </Badge>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">{a.run_date}</p>
+                      </div>
+                      <Button
+                        asChild
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 shrink-0 px-2 text-xs"
+                      >
+                        <Link href={`/stocks/${a.symbol.toLowerCase()}`}>View</Link>
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+                {stockNotif.actions.length > 8 && (
+                  <p className="mt-2 text-center text-[11px] text-muted-foreground">
+                    +{stockNotif.actions.length - 8} more changes
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {stockNotif.holdings.length > 0 && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">
+                  Tracked stocks ({stockNotif.holdings.length})
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Current holdings across your notified portfolios
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-wrap gap-1.5">
+                  {stockNotif.holdings.map((h) => (
+                    <Link
+                      key={h.symbol}
+                      href={`/platform/ratings?query=${encodeURIComponent(h.symbol)}`}
+                      className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors hover:bg-muted/40"
+                    >
+                      <span className="tabular-nums text-[10px] text-muted-foreground">
+                        #{h.rank_position}
+                      </span>
+                      <span>{h.symbol}</span>
+                      {h.score != null && (
+                        <span
+                          className={`text-[10px] font-bold tabular-nums ${
+                            h.score >= 2
+                              ? 'text-emerald-600 dark:text-emerald-400'
+                              : h.score <= -2
+                                ? 'text-rose-600 dark:text-rose-400'
+                                : 'text-muted-foreground'
+                          }`}
+                        >
+                          {h.score > 0 ? `+${h.score}` : h.score}
+                        </span>
+                      )}
+                    </Link>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {stockNotif.actions.length === 0 && stockNotif.holdings.length === 0 && (
+            <Card className="border-dashed">
+              <CardContent className="py-6">
+                <p className="text-center text-sm text-muted-foreground">
+                  No portfolio data yet. Stock tracking will appear after the next rebalance.
+                </p>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 type OverviewProps = {
   strategies: StrategyListItem[];
 };
@@ -591,6 +761,9 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   const [topSpotlightHoldings, setTopSpotlightHoldings] = useState<HoldingItem[]>([]);
   const [topSpotlightHoldingsLoading, setTopSpotlightHoldingsLoading] = useState(false);
   const [topSpotlightHoldingsAsOf, setTopSpotlightHoldingsAsOf] = useState<string | null>(null);
+  const [topSpotlightRebalanceDates, setTopSpotlightRebalanceDates] = useState<string[]>([]);
+  const spotlightHoldingsRequestIdRef = useRef(0);
+  const [spotlightStockChartSymbol, setSpotlightStockChartSymbol] = useState<string | null>(null);
   const [entrySettingsProfileId, setEntrySettingsProfileId] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailProfileId, setDetailProfileId] = useState<string | null>(null);
@@ -908,39 +1081,68 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   const topSpotlightConfigId = topSpotlightOverview?.profile.portfolio_config?.id ?? null;
   const topSpotlightSlug = topSpotlightOverview?.profile.strategy_models?.slug ?? null;
 
+  const fetchTopSpotlightHoldings = useCallback(
+    async (asOf: string | null) => {
+      const slug = topSpotlightSlug?.trim();
+      const configId = topSpotlightConfigId;
+      if (!topSpotlightProfileId || !configId || !slug) return;
+      const reqId = ++spotlightHoldingsRequestIdRef.current;
+      setTopSpotlightHoldingsLoading(true);
+      try {
+        const q = new URLSearchParams({ slug, configId });
+        if (asOf) q.set('asOfDate', asOf);
+        const res = await fetch(`/api/platform/explore-portfolio-config-holdings?${q}`);
+        const d = (await res.json()) as {
+          holdings?: HoldingItem[];
+          asOfDate?: string | null;
+          rebalanceDates?: string[];
+        };
+        if (spotlightHoldingsRequestIdRef.current !== reqId) return;
+        if (!res.ok) {
+          setTopSpotlightHoldings([]);
+          setTopSpotlightHoldingsAsOf(null);
+          setTopSpotlightRebalanceDates([]);
+          return;
+        }
+        setTopSpotlightHoldings(Array.isArray(d.holdings) ? d.holdings : []);
+        setTopSpotlightHoldingsAsOf(typeof d.asOfDate === 'string' ? d.asOfDate : null);
+        setTopSpotlightRebalanceDates(Array.isArray(d.rebalanceDates) ? d.rebalanceDates : []);
+      } catch {
+        if (spotlightHoldingsRequestIdRef.current === reqId) {
+          setTopSpotlightHoldings([]);
+          setTopSpotlightHoldingsAsOf(null);
+          setTopSpotlightRebalanceDates([]);
+        }
+      } finally {
+        if (spotlightHoldingsRequestIdRef.current === reqId) {
+          setTopSpotlightHoldingsLoading(false);
+        }
+      }
+    },
+    [topSpotlightProfileId, topSpotlightConfigId, topSpotlightSlug]
+  );
+
   useEffect(() => {
     if (!topSpotlightProfileId || !topSpotlightConfigId || !topSpotlightSlug?.trim()) {
+      spotlightHoldingsRequestIdRef.current += 1;
       setTopSpotlightHoldings([]);
       setTopSpotlightHoldingsAsOf(null);
+      setTopSpotlightRebalanceDates([]);
       setTopSpotlightHoldingsLoading(false);
       return;
     }
-    let cancelled = false;
-    setTopSpotlightHoldingsLoading(true);
-    const q = new URLSearchParams({
-      slug: topSpotlightSlug.trim(),
-      configId: topSpotlightConfigId,
-    });
-    void fetch(`/api/platform/explore-portfolio-config-holdings?${q}`)
-      .then((r) => r.json())
-      .then((d: { holdings?: HoldingItem[]; asOfDate?: string | null }) => {
-        if (cancelled) return;
-        setTopSpotlightHoldings(Array.isArray(d.holdings) ? d.holdings : []);
-        setTopSpotlightHoldingsAsOf(typeof d.asOfDate === 'string' ? d.asOfDate : null);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setTopSpotlightHoldings([]);
-          setTopSpotlightHoldingsAsOf(null);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setTopSpotlightHoldingsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [topSpotlightProfileId, topSpotlightConfigId, topSpotlightSlug]);
+    void fetchTopSpotlightHoldings(null);
+  }, [topSpotlightProfileId, topSpotlightConfigId, topSpotlightSlug, fetchTopSpotlightHoldings]);
+
+  useEffect(() => {
+    setSpotlightStockChartSymbol(null);
+  }, [topSpotlightProfileId, topSpotlightConfigId]);
+
+  const spotlightStockHistoryStrategySlug = useMemo(() => {
+    const slug = topSpotlightOverview?.profile.strategy_models?.slug ?? null;
+    if (!slug || strategies.length === 0) return null;
+    return strategies[0]?.slug === slug ? null : slug;
+  }, [topSpotlightOverview, strategies]);
 
   // ── Stock notifications state ───────────────────────────────────────────────
   const [stockNotif, setStockNotif] = useState<StockNotifState>({
@@ -1007,7 +1209,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   const overviewNavLinks = useMemo(
     () => [
       { href: '/platform/ratings', label: 'Stock Ratings', icon: Sparkles },
-      { href: '/platform/your-portfolio', label: 'Your portfolios', icon: Folders },
+      { href: '/platform/your-portfolios', label: 'Your portfolios', icon: Folders },
       { href: '/platform/explore-portfolios', label: 'Explore portfolios', icon: Compass },
     ],
     []
@@ -1044,6 +1246,30 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
 
   return (
     <>
+      {spotlightStockChartSymbol ? (
+        <StockChartDialog
+          key={spotlightStockChartSymbol}
+          symbol={spotlightStockChartSymbol}
+          strategySlug={spotlightStockHistoryStrategySlug}
+          open
+          onOpenChange={(o) => {
+            if (!o) setSpotlightStockChartSymbol(null);
+          }}
+          showDefaultTrigger={false}
+          footer={
+            <Button variant="outline" size="sm" asChild className="gap-1">
+              <a
+                href={`/stocks/${spotlightStockChartSymbol.toLowerCase()}`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Full analysis
+                <ArrowUpRight className="size-3.5" />
+              </a>
+            </Button>
+          }
+        />
+      ) : null}
       <PortfolioOnboardingDialog
         key={onboardingDevKey}
         onFollowPortfolioSynced={syncFollowedProfileToOverview}
@@ -1062,7 +1288,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
         footerMode="manage"
         manageHref={
           detailProfileId
-            ? `/platform/your-portfolio?profile=${encodeURIComponent(detailProfileId)}`
+            ? `/platform/your-portfolios?profile=${encodeURIComponent(detailProfileId)}`
             : null
         }
         onFollow={() => {}}
@@ -1149,27 +1375,47 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
               </CardHeader>
             </Card>
           ) : profiles.length === 0 ? (
-            <Card className="border-dashed">
-              <CardHeader>
-                <CardTitle className="text-base">No portfolios yet</CardTitle>
-                <CardDescription>
-                  Choose a starting portfolio configuration. You can follow more from Explore
-                  Portfolios later.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-xs text-muted-foreground mb-3">
-                  The setup dialog should open automatically. If you dismissed it, refresh this page
-                  (testing) or go to Your Portfolios.
-                </p>
-                <Button asChild size="sm">
-                  <Link href="/platform/your-portfolio">Your portfolios</Link>
-                </Button>
-              </CardContent>
-            </Card>
+            <>
+              <Card className="border-dashed">
+                <CardHeader>
+                  <CardTitle className="text-base">No portfolios yet</CardTitle>
+                  <CardDescription>
+                    Choose a starting portfolio configuration. You can follow more from Explore
+                    Portfolios later.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <p className="mb-3 text-xs text-muted-foreground">
+                    The setup dialog should open automatically. If you dismissed it, refresh this
+                    page (testing) or go to Your Portfolios.
+                  </p>
+                  <Button asChild size="sm">
+                    <Link href="/platform/your-portfolios">Your portfolios</Link>
+                  </Button>
+                </CardContent>
+              </Card>
+              {authState.isAuthenticated && (
+                <div className="mt-8 space-y-2">
+                  <h3 className="text-sm font-semibold">Tracked stocks</h3>
+                  <OverviewTrackedStocksPanel
+                    notifyProfiles={notifyProfiles}
+                    stockNotif={stockNotif}
+                  />
+                </div>
+              )}
+            </>
           ) : (
-            <div className="space-y-6">
-              {profiles.length > 0 ? (
+            <Tabs defaultValue="top-portfolio" className="w-full">
+              <TabsList className="w-auto">
+                <TabsTrigger value="top-portfolio">Your top portfolio</TabsTrigger>
+                <TabsTrigger value="overview-tiles">Portfolio overview tiles</TabsTrigger>
+                <TabsTrigger value="tracked-stocks">Tracked stocks</TabsTrigger>
+              </TabsList>
+
+              <TabsContent
+                value="top-portfolio"
+                className="mt-5 space-y-3 ring-offset-0 focus-visible:outline-none focus-visible:ring-0"
+              >
                 <div className="space-y-3">
                   {spotlightSectionLoading ? (
                     <>
@@ -1188,8 +1434,8 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                             <Skeleton className="h-14 w-full rounded-lg" />
                             <Skeleton className="h-14 w-full rounded-lg" />
                           </div>
-                          <Skeleton className="min-h-[280px] rounded-lg sm:min-h-[300px]" />
-                          <Skeleton className="min-h-[200px] rounded-lg lg:min-h-[280px]" />
+                          <Skeleton className="min-h-[300px] rounded-lg sm:min-h-[320px]" />
+                          <Skeleton className="min-h-[200px] rounded-lg lg:min-h-[300px]" />
                         </div>
                       </section>
                     </>
@@ -1231,12 +1477,6 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                         Number.isFinite(st.excessReturnVsNasdaqCap)
                           ? st.excessReturnVsNasdaqCap
                           : excessVsNasdaqCap;
-                      const asOfLabel =
-                        topSpotlightHoldingsAsOf &&
-                        new Date(`${topSpotlightHoldingsAsOf}T00:00:00Z`).toLocaleDateString(
-                          'en-US',
-                          { month: 'short', day: 'numeric', year: 'numeric' }
-                        );
                       return (
                         <>
                           <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
@@ -1309,7 +1549,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                 Data still gathering — returns update after more market closes.
                               </p>
                             ) : null}
-                            <div className="grid gap-4 lg:grid-cols-[minmax(0,11rem)_minmax(0,1fr)_minmax(0,17rem)] lg:items-start">
+                            <div className="grid gap-4 lg:grid-cols-[minmax(0,11rem)_minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
                               <div className="mx-auto w-full max-w-[11rem] space-y-2 lg:mx-0 lg:max-h-[min(70vh,520px)] lg:overflow-y-auto lg:pr-1">
                                 <SpotlightStatCard
                                   tooltipKey="portfolio_value"
@@ -1403,71 +1643,117 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                     strategyName={bp.strategy_models?.name ?? 'Portfolio'}
                                     hideDrawdown
                                     initialNotional={initialNotional}
-                                    chartContainerClassName="h-[280px] sm:h-[300px]"
+                                    chartContainerClassName="h-[260px] sm:h-[280px]"
                                   />
                                 ) : (
-                                  <div className="flex h-[200px] items-center justify-center text-sm text-muted-foreground lg:h-[280px]">
+                                  <div className="flex h-[220px] items-center justify-center text-sm text-muted-foreground lg:h-[280px]">
                                     Not enough history to chart yet.
                                   </div>
                                 )}
                               </div>
                               <div className="min-w-0 space-y-2">
-                                <div className="flex flex-wrap items-end justify-between gap-x-2 gap-y-1">
-                                  <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                                    Current holdings
+                                <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-2">
+                                  <h4 className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                    Portfolio holdings
                                   </h4>
-                                  {asOfLabel ? (
-                                    <span className="text-[11px] tabular-nums text-muted-foreground">
-                                      As of {asOfLabel}
+                                  {topSpotlightRebalanceDates.length > 0 ? (
+                                    <Select
+                                      value={
+                                        topSpotlightHoldingsAsOf &&
+                                        topSpotlightRebalanceDates.includes(topSpotlightHoldingsAsOf)
+                                          ? topSpotlightHoldingsAsOf
+                                          : undefined
+                                      }
+                                      onValueChange={(v) => {
+                                        if (v && v !== topSpotlightHoldingsAsOf) {
+                                          void fetchTopSpotlightHoldings(v);
+                                        }
+                                      }}
+                                      disabled={topSpotlightHoldingsLoading}
+                                    >
+                                      <SelectTrigger className="h-9 w-full max-w-[240px] shrink-0 text-xs sm:w-[240px]">
+                                        <SelectValue placeholder="Rebalance date" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {topSpotlightRebalanceDates.map((d) => (
+                                          <SelectItem key={d} value={d} className="text-xs">
+                                            {spotlightHoldingsShortDateFmt.format(
+                                              new Date(`${d}T00:00:00Z`)
+                                            )}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  ) : topSpotlightHoldingsLoading ? (
+                                    <span className="shrink-0 text-[11px] text-muted-foreground">
+                                      Loading…
                                     </span>
-                                  ) : null}
+                                  ) : (
+                                    <p className="shrink-0 text-right text-[11px] text-muted-foreground">
+                                      No rebalance history yet.
+                                    </p>
+                                  )}
                                 </div>
                                 {topSpotlightHoldingsLoading ? (
                                   <Skeleton className="h-48 w-full rounded-md" />
                                 ) : topSpotlightHoldings.length === 0 ? (
                                   <p className="text-sm text-muted-foreground">
-                                    Holdings aren’t available for this configuration yet.
+                                    No holdings for this date — scores may still be processing.
                                   </p>
                                 ) : (
                                   <div className="max-h-[min(70vh,520px)] overflow-y-auto rounded-md border">
                                     <Table>
                                       <TableHeader>
                                         <TableRow>
-                                          <TableHead className="w-9">#</TableHead>
+                                          <TableHead className="w-10">#</TableHead>
                                           <TableHead>Symbol</TableHead>
-                                          <TableHead className="hidden sm:table-cell">
-                                            Company
-                                          </TableHead>
-                                          <TableHead className="text-right">
-                                            <SpotlightAllocationHeaderTooltip />
-                                          </TableHead>
+                                          <TableHead className="text-right">Recommended Allocation</TableHead>
+                                          <TableHead className="text-right">AI rating</TableHead>
                                         </TableRow>
                                       </TableHeader>
                                       <TableBody>
-                                        {topSpotlightHoldings.map((h) => {
-                                          const dollars =
-                                            Number.isFinite(investmentSize) && investmentSize > 0
-                                              ? h.weight * investmentSize
-                                              : null;
-                                          return (
-                                            <TableRow key={`${h.symbol}-${h.rank}`}>
-                                              <TableCell className="tabular-nums text-muted-foreground">
-                                                {h.rank}
-                                              </TableCell>
-                                              <TableCell className="font-medium">
-                                                {h.symbol}
-                                              </TableCell>
-                                              <TableCell className="hidden max-w-[140px] truncate text-muted-foreground sm:table-cell">
-                                                {h.companyName}
-                                              </TableCell>
-                                              <TableCell className="text-right tabular-nums font-medium">
-                                                {dollars != null
-                                                  ? formatOverviewCurrency(dollars)
-                                                  : '—'}
-                                              </TableCell>
-                                            </TableRow>
-                                          );
-                                        })}
+                                        {topSpotlightHoldings.map((h) => (
+                                          <TableRow
+                                            key={`${h.symbol}-${h.rank}`}
+                                            className="cursor-pointer hover:bg-muted/50"
+                                            tabIndex={0}
+                                            onClick={() => setSpotlightStockChartSymbol(h.symbol)}
+                                            onKeyDown={(e) => {
+                                              if (e.key === 'Enter' || e.key === ' ') {
+                                                e.preventDefault();
+                                                setSpotlightStockChartSymbol(h.symbol);
+                                              }
+                                            }}
+                                          >
+                                            <TableCell className="tabular-nums text-muted-foreground">
+                                              {h.rank}
+                                            </TableCell>
+                                            <TableCell className="font-medium">{h.symbol}</TableCell>
+                                            <TableCell className="text-right tabular-nums">
+                                              {Number.isFinite(investmentSize) && investmentSize > 0
+                                                ? `${formatOverviewCurrency(h.weight * investmentSize)} (${(h.weight * 100).toFixed(1)}%)`
+                                                : `— (${(h.weight * 100).toFixed(1)}%)`}
+                                            </TableCell>
+                                            <TableCell className="text-right">
+                                              <span className="inline-flex items-center justify-end gap-1.5">
+                                                <span className="tabular-nums font-medium">
+                                                  {h.score != null && Number.isFinite(h.score)
+                                                    ? h.score.toFixed(1)
+                                                    : '—'}
+                                                </span>
+                                                <Badge
+                                                  variant="outline"
+                                                  className={cn(
+                                                    'px-1.5 py-0 text-[10px] font-normal leading-tight shrink-0',
+                                                    spotlightHoldingScoreBucketClass(h.bucket)
+                                                  )}
+                                                >
+                                                  {spotlightHoldingScoreBucketLabel(h.bucket)}
+                                                </Badge>
+                                              </span>
+                                            </TableCell>
+                                          </TableRow>
+                                        ))}
                                       </TableBody>
                                     </Table>
                                   </div>
@@ -1509,20 +1795,23 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                     </>
                   )}
                 </div>
-              ) : null}
+              </TabsContent>
 
-              <div className="space-y-3">
-                <div className="space-y-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-sm font-semibold">Portfolio overview tiles</h3>
-                    {rankedLoading ? (
-                      <span className="text-[11px] text-muted-foreground">Syncing metrics…</span>
-                    ) : null}
+              <TabsContent
+                value="overview-tiles"
+                className="mt-5 ring-offset-0 focus-visible:outline-none focus-visible:ring-0"
+              >
+                <div className="space-y-3">
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {rankedLoading ? (
+                        <span className="text-[11px] text-muted-foreground">Syncing metrics…</span>
+                      ) : null}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Select your favorites from your portfolios to show here.
+                    </p>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Select your favorites from your portfolios to show here.
-                  </p>
-                </div>
 
                 <Dialog
                   open={slotPickerOpen}
@@ -1718,153 +2007,18 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                   </div>
                 </div>
               </div>
-            </div>
-          )}
+              </TabsContent>
 
-          {/* ── Stock Notifications Section ────────────────────────────────── */}
-          {authState.isAuthenticated && !loading && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Bell className="size-4 text-trader-blue" />
-                <h3 className="text-sm font-semibold">Stock Notifications</h3>
-                <span className="text-[11px] text-muted-foreground">
-                  Auto-tracked from portfolios with notifications on
-                </span>
-              </div>
-
-              {notifyProfiles.length === 0 ? (
-                <Card className="border-dashed">
-                  <CardContent className="py-6">
-                    <p className="text-sm text-muted-foreground text-center">
-                      Enable notifications on at least one portfolio to automatically track stock
-                      entries, exits, and rating changes.
-                    </p>
-                  </CardContent>
-                </Card>
-              ) : stockNotif.loading ? (
-                <div className="space-y-2">
-                  <Skeleton className="h-24 w-full" />
-                  <Skeleton className="h-16 w-full" />
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {/* Recent portfolio changes */}
-                  {stockNotif.actions.length > 0 && (
-                    <Card>
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm">Recent portfolio changes</CardTitle>
-                        <CardDescription className="text-xs">
-                          Stocks entering or exiting your tracked portfolios
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="divide-y">
-                          {stockNotif.actions.slice(0, 8).map((a, i) => (
-                            <div
-                              key={`${a.symbol}-${a.run_date}-${a.action_type}-${i}`}
-                              className="flex items-center gap-3 py-2 first:pt-0 last:pb-0"
-                            >
-                              {a.action_type === 'enter' ? (
-                                <div className="flex items-center justify-center size-6 rounded-full bg-emerald-500/10">
-                                  <ArrowUpRight className="size-3.5 text-emerald-600 dark:text-emerald-400" />
-                                </div>
-                              ) : (
-                                <div className="flex items-center justify-center size-6 rounded-full bg-rose-500/10">
-                                  <ArrowDownRight className="size-3.5 text-rose-600 dark:text-rose-400" />
-                                </div>
-                              )}
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-sm font-semibold">{a.symbol}</span>
-                                  <Badge
-                                    variant="outline"
-                                    className={`text-[10px] ${
-                                      a.action_type === 'enter'
-                                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-                                        : 'border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300'
-                                    }`}
-                                  >
-                                    {a.action_label}
-                                  </Badge>
-                                </div>
-                                <p className="text-[11px] text-muted-foreground">{a.run_date}</p>
-                              </div>
-                              <Button
-                                asChild
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 px-2 text-xs shrink-0"
-                              >
-                                <Link href={`/stocks/${a.symbol.toLowerCase()}`}>View</Link>
-                              </Button>
-                            </div>
-                          ))}
-                        </div>
-                        {stockNotif.actions.length > 8 && (
-                          <p className="text-[11px] text-muted-foreground mt-2 text-center">
-                            +{stockNotif.actions.length - 8} more changes
-                          </p>
-                        )}
-                      </CardContent>
-                    </Card>
-                  )}
-
-                  {/* Tracked stocks */}
-                  {stockNotif.holdings.length > 0 && (
-                    <Card>
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm">
-                          Tracked stocks ({stockNotif.holdings.length})
-                        </CardTitle>
-                        <CardDescription className="text-xs">
-                          Current holdings across your notified portfolios
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="flex flex-wrap gap-1.5">
-                          {stockNotif.holdings.map((h) => (
-                            <Link
-                              key={h.symbol}
-                              href={`/platform/ratings?query=${encodeURIComponent(h.symbol)}`}
-                              className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium hover:bg-muted/40 transition-colors"
-                            >
-                              <span className="text-[10px] text-muted-foreground tabular-nums">
-                                #{h.rank_position}
-                              </span>
-                              <span>{h.symbol}</span>
-                              {h.score != null && (
-                                <span
-                                  className={`text-[10px] font-bold tabular-nums ${
-                                    h.score >= 2
-                                      ? 'text-emerald-600 dark:text-emerald-400'
-                                      : h.score <= -2
-                                        ? 'text-rose-600 dark:text-rose-400'
-                                        : 'text-muted-foreground'
-                                  }`}
-                                >
-                                  {h.score > 0 ? `+${h.score}` : h.score}
-                                </span>
-                              )}
-                            </Link>
-                          ))}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  )}
-
-                  {stockNotif.actions.length === 0 && stockNotif.holdings.length === 0 && (
-                    <Card className="border-dashed">
-                      <CardContent className="py-6">
-                        <p className="text-sm text-muted-foreground text-center">
-                          No portfolio data yet. Stock tracking will appear after the next
-                          rebalance.
-                        </p>
-                      </CardContent>
-                    </Card>
-                  )}
-                </div>
-              )}
-            </div>
+              <TabsContent
+                value="tracked-stocks"
+                className="mt-5 ring-offset-0 focus-visible:outline-none focus-visible:ring-0"
+              >
+                <OverviewTrackedStocksPanel
+                  notifyProfiles={notifyProfiles}
+                  stockNotif={stockNotif}
+                />
+              </TabsContent>
+            </Tabs>
           )}
         </div>
       </div>

@@ -26,7 +26,7 @@ const viewMetaByPath: Record<string, ViewMeta> = {
     title: 'Recommended Portfolio',
     subtitle: 'AI-optimized portfolio based on top-performing strategy',
   },
-  '/platform/your-portfolio': {
+  '/platform/your-portfolios': {
     title: 'Your Portfolios',
     subtitle: 'Track and manage the portfolios you follow',
   },
@@ -69,7 +69,7 @@ export function SiteHeader() {
     email,
   } = useAuthState();
   const viewMeta = getMetaFromPath(pathname);
-  const getStartedHref = hasPremiumAccess ? '/platform/ratings' : isAuthenticated ? '/pricing' : '/sign-up';
+  const getStartedHref = hasPremiumAccess ? '/platform/overview' : isAuthenticated ? '/pricing' : '/sign-up';
 
   const displayName = !isLoaded
     ? ''
@@ -141,7 +141,7 @@ export function SiteHeader() {
             <>
               <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
                 <Link
-                  href="/sign-in?next=/platform/ratings"
+                  href="/sign-in?next=/platform/overview"
                   prefetch
                   onMouseEnter={() => router.prefetch('/sign-in')}
                   onFocus={() => router.prefetch('/sign-in')}

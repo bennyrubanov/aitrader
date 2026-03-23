@@ -44,38 +44,7 @@ export function AuthStateProvider({ children, initialState }: AuthStateProviderP
   const [authState, setAuthState] = useState<AuthState>(() => {
     const fallbackState = initialState ??
       (isSupabaseConfigured() ? DEFAULT_AUTH_STATE : { ...DEFAULT_AUTH_STATE, isLoaded: true });
-
-    if (typeof window === "undefined") {
-      return fallbackState;
-    }
-
-    const rawSnapshot = window.localStorage.getItem(AUTH_SNAPSHOT_KEY);
-    if (!rawSnapshot) {
-      return fallbackState;
-    }
-
-    try {
-      const parsed = JSON.parse(rawSnapshot) as Partial<AuthState>;
-      if (!parsed || !parsed.isAuthenticated) {
-        return fallbackState;
-      }
-
-      // Use the local snapshot for instant visual continuity, then refresh from Supabase.
-      const tier = (parsed.subscriptionTier ?? 'free') as SubscriptionTier;
-      return {
-        ...fallbackState,
-        isLoaded: true,
-        isAuthenticated: true,
-        userId: parsed.userId ?? null,
-        email: parsed.email ?? fallbackState.email,
-        name: parsed.name ?? fallbackState.name,
-        avatar: parsed.avatar ?? fallbackState.avatar,
-        subscriptionTier: tier,
-        hasPremiumAccess: Boolean(parsed.hasPremiumAccess),
-      };
-    } catch {
-      return fallbackState;
-    }
+    return fallbackState;
   });
 
   useEffect(() => {
@@ -91,6 +60,29 @@ export function AuthStateProvider({ children, initialState }: AuthStateProviderP
     }
 
     let isMounted = true;
+
+    const rawSnapshot = window.localStorage.getItem(AUTH_SNAPSHOT_KEY);
+    if (rawSnapshot) {
+      try {
+        const parsed = JSON.parse(rawSnapshot) as Partial<AuthState>;
+        if (parsed?.isAuthenticated) {
+          const tier = (parsed.subscriptionTier ?? 'free') as SubscriptionTier;
+          setAuthState((previous) => ({
+            ...previous,
+            isLoaded: true,
+            isAuthenticated: true,
+            userId: parsed.userId ?? previous.userId,
+            email: parsed.email ?? previous.email,
+            name: parsed.name ?? previous.name,
+            avatar: parsed.avatar ?? previous.avatar,
+            subscriptionTier: tier,
+            hasPremiumAccess: Boolean(parsed.hasPremiumAccess),
+          }));
+        }
+      } catch {
+        // Ignore malformed snapshots and continue with the fresh load below.
+      }
+    }
 
     const loadFreshState = async () => {
       const {

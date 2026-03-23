@@ -45,7 +45,7 @@ import {
 } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
 import {
   showPortfolioUnfollowToast,
@@ -60,7 +60,7 @@ import {
   FREQUENCY_LABELS,
   type RiskLevel,
   type RebalanceFrequency,
-} from '@/components/portfolio-config/portfolio-config-context';
+} from '@/components/portfolio-config';
 import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
 import type { StrategyListItem } from '@/lib/platform-performance-payload';
 import {
@@ -78,6 +78,12 @@ const PerformanceChart = dynamic(
   () => import('@/components/platform/performance-chart').then((m) => m.PerformanceChart),
   { ssr: false }
 );
+
+function localTodayYmd(): string {
+  const now = new Date();
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 10);
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -312,7 +318,7 @@ const SIDEBAR_BADGE_ICON: Record<string, LucideIcon> = {
   Steadiest: Shield,
 };
 
-/** Compact badge affordance for the your-portfolio sidebar only (icons + titled tooltips). */
+/** Compact badge affordance for the your-portfolios sidebar only (icons + titled tooltips). */
 function SidebarPortfolioBadgeIcon({
   name,
   strategySlug,
@@ -618,7 +624,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     const stillVisible = filteredSidebarProfiles.some((p) => p.id === selectedProfile.id);
     if (!stillVisible) {
       router.replace(
-        `/platform/your-portfolio?profile=${encodeURIComponent(filteredSidebarProfiles[0]!.id)}`,
+        `/platform/your-portfolios?profile=${encodeURIComponent(filteredSidebarProfiles[0]!.id)}`,
         { scroll: false }
       );
     }
@@ -642,7 +648,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     if (profiles.length === 0) return;
     const valid = profileParam && profiles.some((p) => p.id === profileParam);
     if (!valid) {
-      router.replace(`/platform/your-portfolio?profile=${profiles[0]!.id}`, { scroll: false });
+      router.replace(`/platform/your-portfolios?profile=${profiles[0]!.id}`, { scroll: false });
     }
   }, [authState.isAuthenticated, isLoadingProfiles, profiles, profileParam, router]);
 
@@ -759,7 +765,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     } finally {
       setIsLoadingUserEntry(false);
     }
-  }, [selectedProfile?.id, selectedProfile?.user_start_date, selectedProfile?.investment_size]);
+  }, [selectedProfile?.id, selectedProfile?.user_start_date]);
 
   useEffect(() => {
     void loadUserEntry();
@@ -777,12 +783,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   useEffect(() => {
     const cfgSt = userEntryPayload?.configComputeStatus;
     const entrySt = userEntryPayload?.computeStatus;
-    const needsData =
-      cfgSt === 'pending' ||
-      cfgSt === 'empty' ||
-      entrySt === 'pending' ||
-      entrySt === 'empty' ||
-      entrySt === 'gathering_data';
+    const needsData = cfgSt === 'pending' || entrySt === 'pending';
     if (!needsData || !selectedProfile?.id) return;
     const t = setInterval(() => void loadUserEntry(), 4000);
     return () => clearInterval(t);
@@ -854,7 +855,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const handleCreatePreset = async (preset: PresetConfig) => {
     setPresetBusyKey(preset.key);
     const slug = config.strategySlug;
-    const ymd = new Date().toISOString().slice(0, 10);
+    const ymd = localTodayYmd();
     try {
       const res = await fetch('/api/platform/user-portfolio-profile', {
         method: 'POST',
@@ -885,7 +886,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
           onAfterUndo: () => {
             const sp = new URLSearchParams(window.location.search);
             if (sp.get('profile') === createdId) {
-              router.replace('/platform/your-portfolio', { scroll: false });
+              router.replace('/platform/your-portfolios', { scroll: false });
             }
           },
         });
@@ -894,7 +895,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       }
       await loadProfiles();
       if (createdId) {
-        router.replace(`/platform/your-portfolio?profile=${createdId}`, { scroll: false });
+        router.replace(`/platform/your-portfolios?profile=${createdId}`, { scroll: false });
       }
     } finally {
       setPresetBusyKey(null);
@@ -953,7 +954,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
               : [...prev, { ...snapshot }]
           );
           router.replace(
-            `/platform/your-portfolio?profile=${encodeURIComponent(profileId)}`,
+            `/platform/your-portfolios?profile=${encodeURIComponent(profileId)}`,
             { scroll: false }
           );
         },
@@ -964,7 +965,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   }, [selectedProfile, toast, router]);
 
   const selectProfile = (id: string) => {
-    router.push(`/platform/your-portfolio?profile=${id}`);
+    router.push(`/platform/your-portfolios?profile=${id}`);
     setPerfView('user');
   };
 
@@ -986,7 +987,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         <p className="mt-1 text-xs text-muted-foreground">
           Follow portfolios with different risk, cadence, and weighting — synced to your account.
         </p>
-        <Button className="mt-5" onClick={() => router.push('/sign-in?next=/platform/your-portfolio')}>
+        <Button className="mt-5" onClick={() => router.push('/sign-in?next=/platform/your-portfolios')}>
           <LogIn className="mr-2 size-4" />
           Sign in
         </Button>
@@ -1090,8 +1091,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       : runDate;
 
   return (
-    <TooltipProvider delayDuration={150}>
-      <div
+    <div
         className={cn(
           'flex min-h-0 flex-1 flex-col lg:h-full lg:max-h-full lg:flex-row lg:items-stretch lg:overflow-hidden lg:overscroll-y-contain'
         )}
@@ -1117,7 +1117,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
               onSelectStrategy={(slug) => {
                 const next = profiles.find((p) => p.strategy_models?.slug === slug);
                 if (next) {
-                  router.replace(`/platform/your-portfolio?profile=${next.id}`, { scroll: false });
+                  router.replace(`/platform/your-portfolios?profile=${next.id}`, { scroll: false });
                 }
               }}
             >
@@ -1426,7 +1426,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
           {perfView === 'user' && selectedProfile?.user_start_date ? (
             <p className="text-[11px] text-muted-foreground">
               Showing returns since you entered ({entryLabel}) with a starting balance of $
-              {num(selectedProfile.investment_size).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              {num(selectedProfile.investment_size).toLocaleString('en-US', { maximumFractionDigits: 0 })}
               . Holdings and entry prices use the model snapshot on{' '}
               {userEntryPayload?.anchorHoldingsRunDate
                 ? new Date(userEntryPayload.anchorHoldingsRunDate + 'T00:00:00Z').toLocaleDateString(
@@ -1673,7 +1673,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      </div>
       <UserPortfolioEntrySettingsDialog
         open={entrySettingsOpen}
         onOpenChange={setEntrySettingsOpen}
@@ -1692,6 +1691,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
           void loadUserEntry();
         }}
       />
-    </TooltipProvider>
+    </div>
   );
 }

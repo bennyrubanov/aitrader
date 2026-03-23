@@ -51,7 +51,7 @@ const platformNavItems: PlatformNavItem[] = [
   { label: "Pricing & Features", href: "/pricing", icon: Landmark },
   {
     label: "Explore Platform",
-    href: "/platform/ratings",
+    href: "/platform/overview",
     icon: LayoutDashboard,
     trailingArrow: true,
   },
@@ -82,7 +82,7 @@ const MARKETING_PREFETCH_ROUTES = [
   "/",
   "/strategy-models",
   "/performance",
-  "/platform/ratings",
+  "/platform/overview",
   "/platform/settings",
   "/pricing",
   "/blog",
@@ -113,7 +113,7 @@ const Navbar: React.FC = () => {
   const hasPremiumAccess = authState.hasPremiumAccess;
   const subscriptionTier = authState.subscriptionTier;
   const isFreeSignedIn = isAuthenticated && !hasPremiumAccess;
-  const primaryCtaHref = isAuthenticated ? "/platform/ratings" : "/sign-up";
+  const primaryCtaHref = isAuthenticated ? "/platform/overview" : "/sign-up";
   const isAuthLoading = !authState.isLoaded;
   const account = {
     name: authState.name,

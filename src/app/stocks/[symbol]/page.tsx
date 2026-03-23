@@ -1,4 +1,3 @@
-/* eslint-disable react-refresh/only-export-components */
 import type { Metadata } from 'next';
 import StockDetailClient from '@/components/StockDetailClient';
 import { getAllStocks } from '@/lib/stocks-cache';

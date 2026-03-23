@@ -25,7 +25,7 @@ import { cn } from '@/lib/utils';
 import {
   pickBeatSlotToReplace,
   type ModelHeaderQuintileInsight,
-} from '@/components/ModelHeaderCard';
+} from '@/components/model-header-card-insights';
 
 const fmt = {
   date: (d: string | null | undefined) => {

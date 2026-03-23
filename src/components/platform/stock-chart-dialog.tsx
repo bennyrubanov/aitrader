@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   CartesianGrid,
   Line,
@@ -86,11 +86,31 @@ function cartesianAxisLabelCoords(
 export function StockChartDialog({
   symbol,
   strategySlug,
+  open: openProp,
+  onOpenChange: onOpenChangeProp,
+  showDefaultTrigger = true,
+  footer,
 }: {
   symbol: string;
   strategySlug?: string | null;
+  /** Controlled mode — pair with `onOpenChange` and usually `showDefaultTrigger={false}`. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** When false, no expand button is rendered (open via controlled `open` / parent). */
+  showDefaultTrigger?: boolean;
+  /** Renders below the chart, right-aligned (e.g. link to full stock analysis). */
+  footer?: ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isControlled = openProp !== undefined;
+  const open = isControlled ? openProp : internalOpen;
+  const setOpen = useCallback(
+    (next: boolean) => {
+      onOpenChangeProp?.(next);
+      if (!isControlled) setInternalOpen(next);
+    },
+    [isControlled, onOpenChangeProp]
+  );
   const [range, setRange] = useState<TimeRange>('3M');
   const [data, setData] = useState<StockHistoryResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -189,12 +209,14 @@ export function StockChartDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant="ghost" size="icon" className="size-7">
-          <Expand className="size-3.5" />
-          <span className="sr-only">Chart for {symbol}</span>
-        </Button>
-      </DialogTrigger>
+      {showDefaultTrigger ? (
+        <DialogTrigger asChild>
+          <Button variant="ghost" size="icon" className="size-7">
+            <Expand className="size-3.5" />
+            <span className="sr-only">Chart for {symbol}</span>
+          </Button>
+        </DialogTrigger>
+      ) : null}
       <DialogContent className="max-w-3xl">
         <DialogHeader>
           <DialogTitle>
@@ -453,6 +475,9 @@ export function StockChartDialog({
             No chart history available yet.
           </div>
         )}
+        {footer ? (
+          <div className="flex shrink-0 justify-end border-t pt-4">{footer}</div>
+        ) : null}
       </DialogContent>
     </Dialog>
   );

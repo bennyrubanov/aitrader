@@ -126,7 +126,7 @@ export default function PricingPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: checkoutEmail,
-          successPath: '/platform/current',
+          successPath: '/platform/overview',
           plan,
           billingPeriod,
         }),
@@ -287,7 +287,7 @@ export default function PricingPage() {
                     ))}
                   </ul>
                   <Button asChild variant="outline" className="w-full mt-auto">
-                    <Link href="/platform/current">
+                    <Link href="/platform/overview">
                       {isAuthenticated ? 'Follow the experiment' : 'Explore the platform'}
                     </Link>
                   </Button>

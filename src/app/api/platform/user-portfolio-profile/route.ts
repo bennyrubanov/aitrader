@@ -151,6 +151,9 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
+  if (!YMD_RE.test(userStartDate)) {
+    return NextResponse.json({ error: 'Invalid userStartDate.' }, { status: 400 });
+  }
   if (!Number.isFinite(riskLevel) || riskLevel < 1 || riskLevel > 6) {
     return NextResponse.json({ error: 'Invalid riskLevel.' }, { status: 400 });
   }

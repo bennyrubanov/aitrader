@@ -2,21 +2,19 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  ExplorePortfoliosEquityChart,
-  type ExploreBenchmarkSeries,
-  type ExploreEquitySeriesRow,
-} from '@/components/platform/explore-portfolios-equity-chart';
+import { ExplorePortfoliosEquityChart } from '@/components/platform/explore-portfolios-equity-chart';
+import type {
+  ExploreBenchmarkSeries,
+  ExploreEquitySeriesRow,
+} from '@/components/platform/explore-portfolios-equity-chart-shared';
 import { ExplorePortfolioDetailDialog } from '@/components/platform/explore-portfolio-detail-dialog';
 import {
   showPortfolioUnfollowToast,
   showPortfolioFollowToast,
   setUserPortfolioProfileActive,
 } from '@/components/platform/portfolio-unfollow-toast';
-import {
-  PortfolioEntryDatePicker,
-  portfolioEntryDateBounds,
-} from '@/components/platform/portfolio-entry-date-picker';
+import { PortfolioEntryDatePicker } from '@/components/platform/portfolio-entry-date-picker';
+import { portfolioEntryDateBounds } from '@/components/platform/portfolio-entry-date-utils';
 import { ExplorePortfolioFilterControls } from '@/components/platform/explore-portfolio-filter-controls';
 import { PortfolioRankingTooltipBody } from '@/components/tooltips';
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
@@ -57,7 +55,7 @@ import {
   RISK_LABELS,
   type RiskLevel,
   type RebalanceFrequency,
-} from '@/components/portfolio-config/portfolio-config-context';
+} from '@/components/portfolio-config';
 import { useToast } from '@/hooks/use-toast';
 import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
 import { useAuthState } from '@/components/auth/auth-state-context';
@@ -443,7 +441,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
       });
       await loadFollowedProfiles();
       setAddDialogOpen(false);
-      router.push('/platform/your-portfolio');
+      router.push('/platform/your-portfolios');
     } finally {
       setAddBusy(false);
     }
@@ -841,23 +839,8 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
                 maxYmd={entryMaxYmd}
                 modelInceptionYmd={modelInceptionDate}
                 disabled={addBusy}
-                calendarPrompt="Or pick the date you expect to enter the portfolio:"
+                calendarPrompt="Or pick a different date to enter the portfolio (can change anytime):"
               />
-              <p className="border-t border-border/50 pt-2 text-[11px] text-muted-foreground dark:border-border/40">
-                To see performance since inception, see its{' '}
-                <a
-                  href={`/performance/${encodeURIComponent(strategySlug)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-trader-blue"
-                >
-                  <span className="underline underline-offset-2">performance page</span>
-                  <span aria-hidden className="no-underline">
-                    ↗
-                  </span>
-                </a>
-                .
-              </p>
             </div>
           </div>
 

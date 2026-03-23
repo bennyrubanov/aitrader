@@ -1,4 +1,4 @@
-import type { RebalanceFrequency, RiskLevel } from '@/components/portfolio-config/portfolio-config-context';
+import type { RebalanceFrequency, RiskLevel } from '@/components/portfolio-config';
 
 export type PortfolioExploreQuickPick = {
   key: string;

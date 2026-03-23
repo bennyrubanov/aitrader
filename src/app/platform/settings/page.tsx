@@ -466,7 +466,7 @@ const SettingsPageContent = () => {
                 <p className="mt-2 text-[11px] text-muted-foreground">
                   Manage in{' '}
                   <Link
-                    href="/platform/your-portfolio"
+                    href="/platform/your-portfolios"
                     className="font-medium text-foreground underline underline-offset-2 hover:no-underline"
                   >
                     Your Portfolios

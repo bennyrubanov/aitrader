@@ -11,27 +11,6 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { formatYmdDisplay } from '@/lib/format-ymd-display';
 import { cn } from '@/lib/utils';
 
-export function utcYmdFromDate(d: Date): string {
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
-}
-
-/**
- * Inclusive YYYY-MM-DD bounds for portfolio entry (inception through local today).
- * Matches onboarding / explore “Follow” rules.
- */
-export function portfolioEntryDateBounds(modelInceptionYmd: string | null | undefined): {
-  minYmd: string;
-  maxYmd: string;
-} {
-  const maxYmd = format(new Date(), 'yyyy-MM-dd');
-  const fallbackInception = parseISO('2020-01-01T12:00:00Z');
-  const inceptionDate = modelInceptionYmd?.trim()
-    ? parseISO(`${modelInceptionYmd.trim()}T12:00:00Z`)
-    : fallbackInception;
-  const minYmd = modelInceptionYmd?.trim() || utcYmdFromDate(inceptionDate);
-  return { minYmd, maxYmd };
-}
-
 export type PortfolioEntryDatePickerProps = {
   valueYmd: string;
   onChangeYmd: (ymd: string) => void;
@@ -55,7 +34,7 @@ export function PortfolioEntryDatePicker({
   modelInceptionYmd,
   disabled,
   triggerId,
-  calendarPrompt = 'Or pick the date you expect to enter the portfolio (can change anytime):',
+  calendarPrompt = 'Or pick a different date to enter the portfolio:',
   showPastDateNote = true,
 }: PortfolioEntryDatePickerProps) {
   const [popoverOpen, setPopoverOpen] = useState(false);
@@ -166,7 +145,7 @@ export function PortfolioEntryDatePicker({
                     'hover:bg-muted/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-trader-blue/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
                     disabled && 'pointer-events-none opacity-50'
                   )}
-                  aria-label={`Jump to inception ${format(inceptionForLegend, 'MMM d, yyyy', { locale: enUS })}`}
+                  aria-label={`Jump to model inception ${format(inceptionForLegend, 'MMM d, yyyy', { locale: enUS })}`}
                   onClick={() => {
                     const y = modelInceptionYmd.trim();
                     onChangeYmd(y);
@@ -179,7 +158,7 @@ export function PortfolioEntryDatePicker({
                     aria-hidden
                   />
                   <span>
-                    <span className="font-medium text-foreground">Inception</span>
+                    <span className="font-medium text-foreground">Model inception</span>
                     {': '}
                     {format(inceptionForLegend, 'MMM d, yyyy', { locale: enUS })}
                   </span>
@@ -188,11 +167,6 @@ export function PortfolioEntryDatePicker({
             </div>
           </PopoverContent>
         </Popover>
-        {showPastDateNote && valueYmd !== maxYmd ? (
-          <p className="px-0.5 text-xs text-muted-foreground">
-            Past entry is hypothetical (assumes you held this portfolio since then).
-          </p>
-        ) : null}
       </div>
     </div>
   );

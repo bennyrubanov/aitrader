@@ -33,7 +33,7 @@ import {
   RISK_LABELS,
   type RebalanceFrequency,
   type RiskLevel,
-} from '@/components/portfolio-config/portfolio-config-context';
+} from '@/components/portfolio-config';
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
 import type { HoldingItem } from '@/lib/platform-performance-payload';
 import type { ConfigHoldingsSummary } from '@/lib/portfolio-config-holdings';
@@ -247,7 +247,7 @@ export function ExplorePortfolioDetailDialog({
   strategyIsTop: boolean;
   modelInceptionDate: string | null;
   onFollow: () => void;
-  /** `manage`: replace Follow with a link to the user's profile (overview / your-portfolio). */
+  /** `manage`: replace Follow with a link to the user's profile (overview / your-portfolios). */
   footerMode?: 'follow' | 'manage';
   manageHref?: string | null;
   /** When true and `footerMode` is follow, show a non-actionable "Following" state. */

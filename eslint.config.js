@@ -26,7 +26,19 @@ const baseConfig = tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
-      'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
+      'react-refresh/only-export-components': [
+        'warn',
+        {
+          allowConstantExport: true,
+          allowExportNames: [
+            'dynamicParams',
+            'generateMetadata',
+            'generateStaticParams',
+            'metadata',
+            'revalidate',
+          ],
+        },
+      ],
       'react/no-unescaped-entities': 'off',
       'import/no-anonymous-default-export': 'off',
       '@typescript-eslint/no-unused-vars': 'off',

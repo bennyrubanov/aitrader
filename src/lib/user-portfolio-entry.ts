@@ -5,7 +5,7 @@ export function pickHoldingsRunDate(dates: string[], userStart: string): string 
   if (!dates.length) return null;
   const sortedDesc = [...dates].sort((a, b) => b.localeCompare(a));
   const onOrBefore = sortedDesc.filter((d) => d <= userStart);
-  return onOrBefore[0] ?? sortedDesc[0] ?? null;
+  return onOrBefore[0] ?? null;
 }
 
 export function parseNasdaqRawPrice(raw: string | null | undefined): number | null {

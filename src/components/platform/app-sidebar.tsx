@@ -60,7 +60,7 @@ const platformItems: NavItem[] = [
   },
   {
     title: 'Your Portfolios',
-    href: '/platform/your-portfolio',
+    href: '/platform/your-portfolios',
     icon: Folders,
   },
   {

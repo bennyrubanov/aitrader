@@ -14,9 +14,15 @@ import {
   getConfigPerformance,
   prependModelInceptionToConfigRows,
 } from '@/lib/portfolio-config-utils';
+import {
+  buildConfigPerformanceChart,
+  filterAndRebaseConfigRows,
+} from '@/lib/config-performance-chart';
 import { pickHoldingsRunDate } from '@/lib/user-portfolio-entry';
 import {
   buildUserEntryPerformance,
+  computeExcessReturnVsNasdaqCap,
+  computeWeeklyConsistencyVsNasdaqCap,
   type UserEntryRawPriceRow,
 } from '@/lib/user-entry-performance';
 
@@ -25,6 +31,49 @@ export const runtime = 'nodejs';
 const unauthorized = () => NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
+
+function emptyUserMetrics() {
+  return {
+    sharpeRatio: null,
+    totalReturn: null,
+    cagr: null,
+    maxDrawdown: null,
+    consistency: null,
+    excessReturnVsNasdaqCap: null,
+  };
+}
+
+function buildExactConfigEntryTrack(
+  cfgRows: Awaited<ReturnType<typeof prependModelInceptionToConfigRows>>,
+  userStartDate: string,
+  investmentSize: number
+) {
+  const rebasedRows = filterAndRebaseConfigRows(cfgRows, userStartDate, investmentSize);
+  if (!rebasedRows.length || rebasedRows[0]?.run_date !== userStartDate) {
+    return null;
+  }
+
+  const chart = buildConfigPerformanceChart(rebasedRows);
+  if (!chart.series.length) {
+    return null;
+  }
+
+  const hasMultipleObservations = chart.series.length >= 2;
+  return {
+    hasMultipleObservations,
+    series: chart.series,
+    metrics: hasMultipleObservations
+      ? {
+          sharpeRatio: chart.metrics?.sharpeRatio ?? null,
+          totalReturn: chart.metrics?.totalReturn ?? null,
+          cagr: chart.metrics?.cagr ?? null,
+          maxDrawdown: chart.metrics?.maxDrawdown ?? null,
+          consistency: computeWeeklyConsistencyVsNasdaqCap(chart.series),
+          excessReturnVsNasdaqCap: computeExcessReturnVsNasdaqCap(chart.series),
+        }
+      : emptyUserMetrics(),
+  };
+}
 
 async function fetchRawPriceRowsPaged(
   admin: ReturnType<typeof createAdminClient>,
@@ -122,6 +171,24 @@ export async function GET(req: Request) {
     });
   }
 
+  const investmentSize = Number(row.investment_size);
+  if (!Number.isFinite(investmentSize) || investmentSize <= 0) {
+    return NextResponse.json({ error: 'Invalid investment_size on profile.' }, { status: 400 });
+  }
+
+  const admin = createAdminClient();
+  const { rows: initialCfgRows, computeStatus } = await getConfigPerformance(
+    admin,
+    row.strategy_id,
+    row.config_id
+  );
+  const cfgRows = await prependModelInceptionToConfigRows(
+    admin,
+    row.strategy_id,
+    initialCfgRows
+  );
+  const exactConfigTrack = buildExactConfigEntryTrack(cfgRows, userStart, investmentSize);
+
   const positions = (row.user_portfolio_positions ?? []).map((p) => ({
     symbol: p.symbol.toUpperCase(),
     target_weight: Number(p.target_weight),
@@ -155,31 +222,23 @@ export async function GET(req: Request) {
     });
   }
 
-  const admin = createAdminClient();
   const symbols = positions.map((p) => p.symbol);
 
-  const rawPriceRows = await fetchRawPriceRowsPaged(admin, symbols, anchorHoldingsRunDate);
-
-  let { rows: cfgRows, computeStatus } = await getConfigPerformance(
-    admin,
-    row.strategy_id,
-    row.config_id
-  );
-  cfgRows = await prependModelInceptionToConfigRows(admin, row.strategy_id, cfgRows);
-
-  const investmentSize = Number(row.investment_size);
-  if (!Number.isFinite(investmentSize) || investmentSize <= 0) {
-    return NextResponse.json({ error: 'Invalid investment_size on profile.' }, { status: 400 });
-  }
-
-  const built = buildUserEntryPerformance({
-    anchorHoldingsRunDate,
-    userStartDate: userStart,
-    investmentSize,
-    positions,
-    rawPriceRows,
-    configPerfRows: cfgRows,
-  });
+  const built = exactConfigTrack
+    ? {
+        anchorHoldingsRunDate,
+        hasMultipleObservations: exactConfigTrack.hasMultipleObservations,
+        series: exactConfigTrack.series,
+        metrics: exactConfigTrack.metrics,
+      }
+    : buildUserEntryPerformance({
+        anchorHoldingsRunDate,
+        userStartDate: userStart,
+        investmentSize,
+        positions,
+        rawPriceRows: await fetchRawPriceRowsPaged(admin, symbols, anchorHoldingsRunDate),
+        configPerfRows: cfgRows,
+      });
 
   const clientStatus =
     computeStatus !== 'ready' && !cfgRows.length

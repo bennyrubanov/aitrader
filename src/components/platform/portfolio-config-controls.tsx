@@ -15,7 +15,7 @@ import {
   type RebalanceFrequency,
   type RiskLevel,
   type WeightingMethod,
-} from '@/components/portfolio-config/portfolio-config-context';
+} from '@/components/portfolio-config';
 import {
   CapWeightMiniPie,
   EqualWeightMiniPie,

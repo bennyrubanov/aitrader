@@ -8,9 +8,11 @@ import type {
 } from '@/app/api/platform/portfolio-configs-ranked/route';
 import {
   ExplorePortfoliosEquityChart,
-  type ExploreBenchmarkSeries,
-  type ExploreEquitySeriesRow,
 } from '@/components/platform/explore-portfolios-equity-chart';
+import type {
+  ExploreBenchmarkSeries,
+  ExploreEquitySeriesRow,
+} from '@/components/platform/explore-portfolios-equity-chart-shared';
 import { ExplorePortfolioFilterControls } from '@/components/platform/explore-portfolio-filter-controls';
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
 import { Button } from '@/components/ui/button';
@@ -33,7 +35,7 @@ import {
   RISK_TOP_N,
   type RebalanceFrequency,
   type RiskLevel,
-} from '@/components/portfolio-config/portfolio-config-context';
+} from '@/components/portfolio-config';
 import { PORTFOLIO_EXPLORE_QUICK_PICKS } from '@/lib/portfolio-explore-quick-picks';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
 import { cn } from '@/lib/utils';
@@ -81,7 +83,7 @@ function portfolioLabelFromSlice(p: PortfolioConfigSlice): string {
 }
 
 /** Default slice when parent has not set a portfolio yet (e.g. strategy model sidebar). */
-export function pickDefaultPortfolioConfigFromRanked(
+function pickDefaultPortfolioConfigFromRanked(
   configs: RankedConfig[]
 ): PortfolioConfigSlice {
   const top = configs.find((c) => c.rank === 1);

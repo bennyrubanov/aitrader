@@ -13,10 +13,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import {
-  PortfolioEntryDatePicker,
-  portfolioEntryDateBounds,
-} from '@/components/platform/portfolio-entry-date-picker';
+import { PortfolioEntryDatePicker } from '@/components/platform/portfolio-entry-date-picker';
+import { portfolioEntryDateBounds } from '@/components/platform/portfolio-entry-date-utils';
 
 export type UserPortfolioEntrySettingsProfile = {
   id: string;
