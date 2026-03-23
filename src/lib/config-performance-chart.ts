@@ -76,6 +76,11 @@ export type UserEntryConfigTrack = {
   hasMultipleObservations: boolean;
 };
 
+/**
+ * Derive metrics from the series exactly as displayed.
+ * Important: the first plotted point is the true capital base for return/CAGR math,
+ * so this works for both canonical $10k model series and user-rebased series.
+ */
 function buildFullMetricsFromSeries(
   series: PerformanceSeriesPoint[],
   netReturns: number[]
@@ -85,17 +90,21 @@ function buildFullMetricsFromSeries(
   const lastPoint = series[series.length - 1]!;
   const firstDate = firstPoint.date;
   const lastDate = lastPoint.date;
+  const aiStart = firstPoint.aiTop20;
+  const capStart = firstPoint.nasdaq100CapWeight;
+  const eqStart = firstPoint.nasdaq100EqualWeight;
+  const spStart = firstPoint.sp500;
 
-  const totalReturnAi = computeTotalReturn(INITIAL_CAPITAL, lastPoint.aiTop20);
-  const totalReturnCap = computeTotalReturn(INITIAL_CAPITAL, lastPoint.nasdaq100CapWeight);
-  const totalReturnEqual = computeTotalReturn(INITIAL_CAPITAL, lastPoint.nasdaq100EqualWeight);
-  const totalReturnSp = computeTotalReturn(INITIAL_CAPITAL, lastPoint.sp500);
+  const totalReturnAi = computeTotalReturn(aiStart, lastPoint.aiTop20);
+  const totalReturnCap = computeTotalReturn(capStart, lastPoint.nasdaq100CapWeight);
+  const totalReturnEqual = computeTotalReturn(eqStart, lastPoint.nasdaq100EqualWeight);
+  const totalReturnSp = computeTotalReturn(spStart, lastPoint.sp500);
 
   return {
-    startingCapital: INITIAL_CAPITAL,
+    startingCapital: aiStart,
     endingValue: lastPoint.aiTop20,
     totalReturn: totalReturnAi,
-    cagr: computeCagr(INITIAL_CAPITAL, lastPoint.aiTop20, firstDate, lastDate),
+    cagr: computeCagr(aiStart, lastPoint.aiTop20, firstDate, lastDate),
     maxDrawdown: computeMaxDrawdown(series.map((p) => p.aiTop20)),
     sharpeRatio: computeSharpeWeekly(netReturns),
     pctWeeksBeatingNasdaq100: computePctWeeksBeatingNasdaq100(
@@ -112,19 +121,19 @@ function buildFullMetricsFromSeries(
       nasdaq100CapWeight: {
         endingValue: lastPoint.nasdaq100CapWeight,
         totalReturn: totalReturnCap,
-        cagr: computeCagr(INITIAL_CAPITAL, lastPoint.nasdaq100CapWeight, firstDate, lastDate),
+        cagr: computeCagr(capStart, lastPoint.nasdaq100CapWeight, firstDate, lastDate),
         maxDrawdown: computeMaxDrawdown(series.map((p) => p.nasdaq100CapWeight)),
       },
       nasdaq100EqualWeight: {
         endingValue: lastPoint.nasdaq100EqualWeight,
         totalReturn: totalReturnEqual,
-        cagr: computeCagr(INITIAL_CAPITAL, lastPoint.nasdaq100EqualWeight, firstDate, lastDate),
+        cagr: computeCagr(eqStart, lastPoint.nasdaq100EqualWeight, firstDate, lastDate),
         maxDrawdown: computeMaxDrawdown(series.map((p) => p.nasdaq100EqualWeight)),
       },
       sp500: {
         endingValue: lastPoint.sp500,
         totalReturn: totalReturnSp,
-        cagr: computeCagr(INITIAL_CAPITAL, lastPoint.sp500, firstDate, lastDate),
+        cagr: computeCagr(spStart, lastPoint.sp500, firstDate, lastDate),
         maxDrawdown: computeMaxDrawdown(series.map((p) => p.sp500)),
       },
     },
@@ -145,6 +154,7 @@ function scaleConfigEquities(row: ConfigPerfRow, scale: number): PerformanceSeri
  * Personal-track config series rebased to the user's entry date and investment size.
  * Uses the latest ready config row on or before the entry date as the baseline, then
  * applies all later ready config rows on the same scaled strategy path.
+ * The inserted entry-date baseline becomes the capital base for all downstream stats.
  */
 export function buildUserEntryConfigTrack(
   rows: ConfigPerfRow[],

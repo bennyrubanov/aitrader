@@ -31,6 +31,21 @@ function summarizeBeatsSp500(configs: RankedConfig[]) {
   return { beatSp500Pct: pct, beatSp500Beating: beating, beatSp500Comparable: comparable.length };
 }
 
+const INITIAL_CAPITAL = 10_000;
+
+function avgExcessReturnVsSp500(configs: RankedConfig[]): number | null {
+  const excess: number[] = [];
+  for (const c of configs) {
+    const tr = c.metrics.totalReturn;
+    const sp = c.metrics.endingValueSp500;
+    if (tr == null || !Number.isFinite(tr) || sp == null || sp <= 0) continue;
+    const spRet = sp / INITIAL_CAPITAL - 1;
+    if (!Number.isFinite(spRet)) continue;
+    excess.push(tr - spRet);
+  }
+  return excess.length > 0 ? excess.reduce((s, v) => s + v, 0) / excess.length : null;
+}
+
 function internalOrigin(): string {
   return (
     process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '') ||
@@ -77,6 +92,8 @@ export type RankedStrategyModel = {
   beatSp500Pct: number | null;
   beatSp500Beating: number;
   beatSp500Comparable: number;
+  /** Mean (portfolio return − S&P 500 return) across all configs with S&P data. */
+  avgExcessVsSp500: number | null;
   /** Latest weekly cross-sectional regression beta (1-week horizon). */
   latestBeta: number | null;
   /** Q5 vs Q1 weekly win rate (same definition as performance research). */
@@ -186,6 +203,7 @@ export async function GET() {
         medianConfigSharpe: median(sharpes),
         bestConfigSharpe: sharpes.length ? Math.max(...sharpes) : null,
         eligibleConfigCount: eligible.length,
+        avgExcessVsSp500: avgExcessReturnVsSp500(configs),
         latestBeta,
         quintileWinRate,
         quintileLatestWeekSpread,
@@ -209,6 +227,7 @@ export async function GET() {
         medianConfigSharpe: s.sharpeRatio,
         bestConfigSharpe: s.sharpeRatio,
         eligibleConfigCount: 0,
+        avgExcessVsSp500: null,
         latestBeta,
         quintileWinRate,
         quintileLatestWeekSpread,

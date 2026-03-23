@@ -18,7 +18,6 @@ export function PlatformShell({ children }: PlatformShellProps) {
         <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
           <AppSidebar />
           <SidebarInset className="!min-h-0 max-h-full min-w-0 flex-1 overflow-hidden bg-transparent md:peer-data-[variant=inset]:!min-h-0">
-            {/* Padded frame stays fixed; only the inner region scrolls (matches split layouts like Explore / Your portfolios). */}
             <div className="relative box-border flex min-h-0 min-w-0 max-h-full flex-1 flex-col overflow-hidden p-4 md:p-6">
               <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-clip overflow-y-auto overscroll-y-contain">
                 {children}

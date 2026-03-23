@@ -540,7 +540,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-y-contain lg:h-full lg:max-h-full lg:min-h-0 lg:pl-8">
           {/* Header */}
-          <div className="border-b px-4 pb-2 pt-0.5 sm:px-6 sm:pb-2.5">
+          <div className="border-b px-4 pb-2 -mt-1 sm:px-6 sm:pb-2.5">
             <h2 className="text-base font-semibold leading-tight">Explore Portfolios</h2>
             <p className="text-xs text-muted-foreground">
               Pick between any portfolio, and follow it to track its performance.

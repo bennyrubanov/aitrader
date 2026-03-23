@@ -34,7 +34,6 @@ import { getSupabaseBrowserClient } from '@/utils/supabase/browser';
 import { useAuthState } from '@/components/auth/auth-state-context';
 import { navigateWithFallback } from '@/lib/client-navigation';
 import { Disclaimer } from '@/components/Disclaimer';
-import { cn } from '@/lib/utils';
 
 type NavItem = {
   title: string;
@@ -100,9 +99,6 @@ const isItemActive = (pathname: string, href: string) => {
 export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const isExplorePortfolios =
-    pathname === '/platform/explore-portfolios' ||
-    pathname.startsWith('/platform/explore-portfolios/');
   const authState = useAuthState();
   const account = {
     name: authState.name,
@@ -220,12 +216,7 @@ export function AppSidebar() {
       variant="inset"
       collapsible="icon"
     >
-      <SidebarContent
-        className={cn(
-          // Match main inset: md+ uses m-2 on SidebarInset + p-6 in shell → 8px + 24px to first line.
-          isExplorePortfolios && 'pt-px md:pt-[17px]'
-        )}
-      >
+      <SidebarContent>
         <NavMain
           items={[...mainItems, ...platformItems].map((item) => ({
             title: item.title,
@@ -238,9 +229,6 @@ export function AppSidebar() {
             badge: item.badge,
           }))}
           label="Platform"
-          groupClassName={
-            isExplorePortfolios ? 'px-2 pb-2 pt-0' : undefined
-          }
         />
         <NavMain
           items={advancedItems.map((item) => ({

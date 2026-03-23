@@ -3,13 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
+  ArrowDownRight,
   ArrowRight,
   ArrowUpRight,
-  ArrowDownRight,
   Compass,
   Folders,
-  LayoutDashboard,
   Plus,
   Settings2,
   Sparkles,
@@ -17,11 +17,7 @@ import {
 } from 'lucide-react';
 import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
 import { useAuthState } from '@/components/auth/auth-state-context';
-import {
-  RISK_LABELS,
-  usePortfolioConfig,
-  type RiskLevel,
-} from '@/components/portfolio-config';
+import { RISK_LABELS, usePortfolioConfig, type RiskLevel } from '@/components/portfolio-config';
 import { ExplorePortfolioDetailDialog } from '@/components/platform/explore-portfolio-detail-dialog';
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
 import { PortfolioOnboardingDialog } from '@/components/platform/portfolio-onboarding-dialog';
@@ -34,6 +30,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -54,6 +51,12 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { SpotlightStatCard } from '@/components/tooltips';
 import { StockChartDialog } from '@/components/platform/stock-chart-dialog';
 import { computeOverviewUserCompositeScores } from '@/lib/overview-user-composite';
@@ -69,6 +72,13 @@ import {
 } from '@/lib/portfolio-config-display';
 import { formatYmdDisplay } from '@/lib/format-ymd-display';
 import { visibleOverviewSlotCount, isValidOverviewSlot } from '@/lib/overview-slots';
+import type { PortfolioMovementLine } from '@/lib/portfolio-movement';
+import {
+  parsePlatformOverviewTab,
+  platformOverviewPath,
+  PLATFORM_OVERVIEW_TAB_PARAM,
+  type PlatformOverviewTab,
+} from '@/lib/platform-overview-tab';
 import { cn } from '@/lib/utils';
 
 const PerformanceChart = dynamic(
@@ -81,6 +91,22 @@ const OVERVIEW_TILE_ROW_HEIGHT = '20rem';
 
 /** Matches `INITIAL_CAPITAL` in config performance / model track rows before user-specific rebase. */
 const OVERVIEW_MODEL_INITIAL = 10_000;
+
+const OVERVIEW_PAGE_QUICK_LINKS: {
+  href: string;
+  label: string;
+  icon: typeof Sparkles;
+}[] = [
+  { href: '/platform/ratings', label: 'Stock Ratings', icon: Sparkles },
+  { href: '/platform/your-portfolios', label: 'Your portfolios', icon: Folders },
+  { href: '/platform/explore-portfolios', label: 'Explore portfolios', icon: Compass },
+];
+
+/**
+ * When `false`, the Overview tiles tab is not shown in the tab strip. `TabsContent` for
+ * `overview-tiles` and `?tab=overview-tiles` / {@link platformOverviewPath} stay in place for a later restore.
+ */
+const SHOW_OVERVIEW_TILES_TAB_IN_UI = false;
 
 /** Rebalance date labels in spotlight holdings picker (aligned with explore portfolio detail dialog). */
 const spotlightHoldingsShortDateFmt = new Intl.DateTimeFormat('en-US', {
@@ -118,27 +144,6 @@ function parseOverviewSlotAssignments(raw: unknown): Map<number, string> {
   }
   return m;
 }
-
-type RebalanceAction = {
-  symbol: string;
-  action_type: 'enter' | 'exit_rank' | 'exit_index';
-  action_label: string;
-  run_date: string;
-};
-
-type HoldingRow = {
-  symbol: string;
-  rank_position: number;
-  target_weight: number;
-  score: number | null;
-};
-
-type StockNotifState = {
-  loading: boolean;
-  actions: RebalanceAction[];
-  holdings: HoldingRow[];
-  strategySlugs: string[];
-};
 
 type ProfileRow = {
   id: string;
@@ -179,6 +184,7 @@ type OverviewCardPerfState = {
 };
 
 type TopPortfolioSortMetric =
+  | 'portfolio_value'
   | 'total_return'
   | 'composite_score'
   | 'consistency'
@@ -186,7 +192,9 @@ type TopPortfolioSortMetric =
   | 'cagr'
   | 'max_drawdown';
 
+/** Reserved for a future “top portfolio by” control; spotlight uses {@link TOP_SPOTLIGHT_SORT_METRIC} only. */
 const TOP_PORTFOLIO_SORT_OPTIONS: { value: TopPortfolioSortMetric; label: string }[] = [
+  { value: 'portfolio_value', label: 'Portfolio value' },
   { value: 'total_return', label: 'Return %' },
   { value: 'composite_score', label: 'Composite score' },
   { value: 'consistency', label: 'Consistency' },
@@ -194,6 +202,8 @@ const TOP_PORTFOLIO_SORT_OPTIONS: { value: TopPortfolioSortMetric; label: string
   { value: 'cagr', label: 'CAGR' },
   { value: 'max_drawdown', label: 'Steadiness (drawdown)' },
 ];
+
+const TOP_SPOTLIGHT_SORT_METRIC: TopPortfolioSortMetric = 'portfolio_value';
 
 function emptyOverviewCardPerfState(loading: boolean): OverviewCardPerfState {
   return {
@@ -211,10 +221,18 @@ function emptyOverviewCardPerfState(loading: boolean): OverviewCardPerfState {
 
 function spotlightSortValue(
   metric: TopPortfolioSortMetric,
+  profile: ProfileRow,
   st: OverviewCardPerfState | undefined,
   userCompositeScore: number | null
 ): number | null {
   switch (metric) {
+    case 'portfolio_value':
+      if (!st || st.loading) return null;
+      return computeOverviewPortfolioValue(
+        st.series,
+        Number(profile.investment_size),
+        profile.user_start_date
+      );
     case 'total_return':
     case 'cagr':
     case 'max_drawdown':
@@ -559,148 +577,252 @@ function OverviewPortfolioTile({
   );
 }
 
-function OverviewTrackedStocksPanel({
-  notifyProfiles,
-  stockNotif,
+type PortfolioMovementApiPayload = {
+  status:
+    | 'ok'
+    | 'no_start_date'
+    | 'no_prior_rebalance'
+    | 'config_pending'
+    | 'error'
+    | string;
+  message?: string;
+  lastRebalanceDate: string | null;
+  previousRebalanceDate: string | null;
+  notionalAtPrevRebalanceEnd?: number | null;
+  notionalAtCurrRebalanceEnd?: number | null;
+  hold: PortfolioMovementLine[];
+  buy: PortfolioMovementLine[];
+  sell: PortfolioMovementLine[];
+};
+
+type ProfileMovementFetchState =
+  | { loading: true }
+  | { loading: false; error: string }
+  | { loading: false; data: PortfolioMovementApiPayload };
+
+function StockMovementRowTable({
+  title,
+  rows,
+  tone,
 }: {
-  notifyProfiles: ProfileRow[];
-  stockNotif: StockNotifState;
+  title: string;
+  rows: PortfolioMovementLine[];
+  tone: 'hold' | 'buy' | 'sell';
 }) {
+  if (rows.length === 0) return null;
+  const toneClass =
+    tone === 'buy'
+      ? 'border-emerald-500/25'
+      : tone === 'sell'
+        ? 'border-rose-500/25'
+        : 'border-border';
   return (
-    <div className="space-y-3">
-      <p className="text-xs text-muted-foreground">
-        Auto-tracked from portfolios with notifications on
+    <div className={cn('rounded-lg border bg-card/40 px-3 py-2', toneClass)}>
+      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {title}
       </p>
+      <div className="max-h-56 space-y-1.5 overflow-y-auto pr-1">
+        {rows.map((r) => (
+          <div
+            key={r.symbol}
+            className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-border/50 py-1.5 last:border-0"
+          >
+            <div className="min-w-0">
+              <Link
+                href={`/stocks/${r.symbol.toLowerCase()}`}
+                className="text-sm font-semibold hover:underline"
+              >
+                {r.symbol}
+              </Link>
+              {r.companyName && r.companyName !== r.symbol ? (
+                <p className="truncate text-[11px] text-muted-foreground">{r.companyName}</p>
+              ) : null}
+            </div>
+            <div className="shrink-0 text-right text-xs tabular-nums">
+              <span className="text-muted-foreground">
+                {(r.targetWeight * 100).toFixed(1)}% target
+              </span>
+              <span className="mx-1 text-muted-foreground/40">·</span>
+              <span>{formatOverviewCurrency(r.targetDollars)}</span>
+              {Math.abs(r.deltaDollars) > 0.5 ? (
+                <span
+                  className={cn(
+                    'ml-2 font-medium',
+                    r.deltaDollars > 0
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : 'text-rose-600 dark:text-rose-400'
+                  )}
+                >
+                  {r.deltaDollars > 0 ? '+' : ''}
+                  {formatOverviewCurrency(r.deltaDollars)}
+                </span>
+              ) : null}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
-      {notifyProfiles.length === 0 ? (
-        <Card className="border-dashed">
-          <CardContent className="py-6">
-            <p className="text-center text-sm text-muted-foreground">
-              Enable notifications on at least one portfolio to automatically track stock entries,
-              exits, and rating changes.
-            </p>
-          </CardContent>
-        </Card>
-      ) : stockNotif.loading ? (
-        <div className="space-y-2">
-          <Skeleton className="h-24 w-full" />
-          <Skeleton className="h-16 w-full" />
+/** In-memory cache for rebalance movement API (per session; panel stays mounted via tab `forceMount`). */
+const portfolioMovementFetchCache = new Map<
+  string,
+  | { loading: false; data: PortfolioMovementApiPayload }
+  | { loading: false; error: string }
+>();
+
+function StockMovementPanel({
+  topProfile,
+  rankedBySlug,
+  cardState,
+  onOpenDetail,
+  refreshEpoch,
+}: {
+  /** Same profile as the Top portfolio tab (current sort metric). */
+  topProfile: ProfileRow | null;
+  rankedBySlug: Record<string, RankedBundle>;
+  cardState: Record<string, OverviewCardPerfState>;
+  onOpenDetail: (profileId: string) => void;
+  /** Bumps when portfolio data is invalidated so movement can refetch. */
+  refreshEpoch: number;
+}) {
+  const profileId = topProfile?.id ?? '';
+  const [fetchState, setFetchState] = useState<ProfileMovementFetchState | null>(null);
+
+  useEffect(() => {
+    if (!profileId) {
+      setFetchState(null);
+      return;
+    }
+    const cached = portfolioMovementFetchCache.get(profileId);
+    if (cached) {
+      setFetchState(cached);
+      return;
+    }
+    let cancelled = false;
+    setFetchState({ loading: true });
+
+    void (async () => {
+      try {
+        const r = await fetch(
+          `/api/platform/portfolio-movement?profileId=${encodeURIComponent(profileId)}`,
+          { cache: 'no-store' }
+        );
+        const raw = (await r.json().catch(() => ({}))) as PortfolioMovementApiPayload & {
+          error?: string;
+        };
+        if (cancelled) return;
+        if (!r.ok) {
+          const err = {
+            loading: false as const,
+            error: typeof raw.error === 'string' ? raw.error : 'Could not load movement.',
+          };
+          portfolioMovementFetchCache.set(profileId, err);
+          setFetchState(err);
+          return;
+        }
+        const ok = { loading: false as const, data: raw };
+        portfolioMovementFetchCache.set(profileId, ok);
+        setFetchState(ok);
+      } catch {
+        if (!cancelled) {
+          const err = { loading: false as const, error: 'Network error.' };
+          portfolioMovementFetchCache.set(profileId, err);
+          setFetchState(err);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [profileId, refreshEpoch]);
+
+  if (!topProfile) {
+    return (
+      <Card className="border-dashed">
+        <CardContent className="py-6">
+          <p className="text-center text-sm text-muted-foreground">
+            Follow a portfolio to see rebalance instructions for your top portfolio here.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const st = fetchState;
+  const movementPayload = st && !st.loading && 'data' in st ? st.data : null;
+  const movementError = st && !st.loading && 'error' in st ? st.error : null;
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-muted-foreground">
+        For your <span className="font-medium text-foreground">top portfolio</span> (same pick as
+        the Top portfolio tab): last config rebalance — what to hold, buy, or sell, with target
+        weights and dollar amounts aligned with your entry and investment size.
+      </p>
+      <div className="grid gap-4 rounded-2xl border border-border bg-card/30 p-4 lg:grid-cols-[minmax(0,17rem)_minmax(0,1fr)] lg:items-start">
+        <div className="min-h-[12rem] lg:min-h-[14rem]">
+          <OverviewPortfolioTile
+            profile={topProfile}
+            rankedBySlug={rankedBySlug}
+            cardState={cardState}
+            onOpenDetail={onOpenDetail}
+          />
         </div>
-      ) : (
-        <div className="space-y-3">
-          {stockNotif.actions.length > 0 && (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Recent portfolio changes</CardTitle>
-                <CardDescription className="text-xs">
-                  Stocks entering or exiting your tracked portfolios
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="divide-y">
-                  {stockNotif.actions.slice(0, 8).map((a, i) => (
-                    <div
-                      key={`${a.symbol}-${a.run_date}-${a.action_type}-${i}`}
-                      className="flex items-center gap-3 py-2 first:pt-0 last:pb-0"
-                    >
-                      {a.action_type === 'enter' ? (
-                        <div className="flex size-6 items-center justify-center rounded-full bg-emerald-500/10">
-                          <ArrowUpRight className="size-3.5 text-emerald-600 dark:text-emerald-400" />
-                        </div>
-                      ) : (
-                        <div className="flex size-6 items-center justify-center rounded-full bg-rose-500/10">
-                          <ArrowDownRight className="size-3.5 text-rose-600 dark:text-rose-400" />
-                        </div>
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-semibold">{a.symbol}</span>
-                          <Badge
-                            variant="outline"
-                            className={`text-[10px] ${
-                              a.action_type === 'enter'
-                                ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-                                : 'border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300'
-                            }`}
-                          >
-                            {a.action_label}
-                          </Badge>
-                        </div>
-                        <p className="text-[11px] text-muted-foreground">{a.run_date}</p>
-                      </div>
-                      <Button
-                        asChild
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 shrink-0 px-2 text-xs"
-                      >
-                        <Link href={`/stocks/${a.symbol.toLowerCase()}`}>View</Link>
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-                {stockNotif.actions.length > 8 && (
-                  <p className="mt-2 text-center text-[11px] text-muted-foreground">
-                    +{stockNotif.actions.length - 8} more changes
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          )}
-
-          {stockNotif.holdings.length > 0 && (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">
-                  Tracked stocks ({stockNotif.holdings.length})
-                </CardTitle>
-                <CardDescription className="text-xs">
-                  Current holdings across your notified portfolios
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex flex-wrap gap-1.5">
-                  {stockNotif.holdings.map((h) => (
-                    <Link
-                      key={h.symbol}
-                      href={`/platform/ratings?query=${encodeURIComponent(h.symbol)}`}
-                      className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors hover:bg-muted/40"
-                    >
-                      <span className="tabular-nums text-[10px] text-muted-foreground">
-                        #{h.rank_position}
-                      </span>
-                      <span>{h.symbol}</span>
-                      {h.score != null && (
-                        <span
-                          className={`text-[10px] font-bold tabular-nums ${
-                            h.score >= 2
-                              ? 'text-emerald-600 dark:text-emerald-400'
-                              : h.score <= -2
-                                ? 'text-rose-600 dark:text-rose-400'
-                                : 'text-muted-foreground'
-                          }`}
-                        >
-                          {h.score > 0 ? `+${h.score}` : h.score}
-                        </span>
-                      )}
-                    </Link>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {stockNotif.actions.length === 0 && stockNotif.holdings.length === 0 && (
-            <Card className="border-dashed">
-              <CardContent className="py-6">
-                <p className="text-center text-sm text-muted-foreground">
-                  No portfolio data yet. Stock tracking will appear after the next rebalance.
+        <div className="min-w-0 space-y-3">
+          {!st || st.loading ? (
+            <div className="space-y-2">
+              <Skeleton className="h-5 w-48" />
+              <Skeleton className="h-32 w-full" />
+            </div>
+          ) : movementError != null ? (
+            <p className="text-sm text-muted-foreground">{movementError}</p>
+          ) : movementPayload?.status === 'ok' ? (
+            <>
+              <div>
+                <p className="text-sm font-semibold">Rebalance</p>
+                <p className="text-xs text-muted-foreground">
+                  {movementPayload.lastRebalanceDate
+                    ? formatYmdDisplay(movementPayload.lastRebalanceDate)
+                    : '—'}
+                  {movementPayload.previousRebalanceDate ? (
+                    <>
+                      <span className="text-muted-foreground/50"> · </span>
+                      vs prior {formatYmdDisplay(movementPayload.previousRebalanceDate)}
+                    </>
+                  ) : null}
                 </p>
-              </CardContent>
-            </Card>
-          )}
+                {movementPayload.notionalAtCurrRebalanceEnd != null ? (
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Portfolio value after this rebalance (your track):{' '}
+                    <span className="font-medium text-foreground tabular-nums">
+                      {formatOverviewCurrency(movementPayload.notionalAtCurrRebalanceEnd)}
+                    </span>
+                  </p>
+                ) : null}
+              </div>
+              <StockMovementRowTable title="Buy" rows={movementPayload.buy} tone="buy" />
+              <StockMovementRowTable title="Sell" rows={movementPayload.sell} tone="sell" />
+              <StockMovementRowTable
+                title="Hold (still in portfolio)"
+                rows={movementPayload.hold}
+                tone="hold"
+              />
+              {movementPayload.hold.length === 0 &&
+              movementPayload.buy.length === 0 &&
+              movementPayload.sell.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No position changes vs prior rebalance.</p>
+              ) : null}
+            </>
+          ) : movementPayload ? (
+            <p className="text-sm text-muted-foreground">
+              {movementPayload.message ?? 'Movement data is not available yet.'}
+            </p>
+          ) : null}
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -710,6 +832,24 @@ type OverviewProps = {
 };
 
 export function PlatformOverviewClient({ strategies }: OverviewProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const urlTab = parsePlatformOverviewTab(searchParams.get(PLATFORM_OVERVIEW_TAB_PARAM));
+  /** Cleared whenever `urlTab` updates so the active indicator tracks clicks before `router.replace` finishes. */
+  const [tabOverride, setTabOverride] = useState<PlatformOverviewTab | null>(null);
+  useEffect(() => {
+    setTabOverride(null);
+  }, [urlTab]);
+  const overviewTab = tabOverride ?? urlTab;
+  const setOverviewTab = useCallback(
+    (v: string) => {
+      const next = parsePlatformOverviewTab(v);
+      setTabOverride(next);
+      router.replace(platformOverviewPath(next, pathname));
+    },
+    [router, pathname]
+  );
   const authState = useAuthState();
   const { resetOnboarding } = usePortfolioConfig();
   /** TEMP dev-only: bump to remount onboarding dialog from a clean step state. Remove when no longer needed. */
@@ -758,8 +898,6 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   const [rankedBySlug, setRankedBySlug] = useState<Record<string, RankedBundle>>({});
   const [rankedLoading, setRankedLoading] = useState(false);
   const [cardState, setCardState] = useState<Record<string, OverviewCardPerfState>>({});
-  const [topPortfolioSortMetric, setTopPortfolioSortMetric] =
-    useState<TopPortfolioSortMetric>('total_return');
   const [topSpotlightHoldings, setTopSpotlightHoldings] = useState<HoldingItem[]>([]);
   const [topSpotlightHoldingsLoading, setTopSpotlightHoldingsLoading] = useState(false);
   const [topSpotlightHoldingsAsOf, setTopSpotlightHoldingsAsOf] = useState<string | null>(null);
@@ -863,7 +1001,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     for (const p of profiles) {
       const st = cardState[p.id];
       const userComposite = overviewUserCompositeByProfileId.get(p.id) ?? null;
-      const v = spotlightSortValue(topPortfolioSortMetric, st, userComposite);
+      const v = spotlightSortValue(TOP_SPOTLIGHT_SORT_METRIC, p, st, userComposite);
       if (v == null || !Number.isFinite(v)) continue;
       if (best == null || v > bestVal) {
         bestVal = v;
@@ -884,7 +1022,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
       state: cardState[best.id] ?? emptyOverviewCardPerfState(true),
       sortValue: bestVal,
     };
-  }, [profiles, cardState, topPortfolioSortMetric, overviewUserCompositeByProfileId]);
+  }, [profiles, cardState, overviewUserCompositeByProfileId]);
 
   const spotlightSectionLoading = overviewPerfDataLoading;
 
@@ -945,7 +1083,9 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
       setRankedLoading(false);
       return;
     }
-    const slugs = [...new Set(profiles.map((p) => p.strategy_models?.slug).filter(Boolean))] as string[];
+    const slugs = [
+      ...new Set(profiles.map((p) => p.strategy_models?.slug).filter(Boolean)),
+    ] as string[];
     let cancelled = false;
     setRankedLoading(true);
     void Promise.all(
@@ -1003,8 +1143,13 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     }
   }, [authState.isAuthenticated]);
 
+  const [movementRefreshEpoch, setMovementRefreshEpoch] = useState(0);
   useEffect(() => {
-    const handler = () => void refreshOverviewProfiles();
+    const handler = () => {
+      portfolioMovementFetchCache.clear();
+      setMovementRefreshEpoch((e) => e + 1);
+      void refreshOverviewProfiles();
+    };
     window.addEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, handler);
     return () => window.removeEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, handler);
   }, [refreshOverviewProfiles]);
@@ -1154,77 +1299,6 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     return strategies[0]?.slug === slug ? null : slug;
   }, [topSpotlightOverview, strategies]);
 
-  // ── Stock notifications state ───────────────────────────────────────────────
-  const [stockNotif, setStockNotif] = useState<StockNotifState>({
-    loading: false,
-    actions: [],
-    holdings: [],
-    strategySlugs: [],
-  });
-
-  const notifyProfiles = useMemo(() => profiles.filter((p) => p.notifications_enabled), [profiles]);
-
-  useEffect(() => {
-    if (!notifyProfiles.length) {
-      setStockNotif({ loading: false, actions: [], holdings: [], strategySlugs: [] });
-      return;
-    }
-    let mounted = true;
-    setStockNotif((s) => ({ ...s, loading: true }));
-
-    const slugs = [
-      ...new Set(notifyProfiles.map((p) => p.strategy_models?.slug).filter(Boolean)),
-    ] as string[];
-
-    Promise.all(
-      slugs.map(async (slug) => {
-        const [actionsRes, holdingsRes] = await Promise.all([
-          fetch(`/api/platform/stock-notifications?slug=${encodeURIComponent(slug)}&type=actions`),
-          fetch(`/api/platform/stock-notifications?slug=${encodeURIComponent(slug)}&type=holdings`),
-        ]);
-        const actionsData = actionsRes.ok ? await actionsRes.json().catch(() => ({})) : {};
-        const holdingsData = holdingsRes.ok ? await holdingsRes.json().catch(() => ({})) : {};
-        return {
-          actions: (actionsData.actions ?? []) as RebalanceAction[],
-          holdings: (holdingsData.holdings ?? []) as HoldingRow[],
-        };
-      })
-    )
-      .then((results) => {
-        if (!mounted) return;
-        const allActions = results.flatMap((r) => r.actions);
-        const allHoldings = results.flatMap((r) => r.holdings);
-        const uniqueHoldings = Array.from(
-          new Map(allHoldings.map((h) => [h.symbol, h])).values()
-        ).sort((a, b) => a.rank_position - b.rank_position);
-        setStockNotif({
-          loading: false,
-          actions: allActions.sort(
-            (a, b) => new Date(b.run_date).getTime() - new Date(a.run_date).getTime()
-          ),
-          holdings: uniqueHoldings,
-          strategySlugs: slugs,
-        });
-      })
-      .catch(() => {
-        if (mounted)
-          setStockNotif({ loading: false, actions: [], holdings: [], strategySlugs: [] });
-      });
-
-    return () => {
-      mounted = false;
-    };
-  }, [notifyProfiles]);
-
-  const overviewNavLinks = useMemo(
-    () => [
-      { href: '/platform/ratings', label: 'Stock Ratings', icon: Sparkles },
-      { href: '/platform/your-portfolios', label: 'Your portfolios', icon: Folders },
-      { href: '/platform/explore-portfolios', label: 'Explore portfolios', icon: Compass },
-    ],
-    []
-  );
-
   const detailProfile = useMemo(
     () => (detailProfileId ? (profiles.find((x) => x.id === detailProfileId) ?? null) : null),
     [detailProfileId, profiles]
@@ -1322,48 +1396,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
         }}
       />
       <div className="flex h-full min-h-0 flex-1 flex-col">
-        <div className="sticky top-0 z-30 border-b bg-background/95 px-4 py-3 backdrop-blur-sm sm:px-6">
-          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-            <div className="flex min-w-0 flex-col gap-1">
-              <h2 className="text-base font-semibold flex items-center gap-2">
-                <LayoutDashboard className="size-4 text-trader-blue" />
-                Overview
-              </h2>
-              <p className="text-xs text-muted-foreground">
-                View your top portfolios and their holdings.
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              {process.env.NODE_ENV === 'development' ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 shrink-0 text-[11px] font-normal"
-                  onClick={() => {
-                    resetOnboarding();
-                    setOnboardingDevKey((k) => k + 1);
-                  }}
-                >
-                  Open onboarding
-                </Button>
-              ) : null}
-              {overviewNavLinks.map(({ href, label, icon: Icon }) => (
-                <Link
-                  key={href}
-                  href={href}
-                  className="inline-flex items-center gap-2 rounded-xl border bg-card px-3 py-2 text-sm font-medium transition-colors hover:bg-muted/40"
-                >
-                  <Icon className="size-4 shrink-0 text-trader-blue" />
-                  <span className="leading-tight">{label}</span>
-                  <ArrowRight className="size-3.5 shrink-0 text-muted-foreground" />
-                </Link>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-y-contain px-4 py-4 sm:px-6">
+        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-y-contain px-0 pb-3 sm:pb-4">
           {loading ? (
             <div className="relative -m-1 rounded-2xl border border-border p-2">
               <div
@@ -1404,48 +1437,110 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                   </Button>
                 </CardContent>
               </Card>
-              {authState.isAuthenticated && (
-                <div className="mt-8 space-y-2">
-                  <h3 className="text-sm font-semibold">Tracked stocks</h3>
-                  <OverviewTrackedStocksPanel
-                    notifyProfiles={notifyProfiles}
-                    stockNotif={stockNotif}
-                  />
-                </div>
-              )}
             </>
           ) : (
-            <Tabs defaultValue="top-portfolio" className="w-full">
-              <TabsList className="w-auto">
-                <TabsTrigger value="top-portfolio">Your top portfolios</TabsTrigger>
-                <TabsTrigger value="overview-tiles">Overview Tiles</TabsTrigger>
-                <TabsTrigger value="tracked-stocks">Tracked stocks</TabsTrigger>
-              </TabsList>
+            <Tabs value={overviewTab} onValueChange={setOverviewTab} className="w-full space-y-4">
+              <div className="space-y-2 border-b border-border/80 pb-4">
+                <div className="rounded-xl border border-border/70 bg-muted/25 px-3 py-3 shadow-sm sm:px-4 sm:py-3.5 dark:bg-muted/15">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="min-w-0 max-w-2xl space-y-1">
+                      <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                        Overview
+                      </h1>
+                      <p className="text-sm leading-relaxed text-muted-foreground">
+                        Your top portfolio, rebalance actions, and quick access to ratings and the
+                        portfolios you follow.
+                      </p>
+                    </div>
+                    <TabsList
+                      className={cn(
+                        'grid h-auto w-full max-w-md shrink-0 gap-1 rounded-lg bg-muted p-1 text-muted-foreground lg:h-9 lg:w-auto lg:max-w-none lg:inline-flex lg:shrink-0',
+                        SHOW_OVERVIEW_TILES_TAB_IN_UI ? 'grid-cols-3' : 'grid-cols-2'
+                      )}
+                    >
+                      <TabsTrigger
+                        value="top-portfolio"
+                        className="rounded-md px-3 py-2 text-xs font-medium data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm sm:py-1.5 sm:text-sm"
+                      >
+                        Top Portfolio
+                      </TabsTrigger>
+                      <TabsTrigger
+                        value="rebalance-actions"
+                        className="rounded-md px-3 py-2 text-xs font-medium data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm sm:py-1.5 sm:text-sm"
+                      >
+                        Rebalance Actions
+                      </TabsTrigger>
+                      <TabsTrigger
+                        value="overview-tiles"
+                        className={cn(
+                          'rounded-md px-3 py-2 text-xs font-medium data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm sm:py-1.5 sm:text-sm',
+                          !SHOW_OVERVIEW_TILES_TAB_IN_UI && 'hidden'
+                        )}
+                        tabIndex={SHOW_OVERVIEW_TILES_TAB_IN_UI ? 0 : -1}
+                        aria-hidden={!SHOW_OVERVIEW_TILES_TAB_IN_UI}
+                      >
+                        Overview tiles
+                      </TabsTrigger>
+                    </TabsList>
+                  </div>
+                </div>
+                <div className="flex justify-end pt-0">
+                  <div className="inline-flex max-w-full flex-wrap justify-end gap-1.5 rounded-2xl border border-border/80 bg-card/95 p-1.5 shadow-lg shadow-black/[0.06] ring-1 ring-black/[0.04] backdrop-blur-sm dark:bg-card/90 dark:shadow-black/20 dark:ring-white/[0.06]">
+                    {OVERVIEW_PAGE_QUICK_LINKS.map(({ href, label, icon: Icon }) => (
+                      <Link
+                        key={href}
+                        href={href}
+                        prefetch
+                        onMouseEnter={() => router.prefetch(href)}
+                        onFocus={() => router.prefetch(href)}
+                        onPointerDown={() => router.prefetch(href)}
+                        className="inline-flex items-center gap-2 rounded-xl border border-border/70 bg-background/95 px-3 py-1.5 text-sm font-medium shadow-sm transition-colors hover:bg-muted/60"
+                      >
+                        <Icon className="size-4 shrink-0 text-trader-blue" />
+                        <span className="leading-tight">{label}</span>
+                        <ArrowRight className="size-3.5 shrink-0 text-muted-foreground" />
+                      </Link>
+                    ))}
+                    {process.env.NODE_ENV === 'development' ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-auto shrink-0 gap-1.5 rounded-xl border border-dashed border-border/80 bg-background/95 px-3 py-1.5 text-sm font-medium shadow-sm hover:bg-muted/60"
+                        onClick={() => {
+                          resetOnboarding();
+                          setOnboardingDevKey((k) => k + 1);
+                        }}
+                      >
+                        <span>Open onboarding</span>
+                        <span className="font-normal text-muted-foreground">(local only)</span>
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
 
               <TabsContent
                 value="top-portfolio"
-                className="mt-5 space-y-3 ring-offset-0 focus-visible:outline-none focus-visible:ring-0"
+                forceMount
+                className="mt-0 space-y-3 ring-offset-0 focus-visible:outline-none focus-visible:ring-0 data-[state=inactive]:hidden"
               >
                 <div className="space-y-3">
                   {spotlightSectionLoading ? (
                     <>
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
-                        <Skeleton className="h-4 w-28" />
-                        <Skeleton className="h-9 w-[min(100%,240px)] rounded-md" />
-                      </div>
                       <section className="rounded-xl border border-border bg-card/50 p-4 sm:p-5">
                         <div className="mb-4">
                           <Skeleton className="h-7 w-full max-w-xl rounded-md" />
                         </div>
-                        <div className="grid gap-4 lg:grid-cols-3">
+                        <div className="grid gap-4 lg:grid-cols-[minmax(0,11rem)_minmax(0,1.25fr)_minmax(0,0.75fr)]">
                           <div className="space-y-2">
                             <Skeleton className="h-14 w-full rounded-lg" />
                             <Skeleton className="h-14 w-full rounded-lg" />
                             <Skeleton className="h-14 w-full rounded-lg" />
                             <Skeleton className="h-14 w-full rounded-lg" />
                           </div>
-                          <Skeleton className="min-h-[300px] rounded-lg sm:min-h-[320px]" />
-                          <Skeleton className="min-h-[200px] rounded-lg lg:min-h-[300px]" />
+                          <Skeleton className="min-h-[300px] rounded-lg sm:min-h-[340px]" />
+                          <Skeleton className="min-h-[200px] rounded-lg lg:min-h-[260px]" />
                         </div>
                       </section>
                     </>
@@ -1489,69 +1584,81 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                           : excessVsNasdaqCap;
                       return (
                         <>
-                          <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
-                            <span className="text-sm text-muted-foreground">Top portfolio by</span>
-                            <Select
-                              value={topPortfolioSortMetric}
-                              onValueChange={(v) =>
-                                setTopPortfolioSortMetric(v as TopPortfolioSortMetric)
-                              }
-                            >
-                              <SelectTrigger className="h-9 w-[min(100%,240px)] text-xs sm:text-sm">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {TOP_PORTFOLIO_SORT_OPTIONS.map((opt) => (
-                                  <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                                    {opt.label}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
                           <section className="rounded-xl border border-border bg-card/50 p-4 sm:p-5">
-                            <div className="mb-4 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
-                              <span className="min-w-0 shrink text-base font-semibold leading-snug text-foreground">
-                                {strategyTitle}
-                              </span>
-                              {pc && spotlightRiskTitle ? (
-                                <>
-                                  <span className="shrink-0 text-muted-foreground/60" aria-hidden>
-                                    ·
-                                  </span>
-                                  <span
-                                    className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border/80 bg-muted/40 px-2 py-0.5 text-[10px] font-semibold"
-                                    title={spotlightRiskTitle}
-                                  >
+                            <div className="mb-4 flex min-w-0 items-start justify-between gap-3">
+                              <div className="min-w-0 flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                                <span className="min-w-0 shrink text-base font-semibold leading-snug text-foreground">
+                                  {strategyTitle}
+                                </span>
+                                {pc && spotlightRiskTitle ? (
+                                  <>
+                                    <span className="shrink-0 text-muted-foreground/60" aria-hidden>
+                                      ·
+                                    </span>
                                     <span
-                                      className={cn(
-                                        'size-1.5 shrink-0 rounded-full',
-                                        spotlightRiskDot
-                                      )}
-                                      aria-hidden
-                                    />
-                                    {spotlightRiskTitle}
-                                  </span>
-                                </>
-                              ) : null}
-                              {spotlightConfigLine ? (
+                                      className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border/80 bg-muted/40 px-2 py-0.5 text-[10px] font-semibold"
+                                      title={spotlightRiskTitle}
+                                    >
+                                      <span
+                                        className={cn(
+                                          'size-1.5 shrink-0 rounded-full',
+                                          spotlightRiskDot
+                                        )}
+                                        aria-hidden
+                                      />
+                                      {spotlightRiskTitle}
+                                    </span>
+                                  </>
+                                ) : null}
+                                {spotlightConfigLine ? (
+                                  <>
+                                    <span className="shrink-0 text-muted-foreground/60" aria-hidden>
+                                      ·
+                                    </span>
+                                    <span className="min-w-0 text-sm text-muted-foreground">
+                                      {spotlightConfigLine}
+                                    </span>
+                                  </>
+                                ) : !pc ? (
+                                  <>
+                                    <span className="shrink-0 text-muted-foreground/60" aria-hidden>
+                                      ·
+                                    </span>
+                                    <span className="text-sm text-muted-foreground">
+                                      Configuration
+                                    </span>
+                                  </>
+                                ) : null}
                                 <>
                                   <span className="shrink-0 text-muted-foreground/60" aria-hidden>
                                     ·
                                   </span>
                                   <span className="min-w-0 text-sm text-muted-foreground">
-                                    {spotlightConfigLine}
+                                    Investment:{' '}
+                                    {formatOverviewInvestmentSize(investmentSize) ?? '—'}
                                   </span>
-                                </>
-                              ) : !pc ? (
-                                <>
                                   <span className="shrink-0 text-muted-foreground/60" aria-hidden>
                                     ·
                                   </span>
-                                  <span className="text-sm text-muted-foreground">
-                                    Configuration
+                                  <span className="min-w-0 text-sm text-muted-foreground">
+                                    Entry on{' '}
+                                    {bp.user_start_date?.trim()
+                                      ? formatYmdDisplay(bp.user_start_date.trim())
+                                      : '—'}
                                   </span>
                                 </>
+                              </div>
+                              {bp.user_start_date ? (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
+                                  aria-label="Edit starting investment and entry"
+                                  onClick={() => setEntrySettingsProfileId(bp.id)}
+                                >
+                                  <Settings2 className="size-4" />
+                                </Button>
                               ) : null}
                             </div>
                             {!st.loading && st.gatheringData ? (
@@ -1559,7 +1666,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                 Data still gathering — returns update after more market closes.
                               </p>
                             ) : null}
-                            <div className="grid gap-4 lg:grid-cols-[minmax(0,11rem)_minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
+                            <div className="grid gap-4 lg:grid-cols-[minmax(0,11rem)_minmax(0,1.25fr)_minmax(0,0.75fr)] lg:items-start">
                               <div className="mx-auto w-full max-w-[11rem] space-y-2 lg:mx-0 lg:max-h-[min(70vh,520px)] lg:overflow-y-auto lg:pr-1">
                                 <SpotlightStatCard
                                   tooltipKey="portfolio_value"
@@ -1653,10 +1760,10 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                     strategyName={bp.strategy_models?.name ?? 'Portfolio'}
                                     hideDrawdown
                                     initialNotional={initialNotional}
-                                    chartContainerClassName="h-[260px] sm:h-[280px]"
+                                    chartContainerClassName="h-[300px] sm:h-[340px]"
                                   />
                                 ) : (
-                                  <div className="flex h-[220px] items-center justify-center text-sm text-muted-foreground lg:h-[280px]">
+                                  <div className="flex h-[260px] items-center justify-center text-sm text-muted-foreground lg:h-[340px]">
                                     Not enough history to chart yet.
                                   </div>
                                 )}
@@ -1670,7 +1777,9 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                     <Select
                                       value={
                                         topSpotlightHoldingsAsOf &&
-                                        topSpotlightRebalanceDates.includes(topSpotlightHoldingsAsOf)
+                                        topSpotlightRebalanceDates.includes(
+                                          topSpotlightHoldingsAsOf
+                                        )
                                           ? topSpotlightHoldingsAsOf
                                           : undefined
                                       }
@@ -1681,7 +1790,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                       }}
                                       disabled={topSpotlightHoldingsLoading}
                                     >
-                                      <SelectTrigger className="h-9 w-full max-w-[240px] shrink-0 text-xs sm:w-[240px]">
+                                      <SelectTrigger className="h-9 w-full max-w-[168px] shrink-0 text-xs sm:w-[168px]">
                                         <SelectValue placeholder="Rebalance date" />
                                       </SelectTrigger>
                                       <SelectContent>
@@ -1711,62 +1820,99 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                     No holdings for this date — scores may still be processing.
                                   </p>
                                 ) : (
-                                  <div className="max-h-[min(70vh,520px)] overflow-y-auto rounded-md border">
-                                    <Table>
-                                      <TableHeader>
-                                        <TableRow>
-                                          <TableHead className="w-10">#</TableHead>
-                                          <TableHead>Symbol</TableHead>
-                                          <TableHead className="text-right">Recommended Allocation</TableHead>
-                                          <TableHead className="text-right">AI rating</TableHead>
-                                        </TableRow>
-                                      </TableHeader>
-                                      <TableBody>
-                                        {topSpotlightHoldings.map((h) => (
-                                          <TableRow
-                                            key={`${h.symbol}-${h.rank}`}
-                                            className="cursor-pointer hover:bg-muted/50"
-                                            tabIndex={0}
-                                            onClick={() => setSpotlightStockChartSymbol(h.symbol)}
-                                            onKeyDown={(e) => {
-                                              if (e.key === 'Enter' || e.key === ' ') {
-                                                e.preventDefault();
-                                                setSpotlightStockChartSymbol(h.symbol);
-                                              }
-                                            }}
-                                          >
-                                            <TableCell className="tabular-nums text-muted-foreground">
-                                              {h.rank}
-                                            </TableCell>
-                                            <TableCell className="font-medium">{h.symbol}</TableCell>
-                                            <TableCell className="text-right tabular-nums">
-                                              {Number.isFinite(investmentSize) && investmentSize > 0
-                                                ? `${formatOverviewCurrency(h.weight * investmentSize)} (${(h.weight * 100).toFixed(1)}%)`
-                                                : `— (${(h.weight * 100).toFixed(1)}%)`}
-                                            </TableCell>
-                                            <TableCell className="text-right">
-                                              <span className="inline-flex items-center justify-end gap-1.5">
-                                                <span className="tabular-nums font-medium">
-                                                  {h.score != null && Number.isFinite(h.score)
-                                                    ? h.score.toFixed(1)
-                                                    : '—'}
-                                                </span>
-                                                <Badge
-                                                  variant="outline"
-                                                  className={cn(
-                                                    'px-1.5 py-0 text-[10px] font-normal leading-tight shrink-0',
-                                                    spotlightHoldingScoreBucketClass(h.bucket)
-                                                  )}
-                                                >
-                                                  {spotlightHoldingScoreBucketLabel(h.bucket)}
-                                                </Badge>
-                                              </span>
-                                            </TableCell>
+                                  <TooltipProvider delayDuration={200}>
+                                    <div className="max-h-[min(56vh,400px)] overflow-auto rounded-md border">
+                                      <Table>
+                                        <TableHeader>
+                                          <TableRow className="hover:bg-transparent">
+                                            <TableHead className="h-9 w-8 py-1.5 pl-2 pr-0.5 text-left align-middle tabular-nums">
+                                              #
+                                            </TableHead>
+                                            <TableHead className="h-9 w-16 px-1.5 py-1.5 text-left align-middle">
+                                              Stock
+                                            </TableHead>
+                                            <TableHead className="h-9 px-1.5 py-1.5 text-center align-middle whitespace-nowrap">
+                                              Recommended Allocation
+                                            </TableHead>
+                                            <TableHead className="h-9 py-1.5 pl-1.5 pr-3 text-right align-middle whitespace-nowrap">
+                                              AI rating
+                                            </TableHead>
                                           </TableRow>
-                                        ))}
-                                      </TableBody>
-                                    </Table>
-                                  </div>
+                                        </TableHeader>
+                                        <TableBody>
+                                          {topSpotlightHoldings.map((h) => {
+                                            const company =
+                                              typeof h.companyName === 'string' &&
+                                              h.companyName.trim().length > 0
+                                                ? h.companyName.trim()
+                                                : null;
+                                            return (
+                                              <TableRow
+                                                key={`${h.symbol}-${h.rank}`}
+                                                className="cursor-pointer hover:bg-muted/50"
+                                                tabIndex={0}
+                                                onClick={() => setSpotlightStockChartSymbol(h.symbol)}
+                                                onKeyDown={(e) => {
+                                                  if (e.key === 'Enter' || e.key === ' ') {
+                                                    e.preventDefault();
+                                                    setSpotlightStockChartSymbol(h.symbol);
+                                                  }
+                                                }}
+                                              >
+                                                <TableCell className="py-1.5 pl-2 pr-0.5 tabular-nums text-muted-foreground">
+                                                  {h.rank}
+                                                </TableCell>
+                                                <TableCell className="px-1.5 py-1.5 text-left">
+                                                  {company ? (
+                                                    <Tooltip>
+                                                      <TooltipTrigger asChild>
+                                                        <span className="block truncate font-medium">
+                                                          {h.symbol}
+                                                        </span>
+                                                      </TooltipTrigger>
+                                                      <TooltipContent
+                                                        side="top"
+                                                        className="max-w-xs text-left"
+                                                      >
+                                                        {company}
+                                                      </TooltipContent>
+                                                    </Tooltip>
+                                                  ) : (
+                                                    <span className="block truncate font-medium">
+                                                      {h.symbol}
+                                                    </span>
+                                                  )}
+                                                </TableCell>
+                                                <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap">
+                                                  {Number.isFinite(investmentSize) && investmentSize > 0
+                                                    ? `${formatOverviewCurrency(h.weight * investmentSize)} (${(h.weight * 100).toFixed(1)}%)`
+                                                    : `— (${(h.weight * 100).toFixed(1)}%)`}
+                                                </TableCell>
+                                                <TableCell className="py-1.5 pl-1.5 pr-3 text-right">
+                                                  <span className="inline-flex items-center justify-end gap-1">
+                                                    <Badge
+                                                      variant="outline"
+                                                      className={cn(
+                                                        'px-1.5 py-0 text-[10px] font-normal leading-tight shrink-0',
+                                                        spotlightHoldingScoreBucketClass(h.bucket)
+                                                      )}
+                                                    >
+                                                      {spotlightHoldingScoreBucketLabel(h.bucket)}
+                                                    </Badge>
+                                                    <span className="tabular-nums font-medium">
+                                                      {h.score != null && Number.isFinite(h.score)
+                                                        ? h.score.toFixed(1)
+                                                        : '—'}
+                                                    </span>
+                                                  </span>
+                                                </TableCell>
+                                              </TableRow>
+                                            );
+                                          })}
+                                        </TableBody>
+                                      </Table>
+                                    </div>
+                                  </TooltipProvider>
                                 )}
                               </div>
                             </div>
@@ -1775,41 +1921,19 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                       );
                     })()
                   ) : (
-                    <>
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
-                        <span className="text-sm text-muted-foreground">Your top portfolio by</span>
-                        <Select
-                          value={topPortfolioSortMetric}
-                          onValueChange={(v) =>
-                            setTopPortfolioSortMetric(v as TopPortfolioSortMetric)
-                          }
-                        >
-                          <SelectTrigger className="h-9 w-[min(100%,240px)] text-xs sm:text-sm">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {TOP_PORTFOLIO_SORT_OPTIONS.map((opt) => (
-                              <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                                {opt.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <section className="rounded-xl border border-border bg-card/50 p-4 sm:p-5">
-                        <p className="text-sm text-muted-foreground">
-                          No comparable data yet for this ranking — add a portfolio with a start
-                          date, or wait for metrics to sync.
-                        </p>
-                      </section>
-                    </>
+                    <section className="rounded-xl border border-border bg-card/50 p-4 sm:p-5">
+                      <p className="text-sm text-muted-foreground">
+                        No portfolio value to compare yet — add a portfolio with a start date, or
+                        wait for metrics to sync.
+                      </p>
+                    </section>
                   )}
                 </div>
               </TabsContent>
 
               <TabsContent
                 value="overview-tiles"
-                className="mt-5 ring-offset-0 focus-visible:outline-none focus-visible:ring-0"
+                className="mt-0 ring-offset-0 focus-visible:outline-none focus-visible:ring-0"
               >
                 <div className="space-y-3">
                   <div className="space-y-1">
@@ -1823,209 +1947,237 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                     </p>
                   </div>
 
-                <Dialog
-                  open={slotPickerOpen}
-                  onOpenChange={(o) => {
-                    setSlotPickerOpen(o);
-                    if (!o) setPickerTargetSlot(null);
-                  }}
-                >
-                  <DialogContent className="sm:max-w-lg">
-                    <DialogHeader>
-                      <DialogTitle>Add to overview tiles - Your Portfolios</DialogTitle>
-                      <DialogDescription>
-                        Choose from the portfolios you follow already.
-                      </DialogDescription>
-                    </DialogHeader>
-                    <div className="flex max-h-[min(65vh,440px)] flex-col gap-2 overflow-y-auto pr-1">
-                      {profiles.length === 0 ? (
-                        <p className="text-sm text-muted-foreground py-4 text-center">
-                          Follow a portfolio from Explore first.
-                        </p>
-                      ) : pickerTargetSlot == null || !isValidOverviewSlot(pickerTargetSlot) ? (
-                        <p className="text-sm text-muted-foreground py-4 text-center">
-                          Select a tile.
-                        </p>
-                      ) : (
-                        profiles.map((c) => {
-                          const pc = c.portfolio_config;
-                          const rowRisk = (pc?.risk_level ?? 3) as RiskLevel;
-                          const rowRiskTitle =
-                            (pc?.risk_label && pc.risk_label.trim()) || RISK_LABELS[rowRisk];
-                          const rowRiskDot = BENTO_RISK_DOT[rowRisk] ?? 'bg-muted';
-                          const slug = c.strategy_models?.slug;
-                          const bundle = slug ? rankedBySlug[slug] : undefined;
-                          const rankedCfg = resolveRankedConfigForProfile(c, bundle);
-                          const badges = rankedCfg?.badges ?? [];
-                          const overviewLine =
-                            pc &&
-                            formatPortfolioConfigOverviewLine({
-                              topN: pc.top_n,
-                              weightingMethod: pc.weighting_method,
-                              rebalanceFrequency: pc.rebalance_frequency,
-                            });
-                          const startRaw = c.user_start_date?.trim() ?? '';
-                          const startFooter =
-                            startRaw.length > 0
-                              ? `Since ${formatYmdDisplay(startRaw)}`
-                              : 'No entry yet';
-                          const invFooter = formatOverviewInvestmentSize(Number(c.investment_size));
-                          return (
-                            <Button
-                              key={c.id}
-                              type="button"
-                              variant="outline"
-                              className="h-auto min-h-0 w-full justify-start px-3 py-2.5 text-left font-normal"
-                              disabled={slotAssignBusy}
-                              onClick={() => void assignOverviewSlot(c.id, pickerTargetSlot)}
-                            >
-                              <div className="flex w-full min-w-0 flex-col gap-2">
-                                <div className="flex w-full min-w-0 flex-wrap items-center gap-1.5 gap-y-1">
-                                  <span className="min-w-0 shrink text-sm font-semibold text-foreground">
-                                    {c.strategy_models?.name ?? 'Portfolio'}
-                                  </span>
-                                  <span
-                                    className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border/80 bg-muted/40 px-2 py-0.5 text-[10px] font-semibold text-foreground"
-                                    title={rowRiskTitle}
-                                  >
-                                    <span
-                                      className={cn('size-1.5 shrink-0 rounded-full', rowRiskDot)}
-                                      aria-hidden
-                                    />
-                                    {rowRiskTitle}
-                                  </span>
-                                  {overviewLine ? (
-                                    <span className="min-w-0 max-w-full truncate text-[10px] font-medium leading-tight text-muted-foreground">
-                                      {overviewLine}
-                                    </span>
-                                  ) : null}
-                                  {badges.map((b) => (
-                                    <PortfolioConfigBadgePill key={b} name={b} strategySlug={slug} />
-                                  ))}
-                                </div>
-                                <div className="flex w-full flex-wrap items-center gap-x-2 gap-y-0.5 border-t border-border/50 pt-2 text-[10px] leading-snug text-muted-foreground">
-                                  <span>{startFooter}</span>
-                                  <span className="text-muted-foreground/45" aria-hidden>
-                                    ·
-                                  </span>
-                                  <span>
-                                    {invFooter != null ? `Investment: ${invFooter}` : 'No investment size'}
-                                  </span>
-                                </div>
-                              </div>
-                            </Button>
-                          );
-                        })
-                      )}
-                    </div>
-                  </DialogContent>
-                </Dialog>
-
-                <div className="relative -m-1 rounded-2xl border border-border p-2">
-                  <div
-                    className="grid grid-cols-2 gap-3 sm:grid-cols-3"
-                    style={{ gridAutoRows: OVERVIEW_TILE_ROW_HEIGHT }}
+                  <Dialog
+                    open={slotPickerOpen}
+                    onOpenChange={(o) => {
+                      setSlotPickerOpen(o);
+                      if (!o) setPickerTargetSlot(null);
+                    }}
                   >
-                    {slotDisplay.map((p, i) => {
-                      const slot = i + 1;
-                      const assignedId = overviewSlotAssignments.get(slot);
-                      const showClear = p != null && assignedId === p.id;
-                      const canPickPortfolio = profiles.length > 0;
-                      return (
-                        <div key={slot} className="flex h-full min-h-0 min-w-0 flex-col">
-                          {p ? (
-                            <OverviewPortfolioTile
-                              profile={p}
-                              rankedBySlug={rankedBySlug}
-                              cardState={cardState}
-                              onOpenDetail={openPortfolioDetail}
-                              headerRight={
-                                showClear ? (
-                                  <div
-                                    className="flex shrink-0 items-start gap-0.5"
-                                    onClick={(e) => e.stopPropagation()}
-                                  >
-                                    {p.user_start_date ? (
+                    <DialogContent className="sm:max-w-lg">
+                      <DialogHeader>
+                        <DialogTitle>Add to overview tiles - Your Portfolios</DialogTitle>
+                        <DialogDescription>
+                          Choose from the portfolios you follow already.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="flex max-h-[min(65vh,440px)] flex-col gap-2 overflow-y-auto pr-1">
+                        {profiles.length === 0 ? (
+                          <p className="text-sm text-muted-foreground py-4 text-center">
+                            Follow a portfolio from Explore first.
+                          </p>
+                        ) : pickerTargetSlot == null || !isValidOverviewSlot(pickerTargetSlot) ? (
+                          <p className="text-sm text-muted-foreground py-4 text-center">
+                            Select a tile.
+                          </p>
+                        ) : (
+                          profiles.map((c) => {
+                            const pc = c.portfolio_config;
+                            const rowRisk = (pc?.risk_level ?? 3) as RiskLevel;
+                            const rowRiskTitle =
+                              (pc?.risk_label && pc.risk_label.trim()) || RISK_LABELS[rowRisk];
+                            const rowRiskDot = BENTO_RISK_DOT[rowRisk] ?? 'bg-muted';
+                            const slug = c.strategy_models?.slug;
+                            const bundle = slug ? rankedBySlug[slug] : undefined;
+                            const rankedCfg = resolveRankedConfigForProfile(c, bundle);
+                            const badges = rankedCfg?.badges ?? [];
+                            const overviewLine =
+                              pc &&
+                              formatPortfolioConfigOverviewLine({
+                                topN: pc.top_n,
+                                weightingMethod: pc.weighting_method,
+                                rebalanceFrequency: pc.rebalance_frequency,
+                              });
+                            const startRaw = c.user_start_date?.trim() ?? '';
+                            const startFooter =
+                              startRaw.length > 0
+                                ? `Since ${formatYmdDisplay(startRaw)}`
+                                : 'No entry yet';
+                            const invFooter = formatOverviewInvestmentSize(
+                              Number(c.investment_size)
+                            );
+                            return (
+                              <Button
+                                key={c.id}
+                                type="button"
+                                variant="outline"
+                                className="h-auto min-h-0 w-full justify-start px-3 py-2.5 text-left font-normal"
+                                disabled={slotAssignBusy}
+                                onClick={() => void assignOverviewSlot(c.id, pickerTargetSlot)}
+                              >
+                                <div className="flex w-full min-w-0 flex-col gap-2">
+                                  <div className="flex w-full min-w-0 flex-wrap items-center gap-1.5 gap-y-1">
+                                    <span className="min-w-0 shrink text-sm font-semibold text-foreground">
+                                      {c.strategy_models?.name ?? 'Portfolio'}
+                                    </span>
+                                    <span
+                                      className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border/80 bg-muted/40 px-2 py-0.5 text-[10px] font-semibold text-foreground"
+                                      title={rowRiskTitle}
+                                    >
+                                      <span
+                                        className={cn('size-1.5 shrink-0 rounded-full', rowRiskDot)}
+                                        aria-hidden
+                                      />
+                                      {rowRiskTitle}
+                                    </span>
+                                    {overviewLine ? (
+                                      <span className="min-w-0 max-w-full truncate text-[10px] font-medium leading-tight text-muted-foreground">
+                                        {overviewLine}
+                                      </span>
+                                    ) : null}
+                                    {badges.map((b) => (
+                                      <PortfolioConfigBadgePill
+                                        key={b}
+                                        name={b}
+                                        strategySlug={slug}
+                                      />
+                                    ))}
+                                  </div>
+                                  <div className="flex w-full flex-wrap items-center gap-x-2 gap-y-0.5 border-t border-border/50 pt-2 text-[10px] leading-snug text-muted-foreground">
+                                    <span>{startFooter}</span>
+                                    <span className="text-muted-foreground/45" aria-hidden>
+                                      ·
+                                    </span>
+                                    <span>
+                                      {invFooter != null
+                                        ? `Investment: ${invFooter}`
+                                        : 'No investment size'}
+                                    </span>
+                                  </div>
+                                </div>
+                              </Button>
+                            );
+                          })
+                        )}
+                      </div>
+                      <DialogFooter className="mt-1 border-t border-border pt-4 sm:justify-start">
+                        <p className="w-full text-left text-xs leading-snug text-muted-foreground">
+                          Want to follow more portfolios?{' '}
+                          <Link
+                            href="/platform/explore-portfolios"
+                            className="inline-flex items-center gap-1 font-medium text-foreground underline-offset-4 hover:underline"
+                            onClick={() => {
+                              setSlotPickerOpen(false);
+                              setPickerTargetSlot(null);
+                            }}
+                          >
+                            Head to explore portfolios
+                            <ArrowRight className="size-3.5 shrink-0" aria-hidden />
+                          </Link>
+                        </p>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+
+                  <div className="relative -m-1 rounded-2xl border border-border p-2">
+                    <div
+                      className="grid grid-cols-2 gap-3 sm:grid-cols-3"
+                      style={{ gridAutoRows: OVERVIEW_TILE_ROW_HEIGHT }}
+                    >
+                      {slotDisplay.map((p, i) => {
+                        const slot = i + 1;
+                        const assignedId = overviewSlotAssignments.get(slot);
+                        const showClear = p != null && assignedId === p.id;
+                        const canPickPortfolio = profiles.length > 0;
+                        return (
+                          <div key={slot} className="flex h-full min-h-0 min-w-0 flex-col">
+                            {p ? (
+                              <OverviewPortfolioTile
+                                profile={p}
+                                rankedBySlug={rankedBySlug}
+                                cardState={cardState}
+                                onOpenDetail={openPortfolioDetail}
+                                headerRight={
+                                  showClear ? (
+                                    <div
+                                      className="flex shrink-0 items-start gap-0.5"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      {p.user_start_date ? (
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="icon"
+                                          className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
+                                          aria-label="Edit starting investment and entry"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setEntrySettingsProfileId(p.id);
+                                          }}
+                                        >
+                                          <Settings2 className="size-4" />
+                                        </Button>
+                                      ) : null}
                                       <Button
                                         type="button"
                                         variant="ghost"
                                         size="icon"
                                         className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
-                                        aria-label="Edit starting investment and entry"
+                                        aria-label={`Remove portfolio from overview tile ${slot}`}
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          setEntrySettingsProfileId(p.id);
+                                          void clearOverviewSlot(slot);
                                         }}
                                       >
-                                        <Settings2 className="size-4" />
+                                        <X className="size-4" />
                                       </Button>
-                                    ) : null}
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="icon"
-                                      className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
-                                      aria-label={`Remove portfolio from overview tile ${slot}`}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        void clearOverviewSlot(slot);
-                                      }}
-                                    >
-                                      <X className="size-4" />
-                                    </Button>
-                                  </div>
-                                ) : undefined
-                              }
-                            />
-                          ) : (
-                            <div className="group/addCell relative flex h-full min-h-0 w-full flex-col">
-                              <div className="relative z-[1] flex min-h-0 flex-1 flex-col">
-                                <button
-                                  type="button"
-                                  onClick={() => openSlotPicker(slot)}
-                                  disabled={!canPickPortfolio}
-                                  aria-label="Add a portfolio to this overview slot"
-                                  className={cn(
-                                    'relative flex h-full min-h-0 w-full flex-1 flex-col items-center justify-center overflow-hidden rounded-2xl border border-transparent bg-transparent text-center transition-colors',
-                                    canPickPortfolio
-                                      ? 'cursor-pointer hover:bg-muted/10'
-                                      : 'cursor-not-allowed opacity-50'
-                                  )}
-                                >
-                                  <span
+                                    </div>
+                                  ) : undefined
+                                }
+                              />
+                            ) : (
+                              <div className="group/addCell relative flex h-full min-h-0 w-full flex-col">
+                                <div className="relative z-[1] flex min-h-0 flex-1 flex-col">
+                                  <button
+                                    type="button"
+                                    onClick={() => openSlotPicker(slot)}
+                                    disabled={!canPickPortfolio}
+                                    aria-label="Add a portfolio to this overview slot"
                                     className={cn(
-                                      'pointer-events-none flex w-full flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-muted-foreground/35 px-4 shadow-[inset_0_1px_0_0_hsl(var(--border)/0.3)]',
-                                      'max-sm:flex-1 max-sm:py-8',
-                                      'sm:absolute sm:inset-0 sm:z-[1] sm:border-muted-foreground/45 sm:bg-background/88 sm:backdrop-blur-sm sm:opacity-0 sm:transition-all sm:duration-300 sm:ease-out sm:group-hover/addCell:opacity-100 sm:group-focus-within/addCell:opacity-100'
+                                      'relative flex h-full min-h-0 w-full flex-1 flex-col items-center justify-center overflow-hidden rounded-2xl border border-transparent bg-transparent text-center transition-colors',
+                                      canPickPortfolio
+                                        ? 'cursor-pointer hover:bg-muted/10'
+                                        : 'cursor-not-allowed opacity-50'
                                     )}
                                   >
-                                    <Plus
-                                      className="size-10 text-trader-blue sm:size-14"
-                                      strokeWidth={1.15}
-                                    />
-                                    <span className="text-xs font-semibold tracking-tight text-foreground sm:text-sm">
-                                      Add a portfolio
+                                    <span
+                                      className={cn(
+                                        'pointer-events-none flex w-full flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-muted-foreground/35 px-4 shadow-[inset_0_1px_0_0_hsl(var(--border)/0.3)]',
+                                        'max-sm:flex-1 max-sm:py-8',
+                                        'sm:absolute sm:inset-0 sm:z-[1] sm:border-muted-foreground/45 sm:bg-background/88 sm:backdrop-blur-sm sm:opacity-0 sm:transition-all sm:duration-300 sm:ease-out sm:group-hover/addCell:opacity-100 sm:group-focus-within/addCell:opacity-100'
+                                      )}
+                                    >
+                                      <Plus
+                                        className="size-10 text-trader-blue sm:size-14"
+                                        strokeWidth={1.15}
+                                      />
+                                      <span className="text-xs font-semibold tracking-tight text-foreground sm:text-sm">
+                                        Add a portfolio
+                                      </span>
                                     </span>
-                                  </span>
-                                </button>
+                                  </button>
+                                </div>
                               </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
-              </div>
               </TabsContent>
 
               <TabsContent
-                value="tracked-stocks"
-                className="mt-5 ring-offset-0 focus-visible:outline-none focus-visible:ring-0"
+                value="rebalance-actions"
+                forceMount
+                className="mt-0 ring-offset-0 focus-visible:outline-none focus-visible:ring-0 data-[state=inactive]:hidden"
               >
-                <OverviewTrackedStocksPanel
-                  notifyProfiles={notifyProfiles}
-                  stockNotif={stockNotif}
+                <StockMovementPanel
+                  topProfile={topSpotlightOverview?.profile ?? null}
+                  rankedBySlug={rankedBySlug}
+                  cardState={cardState}
+                  onOpenDetail={openPortfolioDetail}
+                  refreshEpoch={movementRefreshEpoch}
                 />
               </TabsContent>
             </Tabs>
