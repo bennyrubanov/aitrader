@@ -20,6 +20,14 @@ drop view if exists public.nasdaq100_scores_7d_view cascade;
 drop view if exists public.nasdaq100_current_members cascade;
 drop view if exists public.nasdaq100_latest_snapshot cascade;
 
+-- Portfolio configs + user portfolio layer
+drop table if exists public.portfolio_config_compute_queue cascade;
+drop table if exists public.user_portfolio_positions cascade;
+drop table if exists public.user_overview_slot_assignments cascade;
+drop table if exists public.user_portfolio_profiles cascade;
+drop table if exists public.strategy_portfolio_config_performance cascade;
+drop table if exists public.portfolio_configs cascade;
+
 -- Research + performance layer
 drop table if exists public.strategy_cross_sectional_regressions cascade;
 drop table if exists public.strategy_quintile_returns cascade;
@@ -31,7 +39,7 @@ drop table if exists public.strategy_portfolio_holdings cascade;
 drop table if exists public.nasdaq100_recommendations_current cascade;
 drop table if exists public.ai_analysis_runs cascade;
 drop table if exists public.ai_run_batches cascade;
-drop table if exists public.trading_strategies cascade;
+drop table if exists public.strategy_models cascade;
 
 -- Universe/raw/reference data for experiment
 drop table if exists public.nasdaq_100_daily_raw cascade;

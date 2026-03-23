@@ -1,5 +1,5 @@
 /**
- * Turn `trading_strategies.description` into user-facing copy.
+ * Turn `strategy_models.description` into user-facing copy.
  * Fixes legacy strings where stripping `latent_rank` produced "sorted by and rebalanced…".
  */
 export function formatStrategyDescriptionForDisplay(

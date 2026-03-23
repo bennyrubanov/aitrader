@@ -59,7 +59,7 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
   const [isCarouselHovered, setIsCarouselHovered] = useState(false);
   const { hasPremiumAccess, isAuthenticated } = useAuthState();
   const unlockHref = hasPremiumAccess
-    ? '/platform/current'
+    ? '/platform/overview'
     : isAuthenticated
       ? '/pricing'
       : '/sign-up';
@@ -232,7 +232,7 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
     { title: 'CAGR', description: 'Average yearly return.' },
     { title: 'Max Drawdown', description: 'Largest temporary loss.' },
     { title: 'Sharpe Ratio', description: 'Return compared to risk.' },
-    { title: '% Months Beating Market', description: 'How often the system wins.' },
+    { title: '% Months Outperforming Market', description: 'How often the system wins.' },
     { title: 'Growth Chart', description: 'Visual $10K comparison over time.' },
   ];
 
@@ -272,7 +272,7 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
       title: 'You already have access',
       description: 'Opening your platform dashboard.',
     });
-    router.push('/platform/current');
+    router.push('/platform/overview');
   };
 
   return (
@@ -524,9 +524,7 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
             <p className="text-sm font-semibold text-trader-blue uppercase tracking-wide mb-3">
               Performance
             </p>
-            <h3 className="text-3xl md:text-4xl font-bold mb-4">
-              Live results since launch
-            </h3>
+            <h3 className="text-3xl md:text-4xl font-bold mb-4">Live results since launch</h3>
             <p className="text-muted-foreground max-w-2xl mx-auto">
               All performance is tracked openly and updated weekly after new data is available.
             </p>
@@ -771,7 +769,7 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
                 <CarouselItem>
                   <div className="rounded-lg border border-border p-5 bg-muted/20">
                     <p className="font-semibold text-sm mb-3 text-trader-blue">
-                      % Months Beating Market
+                      % Months Outperforming Market
                     </p>
                     <ChartContainer
                       className="h-[250px] w-full"
@@ -905,7 +903,18 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
               <Link href="/performance">
                 <Button variant="outline" className="gap-2">
                   See how the experiment is performing
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M5 12h14M12 5l7 7-7 7" />
+                  </svg>
                 </Button>
               </Link>
             </div>

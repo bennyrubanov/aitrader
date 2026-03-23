@@ -34,7 +34,7 @@ const Hero: React.FC = () => {
   const [isLoadingPrice, setIsLoadingPrice] = useState(false);
   const [isTracked, setIsTracked] = useState<boolean | null>(null);
   const { hasPremiumAccess, isAuthenticated } = useAuthState();
-  const ctaHref = isAuthenticated ? '/platform/current' : '/sign-up';
+  const ctaHref = isAuthenticated ? '/platform/overview' : '/sign-up';
 
   const stockMap = React.useMemo(() => {
     const map = new Map<string, HeroStock>();
@@ -201,17 +201,20 @@ const Hero: React.FC = () => {
       <div className="container mx-auto px-4 relative z-10">
         <div className="max-w-4xl mx-auto text-center mb-12 md:mb-16">
           <h1 className="text-4xl md:text-6xl font-bold leading-tight text-foreground mb-6 animate-fade-in">
-            <span className="text-gradient inline-block">Let&apos;s outperform the market</span>
+            <span className="text-gradient inline-block">Outperform the market</span>
             <span className="inline-block">&nbsp;with AI</span>
           </h1>
 
           <p
-            className="text-xl md:text-2xl text-muted-foreground mb-8 max-w-3xl mx-auto animate-fade-in"
+            className="text-xl md:text-2xl text-muted-foreground mb-6 max-w-3xl mx-auto animate-fade-in"
             style={{ animationDelay: '0.2s' }}
           >
-            Watch (or participate) as we test AI against the market. All performance data published live.
+            Follow as we test AI against the market. Pick your risk level and invest with your best
+            AI-built portfolio.
           </p>
-
+          <span className="inline-flex items-center text-xs font-semibold uppercase tracking-wide text-trader-blue bg-trader-blue/10 px-3 py-1 rounded-full mb-8 md:mb-10 animate-fade-in">
+            All performance data published live
+          </span>
           <div className="max-w-3xl mx-auto animate-fade-in" style={{ animationDelay: '0.4s' }}>
             <form
               onSubmit={handleSubmit}
@@ -276,7 +279,7 @@ const Hero: React.FC = () => {
                   type="button"
                   className="h-[50px] w-full sm:w-auto rounded-xl bg-trader-blue hover:bg-trader-blue-dark text-white px-6"
                 >
-                  <span className="mr-2">{isAuthenticated ? 'Platform' : 'Get started'}</span>
+                  <span className="mr-2">{isAuthenticated ? 'Platform' : 'Start for free'}</span>
                   <ArrowRight size={16} />
                 </Button>
               </Link>
@@ -366,7 +369,7 @@ const Hero: React.FC = () => {
                     </Link>
                   ) : selectedFreeNeedsLogin ? (
                     <Link
-                      href="/sign-in?next=/platform/current"
+                      href="/sign-in?next=/platform/overview"
                       className="inline-flex items-center rounded-lg bg-trader-blue px-3 py-2 text-sm font-medium text-white hover:bg-trader-blue-dark transition-colors"
                     >
                       Log in to view rating

@@ -9,8 +9,23 @@ const nextConfig = {
         permanent: true,
       },
       {
+        source: '/strategy-model',
+        destination: '/strategy-models',
+        permanent: true,
+      },
+      {
+        source: '/strategy-model/:path+',
+        destination: '/strategy-models/:path+',
+        permanent: true,
+      },
+      {
         source: '/experiment-research',
         destination: '/strategy-models',
+        permanent: true,
+      },
+      {
+        source: '/platform/your-portfolio',
+        destination: '/platform/your-portfolios',
         permanent: true,
       },
     ];

@@ -3,6 +3,7 @@
 import type { ComponentType } from "react";
 import Link from "next/link";
 import {
+  SIDEBAR_MENU_TRAILING_CLASSNAME,
   SidebarGroup,
   SidebarGroupLabel,
   SidebarMenu,
@@ -26,23 +27,40 @@ type NavMainProps = {
   items: NavMainItem[];
   label: string;
   hideLabel?: boolean;
+  /** Extra classes on the section label (e.g. `mt-1` for spacing above the first group). */
+  labelClassName?: string;
+  /** Merged into `SidebarGroup` (e.g. `px-2 pb-2 pt-0` to tune top padding). */
+  groupClassName?: string;
 };
 
-export function NavMain({ items, label, hideLabel = false }: NavMainProps) {
+export function NavMain({
+  items,
+  label,
+  hideLabel = false,
+  labelClassName,
+  groupClassName,
+}: NavMainProps) {
   return (
-    <SidebarGroup>
-      {!hideLabel ? <SidebarGroupLabel>{label}</SidebarGroupLabel> : null}
+    <SidebarGroup className={groupClassName}>
+      {!hideLabel ? (
+        <SidebarGroupLabel className={labelClassName}>{label}</SidebarGroupLabel>
+      ) : null}
       <SidebarMenu>
         {items.map((item) => {
           const content = (
             <>
               <item.icon className="size-4 shrink-0" />
-              <span className="truncate">{item.title}</span>
-              {item.badge ? (
-                <Badge variant="outline" className="ml-auto shrink-0 rounded-md px-1.5 py-0 text-[10px] uppercase tracking-wide">
-                  {item.badge}
-                </Badge>
-              ) : null}
+              <span className={SIDEBAR_MENU_TRAILING_CLASSNAME}>
+                <span className="min-w-0 flex-1 truncate">{item.title}</span>
+                {item.badge ? (
+                  <Badge
+                    variant="outline"
+                    className="ml-auto shrink-0 rounded-md px-1.5 py-0 text-[10px] uppercase tracking-wide"
+                  >
+                    {item.badge}
+                  </Badge>
+                ) : null}
+              </span>
             </>
           );
 

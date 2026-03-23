@@ -13,7 +13,7 @@ export default function AuthCodeError() {
           invalid.
         </p>
         <div className="flex flex-col gap-3">
-          <Link href="/platform/current">
+          <Link href="/platform/overview">
             <Button className="w-full">Try signing in again</Button>
           </Link>
           <Link href="/">

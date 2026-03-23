@@ -63,7 +63,7 @@ const ExperimentSection: React.FC = () => {
               What This Is
             </p>
             <h2 className="text-3xl md:text-4xl font-bold mb-4 leading-tight">
-              A live test of whether AI can beat the market
+              A live test of whether AI can outperform the market
             </h2>
             <p className="text-lg text-muted-foreground">
               Follow along for free as we run the strategy in public. If it works, you&apos;ll see it.

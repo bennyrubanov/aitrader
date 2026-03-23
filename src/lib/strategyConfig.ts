@@ -1,60 +1,68 @@
 // ──────────────────────────────────────────────────────────────────────────────
 // Strategy Version Configuration — SINGLE SOURCE OF TRUTH
 //
-// Two version axes:
-//   APP_VERSION  (semver)  — app-level changes: prompt text, portfolio rules,
-//                            universe, ranking methodology, UI, infra, etc.
-//   MODEL_VERSION (m-series) — AI model changes: provider swap, model upgrade,
-//                              temperature/token tuning, etc.
+// All strategy model definitions live in ai-strategy-registry.ts.
+// This file derives the active STRATEGY_CONFIG from ACTIVE_STRATEGY_ENTRY.
 //
-// Together they form the strategy slug + prompt version string. Changing either
-// creates a new strategy row in the DB. Old data is never mutated. If you change
-// config values without bumping a version, the cron job throws a mismatch error.
+// Strategy identity + versioning:
+//   APP_VERSION (semver) — sole lineage/version axis for strategy evolution.
+//   SLUG is canonical display identity (e.g. ait-1-daneel) and remains stable.
+//
+// Allowed in-place updates (cron updates existing row, same slug):
+//   - appVersion bump (e.g. prompt text improved, new model)
+//   - prompt.name / prompt.version
+//   - model.name / model.version
+//   - description
+//
+// Require a NEW AIT entry + new slug:
+//   - indexName (universe change)
+//   - portfolioSize / weightingMethod (model-layer portfolio change)
+//   - rebalanceFrequency / rebalanceDayOfWeek
+//   - transactionCostBps
+//
+// If structural params change without creating a new entry, the cron mismatch
+// guard throws to prevent silent mutation.
 // ──────────────────────────────────────────────────────────────────────────────
 
-/** Bump for app-level changes (prompt, portfolio, universe, ranking, etc.). */
-export const APP_VERSION = 'v1.0.1';
+import { ACTIVE_STRATEGY_ENTRY } from '@/lib/ai-strategy-registry';
 
-/** Bump for AI model changes (provider, model name, temperature, tokens, etc.). */
-export const MODEL_VERSION = 'm2.0';
+/** Bump is handled automatically when ACTIVE_STRATEGY_ENTRY.appVersion changes. */
+export const APP_VERSION = ACTIVE_STRATEGY_ENTRY.appVersion;
 
 const DEFAULT_REBALANCE_DAY_UTC = Number(process.env.STRATEGY_REBALANCE_DAY_UTC || 1);
 
 export const STRATEGY_CONFIG = {
   appVersion: APP_VERSION,
-  modelVersion: MODEL_VERSION,
-  version: `${APP_VERSION}-${MODEL_VERSION}`,
-  slug: `ai-top20-nasdaq100-${APP_VERSION.replaceAll('.', '-')}-${MODEL_VERSION.replaceAll('.', '-')}`,
-  /** Single name for internal + display (e.g. AIT-1 Daneel). Bump AIT number when creating a new strategy version. */
-  name: 'AIT-1 Daneel',
+  version: APP_VERSION,
+  slug: ACTIVE_STRATEGY_ENTRY.slug,
+  /** Combined display name, e.g. 'AIT-1 Daneel'. */
+  name: ACTIVE_STRATEGY_ENTRY.displayName,
+  aitCode: ACTIVE_STRATEGY_ENTRY.aitCode,
+  robotName: ACTIVE_STRATEGY_ENTRY.robotName,
 
   // Universe
-  indexName: 'nasdaq100' as const,
+  indexName: ACTIVE_STRATEGY_ENTRY.universe.indexName,
 
-  // Portfolio construction
-  portfolioSize: 20,
-  weightingMethod: 'equal_weight' as const,
-  rebalanceFrequency: 'weekly' as const,
+  // Model-layer tracking portfolio (for strategy tracking — separate from user portfolio configs layer)
+  portfolioSize: ACTIVE_STRATEGY_ENTRY.defaultPortfolio.portfolioSize,
+  weightingMethod: ACTIVE_STRATEGY_ENTRY.defaultPortfolio.weightingMethod,
+  rebalanceFrequency: ACTIVE_STRATEGY_ENTRY.defaultPortfolio.rebalanceFrequency,
   rebalanceDayOfWeek: Number.isFinite(DEFAULT_REBALANCE_DAY_UTC)
     ? Math.max(0, Math.min(6, DEFAULT_REBALANCE_DAY_UTC))
     : 1,
-  transactionCostBps: 15,
+  transactionCostBps: ACTIVE_STRATEGY_ENTRY.defaultPortfolio.transactionCostBps,
 
   // Prompt versioning (persisted in Supabase `ai_prompts`)
-  prompt: {
-    name: 'nasdaq100_weekly_rating',
-    version: `nasdaq100-websearch-${APP_VERSION}-${MODEL_VERSION}-top20-weekly`,
-  },
+  prompt: ACTIVE_STRATEGY_ENTRY.prompt,
 
-  // Model
+  // Model (runtime model name from env var overrides registry default)
   model: {
-    provider: 'openai' as const,
-    name: process.env.OPENAI_MODEL || 'gpt-5.2',
-    version: MODEL_VERSION,
+    provider: ACTIVE_STRATEGY_ENTRY.model.provider,
+    name: process.env.OPENAI_MODEL || ACTIVE_STRATEGY_ENTRY.model.defaultName,
+    version: ACTIVE_STRATEGY_ENTRY.model.version,
   },
 
-  description:
-    'Weekly Top-20 Nasdaq-100 portfolio: stocks ranked by AI, equal weight, rebalanced every week, with trading costs included.',
+  description: ACTIVE_STRATEGY_ENTRY.description,
 };
 
 /**

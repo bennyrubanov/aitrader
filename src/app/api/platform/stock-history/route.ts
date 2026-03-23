@@ -84,10 +84,10 @@ export async function GET(req: Request) {
   const supabase = createAdminClient();
 
   const [{ data: stock, error: stockError }, strategyResult] = await Promise.all([
-    supabase.from('stocks').select('id, symbol').eq('symbol', symbol).maybeSingle(),
+    supabase.from('stocks').select('id, symbol, company_name').eq('symbol', symbol).maybeSingle(),
     (async () => {
       let strategyQuery = supabase
-        .from('trading_strategies')
+        .from('strategy_models')
         .select('id, slug, is_default')
         .limit(1);
 
@@ -165,6 +165,7 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     symbol,
+    companyName: stock.company_name?.trim() || null,
     strategy: strategyResult.data.slug,
     prices,
     ratings,

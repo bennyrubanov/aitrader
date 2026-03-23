@@ -3,7 +3,18 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Loader2, LogIn, LogOut, CreditCard, Bell, BellOff, UserRound, KeyRound, Mail, ExternalLink } from 'lucide-react';
+import {
+  Loader2,
+  LogIn,
+  LogOut,
+  CreditCard,
+  Bell,
+  BellOff,
+  UserRound,
+  KeyRound,
+  Mail,
+  ExternalLink,
+} from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -35,7 +46,9 @@ const SettingsPageContent = () => {
   const [isOpeningPortal, setIsOpeningPortal] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isSendingReset, setIsSendingReset] = useState(false);
-  const [followedStocks, setFollowedStocks] = useState<Array<{ symbol: string; notify_on_change: boolean }>>([]);
+  const [followedStocks, setFollowedStocks] = useState<
+    Array<{ symbol: string; notify_on_change: boolean }>
+  >([]);
 
   useEffect(() => {
     if (!authState.isLoaded) {
@@ -56,11 +69,11 @@ const SettingsPageContent = () => {
 
     setAuthUser({
       id: authState.userId,
-      email: authState.email.includes("@") ? authState.email : null,
+      email: authState.email.includes('@') ? authState.email : null,
     });
     setProfile({
-      email: authState.email.includes("@") ? authState.email : null,
-      fullName: authState.name && authState.name !== "Guest" ? authState.name : null,
+      email: authState.email.includes('@') ? authState.email : null,
+      fullName: authState.name && authState.name !== 'Guest' ? authState.name : null,
       isPremium: authState.hasPremiumAccess,
     });
   }, [authState]);
@@ -113,7 +126,9 @@ const SettingsPageContent = () => {
         }
       })
       .catch(() => {});
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, [authState.isLoaded, authState.isAuthenticated]);
 
   const handleSignIn = async () => {
@@ -450,8 +465,11 @@ const SettingsPageContent = () => {
                 </div>
                 <p className="mt-2 text-[11px] text-muted-foreground">
                   Manage in{' '}
-                  <Link href="/platform/your-portfolio" className="font-medium text-foreground underline underline-offset-2 hover:no-underline">
-                    Your Portfolio
+                  <Link
+                    href="/platform/your-portfolios"
+                    className="font-medium text-foreground underline underline-offset-2 hover:no-underline"
+                  >
+                    Your Portfolios
                   </Link>
                 </p>
               </div>

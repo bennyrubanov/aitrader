@@ -11,46 +11,59 @@ Schema files live in `supabase/`:
 - `supabase/schema.sql` – table/view definitions (run first)
 - `supabase/rls_policies.sql` – Row Level Security policies (run second)
 
-The daily cron job is at `src/app/api/cron/daily/route.ts` (runs every weekday; AI ratings + portfolio only execute on rebalance day, prices saved daily).
+The daily cron job is at `src/app/api/cron/daily/route.ts` (runs every weekday; AI ratings + portfolio only execute on rebalance day, prices saved daily). On rebalance days it emails `CRON_ERROR_EMAIL` a run digest (timings, universe, model, counts); on price-only days it emails only when errors were recorded.
 The AI prompt template and JSON schema are at `src/lib/aiPrompt.ts`.
 
 ## Versioning
 
-All strategy version configuration lives in a single file: `src/lib/strategyConfig.ts`.
+All strategy identity/version configuration derives from two files:
+- `src/lib/ai-strategy-registry.ts` — master registry of all AIT strategy entries (aitCode, robotName, slug, appVersion, prompt, model, universe, defaultPortfolio).
+- `src/lib/strategyConfig.ts` — derives `STRATEGY_CONFIG` and `APP_VERSION` from the active registry entry (`ACTIVE_STRATEGY_ENTRY`).
 
-Two independent version axes:
+Single strategy lineage axis:
 
-- `APP_VERSION` (semver, e.g. `v1.0.0`) — bump for app-level changes: prompt text, portfolio rules, universe, ranking methodology, etc.
-- `MODEL_VERSION` (m-series, e.g. `m2.0`) — bump for AI model changes: provider swap, model upgrade, temperature/token tuning, etc.
-- `STRATEGY_CONFIG` contains all version-sensitive parameters: prompt name/version, model provider/name/version, portfolio size, weighting method, rebalance settings, description, and `name` (e.g. AIT-1 Daneel). The strategy slug and prompt version string are derived from both versions.
-- `GIT_COMMIT_SHA` captures the deploy commit (from `VERCEL_GIT_COMMIT_SHA`) and is stored in `ai_run_batches.git_commit_sha` for traceability.
-- The cron job's mismatch guard prevents silent config mutation: if you change config values without bumping the relevant version (which changes the slug), the cron throws an error.
+- `APP_VERSION` (semver, e.g. `v1.0.1`) — sole lineage axis. Bump for all changes: prompt text, model, portfolio rules, universe, ranking, etc.
+- `STRATEGY_CONFIG` re-exports from the registry: canonical slug (`ait-1-daneel`), display name, aitCode, robotName, prompt, model, and defaultPortfolio tracking params.
+- `GIT_COMMIT_SHA` captures the deploy commit (from `VERCEL_GIT_COMMIT_SHA`) stored in `ai_run_batches.git_commit_sha`.
+- **Cron mismatch guard** (structural params only): throws if `index_name`, `rebalance_frequency`, `portfolio_size`, `weighting_method`, or `transaction_cost_bps` differ for the existing slug. Non-structural changes (`version`, `prompt_id`, `model_id`, `name`, `description`) are updated in-place.
+- `MODEL_VERSION` is **removed**. All changes (prompt, model, portfolio rules) use `APP_VERSION`.
 
-**Important**: When modifying `src/lib/aiPrompt.ts` (prompt template, Zod schema, or rating logic), you MUST bump `APP_VERSION` in `src/lib/strategyConfig.ts`. When changing the AI model, bump `MODEL_VERSION` instead.
+**Important**: When modifying `src/lib/aiPrompt.ts` or the AI model/prompt settings, bump `appVersion` in the active registry entry in `src/lib/ai-strategy-registry.ts` (which automatically bumps `APP_VERSION`). To create a new strategy lineage, add a new entry to `AI_STRATEGIES` with a new `aitCode` and `slug`.
 
 Important: if you suggest changes to supabase/schema.sql, you must also suggest an SQL editor function to implement those changes in supabase.
 
 You must also keep this file up to date.
 
-## Tables (5 layers)
+## Two-layer Architecture
 
-**Reference data**: `stocks` (canonical stock registry, `symbol` unique), `ai_prompts` (versioned by name+version), `ai_models` (versioned by provider+name+version).
+- **Layer A (AI rating model)**: `strategy_models` defines the AI strategy (prompt, model, universe, tracking portfolio). This is the rating engine.
+- **Layer B (portfolios)**: `portfolio_configs` defines how a portfolio is built from the ratings (risk level, rebalance frequency, weighting, top_n). Users configure this layer independently.
 
-**NASDAQ-100 membership**: `nasdaq100_snapshots` (one row per distinct membership list, deduped by SHA-256 hash), `nasdaq100_snapshot_stocks` (join table: snapshot ↔ stocks), `nasdaq_100_daily_raw` (raw NASDAQ API data, not FK'd to stocks).
+## Tables (6 layers)
 
-**Strategy/version control**: `trading_strategies` (immutable strategy versions; prompt/model/portfolio settings; `name` is single display name e.g. AIT-1 Daneel), `ai_run_batches` (groups AI runs by run_date + strategy_id; includes `git_commit_sha` for traceability to the deploy commit), `ai_analysis_runs` (one row = one stock + one AI output; score -5 to +5, latent_rank 0-1 tie-breaker, bucket buy/hold/sell, linked to batch).
+**Reference data**: `stocks`, `ai_prompts`, `ai_models`.
 
-**Portfolio/performance + research**: `strategy_portfolio_holdings` (weekly Top-20 holdings with equal weights), `strategy_rebalance_actions` (enter/exit_rank/exit_index actions), `strategy_performance_weekly` (weekly net/gross return, turnover, transaction cost, equity curve + benchmark equities), `strategy_quintile_returns` (weekly/4-week quintile forward returns), `strategy_cross_sectional_regressions` (weekly alpha/beta/R² on future returns vs rating).
+**NASDAQ-100 membership**: `nasdaq100_snapshots`, `nasdaq100_snapshot_stocks`, `nasdaq_100_daily_raw`.
 
-**Frontend-facing**: `nasdaq100_recommendations_current` (latest score/bucket/latent_rank per NASDAQ-100 member, one row per stock), views `nasdaq100_scores_7d_view` (rolling 7-run avg), `nasdaq100_current_members`, `nasdaq100_latest_snapshot`.
+**Strategy/version control (Layer A)**: `strategy_models` (canonical slug + AIT identity fields `ait_code` + `robot_name`; structural params define the rating engine; no `unique(name, version)` — slug is the sole identity), `ai_run_batches`, `ai_analysis_runs`.
 
-**User tables**: `user_profiles` (linked 1:1 to Supabase `auth.users`, includes `subscription_tier`, auto-created/kept in sync via triggers on `auth.users`, and stores Stripe webhook ordering metadata in `stripe_last_event_id` + `stripe_last_event_created` + `stripe_subscription_status`), `newsletter_subscribers` (auto-links to `auth.users` via `user_id` when emails match through DB triggers, including backfill behavior, and enforces case-insensitive unique email via `lower(email)` unique index), `user_portfolio_stocks` (user-managed saved holdings / watchlist rows keyed by `user_id + stock_id`, includes `notify_on_change` for future alert preferences and is preserved by `reset.sql`).
+**Model-layer performance + research**: `strategy_portfolio_holdings`, `strategy_rebalance_actions`, `strategy_performance_weekly`, `strategy_quintile_returns`, `strategy_cross_sectional_regressions`.
+
+**Portfolio configs (Layer B)**: `portfolio_configs` (risk 1-5 × 4 freq × 2 weighting + risk 6 × 4 freq × equal only = 44 configs; risk 6 has top_n=1 so cap/equal are identical, only equal kept). Display names: `label` = `Top {n} · Equal|Cap · Weekly|Monthly|Quarterly|Yearly`; `risk_label` = tier badge (Conservative, Balanced, …). Canonical formatter: `src/lib/portfolio-config-display.ts` + migration `20260320140000_portfolio_config_display_labels.sql`. `strategy_portfolio_config_performance` (config-scoped performance rows keyed by strategy_id + config_id + run_date; includes `strategy_status` (in_progress/active), `compute_status` (pending/ready/failed), `next_rebalance_date`), `portfolio_config_compute_queue` (compute queue; service role only).
+
+**User portfolio tables**: `user_portfolio_profiles` (active profiles per user; stores `config_id`, `investment_size`, `user_start_date`, `notifications_enabled`, `is_starting_portfolio` — set on onboarding follow for the “Starting portfolio” badge — separate from model-level performance), `user_overview_slot_assignments` (`user_id`, `slot_number` ≥ 1, `profile_id`; unique `(user_id, slot_number)` — platform overview grid; the same `profile_id` may appear in multiple slots), `user_portfolio_positions` (holdings snapshot per profile), plus existing `user_portfolio_stocks` (watchlist/saved holdings).
+
+**Frontend-facing**: `nasdaq100_recommendations_current`, views `nasdaq100_scores_7d_view`, `nasdaq100_current_members`, `nasdaq100_latest_snapshot`.
+
+**User account tables**: `user_profiles`, `newsletter_subscribers`.
 
 ## Key conventions
 
 - All PKs are UUID (`gen_random_uuid()`).
 - The cron job uses `createAdminClient()` (service role key), bypassing RLS.
 - Frontend reads use anon/authenticated key with RLS policies.
-- Weekly strategy rules: rank all 100 weekly, build Top-20 equal-weight, rebalance weekly, apply turnover cost (15 bps), and track benchmark-relative equity curves.
+- Cron precomputes ALL 48 configs via fan-out orchestrator (`/api/internal/compute-portfolio-configs-batch` → parallel `/api/internal/compute-portfolio-config` workers). Quarterly/yearly configs track weekly equity in buy-and-hold between rebalances. Manual backfill: `npm run backfill-configs`.
+- **Model performance vs. user performance are always separate**: `strategy_performance_weekly` and `strategy_portfolio_config_performance` track the strategy since inception; `user_portfolio_profiles.user_start_date` tracks the user's entry point.
 - When modifying the schema, update `supabase/schema.sql`, `supabase/rls_policies.sql`, the cron job, and this rule file.
-- When modifying strategy parameters, prompt, or portfolio rules, bump `APP_VERSION` in `src/lib/strategyConfig.ts`. When changing the AI model, bump `MODEL_VERSION` instead.
+- When modifying strategy parameters, prompt, model, or portfolio rules, bump `appVersion` in the active `AI_STRATEGIES` entry in `src/lib/ai-strategy-registry.ts`.
+- SQL helper functions: `public.backfill_portfolio_config_mappings()` (backfills default config performance from weekly data), `public.verify_strategy_model_migration()` (validates FK integrity and slug uniqueness).

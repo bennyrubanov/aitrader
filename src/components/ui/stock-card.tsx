@@ -24,7 +24,7 @@ const StockCard: React.FC<StockCardProps> = ({
   const router = useRouter();
   const authState = useAuthState();
   const canAccessPremium = hasPremiumAccess ?? authState.hasPremiumAccess;
-  const premiumCtaHref = canAccessPremium ? "/platform/current" : authState.isAuthenticated ? "/pricing" : "/sign-up";
+  const premiumCtaHref = canAccessPremium ? "/platform/overview" : authState.isAuthenticated ? "/pricing" : "/sign-up";
   const { symbol, name, isPremium, price, change, aiRating } = stock;
 
   const isPositive = change && change > 0;
@@ -39,7 +39,7 @@ const StockCard: React.FC<StockCardProps> = ({
       title: "You already have access",
       description: "Opening your platform dashboard.",
     });
-    router.push("/platform/current");
+    router.push("/platform/overview");
   };
 
   return (

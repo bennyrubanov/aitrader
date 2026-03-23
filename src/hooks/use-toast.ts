@@ -7,7 +7,8 @@ import type {
   ToastProps,
 } from "@/components/ui/toast"
 
-const TOAST_LIMIT = 1
+/** Stack several notifications vertically (see ToastViewport gap); avoid a single z-stacked slot. */
+const TOAST_LIMIT = 6
 const TOAST_REMOVE_DELAY = 1000000
 
 type ToasterToast = ToastProps & {

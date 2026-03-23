@@ -59,7 +59,7 @@ const AboutPage = () => {
                   successfully identify patterns and opportunities in financial markets. Published
                   studies in Finance Research Letters — the top-ranked journal in Business Finance —
                   show that AI models like the ones we use can meaningfully improve investment
-                  decisions, from stock selection to portfolio construction.
+                  decisions, from stock selection to how portfolios are built.
                 </p>
                 <p className="text-foreground/90">
                   We&apos;re putting these findings to the test in the real world. Every rating,

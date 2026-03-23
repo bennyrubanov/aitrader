@@ -24,12 +24,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  SIDEBAR_MENU_TRAILING_CLASSNAME,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
 import { PlanLabel } from "@/components/account/plan-label";
+import type { SubscriptionTier } from "@/lib/auth-state";
 
 type NavUserProps = {
   user: {
@@ -37,6 +39,7 @@ type NavUserProps = {
     email: string;
     avatar: string;
     isPremium: boolean;
+    subscriptionTier?: SubscriptionTier;
     isAuthenticated: boolean;
   };
   onOpenAccount: () => void;
@@ -56,7 +59,7 @@ export function NavUser({
   onSignOut,
   onSignIn,
 }: NavUserProps) {
-  const { isMobile } = useSidebar();
+  const { isMobile, sidebarMode, setSidebarHoverExpanded, setSidebarNavMenuOpen } = useSidebar();
 
   const initials = useMemo(() => {
     const source = user.name || user.email || "U";
@@ -76,14 +79,16 @@ export function NavUser({
             onClick={onSignIn}
             className="bg-sidebar-accent/60 hover:bg-sidebar-accent"
           >
-            <Avatar className="h-7 w-7 rounded-full">
+            <Avatar className="h-7 w-7 shrink-0 rounded-full">
               <AvatarFallback className="rounded-full">{initials}</AvatarFallback>
             </Avatar>
-            <div className="grid flex-1 text-left text-sm leading-tight">
-              <span className="truncate font-medium">Guest</span>
-              <span className="truncate text-xs">Sign in to access account</span>
-            </div>
-            <LogIn className="ml-auto size-3.5" />
+            <span className={SIDEBAR_MENU_TRAILING_CLASSNAME}>
+              <div className="grid min-w-0 flex-1 text-left text-sm leading-tight">
+                <span className="truncate font-medium">Guest</span>
+                <span className="truncate text-xs">Sign in to access account</span>
+              </div>
+              <LogIn className="ml-auto size-3.5 shrink-0" />
+            </span>
           </SidebarMenuButton>
         </SidebarMenuItem>
       </SidebarMenu>
@@ -93,21 +98,30 @@ export function NavUser({
   return (
     <SidebarMenu>
       <SidebarMenuItem>
-        <DropdownMenu>
+        <DropdownMenu
+          onOpenChange={(open) => {
+            setSidebarNavMenuOpen(open);
+            if (sidebarMode === 'hover_expand' && open) {
+              setSidebarHoverExpanded(true);
+            }
+          }}
+        >
           <DropdownMenuTrigger asChild>
             <SidebarMenuButton
               size="lg"
               className="bg-sidebar-accent/60 hover:bg-sidebar-accent data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
             >
-              <Avatar className="h-7 w-7 rounded-full">
+              <Avatar className="h-7 w-7 shrink-0 rounded-full">
                 <AvatarImage src={user.avatar} alt={user.name} />
                 <AvatarFallback className="rounded-full">{initials}</AvatarFallback>
               </Avatar>
-              <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-medium">{user.name}</span>
-                <span className="truncate text-xs">{user.email}</span>
-              </div>
-              <ChevronsUpDown className="ml-auto size-3.5" />
+              <span className={SIDEBAR_MENU_TRAILING_CLASSNAME}>
+                <div className="grid min-w-0 flex-1 text-left text-sm leading-tight">
+                  <span className="truncate font-medium">{user.name}</span>
+                  <span className="truncate text-xs">{user.email}</span>
+                </div>
+                <ChevronsUpDown className="ml-auto size-3.5 shrink-0" />
+              </span>
             </SidebarMenuButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent
@@ -131,7 +145,10 @@ export function NavUser({
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
               <DropdownMenuItem onSelect={onUpgrade} className="gap-2">
-                <PlanLabel isPremium={user.isPremium} className="text-trader-blue font-medium" />
+                <PlanLabel
+                  isPremium={user.isPremium}
+                  subscriptionTier={user.subscriptionTier}
+                />
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />

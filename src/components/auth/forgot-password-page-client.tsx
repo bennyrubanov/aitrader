@@ -24,7 +24,7 @@ export function ForgotPasswordPageClient() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const nextPath = useMemo(
-    () => sanitizeNextPath(searchParams.get("next"), "/platform/current"),
+    () => sanitizeNextPath(searchParams.get("next"), "/platform/overview"),
     [searchParams]
   );
 

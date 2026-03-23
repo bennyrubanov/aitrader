@@ -1,0 +1,12 @@
+---
+description: Product language for user entry vs model inception (UI and API error strings)
+alwaysApply: true
+---
+
+# Entry vs inception (copy)
+
+- **User following / personal track** — Talk about **entry**: when the user enters, their entry, since they entered, “when you enter” in forms. Prefer natural phrasing; do **not** repeat the stiff phrase “entry date” in every label unless clarity needs it. The DB column remains `user_start_date`.
+
+- **Model / strategy track** — Talk about **inception**: since inception, from inception, at inception. This is **not** the user’s entry.
+
+- **Do not** mix these metaphors in the same sentence (e.g. do not describe the model’s curve using “your entry”).

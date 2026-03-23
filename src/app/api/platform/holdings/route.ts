@@ -1,6 +1,13 @@
 import { NextResponse } from 'next/server';
+import { createAdminClient } from '@/utils/supabase/admin';
 import { createClient } from '@/utils/supabase/server';
-import { getHoldingsForStrategy, getPerformancePayloadBySlug, getPlatformPerformancePayload } from '@/lib/platform-performance-payload';
+import { getPortfolioConfigHoldings } from '@/lib/portfolio-config-holdings';
+import {
+  getHoldingsForStrategy,
+  getPerformancePayloadBySlug,
+  getPlatformPerformancePayload,
+  getPortfolioRunDates,
+} from '@/lib/platform-performance-payload';
 
 export const runtime = 'nodejs';
 
@@ -27,6 +34,10 @@ export async function GET(req: Request) {
 
   const { searchParams } = new URL(req.url);
   const slug = searchParams.get('slug');
+  const riskParam = searchParams.get('risk');
+  const frequency = searchParams.get('frequency');
+  const weighting = searchParams.get('weighting');
+  const asOfDateParam = searchParams.get('asOfDate');
 
   let strategyId: string | null = null;
   let runDate: string | null = null;
@@ -41,10 +52,66 @@ export async function GET(req: Request) {
     runDate = payload.latestRunDate ?? null;
   }
 
-  if (!strategyId || !runDate) {
-    return NextResponse.json([]);
+  if (!strategyId) {
+    return NextResponse.json({
+      holdings: [],
+      asOfDate: null,
+      configSummary: null,
+      rebalanceDates: [] as string[],
+    });
   }
 
-  const holdings = await getHoldingsForStrategy(strategyId, runDate);
-  return NextResponse.json(holdings);
+  const hasConfigParams =
+    slug &&
+    riskParam != null &&
+    riskParam !== '' &&
+    frequency &&
+    weighting &&
+    ['equal', 'cap'].includes(weighting);
+
+  if (hasConfigParams) {
+    const riskLevel = parseInt(riskParam, 10);
+    if (!Number.isNaN(riskLevel) && riskLevel >= 1 && riskLevel <= 6) {
+      const admin = createAdminClient();
+      const asOfRunDate =
+        asOfDateParam && /^\d{4}-\d{2}-\d{2}$/.test(asOfDateParam) ? asOfDateParam : null;
+      const { holdings, asOfDate, configSummary, rebalanceDates } = await getPortfolioConfigHoldings(
+        admin,
+        strategyId,
+        riskLevel,
+        frequency,
+        weighting,
+        asOfRunDate
+      );
+      return NextResponse.json({
+        holdings,
+        asOfDate,
+        configSummary,
+        rebalanceDates,
+      });
+    }
+  }
+
+  const weeklyDates = await getPortfolioRunDates(strategyId);
+  const fallbackRunDate =
+    asOfDateParam && weeklyDates.includes(asOfDateParam)
+      ? asOfDateParam
+      : (runDate ?? weeklyDates[0] ?? null);
+
+  if (!fallbackRunDate) {
+    return NextResponse.json({
+      holdings: [],
+      asOfDate: null,
+      configSummary: null,
+      rebalanceDates: weeklyDates,
+    });
+  }
+
+  const holdings = await getHoldingsForStrategy(strategyId, fallbackRunDate);
+  return NextResponse.json({
+    holdings,
+    asOfDate: fallbackRunDate,
+    configSummary: null,
+    rebalanceDates: weeklyDates,
+  });
 }

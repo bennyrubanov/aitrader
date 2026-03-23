@@ -22,7 +22,7 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json()) as PasswordResetRequest;
     const email = body.email?.trim().toLowerCase() ?? "";
-    const nextPath = sanitizeNextPath(body.nextPath, "/platform/current");
+    const nextPath = sanitizeNextPath(body.nextPath, "/platform/overview");
 
     if (!isValidEmail(email)) {
       return NextResponse.json({ error: "Invalid email." }, { status: 400 });

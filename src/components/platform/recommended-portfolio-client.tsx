@@ -3,12 +3,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
+  AlertTriangle,
   ArrowRight,
   Calendar,
-  ChevronDown,
   Info,
   Loader2,
 } from 'lucide-react';
+import {
+  usePortfolioConfig,
+  RISK_LABELS,
+  FREQUENCY_LABELS,
+} from '@/components/portfolio-config';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -76,6 +81,7 @@ function formatDate(d: string): string {
 const pctStr = (v: number | null) => (v !== null ? `${(v * 100).toFixed(2)}%` : '-');
 
 export function RecommendedPortfolioClient() {
+  const { config, riskLabel, topN, frequencyLabel, dataNote } = usePortfolioConfig();
   const [payload, setPayload] = useState<PortfolioPayload | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSwitching, setIsSwitching] = useState(false);
@@ -138,14 +144,16 @@ export function RecommendedPortfolioClient() {
 
   return (
     <TooltipProvider delayDuration={150}>
-      <div className="flex h-full flex-col">
+      <div className="flex h-full min-h-0 flex-1 flex-col">
         {/* Sticky toolbar */}
         <div className="sticky top-0 z-30 border-b bg-background/95 px-4 py-3 backdrop-blur-sm sm:px-6">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="min-w-0 space-y-0.5">
               <h2 className="text-base font-semibold">Recommended portfolio</h2>
               <p className="text-xs text-muted-foreground">
-                Based on {strategy.name} · Top {strategy.portfolioSize} · {strategy.weightingMethod === 'equal' ? 'Equal weight' : 'Cap weight'} · Rebalance {strategy.rebalanceFrequency}
+                Based on {strategy.name} · {riskLabel} · Top {topN} ·{' '}
+                {config.weightingMethod === 'equal' ? 'Equal weight' : 'Cap weight'} ·{' '}
+                Rebalance {frequencyLabel}
               </p>
             </div>
 
@@ -194,6 +202,26 @@ export function RecommendedPortfolioClient() {
           </div>
         </div>
 
+        {/* Portfolio config context bar */}
+        <div className="flex items-center gap-2 border-b px-4 py-2 sm:px-6">
+          <div className="flex flex-1 flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+            <span>
+              Config: <span className="font-medium text-foreground">{riskLabel}</span> · Top {topN} ·{' '}
+              <span className="font-medium text-foreground">{frequencyLabel}</span> ·{' '}
+              {config.weightingMethod === 'equal' ? 'Equal weight' : 'Cap weight'}
+            </span>
+          </div>
+        </div>
+
+        {/* Data note for non-weekly configs */}
+        {dataNote && (
+          <div className="flex items-start gap-2 border-b bg-amber-50 px-4 py-2.5 text-xs text-amber-700 dark:bg-amber-950/30 dark:text-amber-400 sm:px-6">
+            <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+            <span>{dataNote}. Showing weekly data as a baseline. Performance tracking for this configuration is being computed.</span>
+          </div>
+        )}
+
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
         {/* Strategy summary cards */}
         <div className="grid grid-cols-2 gap-3 px-4 pt-4 sm:grid-cols-4 sm:px-6">
           <MetricCard label="Total return" value={pctStr(strategy.totalReturn)} />
@@ -203,7 +231,7 @@ export function RecommendedPortfolioClient() {
         </div>
 
         {/* Holdings table */}
-        <div className="flex-1 px-4 py-4 sm:px-6">
+        <div className="px-4 py-4 sm:px-6">
           {isSwitching ? (
             <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin" />
@@ -260,6 +288,7 @@ export function RecommendedPortfolioClient() {
               </Link>.
             </span>
           </div>
+        </div>
         </div>
       </div>
     </TooltipProvider>

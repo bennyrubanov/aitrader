@@ -30,7 +30,7 @@ function UpdatePasswordPageContent() {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   const nextPath = useMemo(
-    () => sanitizeNextPath(searchParams.get("next"), "/platform/current"),
+    () => sanitizeNextPath(searchParams.get("next"), "/platform/overview"),
     [searchParams],
   );
 

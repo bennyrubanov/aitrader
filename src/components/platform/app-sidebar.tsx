@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   ArrowUpRight,
   BarChart3,
-  Briefcase,
+  Compass,
   Cpu,
   FlaskConical,
   Folders,
@@ -16,24 +16,25 @@ import {
   MessageSquare,
 } from 'lucide-react';
 import {
+  SIDEBAR_MENU_TRAILING_CLASSNAME,
   Sidebar,
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
-  SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarSeparator,
 } from '@/components/ui/sidebar';
 import { NavMain } from '@/components/platform/nav-main';
 import { NavSecondary } from '@/components/platform/nav-secondary';
 import { NavUser } from '@/components/platform/nav-user';
 import { getSupabaseBrowserClient } from '@/utils/supabase/browser';
 import { useAuthState } from '@/components/auth/auth-state-context';
-import { PlanLabel } from '@/components/account/plan-label';
 import { navigateWithFallback } from '@/lib/client-navigation';
 import { Disclaimer } from '@/components/Disclaimer';
+import { cn } from '@/lib/utils';
 
 type NavItem = {
   title: string;
@@ -53,19 +54,19 @@ const mainItems: NavItem[] = [
 
 const platformItems: NavItem[] = [
   {
-    title: "This Week's Ratings",
+    title: 'Stock Ratings',
     href: '/platform/ratings',
     icon: ListOrdered,
   },
   {
-    title: 'Recommended Portfolio',
-    href: '/platform/recommended-portfolio',
-    icon: Briefcase,
+    title: 'Your Portfolios',
+    href: '/platform/your-portfolios',
+    icon: Folders,
   },
   {
-    title: 'Your Portfolio',
-    href: '/platform/your-portfolio',
-    icon: Folders,
+    title: 'Explore Portfolios',
+    href: '/platform/explore-portfolios',
+    icon: Compass,
   },
 ];
 
@@ -99,6 +100,9 @@ const isItemActive = (pathname: string, href: string) => {
 export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
+  const isExplorePortfolios =
+    pathname === '/platform/explore-portfolios' ||
+    pathname.startsWith('/platform/explore-portfolios/');
   const authState = useAuthState();
   const account = {
     name: authState.name,
@@ -122,6 +126,7 @@ export function AppSidebar() {
       ...platformItems.flatMap((item) => (item.href ? [item.href] : [])),
       ...advancedItems.flatMap((item) => (item.href ? [item.href] : [])),
       '/platform/settings',
+      '/performance',
       '/strategy-models',
     ];
     const prefetchAllRoutes = () => {
@@ -213,46 +218,16 @@ export function AppSidebar() {
     <Sidebar
       className="top-[var(--header-height)] h-[calc(100svh-var(--header-height))]!"
       variant="inset"
+      collapsible="icon"
     >
-      <SidebarHeader>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton size="lg" asChild>
-              <button type="button" onClick={() => openPath('/platform/settings')}>
-                <div className="grid flex-1 text-left text-sm leading-tight">
-                  <PlanLabel
-                    isPremium={account.isPremium}
-                    subscriptionTier={account.subscriptionTier}
-                    className={`truncate text-xs uppercase tracking-[0.18em] ${
-                      account.isPremium
-                        ? '-skew-x-12 text-trader-blue font-semibold'
-                        : 'text-sidebar-foreground/70'
-                    }`}
-                    iconClassName="size-3.5"
-                  />
-                </div>
-              </button>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
-      </SidebarHeader>
-      <SidebarContent>
+      <SidebarContent
+        className={cn(
+          // Match main inset: md+ uses m-2 on SidebarInset + p-6 in shell → 8px + 24px to first line.
+          isExplorePortfolios && 'pt-px md:pt-[17px]'
+        )}
+      >
         <NavMain
-          items={mainItems.map((item) => ({
-            title: item.title,
-            url: item.href,
-            icon: item.icon,
-            isActive: item.href ? isItemActive(pathname, item.href) : false,
-            onNavigate: handleNavigateStart,
-            onPrefetch: handlePrefetchIntent,
-            disabled: item.disabled,
-            badge: item.badge,
-          }))}
-          label="Overview"
-          hideLabel
-        />
-        <NavMain
-          items={platformItems.map((item) => ({
+          items={[...mainItems, ...platformItems].map((item) => ({
             title: item.title,
             url: item.href,
             icon: item.icon,
@@ -263,6 +238,9 @@ export function AppSidebar() {
             badge: item.badge,
           }))}
           label="Platform"
+          groupClassName={
+            isExplorePortfolios ? 'px-2 pb-2 pt-0' : undefined
+          }
         />
         <NavMain
           items={advancedItems.map((item) => ({
@@ -277,32 +255,38 @@ export function AppSidebar() {
           }))}
           label="Advanced Features"
         />
-        <SidebarGroup className="mt-auto">
+
+      </SidebarContent>
+      <SidebarFooter className="sticky bottom-0 z-10 bg-sidebar">
+        <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild tooltip="Performance (outside platform)">
+                <SidebarMenuButton asChild size="sm" tooltip="Performance (public)">
                   <button type="button" onClick={() => openPath('/performance')}>
                     <BarChart3 className="size-4 shrink-0" />
-                    <span className="truncate">Performance</span>
-                    <ArrowUpRight className="ml-auto size-3.5 shrink-0 text-muted-foreground" />
+                    <span className={SIDEBAR_MENU_TRAILING_CLASSNAME}>
+                      <span className="min-w-0 flex-1 truncate">Performance</span>
+                      <ArrowUpRight className="ml-auto size-3.5 shrink-0 text-muted-foreground" />
+                    </span>
                   </button>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild tooltip="Strategy models (outside platform)">
+                <SidebarMenuButton asChild size="sm" tooltip="Strategy models & methodology (public)">
                   <button type="button" onClick={() => openPath('/strategy-models')}>
                     <Cpu className="size-4 shrink-0" />
-                    <span className="truncate">Strategy models</span>
-                    <ArrowUpRight className="ml-auto size-3.5 shrink-0 text-muted-foreground" />
+                    <span className={SIDEBAR_MENU_TRAILING_CLASSNAME}>
+                      <span className="min-w-0 flex-1 truncate">Strategy models</span>
+                      <ArrowUpRight className="ml-auto size-3.5 shrink-0 text-muted-foreground" />
+                    </span>
                   </button>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
-      </SidebarContent>
-      <SidebarFooter className="sticky bottom-0 z-10 border-t border-sidebar-border/70 bg-sidebar">
+        <SidebarSeparator className="my-0" />
         <NavSecondary
           items={[
             {

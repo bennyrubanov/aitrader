@@ -73,8 +73,8 @@ export function WeeklyRecommendationsClient({
         <CardHeader>
           <CardTitle>Weekly rankings (all Nasdaq-100 members)</CardTitle>
           <CardDescription>
-            Constituents are rated weekly and sorted by latent rank. Portfolio construction ignores
-            bucket labels and selects the Top-20 equal-weight each rebalance.
+            Constituents are rated weekly and sorted by latent rank. The portfolio ignores bucket
+            labels and holds the Top-20 equal-weight each rebalance.
           </CardDescription>
         </CardHeader>
         <CardContent>

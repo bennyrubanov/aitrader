@@ -79,6 +79,7 @@ export type RatingsPageData = {
     isDefault: boolean;
   } | null;
   latestRunDate: string | null;
+  availableRunDates: string[];
 };
 
 type RatingsStrategyRow = {
@@ -309,7 +310,7 @@ const getWeeklyRecommendationsDataCached = unstable_cache(
       const supabase = createPublicClient();
 
       const { data: strategy, error: strategyError } = await supabase
-        .from('trading_strategies')
+        .from('strategy_models')
         .select('id')
         .eq('is_default', true)
         .order('created_at', { ascending: false })
@@ -420,12 +421,12 @@ export const getDailyRecommendationsData = async () => getDailyRecommendationsDa
 export const getWeeklyRecommendationsData = async () => getWeeklyRecommendationsDataCached();
 
 const getRatingsPageDataCached = unstable_cache(
-  async (strategySlug: string | null = null): Promise<RatingsPageData> => {
+  async (strategySlug: string | null = null, runDate: string | null = null): Promise<RatingsPageData> => {
     try {
       const supabase = createAdminClient();
 
       let strategyQuery = supabase
-        .from('trading_strategies')
+        .from('strategy_models')
         .select('id, slug, name, is_default')
         .limit(1);
 
@@ -443,18 +444,18 @@ const getRatingsPageDataCached = unstable_cache(
           errorMessage: 'No strategy version is available yet.',
           strategy: null,
           latestRunDate: null,
+          availableRunDates: [],
         };
       }
 
-      const { data: batches, error: batchError } = await supabase
+      const { data: allBatches, error: allBatchError } = await supabase
         .from('ai_run_batches')
         .select('id, run_date')
         .eq('strategy_id', strategy.id)
         .eq('run_frequency', 'weekly')
-        .order('run_date', { ascending: false })
-        .limit(4);
+        .order('run_date', { ascending: false });
 
-      if (batchError || !batches?.length) {
+      if (allBatchError || !allBatches?.length) {
         return {
           rows: [],
           errorMessage: 'No weekly AI runs are available yet.',
@@ -465,19 +466,29 @@ const getRatingsPageDataCached = unstable_cache(
             isDefault: strategy.is_default,
           },
           latestRunDate: null,
+          availableRunDates: [],
         };
       }
 
-      const latestBatch = batches[0];
-      const latestRunDate = latestBatch.run_date ?? null;
-      const batchIds = batches.map((batch) => batch.id);
+      const availableRunDates = allBatches.map((b) => b.run_date).filter(Boolean) as string[];
 
-      const previousBatch = batches[1] ?? null;
-      const comparisonBatchIds = previousBatch ? [latestBatch.id, previousBatch.id] : [latestBatch.id];
+      const selectedBatch = runDate
+        ? allBatches.find((b) => b.run_date === runDate) ?? allBatches[0]
+        : allBatches[0];
+      const selectedIdx = allBatches.findIndex((b) => b.id === selectedBatch.id);
+      const latestRunDate = selectedBatch.run_date ?? null;
+
+      const contextBatches = allBatches.slice(selectedIdx, selectedIdx + 4);
+      const batchIds = contextBatches.map((batch) => batch.id);
+
+      const previousBatch = contextBatches[1] ?? null;
+      const comparisonBatchIds = previousBatch ? [selectedBatch.id, previousBatch.id] : [selectedBatch.id];
+
+      const isLatestRun = selectedBatch.id === allBatches[0].id;
 
       const [baseResponse, holdingsResponse, batchScoresResponse, rankingHistoryResponse, latestPriceDateResponse] =
         await Promise.all([
-        strategy.is_default && !strategySlug
+        strategy.is_default && !strategySlug && isLatestRun
           ? supabase
               .from('nasdaq100_recommendations_current')
               .select(
@@ -488,7 +499,7 @@ const getRatingsPageDataCached = unstable_cache(
               .select(
                 'stock_id, score, latent_rank, score_delta, bucket, reason_1s, created_at, stocks(symbol, company_name)'
               )
-              .eq('batch_id', latestBatch.id),
+              .eq('batch_id', selectedBatch.id),
         supabase
           .from('strategy_portfolio_holdings')
           .select('stock_id')
@@ -513,7 +524,7 @@ const getRatingsPageDataCached = unstable_cache(
       if (baseResponse.error || holdingsResponse.error || batchScoresResponse.error || rankingHistoryResponse.error) {
         return {
           rows: [],
-          errorMessage: "Unable to load this week's ratings right now.",
+          errorMessage: 'Unable to load stock ratings right now.',
           strategy: {
             id: strategy.id,
             slug: strategy.slug,
@@ -521,6 +532,7 @@ const getRatingsPageDataCached = unstable_cache(
             isDefault: strategy.is_default,
           },
           latestRunDate,
+          availableRunDates,
         };
       }
 
@@ -559,7 +571,7 @@ const getRatingsPageDataCached = unstable_cache(
       });
 
       const baseRows: RatingsBaseRow[] = (
-        strategy.is_default && !strategySlug
+        strategy.is_default && !strategySlug && isLatestRun
           ? ((baseResponse.data ?? []) as CurrentRecommendationRow[]).map((row) => {
               const stock = getFirstJoinRow(row.stocks);
               if (!stock?.symbol) {
@@ -597,7 +609,7 @@ const getRatingsPageDataCached = unstable_cache(
       ).filter((row): row is RatingsBaseRow => Boolean(row));
 
       const rankingRows = (rankingHistoryResponse.data ?? []) as BatchRankingRow[];
-      const latestRankingRows = rankingRows.filter((row) => row.batch_id === latestBatch.id);
+      const latestRankingRows = rankingRows.filter((row) => row.batch_id === selectedBatch.id);
       const previousRankingRows = previousBatch
         ? rankingRows.filter((row) => row.batch_id === previousBatch.id)
         : [];
@@ -640,13 +652,15 @@ const getRatingsPageDataCached = unstable_cache(
           isDefault: strategy.is_default,
         },
         latestRunDate,
+        availableRunDates,
       };
     } catch {
       return {
         rows: [],
-        errorMessage: "Unable to load this week's ratings right now.",
+        errorMessage: 'Unable to load stock ratings right now.',
         strategy: null,
         latestRunDate: null,
+        availableRunDates: [],
       };
     }
   },
@@ -654,5 +668,5 @@ const getRatingsPageDataCached = unstable_cache(
   { revalidate: 300 }
 );
 
-export const getRatingsPageData = async (strategySlug?: string | null) =>
-  getRatingsPageDataCached(strategySlug ?? null);
+export const getRatingsPageData = async (strategySlug?: string | null, runDate?: string | null) =>
+  getRatingsPageDataCached(strategySlug ?? null, runDate ?? null);

@@ -45,12 +45,17 @@ import { useAuthState } from "@/components/auth/auth-state-context";
 import { PlanLabel } from "@/components/account/plan-label";
 import { navigateWithFallback } from "@/lib/client-navigation";
 
-const platformNavItems = [
-  { label: "Strategy Models", href: "/strategy-models", icon: FlaskConical },
+const platformNavItems: PlatformNavItem[] = [
   { label: "Performance", href: "/performance", icon: Gauge },
+  { label: "Strategy Models", href: "/strategy-models", icon: FlaskConical },
   { label: "Pricing & Features", href: "/pricing", icon: Landmark },
-  { label: "Explore Platform", href: "/platform/ratings", icon: LayoutDashboard },
-] as const;
+  {
+    label: "Explore Platform",
+    href: "/platform/overview",
+    icon: LayoutDashboard,
+    trailingArrow: true,
+  },
+];
 
 const resourcesNavItems = [
   { label: "Roadmap & Changelog", href: "/roadmap-changelog", icon: Map },
@@ -71,11 +76,13 @@ type NavItem = {
   icon: LucideIcon;
 };
 
+type PlatformNavItem = NavItem & { trailingArrow?: boolean };
+
 const MARKETING_PREFETCH_ROUTES = [
   "/",
   "/strategy-models",
   "/performance",
-  "/platform/ratings",
+  "/platform/overview",
   "/platform/settings",
   "/pricing",
   "/blog",
@@ -104,8 +111,9 @@ const Navbar: React.FC = () => {
   const authState = useAuthState();
   const isAuthenticated = authState.isAuthenticated;
   const hasPremiumAccess = authState.hasPremiumAccess;
+  const subscriptionTier = authState.subscriptionTier;
   const isFreeSignedIn = isAuthenticated && !hasPremiumAccess;
-  const primaryCtaHref = isAuthenticated ? "/platform/ratings" : "/sign-up";
+  const primaryCtaHref = isAuthenticated ? "/platform/overview" : "/sign-up";
   const isAuthLoading = !authState.isLoaded;
   const account = {
     name: authState.name,
@@ -300,7 +308,7 @@ const Navbar: React.FC = () => {
             }
             className="gap-2"
           >
-            <PlanLabel isPremium={hasPremiumAccess} className="text-trader-blue font-medium" />
+            <PlanLabel isPremium={hasPremiumAccess} subscriptionTier={subscriptionTier} />
           </DropdownMenuItem>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
@@ -392,7 +400,7 @@ const Navbar: React.FC = () => {
                 }`}
               >
                 <div className="rounded-xl border border-border bg-card/95 p-2 shadow-lg backdrop-blur-sm">
-                  {platformNavItems.map((item: NavItem) => (
+                  {platformNavItems.map((item) => (
                     <Link
                       key={item.href}
                       href={item.href}
@@ -400,14 +408,23 @@ const Navbar: React.FC = () => {
                       onMouseEnter={() => handlePrefetch(item.href)}
                       onFocus={() => handlePrefetch(item.href)}
                       onPointerDown={() => handlePrefetch(item.href)}
-                      className={`block rounded-lg px-3 py-2 text-sm transition-colors hover:bg-muted ${
+                      className={`flex items-center rounded-lg px-3 py-2 text-sm transition-colors hover:bg-muted ${
+                        item.trailingArrow ? "group " : ""
+                      }${
                         isActive(item.href) ? "text-foreground" : "text-muted-foreground hover:text-foreground"
                       }`}
                     >
-                      <span className="inline-flex items-center gap-2">
-                        <item.icon size={14} />
-                        {item.label}
+                      <span className="inline-flex min-w-0 flex-1 items-center gap-2">
+                        <item.icon size={14} className="shrink-0" />
+                        <span className="truncate">{item.label}</span>
                       </span>
+                      {item.trailingArrow ? (
+                        <ArrowRight
+                          size={14}
+                          className="ml-2 shrink-0 opacity-0 transition-opacity group-hover:opacity-70 group-focus-visible:opacity-70"
+                          aria-hidden
+                        />
+                      ) : null}
                     </Link>
                   ))}
                 </div>
@@ -567,7 +584,7 @@ const Navbar: React.FC = () => {
                       </AccordionTrigger>
                       <AccordionContent className="pb-1">
                         <div className="space-y-1">
-                          {platformNavItems.map((item: NavItem) => (
+                          {platformNavItems.map((item) => (
                             <SheetClose asChild key={item.href}>
                               <Link
                                 href={item.href}
@@ -576,13 +593,22 @@ const Navbar: React.FC = () => {
                                 onFocus={() => handlePrefetch(item.href)}
                                 onPointerDown={() => handlePrefetch(item.href)}
                                 className={`flex items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors hover:bg-muted ${
+                                  item.trailingArrow ? "group " : ""
+                                }${
                                   isActive(item.href)
                                     ? "text-foreground"
                                     : "text-muted-foreground hover:text-foreground"
                                 }`}
                               >
-                                <item.icon size={14} />
-                                {item.label}
+                                <item.icon size={14} className="shrink-0" />
+                                <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                                {item.trailingArrow ? (
+                                  <ArrowRight
+                                    size={14}
+                                    className="shrink-0 opacity-0 transition-opacity group-hover:opacity-70 group-focus-visible:opacity-70"
+                                    aria-hidden
+                                  />
+                                ) : null}
                               </Link>
                             </SheetClose>
                           ))}

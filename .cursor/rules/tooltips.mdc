@@ -1,0 +1,21 @@
+---
+description: Where shared UI tooltips live and how to add new ones
+globs:
+  - src/components/**/*.tsx
+  - src/components/**/*.ts
+alwaysApply: false
+---
+
+# Tooltips
+
+## Location
+
+- **Shared product tooltips** (copy + reusable trigger/body components): `src/components/tooltips/`. Import from `@/components/tooltips` (barrel: `index.ts`). Add new shared tooltip UI or copy here and export from the barrel.
+- **Radix primitives** (`Tooltip`, `TooltipContent`, `TooltipTrigger`, `TooltipProvider`): `src/components/ui/tooltip.tsx` — do not duplicate; compose shared pieces in `tooltips/` or local JSX.
+- **Chart libraries**: Recharts / `ChartTooltip` / `ChartTooltipContent` stay next to the chart component; they are not the same as Radix tooltips.
+- **String-only badge / label helpers** that drive tooltip text: may live in `src/lib/` (e.g. badge copy) when they are data, not JSX.
+
+## When adding or changing copy
+
+- Prefer **one shared module** in `src/components/tooltips/` over scattering the same explanation in multiple files.
+- Inline one-off tooltips next to a single screen are acceptable; if a second screen needs the same text, move it to `src/components/tooltips/`.

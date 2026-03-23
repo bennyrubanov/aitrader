@@ -18,7 +18,7 @@ export async function GET(request: Request) {
 
       const tier = data?.subscription_tier as string | undefined;
       const hasPremiumAccess = tier === 'supporter' || tier === 'outperformer';
-      const defaultPath = hasPremiumAccess ? '/platform/ratings' : '/pricing';
+      const defaultPath = hasPremiumAccess ? '/platform/overview' : '/pricing';
 
       const preAuthReturn = parsePreAuthReturnUrlFromCookies(request.headers.get('cookie'));
       const redirectPath = preAuthReturn ?? defaultPath;
