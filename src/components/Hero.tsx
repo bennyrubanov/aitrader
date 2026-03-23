@@ -276,7 +276,7 @@ const Hero: React.FC = () => {
                   type="button"
                   className="h-[50px] w-full sm:w-auto rounded-xl bg-trader-blue hover:bg-trader-blue-dark text-white px-6"
                 >
-                  <span className="mr-2">{isAuthenticated ? 'Platform' : 'Get started'}</span>
+                  <span className="mr-2">{isAuthenticated ? 'Platform' : 'Start for free'}</span>
                   <ArrowRight size={16} />
                 </Button>
               </Link>

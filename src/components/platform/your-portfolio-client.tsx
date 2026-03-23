@@ -13,7 +13,6 @@ import {
   Compass,
   ExternalLink,
   FolderHeart,
-  Heart,
   HelpCircle,
   Layers,
   LogIn,
@@ -94,7 +93,6 @@ export type UserPortfolioProfileRow = {
   investment_size: number | string;
   user_start_date: string | null;
   notifications_enabled: boolean;
-  is_favorited: boolean;
   is_starting_portfolio?: boolean;
   strategy_models: StrategyModelEmbed;
   portfolio_config: PortfolioConfigEmbed;
@@ -455,7 +453,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
 
   const [rankedBySlug, setRankedBySlug] = useState<Record<string, RankedConfig[]>>({});
   const [notifyPending, setNotifyPending] = useState(false);
-  const [favoritePendingId, setFavoritePendingId] = useState<string | null>(null);
   const [unfollowBusy, setUnfollowBusy] = useState(false);
   const [perfView, setPerfView] = useState<'user' | 'model'>('user');
 
@@ -469,7 +466,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         setProfiles(
           list.map((p) => ({
             ...p,
-            is_favorited: Boolean(p.is_favorited),
             is_starting_portfolio: Boolean(p.is_starting_portfolio),
           }))
         );
@@ -719,35 +715,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     }
   };
 
-  const handleToggleFavorite = async (profileId: string) => {
-    const p = profiles.find((x) => x.id === profileId);
-    if (!p) return;
-    const next = !p.is_favorited;
-    setFavoritePendingId(profileId);
-    try {
-      const res = await fetch('/api/platform/user-portfolio-profile', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ profileId, isFavorited: next }),
-      });
-      if (!res.ok) {
-        toast({ title: 'Could not update favorite', variant: 'destructive' });
-        return;
-      }
-      setProfiles((prev) =>
-        prev.map((x) => (x.id === profileId ? { ...x, is_favorited: next } : x))
-      );
-      toast({
-        title: next ? 'Pinned to overview' : 'Removed from overview',
-        description: next
-          ? 'This portfolio appears on your platform overview.'
-          : 'It no longer appears in the overview grid.',
-      });
-    } finally {
-      setFavoritePendingId(null);
-    }
-  };
-
   const handleUnfollowSelected = useCallback(async () => {
     if (!selectedProfile) return;
     setUnfollowBusy(true);
@@ -768,7 +735,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
           setProfiles((prev) =>
             prev.some((p) => p.id === profileId)
               ? prev
-              : [...prev, { ...snapshot, is_favorited: false }]
+              : [...prev, { ...snapshot }]
           );
           router.replace(
             `/platform/your-portfolio?profile=${encodeURIComponent(profileId)}`,
@@ -872,7 +839,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       )}
     >
       {/* Sidebar — same bounded scroll pattern as explore-portfolios */}
-      <aside className="flex w-full shrink-0 flex-col border-b bg-muted/20 lg:h-full lg:min-h-0 lg:w-64 lg:min-w-[14rem] lg:max-h-full lg:overflow-hidden lg:border-b-0 lg:border-r">
+      <aside className="flex w-full shrink-0 flex-col border-b bg-muted/20 lg:h-full lg:min-h-0 lg:w-72 lg:min-w-[16rem] lg:max-h-full lg:overflow-hidden lg:border-b-0 lg:border-r">
         <div
           className={cn(
             'min-h-0 flex-1 px-4 pt-2 sm:px-6 lg:min-h-0 lg:flex-1 lg:overflow-x-hidden lg:overflow-y-auto lg:overscroll-y-contain lg:px-0 lg:pr-1 lg:pt-0',
@@ -957,30 +924,40 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                     onClick={() => selectProfile(p.id)}
                     className="min-w-0 flex-1 px-3 py-2 text-left"
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 gap-y-1">
+                    <div className="flex items-start gap-1.5 min-w-0">
+                      <span
+                        className="inline-flex shrink-0 self-start pt-1"
+                        title={rowRiskTitle}
+                        aria-label={`Risk level: ${rowRiskTitle}`}
+                      >
                         <span
-                          className="inline-flex shrink-0 self-center"
-                          title={rowRiskTitle}
-                          aria-label={`Risk level: ${rowRiskTitle}`}
-                        >
-                          <span
-                            className={cn('size-2 shrink-0 rounded-full', rowRiskDot)}
-                            aria-hidden
-                          />
-                        </span>
-                        <span className="min-w-0 text-sm font-semibold text-foreground line-clamp-2">
-                          {pc?.label ?? 'Portfolio'}
-                        </span>
-                        {(rowRanked?.badges ?? []).map((b) => (
-                          <SidebarPortfolioBadgeIcon key={b} name={b} strategySlug={rowStrategySlug} />
-                        ))}
+                          className={cn('size-2 shrink-0 rounded-full', rowRiskDot)}
+                          aria-hidden
+                        />
+                      </span>
+                      <div className="min-w-0 flex-1 flex flex-col gap-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="min-w-0 text-sm font-semibold text-foreground line-clamp-2">
+                            {pc?.label ?? 'Portfolio'}
+                          </span>
+                          {rowStartAbbrev ? (
+                            <span className="shrink-0 pt-0.5 text-right text-[10px] leading-snug text-muted-foreground tabular-nums">
+                              {rowStartAbbrev}
+                            </span>
+                          ) : null}
+                        </div>
+                        {(rowRanked?.badges ?? []).length > 0 ? (
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {(rowRanked?.badges ?? []).map((b) => (
+                              <SidebarPortfolioBadgeIcon
+                                key={b}
+                                name={b}
+                                strategySlug={rowStrategySlug}
+                              />
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
-                      {rowStartAbbrev ? (
-                        <span className="shrink-0 pt-0.5 text-right text-[10px] leading-snug text-muted-foreground tabular-nums">
-                          {rowStartAbbrev}
-                        </span>
-                      ) : null}
                     </div>
                     {p.notifications_enabled && (
                       <Badge variant="secondary" className="mt-1.5 text-[9px] h-5">
@@ -988,29 +965,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                       </Badge>
                     )}
                   </button>
-                  <div className="flex shrink-0 items-start pt-1 pr-1">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="size-8 shrink-0 text-muted-foreground hover:text-rose-600"
-                      disabled={favoritePendingId === p.id}
-                      aria-label={p.is_favorited ? 'Remove from overview' : 'Pin to overview'}
-                      aria-pressed={p.is_favorited}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        void handleToggleFavorite(p.id);
-                      }}
-                    >
-                      <Heart
-                        className={cn(
-                          'size-4',
-                          p.is_favorited && 'fill-rose-500 text-rose-500'
-                        )}
-                      />
-                    </Button>
-                  </div>
                 </div>
               );
             })}
@@ -1036,12 +990,16 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                 ) : (
                   <h2 className="min-w-0 text-base font-semibold text-foreground">Portfolio</h2>
                 )}
-                {(selectedRanked?.badges ?? []).map((b) => (
-                  <PortfolioConfigBadgePill key={b} name={b} strategySlug={strategySlug} />
-                ))}
               </div>
               {entryLabel ? (
                 <p className="mt-1 text-xs text-muted-foreground">Started {entryLabel}</p>
+              ) : null}
+              {(selectedRanked?.badges ?? []).length > 0 ? (
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5 gap-y-1">
+                  {(selectedRanked?.badges ?? []).map((b) => (
+                    <PortfolioConfigBadgePill key={b} name={b} strategySlug={strategySlug} />
+                  ))}
+                </div>
               ) : null}
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -1062,22 +1020,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                   </ToggleGroupItem>
                 </ToggleGroup>
               ) : null}
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-8 shrink-0 text-muted-foreground hover:text-rose-600"
-                aria-label={selectedProfile?.is_favorited ? 'Remove from overview' : 'Pin to overview'}
-                aria-pressed={selectedProfile?.is_favorited}
-                disabled={!selectedProfile || favoritePendingId === selectedProfile.id}
-                onClick={() => selectedProfile && void handleToggleFavorite(selectedProfile.id)}
-              >
-                <Heart
-                  className={cn(
-                    'size-4',
-                    selectedProfile?.is_favorited && 'fill-rose-500 text-rose-500'
-                  )}
-                />
-              </Button>
               <Button
                 variant="ghost"
                 size="sm"

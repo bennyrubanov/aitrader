@@ -663,7 +663,6 @@ create table if not exists public.user_portfolio_profiles (
   next_rebalance_date date,
   is_active boolean not null default true,
   notifications_enabled boolean not null default false,
-  is_favorited boolean not null default false,
   is_starting_portfolio boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -672,6 +671,23 @@ create table if not exists public.user_portfolio_profiles (
 
 create index if not exists idx_user_portfolio_profiles_user_id
   on public.user_portfolio_profiles(user_id);
+
+-- Overview grid: one row per (user, slot); same profile_id may appear in multiple slots.
+create table if not exists public.user_overview_slot_assignments (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  profile_id uuid not null references public.user_portfolio_profiles(id) on delete cascade,
+  slot_number integer not null,
+  created_at timestamptz not null default now(),
+  constraint user_overview_slot_assignments_slot_positive check (slot_number >= 1),
+  unique (user_id, slot_number)
+);
+
+create index if not exists idx_uosa_user_id
+  on public.user_overview_slot_assignments(user_id);
+
+create index if not exists idx_uosa_profile_id
+  on public.user_overview_slot_assignments(profile_id);
 
 -- =========================
 -- 16) User portfolio positions (holdings per profile)

@@ -263,6 +263,32 @@ create policy "Users can delete own portfolio profile"
   using (auth.uid() = user_id);
 
 -- -------------------------------------------------------
+-- 14c-bis) User overview slot assignments – own rows only
+-- -------------------------------------------------------
+alter table public.user_overview_slot_assignments enable row level security;
+
+drop policy if exists "Users read own overview slot assignments" on public.user_overview_slot_assignments;
+create policy "Users read own overview slot assignments"
+  on public.user_overview_slot_assignments for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users insert own overview slot assignments" on public.user_overview_slot_assignments;
+create policy "Users insert own overview slot assignments"
+  on public.user_overview_slot_assignments for insert
+  with check (
+    auth.uid() = user_id
+    and exists (
+      select 1 from public.user_portfolio_profiles p
+      where p.id = profile_id and p.user_id = auth.uid()
+    )
+  );
+
+drop policy if exists "Users delete own overview slot assignments" on public.user_overview_slot_assignments;
+create policy "Users delete own overview slot assignments"
+  on public.user_overview_slot_assignments for delete
+  using (auth.uid() = user_id);
+
+-- -------------------------------------------------------
 -- 14d) User portfolio positions – own rows via profile ownership
 -- -------------------------------------------------------
 alter table public.user_portfolio_positions enable row level security;

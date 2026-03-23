@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { resolveConfigId } from '@/lib/portfolio-config-utils';
 import { getPortfolioRunDates } from '@/lib/platform-performance-payload';
+import { isValidOverviewSlot } from '@/lib/overview-slots';
 
 export const runtime = 'nodejs';
 
@@ -14,8 +15,6 @@ export async function GET() {
   } = await supabase.auth.getUser();
   if (!user) return unauthorized();
 
-  // Try the full query first; fall back to a simpler one if notifications_enabled
-  // isn't in the schema cache yet (migration may not have been applied).
   let data: unknown[] | null = null;
   let error: { message: string } | null = null;
 
@@ -28,7 +27,6 @@ export async function GET() {
     entry_prices_snapshot_at,
     is_active,
     notifications_enabled,
-    is_favorited,
     is_starting_portfolio,
     created_at,
     updated_at,
@@ -52,6 +50,7 @@ export async function GET() {
     user_start_date,
     entry_prices_snapshot_at,
     is_active,
+    is_starting_portfolio,
     created_at,
     updated_at,
     strategy_models ( slug, name ),
@@ -66,16 +65,21 @@ export async function GET() {
     )
   `;
 
-  const result = await supabase
-    .from('user_portfolio_profiles')
-    .select(fullSelect)
-    .eq('user_id', user.id)
-    .eq('is_active', true)
-    .order('created_at', { ascending: false });
+  const [profilesResult, assignResult] = await Promise.all([
+    supabase
+      .from('user_portfolio_profiles')
+      .select(fullSelect)
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('user_overview_slot_assignments')
+      .select('slot_number, profile_id')
+      .eq('user_id', user.id),
+  ]);
 
-  if (result.error) {
-    console.error('[user-portfolio-profile GET] full query failed:', result.error.message);
-    // Retry without notifications_enabled
+  if (profilesResult.error) {
+    console.error('[user-portfolio-profile GET] full query failed:', profilesResult.error.message);
     const fallback = await supabase
       .from('user_portfolio_profiles')
       .select(coreSelect)
@@ -90,19 +94,31 @@ export async function GET() {
       data = (fallback.data ?? []).map((row: Record<string, unknown>) => ({
         ...row,
         notifications_enabled: false,
-        is_favorited: false,
-        is_starting_portfolio: false,
       }));
     }
   } else {
-    data = result.data;
+    data = profilesResult.data;
   }
 
   if (error) {
     return NextResponse.json({ error: error.message ?? 'Unable to load profiles.' }, { status: 500 });
   }
 
-  return NextResponse.json({ profiles: data ?? [] });
+  const overviewSlotAssignments: Record<string, string> = {};
+  if (!assignResult.error && assignResult.data) {
+    for (const row of assignResult.data as Array<{ slot_number: number; profile_id: string }>) {
+      if (isValidOverviewSlot(row.slot_number)) {
+        overviewSlotAssignments[String(row.slot_number)] = row.profile_id;
+      }
+    }
+  } else if (assignResult.error) {
+    console.error('[user-portfolio-profile GET] assignments:', assignResult.error.message);
+  }
+
+  return NextResponse.json({
+    profiles: data ?? [],
+    overviewSlotAssignments,
+  });
 }
 
 function pickRunDate(dates: string[], userStart: string): string | null {
@@ -126,7 +142,6 @@ export async function POST(req: Request) {
   const weightingMethod = typeof body?.weighting === 'string' ? body.weighting : '';
   const investmentSize = Number(body?.investmentSize);
   const userStartDate = typeof body?.userStartDate === 'string' ? body.userStartDate.trim() : '';
-  const pinToOverview = body?.isFavorited === true;
   const markStartingPortfolio = body?.startingPortfolio === true;
 
   if (!strategySlug || !userStartDate) {
@@ -197,6 +212,25 @@ export async function POST(req: Request) {
 
   const now = new Date().toISOString();
 
+  const { data: slot1Row } = await supabase
+    .from('user_overview_slot_assignments')
+    .select('id')
+    .eq('user_id', user.id)
+    .eq('slot_number', 1)
+    .maybeSingle();
+
+  const hasPrimarySlot = Boolean(slot1Row);
+
+  if (markStartingPortfolio) {
+    await supabase
+      .from('user_overview_slot_assignments')
+      .delete()
+      .eq('user_id', user.id)
+      .eq('slot_number', 1);
+  }
+
+  const assignSlot1 = markStartingPortfolio || !hasPrimarySlot;
+
   const insertPayload: Record<string, unknown> = {
     user_id: user.id,
     strategy_id: strategyId,
@@ -206,8 +240,7 @@ export async function POST(req: Request) {
     entry_prices_snapshot_at: now,
     is_active: true,
     updated_at: now,
-    ...(pinToOverview ? { is_favorited: true } : {}),
-    ...(pinToOverview && markStartingPortfolio ? { is_starting_portfolio: true } : {}),
+    ...(markStartingPortfolio ? { is_starting_portfolio: true } : {}),
   };
 
   const { data: profile, error: insErr } = await supabase
@@ -221,6 +254,17 @@ export async function POST(req: Request) {
   }
 
   const profileId = (profile as { id: string }).id;
+
+  if (assignSlot1) {
+    const { error: slotErr } = await supabase.from('user_overview_slot_assignments').insert({
+      user_id: user.id,
+      profile_id: profileId,
+      slot_number: 1,
+    });
+    if (slotErr) {
+      console.error('[user-portfolio-profile POST] slot 1 assignment:', slotErr.message);
+    }
+  }
 
   const positionRows = (holdings ?? []).map((h) => {
     const row = h as { stock_id: string; symbol: string; target_weight: number | string };
@@ -255,46 +299,124 @@ export async function PATCH(req: Request) {
   } = await supabase.auth.getUser();
   if (!user) return unauthorized();
 
-  const body = await req.json().catch(() => null);
-  const profileId = typeof body?.profileId === 'string' ? body.profileId.trim() : '';
-  if (!profileId) {
-    return NextResponse.json({ error: 'profileId is required.' }, { status: 400 });
+  const body = (await req.json().catch(() => null)) ?? {};
+  const now = new Date().toISOString();
+  const profileId = typeof body.profileId === 'string' ? body.profileId.trim() : '';
+
+  if (isValidOverviewSlot(body.clearOverviewSlot)) {
+    const { error: clearErr } = await supabase
+      .from('user_overview_slot_assignments')
+      .delete()
+      .eq('user_id', user.id)
+      .eq('slot_number', body.clearOverviewSlot);
+    if (clearErr) {
+      return NextResponse.json({ error: clearErr.message }, { status: 500 });
+    }
   }
 
-  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
-  if (typeof body?.notificationsEnabled === 'boolean') {
+  let assignSlot: number | null = null;
+  if (isValidOverviewSlot(body.overviewSlot)) {
+    assignSlot = body.overviewSlot;
+  }
+
+  if (assignSlot != null) {
+    if (!profileId) {
+      return NextResponse.json(
+        { error: 'profileId is required when setting overviewSlot.' },
+        { status: 400 }
+      );
+    }
+    const { data: own, error: ownErr } = await supabase
+      .from('user_portfolio_profiles')
+      .select('id')
+      .eq('id', profileId)
+      .eq('user_id', user.id)
+      .maybeSingle();
+    if (ownErr) {
+      return NextResponse.json({ error: ownErr.message }, { status: 500 });
+    }
+    if (!own) {
+      return NextResponse.json({ error: 'Profile not found.' }, { status: 404 });
+    }
+
+    const { error: delE } = await supabase
+      .from('user_overview_slot_assignments')
+      .delete()
+      .eq('user_id', user.id)
+      .eq('slot_number', assignSlot);
+    if (delE) {
+      return NextResponse.json({ error: delE.message }, { status: 500 });
+    }
+
+    const { error: insE } = await supabase.from('user_overview_slot_assignments').insert({
+      user_id: user.id,
+      profile_id: profileId,
+      slot_number: assignSlot,
+    });
+    if (insE) {
+      return NextResponse.json({ error: insE.message }, { status: 500 });
+    }
+  }
+
+  const updates: Record<string, unknown> = { updated_at: now };
+  if (typeof body.notificationsEnabled === 'boolean') {
     updates.notifications_enabled = body.notificationsEnabled;
   }
-  if (typeof body?.isFavorited === 'boolean') {
-    updates.is_favorited = body.isFavorited;
-  }
-  if (typeof body?.investmentSize === 'number' && body.investmentSize > 0) {
+  if (typeof body.investmentSize === 'number' && body.investmentSize > 0) {
     updates.investment_size = body.investmentSize;
   }
-  if (typeof body?.isActive === 'boolean') {
+  if (typeof body.isActive === 'boolean') {
     updates.is_active = body.isActive;
   }
 
   if (updates.is_active === false) {
-    updates.is_favorited = false;
+    if (!profileId) {
+      return NextResponse.json({ error: 'profileId is required when deactivating.' }, { status: 400 });
+    }
+    const { error: zErr } = await supabase
+      .from('user_overview_slot_assignments')
+      .delete()
+      .eq('user_id', user.id)
+      .eq('profile_id', profileId);
+    if (zErr) {
+      return NextResponse.json({ error: zErr.message }, { status: 500 });
+    }
   }
 
-  const { data, error } = await supabase
-    .from('user_portfolio_profiles')
-    .update(updates)
-    .eq('id', profileId)
-    .eq('user_id', user.id)
-    .select('id')
-    .maybeSingle();
+  const hasProfileColumnUpdate =
+    typeof body.notificationsEnabled === 'boolean' ||
+    (typeof body.investmentSize === 'number' && body.investmentSize > 0) ||
+    typeof body.isActive === 'boolean';
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-  if (!data) {
-    return NextResponse.json({ error: 'Profile not found.' }, { status: 404 });
+  if (hasProfileColumnUpdate) {
+    if (!profileId) {
+      return NextResponse.json({ error: 'profileId is required.' }, { status: 400 });
+    }
+    const { data, error } = await supabase
+      .from('user_portfolio_profiles')
+      .update(updates)
+      .eq('id', profileId)
+      .eq('user_id', user.id)
+      .select('id')
+      .maybeSingle();
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    if (!data) {
+      return NextResponse.json({ error: 'Profile not found.' }, { status: 404 });
+    }
+    return NextResponse.json({ ok: true });
   }
 
-  return NextResponse.json({ ok: true });
+  const didSlotOnly =
+    isValidOverviewSlot(body.clearOverviewSlot) || assignSlot != null;
+
+  if (didSlotOnly) {
+    return NextResponse.json({ ok: true });
+  }
+
+  return NextResponse.json({ error: 'No updates.' }, { status: 400 });
 }
 
 export async function DELETE(req: Request) {
@@ -310,11 +432,20 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ error: 'profileId is required.' }, { status: 400 });
   }
 
+  const { error: aErr } = await supabase
+    .from('user_overview_slot_assignments')
+    .delete()
+    .eq('user_id', user.id)
+    .eq('profile_id', profileId);
+
+  if (aErr) {
+    return NextResponse.json({ error: aErr.message }, { status: 500 });
+  }
+
   const { error } = await supabase
     .from('user_portfolio_profiles')
     .update({
       is_active: false,
-      is_favorited: false,
       updated_at: new Date().toISOString(),
     })
     .eq('id', profileId)

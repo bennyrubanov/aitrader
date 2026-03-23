@@ -417,13 +417,13 @@ export function ExplorePortfolioDetailDialog({
                 <FlipCard
                   label="Portfolio value"
                   value={fmtUsd(endingVal)}
-                  explanation="Hypothetical ending value for the model portfolio: $10,000 invested at model inception, marked to market through the latest performance date. This is the strategy track—not your personal follow account."
+                  explanation="Current value for the model portfolio if you had invested $10,000 at model inception."
                   neutral
                 />
                 <FlipCard
                   label="Total return"
                   value={fmtPct(m.totalReturn)}
-                  explanation="How much the $10,000 starting capital has grown in total since the strategy launched. This is the raw cumulative gain over the full tracked period, before any annualization."
+                  explanation="How much the $10,000 starting capital has grown in total since the strategy model launched. This is the raw cumulative gain over the full tracked period, before any annualization."
                   positive={(m.totalReturn ?? 0) > 0}
                 />
               </div>

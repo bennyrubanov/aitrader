@@ -17,8 +17,11 @@ import { PortfolioRankingTooltipBody } from '@/components/platform/portfolio-ran
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
 import { StrategyModelSidebarDropdown } from '@/components/platform/strategy-model-sidebar-dropdown';
 import { useRouter } from 'next/navigation';
+import { format, parseISO } from 'date-fns';
 import {
   ArrowUpRight,
+  Calendar as CalendarIcon,
+  Check,
   ExternalLink,
   FilterX,
   Info,
@@ -27,6 +30,7 @@ import {
   Plus,
   Trophy,
   UserMinus,
+  X,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -38,15 +42,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Calendar } from '@/components/ui/calendar';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   usePortfolioConfig,
   RISK_LABELS,
-  RISK_TOP_N,
-  FREQUENCY_LABELS,
   type RiskLevel,
   type RebalanceFrequency,
 } from '@/components/portfolio-config/portfolio-config-context';
@@ -78,14 +82,27 @@ function fmtUsd(n: number | null | undefined): string {
 }
 
 function localTodayYmd(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return format(new Date(), 'yyyy-MM-dd');
+}
+
+/** Min entry date as YYYY-MM-dd when API omits model inception (uses UTC civil date of fallback). */
+function utcYmd(d: Date): string {
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
 }
 
 type UserProfileFollowRow = {
   id: string;
   config_id: string;
   strategy_models: { slug?: string } | null;
+};
+
+const CONFIG_CARD_RISK_DOT: Record<RiskLevel, string> = {
+  1: 'bg-emerald-500',
+  2: 'bg-lime-500',
+  3: 'bg-amber-500',
+  4: 'bg-orange-500',
+  5: 'bg-orange-600',
+  6: 'bg-rose-600',
 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -133,6 +150,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
   const [addStartDate, setAddStartDate] = useState(localTodayYmd);
   const [addInvestment, setAddInvestment] = useState('10000');
   const [addBusy, setAddBusy] = useState(false);
+  const [addDatePopoverOpen, setAddDatePopoverOpen] = useState(false);
 
   /** Maps portfolio config id → user profile row id for the selected strategy (newest row wins). */
   const [followedProfileIdByConfigId, setFollowedProfileIdByConfigId] = useState<
@@ -206,6 +224,36 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
     () => new Set(Object.keys(followedProfileIdByConfigId)),
     [followedProfileIdByConfigId]
   );
+
+  const { inceptionDate, entryMinYmd, entryMaxYmd } = useMemo(() => {
+    const inceptionDT = modelInceptionDate
+      ? parseISO(`${modelInceptionDate}T12:00:00Z`)
+      : parseISO('2020-01-01T12:00:00Z');
+    return {
+      inceptionDate: inceptionDT,
+      entryMinYmd: modelInceptionDate ?? utcYmd(inceptionDT),
+      entryMaxYmd: format(new Date(), 'yyyy-MM-dd'),
+    };
+  }, [modelInceptionDate]);
+
+  const entryMaxYmdDisplay = useMemo(
+    () => format(parseISO(`${entryMaxYmd}T12:00:00`), 'MMM d, yyyy').toLowerCase(),
+    [entryMaxYmd]
+  );
+
+  const selectedAddEntryDate = useMemo(
+    () => parseISO(`${addStartDate}T12:00:00Z`),
+    [addStartDate]
+  );
+
+  useEffect(() => {
+    if (!addDialogOpen) return;
+    setAddStartDate((d) => {
+      if (d < entryMinYmd) return entryMinYmd;
+      if (d > entryMaxYmd) return entryMaxYmd;
+      return d;
+    });
+  }, [addDialogOpen, entryMinYmd, entryMaxYmd]);
 
   const handleUnfollowProfile = useCallback(
     async (profileId: string, configId: string, label: string) => {
@@ -351,6 +399,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
       return;
     }
     setAddTarget(c);
+    setAddDatePopoverOpen(false);
     setAddStartDate(localTodayYmd());
     setAddInvestment('10000');
     setAddDialogOpen(true);
@@ -365,6 +414,14 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
     }
     if (!addStartDate) {
       toast({ title: 'Pick a start date', variant: 'destructive' });
+      return;
+    }
+    if (addStartDate < entryMinYmd || addStartDate > entryMaxYmd) {
+      toast({
+        title: 'Invalid start date',
+        description: 'Choose a date between model inception and today.',
+        variant: 'destructive',
+      });
       return;
     }
     setAddBusy(true);
@@ -626,10 +683,6 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
                         <ArrowUpRight className="size-3.5 shrink-0 opacity-80" aria-hidden />
                       </Link>
                     </div>
-                    <p className="w-full min-w-0 text-[11px] leading-snug text-muted-foreground">
-                      Sharpe, CAGR, consistency, drawdown, total return, and vs Nasdaq-100 (cap) — each
-                      vs other portfolios for this model. Not sorted by ending value alone.
-                    </p>
                   </div>
                 ) : (
                   <div className="flex flex-wrap items-center gap-2 min-w-0">
@@ -708,53 +761,204 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
       </div>
 
       {/* Add-to-portfolio dialog */}
-      <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
+      <Dialog
+        open={addDialogOpen}
+        onOpenChange={(o) => {
+          setAddDialogOpen(o);
+          if (!o) setAddDatePopoverOpen(false);
+        }}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Follow this portfolio</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <CalendarIcon className="size-4 text-trader-blue" />
+              Follow this portfolio
+            </DialogTitle>
             <DialogDescription>
-              Follow {addTarget?.label ?? 'this portfolio'} and track its performance. Choose a
-              start date for performance tracking.
+              Sets your performance tracking details for this portfolio.
             </DialogDescription>
           </DialogHeader>
 
           {addTarget && (
-            <div className="rounded-lg border bg-muted/30 p-3 text-sm space-y-1">
-              <p className="font-medium">{addTarget.label}</p>
-              <p className="text-xs text-muted-foreground">
-                {RISK_LABELS[addTarget.riskLevel as RiskLevel]} · Top {addTarget.topN} ·{' '}
-                {FREQUENCY_LABELS[addTarget.rebalanceFrequency as RebalanceFrequency]} ·{' '}
-                {addTarget.weightingMethod === 'equal' ? 'Equal weight' : 'Cap weight'}
-              </p>
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <div className="flex flex-wrap items-center gap-1.5 gap-y-2">
+                <span
+                  className="inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-muted/50 px-2 py-0.5 text-[11px] font-semibold text-foreground shrink-0"
+                  title={
+                    (addTarget.riskLabel && addTarget.riskLabel.trim()) ||
+                    RISK_LABELS[addTarget.riskLevel as RiskLevel]
+                  }
+                >
+                  <span
+                    className={cn(
+                      'size-1.5 shrink-0 rounded-full',
+                      CONFIG_CARD_RISK_DOT[addTarget.riskLevel as RiskLevel] ?? 'bg-muted'
+                    )}
+                    aria-hidden
+                  />
+                  {(addTarget.riskLabel && addTarget.riskLabel.trim()) ||
+                    RISK_LABELS[addTarget.riskLevel as RiskLevel]}
+                </span>
+                <span className="text-sm font-semibold text-foreground min-w-0">
+                  {addTarget.label}
+                </span>
+                {addTarget.badges.map((b) => (
+                  <PortfolioConfigBadgePill key={b} name={b} strategySlug={strategySlug} />
+                ))}
+              </div>
             </div>
           )}
 
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label htmlFor="add-start-date">Start date</Label>
-              <Input
-                id="add-start-date"
-                type="date"
-                value={addStartDate}
-                max={localTodayYmd()}
-                onChange={(e) => setAddStartDate(e.target.value)}
-              />
-              <p className="text-[11px] text-muted-foreground">
-                Your performance will be tracked from this date. Use today to start fresh, or a past
-                date to see how you would have done.
-              </p>
+              <Label htmlFor="add-investment">Starting investment ($)</Label>
+              <div className="relative">
+                <Input
+                  id="add-investment"
+                  type="number"
+                  min={1}
+                  step={1000}
+                  inputMode="numeric"
+                  value={addInvestment}
+                  onChange={(e) => setAddInvestment(e.target.value)}
+                  className={cn(
+                    'pr-10',
+                    '[appearance:textfield] [-moz-appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none'
+                  )}
+                />
+                {addInvestment !== '' ? (
+                  <button
+                    type="button"
+                    className="absolute right-1 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    aria-label="Clear starting investment"
+                    onClick={() => setAddInvestment('')}
+                  >
+                    <X className="size-4 shrink-0" aria-hidden />
+                  </button>
+                ) : null}
+              </div>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="add-investment">Starting investment ($)</Label>
-              <Input
-                id="add-investment"
-                type="number"
-                min={1}
-                step={1000}
-                value={addInvestment}
-                onChange={(e) => setAddInvestment(e.target.value)}
-              />
+              <Label className="text-foreground">Start date</Label>
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAddStartDate(entryMaxYmd);
+                    setAddDatePopoverOpen(false);
+                  }}
+                  className={cn(
+                    'w-full rounded-lg border px-4 py-3 text-left transition-colors',
+                    addStartDate === entryMaxYmd
+                      ? 'border-primary bg-primary/10 ring-1 ring-primary'
+                      : 'border-border hover:border-foreground/20 hover:bg-muted/30'
+                  )}
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-sm font-semibold">Today</span>
+                      <span className="ml-2 text-xs text-muted-foreground">{entryMaxYmdDisplay}</span>
+                    </div>
+                    {addStartDate === entryMaxYmd ? (
+                      <Check className="size-3.5 text-primary" aria-hidden />
+                    ) : null}
+                  </div>
+                  <p className="mt-0.5 text-xs text-muted-foreground">Track returns from now.</p>
+                </button>
+
+                <div className="space-y-1.5">
+                  <p className="text-xs text-muted-foreground px-0.5">
+                    Or pick the date you expect to enter the portfolio:
+                  </p>
+                  <Popover open={addDatePopoverOpen} onOpenChange={setAddDatePopoverOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        id="explore-add-entry-date"
+                        variant="outline"
+                        className={cn(
+                          'w-full justify-start gap-2 text-left font-normal',
+                          addStartDate !== entryMaxYmd && 'border-primary ring-1 ring-primary'
+                        )}
+                      >
+                        <CalendarIcon className="size-4 shrink-0 opacity-60" aria-hidden />
+                        {addStartDate === entryMaxYmd ? (
+                          <span className="text-muted-foreground">Choose date…</span>
+                        ) : (
+                          format(selectedAddEntryDate, 'MMMM d, yyyy')
+                        )}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <div>
+                        <Calendar
+                          mode="single"
+                          selected={selectedAddEntryDate}
+                          onSelect={(d) => {
+                            if (!d) return;
+                            setAddStartDate(format(d, 'yyyy-MM-dd'));
+                            setAddDatePopoverOpen(false);
+                          }}
+                          defaultMonth={selectedAddEntryDate}
+                          disabled={(d) => {
+                            const cellYmd = format(d, 'yyyy-MM-dd');
+                            return cellYmd < entryMinYmd || cellYmd > entryMaxYmd;
+                          }}
+                          initialFocus
+                          modifiers={
+                            modelInceptionDate
+                              ? { modelInception: parseISO(modelInceptionDate) }
+                              : undefined
+                          }
+                          modifiersClassNames={
+                            modelInceptionDate
+                              ? {
+                                  modelInception: cn(
+                                    'relative z-[1] font-semibold text-trader-blue dark:text-sky-400',
+                                    'ring-2 ring-trader-blue/70 ring-offset-2 ring-offset-background rounded-md'
+                                  ),
+                                }
+                              : undefined
+                          }
+                        />
+                        {modelInceptionDate ? (
+                          <p className="flex items-center gap-2 border-t px-3 py-2 text-[11px] text-muted-foreground">
+                            <span
+                              className="inline-block size-2 shrink-0 rounded-full bg-trader-blue ring-2 ring-trader-blue/40"
+                              aria-hidden
+                            />
+                            <span>
+                              <span className="font-medium text-foreground">Model inception</span>
+                              {': '}
+                              {format(inceptionDate, 'MMM d, yyyy')}
+                            </span>
+                          </p>
+                        ) : null}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                  {addStartDate !== entryMaxYmd ? (
+                    <p className="text-xs text-muted-foreground px-0.5">
+                      Past entry is hypothetical — assumes you held this portfolio since then.
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+              <p className="border-t border-border/50 pt-2 text-[11px] text-muted-foreground dark:border-border/40">
+                To see performance history since the strategy model launched, see its{' '}
+                <a
+                  href={`/performance/${encodeURIComponent(strategySlug)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-trader-blue"
+                >
+                  <span className="underline underline-offset-2">performance page</span>
+                  <span aria-hidden className="no-underline">
+                    ↗
+                  </span>
+                </a>
+                .
+              </p>
             </div>
           </div>
 
@@ -809,15 +1013,6 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
   );
 }
 
-const CONFIG_CARD_RISK_DOT: Record<RiskLevel, string> = {
-  1: 'bg-emerald-500',
-  2: 'bg-lime-500',
-  3: 'bg-amber-500',
-  4: 'bg-orange-500',
-  5: 'bg-orange-600',
-  6: 'bg-rose-600',
-};
-
 // ── Config card ───────────────────────────────────────────────────────────────
 
 function ConfigCard({
@@ -865,20 +1060,29 @@ function ConfigCard({
         {/* Rank badge — prominent left column */}
         <div className="flex flex-col items-center justify-center w-14 shrink-0 border-r bg-muted/20">
           {config.rank != null ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  className="flex h-full min-h-[3.25rem] w-full flex-col items-center justify-center border-0 bg-transparent p-0 text-lg font-bold tabular-nums text-foreground cursor-help hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  aria-label={`Rank ${config.rank}, more info`}
-                >
-                  {config.rank}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right" className="max-w-xs text-xs">
-                <PortfolioRankingTooltipBody rank={config.rank} strategySlug={strategySlug} />
-              </TooltipContent>
-            </Tooltip>
+            config.rank === 1 ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex h-full min-h-[3.25rem] w-full flex-col items-center justify-center border-0 bg-transparent p-0 text-lg font-bold tabular-nums text-foreground cursor-help hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    aria-label={`Rank ${config.rank}, more info`}
+                  >
+                    {config.rank}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right" className="max-w-xs text-xs">
+                  <PortfolioRankingTooltipBody rank={config.rank} strategySlug={strategySlug} />
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              <div
+                className="flex h-full min-h-[3.25rem] w-full flex-col items-center justify-center text-lg font-bold tabular-nums text-foreground"
+                aria-label={`Rank ${config.rank}`}
+              >
+                {config.rank}
+              </div>
+            )
           ) : (
             <span className="text-sm text-muted-foreground/50">—</span>
           )}
