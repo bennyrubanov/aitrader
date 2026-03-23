@@ -28,14 +28,15 @@ import {
 import type { PortfolioConfigSlice } from '@/components/platform/portfolio-config-controls';
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
 import {
+  InfoIconTooltip,
   SingleStockWeightingTooltipContent,
   WeightingMethodTooltipContent,
-} from '@/components/platform/weighting-method-tooltip';
+} from '@/components/tooltips';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
 import type { FullConfigPerformanceMetrics } from '@/lib/config-performance-chart';
 import { headerStatSentiment } from '@/lib/header-stat-sentiment';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
-import { CalendarDays, Hash, Info, Scale, Shield, type LucideIcon } from 'lucide-react';
+import { CalendarDays, Hash, Scale, Shield, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const PerformanceChart = dynamic(
@@ -302,45 +303,6 @@ export function usePublicPortfolioConfigPerformance({
   };
 }
 
-function InfoTooltip({
-  ariaLabel,
-  children,
-  className,
-  contentClassName,
-}: {
-  ariaLabel: string;
-  children: ReactNode;
-  className?: string;
-  /** Wider panel for rich content (e.g. weighting pies) */
-  contentClassName?: string;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          className={cn(
-            'inline-flex shrink-0 rounded-sm p-0.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-            className
-          )}
-          aria-label={ariaLabel}
-        >
-          <Info className="size-3.5" strokeWidth={2.25} />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent
-        side="top"
-        className={cn(
-          'max-w-[min(22rem,calc(100vw-2rem))] text-xs leading-snug',
-          contentClassName
-        )}
-      >
-        {children}
-      </TooltipContent>
-    </Tooltip>
-  );
-}
-
 function ConfigRow({
   icon: Icon,
   label,
@@ -362,12 +324,12 @@ function ConfigRow({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1">
           <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
-          <InfoTooltip
+          <InfoIconTooltip
             ariaLabel={`About ${label}`}
             contentClassName={tooltipContentClassName}
           >
             {tooltip}
-          </InfoTooltip>
+          </InfoIconTooltip>
         </div>
         <p className="text-sm font-medium text-foreground leading-snug mt-0.5">{value}</p>
       </div>
@@ -408,7 +370,7 @@ export function PortfolioAtAGlanceCard({
   }[] = [];
 
   const metricsPeriodNote =
-    'Tracked from model inception through the latest AI ratings day, net of trading costs.';
+    'Tracked from inception through the latest AI ratings day, net of trading costs.';
 
   if (m && perf?.computeStatus === 'ready') {
     metricRows.push(
@@ -441,7 +403,7 @@ export function PortfolioAtAGlanceCard({
       metricRows.push({
         label: '% weeks outperforming Nasdaq-100',
         value: fmt.pct(pctWeeks, 0),
-        hint: `Share of weekly periods where this portfolio's return beat the Nasdaq-100 cap-weight benchmark that same week. Tracked from model inception through the latest AI ratings day, net of trading costs.`,
+        hint: `Share of weekly periods where this portfolio's return beat the Nasdaq-100 cap-weight benchmark that same week. Tracked from inception through the latest AI ratings day, net of trading costs.`,
         ...headerStatSentiment('% weeks outperforming Nasdaq-100', pctWeeks),
       });
     }
@@ -449,7 +411,7 @@ export function PortfolioAtAGlanceCard({
       metricRows.push({
         label: '% months outperforming Nasdaq-100',
         value: fmt.pct(pctMonths, 0),
-        hint: `Share of calendar months where this portfolio's month return beat the Nasdaq-100 cap-weight benchmark. Tracked from model inception through the latest AI ratings day, net of trading costs.`,
+        hint: `Share of calendar months where this portfolio's month return beat the Nasdaq-100 cap-weight benchmark. Tracked from inception through the latest AI ratings day, net of trading costs.`,
         ...headerStatSentiment('% months outperforming Nasdaq-100', pctMonths),
       });
     }
@@ -626,7 +588,7 @@ export function PortfolioAtAGlanceCard({
                       <div className="flex flex-wrap items-center gap-1">
                         <p className="text-xs text-muted-foreground">{row.label}</p>
                         {row.hint ? (
-                          <InfoTooltip ariaLabel={`About ${row.label}`}>{row.hint}</InfoTooltip>
+                          <InfoIconTooltip ariaLabel={`About ${row.label}`}>{row.hint}</InfoIconTooltip>
                         ) : null}
                       </div>
                     </div>

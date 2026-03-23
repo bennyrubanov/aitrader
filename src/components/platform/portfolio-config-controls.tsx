@@ -26,7 +26,7 @@ import {
   RiskLevelTooltip,
   SingleStockWeightingTooltipContent,
   WeightingMethodTooltip,
-} from '@/components/platform/weighting-method-tooltip';
+} from '@/components/tooltips';
 import { cn } from '@/lib/utils';
 
 const RISK_LEVELS: RiskLevel[] = [1, 2, 3, 4, 5, 6];

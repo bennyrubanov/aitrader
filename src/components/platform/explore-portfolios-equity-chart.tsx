@@ -901,7 +901,7 @@ export function ExplorePortfoliosEquityChart({
 
       <p className="text-[11px] text-muted-foreground">
         Simulated portfolio value starting from <strong className="text-foreground">$10,000</strong>{' '}
-        at model inception on{' '}
+        at inception on{' '}
         <strong className="text-foreground">
           {formatModelInceptionFootnoteDate(dates[0])}
         </strong>

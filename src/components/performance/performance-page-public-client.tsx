@@ -783,7 +783,7 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
         </div>
 
         <p className="text-sm text-muted-foreground max-w-3xl">
-          Simulated growth of <strong>$10,000</strong> from the strategy start date, net of trading
+          Simulated growth of <strong>$10,000</strong> from inception, net of trading
           costs, versus benchmarks.
         </p>
 
@@ -898,19 +898,19 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
               <FlipCard
                 label="CAGR"
                 value={fmt.pct(displayMetrics.cagr)}
-                explanation="Annualized compound growth rate. If the strategy grew at this exact pace every calendar year since launch, this is the annual return you would have seen."
+                explanation="Annualized compound growth rate. If the strategy grew at this exact pace every calendar year since inception, this is the annual return you would have seen."
                 positive={(displayMetrics.cagr ?? 0) > 0}
               />
               <FlipCard
                 label="Total return"
                 value={fmt.pct(displayMetrics.totalReturn)}
-                explanation="How much the $10,000 starting capital has grown in total since the strategy launched. This is the raw cumulative gain, before any annualization."
+                explanation="How much the $10,000 starting capital has grown in total since inception. This is the raw cumulative gain, before any annualization."
                 positive={(displayMetrics.totalReturn ?? 0) > 0}
               />
               <FlipCard
                 label="Max drawdown"
                 value={fmt.pct(displayMetrics.maxDrawdown)}
-                explanation="The worst peak-to-trough decline since launch. If you had invested at the peak and sold at the worst point, this is how much you would have lost. Closer to zero is better."
+                explanation="The worst peak-to-trough decline since inception. If you had invested at the peak and sold at the worst point, this is how much you would have lost. Closer to zero is better."
                 positive={(displayMetrics.maxDrawdown ?? 0) > -0.2}
               />
               <FlipCard
@@ -1169,7 +1169,7 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
               <FlipCard
                 label="Total return"
                 value={fmt.pct(displayMetrics.totalReturn)}
-                explanation="How much the $10,000 starting capital has grown over the full period since launch."
+                explanation="How much the $10,000 starting capital has grown over the full period since inception."
                 positive={(displayMetrics.totalReturn ?? 0) > 0}
               />
               <FlipCard
@@ -1184,7 +1184,7 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
                 <p className="text-sm font-medium">Compared to benchmarks</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   All returns measured from{' '}
-                  {effectiveStrategy?.startDate ? fmt.date(effectiveStrategy.startDate) : 'launch'}{' '}
+                  {effectiveStrategy?.startDate ? fmt.date(effectiveStrategy.startDate) : 'inception'}{' '}
                   to {latestDisplayDate ? fmt.date(latestDisplayDate) : 'present'}.
                 </p>
               </div>

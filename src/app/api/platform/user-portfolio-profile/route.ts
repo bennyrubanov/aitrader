@@ -1,8 +1,14 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
+import { createAdminClient } from '@/utils/supabase/admin';
 import { resolveConfigId } from '@/lib/portfolio-config-utils';
 import { getPortfolioRunDates } from '@/lib/platform-performance-payload';
 import { isValidOverviewSlot } from '@/lib/overview-slots';
+import {
+  pickHoldingsRunDate,
+  insertUserPortfolioPositionsForRunDate,
+  replaceUserPortfolioPositionsForRunDate,
+} from '@/lib/user-portfolio-entry';
 
 export const runtime = 'nodejs';
 
@@ -121,12 +127,7 @@ export async function GET() {
   });
 }
 
-function pickRunDate(dates: string[], userStart: string): string | null {
-  if (!dates.length) return null;
-  const sorted = [...dates].sort((a, b) => b.localeCompare(a));
-  const onOrBefore = sorted.filter((d) => d <= userStart);
-  return onOrBefore[0] ?? sorted[0] ?? null;
-}
+const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function POST(req: Request) {
   const supabase = await createClient();
@@ -182,44 +183,27 @@ export async function POST(req: Request) {
   }
 
   const dates = await getPortfolioRunDates(strategyId);
-  const runDate = pickRunDate(dates, userStartDate);
+  const runDate = pickHoldingsRunDate(dates, userStartDate);
   if (!runDate) {
     return NextResponse.json({ error: 'No holdings snapshot available yet.' }, { status: 400 });
   }
 
-  const { data: holdings, error: holdErr } = await supabase
-    .from('strategy_portfolio_holdings')
-    .select('stock_id, symbol, target_weight')
-    .eq('strategy_id', strategyId)
-    .eq('run_date', runDate)
-    .order('rank_position', { ascending: true });
-
-  if (holdErr) {
-    return NextResponse.json({ error: 'Could not load holdings.' }, { status: 500 });
-  }
-
-  const symbols = (holdings ?? []).map((h) => (h as { symbol: string }).symbol.toUpperCase());
-  const { data: prices } = await supabase
-    .from('nasdaq_100_daily_raw')
-    .select('symbol, last_sale_price, run_date')
-    .eq('run_date', runDate)
-    .in('symbol', symbols);
-
-  const priceMap = new Map<string, string | null>();
-  for (const row of (prices ?? []) as Array<{ symbol: string; last_sale_price: string | null }>) {
-    priceMap.set(row.symbol.toUpperCase(), row.last_sale_price);
-  }
-
   const now = new Date().toISOString();
+  const admin = createAdminClient();
 
-  const { data: slot1Row } = await supabase
+  const { data: slot1Assignment } = await supabase
     .from('user_overview_slot_assignments')
-    .select('id')
+    .select('profile_id')
     .eq('user_id', user.id)
     .eq('slot_number', 1)
     .maybeSingle();
 
-  const hasPrimarySlot = Boolean(slot1Row);
+  const hasPrimarySlot = Boolean(slot1Assignment);
+  /** Onboarding starting portfolio: if tile 1 is already taken, reassign that profile to the next free slot after the new profile takes slot 1. */
+  const profileIdToBumpFromSlot1 =
+    markStartingPortfolio && slot1Assignment?.profile_id
+      ? String(slot1Assignment.profile_id)
+      : null;
 
   if (markStartingPortfolio) {
     await supabase
@@ -263,30 +247,41 @@ export async function POST(req: Request) {
     });
     if (slotErr) {
       console.error('[user-portfolio-profile POST] slot 1 assignment:', slotErr.message);
+    } else if (profileIdToBumpFromSlot1 && profileIdToBumpFromSlot1 !== profileId) {
+      const { data: slotRows, error: slotListErr } = await supabase
+        .from('user_overview_slot_assignments')
+        .select('slot_number')
+        .eq('user_id', user.id);
+      if (!slotListErr && slotRows) {
+        const occupied = new Set(
+          (slotRows as { slot_number: number }[]).map((r) => r.slot_number)
+        );
+        let nextSlot = 2;
+        while (occupied.has(nextSlot)) nextSlot += 1;
+        const { error: bumpErr } = await supabase.from('user_overview_slot_assignments').insert({
+          user_id: user.id,
+          profile_id: profileIdToBumpFromSlot1,
+          slot_number: nextSlot,
+        });
+        if (bumpErr) {
+          console.error(
+            '[user-portfolio-profile POST] bump displaced slot-1 profile:',
+            bumpErr.message
+          );
+        }
+      }
     }
   }
 
-  const positionRows = (holdings ?? []).map((h) => {
-    const row = h as { stock_id: string; symbol: string; target_weight: number | string };
-    const px = priceMap.get(row.symbol.toUpperCase());
-    const entryPrice = px != null ? parseFloat(String(px).replace(/[$,]/g, '')) : null;
-    return {
-      profile_id: profileId,
-      stock_id: row.stock_id,
-      symbol: row.symbol.toUpperCase(),
-      target_weight: Number(row.target_weight),
-      current_weight: Number(row.target_weight),
-      entry_price: Number.isFinite(entryPrice!) ? entryPrice : null,
-      updated_at: now,
-    };
+  const posRes = await insertUserPortfolioPositionsForRunDate(supabase, admin, {
+    profileId,
+    strategyId,
+    runDate,
+    nowIso: now,
   });
-
-  if (positionRows.length) {
-    const { error: posErr } = await supabase.from('user_portfolio_positions').insert(positionRows);
-    if (posErr) {
-      await supabase.from('user_portfolio_profiles').delete().eq('id', profileId);
-      return NextResponse.json({ error: posErr.message }, { status: 500 });
-    }
+  if (posRes.ok === false) {
+    await supabase.from('user_portfolio_profiles').delete().eq('id', profileId);
+    return NextResponse.json({ error: posRes.error }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true, profileId, runDate });
@@ -369,6 +364,58 @@ export async function PATCH(req: Request) {
     updates.is_active = body.isActive;
   }
 
+  const userStartUpdate =
+    typeof body.userStartDate === 'string' && YMD_RE.test(body.userStartDate.trim())
+      ? body.userStartDate.trim()
+      : null;
+
+  let didReanchorOrStartChange = false;
+  if (userStartUpdate) {
+    if (!profileId) {
+      return NextResponse.json(
+        { error: 'profileId is required when updating userStartDate.' },
+        { status: 400 }
+      );
+    }
+    const { data: profRow, error: profFetchErr } = await supabase
+      .from('user_portfolio_profiles')
+      .select('strategy_id, user_start_date')
+      .eq('id', profileId)
+      .eq('user_id', user.id)
+      .maybeSingle();
+    if (profFetchErr) {
+      return NextResponse.json({ error: profFetchErr.message }, { status: 500 });
+    }
+    if (!profRow) {
+      return NextResponse.json({ error: 'Profile not found.' }, { status: 404 });
+    }
+    const prev = (profRow as { user_start_date: string | null }).user_start_date?.trim() ?? '';
+    if (prev !== userStartUpdate) {
+      const strategyIdForReanchor = (profRow as { strategy_id: string }).strategy_id;
+      const runDates = await getPortfolioRunDates(strategyIdForReanchor);
+      const anchorRun = pickHoldingsRunDate(runDates, userStartUpdate);
+      if (!anchorRun) {
+        return NextResponse.json(
+          { error: 'No holdings snapshot available for that entry.' },
+          { status: 400 }
+        );
+      }
+      const admin = createAdminClient();
+      const rep = await replaceUserPortfolioPositionsForRunDate(supabase, admin, {
+        profileId,
+        strategyId: strategyIdForReanchor,
+        runDate: anchorRun,
+        nowIso: now,
+      });
+      if (rep.ok === false) {
+        return NextResponse.json({ error: rep.error }, { status: 500 });
+      }
+      updates.user_start_date = userStartUpdate;
+      updates.entry_prices_snapshot_at = now;
+      didReanchorOrStartChange = true;
+    }
+  }
+
   if (updates.is_active === false) {
     if (!profileId) {
       return NextResponse.json({ error: 'profileId is required when deactivating.' }, { status: 400 });
@@ -386,7 +433,8 @@ export async function PATCH(req: Request) {
   const hasProfileColumnUpdate =
     typeof body.notificationsEnabled === 'boolean' ||
     (typeof body.investmentSize === 'number' && body.investmentSize > 0) ||
-    typeof body.isActive === 'boolean';
+    typeof body.isActive === 'boolean' ||
+    didReanchorOrStartChange;
 
   if (hasProfileColumnUpdate) {
     if (!profileId) {

@@ -15,6 +15,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
+import { enUS } from 'date-fns/locale';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -30,11 +31,13 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
-import { Calendar } from '@/components/ui/calendar';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { PortfolioRankingTooltipBody } from '@/components/platform/portfolio-ranking-tooltip-body';
+import {
+  PortfolioEntryDatePicker,
+  portfolioEntryDateBounds,
+} from '@/components/platform/portfolio-entry-date-picker';
+import { PortfolioRankingTooltipBody } from '@/components/tooltips';
 import { useAuthState } from '@/components/auth/auth-state-context';
 import {
   DEFAULT_PORTFOLIO_CONFIG,
@@ -47,9 +50,11 @@ import {
   type RiskLevel,
 } from '@/components/portfolio-config/portfolio-config-context';
 import type { OnboardingRebalanceCounts } from '@/lib/onboarding-meta';
+import { formatYmdDisplay } from '@/lib/format-ymd-display';
 import { strategyModelDropdownSubtitle } from '@/lib/strategy-list-meta';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
+import { showPortfolioFollowToast } from '@/components/platform/portfolio-unfollow-toast';
 import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
 import type { FullConfigPerformanceMetrics } from '@/lib/config-performance-chart';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
@@ -272,11 +277,6 @@ function localTodayYmd(): string {
   return format(new Date(), 'yyyy-MM-dd');
 }
 
-/** Min entry date as YYYY-MM-dd when API omits model inception (uses UTC civil date of fallback). */
-function utcYmd(d: Date): string {
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
-}
-
 type Step =
   | 'intro'
   | 'model'
@@ -299,7 +299,7 @@ const PROGRESS_STEP_LABELS: Record<(typeof PROGRESS_STEPS)[number], string> = {
   risk: 'Risk',
   frequency: 'Frequency',
   investment: 'Investment',
-  'entry-date': 'Entry date',
+  'entry-date': 'Your entry',
   model: 'Model',
   done: 'Summary',
 };
@@ -364,13 +364,10 @@ export function PortfolioOnboardingDialog({
   const [step, setStep] = useState<Step>('intro');
   const [draft, setDraft] = useState<PortfolioConfig>(DEFAULT_PORTFOLIO_CONFIG);
   const [draftEntryDate, setDraftEntryDate] = useState<string>(localTodayYmd());
-  /** Distinguishes "defaulting to today" vs explicitly choosing a date on the calendar (even when that date is today — e.g. model inception). */
-  const [entryDateFromCalendar, setEntryDateFromCalendar] = useState(false);
   const [customInvestment, setCustomInvestment] = useState(() =>
     String(DEFAULT_PORTFOLIO_CONFIG.investmentSize)
   );
   const [returnToSummary, setReturnToSummary] = useState(false);
-  const [datePopoverOpen, setDatePopoverOpen] = useState(false);
   const customInputRef = useRef<HTMLInputElement>(null);
   const prevStepRef = useRef<Step>(step);
 
@@ -657,11 +654,15 @@ export function PortfolioOnboardingDialog({
       requestAnimationFrame(() => {
         void fireHeartConfettiBurst();
       });
-      toast({
+      showPortfolioFollowToast({
+        profileId,
         title: 'You’re following this portfolio',
         description: synced
           ? `Added to your overview and tracking with ${formatCurrency(draft.investmentSize)} from today.`
           : `Your portfolio is saved. If it doesn’t appear on the overview yet, refresh the page — tracking with ${formatCurrency(draft.investmentSize)} from today.`,
+        onAfterUndo: () => {
+          router.refresh();
+        },
       });
       markOnboardingDone();
       router.refresh();
@@ -673,19 +674,15 @@ export function PortfolioOnboardingDialog({
   const handleUseDefaults = () => {
     setDraft(DEFAULT_PORTFOLIO_CONFIG);
     setDraftEntryDate(localTodayYmd());
-    setEntryDateFromCalendar(false);
     setCustomInvestment(String(DEFAULT_PORTFOLIO_CONFIG.investmentSize));
     setReturnToSummary(false);
     setStep('done');
   };
 
-  const inceptionDate = modelInceptionDate
+  const { minYmd: entryMinYmd, maxYmd: entryMaxYmd } = portfolioEntryDateBounds(modelInceptionDate);
+  const inceptionDisplayDate = modelInceptionDate
     ? parseISO(`${modelInceptionDate}T12:00:00Z`)
-    : parseISO('2020-01-01T12:00:00Z');
-  const selectedEntryDate = parseISO(`${draftEntryDate}T12:00:00Z`);
-  /** Inclusive calendar-day bounds (compare civil dates, not timestamps — inception day stays selectable). */
-  const entryMinYmd = modelInceptionDate ?? utcYmd(inceptionDate);
-  const entryMaxYmd = localTodayYmd();
+    : null;
 
   const celebratePortfolioLabel =
     finaleRanked?.matched?.label ??
@@ -710,7 +707,7 @@ export function PortfolioOnboardingDialog({
     finaleRanked?.modelInceptionDate ?? modelInceptionDate ?? null;
   const celebrateModelInceptionDisplay =
     celebrateModelInceptionYmd != null && String(celebrateModelInceptionYmd).trim() !== ''
-      ? format(parseISO(`${celebrateModelInceptionYmd}T12:00:00Z`), 'MMMM d, yyyy')
+      ? formatYmdDisplay(String(celebrateModelInceptionYmd).trim())
       : null;
 
   const celebrateNotional =
@@ -961,11 +958,11 @@ export function PortfolioOnboardingDialog({
               )}
             </div>
             </div>
-            {modelInceptionDate ? (
+            {inceptionDisplayDate ? (
               <p className="shrink-0 border-t border-border/50 pt-2 text-xs text-muted-foreground dark:border-border/40">
-                Model {selectedStrategy?.name ?? draft.strategySlug} inception:{' '}
+                Inception — {selectedStrategy?.name ?? draft.strategySlug}:{' '}
                 <span className="font-medium text-foreground tabular-nums">
-                  {format(inceptionDate, 'MMMM d, yyyy')}
+                  {format(inceptionDisplayDate, 'MMM d, yyyy', { locale: enUS })}
                 </span>
               </p>
             ) : null}
@@ -1071,114 +1068,20 @@ export function PortfolioOnboardingDialog({
                 When do you want to enter this portfolio?
               </DialogTitle>
               <DialogDescription>
-                Sets your personal performance tracking start date for this portfolio.
+                Sets your personal performance track from when you enter.
               </DialogDescription>
             </DialogHeader>
             <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain py-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setDraftEntryDate(localTodayYmd());
-                  setEntryDateFromCalendar(false);
-                  setDatePopoverOpen(false);
-                }}
-                className={cn(
-                  'w-full rounded-lg border px-4 py-3 text-left transition-colors',
-                  draftEntryDate === localTodayYmd()
-                    ? 'border-primary bg-primary/10 ring-1 ring-primary'
-                    : 'border-border hover:border-foreground/20 hover:bg-muted/30'
-                )}
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <span className="text-sm font-semibold">Today</span>
-                    <span className="ml-2 text-xs text-muted-foreground">{localTodayYmd()}</span>
-                  </div>
-                  {draftEntryDate === localTodayYmd() && (
-                    <Check className="size-3.5 text-primary" />
-                  )}
-                </div>
-                <p className="mt-0.5 text-xs text-muted-foreground">Track returns from now.</p>
-              </button>
-
-              <div className="space-y-1.5">
-                <p className="text-xs text-muted-foreground px-0.5">
-                  Or pick the date you expect to enter the portfolio (can change anytime):
-                </p>
-                <Popover open={datePopoverOpen} onOpenChange={setDatePopoverOpen}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className={cn(
-                        'w-full justify-start gap-2 text-left font-normal',
-                        draftEntryDate !== localTodayYmd() && 'border-primary ring-1 ring-primary'
-                      )}
-                    >
-                      <CalendarIcon className="size-4 shrink-0 opacity-60" />
-                      {draftEntryDate === localTodayYmd() ? (
-                        <span className="text-muted-foreground">Choose date…</span>
-                      ) : (
-                        format(selectedEntryDate, 'MMMM d, yyyy')
-                      )}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <div>
-                      <Calendar
-                        mode="single"
-                        selected={selectedEntryDate}
-                        onSelect={(d) => {
-                          if (!d) return;
-                          setDraftEntryDate(format(d, 'yyyy-MM-dd'));
-                          setDatePopoverOpen(false);
-                        }}
-                        defaultMonth={selectedEntryDate}
-                        disabled={(d) => {
-                          const cellYmd = format(d, 'yyyy-MM-dd');
-                          return cellYmd < entryMinYmd || cellYmd > entryMaxYmd;
-                        }}
-                        initialFocus
-                        modifiers={
-                          modelInceptionDate
-                            ? { modelInception: parseISO(modelInceptionDate) }
-                            : undefined
-                        }
-                        modifiersClassNames={
-                          modelInceptionDate
-                            ? {
-                                modelInception: cn(
-                                  'relative z-[1] font-semibold text-trader-blue dark:text-sky-400',
-                                  'ring-2 ring-trader-blue/70 ring-offset-2 ring-offset-background rounded-md'
-                                ),
-                              }
-                            : undefined
-                        }
-                      />
-                      {modelInceptionDate ? (
-                        <p className="flex items-center gap-2 border-t px-3 py-2 text-[11px] text-muted-foreground">
-                          <span
-                            className="inline-block size-2 shrink-0 rounded-full bg-trader-blue ring-2 ring-trader-blue/40"
-                            aria-hidden
-                          />
-                          <span>
-                            <span className="font-medium text-foreground">Model inception</span>
-                            {': '}
-                            {format(inceptionDate, 'MMM d, yyyy')}
-                          </span>
-                        </p>
-                      ) : null}
-                    </div>
-                  </PopoverContent>
-                </Popover>
-                {draftEntryDate !== localTodayYmd() && (
-                  <p className="text-xs text-muted-foreground px-0.5">
-                    Past entry is hypothetical (assumes you held this portfolio since then).
-                  </p>
-                )}
-              </div>
+              <PortfolioEntryDatePicker
+                valueYmd={draftEntryDate}
+                onChangeYmd={setDraftEntryDate}
+                minYmd={entryMinYmd}
+                maxYmd={entryMaxYmd}
+                modelInceptionYmd={modelInceptionDate}
+              />
             </div>
             <p className="shrink-0 border-t border-border/50 pt-2 text-xs text-muted-foreground dark:border-border/40">
-              To see performance history since the strategy model launched, see its{' '}
+              To see performance since inception, see its{' '}
               <a
                 href={selectedStrategy ? `/performance/${selectedStrategy.slug}` : '/performance'}
                 target="_blank"
@@ -1359,8 +1262,10 @@ export function PortfolioOnboardingDialog({
                     onClick={() => goToStep('investment', true)}
                   />
                   <EditableSummaryRow
-                    label="Entry date"
-                    value={draftEntryDate === localTodayYmd() ? 'Today' : draftEntryDate}
+                    label="Your entry"
+                    value={
+                      draftEntryDate === entryMaxYmd ? 'Today' : formatYmdDisplay(draftEntryDate)
+                    }
                     onClick={() => goToStep('entry-date', true)}
                   />
                   <EditableSummaryRow
@@ -1397,7 +1302,7 @@ export function PortfolioOnboardingDialog({
               <DialogDescription className="text-sm">
                 Your picks are saved. This is what{' '}
                 <strong className="text-foreground">{formatUsdWhole(celebrateNotional)}</strong> would
-                have turned into if you followed this portfolio since the model inception date
+                have turned into if you followed this portfolio since inception
                 {celebrateModelInceptionDisplay ? (
                   <>
                     {' '}

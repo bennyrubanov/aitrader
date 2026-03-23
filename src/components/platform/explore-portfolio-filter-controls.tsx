@@ -1,6 +1,6 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import type { ReactNode, Ref } from 'react';
 import { Info } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import {
@@ -23,23 +23,13 @@ import {
   SingleStockMiniPie,
 } from '@/components/platform/weighting-mini-pies';
 import {
+  benchmarkOutperformanceTooltipText,
   RebalanceFrequencyTooltip,
   RiskLevelTooltip,
   SingleStockWeightingTooltipContent,
   WeightingMethodTooltip,
-} from '@/components/platform/weighting-method-tooltip';
+} from '@/components/tooltips';
 import { cn } from '@/lib/utils';
-
-function formatBenchmarkValuationDate(isoYmd: string): string {
-  const d = new Date(`${isoYmd}T00:00:00Z`);
-  if (Number.isNaN(d.getTime())) return isoYmd;
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-    timeZone: 'UTC',
-  }).format(d);
-}
 
 const RISK_LEVELS: RiskLevel[] = [1, 2, 3, 4, 5, 6];
 const FREQUENCIES: RebalanceFrequency[] = ['weekly', 'monthly', 'quarterly', 'yearly'];
@@ -80,6 +70,8 @@ export type ExplorePortfolioFilterControlsProps = {
   benchmarkHeaderEnd?: ReactNode;
   /** ISO `YYYY-MM-DD` of latest portfolio valuation (from ranked-configs API); drives benchmark outperformance tooltip. */
   benchmarkOutperformanceAsOf?: string | null;
+  /** Attach to the first benchmark toggle (Nasdaq) so dialogs can focus it on open instead of the help tooltip trigger. */
+  benchmarkNasdaqToggleRef?: Ref<HTMLButtonElement>;
 };
 
 /**
@@ -101,14 +93,13 @@ export function ExplorePortfolioFilterControls({
   betweenBenchmarkAndRisk,
   benchmarkHeaderEnd,
   benchmarkOutperformanceAsOf,
+  benchmarkNasdaqToggleRef,
 }: ExplorePortfolioFilterControlsProps) {
   const dataNote = freqFilter != null ? FREQUENCY_DATA_NOTES[freqFilter] : null;
   const isSingleStockTier = riskFilter === 6;
 
   const benchmarkOutperformanceTooltip =
-    benchmarkOutperformanceAsOf != null && benchmarkOutperformanceAsOf.length > 0
-      ? `Outperformance is based on total portfolio value as of the most recent valuation on ${formatBenchmarkValuationDate(benchmarkOutperformanceAsOf)}.`
-      : 'Outperformance is based on total portfolio value at the most recent valuation for this model.';
+    benchmarkOutperformanceTooltipText(benchmarkOutperformanceAsOf);
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -141,6 +132,7 @@ export function ExplorePortfolioFilterControls({
           </div>
           <div className="grid grid-cols-1 gap-1">
             <button
+              ref={benchmarkNasdaqToggleRef}
               type="button"
               onClick={() => onFilterBeatNasdaqChange(!filterBeatNasdaq)}
               className={cn(

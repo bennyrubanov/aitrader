@@ -3,6 +3,14 @@
 import { toast } from '@/hooks/use-toast';
 import { ToastAction } from '@/components/ui/toast';
 
+/** Fired after follow is undone (PATCH isActive: false) so clients can refetch profiles. */
+export const USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT = 'user-portfolio-profiles-invalidate';
+
+export function invalidateUserPortfolioProfiles(): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT));
+}
+
 export async function setUserPortfolioProfileActive(
   profileId: string,
   isActive: boolean
@@ -46,6 +54,50 @@ export function showPortfolioUnfollowToast({
               toast({
                 title: 'Could not undo',
                 description: 'Try following again from Explore.',
+                variant: 'destructive',
+              });
+            }
+          })();
+        }}
+      >
+        Undo
+      </ToastAction>
+    ),
+  });
+}
+
+export type PortfolioFollowToastOptions = {
+  profileId: string;
+  title: string;
+  description?: string;
+  /** Extra work after profiles are invalidated (e.g. Explore list, router.refresh). */
+  onAfterUndo?: () => void | Promise<void>;
+};
+
+/** Toast after a successful follow; Undo deactivates the profile (same as unfollow). */
+export function showPortfolioFollowToast({
+  profileId,
+  title,
+  description,
+  onAfterUndo,
+}: PortfolioFollowToastOptions): void {
+  toast({
+    title,
+    description,
+    action: (
+      <ToastAction
+        altText="Undo follow"
+        onClick={() => {
+          void (async () => {
+            const ok = await setUserPortfolioProfileActive(profileId, false);
+            if (ok) {
+              invalidateUserPortfolioProfiles();
+              await onAfterUndo?.();
+              toast({ title: 'Follow removed' });
+            } else {
+              toast({
+                title: 'Could not undo',
+                description: 'Try removing the portfolio from Your portfolio.',
                 variant: 'destructive',
               });
             }

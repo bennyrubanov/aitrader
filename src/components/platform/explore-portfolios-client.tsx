@@ -10,18 +10,22 @@ import {
 import { ExplorePortfolioDetailDialog } from '@/components/platform/explore-portfolio-detail-dialog';
 import {
   showPortfolioUnfollowToast,
+  showPortfolioFollowToast,
   setUserPortfolioProfileActive,
 } from '@/components/platform/portfolio-unfollow-toast';
+import {
+  PortfolioEntryDatePicker,
+  portfolioEntryDateBounds,
+} from '@/components/platform/portfolio-entry-date-picker';
 import { ExplorePortfolioFilterControls } from '@/components/platform/explore-portfolio-filter-controls';
-import { PortfolioRankingTooltipBody } from '@/components/platform/portfolio-ranking-tooltip-body';
+import { PortfolioRankingTooltipBody } from '@/components/tooltips';
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
 import { StrategyModelSidebarDropdown } from '@/components/platform/strategy-model-sidebar-dropdown';
 import { useRouter } from 'next/navigation';
-import { format, parseISO } from 'date-fns';
+import { format } from 'date-fns';
 import {
   ArrowUpRight,
   Calendar as CalendarIcon,
-  Check,
   ExternalLink,
   FilterX,
   Info,
@@ -85,11 +89,6 @@ function localTodayYmd(): string {
   return format(new Date(), 'yyyy-MM-dd');
 }
 
-/** Min entry date as YYYY-MM-dd when API omits model inception (uses UTC civil date of fallback). */
-function utcYmd(d: Date): string {
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
-}
-
 type UserProfileFollowRow = {
   id: string;
   config_id: string;
@@ -150,8 +149,6 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
   const [addStartDate, setAddStartDate] = useState(localTodayYmd);
   const [addInvestment, setAddInvestment] = useState('10000');
   const [addBusy, setAddBusy] = useState(false);
-  const [addDatePopoverOpen, setAddDatePopoverOpen] = useState(false);
-
   /** Maps portfolio config id → user profile row id for the selected strategy (newest row wins). */
   const [followedProfileIdByConfigId, setFollowedProfileIdByConfigId] = useState<
     Record<string, string>
@@ -225,25 +222,9 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
     [followedProfileIdByConfigId]
   );
 
-  const { inceptionDate, entryMinYmd, entryMaxYmd } = useMemo(() => {
-    const inceptionDT = modelInceptionDate
-      ? parseISO(`${modelInceptionDate}T12:00:00Z`)
-      : parseISO('2020-01-01T12:00:00Z');
-    return {
-      inceptionDate: inceptionDT,
-      entryMinYmd: modelInceptionDate ?? utcYmd(inceptionDT),
-      entryMaxYmd: format(new Date(), 'yyyy-MM-dd'),
-    };
-  }, [modelInceptionDate]);
-
-  const entryMaxYmdDisplay = useMemo(
-    () => format(parseISO(`${entryMaxYmd}T12:00:00`), 'MMM d, yyyy').toLowerCase(),
-    [entryMaxYmd]
-  );
-
-  const selectedAddEntryDate = useMemo(
-    () => parseISO(`${addStartDate}T12:00:00Z`),
-    [addStartDate]
+  const { minYmd: entryMinYmd, maxYmd: entryMaxYmd } = useMemo(
+    () => portfolioEntryDateBounds(modelInceptionDate),
+    [modelInceptionDate]
   );
 
   useEffect(() => {
@@ -399,7 +380,6 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
       return;
     }
     setAddTarget(c);
-    setAddDatePopoverOpen(false);
     setAddStartDate(localTodayYmd());
     setAddInvestment('10000');
     setAddDialogOpen(true);
@@ -413,13 +393,13 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
       return;
     }
     if (!addStartDate) {
-      toast({ title: 'Pick a start date', variant: 'destructive' });
+      toast({ title: 'Pick when you enter', variant: 'destructive' });
       return;
     }
     if (addStartDate < entryMinYmd || addStartDate > entryMaxYmd) {
       toast({
-        title: 'Invalid start date',
-        description: 'Choose a date between model inception and today.',
+        title: 'Invalid date',
+        description: 'Choose a date between inception and today.',
         variant: 'destructive',
       });
       return;
@@ -438,8 +418,8 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
           userStartDate: addStartDate,
         }),
       });
+      const j = (await res.json().catch(() => ({}))) as { profileId?: string; error?: string };
       if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
         toast({
           title: 'Could not follow portfolio',
           description: typeof j.error === 'string' ? j.error : 'Try again later.',
@@ -447,7 +427,20 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
         });
         return;
       }
-      toast({ title: `Following: ${addTarget.label}` });
+      const newProfileId = typeof j.profileId === 'string' ? j.profileId : '';
+      if (!newProfileId) {
+        toast({
+          title: 'Could not follow portfolio',
+          description: 'Missing profile id from server.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      showPortfolioFollowToast({
+        profileId: newProfileId,
+        title: `Following: ${addTarget.label}`,
+        onAfterUndo: () => void loadFollowedProfiles(),
+      });
       await loadFollowedProfiles();
       setAddDialogOpen(false);
       router.push('/platform/your-portfolio');
@@ -763,10 +756,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
       {/* Add-to-portfolio dialog */}
       <Dialog
         open={addDialogOpen}
-        onOpenChange={(o) => {
-          setAddDialogOpen(o);
-          if (!o) setAddDatePopoverOpen(false);
-        }}
+        onOpenChange={setAddDialogOpen}
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -840,112 +830,21 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
             </div>
 
             <div className="space-y-2">
-              <Label className="text-foreground">Start date</Label>
-              <div className="space-y-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAddStartDate(entryMaxYmd);
-                    setAddDatePopoverOpen(false);
-                  }}
-                  className={cn(
-                    'w-full rounded-lg border px-4 py-3 text-left transition-colors',
-                    addStartDate === entryMaxYmd
-                      ? 'border-primary bg-primary/10 ring-1 ring-primary'
-                      : 'border-border hover:border-foreground/20 hover:bg-muted/30'
-                  )}
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <span className="text-sm font-semibold">Today</span>
-                      <span className="ml-2 text-xs text-muted-foreground">{entryMaxYmdDisplay}</span>
-                    </div>
-                    {addStartDate === entryMaxYmd ? (
-                      <Check className="size-3.5 text-primary" aria-hidden />
-                    ) : null}
-                  </div>
-                  <p className="mt-0.5 text-xs text-muted-foreground">Track returns from now.</p>
-                </button>
-
-                <div className="space-y-1.5">
-                  <p className="text-xs text-muted-foreground px-0.5">
-                    Or pick the date you expect to enter the portfolio:
-                  </p>
-                  <Popover open={addDatePopoverOpen} onOpenChange={setAddDatePopoverOpen}>
-                    <PopoverTrigger asChild>
-                      <Button
-                        id="explore-add-entry-date"
-                        variant="outline"
-                        className={cn(
-                          'w-full justify-start gap-2 text-left font-normal',
-                          addStartDate !== entryMaxYmd && 'border-primary ring-1 ring-primary'
-                        )}
-                      >
-                        <CalendarIcon className="size-4 shrink-0 opacity-60" aria-hidden />
-                        {addStartDate === entryMaxYmd ? (
-                          <span className="text-muted-foreground">Choose date…</span>
-                        ) : (
-                          format(selectedAddEntryDate, 'MMMM d, yyyy')
-                        )}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                      <div>
-                        <Calendar
-                          mode="single"
-                          selected={selectedAddEntryDate}
-                          onSelect={(d) => {
-                            if (!d) return;
-                            setAddStartDate(format(d, 'yyyy-MM-dd'));
-                            setAddDatePopoverOpen(false);
-                          }}
-                          defaultMonth={selectedAddEntryDate}
-                          disabled={(d) => {
-                            const cellYmd = format(d, 'yyyy-MM-dd');
-                            return cellYmd < entryMinYmd || cellYmd > entryMaxYmd;
-                          }}
-                          initialFocus
-                          modifiers={
-                            modelInceptionDate
-                              ? { modelInception: parseISO(modelInceptionDate) }
-                              : undefined
-                          }
-                          modifiersClassNames={
-                            modelInceptionDate
-                              ? {
-                                  modelInception: cn(
-                                    'relative z-[1] font-semibold text-trader-blue dark:text-sky-400',
-                                    'ring-2 ring-trader-blue/70 ring-offset-2 ring-offset-background rounded-md'
-                                  ),
-                                }
-                              : undefined
-                          }
-                        />
-                        {modelInceptionDate ? (
-                          <p className="flex items-center gap-2 border-t px-3 py-2 text-[11px] text-muted-foreground">
-                            <span
-                              className="inline-block size-2 shrink-0 rounded-full bg-trader-blue ring-2 ring-trader-blue/40"
-                              aria-hidden
-                            />
-                            <span>
-                              <span className="font-medium text-foreground">Model inception</span>
-                              {': '}
-                              {format(inceptionDate, 'MMM d, yyyy')}
-                            </span>
-                          </p>
-                        ) : null}
-                      </div>
-                    </PopoverContent>
-                  </Popover>
-                  {addStartDate !== entryMaxYmd ? (
-                    <p className="text-xs text-muted-foreground px-0.5">
-                      Past entry is hypothetical (assumes you held this portfolio since then).
-                    </p>
-                  ) : null}
-                </div>
-              </div>
+              <Label className="text-foreground" htmlFor="explore-add-entry-date">
+                When you enter
+              </Label>
+              <PortfolioEntryDatePicker
+                triggerId="explore-add-entry-date"
+                valueYmd={addStartDate}
+                onChangeYmd={setAddStartDate}
+                minYmd={entryMinYmd}
+                maxYmd={entryMaxYmd}
+                modelInceptionYmd={modelInceptionDate}
+                disabled={addBusy}
+                calendarPrompt="Or pick the date you expect to enter the portfolio:"
+              />
               <p className="border-t border-border/50 pt-2 text-[11px] text-muted-foreground dark:border-border/40">
-                To see performance history since the strategy model launched, see its{' '}
+                To see performance since inception, see its{' '}
                 <a
                   href={`/performance/${encodeURIComponent(strategySlug)}`}
                   target="_blank"

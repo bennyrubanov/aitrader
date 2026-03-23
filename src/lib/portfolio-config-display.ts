@@ -43,6 +43,19 @@ export function formatPortfolioConfigOverviewLine(params: {
   return `Top ${params.topN} · ${freq} · ${weight}`;
 }
 
+/** Platform overview spotlight: always includes weight (`Top 1 · Weekly · Equal`). */
+export function formatPortfolioSpotlightConfigLine(params: {
+  topN: number;
+  weightingMethod: string;
+  rebalanceFrequency: string;
+}): string {
+  const freq =
+    FREQ_DISPLAY[params.rebalanceFrequency] ??
+    params.rebalanceFrequency.charAt(0).toUpperCase() + params.rebalanceFrequency.slice(1);
+  const weight = params.weightingMethod === 'cap' ? 'Cap' : 'Equal';
+  return `Top ${params.topN} · ${freq} · ${weight}`;
+}
+
 /** Short line for subtitles: `Top 20 · Weekly` (frequency only, no weighting). */
 export function formatPortfolioHoldingsSubtitle(topN: number, rebalanceFrequency: string): string {
   const freq =

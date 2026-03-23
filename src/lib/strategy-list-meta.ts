@@ -16,7 +16,7 @@ const MONTHS = [
 ];
 
 /** YYYY-MM-DD → "Jan 15, 2025" (matches ModelHeaderCard-style display). */
-export function formatStrategyInitiatedDate(iso: string | null | undefined): string {
+export function formatStrategyInceptionDateLabel(iso: string | null | undefined): string {
   if (!iso) return '—';
   const [y, m, day] = iso.split('-');
   if (!y || !m || !day) return iso;
@@ -30,8 +30,8 @@ export function strategyModelDropdownSubtitle(
   s: Pick<StrategyListItem, 'startDate' | 'runCount'>
 ): string {
   const datePart = s.startDate
-    ? `Initiated ${formatStrategyInitiatedDate(s.startDate)}`
-    : 'Initiation date pending';
+    ? `Inception: ${formatStrategyInceptionDateLabel(s.startDate)}`
+    : 'Inception pending';
   const rc = s.runCount;
   const runsPart =
     typeof rc === 'number' && rc >= 0

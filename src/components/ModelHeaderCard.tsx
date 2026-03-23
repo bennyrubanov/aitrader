@@ -39,7 +39,7 @@ type ModelHeaderCardProps = {
   modelName?: string | null;
   /**
    * When set, fetches ranked portfolios and shows the share that outperform
-   * Nasdaq-100 cap-weight over the shared strategy window (same start date for all portfolios).
+   * Nasdaq-100 cap-weight over the shared strategy window (same inception for all portfolios).
    */
   beatMarketSlug?: string | null;
   /**
@@ -480,7 +480,7 @@ export function ModelHeaderCard({
             <p className="text-sm text-muted-foreground mt-1.5">
               {startDate ? (
                 <>
-                  Initiated on{' '}
+                  Inception:{' '}
                   <span className="font-medium tabular-nums text-foreground/90">
                     {fmt.date(startDate)}
                   </span>

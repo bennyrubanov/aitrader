@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
@@ -9,19 +9,20 @@ import {
   ArrowRight,
   Bell,
   BellOff,
-  Bookmark,
   Compass,
   ExternalLink,
   FilterX,
   FolderHeart,
   HelpCircle,
   Layers,
+  LayoutTemplate,
   ListFilter,
   LogIn,
   Percent,
   Plus,
   Scale,
   Shield,
+  Settings2,
   TrendingUp,
   Trophy,
   UserMinus,
@@ -48,8 +49,11 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useToast } from '@/hooks/use-toast';
 import {
   showPortfolioUnfollowToast,
+  showPortfolioFollowToast,
   setUserPortfolioProfileActive,
+  USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT,
 } from '@/components/platform/portfolio-unfollow-toast';
+import { UserPortfolioEntrySettingsDialog } from '@/components/platform/user-portfolio-entry-settings-dialog';
 import {
   usePortfolioConfig,
   RISK_LABELS,
@@ -65,12 +69,10 @@ import {
 } from '@/lib/portfolio-config-badges';
 import { PORTFOLIO_EXPLORE_QUICK_PICKS } from '@/lib/portfolio-explore-quick-picks';
 import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
+import { formatYmdDisplay } from '@/lib/format-ymd-display';
 import { cn } from '@/lib/utils';
 import type { ConfigPerfRow } from '@/lib/portfolio-config-utils';
-import {
-  buildConfigPerformanceChart,
-  filterAndRebaseConfigRows,
-} from '@/lib/config-performance-chart';
+import { buildConfigPerformanceChart } from '@/lib/config-performance-chart';
 
 const PerformanceChart = dynamic(
   () => import('@/components/platform/performance-chart').then((m) => m.PerformanceChart),
@@ -142,6 +144,29 @@ type ConfigPerfApiResponse = {
   rows?: ConfigPerfRow[];
   computeStatus?: 'ready' | 'in_progress' | 'failed' | 'empty' | 'unsupported' | 'pending';
   config?: PortfolioConfigEmbed;
+};
+
+type UserEntryPerfApiResponse = {
+  series?: ConfigPerfChartPoint[];
+  metrics?: {
+    sharpeRatio: number | null;
+    totalReturn: number | null;
+    cagr: number | null;
+    maxDrawdown: number | null;
+  } | null;
+  computeStatus?:
+    | 'ready'
+    | 'pending'
+    | 'empty'
+    | 'failed'
+    | 'gathering_data'
+    | 'no_start_date'
+    | 'no_positions'
+    | 'no_holdings_run';
+  configComputeStatus?: string;
+  hasMultipleObservations?: boolean;
+  anchorHoldingsRunDate?: string | null;
+  userStartDate?: string | null;
 };
 
 type PresetConfig = {
@@ -226,18 +251,6 @@ function num(v: number | string | null | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-/** ISO `YYYY-MM-DD` → compact label for sidebar (e.g. Mar 22, 2026). */
-function abbrevProfileStartDate(iso: string | null | undefined): string | null {
-  if (!iso || !String(iso).trim()) return null;
-  const d = new Date(`${iso.trim()}T00:00:00Z`);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
-}
-
 /** Risk tier dot colors — aligned with explore portfolio cards. */
 const SIDEBAR_RISK_DOT: Record<RiskLevel, string> = {
   1: 'bg-emerald-500',
@@ -293,7 +306,7 @@ const SIDEBAR_BADGE_ICON: Record<string, LucideIcon> = {
   'Top ranked': Trophy,
   'Best risk-adjusted': Scale,
   'Most consistent': Layers,
-  Default: Bookmark,
+  Default: LayoutTemplate,
   'Best CAGR': TrendingUp,
   'Best total return': Percent,
   Steadiest: Shield,
@@ -497,6 +510,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     Record<string, string | null>
   >({});
   const [filtersDialogOpen, setFiltersDialogOpen] = useState(false);
+  const filterDialogBenchmarkNasdaqRef = useRef<HTMLButtonElement>(null);
   const [filterBeatNasdaq, setFilterBeatNasdaq] = useState(false);
   const [filterBeatSp500, setFilterBeatSp500] = useState(false);
   const [riskFilter, setRiskFilter] = useState<RiskLevel | null>(null);
@@ -505,6 +519,9 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const [notifyPending, setNotifyPending] = useState(false);
   const [unfollowBusy, setUnfollowBusy] = useState(false);
   const [perfView, setPerfView] = useState<'user' | 'model'>('user');
+  const [userEntryPayload, setUserEntryPayload] = useState<UserEntryPerfApiResponse | null>(null);
+  const [isLoadingUserEntry, setIsLoadingUserEntry] = useState(false);
+  const [entrySettingsOpen, setEntrySettingsOpen] = useState(false);
 
   const loadProfiles = useCallback(async () => {
     setIsLoadingProfiles(true);
@@ -720,6 +737,34 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     void loadPerf();
   }, [loadPerf]);
 
+  const loadUserEntry = useCallback(async () => {
+    if (!selectedProfile?.id || !selectedProfile.user_start_date) {
+      setUserEntryPayload(null);
+      setIsLoadingUserEntry(false);
+      return;
+    }
+    setIsLoadingUserEntry(true);
+    try {
+      const res = await fetch(
+        `/api/platform/user-portfolio-performance?profileId=${encodeURIComponent(selectedProfile.id)}`
+      );
+      const data = (await res.json()) as UserEntryPerfApiResponse;
+      if (res.ok) {
+        setUserEntryPayload(data);
+      } else {
+        setUserEntryPayload({ computeStatus: 'failed', series: [], metrics: null });
+      }
+    } catch {
+      setUserEntryPayload({ computeStatus: 'failed', series: [], metrics: null });
+    } finally {
+      setIsLoadingUserEntry(false);
+    }
+  }, [selectedProfile?.id, selectedProfile?.user_start_date, selectedProfile?.investment_size]);
+
+  useEffect(() => {
+    void loadUserEntry();
+  }, [loadUserEntry]);
+
   // Poll while compute is in progress
   useEffect(() => {
     const st = perfPayload?.computeStatus;
@@ -728,6 +773,25 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     const t = setInterval(() => void loadPerf(), 4000);
     return () => clearInterval(t);
   }, [perfPayload?.computeStatus, loadPerf, selectedProfile]);
+
+  useEffect(() => {
+    const cfgSt = userEntryPayload?.configComputeStatus;
+    const entrySt = userEntryPayload?.computeStatus;
+    const needsData =
+      cfgSt === 'pending' ||
+      cfgSt === 'empty' ||
+      entrySt === 'pending' ||
+      entrySt === 'empty' ||
+      entrySt === 'gathering_data';
+    if (!needsData || !selectedProfile?.id) return;
+    const t = setInterval(() => void loadUserEntry(), 4000);
+    return () => clearInterval(t);
+  }, [
+    userEntryPayload?.configComputeStatus,
+    userEntryPayload?.computeStatus,
+    loadUserEntry,
+    selectedProfile?.id,
+  ]);
 
   const loadScoresForSlug = useCallback(async (slug: string) => {
     setIsLoadingScores(true);
@@ -756,19 +820,21 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
 
   const modelChart = useMemo(() => buildConfigPerformanceChart(rawRows), [rawRows]);
 
-  const userChart = useMemo(() => {
-    if (!rawRows.length || !selectedProfile?.user_start_date) return null;
-    const start = selectedProfile.user_start_date;
-    const inv = num(selectedProfile.investment_size);
-    const rebased = filterAndRebaseConfigRows(rawRows, start, inv > 0 ? inv : 10_000);
-    return buildConfigPerformanceChart(rebased);
-  }, [rawRows, selectedProfile]);
+  const userEntrySeries = userEntryPayload?.series ?? [];
+  const userEntryMetrics = userEntryPayload?.metrics ?? null;
 
-  const activeChart =
-    perfView === 'user' && userChart && userChart.series.length > 0 ? userChart : modelChart;
+  const modelDisplayMetrics = modelChart.metrics ?? perfPayload?.metrics ?? null;
+  const modelDisplaySeries =
+    modelChart.series.length > 0 ? modelChart.series : (perfPayload?.series ?? []);
 
-  const displayMetrics = activeChart.metrics ?? perfPayload?.metrics ?? null;
-  const displaySeries = activeChart.series.length > 0 ? activeChart.series : (perfPayload?.series ?? []);
+  const displayMetrics =
+    perfView === 'user' && selectedProfile?.user_start_date
+      ? userEntryMetrics
+      : modelDisplayMetrics;
+  const displaySeries =
+    perfView === 'user' && selectedProfile?.user_start_date
+      ? userEntrySeries
+      : modelDisplaySeries;
 
   const holdingsRows = useMemo(() => {
     const positions = selectedProfile?.user_portfolio_positions ?? [];
@@ -811,10 +877,24 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         });
         return;
       }
-      toast({ title: `Following "${preset.label}"` });
+      const createdId = j.profileId;
+      if (createdId) {
+        showPortfolioFollowToast({
+          profileId: createdId,
+          title: `Following "${preset.label}"`,
+          onAfterUndo: () => {
+            const sp = new URLSearchParams(window.location.search);
+            if (sp.get('profile') === createdId) {
+              router.replace('/platform/your-portfolio', { scroll: false });
+            }
+          },
+        });
+      } else {
+        toast({ title: `Following "${preset.label}"` });
+      }
       await loadProfiles();
-      if (j.profileId) {
-        router.replace(`/platform/your-portfolio?profile=${j.profileId}`, { scroll: false });
+      if (createdId) {
+        router.replace(`/platform/your-portfolio?profile=${createdId}`, { scroll: false });
       }
     } finally {
       setPresetBusyKey(null);
@@ -947,10 +1027,34 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     );
   }
 
-  const computeStatus =
+  const modelComputeStatus =
     perfPayload?.computeStatus === 'pending'
       ? 'in_progress'
       : (perfPayload?.computeStatus ?? 'empty');
+
+  const userEntryStatus = userEntryPayload?.computeStatus;
+  const perfLoading =
+    perfView === 'user' && selectedProfile?.user_start_date ? isLoadingUserEntry : isLoadingPerf;
+  const activeComputeStatus =
+    perfView === 'user' && selectedProfile?.user_start_date
+      ? userEntryStatus === 'ready'
+        ? 'ready'
+        : userEntryStatus === 'gathering_data'
+          ? 'gathering'
+          : userEntryStatus === 'failed'
+            ? 'failed'
+            : userEntryStatus === 'pending'
+              ? 'in_progress'
+              : userEntryStatus === 'no_start_date' || userEntryStatus === 'no_positions'
+                ? 'empty'
+                : userEntryStatus === 'no_holdings_run'
+                  ? 'unsupported'
+                  : userEntryStatus === 'empty'
+                    ? 'empty'
+                    : isLoadingUserEntry
+                      ? 'in_progress'
+                      : 'empty'
+      : modelComputeStatus;
 
   const cfg = selectedProfile?.portfolio_config;
   const headerRiskLevel = (cfg?.risk_level ?? 3) as RiskLevel;
@@ -958,14 +1062,32 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     (cfg?.risk_label && cfg.risk_label.trim()) || (RISK_LABELS[headerRiskLevel] ?? 'Risk');
   const headerRiskDot = SIDEBAR_RISK_DOT[headerRiskLevel] ?? 'bg-muted';
   const entryLabel = selectedProfile?.user_start_date
-    ? new Date(selectedProfile.user_start_date + 'T00:00:00Z').toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-      })
+    ? formatYmdDisplay(String(selectedProfile.user_start_date).trim())
     : null;
 
-  const showUserPerfToggle = Boolean(selectedProfile?.user_start_date && userChart && userChart.series.length > 1);
+  const showUserPerfToggle = Boolean(
+    selectedProfile?.user_start_date &&
+      (userEntrySeries.length >= 1 ||
+        modelChart.series.length > 1 ||
+        modelDisplaySeries.length > 1)
+  );
+
+  const showUserPerfChart =
+    perfView === 'user' &&
+    !perfLoading &&
+    userEntryStatus !== 'no_positions' &&
+    userEntryStatus !== 'no_holdings_run' &&
+    userEntryStatus !== 'failed' &&
+    userEntryStatus !== 'empty' &&
+    userEntryStatus !== 'pending' &&
+    displaySeries.length >= 1;
+  const showModelPerfChart =
+    perfView === 'model' && !perfLoading && displaySeries.length > 1;
+
+  const holdingsAsOfDate =
+    perfView === 'user' && userEntryPayload?.anchorHoldingsRunDate
+      ? userEntryPayload.anchorHoldingsRunDate
+      : runDate;
 
   return (
     <TooltipProvider delayDuration={150}>
@@ -1064,7 +1186,9 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
               const rowRiskDot = SIDEBAR_RISK_DOT[rowRisk] ?? 'bg-muted';
               const rowRanked = rankedConfigForProfile(p, rankedBySlug);
               const rowStrategySlug = p.strategy_models?.slug ?? strategySlug;
-              const rowStartAbbrev = abbrevProfileStartDate(p.user_start_date);
+              const rowStartAbbrev = p.user_start_date?.trim()
+                ? formatYmdDisplay(p.user_start_date.trim())
+                : null;
               return (
                 <div
                   key={p.id}
@@ -1115,11 +1239,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                         ) : null}
                       </div>
                     </div>
-                    {p.notifications_enabled && (
-                      <Badge variant="secondary" className="mt-1.5 text-[9px] h-5">
-                        Notifications on
-                      </Badge>
-                    )}
                   </button>
                 </div>
               );
@@ -1176,6 +1295,18 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                   </ToggleGroupItem>
                 </ToggleGroup>
               ) : null}
+              {selectedProfile?.user_start_date ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 h-8 text-xs"
+                  onClick={() => setEntrySettingsOpen(true)}
+                >
+                  <Settings2 className="size-3.5" />
+                  <span className="hidden sm:inline">Entry settings</span>
+                </Button>
+              ) : null}
               <Button
                 variant="ghost"
                 size="sm"
@@ -1214,24 +1345,61 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         </div>
 
         <div className="flex-1 space-y-4 px-4 py-4 sm:px-6 sm:pb-10">
-          {isLoadingPerf ? (
+          {perfLoading ? (
             <Skeleton className="h-24 w-full" />
-          ) : computeStatus === 'empty' ? (
+          ) : perfView === 'user' && userEntryStatus === 'no_positions' ? (
+            <div className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
+              <p className="font-medium">No saved entry positions</p>
+              <p className="text-xs mt-1">Update your entry in entry settings to rebuild holdings.</p>
+            </div>
+          ) : perfView === 'user' && userEntryStatus === 'no_holdings_run' ? (
+            <div className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
+              <p className="font-medium">No model snapshot for that entry</p>
+              <p className="text-xs mt-1">Pick an entry on or after the strategy&apos;s first rebalance.</p>
+            </div>
+          ) : activeComputeStatus === 'empty' ? (
             <div className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
               <p className="font-medium">Performance data computing…</p>
               <p className="text-xs mt-1">
                 Historical performance for this configuration is being calculated. This page refreshes automatically.
               </p>
             </div>
-          ) : computeStatus === 'in_progress' ? (
+          ) : activeComputeStatus === 'in_progress' ? (
             <div className="rounded-lg border bg-amber-500/10 border-amber-500/30 p-4 text-sm text-amber-700 dark:text-amber-300">
               Performance data is being computed. Checking every few seconds…
             </div>
-          ) : computeStatus === 'failed' ? (
+          ) : activeComputeStatus === 'gathering' ? (
+            <>
+              <div className="rounded-lg border border-border/60 bg-muted/30 p-3 text-sm text-muted-foreground">
+                <p className="font-medium text-foreground">Tracking from your entry</p>
+                <p className="text-xs mt-1 leading-relaxed">
+                  You have a starting point at your chosen investment. Return and risk stats will
+                  populate after more market closes; this page refreshes automatically.
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {[
+                  { label: 'Total return', value: fmt(null, 'pct'), positive: false },
+                  { label: 'Sharpe ratio', value: fmt(null, 'num'), positive: false },
+                  { label: 'CAGR', value: fmt(null, 'pct'), positive: false },
+                  { label: 'Max drawdown', value: fmt(null, 'pct'), positive: false },
+                ].map(({ label, value, positive }) => (
+                  <div key={label} className="rounded-lg border bg-card p-4">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+                    <p
+                      className={`text-xl font-semibold mt-1 ${value !== 'N/A' && positive ? 'text-green-600 dark:text-green-400' : value !== 'N/A' && label !== 'Sharpe ratio' ? 'text-foreground' : ''}`}
+                    >
+                      {value}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : activeComputeStatus === 'failed' ? (
             <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
               Couldn&apos;t load performance for this configuration. Try again later.
             </div>
-          ) : computeStatus === 'unsupported' ? (
+          ) : activeComputeStatus === 'unsupported' ? (
             <div className="rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground">
               This portfolio isn&apos;t available yet.
             </div>
@@ -1257,12 +1425,20 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
 
           {perfView === 'user' && selectedProfile?.user_start_date ? (
             <p className="text-[11px] text-muted-foreground">
-              Showing returns from your start date ({entryLabel}) with a starting balance of $
-              {num(selectedProfile.investment_size).toLocaleString(undefined, { maximumFractionDigits: 0 })}.
+              Showing returns since you entered ({entryLabel}) with a starting balance of $
+              {num(selectedProfile.investment_size).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              . Holdings and entry prices use the model snapshot on{' '}
+              {userEntryPayload?.anchorHoldingsRunDate
+                ? new Date(userEntryPayload.anchorHoldingsRunDate + 'T00:00:00Z').toLocaleDateString(
+                    'en-US',
+                    { month: 'short', day: 'numeric', year: 'numeric' }
+                  )
+                : 'the nearest rebalance on or before that date'}
+              .
             </p>
           ) : null}
 
-          {!isLoadingPerf && displaySeries.length > 1 && (
+          {(showUserPerfChart || showModelPerfChart) && (
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm flex items-center justify-between gap-2">
@@ -1287,10 +1463,10 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
               <CardTitle className="text-sm flex items-center justify-between gap-2">
                 <span>
                   Holdings at entry
-                  {runDate && (
+                  {holdingsAsOfDate && (
                     <span className="ml-2 text-xs font-normal text-muted-foreground">
                       scores as of{' '}
-                      {new Date(runDate + 'T00:00:00Z').toLocaleDateString('en-US', {
+                      {new Date(holdingsAsOfDate + 'T00:00:00Z').toLocaleDateString('en-US', {
                         weekday: 'short',
                         month: 'short',
                         day: 'numeric',
@@ -1374,7 +1550,13 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       </div>
 
       <Dialog open={filtersDialogOpen} onOpenChange={setFiltersDialogOpen}>
-        <DialogContent className="flex max-h-[min(90vh,720px)] w-[calc(100vw-1.5rem)] max-w-lg flex-col gap-0 overflow-hidden p-0 sm:w-full">
+        <DialogContent
+          className="flex max-h-[min(90vh,720px)] w-[calc(100vw-1.5rem)] max-w-lg flex-col gap-0 overflow-hidden p-0 sm:w-full"
+          onOpenAutoFocus={(e) => {
+            e.preventDefault();
+            filterDialogBenchmarkNasdaqRef.current?.focus();
+          }}
+        >
           <DialogHeader className="shrink-0 space-y-1 border-b px-6 py-5 text-left">
             <DialogTitle>Filter portfolios</DialogTitle>
             <DialogDescription>
@@ -1394,6 +1576,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
               onFreqChange={setFreqFilter}
               onWeightChange={setWeightFilter}
               benchmarkOutperformanceAsOf={latestBenchmarkAsOf}
+              benchmarkNasdaqToggleRef={filterDialogBenchmarkNasdaqRef}
               benchmarkHeaderEnd={
                 activeSidebarFilterCount > 0 ? (
                   <Button
@@ -1491,6 +1674,24 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         </DialogContent>
       </Dialog>
       </div>
+      <UserPortfolioEntrySettingsDialog
+        open={entrySettingsOpen}
+        onOpenChange={setEntrySettingsOpen}
+        profile={
+          selectedProfile?.user_start_date
+            ? {
+                id: selectedProfile.id,
+                investment_size: selectedProfile.investment_size,
+                user_start_date: selectedProfile.user_start_date,
+                strategySlug: selectedProfile.strategy_models?.slug ?? null,
+              }
+            : null
+        }
+        onSaved={() => {
+          void loadProfiles();
+          void loadUserEntry();
+        }}
+      />
     </TooltipProvider>
   );
 }

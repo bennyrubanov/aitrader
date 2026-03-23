@@ -385,8 +385,8 @@ export function ExplorePortfolioDetailDialog({
             </div>
             <p className="text-xs text-muted-foreground">
               {inceptionLabel
-                ? `Data tracked since ${inceptionLabel} (model inception)`
-                : 'Data tracked from model inception'}
+                ? `Data tracked since ${inceptionLabel} (inception)`
+                : 'Data tracked from inception'}
             </p>
             {config.badges.length > 0 ? (
               <div className="flex flex-wrap gap-1 pt-0.5">
@@ -417,13 +417,13 @@ export function ExplorePortfolioDetailDialog({
                 <FlipCard
                   label="Portfolio value"
                   value={fmtUsd(endingVal)}
-                  explanation="Current value for the model portfolio if you had invested $10,000 at model inception."
+                  explanation="Current value for the model portfolio if you had invested $10,000 at inception."
                   neutral
                 />
                 <FlipCard
                   label="Total return"
                   value={fmtPct(m.totalReturn)}
-                  explanation="How much the $10,000 starting capital has grown in total since the strategy model launched. This is the raw cumulative gain over the full tracked period, before any annualization."
+                  explanation="How much the $10,000 starting capital has grown in total since inception. This is the raw cumulative gain over the full tracked period, before any annualization."
                   positive={(m.totalReturn ?? 0) > 0}
                 />
               </div>
@@ -442,13 +442,13 @@ export function ExplorePortfolioDetailDialog({
                 <FlipCard
                   label="CAGR"
                   value={fmtPct(m.cagr)}
-                  explanation="Annualized compound growth rate. If the strategy grew at this exact pace every calendar year since launch, this is the annual return you would have seen."
+                  explanation="Annualized compound growth rate. If the strategy grew at this exact pace every calendar year since inception, this is the annual return you would have seen."
                   positive={(m.cagr ?? 0) > 0}
                 />
                 <FlipCard
                   label="Max drawdown"
                   value={fmtPct(m.maxDrawdown)}
-                  explanation="The worst peak-to-trough decline since launch. If you had invested at the peak and sold at the worst point, this is how much you would have lost. Closer to zero is better."
+                  explanation="The worst peak-to-trough decline since inception. If you had invested at the peak and sold at the worst point, this is how much you would have lost. Closer to zero is better."
                   positive={(m.maxDrawdown ?? 0) > -0.2}
                 />
               </div>

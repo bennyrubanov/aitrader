@@ -1,18 +1,18 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import {
   ArrowRight,
   ArrowUpRight,
   ArrowDownRight,
   Bell,
-  BellOff,
   Compass,
   Folders,
   LayoutDashboard,
   Plus,
+  Settings2,
   Sparkles,
   X,
 } from 'lucide-react';
@@ -26,6 +26,8 @@ import {
 import { ExplorePortfolioDetailDialog } from '@/components/platform/explore-portfolio-detail-dialog';
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
 import { PortfolioOnboardingDialog } from '@/components/platform/portfolio-onboarding-dialog';
+import { USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT } from '@/components/platform/portfolio-unfollow-toast';
+import { UserPortfolioEntrySettingsDialog } from '@/components/platform/user-portfolio-entry-settings-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -36,17 +38,51 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Switch } from '@/components/ui/switch';
-import type { PerformanceSeriesPoint, StrategyListItem } from '@/lib/platform-performance-payload';
-import { buildConfigPerformanceChart, filterAndRebaseConfigRows } from '@/lib/config-performance-chart';
-import type { ConfigPerfRow } from '@/lib/portfolio-config-utils';
-import { formatPortfolioConfigOverviewLine } from '@/lib/portfolio-config-display';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import {
+  SpotlightAllocationHeaderTooltip,
+  SpotlightStatCard,
+} from '@/components/tooltips';
+import { computeOverviewUserCompositeScores } from '@/lib/overview-user-composite';
+import type {
+  HoldingItem,
+  PerformanceSeriesPoint,
+  StrategyListItem,
+} from '@/lib/platform-performance-payload';
+import { sharpeRatioValueClass } from '@/lib/sharpe-value-class';
+import {
+  formatPortfolioConfigOverviewLine,
+  formatPortfolioSpotlightConfigLine,
+} from '@/lib/portfolio-config-display';
+import { formatYmdDisplay } from '@/lib/format-ymd-display';
 import { visibleOverviewSlotCount, isValidOverviewSlot } from '@/lib/overview-slots';
 import { cn } from '@/lib/utils';
 
+const PerformanceChart = dynamic(
+  () => import('@/components/platform/performance-chart').then((m) => m.PerformanceChart),
+  { ssr: false, loading: () => <Skeleton className="h-[300px] w-full rounded-lg" /> }
+);
+
 /** Every overview grid cell (portfolio tile or “add”) uses this fixed row height — layout does not grow/shrink per content. */
 const OVERVIEW_TILE_ROW_HEIGHT = '20rem';
+
+/** Matches `INITIAL_CAPITAL` in config performance / model track rows before user-specific rebase. */
+const OVERVIEW_MODEL_INITIAL = 10_000;
 
 function parseOverviewSlotAssignments(raw: unknown): Map<number, string> {
   const m = new Map<number, string>();
@@ -105,6 +141,75 @@ type RankedBundle = {
   strategyName: string;
 };
 
+type OverviewCardPerfState = {
+  series: PerformanceSeriesPoint[];
+  /** True when only the entry baseline exists; returns/excess not meaningful yet. */
+  gatheringData: boolean;
+  totalReturn: number | null;
+  cagr: number | null;
+  maxDrawdown: number | null;
+  sharpeRatio: number | null;
+  consistency: number | null;
+  excessReturnVsNasdaqCap: number | null;
+  loading: boolean;
+};
+
+type TopPortfolioSortMetric =
+  | 'total_return'
+  | 'composite_score'
+  | 'consistency'
+  | 'sharpe_ratio'
+  | 'cagr'
+  | 'max_drawdown';
+
+const TOP_PORTFOLIO_SORT_OPTIONS: { value: TopPortfolioSortMetric; label: string }[] = [
+  { value: 'total_return', label: 'Return %' },
+  { value: 'composite_score', label: 'Composite score' },
+  { value: 'consistency', label: 'Consistency' },
+  { value: 'sharpe_ratio', label: 'Sharpe ratio' },
+  { value: 'cagr', label: 'CAGR' },
+  { value: 'max_drawdown', label: 'Steadiness (drawdown)' },
+];
+
+function emptyOverviewCardPerfState(loading: boolean): OverviewCardPerfState {
+  return {
+    series: [],
+    gatheringData: false,
+    totalReturn: null,
+    cagr: null,
+    maxDrawdown: null,
+    sharpeRatio: null,
+    consistency: null,
+    excessReturnVsNasdaqCap: null,
+    loading,
+  };
+}
+
+function spotlightSortValue(
+  metric: TopPortfolioSortMetric,
+  st: OverviewCardPerfState | undefined,
+  userCompositeScore: number | null
+): number | null {
+  switch (metric) {
+    case 'total_return':
+    case 'cagr':
+    case 'max_drawdown':
+    case 'consistency':
+    case 'sharpe_ratio': {
+      if (!st || st.loading) return null;
+      if (metric === 'total_return') return st.totalReturn;
+      if (metric === 'cagr') return st.cagr;
+      if (metric === 'max_drawdown') return st.maxDrawdown;
+      if (metric === 'consistency') return st.consistency;
+      return st.sharpeRatio;
+    }
+    case 'composite_score':
+      return userCompositeScore;
+    default:
+      return null;
+  }
+}
+
 function normalizeOverviewProfile(p: ProfileRow): ProfileRow {
   return {
     ...p,
@@ -162,18 +267,16 @@ function resolveRankedConfigForProfile(
 const fmt = {
   pct: (v: number | null | undefined, digits = 1) =>
     v == null || !Number.isFinite(v) ? '—' : `${v >= 0 ? '+' : ''}${(v * 100).toFixed(digits)}%`,
+  num: (v: number | null | undefined, digits = 2) =>
+    v == null || !Number.isFinite(v) ? '—' : v.toFixed(digits),
 };
-
-function formatOverviewUserStartDate(isoDate: string): string {
-  return new Date(`${isoDate}T00:00:00Z`).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
-}
 
 function formatOverviewInvestmentSize(amount: number): string | null {
   if (!Number.isFinite(amount) || amount <= 0) return null;
+  return formatOverviewCurrency(amount);
+}
+
+function formatOverviewCurrency(amount: number): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
@@ -181,8 +284,74 @@ function formatOverviewInvestmentSize(amount: number): string | null {
   }).format(amount);
 }
 
+/**
+ * Latest model-track equity for this tile (`series` from config performance). After user rebase, last point is
+ * portfolio value in dollars; otherwise scale model ending equity by `investment_size` vs model initial.
+ */
+function computeOverviewPortfolioValue(
+  series: PerformanceSeriesPoint[] | undefined,
+  investmentSize: number,
+  userStartDate: string | null
+): number | null {
+  if (!series?.length) return null;
+  const last = series[series.length - 1]?.aiTop20;
+  if (last == null || !Number.isFinite(last) || last <= 0) return null;
+  if (userStartDate && String(userStartDate).trim()) {
+    return last;
+  }
+  if (Number.isFinite(investmentSize) && investmentSize > 0) {
+    return last * (investmentSize / OVERVIEW_MODEL_INITIAL);
+  }
+  return last;
+}
+
+/** Portfolio vs cap benchmarks over the same series window (both series rebased together). */
+function benchmarkStatsFromSeries(series: PerformanceSeriesPoint[] | undefined): {
+  excessVsNasdaqCap: number | null;
+  excessVsSp500: number | null;
+  nasdaqCapTotalReturn: number | null;
+} {
+  if (!series || series.length < 2) {
+    return { excessVsNasdaqCap: null, excessVsSp500: null, nasdaqCapTotalReturn: null };
+  }
+  const f = series[0]!;
+  const l = series[series.length - 1]!;
+  if (f.aiTop20 <= 0 || f.nasdaq100CapWeight <= 0 || l.nasdaq100CapWeight <= 0) {
+    return { excessVsNasdaqCap: null, excessVsSp500: null, nasdaqCapTotalReturn: null };
+  }
+  const portRet = l.aiTop20 / f.aiTop20 - 1;
+  const benchRet = l.nasdaq100CapWeight / f.nasdaq100CapWeight - 1;
+  let excessVsSp500: number | null = null;
+  if (f.sp500 > 0 && l.sp500 > 0) {
+    const spRet = l.sp500 / f.sp500 - 1;
+    excessVsSp500 = portRet - spRet;
+  }
+  return {
+    excessVsNasdaqCap: portRet - benchRet,
+    excessVsSp500,
+    nasdaqCapTotalReturn: benchRet,
+  };
+}
+
 function MiniSparkline({ points }: { points: number[] }) {
-  if (points.length < 2) return <div className="h-10 w-full rounded bg-muted/40" />;
+  if (points.length < 1) return <div className="h-10 w-full rounded bg-muted/40" />;
+  if (points.length < 2) {
+    const w = 120;
+    const h = 36;
+    const y = h / 2;
+    return (
+      <svg width={w} height={h} className="text-trader-blue" aria-hidden>
+        <path
+          d={`M2,${y.toFixed(1)} L${(w - 2).toFixed(1)},${y.toFixed(1)}`}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          vectorEffect="non-scaling-stroke"
+          opacity={0.45}
+        />
+      </svg>
+    );
+  }
   const min = Math.min(...points);
   const max = Math.max(...points);
   const w = 120;
@@ -198,7 +367,13 @@ function MiniSparkline({ points }: { points: number[] }) {
     .join(' ');
   return (
     <svg width={w} height={h} className="text-trader-blue" aria-hidden>
-      <path d={path} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+      <path
+        d={path}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        vectorEffect="non-scaling-stroke"
+      />
     </svg>
   );
 }
@@ -206,26 +381,19 @@ function MiniSparkline({ points }: { points: number[] }) {
 function OverviewPortfolioTile({
   profile: p,
   rankedBySlug,
-  rankedLoading,
   cardState,
   onOpenDetail,
-  onToggleNotify,
   headerRight,
 }: {
   profile: ProfileRow;
   rankedBySlug: Record<string, RankedBundle>;
-  rankedLoading: boolean;
-  cardState: Record<
-    string,
-    { series: PerformanceSeriesPoint[]; totalReturn: number | null; cagr: number | null; loading: boolean }
-  >;
+  cardState: Record<string, OverviewCardPerfState>;
   onOpenDetail: (profileId: string) => void;
-  onToggleNotify: (profileId: string, next: boolean) => void;
   headerRight?: ReactNode;
 }) {
   const cfg = p.portfolio_config;
   const st = cardState[p.id];
-  const spark = (st?.series ?? []).slice(-12).map((x) => x.aiTop20);
+  const spark = (st?.series ?? []).map((x) => x.aiTop20);
   const slug = p.strategy_models?.slug;
   const bundle = slug ? rankedBySlug[slug] : undefined;
   const rankedCfg = resolveRankedConfigForProfile(p, bundle);
@@ -237,28 +405,35 @@ function OverviewPortfolioTile({
       rebalanceFrequency: cfg.rebalance_frequency,
     });
   const configBadges = rankedCfg?.badges ?? [];
-  const modelTr = rankedCfg?.metrics?.totalReturn ?? null;
-  const modelCagr = rankedCfg?.metrics?.cagr ?? null;
+  const { excessVsNasdaqCap, nasdaqCapTotalReturn } = benchmarkStatsFromSeries(st?.series);
   const riskTitle =
-    cfg &&
-    ((cfg.risk_label && cfg.risk_label.trim()) || RISK_LABELS[cfg.risk_level as RiskLevel]);
+    cfg && ((cfg.risk_label && cfg.risk_label.trim()) || RISK_LABELS[cfg.risk_level as RiskLevel]);
   const riskDot =
     cfg && BENTO_RISK_DOT[cfg.risk_level as RiskLevel]
       ? BENTO_RISK_DOT[cfg.risk_level as RiskLevel]
       : 'bg-muted';
   const startDateLabel =
     p.user_start_date && String(p.user_start_date).trim()
-      ? formatOverviewUserStartDate(String(p.user_start_date).trim())
+      ? formatYmdDisplay(String(p.user_start_date).trim())
       : null;
   const investmentLabel = formatOverviewInvestmentSize(p.investment_size);
+  const portfolioValueAmount = computeOverviewPortfolioValue(
+    st?.series,
+    Number(p.investment_size),
+    p.user_start_date
+  );
+  const portfolioValueDisplay = st?.loading
+    ? '…'
+    : portfolioValueAmount != null
+      ? formatOverviewCurrency(portfolioValueAmount)
+      : '—';
 
   return (
     <div
       role="button"
       tabIndex={0}
       className={cn(
-        'group relative flex h-full min-h-0 max-h-full flex-col overflow-y-auto rounded-2xl border bg-card p-4 text-left shadow-sm transition-colors',
-        'hover:border-trader-blue/35 hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-trader-blue/40'
+        'group relative flex h-full min-h-0 max-h-full flex-col overflow-hidden rounded-2xl border-2 border-border bg-transparent text-left shadow-none transition-colors hover:border-trader-blue/55 hover:bg-muted/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-trader-blue/40'
       )}
       onClick={() => onOpenDetail(p.id)}
       onKeyDown={(e) => {
@@ -268,97 +443,93 @@ function OverviewPortfolioTile({
         }
       }}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1 space-y-1">
-          {p.is_starting_portfolio ? (
-            <div className="flex flex-wrap items-center gap-1.5">
-              <Badge
-                variant="outline"
-                className="h-5 border-trader-blue/35 bg-trader-blue/5 px-1.5 py-0 text-[9px] font-semibold uppercase tracking-wide text-trader-blue"
-              >
-                Starting portfolio
-              </Badge>
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1 space-y-1">
+            {p.is_starting_portfolio ? (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Badge
+                  variant="outline"
+                  className="h-5 border-trader-blue/35 bg-trader-blue/5 px-1.5 py-0 text-[9px] font-semibold uppercase tracking-wide text-trader-blue"
+                >
+                  Starting portfolio
+                </Badge>
+              </div>
+            ) : null}
+            <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+              <span className="min-w-0 shrink text-sm font-semibold leading-tight">
+                {p.strategy_models?.name ?? 'Portfolio'}
+              </span>
+              {cfg ? (
+                <>
+                  <span
+                    className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border/80 bg-muted/40 px-2 py-0.5 text-[10px] font-semibold"
+                    title={riskTitle}
+                  >
+                    <span className={cn('size-1.5 shrink-0 rounded-full', riskDot)} aria-hidden />
+                    {riskTitle}
+                  </span>
+                  {overviewConfigLine ? (
+                    <span className="min-w-0 max-w-full truncate text-xs text-muted-foreground">
+                      {overviewConfigLine}
+                    </span>
+                  ) : null}
+                  {configBadges.map((b) => (
+                    <PortfolioConfigBadgePill key={b} name={b} strategySlug={slug} />
+                  ))}
+                </>
+              ) : (
+                <span className="text-xs text-muted-foreground">Configuration</span>
+              )}
             </div>
-          ) : null}
-          <p className="truncate text-sm font-semibold leading-tight">
-            {p.strategy_models?.name ?? 'Portfolio'}
-          </p>
-          {startDateLabel || investmentLabel ? (
-            <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-              {startDateLabel ? <span>Since {startDateLabel}</span> : null}
-              {startDateLabel && investmentLabel ? (
-                <span className="text-muted-foreground/50" aria-hidden>
-                  ·
+            {startDateLabel || investmentLabel ? (
+              <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                {startDateLabel ? <span>Since {startDateLabel}</span> : null}
+                {startDateLabel && investmentLabel ? (
+                  <span className="text-muted-foreground/50" aria-hidden>
+                    ·
+                  </span>
+                ) : null}
+                {investmentLabel ? <span>Investment: {investmentLabel}</span> : null}
+              </p>
+            ) : null}
+            {!st?.loading && st?.gatheringData ? (
+              <p className="text-[10px] leading-snug text-muted-foreground">
+                Data still gathering — returns update after more market closes.
+              </p>
+            ) : null}
+          </div>
+          <div className="flex shrink-0 items-start gap-1">{headerRight}</div>
+        </div>
+
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:gap-3">
+          <div className="rounded-xl border bg-background/60 px-2.5 py-2">
+            <p className="text-[9px] uppercase text-muted-foreground">Portfolio value</p>
+            <p className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 text-base font-bold tabular-nums leading-tight">
+              <span>{st?.loading ? '…' : portfolioValueDisplay}</span>
+              {!st?.loading ? (
+                <span className="text-sm font-semibold text-muted-foreground">
+                  {fmt.pct(st?.totalReturn ?? null)}
                 </span>
               ) : null}
-              {investmentLabel ? <span>{investmentLabel}</span> : null}
             </p>
-          ) : null}
-          {cfg ? (
-            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-              <span
-                className="inline-flex items-center gap-1 rounded-full border border-border/80 bg-muted/40 px-2 py-0.5 text-[10px] font-semibold"
-                title={riskTitle}
-              >
-                <span className={cn('size-1.5 shrink-0 rounded-full', riskDot)} aria-hidden />
-                {riskTitle}
-              </span>
-              {overviewConfigLine ? (
-                <span className="truncate text-xs text-muted-foreground">{overviewConfigLine}</span>
-              ) : null}
-              {configBadges.map((b) => (
-                <PortfolioConfigBadgePill key={b} name={b} strategySlug={slug} />
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs text-muted-foreground">Configuration</p>
-          )}
+          </div>
+          <div className="rounded-xl border bg-background/60 px-2.5 py-2">
+            <p className="text-[9px] uppercase leading-tight text-muted-foreground">
+              vs Nasdaq-100 (cap)
+            </p>
+            <p className="text-base font-bold tabular-nums leading-tight">
+              {st?.loading ? '…' : fmt.pct(excessVsNasdaqCap)}
+            </p>
+            <p className="text-[10px] text-muted-foreground tabular-nums">
+              NDX cap {st?.loading ? '…' : fmt.pct(nasdaqCapTotalReturn)}
+            </p>
+          </div>
         </div>
-        <div className="flex shrink-0 items-start gap-1">{headerRight}</div>
-      </div>
 
-      <div className="mt-3 grid grid-cols-2 gap-2 sm:gap-3">
-        <div className="rounded-xl border bg-background/60 px-2.5 py-2">
-          <p className="text-[9px] uppercase text-muted-foreground">Your return</p>
-          <p className="text-base font-bold tabular-nums leading-tight">
-            {st?.loading ? '…' : fmt.pct(st?.totalReturn ?? null)}
-          </p>
-          <p className="text-[10px] text-muted-foreground tabular-nums">
-            CAGR {st?.loading ? '…' : fmt.pct(st?.cagr ?? null)}
-          </p>
+        <div className="mt-3">
+          <MiniSparkline points={spark} />
         </div>
-        <div className="rounded-xl border bg-background/60 px-2.5 py-2">
-          <p className="text-[9px] uppercase text-muted-foreground">Model (full)</p>
-          <p className="text-base font-bold tabular-nums leading-tight">
-            {rankedLoading && modelTr == null ? '…' : fmt.pct(modelTr)}
-          </p>
-          <p className="text-[10px] text-muted-foreground tabular-nums">
-            CAGR {rankedLoading && modelCagr == null ? '…' : fmt.pct(modelCagr)}
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-3 flex items-center justify-between gap-2">
-        <MiniSparkline points={spark} />
-        <span className="text-[10px] text-trader-blue opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
-          Details →
-        </span>
-      </div>
-
-      <div
-        className="mt-3 flex items-center justify-between rounded-xl border bg-muted/15 px-3 py-2"
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center gap-2 text-xs">
-          {p.notifications_enabled ? (
-            <Bell className="size-3.5 text-trader-blue" />
-          ) : (
-            <BellOff className="size-3.5 text-muted-foreground" />
-          )}
-          <span>Alerts</span>
-        </div>
-        <Switch checked={p.notifications_enabled} onCheckedChange={(v) => void onToggleNotify(p.id, v)} />
       </div>
     </div>
   );
@@ -369,7 +540,6 @@ type OverviewProps = {
 };
 
 export function PlatformOverviewClient({ strategies }: OverviewProps) {
-  const router = useRouter();
   const authState = useAuthState();
   const { resetOnboarding } = usePortfolioConfig();
   /** TEMP dev-only: bump to remount onboarding dialog from a clean step state. Remove when no longer needed. */
@@ -380,49 +550,48 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     () => new Map()
   );
 
-  const syncFollowedProfileToOverview = useCallback(async (profileId: string) => {
-    if (!authState.isAuthenticated || !authState.isLoaded) return false;
-    const maxAttempts = 40;
-    const delayMs = 150;
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      try {
-        const r = await fetch('/api/platform/user-portfolio-profile', { cache: 'no-store' });
-        if (!r.ok) {
-          await new Promise((res) => setTimeout(res, delayMs));
-          continue;
+  const syncFollowedProfileToOverview = useCallback(
+    async (profileId: string) => {
+      if (!authState.isAuthenticated || !authState.isLoaded) return false;
+      const maxAttempts = 40;
+      const delayMs = 150;
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+          const r = await fetch('/api/platform/user-portfolio-profile', { cache: 'no-store' });
+          if (!r.ok) {
+            await new Promise((res) => setTimeout(res, delayMs));
+            continue;
+          }
+          const d = (await r.json()) as {
+            profiles?: ProfileRow[];
+            overviewSlotAssignments?: Record<string, string>;
+          };
+          const raw = d.profiles ?? [];
+          const next = raw.map((p) => normalizeOverviewProfile({ ...p } as ProfileRow));
+          const slots = parseOverviewSlotAssignments(d.overviewSlotAssignments);
+          setProfiles(next);
+          setOverviewSlotAssignments(slots);
+          if (slots.get(1) === profileId) {
+            return true;
+          }
+        } catch {
+          // keep polling
         }
-        const d = (await r.json()) as {
-          profiles?: ProfileRow[];
-          overviewSlotAssignments?: Record<string, string>;
-        };
-        const raw = d.profiles ?? [];
-        const next = raw.map((p) => normalizeOverviewProfile({ ...p } as ProfileRow));
-        const slots = parseOverviewSlotAssignments(d.overviewSlotAssignments);
-        setProfiles(next);
-        setOverviewSlotAssignments(slots);
-        if (slots.get(1) === profileId) {
-          return true;
-        }
-      } catch {
-        // keep polling
+        await new Promise((res) => setTimeout(res, delayMs));
       }
-      await new Promise((res) => setTimeout(res, delayMs));
-    }
-    return false;
-  }, [authState.isAuthenticated, authState.isLoaded]);
+      return false;
+    },
+    [authState.isAuthenticated, authState.isLoaded]
+  );
   const [rankedBySlug, setRankedBySlug] = useState<Record<string, RankedBundle>>({});
   const [rankedLoading, setRankedLoading] = useState(false);
-  const [cardState, setCardState] = useState<
-    Record<
-      string,
-      {
-        series: PerformanceSeriesPoint[];
-        totalReturn: number | null;
-        cagr: number | null;
-        loading: boolean;
-      }
-    >
-  >({});
+  const [cardState, setCardState] = useState<Record<string, OverviewCardPerfState>>({});
+  const [topPortfolioSortMetric, setTopPortfolioSortMetric] =
+    useState<TopPortfolioSortMetric>('total_return');
+  const [topSpotlightHoldings, setTopSpotlightHoldings] = useState<HoldingItem[]>([]);
+  const [topSpotlightHoldingsLoading, setTopSpotlightHoldingsLoading] = useState(false);
+  const [topSpotlightHoldingsAsOf, setTopSpotlightHoldingsAsOf] = useState<string | null>(null);
+  const [entrySettingsProfileId, setEntrySettingsProfileId] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailProfileId, setDetailProfileId] = useState<string | null>(null);
 
@@ -438,17 +607,12 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     setLoading(true);
     void fetch('/api/platform/user-portfolio-profile', { cache: 'no-store' })
       .then((r) => r.json())
-      .then(
-        (d: {
-          profiles?: ProfileRow[];
-          overviewSlotAssignments?: Record<string, string>;
-        }) => {
-          if (!mounted) return;
-          const raw = d.profiles ?? [];
-          setProfiles(raw.map((p) => normalizeOverviewProfile({ ...p } as ProfileRow)));
-          setOverviewSlotAssignments(parseOverviewSlotAssignments(d.overviewSlotAssignments));
-        }
-      )
+      .then((d: { profiles?: ProfileRow[]; overviewSlotAssignments?: Record<string, string> }) => {
+        if (!mounted) return;
+        const raw = d.profiles ?? [];
+        setProfiles(raw.map((p) => normalizeOverviewProfile({ ...p } as ProfileRow)));
+        setOverviewSlotAssignments(parseOverviewSlotAssignments(d.overviewSlotAssignments));
+      })
       .catch(() => {
         if (mounted) setProfiles([]);
       })
@@ -459,54 +623,6 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
       mounted = false;
     };
   }, [authState.isAuthenticated, authState.isLoaded]);
-
-  /**
-   * Once per mount, after the first time loading finishes: if `is_starting_portfolio` is set but slot 1 is
-   * missing or wrong (legacy data), assign slot 1. Deliberately not tied to later `overviewSlotAssignments`
-   * updates so clearing slot 1 is not immediately undone.
-   */
-  const didInitialStartingSlot1Reconcile = useRef(false);
-  const prevLoading = useRef(true);
-  useEffect(() => {
-    if (!authState.isAuthenticated) {
-      prevLoading.current = true;
-      didInitialStartingSlot1Reconcile.current = false;
-    }
-  }, [authState.isAuthenticated]);
-
-  useEffect(() => {
-    if (!authState.isAuthenticated) return;
-    const justFinishedLoad = prevLoading.current && !loading;
-    prevLoading.current = loading;
-    if (!justFinishedLoad) return;
-    if (didInitialStartingSlot1Reconcile.current) return;
-    didInitialStartingSlot1Reconcile.current = true;
-
-    const startingProfiles = profiles
-      .filter((p) => p.is_starting_portfolio)
-      .sort(
-        (a, b) =>
-          new Date(a.created_at ?? 0).getTime() - new Date(b.created_at ?? 0).getTime()
-      );
-    const starting = startingProfiles[0];
-    if (!starting) return;
-    if (overviewSlotAssignments.get(1) === starting.id) return;
-
-    void (async () => {
-      const res = await fetch('/api/platform/user-portfolio-profile', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ profileId: starting.id, overviewSlot: 1 }),
-      });
-      if (res.ok) {
-        setOverviewSlotAssignments((prev) => {
-          const next = new Map(prev);
-          next.set(1, starting.id);
-          return next;
-        });
-      }
-    })();
-  }, [authState.isAuthenticated, loading, profiles, overviewSlotAssignments]);
 
   const { slotDisplay, overviewTrackedProfiles, visibleSlotCount } = useMemo(() => {
     const explicitMap = new Map<number, ProfileRow>();
@@ -538,12 +654,63 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     };
   }, [profiles, overviewSlotAssignments]);
 
+  const overviewPerfDataLoading = useMemo(
+    () =>
+      profiles.some((p) => {
+        const st = cardState[p.id];
+        return st === undefined || st.loading;
+      }),
+    [profiles, cardState]
+  );
+
+  const overviewUserCompositeByProfileId = useMemo(() => {
+    const rows = profiles
+      .map((p) => {
+        const st = cardState[p.id];
+        if (!st || st.loading) return null;
+        return {
+          profileId: p.id,
+          sharpeRatio: st.sharpeRatio,
+          cagr: st.cagr,
+          consistency: st.consistency,
+          maxDrawdown: st.maxDrawdown,
+          totalReturn: st.totalReturn,
+          excessReturnVsNasdaqCap: st.excessReturnVsNasdaqCap,
+        };
+      })
+      .filter((r): r is NonNullable<typeof r> => r != null);
+    return computeOverviewUserCompositeScores(rows);
+  }, [profiles, cardState]);
+
+  const topSpotlightOverview = useMemo(() => {
+    let best: ProfileRow | null = null;
+    let bestVal = -Infinity;
+    for (const p of profiles) {
+      const st = cardState[p.id];
+      const userComposite = overviewUserCompositeByProfileId.get(p.id) ?? null;
+      const v = spotlightSortValue(topPortfolioSortMetric, st, userComposite);
+      if (v == null || !Number.isFinite(v)) continue;
+      if (best == null || v > bestVal) {
+        bestVal = v;
+        best = p;
+      }
+    }
+    if (!best) return null;
+    return {
+      profile: best,
+      state: cardState[best.id] ?? emptyOverviewCardPerfState(true),
+      sortValue: bestVal,
+    };
+  }, [profiles, cardState, topPortfolioSortMetric, overviewUserCompositeByProfileId]);
+
+  const spotlightSectionLoading = overviewPerfDataLoading;
+
   const [slotPickerOpen, setSlotPickerOpen] = useState(false);
   const [pickerTargetSlot, setPickerTargetSlot] = useState<number | null>(null);
   const [slotAssignBusy, setSlotAssignBusy] = useState(false);
 
   const openSlotPicker = useCallback((slot: number) => {
-    if (!isValidOverviewSlot(slot) || slot === 1) return;
+    if (!isValidOverviewSlot(slot)) return;
     setPickerTargetSlot(slot);
     setSlotPickerOpen(true);
   }, []);
@@ -570,31 +737,32 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     }
   }, []);
 
-  const clearOverviewSlot = useCallback(async (slot: number) => {
-    if (!isValidOverviewSlot(slot)) return;
-    if (!overviewSlotAssignments.has(slot)) return;
-    const res = await fetch('/api/platform/user-portfolio-profile', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ clearOverviewSlot: slot }),
-    });
-    if (!res.ok) return;
-    setOverviewSlotAssignments((prev) => {
-      const next = new Map(prev);
-      next.delete(slot);
-      return next;
-    });
-  }, [overviewSlotAssignments]);
+  const clearOverviewSlot = useCallback(
+    async (slot: number) => {
+      if (!isValidOverviewSlot(slot)) return;
+      if (!overviewSlotAssignments.has(slot)) return;
+      const res = await fetch('/api/platform/user-portfolio-profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clearOverviewSlot: slot }),
+      });
+      if (!res.ok) return;
+      setOverviewSlotAssignments((prev) => {
+        const next = new Map(prev);
+        next.delete(slot);
+        return next;
+      });
+    },
+    [overviewSlotAssignments]
+  );
 
   useEffect(() => {
-    if (!authState.isAuthenticated || !overviewTrackedProfiles.length) {
+    if (!authState.isAuthenticated || !profiles.length) {
       setRankedBySlug({});
       setRankedLoading(false);
       return;
     }
-    const slugs = [
-      ...new Set(overviewTrackedProfiles.map((p) => p.strategy_models?.slug).filter(Boolean)),
-    ] as string[];
+    const slugs = [...new Set(profiles.map((p) => p.strategy_models?.slug).filter(Boolean))] as string[];
     let cancelled = false;
     setRankedLoading(true);
     void Promise.all(
@@ -634,73 +802,145 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     return () => {
       cancelled = true;
     };
-  }, [authState.isAuthenticated, overviewTrackedProfiles]);
+  }, [authState.isAuthenticated, profiles]);
+
+  const refreshOverviewProfiles = useCallback(async () => {
+    if (!authState.isAuthenticated) return;
+    try {
+      const r = await fetch('/api/platform/user-portfolio-profile', { cache: 'no-store' });
+      if (!r.ok) return;
+      const d = (await r.json()) as {
+        profiles?: ProfileRow[];
+        overviewSlotAssignments?: Record<string, string>;
+      };
+      setProfiles((d.profiles ?? []).map((p) => normalizeOverviewProfile({ ...p } as ProfileRow)));
+      setOverviewSlotAssignments(parseOverviewSlotAssignments(d.overviewSlotAssignments));
+    } catch {
+      // silent
+    }
+  }, [authState.isAuthenticated]);
 
   useEffect(() => {
-    if (!overviewTrackedProfiles.length) return;
-    for (const p of overviewTrackedProfiles) {
-      const slug = p.strategy_models?.slug;
-      const cfg = p.portfolio_config;
-      if (!slug || !cfg) continue;
+    const handler = () => void refreshOverviewProfiles();
+    window.addEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, handler);
+    return () => window.removeEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, handler);
+  }, [refreshOverviewProfiles]);
+
+  const overviewUserPerfFetchKey = useMemo(
+    () =>
+      profiles
+        .map(
+          (p) =>
+            `${p.id}:${p.user_start_date ?? ''}:${Number(p.investment_size)}:${p.portfolio_config?.id ?? ''}`
+        )
+        .join('|'),
+    [profiles]
+  );
+
+  useEffect(() => {
+    if (!profiles.length) return;
+    for (const p of profiles) {
       const key = p.id;
+      if (!p.user_start_date) {
+        setCardState((s) => ({
+          ...s,
+          [key]: emptyOverviewCardPerfState(false),
+        }));
+        continue;
+      }
       setCardState((s) => ({
         ...s,
         [key]: {
-          ...(s[key] ?? { series: [], totalReturn: null, cagr: null, loading: false }),
+          ...(s[key] ?? emptyOverviewCardPerfState(false)),
           loading: true,
         },
       }));
-      const params = new URLSearchParams({
-        slug,
-        risk: String(cfg.risk_level),
-        frequency: cfg.rebalance_frequency,
-        weighting: cfg.weighting_method,
-      });
-      void fetch(`/api/platform/portfolio-config-performance?${params}`)
+      void fetch(`/api/platform/user-portfolio-performance?profileId=${encodeURIComponent(p.id)}`)
         .then((r) => r.json())
-        .then((d: { rows?: ConfigPerfRow[]; computeStatus?: string }) => {
-          const rows = d.rows ?? [];
-          if (!rows.length || d.computeStatus !== 'ready') {
+        .then(
+          (d: {
+            series?: PerformanceSeriesPoint[];
+            metrics?: {
+              totalReturn: number | null;
+              cagr: number | null;
+              maxDrawdown: number | null;
+              sharpeRatio: number | null;
+              consistency: number | null;
+              excessReturnVsNasdaqCap: number | null;
+            } | null;
+            computeStatus?: string;
+            hasMultipleObservations?: boolean;
+          }) => {
+            const series = d.series ?? [];
+            const gathering = d.computeStatus === 'gathering_data';
+            const okFull =
+              d.computeStatus === 'ready' &&
+              series.length > 0 &&
+              d.hasMultipleObservations === true;
             setCardState((s) => ({
               ...s,
-              [key]: { series: [], totalReturn: null, cagr: null, loading: false },
+              [key]: {
+                series: series.length > 0 ? series : [],
+                gatheringData: gathering,
+                totalReturn: okFull ? (d.metrics?.totalReturn ?? null) : null,
+                cagr: okFull ? (d.metrics?.cagr ?? null) : null,
+                maxDrawdown: okFull ? (d.metrics?.maxDrawdown ?? null) : null,
+                sharpeRatio: okFull ? (d.metrics?.sharpeRatio ?? null) : null,
+                consistency: okFull ? (d.metrics?.consistency ?? null) : null,
+                excessReturnVsNasdaqCap: okFull
+                  ? (d.metrics?.excessReturnVsNasdaqCap ?? null)
+                  : null,
+                loading: false,
+              },
             }));
-            return;
           }
-          let useRows = rows;
-          if (p.user_start_date) {
-            useRows = filterAndRebaseConfigRows(rows, p.user_start_date, Number(p.investment_size));
-          }
-          const { series, fullMetrics } = buildConfigPerformanceChart(useRows);
-          setCardState((s) => ({
-            ...s,
-            [key]: {
-              series,
-              totalReturn: fullMetrics?.totalReturn ?? null,
-              cagr: fullMetrics?.cagr ?? null,
-              loading: false,
-            },
-          }));
-        })
+        )
         .catch(() => {
           setCardState((s) => ({
             ...s,
-            [key]: { series: [], totalReturn: null, cagr: null, loading: false },
+            [key]: emptyOverviewCardPerfState(false),
           }));
         });
     }
-  }, [overviewTrackedProfiles]);
+  }, [profiles, overviewUserPerfFetchKey]);
 
-  const toggleNotify = async (profileId: string, next: boolean) => {
-    await fetch('/api/platform/user-portfolio-profile', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ profileId, notificationsEnabled: next }),
+  const topSpotlightProfileId = topSpotlightOverview?.profile.id ?? null;
+  const topSpotlightConfigId = topSpotlightOverview?.profile.portfolio_config?.id ?? null;
+  const topSpotlightSlug = topSpotlightOverview?.profile.strategy_models?.slug ?? null;
+
+  useEffect(() => {
+    if (!topSpotlightProfileId || !topSpotlightConfigId || !topSpotlightSlug?.trim()) {
+      setTopSpotlightHoldings([]);
+      setTopSpotlightHoldingsAsOf(null);
+      setTopSpotlightHoldingsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setTopSpotlightHoldingsLoading(true);
+    const q = new URLSearchParams({
+      slug: topSpotlightSlug.trim(),
+      configId: topSpotlightConfigId,
     });
-    setProfiles((prev) =>
-      prev.map((p) => (p.id === profileId ? { ...p, notifications_enabled: next } : p))
-    );
-  };
+    void fetch(`/api/platform/explore-portfolio-config-holdings?${q}`)
+      .then((r) => r.json())
+      .then((d: { holdings?: HoldingItem[]; asOfDate?: string | null }) => {
+        if (cancelled) return;
+        setTopSpotlightHoldings(Array.isArray(d.holdings) ? d.holdings : []);
+        setTopSpotlightHoldingsAsOf(typeof d.asOfDate === 'string' ? d.asOfDate : null);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setTopSpotlightHoldings([]);
+          setTopSpotlightHoldingsAsOf(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setTopSpotlightHoldingsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [topSpotlightProfileId, topSpotlightConfigId, topSpotlightSlug]);
 
   // ── Stock notifications state ───────────────────────────────────────────────
   const [stockNotif, setStockNotif] = useState<StockNotifState>({
@@ -710,10 +950,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     strategySlugs: [],
   });
 
-  const notifyProfiles = useMemo(
-    () => profiles.filter((p) => p.notifications_enabled),
-    [profiles]
-  );
+  const notifyProfiles = useMemo(() => profiles.filter((p) => p.notifications_enabled), [profiles]);
 
   useEffect(() => {
     if (!notifyProfiles.length) {
@@ -723,7 +960,9 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     let mounted = true;
     setStockNotif((s) => ({ ...s, loading: true }));
 
-    const slugs = [...new Set(notifyProfiles.map((p) => p.strategy_models?.slug).filter(Boolean))] as string[];
+    const slugs = [
+      ...new Set(notifyProfiles.map((p) => p.strategy_models?.slug).filter(Boolean)),
+    ] as string[];
 
     Promise.all(
       slugs.map(async (slug) => {
@@ -756,7 +995,8 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
         });
       })
       .catch(() => {
-        if (mounted) setStockNotif({ loading: false, actions: [], holdings: [], strategySlugs: [] });
+        if (mounted)
+          setStockNotif({ loading: false, actions: [], holdings: [], strategySlugs: [] });
       });
 
     return () => {
@@ -794,6 +1034,14 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     setDetailOpen(true);
   }, []);
 
+  const entrySettingsProfile = useMemo(
+    () =>
+      entrySettingsProfileId
+        ? (profiles.find((x) => x.id === entrySettingsProfileId) ?? null)
+        : null,
+    [entrySettingsProfileId, profiles]
+  );
+
   return (
     <>
       <PortfolioOnboardingDialog
@@ -818,6 +1066,24 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
             : null
         }
         onFollow={() => {}}
+      />
+      <UserPortfolioEntrySettingsDialog
+        open={entrySettingsProfileId != null && Boolean(entrySettingsProfile?.user_start_date)}
+        onOpenChange={(o) => {
+          if (!o) setEntrySettingsProfileId(null);
+        }}
+        profile={
+          entrySettingsProfile?.user_start_date
+            ? {
+                id: entrySettingsProfile.id,
+                investment_size: entrySettingsProfile.investment_size,
+                user_start_date: entrySettingsProfile.user_start_date,
+              }
+            : null
+        }
+        onSaved={() => {
+          void refreshOverviewProfiles();
+        }}
       />
       <div className="flex h-full min-h-0 flex-1 flex-col">
         <div className="sticky top-0 z-30 border-b bg-background/95 px-4 py-3 backdrop-blur-sm sm:px-6">
@@ -863,19 +1129,23 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
 
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-y-contain px-4 py-4 sm:px-6">
           {loading ? (
-            <div
-              className="grid grid-cols-2 gap-3 sm:grid-cols-3"
-              style={{ gridAutoRows: OVERVIEW_TILE_ROW_HEIGHT }}
-            >
-              {Array.from({ length: visibleOverviewSlotCount(0) }, (__, i) => (
-                <Skeleton key={i} className="h-full w-full min-h-0 rounded-2xl" />
-              ))}
+            <div className="relative -m-1 rounded-2xl border border-border p-2">
+              <div
+                className="grid grid-cols-2 gap-3 sm:grid-cols-3"
+                style={{ gridAutoRows: OVERVIEW_TILE_ROW_HEIGHT }}
+              >
+                {Array.from({ length: visibleOverviewSlotCount(0) }, (__, i) => (
+                  <Skeleton key={i} className="h-full w-full min-h-0 rounded-2xl" />
+                ))}
+              </div>
             </div>
           ) : !authState.isAuthenticated ? (
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Sign in</CardTitle>
-                <CardDescription>Save portfolios and sync notifications across devices.</CardDescription>
+                <CardDescription>
+                  Save portfolios and sync notifications across devices.
+                </CardDescription>
               </CardHeader>
             </Card>
           ) : profiles.length === 0 ? (
@@ -898,211 +1168,554 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
               </CardContent>
             </Card>
           ) : (
-            <div className="space-y-3">
-              <div className="space-y-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="text-sm font-semibold">Portfolio overview tiles</h3>
-                  {rankedLoading ? (
-                    <span className="text-[11px] text-muted-foreground">Syncing metrics…</span>
-                  ) : null}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Select your favorites from your portfolios to show here.
-                </p>
-              </div>
-
-              <Dialog
-                open={slotPickerOpen}
-                onOpenChange={(o) => {
-                  setSlotPickerOpen(o);
-                  if (!o) setPickerTargetSlot(null);
-                }}
-              >
-                <DialogContent className="sm:max-w-lg">
-                  <DialogHeader>
-                    <DialogTitle>Add to overview tiles</DialogTitle>
-                    <DialogDescription>
-                      Choose from the portfolios you follow already.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="flex max-h-[min(60vh,320px)] flex-col gap-1.5 overflow-y-auto pr-1">
-                    {profiles.length === 0 ? (
-                      <p className="text-sm text-muted-foreground py-4 text-center">
-                        Follow a portfolio from Explore first.
-                      </p>
-                    ) : pickerTargetSlot == null || !isValidOverviewSlot(pickerTargetSlot) ? (
-                      <p className="text-sm text-muted-foreground py-4 text-center">Select a tile.</p>
-                    ) : (
-                      profiles.map((c) => {
-                        const pc = c.portfolio_config;
-                        const rowRisk = (pc?.risk_level ?? 3) as RiskLevel;
-                        const rowRiskTitle =
-                          (pc?.risk_label && pc.risk_label.trim()) || RISK_LABELS[rowRisk];
-                        const rowRiskDot = BENTO_RISK_DOT[rowRisk] ?? 'bg-muted';
-                        const slug = c.strategy_models?.slug;
-                        const bundle = slug ? rankedBySlug[slug] : undefined;
-                        const rankedCfg = resolveRankedConfigForProfile(c, bundle);
-                        const badges = rankedCfg?.badges ?? [];
-                        const overviewLine =
-                          pc &&
-                          formatPortfolioConfigOverviewLine({
+            <div className="space-y-6">
+              {profiles.length > 0 ? (
+                <div className="space-y-3">
+                  {spotlightSectionLoading ? (
+                    <>
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+                        <Skeleton className="h-4 w-28" />
+                        <Skeleton className="h-9 w-[min(100%,240px)] rounded-md" />
+                      </div>
+                      <section className="rounded-xl border border-border bg-card/50 p-4 sm:p-5">
+                        <div className="mb-4">
+                          <Skeleton className="h-7 w-full max-w-xl rounded-md" />
+                        </div>
+                        <div className="grid gap-4 lg:grid-cols-3">
+                          <div className="space-y-2">
+                            <Skeleton className="h-14 w-full rounded-lg" />
+                            <Skeleton className="h-14 w-full rounded-lg" />
+                            <Skeleton className="h-14 w-full rounded-lg" />
+                            <Skeleton className="h-14 w-full rounded-lg" />
+                          </div>
+                          <Skeleton className="min-h-[280px] rounded-lg sm:min-h-[300px]" />
+                          <Skeleton className="min-h-[200px] rounded-lg lg:min-h-[280px]" />
+                        </div>
+                      </section>
+                    </>
+                  ) : topSpotlightOverview ? (
+                    (() => {
+                      const bp = topSpotlightOverview.profile;
+                      const st = topSpotlightOverview.state;
+                      const series = st.series ?? [];
+                      const val = computeOverviewPortfolioValue(
+                        series,
+                        Number(bp.investment_size),
+                        bp.user_start_date
+                      );
+                      const initialNotional =
+                        series.length > 0 && series[0]!.aiTop20 > 0
+                          ? series[0]!.aiTop20
+                          : Number(bp.investment_size) > 0
+                            ? Number(bp.investment_size)
+                            : OVERVIEW_MODEL_INITIAL;
+                      const pc = bp.portfolio_config;
+                      const strategyTitle = bp.strategy_models?.name ?? 'Portfolio';
+                      const rowRisk = (pc?.risk_level ?? 3) as RiskLevel;
+                      const spotlightRiskTitle =
+                        pc && ((pc.risk_label && pc.risk_label.trim()) || RISK_LABELS[rowRisk]);
+                      const spotlightRiskDot = pc
+                        ? (BENTO_RISK_DOT[rowRisk] ?? 'bg-muted')
+                        : 'bg-muted';
+                      const spotlightConfigLine = pc
+                        ? formatPortfolioSpotlightConfigLine({
                             topN: pc.top_n,
                             weightingMethod: pc.weighting_method,
                             rebalanceFrequency: pc.rebalance_frequency,
-                          });
-                        return (
-                          <Button
-                            key={c.id}
-                            type="button"
-                            variant="outline"
-                            className="h-auto min-h-11 justify-start px-3 py-2.5 text-left font-normal"
-                            disabled={slotAssignBusy}
-                            onClick={() => void assignOverviewSlot(c.id, pickerTargetSlot)}
-                          >
-                            <div className="flex w-full min-w-0 flex-wrap items-center gap-1.5 gap-y-1">
-                              <span className="min-w-0 shrink text-sm font-semibold text-foreground">
-                                {c.strategy_models?.name ?? 'Portfolio'}
-                              </span>
-                              <span
-                                className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border/80 bg-muted/40 px-2 py-0.5 text-[10px] font-semibold text-foreground"
-                                title={rowRiskTitle}
-                              >
-                                <span
-                                  className={cn('size-1.5 shrink-0 rounded-full', rowRiskDot)}
-                                  aria-hidden
-                                />
-                                {rowRiskTitle}
-                              </span>
-                              {overviewLine ? (
-                                <span className="min-w-0 max-w-full truncate text-[10px] font-medium leading-tight text-muted-foreground">
-                                  {overviewLine}
-                                </span>
-                              ) : null}
-                              {badges.map((b) => (
-                                <PortfolioConfigBadgePill key={b} name={b} strategySlug={slug} />
-                              ))}
-                            </div>
-                          </Button>
+                          })
+                        : null;
+                      const investmentSize = Number(bp.investment_size);
+                      const { excessVsNasdaqCap, excessVsSp500 } = benchmarkStatsFromSeries(series);
+                      const excessNdxForDisplay =
+                        st.excessReturnVsNasdaqCap != null &&
+                        Number.isFinite(st.excessReturnVsNasdaqCap)
+                          ? st.excessReturnVsNasdaqCap
+                          : excessVsNasdaqCap;
+                      const asOfLabel =
+                        topSpotlightHoldingsAsOf &&
+                        new Date(`${topSpotlightHoldingsAsOf}T00:00:00Z`).toLocaleDateString(
+                          'en-US',
+                          { month: 'short', day: 'numeric', year: 'numeric' }
                         );
-                      })
-                    )}
-                  </div>
-                </DialogContent>
-              </Dialog>
-
-              <div className="relative -m-1 rounded-2xl p-1">
-                <div
-                  className="grid grid-cols-2 gap-3 sm:grid-cols-3"
-                  style={{ gridAutoRows: OVERVIEW_TILE_ROW_HEIGHT }}
-                >
-                  {slotDisplay.map((p, i) => {
-                    const slot = i + 1;
-                    const assignedId = overviewSlotAssignments.get(slot);
-                    const showClear = p != null && assignedId === p.id;
-                    const canPickPortfolio = profiles.length > 0;
-                    return (
-                      <div key={slot} className="flex h-full min-h-0 min-w-0 flex-col">
-                        {p ? (
-                          <OverviewPortfolioTile
-                            profile={p}
-                            rankedBySlug={rankedBySlug}
-                            rankedLoading={rankedLoading}
-                            cardState={cardState}
-                            onOpenDetail={openPortfolioDetail}
-                            onToggleNotify={toggleNotify}
-                            headerRight={
-                              showClear ? (
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon"
-                                  className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
-                                  aria-label={`Remove portfolio from overview tile ${slot}`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    void clearOverviewSlot(slot);
-                                  }}
-                                >
-                                  <X className="size-4" />
-                                </Button>
-                              ) : undefined
-                            }
-                          />
-                        ) : (
-                          <div className="group/addCell relative flex h-full min-h-0 w-full flex-col">
-                            <div
-                              className={cn(
-                                'pointer-events-none absolute inset-0 z-0 flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-muted-foreground/30 bg-muted/20 shadow-[inset_0_1px_0_0_hsl(var(--border)/0.3)]',
-                                'opacity-50 transition-opacity duration-300 ease-out',
-                                'sm:opacity-0 sm:group-hover/addCell:opacity-100 sm:group-hover/addCell:border-muted-foreground/45 sm:group-hover/addCell:bg-muted/30',
-                                // Mobile: inner button already shows copy; this layer sat under transparent buttons and read as “something below” the label.
-                                'max-sm:hidden'
-                              )}
-                              aria-hidden
+                      return (
+                        <>
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+                            <span className="text-sm text-muted-foreground">Top portfolio by</span>
+                            <Select
+                              value={topPortfolioSortMetric}
+                              onValueChange={(v) =>
+                                setTopPortfolioSortMetric(v as TopPortfolioSortMetric)
+                              }
                             >
-                              <Plus
-                                className="size-9 text-muted-foreground/55 transition-colors sm:size-11 sm:text-muted-foreground/40 sm:group-hover/addCell:text-trader-blue/85"
-                                strokeWidth={1.15}
-                              />
-                              <span className="px-2 text-center text-[11px] font-medium leading-tight text-muted-foreground/65 transition-colors sm:text-muted-foreground/45 sm:group-hover/addCell:text-muted-foreground/85">
-                                Add a portfolio
+                              <SelectTrigger className="h-9 w-[min(100%,240px)] text-xs sm:text-sm">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {TOP_PORTFOLIO_SORT_OPTIONS.map((opt) => (
+                                  <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                                    {opt.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <section className="rounded-xl border border-border bg-card/50 p-4 sm:p-5">
+                            <div className="mb-4 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+                              <span className="min-w-0 shrink text-base font-semibold leading-snug text-foreground">
+                                {strategyTitle}
                               </span>
+                              {pc && spotlightRiskTitle ? (
+                                <>
+                                  <span className="shrink-0 text-muted-foreground/60" aria-hidden>
+                                    ·
+                                  </span>
+                                  <span
+                                    className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border/80 bg-muted/40 px-2 py-0.5 text-[10px] font-semibold"
+                                    title={spotlightRiskTitle}
+                                  >
+                                    <span
+                                      className={cn(
+                                        'size-1.5 shrink-0 rounded-full',
+                                        spotlightRiskDot
+                                      )}
+                                      aria-hidden
+                                    />
+                                    {spotlightRiskTitle}
+                                  </span>
+                                </>
+                              ) : null}
+                              {spotlightConfigLine ? (
+                                <>
+                                  <span className="shrink-0 text-muted-foreground/60" aria-hidden>
+                                    ·
+                                  </span>
+                                  <span className="min-w-0 text-sm text-muted-foreground">
+                                    {spotlightConfigLine}
+                                  </span>
+                                </>
+                              ) : !pc ? (
+                                <>
+                                  <span className="shrink-0 text-muted-foreground/60" aria-hidden>
+                                    ·
+                                  </span>
+                                  <span className="text-sm text-muted-foreground">
+                                    Configuration
+                                  </span>
+                                </>
+                              ) : null}
                             </div>
-                            <div className="relative z-[1] flex min-h-0 flex-1 flex-col">
-                              {slot === 1 ? (
-                                <button
-                                  type="button"
-                                  onClick={() => router.push('/platform/explore-portfolios')}
-                                  className="relative flex h-full min-h-0 w-full flex-1 flex-col items-center justify-center overflow-hidden rounded-2xl border border-transparent bg-background text-center transition-colors hover:bg-muted/10"
-                                >
-                                  <span className="pointer-events-none absolute inset-0 z-[1] hidden flex-col items-center justify-center gap-3 rounded-2xl bg-background/88 opacity-0 backdrop-blur-sm transition-all duration-300 ease-out sm:flex sm:group-hover/addCell:opacity-100">
-                                    <Plus className="size-14 text-trader-blue" strokeWidth={1.15} />
-                                    <span className="text-sm font-semibold tracking-tight text-foreground">
-                                      Add a portfolio
+                            {!st.loading && st.gatheringData ? (
+                              <p className="mb-3 text-[11px] leading-snug text-muted-foreground">
+                                Data still gathering — returns update after more market closes.
+                              </p>
+                            ) : null}
+                            <div className="grid gap-4 lg:grid-cols-[minmax(0,11rem)_minmax(0,1fr)_minmax(0,17rem)] lg:items-start">
+                              <div className="mx-auto w-full max-w-[11rem] space-y-2 lg:mx-0 lg:max-h-[min(70vh,520px)] lg:overflow-y-auto lg:pr-1">
+                                <SpotlightStatCard
+                                  tooltipKey="portfolio_value"
+                                  label="Portfolio value"
+                                  value={val != null ? formatOverviewCurrency(val) : '—'}
+                                  valueSuffix={
+                                    val != null ? ` (${fmt.pct(st.totalReturn)})` : undefined
+                                  }
+                                  suffixPositive={
+                                    val != null &&
+                                    st.totalReturn != null &&
+                                    Number.isFinite(st.totalReturn)
+                                      ? st.totalReturn > 0
+                                      : undefined
+                                  }
+                                />
+                                <SpotlightStatCard
+                                  tooltipKey="return_pct"
+                                  label="Return %"
+                                  value={fmt.pct(st.totalReturn)}
+                                  positive={
+                                    st.totalReturn != null && Number.isFinite(st.totalReturn)
+                                      ? st.totalReturn > 0
+                                      : undefined
+                                  }
+                                />
+                                <SpotlightStatCard
+                                  tooltipKey="cagr"
+                                  label="CAGR"
+                                  value={fmt.pct(st.cagr)}
+                                  positive={
+                                    st.cagr != null && Number.isFinite(st.cagr)
+                                      ? st.cagr > 0
+                                      : undefined
+                                  }
+                                />
+                                <SpotlightStatCard
+                                  tooltipKey="sharpe_ratio"
+                                  label="Sharpe ratio"
+                                  value={fmt.num(st.sharpeRatio)}
+                                  valueClassName={
+                                    st.sharpeRatio != null && Number.isFinite(st.sharpeRatio)
+                                      ? sharpeRatioValueClass(st.sharpeRatio)
+                                      : undefined
+                                  }
+                                />
+                                <SpotlightStatCard
+                                  tooltipKey="max_drawdown"
+                                  label="Max drawdown"
+                                  value={fmt.pct(st.maxDrawdown)}
+                                  positive={
+                                    st.maxDrawdown != null && Number.isFinite(st.maxDrawdown)
+                                      ? st.maxDrawdown > -0.2
+                                      : undefined
+                                  }
+                                />
+                                <SpotlightStatCard
+                                  tooltipKey="consistency"
+                                  label="Consistency (weekly vs NDX cap)"
+                                  value={st.consistency != null ? fmt.pct(st.consistency, 0) : '—'}
+                                  positive={
+                                    st.consistency != null ? st.consistency > 0.5 : undefined
+                                  }
+                                />
+                                <SpotlightStatCard
+                                  tooltipKey="vs_nasdaq_cap"
+                                  label="Performance vs Nasdaq-100 (cap)"
+                                  value={fmt.pct(excessNdxForDisplay)}
+                                  positive={
+                                    excessNdxForDisplay != null &&
+                                    Number.isFinite(excessNdxForDisplay)
+                                      ? excessNdxForDisplay > 0
+                                      : undefined
+                                  }
+                                />
+                                <SpotlightStatCard
+                                  tooltipKey="vs_sp500"
+                                  label="Performance vs S&P 500 (cap)"
+                                  value={fmt.pct(excessVsSp500)}
+                                  positive={
+                                    excessVsSp500 != null && Number.isFinite(excessVsSp500)
+                                      ? excessVsSp500 > 0
+                                      : undefined
+                                  }
+                                />
+                              </div>
+                              <div className="min-w-0 rounded-xl border bg-background/60 p-3 sm:p-4">
+                                {series.length > 1 ? (
+                                  <PerformanceChart
+                                    series={series}
+                                    strategyName={bp.strategy_models?.name ?? 'Portfolio'}
+                                    hideDrawdown
+                                    initialNotional={initialNotional}
+                                    chartContainerClassName="h-[280px] sm:h-[300px]"
+                                  />
+                                ) : (
+                                  <div className="flex h-[200px] items-center justify-center text-sm text-muted-foreground lg:h-[280px]">
+                                    Not enough history to chart yet.
+                                  </div>
+                                )}
+                              </div>
+                              <div className="min-w-0 space-y-2">
+                                <div className="flex flex-wrap items-end justify-between gap-x-2 gap-y-1">
+                                  <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                    Current holdings
+                                  </h4>
+                                  {asOfLabel ? (
+                                    <span className="text-[11px] tabular-nums text-muted-foreground">
+                                      As of {asOfLabel}
                                     </span>
+                                  ) : null}
+                                </div>
+                                {topSpotlightHoldingsLoading ? (
+                                  <Skeleton className="h-48 w-full rounded-md" />
+                                ) : topSpotlightHoldings.length === 0 ? (
+                                  <p className="text-sm text-muted-foreground">
+                                    Holdings aren’t available for this configuration yet.
+                                  </p>
+                                ) : (
+                                  <div className="max-h-[min(70vh,520px)] overflow-y-auto rounded-md border">
+                                    <Table>
+                                      <TableHeader>
+                                        <TableRow>
+                                          <TableHead className="w-9">#</TableHead>
+                                          <TableHead>Symbol</TableHead>
+                                          <TableHead className="hidden sm:table-cell">
+                                            Company
+                                          </TableHead>
+                                          <TableHead className="text-right">
+                                            <SpotlightAllocationHeaderTooltip />
+                                          </TableHead>
+                                        </TableRow>
+                                      </TableHeader>
+                                      <TableBody>
+                                        {topSpotlightHoldings.map((h) => {
+                                          const dollars =
+                                            Number.isFinite(investmentSize) && investmentSize > 0
+                                              ? h.weight * investmentSize
+                                              : null;
+                                          return (
+                                            <TableRow key={`${h.symbol}-${h.rank}`}>
+                                              <TableCell className="tabular-nums text-muted-foreground">
+                                                {h.rank}
+                                              </TableCell>
+                                              <TableCell className="font-medium">
+                                                {h.symbol}
+                                              </TableCell>
+                                              <TableCell className="hidden max-w-[140px] truncate text-muted-foreground sm:table-cell">
+                                                {h.companyName}
+                                              </TableCell>
+                                              <TableCell className="text-right tabular-nums font-medium">
+                                                {dollars != null
+                                                  ? formatOverviewCurrency(dollars)
+                                                  : '—'}
+                                              </TableCell>
+                                            </TableRow>
+                                          );
+                                        })}
+                                      </TableBody>
+                                    </Table>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </section>
+                        </>
+                      );
+                    })()
+                  ) : (
+                    <>
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+                        <span className="text-sm text-muted-foreground">Your top portfolio by</span>
+                        <Select
+                          value={topPortfolioSortMetric}
+                          onValueChange={(v) =>
+                            setTopPortfolioSortMetric(v as TopPortfolioSortMetric)
+                          }
+                        >
+                          <SelectTrigger className="h-9 w-[min(100%,240px)] text-xs sm:text-sm">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {TOP_PORTFOLIO_SORT_OPTIONS.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                                {opt.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <section className="rounded-xl border border-border bg-card/50 p-4 sm:p-5">
+                        <p className="text-sm text-muted-foreground">
+                          No comparable data yet for this ranking — add a portfolio with a start
+                          date, or wait for metrics to sync.
+                        </p>
+                      </section>
+                    </>
+                  )}
+                </div>
+              ) : null}
+
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-sm font-semibold">Portfolio overview tiles</h3>
+                    {rankedLoading ? (
+                      <span className="text-[11px] text-muted-foreground">Syncing metrics…</span>
+                    ) : null}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Select your favorites from your portfolios to show here.
+                  </p>
+                </div>
+
+                <Dialog
+                  open={slotPickerOpen}
+                  onOpenChange={(o) => {
+                    setSlotPickerOpen(o);
+                    if (!o) setPickerTargetSlot(null);
+                  }}
+                >
+                  <DialogContent className="sm:max-w-lg">
+                    <DialogHeader>
+                      <DialogTitle>Add to overview tiles - Your Portfolios</DialogTitle>
+                      <DialogDescription>
+                        Choose from the portfolios you follow already.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="flex max-h-[min(65vh,440px)] flex-col gap-2 overflow-y-auto pr-1">
+                      {profiles.length === 0 ? (
+                        <p className="text-sm text-muted-foreground py-4 text-center">
+                          Follow a portfolio from Explore first.
+                        </p>
+                      ) : pickerTargetSlot == null || !isValidOverviewSlot(pickerTargetSlot) ? (
+                        <p className="text-sm text-muted-foreground py-4 text-center">
+                          Select a tile.
+                        </p>
+                      ) : (
+                        profiles.map((c) => {
+                          const pc = c.portfolio_config;
+                          const rowRisk = (pc?.risk_level ?? 3) as RiskLevel;
+                          const rowRiskTitle =
+                            (pc?.risk_label && pc.risk_label.trim()) || RISK_LABELS[rowRisk];
+                          const rowRiskDot = BENTO_RISK_DOT[rowRisk] ?? 'bg-muted';
+                          const slug = c.strategy_models?.slug;
+                          const bundle = slug ? rankedBySlug[slug] : undefined;
+                          const rankedCfg = resolveRankedConfigForProfile(c, bundle);
+                          const badges = rankedCfg?.badges ?? [];
+                          const overviewLine =
+                            pc &&
+                            formatPortfolioConfigOverviewLine({
+                              topN: pc.top_n,
+                              weightingMethod: pc.weighting_method,
+                              rebalanceFrequency: pc.rebalance_frequency,
+                            });
+                          const startRaw = c.user_start_date?.trim() ?? '';
+                          const startFooter =
+                            startRaw.length > 0
+                              ? `Since ${formatYmdDisplay(startRaw)}`
+                              : 'No entry yet';
+                          const invFooter = formatOverviewInvestmentSize(Number(c.investment_size));
+                          return (
+                            <Button
+                              key={c.id}
+                              type="button"
+                              variant="outline"
+                              className="h-auto min-h-0 w-full justify-start px-3 py-2.5 text-left font-normal"
+                              disabled={slotAssignBusy}
+                              onClick={() => void assignOverviewSlot(c.id, pickerTargetSlot)}
+                            >
+                              <div className="flex w-full min-w-0 flex-col gap-2">
+                                <div className="flex w-full min-w-0 flex-wrap items-center gap-1.5 gap-y-1">
+                                  <span className="min-w-0 shrink text-sm font-semibold text-foreground">
+                                    {c.strategy_models?.name ?? 'Portfolio'}
                                   </span>
-                                  <span className="relative z-[2] flex max-w-[14rem] flex-col items-center justify-center gap-3 px-4 sm:transition-opacity sm:duration-200 sm:group-hover/addCell:opacity-0">
-                                    <span className="text-sm font-medium text-foreground">Primary slot</span>
-                                    <span className="text-xs text-muted-foreground">
-                                      Follow a portfolio from Explore to fill this tile.
-                                    </span>
-                                    <span className="text-xs font-medium text-trader-blue underline-offset-4">
-                                      Explore portfolios →
-                                    </span>
+                                  <span
+                                    className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border/80 bg-muted/40 px-2 py-0.5 text-[10px] font-semibold text-foreground"
+                                    title={rowRiskTitle}
+                                  >
+                                    <span
+                                      className={cn('size-1.5 shrink-0 rounded-full', rowRiskDot)}
+                                      aria-hidden
+                                    />
+                                    {rowRiskTitle}
                                   </span>
-                                </button>
-                              ) : (
+                                  {overviewLine ? (
+                                    <span className="min-w-0 max-w-full truncate text-[10px] font-medium leading-tight text-muted-foreground">
+                                      {overviewLine}
+                                    </span>
+                                  ) : null}
+                                  {badges.map((b) => (
+                                    <PortfolioConfigBadgePill key={b} name={b} strategySlug={slug} />
+                                  ))}
+                                </div>
+                                <div className="flex w-full flex-wrap items-center gap-x-2 gap-y-0.5 border-t border-border/50 pt-2 text-[10px] leading-snug text-muted-foreground">
+                                  <span>{startFooter}</span>
+                                  <span className="text-muted-foreground/45" aria-hidden>
+                                    ·
+                                  </span>
+                                  <span>
+                                    {invFooter != null ? `Investment: ${invFooter}` : 'No investment size'}
+                                  </span>
+                                </div>
+                              </div>
+                            </Button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </DialogContent>
+                </Dialog>
+
+                <div className="relative -m-1 rounded-2xl border border-border p-2">
+                  <div
+                    className="grid grid-cols-2 gap-3 sm:grid-cols-3"
+                    style={{ gridAutoRows: OVERVIEW_TILE_ROW_HEIGHT }}
+                  >
+                    {slotDisplay.map((p, i) => {
+                      const slot = i + 1;
+                      const assignedId = overviewSlotAssignments.get(slot);
+                      const showClear = p != null && assignedId === p.id;
+                      const canPickPortfolio = profiles.length > 0;
+                      return (
+                        <div key={slot} className="flex h-full min-h-0 min-w-0 flex-col">
+                          {p ? (
+                            <OverviewPortfolioTile
+                              profile={p}
+                              rankedBySlug={rankedBySlug}
+                              cardState={cardState}
+                              onOpenDetail={openPortfolioDetail}
+                              headerRight={
+                                showClear ? (
+                                  <div
+                                    className="flex shrink-0 items-start gap-0.5"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    {p.user_start_date ? (
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
+                                        aria-label="Edit starting investment and entry"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setEntrySettingsProfileId(p.id);
+                                        }}
+                                      >
+                                        <Settings2 className="size-4" />
+                                      </Button>
+                                    ) : null}
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
+                                      aria-label={`Remove portfolio from overview tile ${slot}`}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        void clearOverviewSlot(slot);
+                                      }}
+                                    >
+                                      <X className="size-4" />
+                                    </Button>
+                                  </div>
+                                ) : undefined
+                              }
+                            />
+                          ) : (
+                            <div className="group/addCell relative flex h-full min-h-0 w-full flex-col">
+                              <div className="relative z-[1] flex min-h-0 flex-1 flex-col">
                                 <button
                                   type="button"
                                   onClick={() => openSlotPicker(slot)}
                                   disabled={!canPickPortfolio}
+                                  aria-label="Add a portfolio to this overview slot"
                                   className={cn(
-                                    'relative flex h-full min-h-0 w-full flex-1 flex-col items-center justify-center overflow-hidden rounded-2xl border border-transparent bg-background text-center transition-colors',
+                                    'relative flex h-full min-h-0 w-full flex-1 flex-col items-center justify-center overflow-hidden rounded-2xl border border-transparent bg-transparent text-center transition-colors',
                                     canPickPortfolio
                                       ? 'cursor-pointer hover:bg-muted/10'
                                       : 'cursor-not-allowed opacity-50'
                                   )}
                                 >
-                                  <span className="pointer-events-none absolute inset-0 z-[1] hidden flex-col items-center justify-center gap-3 rounded-2xl bg-background/88 opacity-0 backdrop-blur-sm transition-all duration-300 ease-out sm:flex sm:group-hover/addCell:opacity-100">
-                                    <Plus className="size-14 text-trader-blue" strokeWidth={1.15} />
-                                    <span className="text-sm font-semibold tracking-tight text-foreground">
-                                      Add a portfolio
-                                    </span>
-                                  </span>
-                                  <span className="relative z-[2] flex flex-col items-center justify-center gap-2 px-4 py-8 sm:hidden">
-                                    <Plus className="size-10 text-muted-foreground" strokeWidth={1.15} />
-                                    <span className="text-xs font-medium text-muted-foreground">
+                                  <span
+                                    className={cn(
+                                      'pointer-events-none flex w-full flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-muted-foreground/35 px-4 shadow-[inset_0_1px_0_0_hsl(var(--border)/0.3)]',
+                                      'max-sm:flex-1 max-sm:py-8',
+                                      'sm:absolute sm:inset-0 sm:z-[1] sm:border-muted-foreground/45 sm:bg-background/88 sm:backdrop-blur-sm sm:opacity-0 sm:transition-all sm:duration-300 sm:ease-out sm:group-hover/addCell:opacity-100 sm:group-focus-within/addCell:opacity-100'
+                                    )}
+                                  >
+                                    <Plus
+                                      className="size-10 text-trader-blue sm:size-14"
+                                      strokeWidth={1.15}
+                                    />
+                                    <span className="text-xs font-semibold tracking-tight text-foreground sm:text-sm">
                                       Add a portfolio
                                     </span>
                                   </span>
                                 </button>
-                              )}
+                              </div>
                             </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             </div>
@@ -1176,7 +1789,12 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                 </div>
                                 <p className="text-[11px] text-muted-foreground">{a.run_date}</p>
                               </div>
-                              <Button asChild variant="ghost" size="sm" className="h-7 px-2 text-xs shrink-0">
+                              <Button
+                                asChild
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 px-2 text-xs shrink-0"
+                              >
                                 <Link href={`/stocks/${a.symbol.toLowerCase()}`}>View</Link>
                               </Button>
                             </div>
@@ -1238,7 +1856,8 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                     <Card className="border-dashed">
                       <CardContent className="py-6">
                         <p className="text-sm text-muted-foreground text-center">
-                          No portfolio data yet. Stock tracking will appear after the next rebalance.
+                          No portfolio data yet. Stock tracking will appear after the next
+                          rebalance.
                         </p>
                       </CardContent>
                     </Card>
