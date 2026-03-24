@@ -2,31 +2,8 @@ import { unstable_cache } from 'next/cache';
 import type { RecommendationBucket } from '@/lib/recommendation-bucket';
 import { bucketFromScore } from '@/lib/recommendation-bucket';
 import { createAdminClient } from '@/utils/supabase/admin';
-import { createPublicClient } from '@/utils/supabase/public';
 
 export type { RecommendationBucket };
-
-export type DailyRow = {
-  symbol: string;
-  name: string | null;
-  score: number | null;
-  latentRank: number | null;
-  confidence: number | null;
-  bucket: RecommendationBucket;
-  updatedAt: string | null;
-};
-
-type DailyResponseRow = {
-  score: number | null;
-  latent_rank: number | null;
-  confidence: number | null;
-  bucket: RecommendationBucket;
-  updated_at: string | null;
-  stocks:
-    | { symbol: string; company_name: string | null }
-    | { symbol: string; company_name: string | null }[]
-    | null;
-};
 
 export type WeeklyRecommendationRow = {
   stockId: string;
@@ -97,6 +74,8 @@ export type RatingsPageData = {
   availableRunDates: string[];
   /** First weekly AI ratings `run_date` for this strategy (start of cumulative average). */
   modelInceptionDate: string | null;
+  /** Workspace/API: guest shell, free-tier partial list, or full paid ratings. */
+  ratingsAccessMode?: 'guest' | 'free' | 'full';
 };
 
 type RatingsStrategyRow = {
@@ -116,8 +95,8 @@ type CurrentRecommendationRow = {
   risks: unknown;
   updated_at: string | null;
   stocks:
-    | { symbol: string; company_name: string | null }
-    | { symbol: string; company_name: string | null }[]
+    | { symbol: string; company_name: string | null; is_premium_stock?: boolean }
+    | { symbol: string; company_name: string | null; is_premium_stock?: boolean }[]
     | null;
 };
 
@@ -335,51 +314,6 @@ const getFirstJoinRow = <T>(value: T | T[] | null): T | null => {
   return value ?? null;
 };
 
-const getDailyRecommendationsDataCached = unstable_cache(
-  async (): Promise<{ rows: DailyRow[]; errorMessage: string | null }> => {
-    try {
-      const supabase = createPublicClient();
-      const { data, error } = await supabase
-        .from('nasdaq100_recommendations_current')
-        .select('score, latent_rank, confidence, bucket, updated_at, stocks(symbol, company_name)')
-        .order('score', { ascending: false, nullsFirst: false })
-        .order('latent_rank', { ascending: false, nullsFirst: false });
-
-      if (error) {
-        return {
-          rows: [],
-          errorMessage: 'Unable to load current recommendations right now.',
-        };
-      }
-
-      const rows = ((data ?? []) as DailyResponseRow[])
-        .map((row) => {
-          const stock = Array.isArray(row.stocks) ? row.stocks[0] : row.stocks;
-          if (!stock?.symbol) {
-            return null;
-          }
-
-          return {
-            symbol: stock.symbol,
-            name: stock.company_name ?? stock.symbol,
-            score: typeof row.score === 'number' ? row.score : null,
-            latentRank: typeof row.latent_rank === 'number' ? row.latent_rank : null,
-            confidence: typeof row.confidence === 'number' ? row.confidence : null,
-            bucket: row.bucket ?? null,
-            updatedAt: row.updated_at ?? null,
-          };
-        })
-        .filter((row): row is DailyRow => Boolean(row));
-
-      return { rows, errorMessage: null };
-    } catch {
-      return { rows: [], errorMessage: null };
-    }
-  },
-  ['platform-daily-recommendations'],
-  { revalidate: 300 }
-);
-
 const getWeeklyRecommendationsDataCached = unstable_cache(
   async (): Promise<{
     rows: WeeklyRecommendationRow[];
@@ -387,7 +321,7 @@ const getWeeklyRecommendationsDataCached = unstable_cache(
     errorMessage: string | null;
   }> => {
     try {
-      const supabase = createPublicClient();
+      const supabase = createAdminClient();
 
       const { data: strategy, error: strategyError } = await supabase
         .from('strategy_models')
@@ -497,14 +431,39 @@ const getWeeklyRecommendationsDataCached = unstable_cache(
   { revalidate: 300 }
 );
 
-export const getDailyRecommendationsData = async () => getDailyRecommendationsDataCached();
 export const getWeeklyRecommendationsData = async () => getWeeklyRecommendationsDataCached();
+
+export function ratingsPageDataGuestShell(): RatingsPageData {
+  return {
+    rows: [],
+    errorMessage: null,
+    strategy: null,
+    latestRunDate: null,
+    availableRunDates: [],
+    modelInceptionDate: null,
+    ratingsAccessMode: 'guest',
+  };
+}
 
 async function loadRatingsPageData(
   strategySlug: string | null,
-  runDate: string | null
+  runDate: string | null,
+  options?: { freeTierNonPremiumOnly?: boolean }
 ): Promise<RatingsPageData> {
   try {
+      const freeOnly = Boolean(options?.freeTierNonPremiumOnly);
+      if (freeOnly && strategySlug) {
+        return {
+          rows: [],
+          errorMessage: 'Upgrade your plan to view ratings for other strategy models.',
+          strategy: null,
+          latestRunDate: null,
+          availableRunDates: [],
+          modelInceptionDate: null,
+          ratingsAccessMode: 'free',
+        };
+      }
+
       const supabase = createAdminClient();
 
       let strategyQuery = supabase
@@ -528,6 +487,7 @@ async function loadRatingsPageData(
           latestRunDate: null,
           availableRunDates: [],
           modelInceptionDate: null,
+          ratingsAccessMode: freeOnly ? 'free' : 'full',
         };
       }
 
@@ -551,13 +511,15 @@ async function loadRatingsPageData(
           latestRunDate: null,
           availableRunDates: [],
           modelInceptionDate: null,
+          ratingsAccessMode: freeOnly ? 'free' : 'full',
         };
       }
 
       const availableRunDates = allBatches.map((b) => b.run_date).filter(Boolean) as string[];
 
-      const selectedBatch = runDate
-        ? allBatches.find((b) => b.run_date === runDate) ?? allBatches[0]
+      const dateFilter = freeOnly ? null : runDate;
+      const selectedBatch = dateFilter
+        ? allBatches.find((b) => b.run_date === dateFilter) ?? allBatches[0]
         : allBatches[0];
       const selectedIdx = allBatches.findIndex((b) => b.id === selectedBatch.id);
       const latestRunDate = selectedBatch.run_date ?? null;
@@ -592,9 +554,11 @@ async function loadRatingsPageData(
           : Promise.resolve(new Map<string, number>()),
         strategy.is_default && !strategySlug && isLatestRun
           ? supabase
-              .from('nasdaq100_recommendations_current')
+              .from(freeOnly ? 'nasdaq100_recommendations_current_public' : 'nasdaq100_recommendations_current')
               .select(
-                'stock_id, score, latent_rank, score_delta, bucket, reason_1s, risks, updated_at, stocks(symbol, company_name)'
+                freeOnly
+                  ? 'stock_id, score, score_delta, bucket, reason_1s, risks, updated_at, stocks(symbol, company_name, is_premium_stock)'
+                  : 'stock_id, score, latent_rank, score_delta, bucket, reason_1s, risks, updated_at, stocks(symbol, company_name)'
               )
           : supabase
               .from('ai_analysis_runs')
@@ -636,6 +600,7 @@ async function loadRatingsPageData(
           latestRunDate,
           availableRunDates,
           modelInceptionDate,
+          ratingsAccessMode: freeOnly ? 'free' : 'full',
         };
       }
 
@@ -675,9 +640,12 @@ async function loadRatingsPageData(
 
       const baseRows: RatingsBaseRow[] = (
         strategy.is_default && !strategySlug && isLatestRun
-          ? ((baseResponse.data ?? []) as CurrentRecommendationRow[]).map((row) => {
+          ? ((baseResponse.data ?? []) as unknown as CurrentRecommendationRow[]).map((row) => {
               const stock = getFirstJoinRow(row.stocks);
               if (!stock?.symbol) {
+                return null;
+              }
+              if (freeOnly && stock.is_premium_stock === true) {
                 return null;
               }
 
@@ -694,7 +662,7 @@ async function loadRatingsPageData(
                 updatedAt: row.updated_at ?? null,
               };
             })
-          : ((baseResponse.data ?? []) as StrategyAnalysisRow[]).map((row) => {
+          : ((baseResponse.data ?? []) as unknown as StrategyAnalysisRow[]).map((row) => {
               const stock = getFirstJoinRow(row.stocks);
               if (!stock?.symbol) {
                 return null;
@@ -715,6 +683,23 @@ async function loadRatingsPageData(
             })
       ).filter((row): row is RatingsBaseRow => Boolean(row));
 
+      if (freeOnly && !(strategy.is_default && !strategySlug && isLatestRun)) {
+        return {
+          rows: [],
+          errorMessage: 'Free tier ratings are only available for the latest default model run.',
+          strategy: {
+            id: strategy.id,
+            slug: strategy.slug,
+            name: strategy.name,
+            isDefault: strategy.is_default,
+          },
+          latestRunDate,
+          availableRunDates: latestRunDate ? [latestRunDate] : [],
+          modelInceptionDate,
+          ratingsAccessMode: 'free',
+        };
+      }
+
       const rankMeta = baseRows.map((r) => ({ stockId: r.stockId, symbol: r.symbol }));
       const cumulativeRankSelMap = assignCumulativeViewRankMap(rankMeta, cumulativeAvgByStock);
       const cumulativeRankPrevMap =
@@ -723,47 +708,76 @@ async function loadRatingsPageData(
           : null;
 
       const rankingRows = (rankingHistoryResponse.data ?? []) as BatchRankingRow[];
-      const latestRankingRows = rankingRows.filter((row) => row.batch_id === selectedBatch.id);
       const previousRankingRows = previousBatch
         ? rankingRows.filter((row) => row.batch_id === previousBatch.id)
         : [];
       const previousRankMap = buildRankMap(previousRankingRows);
       const previousBucketMap = new Map(previousRankingRows.map((row) => [row.stock_id, row.bucket]));
 
-      const rankedRows = assignRanks(baseRows).map(({ row, rank }) => {
-        const avgScore4w = avgScoreMap.get(row.stockId) ?? null;
-        const latestPrice = priceMap.get(row.symbol.toUpperCase());
-        const previousRank = previousRankMap.get(row.stockId) ?? null;
-        const rankChange = previousRank === null ? null : previousRank - rank;
-        const bucketChange = getBucketChange(row.bucket, previousBucketMap.get(row.stockId) ?? null);
+      const rankedRows: RatingsRow[] = freeOnly
+        ? [...baseRows]
+            .sort((a, b) => a.symbol.localeCompare(b.symbol))
+            .map((row) => {
+              const avgScore4w = avgScoreMap.get(row.stockId) ?? null;
+              const latestPrice = priceMap.get(row.symbol.toUpperCase());
+              const bucketChange = getBucketChange(row.bucket, previousBucketMap.get(row.stockId) ?? null);
+              return {
+                stockId: row.stockId,
+                symbol: row.symbol,
+                name: row.name,
+                score: row.score,
+                scoreDelta: row.scoreDelta,
+                rank: 0,
+                bucket: row.bucket,
+                rankChange: null,
+                bucketChange,
+                avgScore4w,
+                avgBucket4w: bucketFromScore(avgScore4w),
+                reason1s: row.reason1s,
+                risks: row.risks,
+                lastPrice: latestPrice?.lastPrice ?? null,
+                priceDate: latestPrice?.priceDate ?? null,
+                isTop20: isTop20Ids.has(row.stockId),
+                updatedAt: row.updatedAt,
+                cumulativeAvgScore: cumulativeAvgByStock.get(row.stockId) ?? null,
+                cumulativeViewRank: 0,
+                cumulativeRankChange: null,
+              } satisfies RatingsRow;
+            })
+        : assignRanks(baseRows).map(({ row, rank }) => {
+            const avgScore4w = avgScoreMap.get(row.stockId) ?? null;
+            const latestPrice = priceMap.get(row.symbol.toUpperCase());
+            const previousRank = previousRankMap.get(row.stockId) ?? null;
+            const rankChange = previousRank === null ? null : previousRank - rank;
+            const bucketChange = getBucketChange(row.bucket, previousBucketMap.get(row.stockId) ?? null);
 
-        return {
-          stockId: row.stockId,
-          symbol: row.symbol,
-          name: row.name,
-          score: row.score,
-          scoreDelta: row.scoreDelta,
-          rank,
-          bucket: row.bucket,
-          rankChange,
-          bucketChange,
-          avgScore4w,
-          avgBucket4w: bucketFromScore(avgScore4w),
-          reason1s: row.reason1s,
-          risks: row.risks,
-          lastPrice: latestPrice?.lastPrice ?? null,
-          priceDate: latestPrice?.priceDate ?? null,
-          isTop20: isTop20Ids.has(row.stockId),
-          updatedAt: row.updatedAt,
-          cumulativeAvgScore: cumulativeAvgByStock.get(row.stockId) ?? null,
-          cumulativeViewRank: cumulativeRankSelMap.get(row.stockId) ?? 1,
-          cumulativeRankChange:
-            cumulativeRankPrevMap == null
-              ? null
-              : (cumulativeRankPrevMap.get(row.stockId) ?? 1) -
-                (cumulativeRankSelMap.get(row.stockId) ?? 1),
-        } satisfies RatingsRow;
-      });
+            return {
+              stockId: row.stockId,
+              symbol: row.symbol,
+              name: row.name,
+              score: row.score,
+              scoreDelta: row.scoreDelta,
+              rank,
+              bucket: row.bucket,
+              rankChange,
+              bucketChange,
+              avgScore4w,
+              avgBucket4w: bucketFromScore(avgScore4w),
+              reason1s: row.reason1s,
+              risks: row.risks,
+              lastPrice: latestPrice?.lastPrice ?? null,
+              priceDate: latestPrice?.priceDate ?? null,
+              isTop20: isTop20Ids.has(row.stockId),
+              updatedAt: row.updatedAt,
+              cumulativeAvgScore: cumulativeAvgByStock.get(row.stockId) ?? null,
+              cumulativeViewRank: cumulativeRankSelMap.get(row.stockId) ?? 1,
+              cumulativeRankChange:
+                cumulativeRankPrevMap == null
+                  ? null
+                  : (cumulativeRankPrevMap.get(row.stockId) ?? 1) -
+                    (cumulativeRankSelMap.get(row.stockId) ?? 1),
+            } satisfies RatingsRow;
+          });
 
       return {
         rows: rankedRows,
@@ -775,8 +789,9 @@ async function loadRatingsPageData(
           isDefault: strategy.is_default,
         },
         latestRunDate,
-        availableRunDates,
+        availableRunDates: freeOnly && latestRunDate ? [latestRunDate] : availableRunDates,
         modelInceptionDate,
+        ratingsAccessMode: freeOnly ? 'free' : 'full',
       };
     } catch {
       return {
@@ -786,6 +801,7 @@ async function loadRatingsPageData(
         latestRunDate: null,
         availableRunDates: [],
         modelInceptionDate: null,
+        ratingsAccessMode: options?.freeTierNonPremiumOnly ? 'free' : 'full',
       };
     }
 }
@@ -802,3 +818,11 @@ export const getRatingsPageData = async (
     { revalidate: 300 }
   )();
 };
+
+/** Signed-in free tier: latest default-model rows for non-premium stocks only; no rankings in payload/UI. */
+export const getRatingsPageDataFreeTier = async (): Promise<RatingsPageData> =>
+  unstable_cache(
+    async () => loadRatingsPageData(null, null, { freeTierNonPremiumOnly: true }),
+    ['platform-ratings-page-free-tier'],
+    { revalidate: 300 }
+  )();

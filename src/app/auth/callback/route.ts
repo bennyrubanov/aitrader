@@ -1,16 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { parsePreAuthReturnUrlFromCookies } from '@/lib/auth-storage';
-
-const DEFAULT_POST_AUTH_PATH = '/platform/overview';
-
-const sanitizeNextPath = (value: string | null) => {
-  if (!value || !value.startsWith('/')) {
-    return null;
-  }
-
-  return value;
-};
+import {
+  DEFAULT_POST_AUTH_PATH,
+  parseSafeAuthRedirectPath,
+} from '@/lib/auth-redirect';
 
 const resolveBaseUrl = (request: Request, origin: string) => {
   const forwardedHost = request.headers.get('x-forwarded-host');
@@ -21,7 +15,7 @@ const resolveBaseUrl = (request: Request, origin: string) => {
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get('code');
-  const requestedNextPath = sanitizeNextPath(searchParams.get('next'));
+  const requestedNextPath = parseSafeAuthRedirectPath(searchParams.get('next'));
   const supabase = await createClient();
 
   const redirectAuthenticatedUser = async () => {

@@ -1,29 +1,29 @@
-import { NextResponse } from "next/server";
-import { createClient } from "@/utils/supabase/server";
+import { NextResponse } from 'next/server';
+import type { SubscriptionTier } from '@/lib/auth-state';
+import { allowedStrategyIdsForSubscriptionTier } from '@/lib/strategy-plan-access';
+import { createAdminClient } from '@/utils/supabase/admin';
+import { createClient } from '@/utils/supabase/server';
 
 type RouteContext = {
   params: Promise<{ symbol: string }>;
 };
 
-type HistoryRow = {
-  score: number | null;
+type RpcHistoryRow = {
+  score: number;
   confidence: number | null;
-  bucket: "buy" | "hold" | "sell" | null;
+  bucket: string;
   reason_1s: string | null;
   risks: unknown;
   bucket_change_explanation: string | null;
-  created_at: string | null;
-  ai_run_batches:
-    | { run_date: string | null }
-    | { run_date: string | null }[]
-    | null;
+  created_at: string;
+  run_date: string;
 };
 
 const toRiskList = (value: unknown): string[] => {
   if (!Array.isArray(value)) {
     return [];
   }
-  return value.filter((item): item is string => typeof item === "string");
+  return value.filter((item): item is string => typeof item === 'string');
 };
 
 export async function GET(_req: Request, { params }: RouteContext) {
@@ -31,60 +31,72 @@ export async function GET(_req: Request, { params }: RouteContext) {
   const { data: userData, error: userError } = await supabase.auth.getUser();
 
   if (userError || !userData.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   const { data: profile } = await supabase
-    .from("user_profiles")
-    .select("subscription_tier")
-    .eq("id", userData.user.id)
+    .from('user_profiles')
+    .select('subscription_tier')
+    .eq('id', userData.user.id)
     .maybeSingle();
 
-  if (!profile?.subscription_tier || profile.subscription_tier === "free") {
-    return NextResponse.json({ error: "Supporter or Outperformer plan required" }, { status: 403 });
+  const rawTier = profile?.subscription_tier;
+  const subscriptionTier: SubscriptionTier =
+    rawTier === 'supporter' || rawTier === 'outperformer' ? rawTier : 'free';
+
+  if (subscriptionTier === 'free') {
+    return NextResponse.json({ error: 'Supporter or Outperformer plan required' }, { status: 403 });
   }
 
   const resolvedParams = await params;
   const symbol = resolvedParams.symbol.toUpperCase();
-  const { data: stockRow } = await supabase
-    .from("stocks")
-    .select("id")
-    .eq("symbol", symbol)
-    .maybeSingle();
+
+  const admin = createAdminClient();
+
+  const { data: stockRow } = await admin.from('stocks').select('id').eq('symbol', symbol).maybeSingle();
 
   if (!stockRow?.id) {
-    return NextResponse.json({ error: "Stock not found" }, { status: 404 });
+    return NextResponse.json({ error: 'Stock not found' }, { status: 404 });
   }
 
-  const { data: historyRows, error: historyError } = await supabase
-    .from("ai_analysis_runs")
-    .select(
-      "score, confidence, bucket, reason_1s, risks, bucket_change_explanation, created_at, ai_run_batches(run_date)"
-    )
-    .eq("stock_id", stockRow.id)
-    .order("created_at", { ascending: true })
-    .limit(30);
+  const { data: strategies, error: stratErr } = await admin
+    .from('strategy_models')
+    .select('id, minimum_plan_tier')
+    .eq('status', 'active');
 
-  if (historyError) {
-    return NextResponse.json({ error: historyError.message }, { status: 500 });
+  if (stratErr) {
+    return NextResponse.json({ error: stratErr.message }, { status: 500 });
   }
 
-  const typedHistoryRows = (historyRows ?? []) as HistoryRow[];
-  const history = typedHistoryRows.map((row) => {
-    const runDate = Array.isArray(row.ai_run_batches)
-      ? row.ai_run_batches[0]?.run_date
-      : row.ai_run_batches?.run_date;
+  const allowedStrategyIds = allowedStrategyIdsForSubscriptionTier(strategies ?? [], subscriptionTier);
+
+  if (allowedStrategyIds.length === 0) {
+    return NextResponse.json({ history: [] });
+  }
+
+  const { data: rpcRows, error: rpcErr } = await admin.rpc('stock_ai_analysis_history_for_strategies', {
+    p_stock_id: stockRow.id,
+    p_strategy_ids: allowedStrategyIds,
+    p_limit: 30,
+  });
+
+  if (rpcErr) {
+    return NextResponse.json({ error: rpcErr.message }, { status: 500 });
+  }
+
+  const rows = (rpcRows ?? []) as RpcHistoryRow[];
+  const chronological = [...rows].reverse();
+
+  const history = chronological.map((row) => {
     const date =
-      typeof runDate === "string" ? runDate : row.created_at?.slice(0, 10) ?? "";
+      typeof row.run_date === 'string' ? row.run_date : row.created_at?.slice(0, 10) ?? '';
 
     return {
       date,
-      score: typeof row.score === "number" ? row.score : null,
-      bucket: row.bucket ?? null,
+      score: typeof row.score === 'number' ? row.score : null,
+      bucket: (row.bucket as 'buy' | 'hold' | 'sell') ?? null,
       confidence:
-        row.confidence === null || row.confidence === undefined
-          ? null
-          : Number(row.confidence),
+        row.confidence === null || row.confidence === undefined ? null : Number(row.confidence),
       summary: row.reason_1s ?? null,
       risks: toRiskList(row.risks),
       changeExplanation: row.bucket_change_explanation ?? null,

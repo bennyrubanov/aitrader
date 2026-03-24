@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { getSupabaseBrowserClient } from '@/utils/supabase/browser';
+import { DEFAULT_POST_AUTH_PATH } from '@/lib/auth-redirect';
 
 export default function AuthCodeError() {
   const router = useRouter();
@@ -23,7 +24,7 @@ export default function AuthCodeError() {
       } = await supabase.auth.getUser();
 
       if (user) {
-        router.replace('/platform/overview');
+        router.replace(DEFAULT_POST_AUTH_PATH);
         router.refresh();
         return;
       }
@@ -44,7 +45,7 @@ export default function AuthCodeError() {
             : "Sorry, we couldn&apos;t complete your sign-in automatically. Please try again."}
         </p>
         <div className="flex flex-col gap-3">
-          <Link href="/sign-in?next=%2Fplatform%2Foverview">
+          <Link href={`/sign-in?next=${encodeURIComponent(DEFAULT_POST_AUTH_PATH)}`}>
             <Button className="w-full">Try signing in again</Button>
           </Link>
           <Link href="/">

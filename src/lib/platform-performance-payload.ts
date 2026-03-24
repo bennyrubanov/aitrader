@@ -1,4 +1,5 @@
 import { unstable_cache } from 'next/cache';
+import { createAdminClient } from '@/utils/supabase/admin';
 import { createPublicClient } from '@/utils/supabase/public';
 
 const INITIAL_CAPITAL = 10_000;
@@ -748,7 +749,7 @@ export const getHoldingsForStrategy = async (
   runDate: string
 ): Promise<HoldingItem[]> => {
   try {
-    const supabase = createPublicClient();
+    const supabase = createAdminClient();
     const { data, error } = await supabase
       .from('strategy_portfolio_holdings')
       .select(
@@ -801,7 +802,7 @@ export const getHoldingsForStrategy = async (
 
 export const getPortfolioRunDates = async (strategyId: string): Promise<string[]> => {
   try {
-    const supabase = createPublicClient();
+    const supabase = createAdminClient();
     const { data, error } = await supabase
       .from('strategy_portfolio_holdings')
       .select('run_date')

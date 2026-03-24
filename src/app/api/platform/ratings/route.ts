@@ -1,20 +1,19 @@
 import { NextResponse } from 'next/server';
-import { getRatingsPageData } from '@/lib/platform-server-data';
+import { getAppAccessState } from '@/lib/app-access';
+import { buildAuthStateFromUserAndProfile } from '@/lib/build-auth-state';
+import {
+  getRatingsPageData,
+  getRatingsPageDataFreeTier,
+} from '@/lib/platform-server-data';
+import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import { createClient } from '@/utils/supabase/server';
 
 export const runtime = 'nodejs';
-
-const OUTPERFORMER_TIER = 'outperformer';
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const strategySlug = searchParams.get('strategy');
   const runDate = searchParams.get('date');
-
-  if (!strategySlug) {
-    const data = await getRatingsPageData(null, runDate);
-    return NextResponse.json(data);
-  }
 
   const supabase = await createClient();
   const {
@@ -27,16 +26,47 @@ export async function GET(req: Request) {
 
   const { data: profile, error } = await supabase
     .from('user_profiles')
-    .select('subscription_tier')
+    .select('subscription_tier, full_name, email')
     .eq('id', user.id)
     .maybeSingle();
 
-  if (error) {
-    return NextResponse.json({ error: 'Unable to verify plan access.' }, { status: 500 });
+  const authState = buildAuthStateFromUserAndProfile(user, profile, Boolean(error));
+  const access = getAppAccessState(authState);
+  const defaultSlug = STRATEGY_CONFIG.slug;
+
+  const loadFreeTier = () => getRatingsPageDataFreeTier();
+
+  if (!strategySlug) {
+    if (access === 'free') {
+      const data = await loadFreeTier();
+      return NextResponse.json(data);
+    }
+    const data = await getRatingsPageData(null, runDate);
+    return NextResponse.json(data);
   }
 
-  if (profile?.subscription_tier !== OUTPERFORMER_TIER) {
-    return NextResponse.json({ error: 'Outperformer plan required.' }, { status: 403 });
+  if (access === 'free') {
+    if (strategySlug !== defaultSlug) {
+      return NextResponse.json(
+        { error: 'Upgrade your plan to view ratings for this strategy model.' },
+        { status: 403 }
+      );
+    }
+    if (runDate) {
+      return NextResponse.json(
+        { error: 'Historical ratings require a paid plan.' },
+        { status: 403 }
+      );
+    }
+    const data = await loadFreeTier();
+    return NextResponse.json(data);
+  }
+
+  if (access === 'supporter' && strategySlug !== defaultSlug) {
+    return NextResponse.json(
+      { error: 'Outperformer plan required for premium strategy models.' },
+      { status: 403 }
+    );
   }
 
   const data = await getRatingsPageData(strategySlug, runDate);

@@ -8,13 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AuthPreviewPlaceholder } from "@/components/auth/auth-preview-placeholder";
 import { consumeAuthPrefillEmail, clearPreAuthReturnUrl } from "@/lib/auth-storage";
-
-const sanitizeNextPath = (value: string | null, fallback: string) => {
-  if (!value || !value.startsWith("/")) {
-    return fallback;
-  }
-  return value;
-};
+import {
+  DEFAULT_POST_AUTH_PATH,
+  sanitizeAuthRedirectPath,
+} from "@/lib/auth-redirect";
 
 export function ForgotPasswordPageClient() {
   const searchParams = useSearchParams();
@@ -24,7 +21,7 @@ export function ForgotPasswordPageClient() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const nextPath = useMemo(
-    () => sanitizeNextPath(searchParams.get("next"), "/platform/overview"),
+    () => sanitizeAuthRedirectPath(searchParams.get("next"), DEFAULT_POST_AUTH_PATH),
     [searchParams]
   );
 

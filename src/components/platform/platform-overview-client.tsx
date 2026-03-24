@@ -22,13 +22,15 @@ import {
   Folders,
   ListFilter,
   Loader2,
+  Lock,
   Plus,
   Settings2,
   Sparkles,
   X,
 } from 'lucide-react';
 import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
-import { useAuthState } from '@/components/auth/auth-state-context';
+import { useAuthState, useRefreshAuthProfile } from '@/components/auth/auth-state-context';
+import { useAccountSignupPrompt } from '@/components/platform/account-prompt-dialog';
 import {
   RISK_LABELS,
   usePortfolioConfig,
@@ -124,11 +126,19 @@ import {
   sortProfilesByOverviewCardMetric,
 } from '@/lib/portfolio-profile-list-sort';
 import { PORTFOLIO_EXPLORE_QUICK_PICKS } from '@/lib/portfolio-explore-quick-picks';
+import type { SubscriptionTier } from '@/lib/auth-state';
+import { canAccessPaidPortfolioHoldings, getAppAccessState } from '@/lib/app-access';
+import {
+  buildGuestLocalProfileRows,
+  buildGuestUserEntryPerformancePayload,
+  fetchGuestPortfolioConfigPerformanceJson,
+  isGuestLocalProfileId,
+} from '@/lib/guest-local-profile';
 import { cn } from '@/lib/utils';
 
 const PerformanceChart = dynamic(
   () => import('@/components/platform/performance-chart').then((m) => m.PerformanceChart),
-  { ssr: false, loading: () => <Skeleton className="h-[320px] w-full rounded-lg" /> }
+  { ssr: false, loading: () => <Skeleton className="h-[328px] w-full rounded-lg" /> }
 );
 
 /** Every overview grid cell (portfolio tile or “add”) uses this fixed row height — layout does not grow/shrink per content. */
@@ -165,26 +175,21 @@ const spotlightHoldingsShortDateFmt = new Intl.DateTimeFormat('en-US', {
 /** Metrics column + chart + table — matches loaded Top portfolio layout (not overview tiles). */
 function OverviewTopPortfolioSpotlightSkeleton() {
   return (
-    <>
-      <h2 className="mb-3 text-sm font-semibold tracking-tight text-foreground">
-        Your top portfolio by performance
-      </h2>
-      <section className="rounded-xl border border-border bg-card/50 p-4 sm:p-5">
-        <div className="mb-2">
-          <Skeleton className="h-7 w-full max-w-xl rounded-md" />
+    <section className="rounded-xl border border-border bg-card/50 p-4 sm:p-5">
+      <div className="mb-2">
+        <Skeleton className="h-6 w-full max-w-3xl rounded-md" />
+      </div>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,11rem)_minmax(0,1.25fr)_minmax(0,0.75fr)]">
+        <div className="space-y-2">
+          <Skeleton className="h-14 w-full rounded-lg" />
+          <Skeleton className="h-14 w-full rounded-lg" />
+          <Skeleton className="h-14 w-full rounded-lg" />
+          <Skeleton className="h-14 w-full rounded-lg" />
         </div>
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,11rem)_minmax(0,1.25fr)_minmax(0,0.75fr)]">
-          <div className="space-y-2">
-            <Skeleton className="h-14 w-full rounded-lg" />
-            <Skeleton className="h-14 w-full rounded-lg" />
-            <Skeleton className="h-14 w-full rounded-lg" />
-            <Skeleton className="h-14 w-full rounded-lg" />
-          </div>
-          <Skeleton className="min-h-[276px] rounded-lg sm:min-h-[316px]" />
-          <Skeleton className="min-h-[200px] rounded-lg lg:min-h-[260px]" />
-        </div>
-      </section>
-    </>
+        <Skeleton className="min-h-[288px] rounded-lg sm:min-h-[328px]" />
+        <Skeleton className="min-h-[200px] rounded-lg lg:min-h-[260px]" />
+      </div>
+    </section>
   );
 }
 
@@ -956,7 +961,20 @@ function RebalanceActionsTable({
   return (
     <div className="overflow-hidden rounded-lg border border-border/70 bg-card/30">
       <div className="max-h-[min(22rem,50vh)] overflow-y-auto overscroll-y-contain [scrollbar-width:thin]">
-        <table className="w-full border-collapse text-left text-[11px]">
+        <table
+          className={cn(
+            'w-full border-collapse text-left text-[11px]',
+            !useAllocationOnly && 'table-fixed'
+          )}
+        >
+          {!useAllocationOnly ? (
+            <colgroup>
+              <col className="w-[5.25rem]" />
+              <col />
+              <col className="w-[30%]" />
+              <col className="w-[34%]" />
+            </colgroup>
+          ) : null}
           <thead>
             <tr className="sticky top-0 z-[1] border-b border-border/70 bg-muted/90 backdrop-blur-sm">
               <th
@@ -965,7 +983,7 @@ function RebalanceActionsTable({
               >
                 Action
               </th>
-              <th scope="col" className="py-1.5 px-1 font-semibold text-muted-foreground">
+              <th scope="col" className="py-1.5 pl-1 pr-3 font-semibold text-muted-foreground">
                 Stock
               </th>
               {useAllocationOnly ? (
@@ -979,13 +997,13 @@ function RebalanceActionsTable({
                 <>
                   <th
                     scope="col"
-                    className="whitespace-nowrap py-1.5 px-1 text-right font-semibold text-muted-foreground"
+                    className="whitespace-nowrap py-1.5 pl-2 pr-3 text-right font-semibold text-muted-foreground"
                   >
                     Trade
                   </th>
                   <th
                     scope="col"
-                    className="whitespace-nowrap py-1.5 pl-1 pr-2 text-right font-semibold text-muted-foreground"
+                    className="whitespace-nowrap py-1.5 pl-3 pr-14 text-right font-semibold text-muted-foreground"
                   >
                     Target value
                   </th>
@@ -1000,7 +1018,7 @@ function RebalanceActionsTable({
                 className="border-b border-border/40 last:border-0 hover:bg-muted/25"
               >
                 <td className="align-middle py-1 pl-2 pr-1">{actionBadge(kind)}</td>
-                <td className="min-w-0 max-w-[10rem] py-1 px-1 align-middle sm:max-w-none">
+                <td className="min-w-0 max-w-[10rem] py-1 pl-1 pr-3 align-middle sm:max-w-none">
                   <div className="min-w-0">
                     <Link
                       href={`/stocks/${r.symbol.toLowerCase()}`}
@@ -1021,10 +1039,10 @@ function RebalanceActionsTable({
                   </td>
                 ) : (
                   <>
-                    <td className="whitespace-nowrap py-1 px-1 text-right align-middle tabular-nums">
+                    <td className="whitespace-nowrap py-1 pl-2 pr-3 text-right align-middle tabular-nums">
                       {tradeCell(kind, r)}
                     </td>
-                    <td className="whitespace-nowrap py-1 pl-1 pr-2 text-right align-middle font-medium tabular-nums text-foreground">
+                    <td className="whitespace-nowrap py-1 pl-3 pr-14 text-right align-middle font-medium tabular-nums text-foreground">
                       {formatOverviewCurrency(r.targetDollars)}
                     </td>
                   </>
@@ -1045,6 +1063,7 @@ function SinglePortfolioRebalanceMovementSection({
   onOpenEntrySettings,
   refreshEpoch,
   fetchEnabled,
+  platformTourFirstPortfolio,
 }: {
   profile: ProfileRow;
   rankedBySlug: Record<string, RankedBundle>;
@@ -1053,6 +1072,8 @@ function SinglePortfolioRebalanceMovementSection({
   refreshEpoch: number;
   /** When false, skip network (tab inactive); cached data still shown after first load. */
   fetchEnabled: boolean;
+  /** Post-onboarding tour: spotlight only the first portfolio row. */
+  platformTourFirstPortfolio?: boolean;
 }) {
   const profileId = profile.id;
   const [selectedRebalanceDate, setSelectedRebalanceDate] = useState<string | null>(null);
@@ -1155,7 +1176,12 @@ function SinglePortfolioRebalanceMovementSection({
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 rounded-2xl border border-border bg-card/30 p-4 lg:grid-cols-[minmax(0,17rem)_minmax(0,1fr)] lg:items-start">
+      <div
+        className="grid gap-4 rounded-2xl border border-border bg-card/30 p-4 lg:grid-cols-[minmax(0,17rem)_minmax(0,1fr)] lg:items-start"
+        data-platform-tour={
+          platformTourFirstPortfolio ? 'overview-rebalance-actions-first-portfolio' : undefined
+        }
+      >
         <div
           className="w-full max-w-[17rem] shrink-0 overflow-hidden"
           style={{ height: OVERVIEW_TILE_ROW_HEIGHT }}
@@ -1332,7 +1358,10 @@ function StockMovementPanel({
 }) {
   if (profiles.length === 0) {
     return (
-      <Card className="border-dashed">
+      <Card
+        className="border-dashed"
+        data-platform-tour="overview-rebalance-actions-first-portfolio"
+      >
         <CardContent className="py-6">
           <p className="text-center text-sm text-muted-foreground">
             Follow a portfolio to see rebalance instructions here.
@@ -1344,7 +1373,7 @@ function StockMovementPanel({
 
   return (
     <div className="space-y-8">
-      {profiles.map((profile) => (
+      {profiles.map((profile, index) => (
         <SinglePortfolioRebalanceMovementSection
           key={profile.id}
           profile={profile}
@@ -1353,6 +1382,7 @@ function StockMovementPanel({
           onOpenEntrySettings={onOpenEntrySettings}
           refreshEpoch={refreshEpoch}
           fetchEnabled={fetchEnabled}
+          platformTourFirstPortfolio={index === 0}
         />
       ))}
     </div>
@@ -1383,9 +1413,107 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     [router, pathname]
   );
   const authState = useAuthState();
-  const { resetOnboarding } = usePortfolioConfig();
+  const refreshAuthProfile = useRefreshAuthProfile();
+  const { openSignupPrompt } = useAccountSignupPrompt();
+  const appAccess = useMemo(() => getAppAccessState(authState), [authState]);
+  const overviewPaidHoldings = canAccessPaidPortfolioHoldings(appAccess);
+  const {
+    resetOnboarding,
+    portfolioConfigHydrated,
+    isOnboardingDone,
+    config: portfolioConfigCtx,
+    entryDate: portfolioEntryDate,
+  } = usePortfolioConfig();
+
+  useEffect(() => {
+    if (!overviewPaidHoldings && overviewTab === 'rebalance-actions') {
+      setOverviewTab('top-portfolio');
+    }
+  }, [overviewPaidHoldings, overviewTab, setOverviewTab]);
+
+  /** One soft nudge per overview mount; skip while portfolio onboarding is active for guests. */
+  /* eslint-disable react-hooks/exhaustive-deps -- pathname omitted: re-including it re-opened signup on every workspace tab switch */
+  useEffect(() => {
+    if (!authState.isLoaded || authState.isAuthenticated) return;
+    if (!portfolioConfigHydrated || !isOnboardingDone) return;
+    if (!pathname?.startsWith('/platform')) return;
+    const t = window.setTimeout(() => openSignupPrompt(), 600);
+    return () => clearTimeout(t);
+  }, [
+    authState.isLoaded,
+    authState.isAuthenticated,
+    portfolioConfigHydrated,
+    isOnboardingDone,
+    openSignupPrompt,
+  ]);
+  /* eslint-enable react-hooks/exhaustive-deps */
   /** TEMP dev-only: bump to remount onboarding dialog from a clean step state. Remove when no longer needed. */
   const [onboardingDevKey, setOnboardingDevKey] = useState(0);
+  const postCheckoutReconcileInFlight = useRef(false);
+
+  useEffect(() => {
+    if (searchParams.get('subscription') !== 'success') return;
+    if (!authState.isLoaded || !authState.isAuthenticated) return;
+    if (postCheckoutReconcileInFlight.current) return;
+    postCheckoutReconcileInFlight.current = true;
+
+    let cancelled = false;
+
+    const stripCheckoutQueryParams = () => {
+      const nextParams = new URLSearchParams(searchParams.toString());
+      nextParams.delete('subscription');
+      nextParams.delete('checkout_email');
+      const qs = nextParams.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname);
+    };
+
+    void (async () => {
+      const maxAttempts = 18;
+      const delayMs = 650;
+
+      try {
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+          if (cancelled) return;
+          try {
+            const r = await fetch('/api/user/reconcile-premium', { method: 'POST' });
+            if (r.ok) {
+              const j = (await r.json()) as { subscriptionTier?: SubscriptionTier };
+              const tier = j.subscriptionTier;
+              if (tier === 'supporter' || tier === 'outperformer') {
+                await refreshAuthProfile();
+                resetOnboarding();
+                setOnboardingDevKey((k) => k + 1);
+                stripCheckoutQueryParams();
+                return;
+              }
+            }
+          } catch {
+            // Retry — Stripe subscription may not be visible immediately after redirect.
+          }
+          await new Promise((res) => setTimeout(res, delayMs));
+        }
+
+        if (cancelled) return;
+        await refreshAuthProfile();
+        stripCheckoutQueryParams();
+      } finally {
+        postCheckoutReconcileInFlight.current = false;
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      postCheckoutReconcileInFlight.current = false;
+    };
+  }, [
+    authState.isAuthenticated,
+    authState.isLoaded,
+    pathname,
+    refreshAuthProfile,
+    resetOnboarding,
+    router,
+    searchParams,
+  ]);
   const [loading, setLoading] = useState(true);
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
   const [overviewSlotAssignments, setOverviewSlotAssignments] = useState<Map<number, string>>(
@@ -1462,12 +1590,33 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   useEffect(() => {
     let mounted = true;
     if (!authState.isLoaded) return;
+
     if (!authState.isAuthenticated) {
-      setProfiles([]);
-      setOverviewSlotAssignments(new Map());
-      setLoading(false);
-      return;
+      if (!portfolioConfigHydrated || !isOnboardingDone) {
+        setProfiles([]);
+        setOverviewSlotAssignments(new Map());
+        setLoading(false);
+        return;
+      }
+      setLoading(true);
+      const strategy =
+        strategies.find((s) => s.slug === portfolioConfigCtx.strategySlug) ?? strategies[0] ?? null;
+      void buildGuestLocalProfileRows(portfolioConfigCtx, portfolioEntryDate, strategy).then((rows) => {
+        if (!mounted) return;
+        if (rows) {
+          setProfiles([normalizeOverviewProfile(rows.overview as ProfileRow)]);
+          setOverviewSlotAssignments(new Map([[1, rows.overview.id]]));
+        } else {
+          setProfiles([]);
+          setOverviewSlotAssignments(new Map());
+        }
+        setLoading(false);
+      });
+      return () => {
+        mounted = false;
+      };
     }
+
     setLoading(true);
     void fetch('/api/platform/user-portfolio-profile', { cache: 'no-store' })
       .then((r) => r.json())
@@ -1486,7 +1635,15 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     return () => {
       mounted = false;
     };
-  }, [authState.isAuthenticated, authState.isLoaded]);
+  }, [
+    authState.isAuthenticated,
+    authState.isLoaded,
+    portfolioConfigHydrated,
+    isOnboardingDone,
+    portfolioConfigCtx,
+    portfolioEntryDate,
+    strategies,
+  ]);
 
   const { slotDisplay, overviewTrackedProfiles, visibleSlotCount } = useMemo(() => {
     const explicitMap = new Map<number, ProfileRow>();
@@ -1593,6 +1750,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   }, []);
 
   const assignOverviewSlot = useCallback(async (profileId: string, slot: number) => {
+    if (!authState.isAuthenticated) return;
     if (!isValidOverviewSlot(slot)) return;
     setSlotAssignBusy(true);
     try {
@@ -1612,10 +1770,11 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     } finally {
       setSlotAssignBusy(false);
     }
-  }, []);
+  }, [authState.isAuthenticated]);
 
   const clearOverviewSlot = useCallback(
     async (slot: number) => {
+      if (!authState.isAuthenticated) return;
       if (!isValidOverviewSlot(slot)) return;
       if (!overviewSlotAssignments.has(slot)) return;
       const res = await fetch('/api/platform/user-portfolio-profile', {
@@ -1630,11 +1789,11 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
         return next;
       });
     },
-    [overviewSlotAssignments]
+    [authState.isAuthenticated, overviewSlotAssignments]
   );
 
   useEffect(() => {
-    if (!authState.isAuthenticated || !profiles.length) {
+    if (!profiles.length) {
       setRankedBySlug({});
       setLatestPerfDateBySlug({});
       setRankedLoading(false);
@@ -1690,7 +1849,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     return () => {
       cancelled = true;
     };
-  }, [authState.isAuthenticated, profiles]);
+  }, [profiles]);
 
   const refreshOverviewProfiles = useCallback(async () => {
     if (!authState.isAuthenticated) return;
@@ -1814,6 +1973,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     }
 
     for (const p of profilesSortedForRebalance) {
+      if (isGuestLocalProfileId(p.id)) continue;
       if (!p.user_start_date?.trim()) continue;
       const st = cardState[p.id];
       if (!st || st.loading) continue;
@@ -1932,59 +2092,100 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                 loading: true,
               },
             }));
+
+            const applyUserEntryPayload = (d: {
+              series?: PerformanceSeriesPoint[];
+              metrics?: {
+                totalReturn: number | null;
+                cagr: number | null;
+                maxDrawdown: number | null;
+                sharpeRatio: number | null;
+                consistency: number | null;
+                excessReturnVsNasdaqCap: number | null;
+              } | null;
+              computeStatus?: string;
+              hasMultipleObservations?: boolean;
+            }) => {
+              if (runId !== overviewUserEntryRunIdRef.current) return;
+              const series = d.series ?? [];
+              const gathering = d.computeStatus === 'gathering_data';
+              const okFull =
+                d.computeStatus === 'ready' &&
+                series.length > 0 &&
+                d.hasMultipleObservations === true;
+              overviewUserEntryTerminalFpRef.current.set(key, fp);
+              setCardState((s) => ({
+                ...s,
+                [key]: {
+                  series: series.length > 0 ? series : [],
+                  gatheringData: gathering,
+                  totalReturn: okFull ? (d.metrics?.totalReturn ?? null) : null,
+                  cagr: okFull ? (d.metrics?.cagr ?? null) : null,
+                  maxDrawdown: okFull ? (d.metrics?.maxDrawdown ?? null) : null,
+                  sharpeRatio: okFull ? (d.metrics?.sharpeRatio ?? null) : null,
+                  consistency: okFull ? (d.metrics?.consistency ?? null) : null,
+                  excessReturnVsNasdaqCap: okFull
+                    ? (d.metrics?.excessReturnVsNasdaqCap ?? null)
+                    : null,
+                  loading: false,
+                },
+              }));
+            };
+
+            const onUserEntryFetchError = () => {
+              if (runId !== overviewUserEntryRunIdRef.current) return;
+              overviewUserEntryTerminalFpRef.current.delete(key);
+              overviewUserEntryFetchStartedRef.current.delete(key);
+              setCardState((s) => ({
+                ...s,
+                [key]: emptyOverviewCardPerfState(false),
+              }));
+            };
+
+            if (isGuestLocalProfileId(p.id)) {
+              const slug = p.strategy_models?.slug?.trim();
+              const cfg = p.portfolio_config;
+              const start = p.user_start_date?.trim() ?? '';
+              if (!slug || !cfg || !start) {
+                onUserEntryFetchError();
+                return Promise.resolve();
+              }
+              const pc = {
+                strategySlug: slug,
+                riskLevel: cfg.risk_level as RiskLevel,
+                rebalanceFrequency: cfg.rebalance_frequency as RebalanceFrequency,
+                weightingMethod: cfg.weighting_method as 'equal' | 'cap',
+                investmentSize: Number(p.investment_size),
+              };
+              return fetchGuestPortfolioConfigPerformanceJson(slug, pc)
+                .then((raw) => {
+                  if (runId !== overviewUserEntryRunIdRef.current) return;
+                  if (!raw) {
+                    onUserEntryFetchError();
+                    return;
+                  }
+                  const payload = buildGuestUserEntryPerformancePayload(
+                    raw.rows,
+                    raw.computeStatus,
+                    start,
+                    Number(p.investment_size)
+                  );
+                  applyUserEntryPayload({
+                    series: payload.series,
+                    metrics: payload.metrics,
+                    computeStatus: payload.computeStatus,
+                    hasMultipleObservations: payload.hasMultipleObservations,
+                  });
+                })
+                .catch(onUserEntryFetchError);
+            }
+
             return fetch(
               `/api/platform/user-portfolio-performance?profileId=${encodeURIComponent(p.id)}`
             )
               .then((r) => r.json())
-              .then(
-                (d: {
-                  series?: PerformanceSeriesPoint[];
-                  metrics?: {
-                    totalReturn: number | null;
-                    cagr: number | null;
-                    maxDrawdown: number | null;
-                    sharpeRatio: number | null;
-                    consistency: number | null;
-                    excessReturnVsNasdaqCap: number | null;
-                  } | null;
-                  computeStatus?: string;
-                  hasMultipleObservations?: boolean;
-                }) => {
-                  if (runId !== overviewUserEntryRunIdRef.current) return;
-                  const series = d.series ?? [];
-                  const gathering = d.computeStatus === 'gathering_data';
-                  const okFull =
-                    d.computeStatus === 'ready' &&
-                    series.length > 0 &&
-                    d.hasMultipleObservations === true;
-                  overviewUserEntryTerminalFpRef.current.set(key, fp);
-                  setCardState((s) => ({
-                    ...s,
-                    [key]: {
-                      series: series.length > 0 ? series : [],
-                      gatheringData: gathering,
-                      totalReturn: okFull ? (d.metrics?.totalReturn ?? null) : null,
-                      cagr: okFull ? (d.metrics?.cagr ?? null) : null,
-                      maxDrawdown: okFull ? (d.metrics?.maxDrawdown ?? null) : null,
-                      sharpeRatio: okFull ? (d.metrics?.sharpeRatio ?? null) : null,
-                      consistency: okFull ? (d.metrics?.consistency ?? null) : null,
-                      excessReturnVsNasdaqCap: okFull
-                        ? (d.metrics?.excessReturnVsNasdaqCap ?? null)
-                        : null,
-                      loading: false,
-                    },
-                  }));
-                }
-              )
-              .catch(() => {
-                if (runId !== overviewUserEntryRunIdRef.current) return;
-                overviewUserEntryTerminalFpRef.current.delete(key);
-                overviewUserEntryFetchStartedRef.current.delete(key);
-                setCardState((s) => ({
-                  ...s,
-                  [key]: emptyOverviewCardPerfState(false),
-                }));
-              });
+              .then(applyUserEntryPayload)
+              .catch(onUserEntryFetchError);
           })
         );
       }
@@ -2005,6 +2206,15 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
       const configId = topSpotlightConfigId;
       if (!topSpotlightProfileId || !configId || !slug) return;
       const reqId = ++spotlightHoldingsRequestIdRef.current;
+
+      if (!overviewPaidHoldings) {
+        setTopSpotlightHoldings([]);
+        setTopSpotlightHoldingsAsOf(null);
+        setTopSpotlightRebalanceDates([]);
+        setTopSpotlightHoldingsLoading(false);
+        setTopSpotlightHoldingsRefreshing(false);
+        return;
+      }
 
       const hadTableData = spotlightHoldingsLenRef.current > 0;
       const isDatePick = asOf != null;
@@ -2057,7 +2267,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
         }
       }
     },
-    [topSpotlightProfileId, topSpotlightConfigId, topSpotlightSlug]
+    [topSpotlightProfileId, topSpotlightConfigId, topSpotlightSlug, overviewPaidHoldings]
   );
 
   useEffect(() => {
@@ -2421,11 +2631,20 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
           ) : !authState.isAuthenticated ? (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Sign in</CardTitle>
+                <CardTitle className="text-base">Sign in to view Overview</CardTitle>
                 <CardDescription>
-                  Save portfolios and sync notifications across devices.
+                  Follow portfolios, see your top performer, and get rebalance guidance after you
+                  create a free account.
                 </CardDescription>
               </CardHeader>
+              <CardContent className="flex flex-wrap gap-2">
+                <Button size="sm" asChild>
+                  <Link href="/sign-in?next=/platform/overview">Log in</Link>
+                </Button>
+                <Button size="sm" variant="outline" asChild>
+                  <Link href="/sign-up?next=/platform/overview">Sign up</Link>
+                </Button>
+              </CardContent>
             </Card>
           ) : profiles.length === 0 ? (
             <>
@@ -2449,8 +2668,8 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
               </Card>
             </>
           ) : (
-            <Tabs value={overviewTab} onValueChange={setOverviewTab} className="w-full space-y-3">
-              <div className="space-y-2 pb-2">
+            <Tabs value={overviewTab} onValueChange={setOverviewTab} className="w-full space-y-2">
+              <div className="space-y-2 pb-1">
                 <div className="rounded-xl border border-border/70 bg-muted/25 px-3 py-3 shadow-sm sm:px-4 sm:py-3.5 dark:bg-muted/15">
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                     <div className="flex min-w-0 flex-1 flex-col gap-1.5 sm:flex-row sm:items-start sm:gap-4 lg:gap-6">
@@ -2476,9 +2695,20 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                       </TabsTrigger>
                       <TabsTrigger
                         value="rebalance-actions"
+                        disabled={!overviewPaidHoldings}
+                        title={
+                          !overviewPaidHoldings
+                            ? 'Rebalance actions require Supporter or Outperformer'
+                            : undefined
+                        }
                         className="rounded-md px-3 py-2 text-xs font-medium data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm sm:py-1.5 sm:text-sm"
                       >
-                        Rebalance Actions
+                        <span className="inline-flex items-center gap-1.5">
+                          Rebalance Actions
+                          {!overviewPaidHoldings ? (
+                            <Lock className="size-3 shrink-0 opacity-70" aria-hidden />
+                          ) : null}
+                        </span>
                       </TabsTrigger>
                       <TabsTrigger
                         value="overview-tiles"
@@ -2500,9 +2730,9 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                 value="top-portfolio"
                 forceMount
                 data-platform-tour="overview-top-portfolio-panel"
-                className="mt-0 space-y-3 ring-offset-0 focus-visible:outline-none focus-visible:ring-0 data-[state=inactive]:hidden"
+                className="mt-0 space-y-2 ring-offset-0 focus-visible:outline-none focus-visible:ring-0 data-[state=inactive]:hidden"
               >
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {spotlightSectionLoading ? (
                     <OverviewTopPortfolioSpotlightSkeleton />
                   ) : topSpotlightOverview ? (
@@ -2544,93 +2774,95 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                           ? st.excessReturnVsNasdaqCap
                           : excessVsNasdaqCap;
                       return (
-                        <>
-                          <h2 className="mb-3 text-sm font-semibold tracking-tight text-foreground">
-                            Your top portfolio by performance
-                          </h2>
-                          <section className="rounded-xl border border-border bg-card/50 p-4 sm:p-5">
-                            <div className="mb-2 flex min-w-0 items-start justify-between gap-3">
-                              <div className="min-w-0 flex flex-wrap items-center gap-x-1.5 gap-y-1">
-                                <span className="min-w-0 shrink text-base font-semibold leading-snug text-foreground">
-                                  {strategyTitle}
-                                </span>
-                                {pc && spotlightRiskTitle ? (
-                                  <>
-                                    <span className="shrink-0 text-muted-foreground/60" aria-hidden>
-                                      ·
-                                    </span>
+                        <section className="rounded-xl border border-border bg-card/50 p-4 sm:p-5">
+                          <div className="mb-2 flex min-w-0 items-start justify-between gap-3">
+                            <div className="min-w-0 flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                              <h2 className="shrink-0 text-sm font-semibold tracking-tight text-foreground">
+                                Your top portfolio by performance
+                              </h2>
+                              <span className="shrink-0 text-muted-foreground/60" aria-hidden>
+                                ·
+                              </span>
+                              <span className="min-w-0 text-sm text-muted-foreground">
+                                {strategyTitle}
+                              </span>
+                              {pc && spotlightRiskTitle ? (
+                                <>
+                                  <span className="shrink-0 text-muted-foreground/60" aria-hidden>
+                                    ·
+                                  </span>
+                                  <span
+                                    className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border/80 bg-muted/40 px-2 py-0.5 text-[10px] font-semibold"
+                                    title={spotlightRiskTitle}
+                                  >
                                     <span
-                                      className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border/80 bg-muted/40 px-2 py-0.5 text-[10px] font-semibold"
-                                      title={spotlightRiskTitle}
-                                    >
-                                      <span
-                                        className={cn(
-                                          'size-1.5 shrink-0 rounded-full',
-                                          spotlightRiskDot
-                                        )}
-                                        aria-hidden
-                                      />
-                                      {spotlightRiskTitle}
-                                    </span>
-                                  </>
-                                ) : null}
-                                {spotlightConfigLine ? (
-                                  <>
-                                    <span className="shrink-0 text-muted-foreground/60" aria-hidden>
-                                      ·
-                                    </span>
-                                    <span className="min-w-0 text-sm text-muted-foreground">
-                                      {spotlightConfigLine}
-                                    </span>
-                                  </>
-                                ) : !pc ? (
-                                  <>
-                                    <span className="shrink-0 text-muted-foreground/60" aria-hidden>
-                                      ·
-                                    </span>
-                                    <span className="text-sm text-muted-foreground">
-                                      Configuration
-                                    </span>
-                                  </>
-                                ) : null}
+                                      className={cn(
+                                        'size-1.5 shrink-0 rounded-full',
+                                        spotlightRiskDot
+                                      )}
+                                      aria-hidden
+                                    />
+                                    {spotlightRiskTitle}
+                                  </span>
+                                </>
+                              ) : null}
+                              {spotlightConfigLine ? (
                                 <>
                                   <span className="shrink-0 text-muted-foreground/60" aria-hidden>
                                     ·
                                   </span>
                                   <span className="min-w-0 text-sm text-muted-foreground">
-                                    Investment:{' '}
-                                    {formatOverviewInvestmentSize(investmentSize) ?? '—'}
+                                    {spotlightConfigLine}
                                   </span>
+                                </>
+                              ) : !pc ? (
+                                <>
                                   <span className="shrink-0 text-muted-foreground/60" aria-hidden>
                                     ·
                                   </span>
-                                  <span className="min-w-0 text-sm text-muted-foreground">
-                                    Entry on{' '}
-                                    {bp.user_start_date?.trim()
-                                      ? formatYmdDisplay(bp.user_start_date.trim())
-                                      : '—'}
+                                  <span className="text-sm text-muted-foreground">
+                                    Configuration
                                   </span>
                                 </>
-                              </div>
-                              {bp.user_start_date ? (
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon"
-                                  className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
-                                  aria-label="Edit starting investment and entry"
-                                  onClick={() => setEntrySettingsProfileId(bp.id)}
-                                >
-                                  <Settings2 className="size-4" />
-                                </Button>
                               ) : null}
+                              <>
+                                <span className="shrink-0 text-muted-foreground/60" aria-hidden>
+                                  ·
+                                </span>
+                                <span className="min-w-0 text-sm text-muted-foreground">
+                                  Investment:{' '}
+                                  {formatOverviewInvestmentSize(investmentSize) ?? '—'}
+                                </span>
+                                <span className="shrink-0 text-muted-foreground/60" aria-hidden>
+                                  ·
+                                </span>
+                                <span className="min-w-0 text-sm text-muted-foreground">
+                                  Entry on{' '}
+                                  {bp.user_start_date?.trim()
+                                    ? formatYmdDisplay(bp.user_start_date.trim())
+                                    : '—'}
+                                </span>
+                              </>
                             </div>
-                            {!st.loading && st.gatheringData ? (
-                              <p className="mb-3 text-[11px] leading-snug text-muted-foreground">
-                                Data still gathering — returns update after more market closes.
-                              </p>
+                            {bp.user_start_date ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
+                                aria-label="Edit starting investment and entry"
+                                onClick={() => setEntrySettingsProfileId(bp.id)}
+                              >
+                                <Settings2 className="size-4" />
+                              </Button>
                             ) : null}
-                            <div className="grid gap-4 lg:grid-cols-[minmax(0,11rem)_minmax(0,1.25fr)_minmax(0,0.75fr)] lg:items-start">
+                          </div>
+                          {!st.loading && st.gatheringData ? (
+                            <p className="mb-3 text-[11px] leading-snug text-muted-foreground">
+                              Data still gathering — returns update after more market closes.
+                            </p>
+                          ) : null}
+                          <div className="grid gap-4 lg:grid-cols-[minmax(0,11rem)_minmax(0,1.25fr)_minmax(0,0.75fr)] lg:items-start">
                               <div className="mx-auto w-full max-w-[11rem] space-y-2 lg:mx-0 lg:max-h-[min(70vh,520px)] lg:overflow-y-auto lg:pr-1">
                                 <SpotlightStatCard
                                   tooltipKey="portfolio_value"
@@ -2725,10 +2957,10 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                     hideDrawdown
                                     hideFootnote
                                     initialNotional={initialNotional}
-                                    chartContainerClassName="h-[276px] sm:h-[316px]"
+                                    chartContainerClassName="h-[288px] sm:h-[328px]"
                                   />
                                 ) : (
-                                  <div className="flex h-[260px] flex-col items-center justify-center gap-2 px-4 text-center text-sm text-muted-foreground lg:h-[316px]">
+                                  <div className="flex h-[272px] flex-col items-center justify-center gap-2 px-4 text-center text-sm text-muted-foreground lg:h-[328px]">
                                     <p>Not enough history to chart yet.</p>
                                     {bp.user_start_date ? (
                                       <>
@@ -2757,7 +2989,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                   <h4 className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                                     Portfolio holdings
                                   </h4>
-                                  {topSpotlightRebalanceDates.length > 0 ? (
+                                  {overviewPaidHoldings && topSpotlightRebalanceDates.length > 0 ? (
                                     <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-2 sm:gap-x-3">
                                       <Select
                                         value={
@@ -2814,16 +3046,29 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                         </div>
                                       ) : null}
                                     </div>
-                                  ) : topSpotlightHoldingsLoading ? (
+                                  ) : overviewPaidHoldings && topSpotlightHoldingsLoading ? (
                                     <span className="shrink-0 text-[11px] text-muted-foreground">
                                       Loading…
                                     </span>
-                                  ) : (
+                                  ) : overviewPaidHoldings ? (
                                     <p className="shrink-0 text-right text-[11px] text-muted-foreground">
                                       No rebalance history yet.
                                     </p>
-                                  )}
+                                  ) : null}
                                 </div>
+                                {!overviewPaidHoldings ? (
+                                  <div className="flex min-h-[12rem] flex-col items-center justify-center gap-3 rounded-lg border border-dashed bg-muted/15 px-4 py-8 text-center">
+                                    <Lock className="size-8 shrink-0 text-muted-foreground" aria-hidden />
+                                    <p className="max-w-sm text-sm text-muted-foreground">
+                                      Holdings and weights are available on a paid plan. Performance
+                                      and the chart above stay visible on your free account.
+                                    </p>
+                                    <Button size="sm" asChild>
+                                      <Link href="/pricing">View plans</Link>
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  <>
                                 {spotlightHoldingsMovementView && prevSpotlightMovementError ? (
                                   <p className="text-[11px] text-destructive">
                                     Could not load the prior rebalance to compare.
@@ -3134,10 +3379,11 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                     </div>
                                   </TooltipProvider>
                                 )}
+                                  </>
+                                )}
                               </div>
                             </div>
-                          </section>
-                        </>
+                        </section>
                       );
                     })()
                   ) : (
@@ -3298,7 +3544,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                         const slot = i + 1;
                         const assignedId = overviewSlotAssignments.get(slot);
                         const showClear = p != null && assignedId === p.id;
-                        const canPickPortfolio = profiles.length > 0;
+                        const canPickPortfolio = profiles.length > 0 && authState.isAuthenticated;
                         return (
                           <div key={slot} className="flex h-full min-h-0 min-w-0 flex-col">
                             {p ? (
@@ -3308,7 +3554,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                 cardState={cardState}
                                 onOpenDetail={openPortfolioDetail}
                                 headerRight={
-                                  showClear ? (
+                                  showClear && !isGuestLocalProfileId(p.id) ? (
                                     <div
                                       className="flex shrink-0 items-start gap-0.5"
                                       onClick={(e) => e.stopPropagation()}
@@ -3393,61 +3639,79 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                 data-platform-tour="overview-rebalance-actions-panel"
                 className="mt-0 ring-offset-0 focus-visible:outline-none focus-visible:ring-0 data-[state=inactive]:hidden"
               >
-                <div className="space-y-3">
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
-                    <p className="text-xs text-muted-foreground">
-                      {activeRebalanceFilterCount > 0
-                        ? `${filteredProfilesForRebalance.length} of ${profiles.length} portfolios`
-                        : `${profiles.length} portfolio${profiles.length === 1 ? '' : 's'}`}
-                    </p>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="size-8 shrink-0"
-                      aria-label="Sort portfolios"
-                      onClick={() => setRebalanceSortDialogOpen(true)}
-                    >
-                      <ArrowUpDown className="size-4" />
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="relative size-8 shrink-0"
-                      aria-label="Filter portfolios"
-                      onClick={() => setRebalanceFiltersDialogOpen(true)}
-                    >
-                      <ListFilter className="size-4" />
-                      {activeRebalanceFilterCount > 0 ? (
-                        <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold tabular-nums text-primary-foreground">
-                          {activeRebalanceFilterCount}
-                        </span>
-                      ) : null}
-                    </Button>
+                {!overviewPaidHoldings ? (
+                  <Card className="border-dashed">
+                    <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
+                      <Lock className="size-8 text-muted-foreground" aria-hidden />
+                      <p className="max-w-md text-sm text-muted-foreground">
+                        Step-by-step rebalance actions vs your entry are included with Supporter or
+                        Outperformer.
+                      </p>
+                      <Button size="sm" asChild>
+                        <Link href="/pricing">Upgrade</Link>
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+                      <p className="text-xs text-muted-foreground">
+                        {activeRebalanceFilterCount > 0
+                          ? `${filteredProfilesForRebalance.length} of ${profiles.length} portfolios`
+                          : `${profiles.length} portfolio${profiles.length === 1 ? '' : 's'}`}
+                      </p>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 shrink-0"
+                        aria-label="Sort portfolios"
+                        onClick={() => setRebalanceSortDialogOpen(true)}
+                      >
+                        <ArrowUpDown className="size-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="relative size-8 shrink-0"
+                        aria-label="Filter portfolios"
+                        onClick={() => setRebalanceFiltersDialogOpen(true)}
+                      >
+                        <ListFilter className="size-4" />
+                        {activeRebalanceFilterCount > 0 ? (
+                          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold tabular-nums text-primary-foreground">
+                            {activeRebalanceFilterCount}
+                          </span>
+                        ) : null}
+                      </Button>
+                    </div>
+                    {profiles.length > 0 && filteredProfilesForRebalance.length === 0 ? (
+                      <Card
+                        className="border-dashed"
+                        data-platform-tour="overview-rebalance-actions-first-portfolio"
+                      >
+                        <CardContent className="py-6">
+                          <p className="text-center text-sm text-muted-foreground">
+                            No portfolios match these filters. Open filters to adjust or clear.
+                          </p>
+                        </CardContent>
+                      </Card>
+                    ) : (
+                      <StockMovementPanel
+                        profiles={filteredProfilesForRebalance}
+                        rankedBySlug={rankedBySlug}
+                        cardState={cardState}
+                        onOpenEntrySettings={setEntrySettingsProfileId}
+                        refreshEpoch={movementRefreshEpoch}
+                        fetchEnabled={overviewTab === 'rebalance-actions'}
+                      />
+                    )}
                   </div>
-                  {profiles.length > 0 && filteredProfilesForRebalance.length === 0 ? (
-                    <Card className="border-dashed">
-                      <CardContent className="py-6">
-                        <p className="text-center text-sm text-muted-foreground">
-                          No portfolios match these filters. Open filters to adjust or clear.
-                        </p>
-                      </CardContent>
-                    </Card>
-                  ) : (
-                    <StockMovementPanel
-                      profiles={filteredProfilesForRebalance}
-                      rankedBySlug={rankedBySlug}
-                      cardState={cardState}
-                      onOpenEntrySettings={setEntrySettingsProfileId}
-                      refreshEpoch={movementRefreshEpoch}
-                      fetchEnabled={overviewTab === 'rebalance-actions'}
-                    />
-                  )}
-                </div>
+                )}
               </TabsContent>
 
-              <div className="flex justify-end">
+              <div className="!mt-1 flex justify-end">
                 <div className="inline-flex max-w-full flex-wrap justify-end gap-1.5 rounded-2xl border border-border/80 bg-card/95 p-1.5 shadow-lg shadow-black/[0.06] ring-1 ring-black/[0.04] backdrop-blur-sm dark:bg-card/90 dark:shadow-black/20 dark:ring-white/[0.06]">
                   {OVERVIEW_PAGE_QUICK_LINKS.map(({ href, label, icon: Icon }) => (
                     <Link

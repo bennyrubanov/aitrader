@@ -7,6 +7,13 @@
  * defaults to the newest rebalance when omitted.
  */
 import { NextResponse } from 'next/server';
+import { canAccessPaidPortfolioHoldings, canAccessStrategySlugPaidData } from '@/lib/app-access';
+import {
+  appAccessForAuthedUser,
+  fetchSubscriptionTierForUser,
+  paidHoldingsPlanRequiredResponse,
+  strategyModelNotOnPlanResponse,
+} from '@/lib/server-entitlements';
 import { createClient } from '@/utils/supabase/server';
 import { createAdminClient } from '@/utils/supabase/admin';
 import {
@@ -121,7 +128,26 @@ export async function GET(req: Request) {
     });
   }
 
+  const { tier, errorMessage: tierErr } = await fetchSubscriptionTierForUser(supabase, user.id);
+  if (tierErr) {
+    return NextResponse.json({ error: 'Unable to verify plan access.' }, { status: 500 });
+  }
+
   const admin = createAdminClient();
+  const { data: strategySlugRow } = await admin
+    .from('strategy_models')
+    .select('slug')
+    .eq('id', row.strategy_id)
+    .maybeSingle();
+  const strategySlug = (strategySlugRow as { slug?: string } | null)?.slug ?? '';
+  const access = appAccessForAuthedUser(tier);
+  if (!canAccessStrategySlugPaidData(access, strategySlug)) {
+    if (!canAccessPaidPortfolioHoldings(access)) {
+      return paidHoldingsPlanRequiredResponse();
+    }
+    return strategyModelNotOnPlanResponse();
+  }
+
   const riskLevel = Number(pc.risk_level);
   const frequency = String(pc.rebalance_frequency);
   const weighting = String(pc.weighting_method);

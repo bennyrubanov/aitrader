@@ -8,7 +8,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import { getSupabaseBrowserClient } from "@/utils/supabase/browser";
+import { PlanLabel } from "@/components/account/plan-label";
 import { useAuthState } from "@/components/auth/auth-state-context";
+import { cn } from "@/lib/utils";
 
 type SidebarAccountModuleProps = {
   onNavigateStart?: (href: string) => void;
@@ -16,7 +18,7 @@ type SidebarAccountModuleProps = {
 
 export function SidebarAccountModule({ onNavigateStart }: SidebarAccountModuleProps) {
   const router = useRouter();
-  const { isLoaded, isAuthenticated, email, hasPremiumAccess } = useAuthState();
+  const { isLoaded, isAuthenticated, email, hasPremiumAccess, subscriptionTier } = useAuthState();
   const [isOpeningPortal, setIsOpeningPortal] = useState(false);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
@@ -74,13 +76,20 @@ export function SidebarAccountModule({ onNavigateStart }: SidebarAccountModulePr
             <p className="truncate text-xs text-sidebar-foreground/80">{email ?? "Signed in"}</p>
             <Badge
               variant="outline"
-              className={
-                hasPremiumAccess
-                  ? "border-green-200 bg-green-50 text-green-700"
-                  : "border-amber-200 bg-amber-50 text-amber-700"
-              }
+              className={cn(
+                subscriptionTier === "outperformer" &&
+                  "border-trader-blue/40 bg-trader-blue/10 text-trader-blue",
+                subscriptionTier === "supporter" &&
+                  "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-700/50 dark:bg-amber-950/40 dark:text-amber-200",
+                subscriptionTier === "free" &&
+                  "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200"
+              )}
             >
-              {hasPremiumAccess ? "Premium" : "Free"}
+              <PlanLabel
+                isPremium={hasPremiumAccess}
+                subscriptionTier={subscriptionTier}
+                showIcon={false}
+              />
             </Badge>
           </div>
         ) : (

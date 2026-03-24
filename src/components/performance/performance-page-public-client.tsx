@@ -70,6 +70,8 @@ import type { ConfigHoldingsSummary } from '@/lib/portfolio-config-holdings';
 import { formatStrategyDescriptionForDisplay } from '@/lib/format-strategy-description';
 import { formatPortfolioHoldingsSubtitle } from '@/lib/portfolio-config-display';
 import { cn } from '@/lib/utils';
+import { useAuthState } from '@/components/auth/auth-state-context';
+import { getAppAccessState, canViewPerformanceHoldingsForStrategy } from '@/lib/app-access';
 import {
   ConfigPerformanceChartBlock,
   PortfolioAtAGlanceCard,
@@ -293,6 +295,10 @@ type Props = {
 
 export function PerformancePagePublicClient({ payload, strategies, slug }: Props) {
   const router = useRouter();
+  const authState = useAuthState();
+  const access = useMemo(() => getAppAccessState(authState), [authState]);
+  const entitledToHoldings =
+    authState.isLoaded && canViewPerformanceHoldingsForStrategy(access, slug);
   const [sidebarPortfolioConfig, setSidebarPortfolioConfig] = useState<PortfolioConfigSlice | null>(
     null
   );
@@ -313,9 +319,9 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
     null
   );
   const [holdingsRebalanceDates, setHoldingsRebalanceDates] = useState<string[]>([]);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isPremium, setIsPremium] = useState(false);
   const [holdingsLoading, setHoldingsLoading] = useState(true);
+
+  const holdingsSectionLabel = entitledToHoldings ? 'Portfolio holdings' : 'Top rated stocks';
 
   const navigateToSelectedPortfolioSection = useCallback(() => {
     if (!slug) return;
@@ -356,6 +362,14 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
       return;
     }
 
+    if (!entitledToHoldings) {
+      setHoldings([]);
+      setHoldingsConfigSummary(null);
+      setHoldingsRebalanceDates([]);
+      setHoldingsLoading(false);
+      return;
+    }
+
     let cancelled = false;
     setHoldingsLoading(true);
 
@@ -383,20 +397,10 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
           setHoldings(Array.isArray(data.holdings) ? data.holdings : []);
           setHoldingsConfigSummary(data.configSummary ?? null);
           setHoldingsRebalanceDates(Array.isArray(data.rebalanceDates) ? data.rebalanceDates : []);
-          setIsAuthenticated(true);
-          setIsPremium(true);
-        } else if (res.status === 403) {
+        } else {
           setHoldings([]);
           setHoldingsConfigSummary(null);
           setHoldingsRebalanceDates([]);
-          setIsAuthenticated(true);
-          setIsPremium(false);
-        } else if (res.status === 401) {
-          setHoldings([]);
-          setHoldingsConfigSummary(null);
-          setHoldingsRebalanceDates([]);
-          setIsAuthenticated(false);
-          setIsPremium(false);
         }
       } catch {
         if (!cancelled) {
@@ -414,7 +418,7 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
     return () => {
       cancelled = true;
     };
-  }, [slug, holdingsPortfolioConfig, holdingsAsOfDate]);
+  }, [slug, holdingsPortfolioConfig, holdingsAsOfDate, entitledToHoldings]);
 
   const effectiveStrategy = payload.strategy ?? null;
   const series = payload.series ?? [];
@@ -453,7 +457,9 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
   const displayMetrics = configMetricsReady ? configPerfSlice!.fullMetrics! : metrics;
 
   const performanceTableOfContents = useMemo(() => {
-    const entries = PERFORMANCE_TOC_BASE.map((item) => ({ ...item }));
+    const entries = PERFORMANCE_TOC_BASE.map((item) =>
+      item.id === 'holdings' ? { ...item, label: holdingsSectionLabel } : { ...item }
+    );
     if (!displayMetrics) return entries;
     const overviewIdx = entries.findIndex((e) => e.id === 'overview');
     if (overviewIdx < 0) return entries;
@@ -462,7 +468,7 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
       label: '↳ Metrics at-a-glance',
     });
     return entries;
-  }, [displayMetrics]);
+  }, [displayMetrics, holdingsSectionLabel]);
 
   const displaySeries =
     configMetricsReady && (configPerfSlice?.series?.length ?? 0) > 1
@@ -1019,19 +1025,19 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
       <section id="holdings" className="mb-10">
         {!slug || !holdingsPortfolioConfig ? (
           <>
-            <h2 className="text-2xl font-bold mb-2">Portfolio holdings</h2>
+            <h2 className="text-2xl font-bold mb-2">{holdingsSectionLabel}</h2>
             <Skeleton className="h-[200px] w-full rounded-xl" />
           </>
         ) : holdingsLoading ? (
           <>
-            <h2 className="text-2xl font-bold mb-2">Portfolio holdings</h2>
+            <h2 className="text-2xl font-bold mb-2">{holdingsSectionLabel}</h2>
             <Skeleton className="h-[200px] w-full rounded-xl" />
           </>
-        ) : isPremium ? (
+        ) : entitledToHoldings ? (
           <>
             <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
               <div className="min-w-0 flex-1">
-                <h2 className="text-2xl font-bold mb-1">Portfolio holdings</h2>
+                <h2 className="text-2xl font-bold mb-1">{holdingsSectionLabel}</h2>
                 <p className="text-sm text-muted-foreground">
                   Positions for the selected portfolio ({portfolioHoldingsSubtitle}).
                 </p>
@@ -1130,7 +1136,7 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
           </>
         ) : (
           <>
-            <h2 className="text-2xl font-bold mb-2">Portfolio holdings</h2>
+            <h2 className="text-2xl font-bold mb-2">{holdingsSectionLabel}</h2>
             <div className="relative rounded-xl border bg-card overflow-hidden">
             <div className="select-none pointer-events-none" aria-hidden>
               <Table>
@@ -1161,13 +1167,13 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
               <Lock className="size-7 text-muted-foreground" />
               <p className="font-semibold text-sm">Supporter &amp; Outperformer</p>
               <p className="text-xs text-muted-foreground max-w-xs">
-                {isAuthenticated
+                {authState.isAuthenticated
                   ? 'Upgrade to Supporter or Outperformer to see full holdings for your selected portfolio and browse past rebalance dates.'
                   : 'Sign in and subscribe to Supporter or Outperformer to see holdings for each portfolio preset and past rebalances.'}
               </p>
               <Button asChild size="sm">
-                <Link href={isAuthenticated ? '/pricing' : '/sign-up'}>
-                  {isAuthenticated ? 'View plans' : 'Get started'}
+                <Link href={authState.isAuthenticated ? '/pricing' : '/sign-up'}>
+                  {authState.isAuthenticated ? 'View plans' : 'Get started'}
                 </Link>
               </Button>
             </div>

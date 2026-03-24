@@ -6,8 +6,8 @@ import {
   Bell,
   ChevronsUpDown,
   CreditCard,
-  LogIn,
   LogOut,
+  UserPlus,
 } from "lucide-react";
 import {
   Avatar,
@@ -47,7 +47,7 @@ type NavUserProps = {
   onOpenNotifications: () => void;
   onUpgrade: () => void;
   onSignOut: () => void;
-  onSignIn: () => void;
+  onSignUp: () => void;
 };
 
 export function NavUser({
@@ -57,7 +57,7 @@ export function NavUser({
   onOpenNotifications,
   onUpgrade,
   onSignOut,
-  onSignIn,
+  onSignUp,
 }: NavUserProps) {
   const { isMobile, sidebarMode, setSidebarHoverExpanded, setSidebarNavMenuOpen } = useSidebar();
 
@@ -76,7 +76,7 @@ export function NavUser({
         <SidebarMenuItem>
           <SidebarMenuButton
             size="lg"
-            onClick={onSignIn}
+            onClick={onSignUp}
             className="bg-sidebar-accent/60 hover:bg-sidebar-accent"
           >
             <Avatar className="h-7 w-7 shrink-0 rounded-full">
@@ -85,9 +85,9 @@ export function NavUser({
             <span className={SIDEBAR_MENU_TRAILING_CLASSNAME}>
               <div className="grid min-w-0 flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-medium">Guest</span>
-                <span className="truncate text-xs">Sign in to access account</span>
+                <span className="truncate text-xs">{user.email}</span>
               </div>
-              <LogIn className="ml-auto size-3.5 shrink-0" />
+              <UserPlus className="ml-auto size-3.5 shrink-0" />
             </span>
           </SidebarMenuButton>
         </SidebarMenuItem>

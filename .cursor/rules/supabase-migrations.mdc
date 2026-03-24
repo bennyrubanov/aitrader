@@ -1,0 +1,26 @@
+---
+description: Supabase migration file naming — real creation timestamp, no future dates
+alwaysApply: true
+---
+
+# Supabase migration filenames
+
+**Required shape:** `YYYYMMDDHHMMSS_short_snake_case_description.sql` (14-digit timestamp, underscore, short `snake_case` slug).
+
+Example (illustrative only): `20260324213045_add_index_on_stocks_symbol.sql`
+
+## CRITICAL: timestamp = real creation time
+
+The prefix must be the **actual date and time when the migration file is first created** (authoring time). Do **not** use a fabricated “tomorrow” or later calendar date to reserve ordering or to sit after existing files; ordering is determined only by sorting filenames, and invented future dates confuse history and reviews.
+
+| Wrong | Right |
+|--------|--------|
+| `20260325120000_foo.sql` created on Mar 24 because “25 sorts after 24” | `20260324213045_foo.sql` using the real creation moment on Mar 24 |
+
+**How to set the prefix**
+
+1. If the user (or session context) states today’s date and/or time, use that to build `YYYYMMDDHHMMSS`.
+2. Otherwise run `date +%Y%m%d%H%M%S` and use the output as the prefix, then `_slug.sql`.
+3. **Never** assign a future day’s date or guess a “next” date.
+
+**Renames:** Do **not** rename migration files that may already have been applied anywhere Supabase records the filename; renames break history. When in doubt, ask the maintainer.

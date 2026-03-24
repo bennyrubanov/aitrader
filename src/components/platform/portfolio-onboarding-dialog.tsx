@@ -19,6 +19,15 @@ import { format, parseISO } from 'date-fns';
 import { enUS } from 'date-fns/locale';
 import { Button } from '@/components/ui/button';
 import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -48,6 +57,10 @@ import {
   type RiskLevel,
   type WeightingMethod,
 } from '@/components/portfolio-config';
+import {
+  clearPendingGuestPortfolioFollow,
+  writePendingGuestPortfolioFollow,
+} from '@/components/portfolio-config/portfolio-config-storage';
 import type { OnboardingRebalanceCounts } from '@/lib/onboarding-meta';
 import { formatYmdDisplay } from '@/lib/format-ymd-display';
 import { strategyModelDropdownSubtitle } from '@/lib/strategy-list-meta';
@@ -75,6 +88,7 @@ function pickTopRankedConfig(configs: RankedConfig[]): RankedConfig | null {
 }
 const INVESTMENT_QUICK_PICKS = [5_000, 10_000, 25_000, 50_000];
 const PERFORMANCE_INITIAL_USD = 10_000;
+const PLATFORM_OVERVIEW_NEXT_PATH = '/platform/overview';
 
 const ONBOARDING_EQUAL_WEIGHTING_EXPLANATION =
   'Every stock gets the same allocation. Simple and avoids over-concentration in stocks with large market values.';
@@ -408,6 +422,7 @@ export function PortfolioOnboardingDialog({
   } | null>(null);
   const [finaleLoading, setFinaleLoading] = useState(false);
   const [followPhase, setFollowPhase] = useState<'idle' | 'posting' | 'syncing'>('idle');
+  const [guestAccountDialogOpen, setGuestAccountDialogOpen] = useState(false);
   const [celebratePerf, setCelebratePerf] = useState<{
     computeStatus: 'ready' | 'in_progress' | 'failed' | 'empty' | 'unsupported';
     series: PerformanceSeriesPoint[];
@@ -680,11 +695,36 @@ export function PortfolioOnboardingDialog({
     setDraftBeforeTopRankedSelection(null);
   };
 
+  const openGuestAccountSaveDialog = () => {
+    const entryYmd = draftEntryDate || localTodayYmd();
+    setConfig(draft);
+    setEntryDate(entryYmd);
+    writePendingGuestPortfolioFollow({
+      strategySlug: draft.strategySlug,
+      riskLevel: draft.riskLevel,
+      frequency: draft.rebalanceFrequency,
+      weighting: draft.weightingMethod,
+      investmentSize: draft.investmentSize,
+      userStartDate: entryYmd,
+      startingPortfolio: true,
+    });
+    setGuestAccountDialogOpen(true);
+  };
+
+  const handleGuestDialogBack = () => {
+    clearPendingGuestPortfolioFollow();
+    setGuestAccountDialogOpen(false);
+  };
+
+  const handleContinueAsGuestLocalOnly = () => {
+    clearPendingGuestPortfolioFollow();
+    setGuestAccountDialogOpen(false);
+    void markOnboardingDone();
+  };
+
   const handleFollowThisPortfolio = async () => {
     if (!authState.isAuthenticated) {
-      queuePlatformPostOnboardingTour();
-      markOnboardingDone();
-      router.push(`/sign-in?next=${encodeURIComponent('/platform/overview')}`);
+      openGuestAccountSaveDialog();
       return;
     }
     setFollowPhase('posting');
@@ -739,7 +779,7 @@ export function PortfolioOnboardingDialog({
         },
       });
       queuePlatformPostOnboardingTour();
-      markOnboardingDone();
+      void markOnboardingDone();
       router.refresh();
     } finally {
       setFollowPhase('idle');
@@ -825,6 +865,7 @@ export function PortfolioOnboardingDialog({
   );
 
   return (
+    <>
     <Dialog open={!isOnboardingDone}>
       <DialogContent
         className={cn(
@@ -842,7 +883,7 @@ export function PortfolioOnboardingDialog({
             size="icon"
             className="absolute right-2 top-2 z-10 size-8 text-muted-foreground hover:text-foreground sm:right-3 sm:top-3"
             aria-label="Close onboarding (local dev)"
-            onClick={() => markOnboardingDone()}
+            onClick={() => void markOnboardingDone()}
           >
             <X className="size-4" />
           </Button>
@@ -1339,10 +1380,10 @@ export function PortfolioOnboardingDialog({
               <DialogHeader className="shrink-0">
                 <DialogTitle className="flex items-center gap-2">
                   <CalendarIcon className="size-4 text-trader-blue" />
-                  When do you want to start tracking this portfolio?
+                  When to start tracking this portfolio?
                 </DialogTitle>
-                <DialogDescription>
-                  This is the hypothetical date that you'll invest in this portfolio. It is used to track your portfolio performance, and can be
+                <DialogDescription className="pt-1.5">
+                  This is the date that you'll invest in this portfolio. It is used to track your portfolio performance, and can be
                   changed anytime.
                 </DialogDescription>
               </DialogHeader>
@@ -1698,6 +1739,62 @@ export function PortfolioOnboardingDialog({
         </div>
       </DialogContent>
     </Dialog>
+
+    <AlertDialog open={guestAccountDialogOpen} onOpenChange={setGuestAccountDialogOpen}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Create a free account to save</AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <div className="space-y-3 text-sm text-muted-foreground">
+              <p>
+                Sign up or log in to attach your portfolio to your account so it follows you across
+                devices and browsers.
+              </p>
+              <p>
+                <span className="font-medium text-foreground">Continue as guest</span> keeps everything
+                on this device only — like a local-only free account. If you leave, clear site data, or
+                use another browser, your portfolio won&apos;t be here. Rebalancing detail views stay
+                locked until you have a saved account with a paid plan.
+              </p>
+            </div>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter className="flex-col gap-2 sm:flex-col sm:justify-stretch">
+          <Button className="w-full sm:w-auto sm:self-end" asChild>
+            <Link
+              href={`/sign-up?next=${encodeURIComponent(PLATFORM_OVERVIEW_NEXT_PATH)}`}
+              onClick={() => setGuestAccountDialogOpen(false)}
+            >
+              Sign up free
+            </Link>
+          </Button>
+          <Button variant="outline" className="w-full sm:w-auto sm:self-end" asChild>
+            <Link
+              href={`/sign-in?next=${encodeURIComponent(PLATFORM_OVERVIEW_NEXT_PATH)}`}
+              onClick={() => setGuestAccountDialogOpen(false)}
+            >
+              Log in
+            </Link>
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full border-dashed sm:w-auto sm:self-stretch"
+            onClick={() => handleContinueAsGuestLocalOnly()}
+          >
+            Continue as guest
+          </Button>
+          <AlertDialogCancel
+            type="button"
+            className="mt-0 w-full sm:w-auto"
+            onClick={() => handleGuestDialogBack()}
+          >
+            Back
+          </AlertDialogCancel>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }
 

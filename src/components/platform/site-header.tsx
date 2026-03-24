@@ -141,14 +141,16 @@ export function SiteHeader() {
                 <span className="max-w-[6.5rem] truncate text-sm font-medium sm:max-w-[11rem]">
                   {displayName}
                 </span>
-                <span className="inline-flex max-w-[min(12rem,45vw)] items-center rounded-full border border-border px-2.5 py-0.5">
-                  <PlanLabel
-                    isPremium={hasPremiumAccess}
-                    subscriptionTier={subscriptionTier}
-                    className="min-w-0 truncate text-xs normal-case tracking-normal"
-                    iconClassName="size-3.5"
-                  />
-                </span>
+                {isAuthenticated ? (
+                  <span className="inline-flex max-w-[min(12rem,45vw)] items-center rounded-full border border-border px-2.5 py-0.5">
+                    <PlanLabel
+                      isPremium={hasPremiumAccess}
+                      subscriptionTier={subscriptionTier}
+                      className="min-w-0 truncate text-xs normal-case tracking-normal"
+                      iconClassName="size-3.5"
+                    />
+                  </span>
+                ) : null}
               </Link>
               <Separator orientation="vertical" className="h-5 shrink-0" />
             </>

@@ -14,6 +14,7 @@ import {
   X,
 } from 'lucide-react';
 import { useAuthState } from '@/components/auth/auth-state-context';
+import { canUseRatingsStrategyFilter, getAppAccessState } from '@/lib/app-access';
 import { HoldingRankWithChange } from '@/components/platform/holding-rank-with-change';
 import { RiskTextWithLinks } from '@/components/platform/risk-text-with-links';
 import { StockChartDialog } from '@/components/platform/stock-chart-dialog';
@@ -97,13 +98,22 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
   const searchParams = useSearchParams();
   const { toast } = useToast();
   const authState = useAuthState();
+  const defaultStrategy =
+    strategies.find((s) => s.isDefault) ?? strategies[0] ?? { slug: 'default', name: 'Default strategy', isDefault: true };
   const [query, setQuery] = useState(searchParams.get('query') ?? '');
   const [bucketFilter, setBucketFilter] = useState<BucketFilter>('all');
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [rows, setRows] = useState<RatingsRow[]>(initialData.rows);
   const [errorMessage, setErrorMessage] = useState<string | null>(initialData.errorMessage);
-  const [selectedStrategySlug, setSelectedStrategySlug] = useState(initialData.strategy?.slug ?? 'default');
-  const [selectedStrategyName, setSelectedStrategyName] = useState(initialData.strategy?.name ?? 'Default strategy');
+  const [ratingsAccessMode, setRatingsAccessMode] = useState<'guest' | 'free' | 'full'>(
+    initialData.ratingsAccessMode ?? 'full'
+  );
+  const [selectedStrategySlug, setSelectedStrategySlug] = useState(
+    initialData.strategy?.slug ?? defaultStrategy.slug
+  );
+  const [selectedStrategyName, setSelectedStrategyName] = useState(
+    initialData.strategy?.name ?? defaultStrategy.name
+  );
   const [latestRunDate, setLatestRunDate] = useState(initialData.latestRunDate);
   const [isStrategyLoading, setIsStrategyLoading] = useState(false);
   const [availableRunDates, setAvailableRunDates] = useState<string[]>(initialData.availableRunDates ?? []);
@@ -114,9 +124,11 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
   );
   const [topRatedStocksActive, setTopRatedStocksActive] = useState(false);
 
-  const defaultStrategy =
-    strategies.find((s) => s.isDefault) ?? strategies[0] ?? { slug: 'default', name: 'Default strategy', isDefault: true };
-  const canUseStrategyFilter = authState.subscriptionTier === 'outperformer';
+  const access = useMemo(() => getAppAccessState(authState), [authState]);
+  const canUseStrategyFilter = canUseRatingsStrategyFilter(access);
+  const fullRatingsAccess = ratingsAccessMode === 'full';
+  const hideRankings = !fullRatingsAccess;
+  const guestRatingsShell = ratingsAccessMode === 'guest';
 
   const ratingsCacheRef = useRef<Map<string, RatingsPageData>>(new Map());
 
@@ -133,6 +145,7 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
     setSelectedRunDate(payload.latestRunDate ?? null);
     setAvailableRunDates(payload.availableRunDates ?? []);
     setModelInceptionDate(payload.modelInceptionDate ?? null);
+    setRatingsAccessMode(payload.ratingsAccessMode ?? 'full');
     if (payload.strategy) {
       setSelectedStrategyName(payload.strategy.name);
     }
@@ -160,7 +173,12 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
   }, []);
 
   useEffect(() => {
-    if (!availableRunDates.length) return;
+    if (fullRatingsAccess) return;
+    setTopRatedStocksActive(false);
+  }, [fullRatingsAccess]);
+
+  useEffect(() => {
+    if (!fullRatingsAccess || !availableRunDates.length) return;
     let cancelled = false;
     const strategySlug = selectedStrategySlug;
     const isDefault = strategySlug === defaultStrategy.slug;
@@ -199,6 +217,7 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
     availableRunDates,
     defaultStrategy.slug,
     fetchRatings,
+    fullRatingsAccess,
     ratingsCacheKey,
     selectedStrategySlug,
   ]);
@@ -372,6 +391,35 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
   const ratingsTableStickyHeaderClass =
     '[&_tr]:border-0 [&_th]:sticky [&_th]:top-[var(--ratings-thead-top)] [&_th]:z-10 [&_th]:border-b [&_th]:border-border [&_th]:bg-background/95';
 
+  if (guestRatingsShell && !errorMessage) {
+    return (
+      <TooltipProvider delayDuration={150}>
+        <div
+          className="flex h-full min-h-0 flex-1 flex-col"
+          data-platform-tour="ratings-page-root"
+        >
+          <div className="sticky top-0 z-30 border-b bg-background/95 px-4 py-2.5 backdrop-blur-sm sm:px-6">
+            <h2 className="text-base font-semibold leading-tight">Stock Ratings</h2>
+            <p className="text-[11px] text-muted-foreground">Sign up to view ratings</p>
+          </div>
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 px-4 py-12 text-center sm:px-6">
+            <p className="max-w-sm text-sm text-muted-foreground">
+              Create an account or log in to see this week&apos;s AI ratings and analysis for the platform.
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <Button size="sm" asChild>
+                <Link href="/sign-in">Log in</Link>
+              </Button>
+              <Button size="sm" variant="outline" asChild>
+                <Link href="/sign-up">Sign up</Link>
+              </Button>
+            </div>
+          </div>
+        </div>
+      </TooltipProvider>
+    );
+  }
+
   return (
     <TooltipProvider delayDuration={150}>
       <div
@@ -384,56 +432,90 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
             <div className="flex min-w-0 items-center gap-2 sm:gap-3">
               <div className="min-w-0 shrink-0">
                 <h2 className="text-base font-semibold leading-tight">Stock Ratings</h2>
-                <p className="text-[11px] text-muted-foreground">{headerStockCountLabel}</p>
+                <p className="text-[11px] text-muted-foreground">
+                  {headerStockCountLabel}
+                  {ratingsAccessMode === 'free' ? (
+                    <span className="mt-0.5 block text-[10px] leading-snug">
+                      Free preview: non-premium stocks only, alphabetical.{' '}
+                      <Link href="/pricing" className="font-medium text-foreground underline-offset-2 hover:underline">
+                        Upgrade
+                      </Link>{' '}
+                      for rankings, history, and full coverage.
+                    </span>
+                  ) : null}
+                </p>
               </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className={cn(
-                  'h-8 shrink-0 gap-1.5 px-2.5 pl-3 text-xs transition-shadow',
-                  topRatedStocksActive
-                    ? 'border-trader-blue bg-trader-blue font-semibold text-white shadow-md hover:bg-trader-blue/90 hover:text-white dark:border-trader-blue dark:bg-trader-blue dark:text-white dark:hover:bg-trader-blue/90'
-                    : 'font-medium text-muted-foreground hover:border-border hover:bg-muted/60 hover:text-foreground'
-                )}
-                aria-pressed={topRatedStocksActive}
-                aria-label={
-                  topRatedStocksActive
-                    ? 'Top rated view on — switch to default table'
-                    : 'Top rated view — cumulative leaderboard'
-                }
-                onClick={(e) => {
-                  if ((e.target as HTMLElement).closest('[data-top-rated-help]')) return;
-                  setTopRatedStocksActive((v) => !v);
-                }}
-              >
-                <LayoutGrid
-                  className={cn('shrink-0', topRatedStocksActive ? 'size-4' : 'size-3.5')}
-                  aria-hidden
-                />
-                Top rated
+              {fullRatingsAccess ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={cn(
+                    'h-8 shrink-0 gap-1.5 px-2.5 pl-3 text-xs transition-shadow',
+                    topRatedStocksActive
+                      ? 'border-trader-blue bg-trader-blue font-semibold text-white shadow-md hover:bg-trader-blue/90 hover:text-white dark:border-trader-blue dark:bg-trader-blue dark:text-white dark:hover:bg-trader-blue/90'
+                      : 'font-medium text-muted-foreground hover:border-border hover:bg-muted/60 hover:text-foreground'
+                  )}
+                  aria-pressed={topRatedStocksActive}
+                  aria-label={
+                    topRatedStocksActive
+                      ? 'Top rated view on — switch to default table'
+                      : 'Top rated view — cumulative leaderboard'
+                  }
+                  onClick={(e) => {
+                    if ((e.target as HTMLElement).closest('[data-top-rated-help]')) return;
+                    setTopRatedStocksActive((v) => !v);
+                  }}
+                >
+                  <LayoutGrid
+                    className={cn('shrink-0', topRatedStocksActive ? 'size-4' : 'size-3.5')}
+                    aria-hidden
+                  />
+                  Top rated
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span
+                        data-top-rated-help
+                        className={cn(
+                          '-mr-0.5 ml-0.5 inline-flex shrink-0 cursor-help rounded-sm p-0.5',
+                          topRatedStocksActive
+                            ? 'text-white/80 hover:text-white'
+                            : 'text-muted-foreground hover:text-foreground'
+                        )}
+                        aria-label="About the top rated view"
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <CircleHelp className="size-3.5 shrink-0" aria-hidden />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="max-w-xs text-xs">
+                      {topRatedViewTooltip}
+                    </TooltipContent>
+                  </Tooltip>
+                </Button>
+              ) : (
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <span
-                      data-top-rated-help
-                      className={cn(
-                        '-mr-0.5 ml-0.5 inline-flex shrink-0 cursor-help rounded-sm p-0.5',
-                        topRatedStocksActive
-                          ? 'text-white/80 hover:text-white'
-                          : 'text-muted-foreground hover:text-foreground'
-                      )}
-                      aria-label="About the top rated view"
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <CircleHelp className="size-3.5 shrink-0" aria-hidden />
+                    <span className="inline-flex shrink-0">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled
+                        className="h-8 gap-1.5 px-2.5 pl-3 text-xs font-medium text-muted-foreground"
+                        aria-label="Top rated view — requires a paid plan"
+                      >
+                        <Lock className="size-3.5 shrink-0" aria-hidden />
+                        Top rated
+                      </Button>
                     </span>
                   </TooltipTrigger>
                   <TooltipContent side="bottom" className="max-w-xs text-xs">
-                    {topRatedViewTooltip}
+                    Upgrade to a paid plan for rankings and the cumulative top-rated leaderboard.
                   </TooltipContent>
                 </Tooltip>
-              </Button>
+              )}
             </div>
 
             <div className="ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2">
@@ -494,41 +576,78 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                     </DropdownMenuContent>
                   </DropdownMenu>
                 ) : (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div className="min-w-0 flex-1">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="h-8 w-full min-w-0 justify-between gap-2 text-left text-sm"
-                              aria-label="Strategy model — open menu for model details"
+                  <div className="min-w-0 flex-1">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 w-full min-w-0 justify-between gap-2 text-left text-sm"
+                          aria-label="Strategy model"
+                        >
+                          <span className="truncate">{selectedStrategyName}</span>
+                          <div className="flex shrink-0 items-center gap-1">
+                            <ChevronDown className="size-3.5 shrink-0" />
+                          </div>
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="min-w-64">
+                        {strategies.map((strategy, index) => {
+                          const isDefaultModel = strategy.slug === defaultStrategy.slug;
+                          return (
+                            <DropdownMenuItem
+                              key={strategy.slug}
+                              disabled={!isDefaultModel}
+                              onSelect={() => {
+                                if (isDefaultModel && strategy.slug !== selectedStrategySlug) {
+                                  void handleStrategyChange(strategy.slug);
+                                }
+                              }}
+                              className="flex cursor-pointer flex-col items-stretch gap-1.5 py-2"
                             >
-                              <span className="truncate">{defaultStrategy.name}</span>
-                              <div className="flex shrink-0 items-center gap-1">
-                                <Lock className="size-3.5" />
-                                <ChevronDown className="size-3.5" />
+                              <div className="flex min-w-0 flex-col items-start gap-0.5">
+                                <div className="flex w-full items-center gap-1.5">
+                                  <span className="text-sm font-medium">{strategy.name}</span>
+                                  {index === 0 ? (
+                                    <Badge className="ml-auto border-0 bg-trader-blue px-1.5 py-0 text-[10px] text-white">
+                                      Top
+                                    </Badge>
+                                  ) : (
+                                    <Badge
+                                      variant="outline"
+                                      className="ml-auto gap-0.5 px-1.5 py-0 text-[10px] font-medium"
+                                    >
+                                      <Lock className="size-2.5" aria-hidden />
+                                      Outperformer
+                                    </Badge>
+                                  )}
+                                </div>
+                                <span className="text-xs text-muted-foreground">
+                                  {strategyModelDropdownSubtitle(strategy)}
+                                </span>
                               </div>
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="min-w-64">
-                            <DropdownMenuItem asChild className="py-2">
                               <Link
-                                href={`/strategy-models/${defaultStrategy.slug}`}
-                                className="flex cursor-pointer items-center gap-1 text-sm font-medium"
+                                href={`/strategy-models/${strategy.slug}`}
+                                className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+                                onPointerDown={(e) => e.preventDefault()}
+                                onClick={(e) => e.stopPropagation()}
                               >
                                 View model details
                                 <ArrowUpRight className="size-3.5 shrink-0" />
                               </Link>
                             </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent>Outperformer unlocks switching models. Open the menu for model details.</TooltipContent>
-                  </Tooltip>
+                          );
+                        })}
+                        <div className="border-t px-2 py-2 text-[11px] text-muted-foreground">
+                          Outperformer unlocks switching between models.{' '}
+                          <Link href="/pricing" className="font-medium text-foreground underline-offset-2 hover:underline">
+                            Compare plans
+                          </Link>
+                        </div>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                 )}
               </div>
             </div>
@@ -619,7 +738,12 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                     onValueChange={(v) => {
                       if (v) void handleRunDateSelect(v);
                     }}
-                    disabled={isDateLoading || isStrategyLoading || availableRunDates.length === 0}
+                    disabled={
+                      isDateLoading ||
+                      isStrategyLoading ||
+                      availableRunDates.length === 0 ||
+                      ratingsAccessMode === 'free'
+                    }
                   >
                     <SelectTrigger
                       id="ratings-run-date-select"
@@ -652,25 +776,27 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                   >
                     <TableHeader className={ratingsTableStickyHeaderClass} style={ratingsTheadStickyStyle}>
                       <TableRow>
-                        <TableHead className="min-w-[5.75rem] max-w-[7.5rem] whitespace-nowrap">
-                          <span className="inline-flex items-center gap-1">
-                            Rank
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <button
-                                  type="button"
-                                  className="-m-0.5 rounded-sm p-0.5 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                                  aria-label="About rank and change vs prior week"
-                                >
-                                  <CircleHelp className="size-3.5 shrink-0" aria-hidden />
-                                </button>
-                              </TooltipTrigger>
-                              <TooltipContent side="top" className="max-w-xs text-xs">
-                                Current ranking by cumulative average AI rating. Rating changes are compared to prior week.
-                              </TooltipContent>
-                            </Tooltip>
-                          </span>
-                        </TableHead>
+                        {!hideRankings ? (
+                          <TableHead className="min-w-[5.75rem] max-w-[7.5rem] whitespace-nowrap">
+                            <span className="inline-flex items-center gap-1">
+                              Rank
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    type="button"
+                                    className="-m-0.5 rounded-sm p-0.5 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                                    aria-label="About rank and change vs prior week"
+                                  >
+                                    <CircleHelp className="size-3.5 shrink-0" aria-hidden />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-xs text-xs">
+                                  Current ranking by cumulative average AI rating. Rating changes are compared to prior week.
+                                </TooltipContent>
+                              </Tooltip>
+                            </span>
+                          </TableHead>
+                        ) : null}
                         <TableHead className="min-w-[3.75rem] max-w-[5.5rem] whitespace-nowrap">Symbol</TableHead>
                         <TableHead className="min-w-0 max-w-[7rem] whitespace-nowrap">Company</TableHead>
                         <TableHead className="min-w-[5.5rem] whitespace-nowrap">Price</TableHead>
@@ -697,12 +823,14 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                         const cumulativeBucket = bucketFromScore(row.cumulativeAvgScore);
                         return (
                           <TableRow key={row.stockId}>
-                            <TableCell className="min-w-0 font-medium">
-                              <HoldingRankWithChange
-                                rank={row.cumulativeViewRank}
-                                rankChange={row.cumulativeRankChange}
-                              />
-                            </TableCell>
+                            {!hideRankings ? (
+                              <TableCell className="min-w-0 font-medium">
+                                <HoldingRankWithChange
+                                  rank={row.cumulativeViewRank}
+                                  rankChange={row.cumulativeRankChange}
+                                />
+                              </TableCell>
+                            ) : null}
                             <TableCell className="min-w-0">
                               {companyFull ? (
                                 <Tooltip>
@@ -784,7 +912,9 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                   >
                     <TableHeader className={ratingsTableStickyHeaderClass} style={ratingsTheadStickyStyle}>
                       <TableRow>
-                        <TableHead className="min-w-[5.75rem] whitespace-nowrap">Rank</TableHead>
+                        {!hideRankings ? (
+                          <TableHead className="min-w-[5.75rem] whitespace-nowrap">Rank</TableHead>
+                        ) : null}
                         <TableHead className="min-w-[3.75rem] max-w-[5.5rem] whitespace-nowrap">Symbol</TableHead>
                         <TableHead className="hidden min-w-0 max-w-[7rem] whitespace-nowrap lg:table-cell">
                           Company
@@ -824,9 +954,11 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
 
                         return (
                           <TableRow key={row.stockId}>
-                            <TableCell className="min-w-0 font-medium">
-                              <HoldingRankWithChange rank={row.rank} rankChange={row.rankChange} />
-                            </TableCell>
+                            {!hideRankings ? (
+                              <TableCell className="min-w-0 font-medium">
+                                <HoldingRankWithChange rank={row.rank} rankChange={row.rankChange} />
+                              </TableCell>
+                            ) : null}
                             <TableCell className="min-w-0">
                               {companyFull ? (
                                 <Tooltip>

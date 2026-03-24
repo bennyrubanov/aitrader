@@ -33,7 +33,8 @@ const Hero: React.FC = () => {
   const [selectedResult, setSelectedResult] = useState<PriceResult | null>(null);
   const [isLoadingPrice, setIsLoadingPrice] = useState(false);
   const [isTracked, setIsTracked] = useState<boolean | null>(null);
-  const { hasPremiumAccess, isAuthenticated } = useAuthState();
+  const authState = useAuthState();
+  const { hasPremiumAccess, isAuthenticated, isLoaded: authLoaded } = authState;
   const ctaHref = isAuthenticated ? '/platform/overview' : '/sign-up';
 
   const stockMap = React.useMemo(() => {
@@ -56,13 +57,18 @@ const Hero: React.FC = () => {
   const { value: transparencyValue } = useAnimatedCounter(100, 2500, false);
 
   useEffect(() => {
+    if (!authLoaded) return;
+    let cancelled = false;
     fetch('/api/stocks')
       .then((res) => res.json())
       .then((data: HeroStock[]) => {
-        if (Array.isArray(data) && data.length) setStocks(data);
+        if (!cancelled && Array.isArray(data) && data.length) setStocks(data);
       })
       .catch(() => {});
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoaded, authState.isAuthenticated, authState.subscriptionTier]);
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     const query = e.target.value;
@@ -184,13 +190,15 @@ const Hero: React.FC = () => {
 
   const getDropdownRatingLabel = (stock: HeroStock) => {
     if (stock.isPremium && !hasPremiumAccess) return 'Premium';
-    if (!isAuthenticated && !stock.isPremium) return 'Login for AI rating';
+    if (!isAuthenticated) {
+      return stock.isPremium ? 'Premium' : 'Sign up to view';
+    }
     return `AI Rating: ${formatRating(stock.currentRating)}`;
   };
 
   const getSelectedRatingLabel = () => {
     if (selectedPremiumNoAccess) return 'Premium';
-    if (selectedFreeNeedsLogin) return 'Login for AI rating';
+    if (selectedFreeNeedsLogin) return 'Sign up to view';
     return `AI Rating: ${formatRating(selectedRating)}`;
   };
 
@@ -369,10 +377,10 @@ const Hero: React.FC = () => {
                     </Link>
                   ) : selectedFreeNeedsLogin ? (
                     <Link
-                      href="/sign-in?next=/platform/overview"
+                      href="/sign-up"
                       className="inline-flex items-center rounded-lg bg-trader-blue px-3 py-2 text-sm font-medium text-white hover:bg-trader-blue-dark transition-colors"
                     >
-                      Log in to view rating
+                      Sign up to view
                       <ArrowRight size={14} className="ml-1" />
                     </Link>
                   ) : null}

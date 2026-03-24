@@ -200,8 +200,8 @@ export function AppSidebar() {
     navigateWithFallback((targetHref) => router.push(targetHref), href);
   };
 
-  const handleSignIn = () => {
-    openPath('/sign-in?next=/platform/settings');
+  const handleSignUp = () => {
+    openPath('/sign-up?next=/platform/overview');
   };
 
   const handleSignOut = async () => {
@@ -310,7 +310,7 @@ export function AppSidebar() {
           onOpenNotifications={() => openPath('/platform/settings')}
           onUpgrade={() => openPath('/pricing')}
           onSignOut={handleSignOut}
-          onSignIn={handleSignIn}
+          onSignUp={handleSignUp}
         />
       </SidebarFooter>
     </Sidebar>

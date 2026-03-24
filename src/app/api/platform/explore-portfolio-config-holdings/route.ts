@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { canAccessPaidPortfolioHoldings, canAccessStrategySlugPaidData } from '@/lib/app-access';
 import { getPortfolioConfigHoldings } from '@/lib/portfolio-config-holdings';
+import {
+  appAccessForAuthedUser,
+  fetchSubscriptionTierForUser,
+  paidHoldingsPlanRequiredResponse,
+  strategyModelNotOnPlanResponse,
+} from '@/lib/server-entitlements';
 import { createAdminClient } from '@/utils/supabase/admin';
+import { createClient } from '@/utils/supabase/server';
 import { createPublicClient } from '@/utils/supabase/public';
 
 export const runtime = 'nodejs';
@@ -10,8 +18,8 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
- * Public holdings for a portfolio config on the explore page.
- * Uses service role for cap-weighting (nasdaq_100_daily_raw is not publicly readable).
+ * Portfolio config holdings for explore / overview (cap-weighting uses service role).
+ * Requires Supporter+; Supporter is limited to the default strategy model slug.
  */
 export async function GET(req: NextRequest) {
   const slug = req.nextUrl.searchParams.get('slug');
@@ -23,6 +31,27 @@ export async function GET(req: NextRequest) {
   }
   if (!configId?.trim() || !UUID_RE.test(configId)) {
     return NextResponse.json({ error: 'valid configId required' }, { status: 400 });
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const { tier, errorMessage } = await fetchSubscriptionTierForUser(supabase, user.id);
+  if (errorMessage) {
+    return NextResponse.json({ error: 'Unable to verify plan access.' }, { status: 500 });
+  }
+
+  const access = appAccessForAuthedUser(tier);
+  if (!canAccessPaidPortfolioHoldings(access)) {
+    return paidHoldingsPlanRequiredResponse();
+  }
+  if (!canAccessStrategySlugPaidData(access, slug.trim())) {
+    return strategyModelNotOnPlanResponse();
   }
 
   const asOfRunDate =

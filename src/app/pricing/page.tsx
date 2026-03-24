@@ -1,32 +1,37 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowRight, Check, Loader2, Minus, Sparkles } from 'lucide-react';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
 import { Button } from '@/components/ui/button';
+import { PlanLabel } from '@/components/account/plan-label';
 import { useAuthState } from '@/components/auth/auth-state-context';
+import { cn } from '@/lib/utils';
 
 type Plan = 'supporter' | 'outperformer';
 type BillingPeriod = 'monthly' | 'yearly';
 
+/** String = plain bullet; object = feature text plus clickable Soon → roadmap. */
+type PricingPlanFeature = string | { text: string; soonHref: string };
+
 const plans = {
   supporter: {
     name: 'Supporter',
-    tagline: 'Support the experiment, get full access',
+    tagline: 'Start investing alongside top AI portfolios',
     monthlyPrice: 18,
     yearlyMonthlyEquiv: 13,
     yearlyTotal: 156,
     features: [
-      'All recommendations + detailed explanations',
+      'All AI ratings + detailed explanations',
       'Full recommendation history for all stocks',
-      'Stock news, graphs, and detailed pages',
-      'Rating change notifications',
-      'Performance tracking & benchmark comparison',
+      'Track performance for any portfolio',
+      'Customizable AI rating change notifications',
+      'Compare portfolios and select the best for you',
       'Public methodology & transparency',
-    ],
+    ] as const,
   },
   outperformer: {
     name: 'Outperformer',
@@ -36,11 +41,17 @@ const plans = {
     yearlyTotal: 528,
     features: [
       'Everything in Supporter',
-      'Compare all strategy model versions',
-      'Chat with strategy models for any stock analysis',
-      'Create your own custom strategy models',
+      'Compare across multiple strategy models',
+      {
+        text: 'Chat with strategy models for any stock analysis',
+        soonHref: '/roadmap-changelog#roadmap',
+      },
+      {
+        text: 'Create your own custom strategy models',
+        soonHref: '/roadmap-changelog#roadmap',
+      },
       'Priority support',
-    ],
+    ] satisfies readonly PricingPlanFeature[],
     highlight: true,
   },
 } as const;
@@ -50,11 +61,17 @@ type CompareFeature = {
   free: boolean | string;
   supporter: boolean | string;
   outperformer: boolean | string;
+  /** When `outperformer` is true, show linked Soon instead of a check (Outperformer column only). */
+  outperformerSoonHref?: string;
 };
 
+/**
+ * Order follows plan cards (Supporter → Outperformer extras) plus platform entitlements
+ * (`canAccessPaidPortfolioHoldings`, `canAccessStrategySlugPaidData`, ratings model filter).
+ */
 const compareFeatures: CompareFeature[] = [
-  { label: 'Live performance tracking', free: true, supporter: true, outperformer: true },
   { label: 'Public methodology & transparency', free: true, supporter: true, outperformer: true },
+  { label: 'Live performance tracking', free: true, supporter: true, outperformer: true },
   {
     label: 'Buy / Hold / Sell ratings',
     free: '40+ free stocks',
@@ -67,14 +84,63 @@ const compareFeatures: CompareFeature[] = [
     supporter: true,
     outperformer: true,
   },
-  { label: 'Detailed AI explanations', free: false, supporter: true, outperformer: true },
+  {
+    label: 'AI ratings with full explanations',
+    free: false,
+    supporter: true,
+    outperformer: true,
+  },
   { label: 'Full recommendation history', free: false, supporter: true, outperformer: true },
-  { label: 'Stock news & detailed pages', free: false, supporter: true, outperformer: true },
-  { label: 'Rating change notifications', free: false, supporter: true, outperformer: true },
-  { label: 'Multiple strategy models', free: false, supporter: false, outperformer: true },
-  { label: 'Chat with strategy models', free: false, supporter: false, outperformer: true },
-  { label: 'Custom strategy models', free: false, supporter: false, outperformer: true },
+  { label: 'Stock news & detailed stock pages', free: false, supporter: true, outperformer: true },
+  {
+    label: 'Customizable rating change notifications',
+    free: false,
+    supporter: true,
+    outperformer: true,
+  },
+  {
+    label: 'Follow & compare portfolios (Explore / Your portfolios)',
+    free: false,
+    supporter: true,
+    outperformer: true,
+  },
+  {
+    label: 'Holdings, weights & rebalance breakdowns',
+    free: false,
+    supporter: true,
+    outperformer: true,
+  },
+  {
+    label: 'Strategy models on Ratings & Performance',
+    free: false,
+    supporter: 'Active model',
+    outperformer: 'All models',
+  },
+  {
+    label: 'Switch strategy model in Ratings (all models)',
+    free: false,
+    supporter: false,
+    outperformer: true,
+  },
+  {
+    label: 'Chat with strategy models',
+    free: false,
+    supporter: false,
+    outperformer: true,
+    outperformerSoonHref: '/roadmap-changelog#roadmap',
+  },
+  {
+    label: 'Custom strategy models',
+    free: false,
+    supporter: false,
+    outperformer: true,
+    outperformerSoonHref: '/roadmap-changelog#roadmap',
+  },
+  { label: 'Priority support', free: false, supporter: false, outperformer: true },
 ];
+
+const soonTableLinkClass =
+  'inline-flex min-w-[2.75rem] items-center justify-center rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800 hover:bg-amber-500/20 dark:border-amber-400/40 dark:bg-amber-500/15 dark:text-amber-200 dark:hover:bg-amber-500/25';
 
 function FeatureCell({ value }: { value: boolean | string }) {
   if (value === true) {
@@ -94,67 +160,120 @@ function FeatureCell({ value }: { value: boolean | string }) {
   return <td className="px-6 py-3 text-center text-sm text-muted-foreground">{value}</td>;
 }
 
-export default function PricingPage() {
+function OutperformerCompareCell({
+  value,
+  soonHref,
+}: {
+  value: boolean | string;
+  soonHref?: string;
+}) {
+  if (value === true && soonHref) {
+    return (
+      <td className="px-6 py-3 text-center">
+        <Link href={soonHref} prefetch className={soonTableLinkClass}>
+          Soon
+        </Link>
+      </td>
+    );
+  }
+  return <FeatureCell value={value} />;
+}
+
+function PricingPageContent() {
   const router = useRouter();
-  const { email, isAuthenticated, subscriptionTier } = useAuthState();
+  const searchParams = useSearchParams();
+  const { email, isAuthenticated, isLoaded, subscriptionTier } = useAuthState();
   const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>('monthly');
   const [isProcessingCheckout, setIsProcessingCheckout] = useState(false);
   const [checkoutPlan, setCheckoutPlan] = useState<Plan | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const postAuthCheckoutHandled = useRef(false);
 
-  const handleSubscribe = async (plan: Plan) => {
-    setErrorMessage(null);
-    setStatusMessage(null);
+  const startStripeCheckout = useCallback(
+    async (plan: Plan, period: BillingPeriod) => {
+      setErrorMessage(null);
+      setStatusMessage(null);
 
-    if (!isAuthenticated) {
-      router.push(`/sign-up?next=/pricing`);
-      return;
-    }
-
-    const checkoutEmail = email.trim().toLowerCase();
-    if (!checkoutEmail || !checkoutEmail.includes('@')) {
-      setErrorMessage('Missing account email. Please sign out and sign back in, then try again.');
-      return;
-    }
-
-    setIsProcessingCheckout(true);
-    setCheckoutPlan(plan);
-    try {
-      const response = await fetch('/api/stripe/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: checkoutEmail,
-          successPath: '/platform/overview',
-          plan,
-          billingPeriod,
-        }),
-      });
-
-      const payload = (await response.json()) as { url?: string; error?: string };
-      if (!response.ok || !payload.url) {
-        throw new Error(payload.error ?? 'Failed to create checkout session');
+      const checkoutEmail = email.trim().toLowerCase();
+      if (!checkoutEmail || !checkoutEmail.includes('@')) {
+        setErrorMessage('Missing account email. Please sign out and sign back in, then try again.');
+        return;
       }
 
-      setStatusMessage('Redirecting to secure checkout...');
-      window.location.href = payload.url;
-    } catch (error) {
-      setErrorMessage(
-        error instanceof Error ? error.message : 'Failed to start checkout. Please try again.'
-      );
-      setIsProcessingCheckout(false);
-      setCheckoutPlan(null);
+      setIsProcessingCheckout(true);
+      setCheckoutPlan(plan);
+      try {
+        const response = await fetch('/api/stripe/checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: checkoutEmail,
+            successPath: '/platform/overview',
+            plan,
+            billingPeriod: period,
+          }),
+        });
+
+        const payload = (await response.json()) as { url?: string; error?: string };
+        if (!response.ok || !payload.url) {
+          throw new Error(payload.error ?? 'Failed to create checkout session');
+        }
+
+        setStatusMessage('Redirecting to secure checkout...');
+        window.location.href = payload.url;
+      } catch (error) {
+        setErrorMessage(
+          error instanceof Error ? error.message : 'Failed to start checkout. Please try again.'
+        );
+        setIsProcessingCheckout(false);
+        setCheckoutPlan(null);
+      }
+    },
+    [email]
+  );
+
+  useEffect(() => {
+    if (!isLoaded || !isAuthenticated) return;
+
+    const rawPlan = searchParams.get('checkout');
+    if (!rawPlan) return;
+    if (rawPlan !== 'supporter' && rawPlan !== 'outperformer') return;
+    if (postAuthCheckoutHandled.current) return;
+
+    postAuthCheckoutHandled.current = true;
+
+    const period: BillingPeriod = searchParams.get('billing') === 'yearly' ? 'yearly' : 'monthly';
+    const plan = rawPlan as Plan;
+
+    router.replace('/pricing');
+
+    if (subscriptionTier === plan) {
+      return;
     }
+
+    void startStripeCheckout(plan, period);
+  }, [isAuthenticated, isLoaded, router, searchParams, startStripeCheckout, subscriptionTier]);
+
+  const handleSubscribe = async (plan: Plan) => {
+    if (!isAuthenticated) {
+      const returnTo = `/pricing?checkout=${plan}&billing=${billingPeriod}`;
+      router.push(`/sign-up?next=${encodeURIComponent(returnTo)}`);
+      return;
+    }
+    await startStripeCheckout(plan, billingPeriod);
   };
 
   const getCtaLabel = (plan: Plan) => {
-    if (!isAuthenticated) return 'Create account to continue';
     if (subscriptionTier === plan) return 'Current plan';
-    return plan === 'supporter' ? 'Support the experiment' : 'Get full access';
+    return plan === 'supporter' ? 'Get Supporter' : 'Get Outperformer';
   };
 
   const isCurrentPlan = (plan: Plan) => subscriptionTier === plan;
+  const isCurrentFreePlan = isAuthenticated && subscriptionTier === 'free';
+
+  const currentPlanCardClass =
+    'border-2 border-trader-blue shadow-md ring-2 ring-trader-blue/25 ring-offset-2 ring-offset-background';
 
   const displayPrice = useMemo(
     () => (plan: Plan) => {
@@ -166,13 +285,6 @@ export default function PricingPage() {
     },
     [billingPeriod]
   );
-
-  const currentPlanLabel =
-    subscriptionTier === 'supporter'
-      ? 'Supporter'
-      : subscriptionTier === 'outperformer'
-        ? 'Outperformer'
-        : 'Free plan';
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
@@ -187,22 +299,9 @@ export default function PricingPage() {
                   Start free. Support the experiment.
                 </h1>
                 <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-                  Follow the experiment for free. Pay to access full data, history, and insights
-                  — and help fund what we&apos;re building.
+                  Follow the experiment for free. Pay to access full data, history, and insights, and to help keep the experiment running.
                 </p>
               </div>
-
-              {isAuthenticated && (
-                <div className="mb-8 flex justify-center">
-                  <div className="inline-flex items-center gap-2 rounded-full border border-trader-blue/20 bg-trader-blue/10 px-4 py-2 text-sm font-medium text-foreground shadow-soft">
-                    <Sparkles className="size-4 text-trader-blue" />
-                    <span>
-                      Current plan:
-                      <span className="ml-1 font-bold text-trader-blue">{currentPlanLabel}</span>
-                    </span>
-                  </div>
-                </div>
-              )}
 
               {/* Billing toggle */}
               <div className="flex items-center justify-center gap-4 mb-10">
@@ -267,9 +366,14 @@ export default function PricingPage() {
               {/* Plan cards */}
               <div className="grid gap-6 md:grid-cols-3 mb-16">
                 {/* Free */}
-                <div className="rounded-2xl border border-border bg-card p-8 shadow-soft flex flex-col">
+                <div
+                  className={cn(
+                    'rounded-2xl border bg-card p-8 shadow-soft flex flex-col',
+                    isCurrentFreePlan ? currentPlanCardClass : 'border-border'
+                  )}
+                >
                   <div className="mb-6">
-                    <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                    <p className="mb-2 text-xl font-semibold uppercase tracking-wide text-muted-foreground">
                       Free
                     </p>
                     <div className="flex items-baseline gap-1 mb-1">
@@ -286,19 +390,34 @@ export default function PricingPage() {
                       </li>
                     ))}
                   </ul>
-                  <Button asChild variant="outline" className="w-full mt-auto">
-                    <Link href="/platform/overview">
-                      {isAuthenticated ? 'Follow the experiment' : 'Explore the platform'}
-                    </Link>
-                  </Button>
+                  {isCurrentFreePlan ? (
+                    <Button disabled variant="secondary" className="w-full mt-auto">
+                      Current plan
+                    </Button>
+                  ) : (
+                    <Button asChild variant="outline" className="w-full mt-auto">
+                      <Link href="/platform/overview">
+                        {isAuthenticated ? 'Follow the experiment' : 'Explore the platform'}
+                      </Link>
+                    </Button>
+                  )}
                 </div>
 
                 {/* Supporter */}
-                <div className="rounded-2xl border border-border bg-card p-8 shadow-soft flex flex-col">
+                <div
+                  className={cn(
+                    'rounded-2xl border bg-card p-8 shadow-soft flex flex-col',
+                    isCurrentPlan('supporter') ? currentPlanCardClass : 'border-border'
+                  )}
+                >
                   <div className="mb-6">
-                    <p className="text-sm font-bold uppercase tracking-wide text-foreground mb-2">
-                      Supporter
-                    </p>
+                    <div className="mb-2 text-xl">
+                      <PlanLabel
+                        isPremium
+                        subscriptionTier="supporter"
+                        iconClassName="size-5"
+                      />
+                    </div>
                     <div className="flex items-baseline gap-1 mb-1">
                       {billingPeriod === 'yearly' && (
                         <span className="text-xl text-muted-foreground line-through mr-1">
@@ -326,7 +445,7 @@ export default function PricingPage() {
                     ))}
                   </ul>
                   {isCurrentPlan('supporter') ? (
-                    <Button disabled className="w-full mt-auto">
+                    <Button disabled variant="secondary" className="w-full mt-auto">
                       Current plan
                     </Button>
                   ) : (
@@ -352,15 +471,23 @@ export default function PricingPage() {
                 </div>
 
                 {/* Outperformer */}
-                <div className="rounded-2xl border border-trader-blue/30 bg-trader-blue/10 dark:bg-trader-blue/15 p-8 shadow-soft flex flex-col relative">
+                <div
+                  className={cn(
+                    'rounded-2xl border bg-trader-blue/10 dark:bg-trader-blue/15 p-8 shadow-soft flex flex-col relative',
+                    isCurrentPlan('outperformer')
+                      ? currentPlanCardClass
+                      : 'border border-trader-blue/30'
+                  )}
+                >
                   <div className="absolute -top-3 left-1/2 -translate-x-1/2">
                     <span className="inline-flex items-center rounded-full bg-trader-blue px-3 py-1 text-xs font-semibold text-white shadow">
                       Most complete
                     </span>
                   </div>
                   <div className="mb-6 mt-2">
-                    <p className="text-sm font-semibold uppercase tracking-wide text-trader-blue mb-2 inline-flex items-center gap-1">
-                      Outperformer <Sparkles className="size-4 text-trader-blue" />
+                    <p className="mb-2 inline-flex items-center gap-1.5 text-xl font-semibold uppercase tracking-wide text-trader-blue">
+                      <Sparkles className="size-5 shrink-0 text-trader-blue" aria-hidden />
+                      Outperformer
                     </p>
                     <div className="flex items-baseline gap-1 mb-1">
                       {billingPeriod === 'yearly' && (
@@ -382,14 +509,32 @@ export default function PricingPage() {
                   </div>
                   <ul className="space-y-2 mb-8 flex-1">
                     {plans.outperformer.features.map((f) => (
-                      <li key={f} className="flex items-start gap-2 text-sm text-foreground/80">
-                        <Check size={15} className="text-trader-green mt-0.5 flex-shrink-0" />
-                        {f}
+                      <li
+                        key={typeof f === 'string' ? f : f.text}
+                        className="flex items-start gap-2 text-sm text-foreground/80"
+                      >
+                        {typeof f === 'string' ? (
+                          <>
+                            <Check size={15} className="text-trader-green mt-0.5 flex-shrink-0" />
+                            {f}
+                          </>
+                        ) : (
+                          <>
+                            <Link
+                              href={f.soonHref}
+                              prefetch
+                              className={cn('mt-0.5 shrink-0', soonTableLinkClass)}
+                            >
+                              Soon
+                            </Link>
+                            <span>{f.text}</span>
+                          </>
+                        )}
                       </li>
                     ))}
                   </ul>
                   {isCurrentPlan('outperformer') ? (
-                    <Button disabled className="w-full mt-auto bg-trader-blue text-white">
+                    <Button disabled variant="secondary" className="w-full mt-auto">
                       Current plan
                     </Button>
                   ) : (
@@ -427,14 +572,25 @@ export default function PricingPage() {
                         <th className="px-6 py-4 text-left font-semibold text-foreground">
                           Feature
                         </th>
-                        <th className="px-6 py-4 text-center font-semibold text-muted-foreground">
-                          Free
+                        <th className="px-6 py-4 text-center align-middle">
+                          <span className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                            Free
+                          </span>
                         </th>
-                        <th className="px-6 py-4 text-center font-semibold text-foreground">
-                          Supporter
+                        <th className="px-6 py-4 text-center align-middle">
+                          <div className="flex justify-center text-sm">
+                            <PlanLabel
+                              isPremium
+                              subscriptionTier="supporter"
+                              iconClassName="size-4"
+                            />
+                          </div>
                         </th>
-                        <th className="px-6 py-4 text-center font-semibold text-trader-blue">
-                          Outperformer
+                        <th className="px-6 py-4 text-center align-middle">
+                          <span className="inline-flex items-center justify-center gap-1 text-sm font-semibold uppercase tracking-wide text-trader-blue">
+                            <Sparkles className="size-4 shrink-0 text-trader-blue" aria-hidden />
+                            Outperformer
+                          </span>
                         </th>
                       </tr>
                     </thead>
@@ -451,7 +607,10 @@ export default function PricingPage() {
                           </td>
                           <FeatureCell value={feature.free} />
                           <FeatureCell value={feature.supporter} />
-                          <FeatureCell value={feature.outperformer} />
+                          <OutperformerCompareCell
+                            value={feature.outperformer}
+                            soonHref={feature.outperformerSoonHref}
+                          />
                         </tr>
                       ))}
                     </tbody>
@@ -476,5 +635,13 @@ export default function PricingPage() {
       </main>
       <Footer />
     </div>
+  );
+}
+
+export default function PricingPage() {
+  return (
+    <Suspense fallback={null}>
+      <PricingPageContent />
+    </Suspense>
   );
 }

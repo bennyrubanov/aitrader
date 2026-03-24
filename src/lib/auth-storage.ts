@@ -1,10 +1,10 @@
+import { parseSafeAuthRedirectPath } from "@/lib/auth-redirect";
+
 export const LAST_SIGN_IN_METHOD_KEY = "supabase-last-sign-in-method";
 export const EMAIL_PASSWORD_SIGN_IN_METHOD = "email";
 export const GOOGLE_SIGN_IN_METHOD = "google";
 const AUTH_PREFILL_EMAIL_KEY = "aitrader.auth.prefill.email";
 const PRE_AUTH_RETURN_COOKIE = "aitrader_return_to";
-
-const AUTH_PAGE_PREFIXES = ["/sign-in", "/sign-up", "/forgot-password", "/auth/"];
 
 /**
  * Stores the URL the user was on before navigating to sign-in.
@@ -12,9 +12,9 @@ const AUTH_PAGE_PREFIXES = ["/sign-in", "/sign-up", "/forgot-password", "/auth/"
  */
 export const savePreAuthReturnUrl = (url: string) => {
   if (typeof document === "undefined") return;
-  if (!url || !url.startsWith("/")) return;
-  if (AUTH_PAGE_PREFIXES.some((p) => url.startsWith(p))) return;
-  document.cookie = `${PRE_AUTH_RETURN_COOKIE}=${encodeURIComponent(url)}; path=/; max-age=1800; SameSite=Lax`;
+  const safe = parseSafeAuthRedirectPath(url);
+  if (!safe) return;
+  document.cookie = `${PRE_AUTH_RETURN_COOKIE}=${encodeURIComponent(safe)}; path=/; max-age=1800; SameSite=Lax`;
 };
 
 export const getPreAuthReturnUrl = (): string | null => {
@@ -36,9 +36,7 @@ export const parsePreAuthReturnUrlFromCookies = (
   const match = cookieHeader.match(/aitrader_return_to=([^;]*)/);
   if (!match) return null;
   const url = decodeURIComponent(match[1]);
-  if (!url.startsWith("/")) return null;
-  if (AUTH_PAGE_PREFIXES.some((p) => url.startsWith(p))) return null;
-  return url;
+  return parseSafeAuthRedirectPath(url);
 };
 
 export const rememberSignInMethod = (method: string) => {

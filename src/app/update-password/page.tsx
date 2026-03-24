@@ -9,13 +9,10 @@ import { Input } from "@/components/ui/input";
 import { getSupabaseBrowserClient } from "@/utils/supabase/browser";
 import { EMAIL_PASSWORD_SIGN_IN_METHOD, rememberSignInMethod } from "@/lib/auth-storage";
 import { AuthPreviewPlaceholder } from "@/components/auth/auth-preview-placeholder";
-
-const sanitizeNextPath = (value: string | null, fallback: string) => {
-  if (!value || !value.startsWith("/")) {
-    return fallback;
-  }
-  return value;
-};
+import {
+  DEFAULT_POST_AUTH_PATH,
+  sanitizeAuthRedirectPath,
+} from "@/lib/auth-redirect";
 
 function UpdatePasswordPageContent() {
   const router = useRouter();
@@ -30,7 +27,7 @@ function UpdatePasswordPageContent() {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   const nextPath = useMemo(
-    () => sanitizeNextPath(searchParams.get("next"), "/platform/overview"),
+    () => sanitizeAuthRedirectPath(searchParams.get("next"), DEFAULT_POST_AUTH_PATH),
     [searchParams],
   );
 

@@ -9,16 +9,19 @@ export type AuthState = {
   avatar: string;
   subscriptionTier: SubscriptionTier;
   hasPremiumAccess: boolean;
+  /** DB-backed; false for guests. Local cache mirrors this while signed in. */
+  portfolioOnboardingDone: boolean;
 };
 
 export const DEFAULT_AUTH_STATE: AuthState = {
   isLoaded: false,
   isAuthenticated: false,
   userId: null,
-  email: "Sign in to access account",
+  email: 'Sign up for full access',
   name: "Guest",
   avatar: "",
   subscriptionTier: 'free',
   hasPremiumAccess: false,
+  portfolioOnboardingDone: false,
 };
 

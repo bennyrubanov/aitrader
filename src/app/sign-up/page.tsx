@@ -18,13 +18,10 @@ import {
   clearPreAuthReturnUrl,
 } from "@/lib/auth-storage";
 import { useAuthState } from "@/components/auth/auth-state-context";
-
-const sanitizeNextPath = (value: string | null, fallback: string) => {
-  if (!value || !value.startsWith("/")) {
-    return fallback;
-  }
-  return value;
-};
+import {
+  DEFAULT_POST_AUTH_PATH,
+  sanitizeAuthRedirectPath,
+} from "@/lib/auth-redirect";
 
 const methodBadge = (lastMethod: string | null, method: string) =>
   lastMethod === method ? (
@@ -50,7 +47,7 @@ function SignUpPageContent() {
   const oauthInFlightRef = useRef(false);
 
   const nextPath = useMemo(
-    () => sanitizeNextPath(searchParams.get("next"), "/platform/overview"),
+    () => sanitizeAuthRedirectPath(searchParams.get("next"), DEFAULT_POST_AUTH_PATH),
     [searchParams],
   );
 

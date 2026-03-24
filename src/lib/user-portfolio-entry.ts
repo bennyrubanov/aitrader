@@ -86,21 +86,25 @@ export function buildUserPortfolioPositionRows(
   });
 }
 
+/**
+ * @param userSupabase RLS user client for inserting into `user_portfolio_positions`.
+ * @param dataSupabase Service-role (or otherwise privileged) client for strategy holdings and raw prices.
+ */
 export async function insertUserPortfolioPositionsForRunDate(
-  supabase: SupabaseClient,
-  priceClient: SupabaseClient,
+  userSupabase: SupabaseClient,
+  dataSupabase: SupabaseClient,
   opts: { profileId: string; strategyId: string; runDate: string; nowIso: string }
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const holdings = await loadStrategyHoldingsForRunDate(supabase, opts.strategyId, opts.runDate);
+  const holdings = await loadStrategyHoldingsForRunDate(dataSupabase, opts.strategyId, opts.runDate);
   if (!holdings) {
     return { ok: false, error: 'Could not load holdings.' };
   }
   const symbols = holdings.map((h) => h.symbol.toUpperCase());
-  const priceMap = await loadEntryPricesForSymbolsOnDate(priceClient, symbols, opts.runDate);
+  const priceMap = await loadEntryPricesForSymbolsOnDate(dataSupabase, symbols, opts.runDate);
   const rows = buildUserPortfolioPositionRows(opts.profileId, holdings, priceMap, opts.nowIso);
   if (!rows.length) return { ok: true };
 
-  const { error } = await supabase.from('user_portfolio_positions').insert(rows);
+  const { error } = await userSupabase.from('user_portfolio_positions').insert(rows);
   if (error) return { ok: false, error: error.message };
   return { ok: true };
 }

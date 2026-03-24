@@ -7,6 +7,8 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { useAuthState, useRefreshAuthProfile } from '@/components/auth/auth-state-context';
+import { getSupabaseBrowserClient, isSupabaseConfigured } from '@/utils/supabase/browser';
 import {
   DEFAULT_PORTFOLIO_CONFIG,
   FREQUENCY_DATA_NOTES,
@@ -18,8 +20,10 @@ import {
 import {
   ENTRY_DATE_KEY,
   ONBOARDING_KEY,
+  clearOnboardingDoneCache,
   loadPortfolioConfigFromStorage,
   savePortfolioConfigToStorage,
+  writeOnboardingDoneCache,
 } from './portfolio-config-storage';
 import {
   PortfolioConfigContext,
@@ -27,20 +31,56 @@ import {
 } from './portfolio-config-context-core';
 
 export function PortfolioConfigProvider({ children }: { children: ReactNode }) {
+  const auth = useAuthState();
+  const refreshProfile = useRefreshAuthProfile();
   const [config, setConfigState] = useState<PortfolioConfig>(DEFAULT_PORTFOLIO_CONFIG);
-  // Default true to avoid flash of onboarding on hydration; corrected on mount.
   const [isOnboardingDone, setIsOnboardingDone] = useState(true);
-  const [hydrated, setHydrated] = useState(false);
+  const [storageHydrated, setStorageHydrated] = useState(false);
+  const [onboardingResolved, setOnboardingResolved] = useState(false);
   const [entryDate, setEntryDateState] = useState<string | null>(null);
 
   useEffect(() => {
     const saved = loadPortfolioConfigFromStorage();
     if (saved) setConfigState(saved);
-    setIsOnboardingDone(localStorage.getItem(ONBOARDING_KEY) === '1');
     const savedEntry = localStorage.getItem(ENTRY_DATE_KEY);
     if (savedEntry) setEntryDateState(savedEntry);
-    setHydrated(true);
+    setStorageHydrated(true);
   }, []);
+
+  useEffect(() => {
+    if (!auth.isLoaded) {
+      return;
+    }
+
+    if (!auth.isAuthenticated) {
+      try {
+        setIsOnboardingDone(localStorage.getItem(ONBOARDING_KEY) === '1');
+      } catch {
+        setIsOnboardingDone(false);
+      }
+      clearOnboardingDoneCache();
+      setOnboardingResolved(true);
+      return;
+    }
+
+    const dbDone = auth.portfolioOnboardingDone;
+    if (auth.userId) {
+      writeOnboardingDoneCache(auth.userId, dbDone);
+    }
+    setIsOnboardingDone(dbDone);
+    try {
+      if (dbDone) {
+        localStorage.setItem(ONBOARDING_KEY, '1');
+      } else {
+        localStorage.removeItem(ONBOARDING_KEY);
+      }
+    } catch {
+      // ignore
+    }
+    setOnboardingResolved(true);
+  }, [auth.isLoaded, auth.isAuthenticated, auth.userId, auth.portfolioOnboardingDone]);
+
+  const portfolioConfigHydrated = storageHydrated && onboardingResolved;
 
   const setConfig = useCallback((newConfig: PortfolioConfig) => {
     setConfigState(newConfig);
@@ -66,23 +106,81 @@ export function PortfolioConfigProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const markOnboardingDone = useCallback(() => {
-    setIsOnboardingDone(true);
-    try {
-      localStorage.setItem(ONBOARDING_KEY, '1');
-    } catch {
-      // ignore
-    }
-  }, []);
+  const markOnboardingDone = useCallback((): Promise<void> => {
+    return (async () => {
+      const supabase = getSupabaseBrowserClient();
+      if (isSupabaseConfigured() && supabase) {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (user) {
+          const { error } = await supabase
+            .from('user_profiles')
+            .update({
+              portfolio_onboarding_done: true,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', user.id);
+          if (error) {
+            console.error('[markOnboardingDone]', error);
+            return;
+          }
+          writeOnboardingDoneCache(user.id, true);
+          try {
+            localStorage.setItem(ONBOARDING_KEY, '1');
+          } catch {
+            // ignore
+          }
+          setIsOnboardingDone(true);
+          await refreshProfile();
+          return;
+        }
+      }
+      try {
+        localStorage.setItem(ONBOARDING_KEY, '1');
+      } catch {
+        // ignore
+      }
+      setIsOnboardingDone(true);
+    })();
+  }, [refreshProfile]);
 
   const resetOnboarding = useCallback(() => {
-    setIsOnboardingDone(false);
-    try {
-      localStorage.removeItem(ONBOARDING_KEY);
-    } catch {
-      // ignore
-    }
-  }, []);
+    void (async () => {
+      const supabase = getSupabaseBrowserClient();
+      let refreshedFromServer = false;
+      if (isSupabaseConfigured() && supabase) {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (user) {
+          const { error } = await supabase
+            .from('user_profiles')
+            .update({
+              portfolio_onboarding_done: false,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', user.id);
+          if (error) {
+            console.error('[resetOnboarding]', error);
+          } else {
+            writeOnboardingDoneCache(user.id, false);
+          }
+          await refreshProfile();
+          refreshedFromServer = true;
+        }
+      }
+      try {
+        localStorage.removeItem(ONBOARDING_KEY);
+      } catch {
+        // ignore
+      }
+      if (!refreshedFromServer) {
+        clearOnboardingDoneCache();
+        setIsOnboardingDone(false);
+      }
+    })();
+  }, [refreshProfile]);
 
   const setEntryDate = useCallback((date: string | null) => {
     setEntryDateState(date);
@@ -117,7 +215,8 @@ export function PortfolioConfigProvider({ children }: { children: ReactNode }) {
     riskLabel: RISK_LABELS[config.riskLevel],
     frequencyLabel: FREQUENCY_LABELS[config.rebalanceFrequency],
     dataNote: FREQUENCY_DATA_NOTES[config.rebalanceFrequency],
-    isOnboardingDone: !hydrated ? true : isOnboardingDone,
+    portfolioConfigHydrated,
+    isOnboardingDone: !portfolioConfigHydrated ? true : isOnboardingDone,
     markOnboardingDone,
     resetOnboarding,
     entryDate,
