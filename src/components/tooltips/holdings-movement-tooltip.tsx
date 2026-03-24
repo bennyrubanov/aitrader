@@ -21,16 +21,16 @@ export function HoldingsMovementInfoTooltip() {
           </p>
           <ul className="list-disc space-y-1 pl-4">
             <li>
-              <span className="font-medium text-muted-foreground">Gray</span> — still in the top positions
+              <span className="font-medium text-muted-foreground">Gray</span> — still in the portfolio
               (stayed).
             </li>
             <li>
               <span className="font-medium text-emerald-600 dark:text-emerald-400">Green</span> — newly in
-              the top positions (entered).
+              the portfolio (entered).
             </li>
             <li>
-              <span className="font-medium text-red-600 dark:text-red-400">Red</span> — left the top
-              positions (exited). Those names appear at the <strong>bottom</strong> of the table under{' '}
+              <span className="font-medium text-red-600 dark:text-red-400">Red</span> — exited the portfolio
+              . Those names appear at the <strong>bottom</strong> of the table under{' '}
               <strong>Exited</strong>.
             </li>
           </ul>

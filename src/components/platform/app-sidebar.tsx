@@ -76,7 +76,7 @@ const platformItems: NavItem[] = [
 
 const advancedItems: NavItem[] = [
   {
-    title: 'Create Custom Strategy',
+    title: 'Custom Strategies',
     icon: FlaskConical,
     disabled: true,
     badge: 'Soon',
