@@ -18,6 +18,12 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from '@/components/ui/chart';
+import {
+  CHART_INDEX_SERIES_COLORS,
+  CHART_NEUTRAL_REFERENCE_STROKE,
+  CHART_PORTFOLIO_SERIES_COLOR,
+  CHART_RELATIVE_OUTPERF_COLORS,
+} from '@/lib/chart-index-series-colors';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
 import { toDrawdownPercentSeries } from '@/lib/performance-series-drawdown';
 
@@ -26,10 +32,16 @@ export type SeriesPoint = PerformanceSeriesPoint;
 
 /** Shared with overview chart / cumulative returns (line colors & default labels). */
 const RETURNS_SERIES = {
-  aiTop20: { label: 'AI Strategy', color: '#2563eb' },
-  nasdaq100CapWeight: { label: 'Nasdaq-100 (cap-weighted)', color: '#64748b' },
-  nasdaq100EqualWeight: { label: 'Nasdaq-100 (equal-weighted)', color: '#16a34a' },
-  sp500: { label: 'S&P 500 (cap-weighted)', color: '#a855f7' },
+  aiTop20: { label: 'AI Strategy', color: CHART_PORTFOLIO_SERIES_COLOR },
+  nasdaq100CapWeight: {
+    label: 'Nasdaq-100 (cap-weighted)',
+    color: CHART_INDEX_SERIES_COLORS.nasdaq100CapWeight,
+  },
+  nasdaq100EqualWeight: {
+    label: 'Nasdaq-100 (equal-weighted)',
+    color: CHART_INDEX_SERIES_COLORS.nasdaq100EqualWeight,
+  },
+  sp500: { label: 'S&P 500 (cap-weighted)', color: CHART_INDEX_SERIES_COLORS.sp500 },
 } as const;
 
 type ReturnsKey = keyof typeof RETURNS_SERIES;
@@ -79,7 +91,7 @@ export function WeeklyReturnsChart({
       </p>
       <ChartContainer
         className="h-[180px] w-full"
-        config={{ aiReturn: { label: aiLabel, color: '#2563eb' } }}
+        config={{ aiReturn: { label: aiLabel, color: CHART_PORTFOLIO_SERIES_COLOR } }}
       >
         <BarChart data={weeklyReturns} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />
@@ -89,7 +101,12 @@ export function WeeklyReturnsChart({
           <ChartTooltip
             content={<ChartTooltipContent formatter={(v) => [`${Number(v).toFixed(2)}% `, ` ${aiLabel}`]} />}
           />
-          <Bar dataKey="aiReturn" radius={[2, 2, 0, 0]} fill="#2563eb" fillOpacity={0.7} />
+          <Bar
+            dataKey="aiReturn"
+            radius={[2, 2, 0, 0]}
+            fill={CHART_PORTFOLIO_SERIES_COLOR}
+            fillOpacity={0.7}
+          />
         </BarChart>
       </ChartContainer>
     </div>
@@ -139,8 +156,11 @@ export function CagrOverTimeChart({
       <ChartContainer
         className="h-[180px] w-full"
         config={{
-          aiCagr: { label: aiLabel, color: '#2563eb' },
-          ndxCapCagr: { label: 'Nasdaq-100 (cap-weighted)', color: '#64748b' },
+          aiCagr: { label: aiLabel, color: CHART_PORTFOLIO_SERIES_COLOR },
+          ndxCapCagr: {
+            label: 'Nasdaq-100 (cap-weighted)',
+            color: CHART_INDEX_SERIES_COLORS.nasdaq100CapWeight,
+          },
         }}
       >
         <LineChart data={cagrData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
@@ -158,8 +178,21 @@ export function CagrOverTimeChart({
               />
             }
           />
-          <Line type="monotone" dataKey="aiCagr" stroke="#2563eb" strokeWidth={2} dot={false} />
-          <Line type="monotone" dataKey="ndxCapCagr" stroke="#64748b" strokeWidth={1.5} dot={false} strokeDasharray="4 2" />
+          <Line
+            type="monotone"
+            dataKey="aiCagr"
+            stroke={CHART_PORTFOLIO_SERIES_COLOR}
+            strokeWidth={2}
+            dot={false}
+          />
+          <Line
+            type="monotone"
+            dataKey="ndxCapCagr"
+            stroke={CHART_INDEX_SERIES_COLORS.nasdaq100CapWeight}
+            strokeWidth={1.5}
+            dot={false}
+            strokeDasharray="4 2"
+          />
         </LineChart>
       </ChartContainer>
     </div>
@@ -385,7 +418,7 @@ export function RiskChart({
                 tick={{ fontSize: 10 }}
                 width={48}
               />
-              <ReferenceLine y={0} stroke="#64748b" strokeDasharray="4 2" />
+              <ReferenceLine y={0} stroke={CHART_NEUTRAL_REFERENCE_STROKE} strokeDasharray="4 2" />
               <ChartTooltip
                 content={
                   <ChartTooltipContent
@@ -448,9 +481,14 @@ export function RiskChart({
               <YAxis domain={sharpeYDomain} tick={{ fontSize: 10 }} width={40} />
               <ReferenceLine
                 y={1}
-                stroke="#16a34a"
+                stroke={CHART_NEUTRAL_REFERENCE_STROKE}
                 strokeDasharray="4 2"
-                label={{ value: '1.0', position: 'left', fontSize: 9, fill: '#16a34a' }}
+                label={{
+                  value: '1.0',
+                  position: 'left',
+                  fontSize: 9,
+                  fill: CHART_NEUTRAL_REFERENCE_STROKE,
+                }}
               />
               <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="4 2" />
               <ChartTooltip
@@ -604,9 +642,21 @@ export function CumulativeReturnsChart({
 // ── Multi-series Relative Outperformance Chart ────────────────────────────────
 
 const OUTPERF_SERIES = {
-  vsNdxCap: { label: 'vs Nasdaq-100 (cap-weighted)', color: '#2563eb', defaultVisible: true },
-  vsNdxEqual: { label: 'vs Nasdaq-100 (equal-weighted)', color: '#16a34a', defaultVisible: true },
-  vsSp500: { label: 'vs S&P 500 (cap-weighted)', color: '#a855f7', defaultVisible: true },
+  vsNdxCap: {
+    label: 'vs Nasdaq-100 (cap-weighted)',
+    color: CHART_RELATIVE_OUTPERF_COLORS.vsNdxCap,
+    defaultVisible: true,
+  },
+  vsNdxEqual: {
+    label: 'vs Nasdaq-100 (equal-weighted)',
+    color: CHART_RELATIVE_OUTPERF_COLORS.vsNdxEqual,
+    defaultVisible: true,
+  },
+  vsSp500: {
+    label: 'vs S&P 500 (cap-weighted)',
+    color: CHART_RELATIVE_OUTPERF_COLORS.vsSp500,
+    defaultVisible: true,
+  },
 } as const;
 
 type OutperfKey = keyof typeof OUTPERF_SERIES;

@@ -107,6 +107,14 @@ export function getCachedUserEntryPayload(
   return userEntryStore.get(profileId);
 }
 
+function cachedFailedUserEntryPayload(): CachedUserEntryPayload {
+  return {
+    computeStatus: 'failed',
+    series: [],
+    metrics: null,
+  };
+}
+
 export async function loadUserEntryPayloadCached(
   profileId: string,
   opts?: { bypassCache?: boolean }
@@ -128,20 +136,16 @@ export async function loadUserEntryPayloadCached(
         );
         const json = (await res.json()) as CachedUserEntryPayload;
         if (!res.ok) {
-          return {
-            computeStatus: 'failed',
-            series: [],
-            metrics: null,
-          } satisfies CachedUserEntryPayload;
+          const failed = cachedFailedUserEntryPayload();
+          userEntryStore.set(profileId, failed);
+          return failed;
         }
         userEntryStore.set(profileId, json);
         return json;
       } catch {
-        return {
-          computeStatus: 'failed',
-          series: [],
-          metrics: null,
-        } satisfies CachedUserEntryPayload;
+        const failed = cachedFailedUserEntryPayload();
+        userEntryStore.set(profileId, failed);
+        return failed;
       } finally {
         userEntryInflight.delete(profileId);
       }
@@ -157,6 +161,7 @@ export function invalidateUserEntryPerformanceCache(profileId: string): void {
   userEntryInflight.delete(profileId);
 }
 
+/** Concurrent in-flight requests per batch; profiles earlier in the array start first. */
 const PREFETCH_BATCH = 6;
 
 type ProfilePrefetchShape = {
@@ -170,18 +175,31 @@ type ProfilePrefetchShape = {
   strategy_models: { slug: string } | null;
 };
 
-/** Warm config + user-entry performance for followed portfolios (batched). */
+/**
+ * Warm config + user-entry performance for followed portfolios (batched).
+ * Uncached user-entry loads run first (in list order), then uncached config loads (same order),
+ * so sort-driven ordering stays meaningful under the batch limit.
+ */
+/** Returns whether any cache misses were fetched (so callers can refresh UI once). */
 export function prefetchYourPortfolioMainData(
   profiles: ReadonlyArray<ProfilePrefetchShape>
-): Promise<void> {
-  if (profiles.length === 0) return Promise.resolve();
+): Promise<boolean> {
+  if (profiles.length === 0) return Promise.resolve(false);
 
-  const jobs: Array<Promise<unknown>> = [];
+  const userJobs: Array<Promise<unknown>> = [];
+  const configJobs: Array<Promise<unknown>> = [];
   for (const p of profiles) {
     const slug = p.strategy_models?.slug?.trim();
     const pc = p.portfolio_config;
-    if (slug && pc) {
-      jobs.push(
+    if (p.user_start_date?.trim() && !getCachedUserEntryPayload(p.id)) {
+      userJobs.push(loadUserEntryPayloadCached(p.id));
+    }
+    if (
+      slug &&
+      pc &&
+      !getCachedConfigPerfPayload(slug, pc.risk_level, pc.rebalance_frequency, pc.weighting_method)
+    ) {
+      configJobs.push(
         loadConfigPerfPayloadCached(
           slug,
           pc.risk_level,
@@ -190,15 +208,14 @@ export function prefetchYourPortfolioMainData(
         )
       );
     }
-    if (p.user_start_date?.trim()) {
-      jobs.push(loadUserEntryPayloadCached(p.id));
-    }
   }
-  if (jobs.length === 0) return Promise.resolve();
+  const jobs = [...userJobs, ...configJobs];
+  if (jobs.length === 0) return Promise.resolve(false);
 
   return (async () => {
     for (let i = 0; i < jobs.length; i += PREFETCH_BATCH) {
       await Promise.all(jobs.slice(i, i + PREFETCH_BATCH));
     }
+    return true;
   })();
 }

@@ -158,8 +158,6 @@ export function SiteHeader() {
           </div>
         </div>
 
-        <Separator orientation="vertical" className="h-5 shrink-0" />
-
         <MiniStockSearch />
 
         <div className="flex items-center gap-3">

@@ -167,7 +167,9 @@ export function StockChartDialog({
         if ((err as { name?: string })?.name === 'AbortError') return;
         setErrorMessage(err instanceof Error ? err.message : 'Unable to load chart data.');
       })
-      .finally(() => setIsLoading(false));
+      .finally(() => {
+        if (!controller.signal.aborted) setIsLoading(false);
+      });
 
     return () => controller.abort();
   }, [cacheKey, open, strategySlug, symbol]);
@@ -213,6 +215,10 @@ export function StockChartDialog({
       .map((r) => ({ key: r.date, shortDate: shortByIso.get(r.date)! }));
   }, [data, chartData]);
 
+  /** Covers first paint before useLayoutEffect runs (open + no data yet). */
+  const showChartLoading =
+    isLoading || (open && data === null && errorMessage === null);
+
   const ticker = symbol.toUpperCase();
   const titleStockLabel =
     data?.companyName && data.companyName.length > 0
@@ -256,8 +262,12 @@ export function StockChartDialog({
           ))}
         </div>
 
-        {isLoading ? (
-          <Skeleton className="h-[320px] w-full rounded-lg" />
+        {showChartLoading ? (
+          <div className="flex h-[320px] w-full flex-col justify-center gap-3 rounded-lg border border-dashed border-muted-foreground/20 bg-muted/30 px-4">
+            <Skeleton className="h-3 w-3/5 max-w-xs" />
+            <Skeleton className="h-[240px] w-full rounded-md" />
+            <Skeleton className="mx-auto h-3 w-2/5 max-w-[180px]" />
+          </div>
         ) : errorMessage ? (
           <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
             {errorMessage}

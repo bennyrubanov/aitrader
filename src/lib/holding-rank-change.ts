@@ -14,13 +14,13 @@ export function formatHoldingRankChange(
   if (value > 0) {
     return {
       icon: ArrowUp,
-      label: `+${value}`,
+      label: String(value),
       className: 'text-emerald-600 dark:text-emerald-400',
     };
   }
   return {
     icon: ArrowDown,
-    label: String(value),
+    label: String(Math.abs(value)),
     className: 'text-rose-600 dark:text-rose-400',
   };
 }

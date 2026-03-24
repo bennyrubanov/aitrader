@@ -684,6 +684,8 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const [prevMovementHoldings, setPrevMovementHoldings] = useState<HoldingItem[] | null>(null);
   const [prevMovementLoading, setPrevMovementLoading] = useState(false);
   const [prevMovementError, setPrevMovementError] = useState(false);
+  /** Keeps the rebalance Select on the chosen date while holdings fetch runs (controlled value otherwise snaps back). */
+  const [pendingHoldingsAsOf, setPendingHoldingsAsOf] = useState<string | null>(null);
 
   const loadProfiles = useCallback(async () => {
     setIsLoadingProfiles(true);
@@ -722,13 +724,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
 
   const [sidebarSortCacheEpoch, setSidebarSortCacheEpoch] = useState(0);
 
-  useEffect(() => {
-    if (!authState.isAuthenticated || profiles.length === 0) return;
-    void prefetchYourPortfolioMainData(profiles).then(() => {
-      setSidebarSortCacheEpoch((e) => e + 1);
-    });
-  }, [authState.isAuthenticated, profiles]);
-
   const selectedProfile = useMemo(() => {
     if (!profiles.length) return null;
     if (profileParam && profiles.some((p) => p.id === profileParam)) {
@@ -751,20 +746,21 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     return profiles.filter((p) => p.strategy_models?.slug === slug);
   }, [profiles, selectedProfile?.strategy_models?.slug]);
 
-  const sidebarUserCompositeByProfileId = useMemo(
-    () => buildCompositeMapFromUserEntryCache(sidebarProfiles),
+  const allSidebarCached = useMemo(
+    () =>
+      sidebarProfiles.every(
+        (p) => !p.user_start_date?.trim() || getCachedUserEntryPayload(p.id) != null
+      ),
     [sidebarProfiles, sidebarSortCacheEpoch, userEntryPayload]
   );
 
-  const sortedSidebarProfiles = useMemo(
-    () =>
-      sortProfilesByUserEntryCache(
-        sidebarProfiles,
-        sidebarSortMetric,
-        sidebarUserCompositeByProfileId
-      ),
-    [sidebarProfiles, sidebarSortMetric, sidebarUserCompositeByProfileId]
-  );
+  const sortedSidebarProfiles = useMemo(() => {
+    if (sidebarSortMetric === 'follow_order' || !allSidebarCached) {
+      return [...sidebarProfiles];
+    }
+    const composite = buildCompositeMapFromUserEntryCache(sidebarProfiles);
+    return sortProfilesByUserEntryCache(sidebarProfiles, sidebarSortMetric, composite);
+  }, [sidebarProfiles, sidebarSortMetric, allSidebarCached, sidebarSortCacheEpoch]);
 
   const filteredSidebarProfiles = useMemo(() => {
     const opts = {
@@ -786,6 +782,81 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     freqFilter,
     weightFilter,
   ]);
+
+  /**
+   * Visible (filter-passing) rows first in current sort, then same-strategy rows hidden by the
+   * filter, then other strategies — matches what the user sees, then the rest.
+   */
+  const profilesPrefetchOrdered = useMemo(() => {
+    const filteredIds = new Set(filteredSidebarProfiles.map((p) => p.id));
+    const sidebarIds = new Set(sortedSidebarProfiles.map((p) => p.id));
+
+    let visibleHead = filteredSidebarProfiles;
+    if (selectedProfile) {
+      const sid = selectedProfile.id;
+      const idx = visibleHead.findIndex((p) => p.id === sid);
+      if (idx > 0) {
+        visibleHead = [
+          visibleHead[idx]!,
+          ...visibleHead.slice(0, idx),
+          ...visibleHead.slice(idx + 1),
+        ];
+      }
+    }
+
+    const sameStrategyFilteredOut = sortedSidebarProfiles.filter((p) => !filteredIds.has(p.id));
+    const rest = profiles.filter((p) => !sidebarIds.has(p.id));
+
+    return [...visibleHead, ...sameStrategyFilteredOut, ...rest];
+  }, [filteredSidebarProfiles, sortedSidebarProfiles, profiles, selectedProfile]);
+
+  /**
+   * Prefetch effect must not depend on performance-sorted id order: that order changes as the
+   * cache fills, which was restarting prefetch + bumping epoch in a loop and visibly reshuffling
+   * the list. Key = sort metric + sidebar filters + sidebar cohort (ids in stable lexicographic order).
+   */
+  const profilesPrefetchStableKey = useMemo(
+    () =>
+      [
+        sidebarSortMetric,
+        filterBeatNasdaq ? '1' : '0',
+        filterBeatSp500 ? '1' : '0',
+        riskFilter === null ? '' : String(riskFilter),
+        freqFilter ?? '',
+        weightFilter ?? '',
+        sidebarProfiles
+          .map((p) => p.id)
+          .slice()
+          .sort((a, b) => a.localeCompare(b))
+          .join('\0'),
+      ].join('\0'),
+    [
+      sidebarSortMetric,
+      filterBeatNasdaq,
+      filterBeatSp500,
+      riskFilter,
+      freqFilter,
+      weightFilter,
+      sidebarProfiles,
+    ]
+  );
+
+  const profilesPrefetchOrderedRef = useRef(profilesPrefetchOrdered);
+  profilesPrefetchOrderedRef.current = profilesPrefetchOrdered;
+  const ypPrefetchGenRef = useRef(0);
+
+  useEffect(() => {
+    if (!authState.isAuthenticated || profilesPrefetchOrderedRef.current.length === 0) return;
+    const gen = ++ypPrefetchGenRef.current;
+    let cancelled = false;
+    void prefetchYourPortfolioMainData(profilesPrefetchOrderedRef.current).then((didWork) => {
+      if (cancelled || gen !== ypPrefetchGenRef.current) return;
+      if (didWork) setSidebarSortCacheEpoch((e) => e + 1);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [authState.isAuthenticated, profilesPrefetchStableKey]);
 
   const activeSidebarFilterCount = useMemo(() => {
     let n = 0;
@@ -1042,6 +1113,12 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       const isDatePick = asOf != null;
       const useRefreshChrome = isDatePick && hadTableData;
 
+      if (asOf != null && holdingsMovementView) {
+        setPrevMovementLoading(true);
+        setPrevMovementHoldings(null);
+        setPrevMovementError(false);
+      }
+
       const syncHit = getCachedExploreHoldings(slug, configId, asOf);
       if (syncHit) {
         if (yourPortfolioHoldingsRequestIdRef.current !== reqId) return;
@@ -1050,6 +1127,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         setConfigHoldingsRebalanceDates(syncHit.rebalanceDates);
         setConfigHoldingsLoading(false);
         setConfigHoldingsRefreshing(false);
+        setPendingHoldingsAsOf(null);
         prefetchExploreHoldingsDates(slug, configId, syncHit.rebalanceDates);
         return;
       }
@@ -1086,10 +1164,11 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         if (yourPortfolioHoldingsRequestIdRef.current === reqId) {
           setConfigHoldingsLoading(false);
           setConfigHoldingsRefreshing(false);
+          setPendingHoldingsAsOf(null);
         }
       }
     },
-    [selectedProfile?.id, selectedProfileConfigId, strategySlug]
+    [selectedProfile?.id, selectedProfileConfigId, strategySlug, holdingsMovementView]
   );
 
   useEffect(() => {
@@ -1100,6 +1179,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       setConfigHoldingsRebalanceDates([]);
       setConfigHoldingsLoading(false);
       setConfigHoldingsRefreshing(false);
+      setPendingHoldingsAsOf(null);
       return;
     }
     void fetchYourPortfolioConfigHoldings(null);
@@ -1196,6 +1276,8 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
 
   const topN = selectedProfile?.portfolio_config?.top_n ?? 20;
 
+  const effectiveHoldingsAsOf = pendingHoldingsAsOf ?? configHoldingsAsOf;
+
   const holdingsPrevRebalanceDate = useMemo(
     () => getPreviousRebalanceDate(configHoldingsRebalanceDates, configHoldingsAsOf),
     [configHoldingsRebalanceDates, configHoldingsAsOf]
@@ -1236,6 +1318,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   }, [
     holdingsMovementView,
     holdingsPrevRebalanceDate,
+    configHoldingsAsOf,
     strategySlug,
     selectedProfileConfigId,
   ]);
@@ -1711,6 +1794,11 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
               const rowStartAbbrev = p.user_start_date?.trim()
                 ? formatYmdDisplay(p.user_start_date.trim())
                 : null;
+              const rowInvestment = num(p.investment_size);
+              const rowInvestmentDigits =
+                Number.isFinite(rowInvestment) && rowInvestment > 0
+                  ? rowInvestment.toLocaleString('en-US', { maximumFractionDigits: 0 })
+                  : null;
               return (
                 <div
                   key={p.id}
@@ -1742,10 +1830,19 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                           <span className="min-w-0 text-sm font-semibold text-foreground line-clamp-2">
                             {pc?.label ?? 'Portfolio'}
                           </span>
-                          {rowStartAbbrev ? (
-                            <span className="shrink-0 pt-0.5 text-right text-[10px] leading-snug text-muted-foreground tabular-nums">
-                              {rowStartAbbrev}
-                            </span>
+                          {rowStartAbbrev || rowInvestmentDigits ? (
+                            <div className="flex shrink-0 flex-col items-end gap-0.5 pt-0.5 text-right">
+                              {rowStartAbbrev ? (
+                                <span className="text-[10px] leading-snug text-muted-foreground tabular-nums">
+                                  {rowStartAbbrev}
+                                </span>
+                              ) : null}
+                              {rowInvestmentDigits ? (
+                                <span className="text-[10px] leading-snug text-muted-foreground tabular-nums">
+                                  {`$${rowInvestmentDigits}`}
+                                </span>
+                              ) : null}
+                            </div>
                           ) : null}
                         </div>
                         {(rowRanked?.badges ?? []).length > 0 ? (
@@ -2032,13 +2129,14 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                       <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-2 sm:gap-x-3">
                         <Select
                           value={
-                            configHoldingsAsOf &&
-                            configHoldingsRebalanceDates.includes(configHoldingsAsOf)
-                              ? configHoldingsAsOf
+                            effectiveHoldingsAsOf &&
+                            configHoldingsRebalanceDates.includes(effectiveHoldingsAsOf)
+                              ? effectiveHoldingsAsOf
                               : undefined
                           }
                           onValueChange={(v) => {
-                            if (v && v !== configHoldingsAsOf) {
+                            if (v && v !== effectiveHoldingsAsOf) {
+                              setPendingHoldingsAsOf(v);
                               void fetchYourPortfolioConfigHoldings(v);
                             }
                           }}
@@ -2144,6 +2242,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                     weightingMethod={
                                       selectedProfile?.portfolio_config?.weighting_method
                                     }
+                                    topN={selectedProfile?.portfolio_config?.top_n}
                                   />
                                 </span>
                               </TableHead>

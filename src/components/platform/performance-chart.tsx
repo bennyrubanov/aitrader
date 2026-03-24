@@ -11,6 +11,11 @@ import {
 } from 'recharts';
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import { Button } from '@/components/ui/button';
+import {
+  CHART_INDEX_SERIES_COLORS,
+  CHART_NEUTRAL_REFERENCE_STROKE,
+  CHART_PORTFOLIO_SERIES_COLOR,
+} from '@/lib/chart-index-series-colors';
 import { cn } from '@/lib/utils';
 import { toDrawdownPercentSeries } from '@/lib/performance-series-drawdown';
 
@@ -33,10 +38,18 @@ const displayDateFormatter = new Intl.DateTimeFormat('en-US', {
 });
 
 const SERIES_CONFIG: Record<string, { label: string; color: string; defaultVisible: boolean }> = {
-  aiTop20: { label: 'AI Strategy', color: '#2563eb', defaultVisible: true },
-  nasdaq100CapWeight: { label: 'Nasdaq-100 (cap-weighted)', color: '#64748b', defaultVisible: true },
-  nasdaq100EqualWeight: { label: 'Nasdaq-100 (equal-weighted)', color: '#16a34a', defaultVisible: true },
-  sp500: { label: 'S&P 500 (cap-weighted)', color: '#a855f7', defaultVisible: true },
+  aiTop20: { label: 'AI Strategy', color: CHART_PORTFOLIO_SERIES_COLOR, defaultVisible: true },
+  nasdaq100CapWeight: {
+    label: 'Nasdaq-100 (cap-weighted)',
+    color: CHART_INDEX_SERIES_COLORS.nasdaq100CapWeight,
+    defaultVisible: true,
+  },
+  nasdaq100EqualWeight: {
+    label: 'Nasdaq-100 (equal-weighted)',
+    color: CHART_INDEX_SERIES_COLORS.nasdaq100EqualWeight,
+    defaultVisible: true,
+  },
+  sp500: { label: 'S&P 500 (cap-weighted)', color: CHART_INDEX_SERIES_COLORS.sp500, defaultVisible: true },
 };
 
 export type PerformanceChartSeriesKey =
@@ -367,11 +380,13 @@ export function PerformanceChart({
             width={72}
             minTickGap={8}
           />
-          {view === 'drawdown' && <ReferenceLine y={0} stroke="#64748b" strokeDasharray="4 2" />}
+          {view === 'drawdown' && (
+            <ReferenceLine y={0} stroke={CHART_NEUTRAL_REFERENCE_STROKE} strokeDasharray="4 2" />
+          )}
           {view === 'equity' && (
             <ReferenceLine
               y={notional}
-              stroke="#64748b"
+              stroke={CHART_NEUTRAL_REFERENCE_STROKE}
               strokeDasharray="4 3"
               strokeOpacity={startingRefHovered ? 0.8 : 0.4}
               strokeWidth={startingRefHovered ? 2 : 1}
@@ -428,7 +443,7 @@ export function PerformanceChart({
           >
             <span
               className={cn(
-                'inline-block h-0 w-3 shrink-0 border-dashed border-[#64748b] transition-[border-width,opacity]',
+                'inline-block h-0 w-3 shrink-0 border-dashed border-slate-400 transition-[border-width,opacity]',
                 startingRefHovered
                   ? 'border-t-[2.25px] opacity-100'
                   : 'border-t-[1.5px] opacity-90'

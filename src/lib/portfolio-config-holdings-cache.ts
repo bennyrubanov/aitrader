@@ -104,7 +104,8 @@ export function prefetchExploreHoldingsDates(
 }
 
 /** Brief skeleton on network date switches (ms). */
-export const HOLDINGS_DATE_SWITCH_MIN_SKELETON_MS = 120;
+/** Artificial delay after a fast cached date switch; keep at 0 so the new holdings/actions show immediately. */
+export const HOLDINGS_DATE_SWITCH_MIN_SKELETON_MS = 0;
 
 export function sleepMs(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));

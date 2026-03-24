@@ -1,8 +1,10 @@
 /**
- * GET /api/platform/portfolio-movement?profileId=
+ * GET /api/platform/portfolio-movement?profileId=&rebalanceDate=
  *
- * Authenticated: last config rebalance vs prior rebalance — hold / buy / sell with weights and
+ * Authenticated: config rebalance vs prior rebalance — hold / buy / sell with weights and
  * dollar targets using the same rebase as the personal config track.
+ * Optional `rebalanceDate` (YYYY-MM-DD) must be in `rebalanceDates` and not the oldest batch;
+ * defaults to the newest rebalance when omitted.
  */
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
@@ -159,19 +161,29 @@ export async function GET(req: Request) {
     return NextResponse.json({
       profileId,
       status: 'no_prior_rebalance' as const,
-      message: 'Need at least two rebalance dates to show entries and exits.',
+      message: 'Need at least two rebalance dates to show rebalance actions.',
       lastRebalanceDate: latestAsOf ?? rebalanceDates[0] ?? null,
       previousRebalanceDate: null,
       notionalAtPrevRebalanceEnd: null,
       notionalAtCurrRebalanceEnd: null,
+      rebalanceDates,
       hold: [],
       buy: [],
       sell: [],
     });
   }
 
-  const lastRebalanceDate = rebalanceDates[0]!;
-  const previousRebalanceDate = rebalanceDates[1]!;
+  const rebalanceDateParam = searchParams.get('rebalanceDate')?.trim() ?? '';
+  let currentIdx = 0;
+  if (rebalanceDateParam && YMD.test(rebalanceDateParam)) {
+    const found = rebalanceDates.indexOf(rebalanceDateParam);
+    if (found >= 0 && found < rebalanceDates.length - 1) {
+      currentIdx = found;
+    }
+  }
+
+  const lastRebalanceDate = rebalanceDates[currentIdx]!;
+  const previousRebalanceDate = rebalanceDates[currentIdx + 1]!;
 
   const { holdings: currHoldings } = await getPortfolioConfigHoldings(
     admin,
@@ -214,6 +226,7 @@ export async function GET(req: Request) {
     previousRebalanceDate,
     notionalAtPrevRebalanceEnd: notionalPrev,
     notionalAtCurrRebalanceEnd: notionalCurr,
+    rebalanceDates,
     hold,
     buy,
     sell,

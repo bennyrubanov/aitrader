@@ -1,17 +1,46 @@
 "use client";
 
-import { useEffect } from "react";
+import { useLayoutEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Home } from "lucide-react";
+import { Home, LayoutDashboard } from "lucide-react";
+import { hasPlatformTabSession } from "@/lib/platform-tab-session";
+
+function referrerIsPlatformPage(): boolean {
+  if (typeof document === "undefined") return false;
+  const ref = document.referrer;
+  if (!ref) return false;
+  try {
+    const u = new URL(ref);
+    if (typeof window === "undefined") return false;
+    if (u.origin !== window.location.origin) return false;
+    return u.pathname.startsWith("/platform");
+  } catch {
+    return false;
+  }
+}
 
 const NotFoundPage = () => {
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
+  const router = useRouter();
+  const [destination, setDestination] = useState<"/" | "/platform">(() =>
+    pathname.startsWith("/platform") ? "/platform" : "/"
+  );
 
-  useEffect(() => {
-    console.error("404 Error: User attempted to access non-existent route:", pathname);
-  }, [pathname]);
+  useLayoutEffect(() => {
+    console.warn("404: non-existent route:", pathname);
+    const target =
+      pathname.startsWith("/platform") ||
+      referrerIsPlatformPage() ||
+      hasPlatformTabSession()
+        ? "/platform"
+        : "/";
+    setDestination(target);
+    router.replace(target);
+  }, [pathname, router]);
+
+  const isPlatformReturn = destination === "/platform";
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-muted/40">
@@ -20,12 +49,16 @@ const NotFoundPage = () => {
         <p className="text-xl text-muted-foreground mb-6">Page not found</p>
         <p className="text-muted-foreground mb-8">
           It looks like you&apos;ve tried to access{" "}
-          <strong>{pathname}</strong> directly.
+          <strong>{pathname || "this page"}</strong> directly.
         </p>
-        <Link href="/">
+        <Link href={destination}>
           <Button className="rounded-xl px-5 transition-all duration-300 bg-trader-blue text-white hover:bg-trader-blue-dark">
-            <Home size={18} className="mr-2" />
-            <span>Return to Home</span>
+            {isPlatformReturn ? (
+              <LayoutDashboard size={18} className="mr-2" />
+            ) : (
+              <Home size={18} className="mr-2" />
+            )}
+            <span>{isPlatformReturn ? "Return to Platform" : "Return to Home"}</span>
           </Button>
         </Link>
       </div>

@@ -22,7 +22,7 @@ export const SPOTLIGHT_STAT_TOOLTIPS = {
   },
   consistency: {
     title: 'Consistency (weekly vs NDX cap)',
-    body: 'Share of ISO weeks since your entry where your portfolio’s week-over-week return beat the Nasdaq-100 cap-weight benchmark for the same week. 50% means you matched the index half the time; above 50% means you won more weeks than you lost.',
+    body: 'Share of weeks since your entry where your portfolio’s week-over-week return beat the Nasdaq-100 cap-weight benchmark for the same week. 50% means you matched the index half the time; above 50% means you won more weeks than you lost.',
   },
   vs_nasdaq_cap: {
     title: 'Performance vs Nasdaq-100 (cap)',

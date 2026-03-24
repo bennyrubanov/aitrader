@@ -132,7 +132,8 @@ const PerformanceChart = dynamic(
 );
 
 /** Every overview grid cell (portfolio tile or “add”) uses this fixed row height — layout does not grow/shrink per content. */
-const OVERVIEW_TILE_ROW_HEIGHT = '20rem';
+/** Overview portfolio tiles (incl. rebalance column): tall enough to avoid inner scroll. */
+const OVERVIEW_TILE_ROW_HEIGHT = '26rem';
 
 /** Matches `INITIAL_CAPITAL` in config performance / model track rows before user-specific rebase. */
 const OVERVIEW_MODEL_INITIAL = 10_000;
@@ -420,15 +421,14 @@ function computeOverviewPortfolioValue(
 function benchmarkStatsFromSeries(series: PerformanceSeriesPoint[] | undefined): {
   excessVsNasdaqCap: number | null;
   excessVsSp500: number | null;
-  nasdaqCapTotalReturn: number | null;
 } {
   if (!series || series.length < 2) {
-    return { excessVsNasdaqCap: null, excessVsSp500: null, nasdaqCapTotalReturn: null };
+    return { excessVsNasdaqCap: null, excessVsSp500: null };
   }
   const f = series[0]!;
   const l = series[series.length - 1]!;
   if (f.aiTop20 <= 0 || f.nasdaq100CapWeight <= 0 || l.nasdaq100CapWeight <= 0) {
-    return { excessVsNasdaqCap: null, excessVsSp500: null, nasdaqCapTotalReturn: null };
+    return { excessVsNasdaqCap: null, excessVsSp500: null };
   }
   const portRet = l.aiTop20 / f.aiTop20 - 1;
   const benchRet = l.nasdaq100CapWeight / f.nasdaq100CapWeight - 1;
@@ -440,20 +440,63 @@ function benchmarkStatsFromSeries(series: PerformanceSeriesPoint[] | undefined):
   return {
     excessVsNasdaqCap: portRet - benchRet,
     excessVsSp500,
-    nasdaqCapTotalReturn: benchRet,
   };
 }
 
-function MiniSparkline({ points }: { points: number[] }) {
-  if (points.length < 1) return <div className="h-10 w-full rounded bg-muted/40" />;
-  if (points.length < 2) {
-    const w = 120;
-    const h = 36;
+function miniSparkPath(
+  pts: number[],
+  w: number,
+  h: number,
+  pad: number,
+  minV: number,
+  maxV: number
+): string {
+  if (pts.length < 1) return '';
+  if (pts.length < 2) {
+    const t = maxV === minV ? 0.5 : (pts[0]! - minV) / (maxV - minV);
+    const y = h - pad - t * (h - 2 * pad);
+    return `M${pad},${y.toFixed(1)} L${(w - pad).toFixed(1)},${y.toFixed(1)}`;
+  }
+  return pts
+    .map((p, i) => {
+      const x = pad + (i / (pts.length - 1)) * (w - 2 * pad);
+      const t = maxV === minV ? 0.5 : (p - minV) / (maxV - minV);
+      const y = h - pad - t * (h - 2 * pad);
+      return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(' ');
+}
+
+/** Your portfolio (series) vs Nasdaq-100 cap on the same vertical scale (shared min/max). */
+function MiniSparkline({
+  portfolioPoints,
+  nasdaqCapPoints,
+}: {
+  portfolioPoints: number[];
+  nasdaqCapPoints?: number[];
+}) {
+  const bench =
+    nasdaqCapPoints &&
+    nasdaqCapPoints.length === portfolioPoints.length &&
+    portfolioPoints.length > 0
+      ? nasdaqCapPoints
+      : null;
+
+  if (portfolioPoints.length < 1) return <div className="h-10 w-full rounded bg-muted/40" />;
+
+  const w = 120;
+  const h = 36;
+  const pad = 2;
+  const allVals = bench ? [...portfolioPoints, ...bench] : portfolioPoints;
+  const minV = Math.min(...allVals);
+  const maxV = Math.max(...allVals);
+
+  if (portfolioPoints.length < 2 && !bench) {
     const y = h / 2;
     return (
       <svg width={w} height={h} className="text-trader-blue" aria-hidden>
         <path
-          d={`M2,${y.toFixed(1)} L${(w - 2).toFixed(1)},${y.toFixed(1)}`}
+          d={`M${pad},${y.toFixed(1)} L${(w - pad).toFixed(1)},${y.toFixed(1)}`}
           fill="none"
           stroke="currentColor"
           strokeWidth="1.5"
@@ -463,25 +506,25 @@ function MiniSparkline({ points }: { points: number[] }) {
       </svg>
     );
   }
-  const min = Math.min(...points);
-  const max = Math.max(...points);
-  const w = 120;
-  const h = 36;
-  const pad = 2;
-  const path = points
-    .map((p, i) => {
-      const x = pad + (i / (points.length - 1)) * (w - 2 * pad);
-      const t = max === min ? 0.5 : (p - min) / (max - min);
-      const y = h - pad - t * (h - 2 * pad);
-      return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(' ');
+
+  const portPath = miniSparkPath(portfolioPoints, w, h, pad, minV, maxV);
+  const benchPath = bench ? miniSparkPath(bench, w, h, pad, minV, maxV) : '';
+
   return (
-    <svg width={w} height={h} className="text-trader-blue" aria-hidden>
+    <svg width={w} height={h} className="max-w-full" aria-hidden>
+      {benchPath ? (
+        <path
+          d={benchPath}
+          fill="none"
+          className="stroke-purple-500 dark:stroke-purple-400"
+          strokeWidth="1.25"
+          vectorEffect="non-scaling-stroke"
+        />
+      ) : null}
       <path
-        d={path}
+        d={portPath}
         fill="none"
-        stroke="currentColor"
+        className="stroke-trader-blue"
         strokeWidth="1.5"
         vectorEffect="non-scaling-stroke"
       />
@@ -510,7 +553,9 @@ function OverviewPortfolioTile({
 }) {
   const cfg = p.portfolio_config;
   const st = cardState[p.id];
-  const spark = (st?.series ?? []).map((x) => x.aiTop20);
+  const series = st?.series ?? [];
+  const spark = series.map((x) => x.aiTop20);
+  const sparkNasdaqCap = series.map((x) => x.nasdaq100CapWeight);
   const slug = p.strategy_models?.slug;
   const bundle = slug ? rankedBySlug[slug] : undefined;
   const rankedCfg = resolveRankedConfigForProfile(p, bundle);
@@ -522,7 +567,7 @@ function OverviewPortfolioTile({
       rebalanceFrequency: cfg.rebalance_frequency,
     });
   const configBadges = rankedCfg?.badges ?? [];
-  const { excessVsNasdaqCap, nasdaqCapTotalReturn } = benchmarkStatsFromSeries(st?.series);
+  const { excessVsNasdaqCap } = benchmarkStatsFromSeries(st?.series);
   const riskTitle =
     cfg && ((cfg.risk_label && cfg.risk_label.trim()) || RISK_LABELS[cfg.risk_level as RiskLevel]);
   const riskDot =
@@ -570,7 +615,7 @@ function OverviewPortfolioTile({
       )}
     >
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        <div className="min-h-0 flex-1 overflow-hidden p-4">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1 space-y-1">
             {p.is_starting_portfolio ? (
@@ -601,9 +646,6 @@ function OverviewPortfolioTile({
                       {overviewConfigLine}
                     </span>
                   ) : null}
-                  {configBadges.map((b) => (
-                    <PortfolioConfigBadgePill key={b} name={b} strategySlug={slug} />
-                  ))}
                 </>
               ) : (
                 <span className="text-xs text-muted-foreground">Configuration</span>
@@ -619,6 +661,13 @@ function OverviewPortfolioTile({
                 ) : null}
                 {investmentLabel ? <span>Investment: {investmentLabel}</span> : null}
               </p>
+            ) : null}
+            {cfg && configBadges.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                {configBadges.map((b) => (
+                  <PortfolioConfigBadgePill key={b} name={b} strategySlug={slug} />
+                ))}
+              </div>
             ) : null}
             {!st?.loading && st?.gatheringData ? (
               <p className="text-[10px] leading-snug text-muted-foreground">
@@ -648,14 +697,19 @@ function OverviewPortfolioTile({
             <p className="text-base font-bold tabular-nums leading-tight">
               {st?.loading ? '…' : fmt.pct(excessVsNasdaqCap)}
             </p>
-            <p className="text-[10px] text-muted-foreground tabular-nums">
-              NDX cap {st?.loading ? '…' : fmt.pct(nasdaqCapTotalReturn)}
-            </p>
           </div>
         </div>
 
-        <div className="mt-3">
-          <MiniSparkline points={spark} />
+        <div className="mt-3 space-y-1">
+          <MiniSparkline portfolioPoints={spark} nasdaqCapPoints={sparkNasdaqCap} />
+          {spark.length > 0 ? (
+            <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[9px] leading-none">
+              <span className="text-trader-blue">Your portfolio</span>
+              {sparkNasdaqCap.length === spark.length ? (
+                <span className="text-purple-600 dark:text-purple-400">Nasdaq-100 (cap)</span>
+              ) : null}
+            </p>
+          ) : null}
         </div>
         </div>
         {yourPortfoliosHref ? (
@@ -663,17 +717,13 @@ function OverviewPortfolioTile({
             <div className="flex justify-end">
               <Button
                 asChild
-                variant="secondary"
+                variant="ghost"
                 size="sm"
-                className="h-7 gap-1 px-2 text-[10px] font-semibold shadow-sm"
+                className="h-7 gap-1 px-2 text-[10px] font-semibold"
               >
-                <Link
-                  href={yourPortfoliosHref}
-                  prefetch
-                  className="inline-flex items-center gap-1"
-                >
-                  <Folders className="size-3.5 shrink-0" aria-hidden />
-                  Your portfolios
+                <Link href={yourPortfoliosHref} prefetch className="inline-flex items-center">
+                  Go to portfolio
+                  <ArrowRight className="size-3.5 shrink-0" aria-hidden />
                 </Link>
               </Button>
             </div>
@@ -697,6 +747,8 @@ type PortfolioMovementApiPayload = {
   previousRebalanceDate: string | null;
   notionalAtPrevRebalanceEnd?: number | null;
   notionalAtCurrRebalanceEnd?: number | null;
+  /** Newest-first rebalance run dates (when holdings were computed). Present on `ok` / `no_prior_rebalance`. */
+  rebalanceDates?: string[];
   hold: PortfolioMovementLine[];
   buy: PortfolioMovementLine[];
   sell: PortfolioMovementLine[];
@@ -715,26 +767,38 @@ type PortfolioMovementResolved = Extract<ProfileMovementFetchState, { loading: f
  * - Session cache + in-flight dedupe per `profileId` (Strict Mode / remounts).
  * - Bounded parallelism so many portfolios don’t hammer the API/DB at once.
  */
-const PORTFOLIO_MOVEMENT_MAX_PARALLEL = 3;
+/** Warm prefetch for all rebalance dates shares this limit across overview cards. */
+const PORTFOLIO_MOVEMENT_MAX_PARALLEL = 6;
+/** User-entry perf on overview: start loads in current sort order, this many at a time. */
+const OVERVIEW_USER_ENTRY_FETCH_BATCH = 6;
 const portfolioMovementFetchLimit = createConcurrencyLimit(PORTFOLIO_MOVEMENT_MAX_PARALLEL);
 
 const portfolioMovementFetchCache = new Map<string, PortfolioMovementResolved>();
 const portfolioMovementInflight = new Map<string, Promise<PortfolioMovementResolved>>();
 
-async function loadPortfolioMovementDeduped(profileId: string): Promise<PortfolioMovementResolved> {
-  const cached = portfolioMovementFetchCache.get(profileId);
+function portfolioMovementCacheKey(profileId: string, rebalanceDate: string | null) {
+  return `${profileId}\0${rebalanceDate ?? 'default'}`;
+}
+
+async function loadPortfolioMovementDeduped(
+  profileId: string,
+  rebalanceDate: string | null
+): Promise<PortfolioMovementResolved> {
+  const key = portfolioMovementCacheKey(profileId, rebalanceDate);
+  const cached = portfolioMovementFetchCache.get(key);
   if (cached) return cached;
 
-  const inflight = portfolioMovementInflight.get(profileId);
+  const inflight = portfolioMovementInflight.get(key);
   if (inflight) return inflight;
 
   const promise = portfolioMovementFetchLimit(() =>
     (async (): Promise<PortfolioMovementResolved> => {
       try {
-        const r = await fetch(
-          `/api/platform/portfolio-movement?profileId=${encodeURIComponent(profileId)}`,
-          { cache: 'no-store' }
-        );
+        const params = new URLSearchParams({ profileId });
+        if (rebalanceDate) params.set('rebalanceDate', rebalanceDate);
+        const r = await fetch(`/api/platform/portfolio-movement?${params}`, {
+          cache: 'no-store',
+        });
         const raw = (await r.json().catch(() => ({}))) as PortfolioMovementApiPayload & {
           error?: string;
         };
@@ -747,85 +811,162 @@ async function loadPortfolioMovementDeduped(profileId: string): Promise<Portfoli
         } else {
           result = { loading: false as const, data: raw };
         }
-        portfolioMovementFetchCache.set(profileId, result);
+        portfolioMovementFetchCache.set(key, result);
         return result;
       } catch {
         const result: PortfolioMovementResolved = {
           loading: false as const,
           error: 'Network error.',
         };
-        portfolioMovementFetchCache.set(profileId, result);
+        portfolioMovementFetchCache.set(key, result);
         return result;
       }
     })()
   ).finally(() => {
-    portfolioMovementInflight.delete(profileId);
+    portfolioMovementInflight.delete(key);
   });
 
-  portfolioMovementInflight.set(profileId, promise);
+  portfolioMovementInflight.set(key, promise);
   return promise;
 }
 
-function StockMovementRowTable({
-  title,
-  rows,
-  tone,
+/**
+ * After the first successful movement load for a profile, prefetch every selectable rebalance
+ * window (dropdown = newest-first, excluding oldest) so switching dates reads from session cache.
+ */
+function warmPortfolioMovementCacheForProfile(
+  profileId: string,
+  rebalanceDatesNewestFirst: readonly string[]
+): void {
+  if (rebalanceDatesNewestFirst.length < 2) return;
+  const newest = rebalanceDatesNewestFirst[0] ?? null;
+  const jobs: Array<Promise<PortfolioMovementResolved>> = [];
+  for (const d of rebalanceDatesNewestFirst.slice(0, -1)) {
+    const param = d === newest ? null : d;
+    const key = portfolioMovementCacheKey(profileId, param);
+    if (portfolioMovementFetchCache.has(key)) continue;
+    jobs.push(loadPortfolioMovementDeduped(profileId, param));
+  }
+  if (jobs.length > 0) void Promise.all(jobs);
+}
+
+type RebalanceMovementAction = 'buy' | 'sell';
+
+function rebalanceMovementRowsFlat(
+  buy: PortfolioMovementLine[],
+  sell: PortfolioMovementLine[]
+): { kind: RebalanceMovementAction; r: PortfolioMovementLine }[] {
+  return [
+    ...sell.map((r) => ({ kind: 'sell' as const, r })),
+    ...buy.map((r) => ({ kind: 'buy' as const, r })),
+  ];
+}
+
+function RebalanceActionsTable({
+  buy,
+  sell,
 }: {
-  title: string;
-  rows: PortfolioMovementLine[];
-  tone: 'hold' | 'buy' | 'sell';
+  buy: PortfolioMovementLine[];
+  sell: PortfolioMovementLine[];
 }) {
+  const rows = rebalanceMovementRowsFlat(buy, sell);
   if (rows.length === 0) return null;
-  const toneClass =
-    tone === 'buy'
-      ? 'border-emerald-500/25'
-      : tone === 'sell'
-        ? 'border-rose-500/25'
-        : 'border-border';
+
+  const actionBadge = (kind: RebalanceMovementAction) => {
+    const label = kind === 'buy' ? 'Buy' : 'Sell';
+    const cls =
+      kind === 'buy'
+        ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200'
+        : 'border-rose-500/35 bg-rose-500/10 text-rose-800 dark:text-rose-200';
+    return (
+      <span
+        className={cn(
+          'inline-flex min-w-[2.75rem] justify-center rounded border px-1.5 py-0 text-[10px] font-semibold uppercase tracking-wide',
+          cls
+        )}
+      >
+        {label}
+      </span>
+    );
+  };
+
+  const tradeCell = (kind: RebalanceMovementAction, r: PortfolioMovementLine) => {
+    const d = r.deltaDollars;
+    if (kind === 'buy') {
+      return (
+        <span className="font-medium tabular-nums text-emerald-600 dark:text-emerald-400">
+          +{formatOverviewCurrency(d)}
+        </span>
+      );
+    }
+    return (
+      <span className="font-medium tabular-nums text-rose-600 dark:text-rose-400">
+        {formatOverviewCurrency(d)}
+      </span>
+    );
+  };
+
   return (
-    <div className={cn('rounded-lg border bg-card/40 px-3 py-2', toneClass)}>
-      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-        {title}
-      </p>
-      <div className="max-h-56 space-y-1.5 overflow-y-auto pr-1">
-        {rows.map((r) => (
-          <div
-            key={r.symbol}
-            className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-border/50 py-1.5 last:border-0"
-          >
-            <div className="min-w-0">
-              <Link
-                href={`/stocks/${r.symbol.toLowerCase()}`}
-                className="text-sm font-semibold hover:underline"
+    <div className="overflow-hidden rounded-lg border border-border/70 bg-card/30">
+      <div className="max-h-[min(22rem,50vh)] overflow-y-auto overscroll-y-contain [scrollbar-width:thin]">
+        <table className="w-full border-collapse text-left text-[11px]">
+          <thead>
+            <tr className="sticky top-0 z-[1] border-b border-border/70 bg-muted/90 backdrop-blur-sm">
+              <th
+                scope="col"
+                className="whitespace-nowrap py-1.5 pl-2 pr-1 font-semibold text-muted-foreground"
               >
-                {r.symbol}
-              </Link>
-              {r.companyName && r.companyName !== r.symbol ? (
-                <p className="truncate text-[11px] text-muted-foreground">{r.companyName}</p>
-              ) : null}
-            </div>
-            <div className="shrink-0 text-right text-xs tabular-nums">
-              <span className="text-muted-foreground">
-                {(r.targetWeight * 100).toFixed(1)}% target
-              </span>
-              <span className="mx-1 text-muted-foreground/40">·</span>
-              <span>{formatOverviewCurrency(r.targetDollars)}</span>
-              {Math.abs(r.deltaDollars) > 0.5 ? (
-                <span
-                  className={cn(
-                    'ml-2 font-medium',
-                    r.deltaDollars > 0
-                      ? 'text-emerald-600 dark:text-emerald-400'
-                      : 'text-rose-600 dark:text-rose-400'
-                  )}
-                >
-                  {r.deltaDollars > 0 ? '+' : ''}
-                  {formatOverviewCurrency(r.deltaDollars)}
-                </span>
-              ) : null}
-            </div>
-          </div>
-        ))}
+                Action
+              </th>
+              <th scope="col" className="py-1.5 px-1 font-semibold text-muted-foreground">
+                Stock
+              </th>
+              <th
+                scope="col"
+                className="whitespace-nowrap py-1.5 px-1 text-right font-semibold text-muted-foreground"
+              >
+                Trade
+              </th>
+              <th
+                scope="col"
+                className="whitespace-nowrap py-1.5 pl-1 pr-2 text-right font-semibold text-muted-foreground"
+              >
+                Target value
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(({ kind, r }) => (
+              <tr
+                key={`${kind}-${r.symbol}`}
+                className="border-b border-border/40 last:border-0 hover:bg-muted/25"
+              >
+                <td className="align-middle py-1 pl-2 pr-1">{actionBadge(kind)}</td>
+                <td className="min-w-0 max-w-[10rem] py-1 px-1 align-middle sm:max-w-none">
+                  <div className="min-w-0">
+                    <Link
+                      href={`/stocks/${r.symbol.toLowerCase()}`}
+                      className="font-semibold text-foreground hover:underline"
+                    >
+                      {r.symbol}
+                    </Link>
+                    {r.companyName && r.companyName !== r.symbol ? (
+                      <p className="truncate text-[10px] leading-tight text-muted-foreground">
+                        {r.companyName}
+                      </p>
+                    ) : null}
+                  </div>
+                </td>
+                <td className="whitespace-nowrap py-1 px-1 text-right align-middle tabular-nums">
+                  {tradeCell(kind, r)}
+                </td>
+                <td className="whitespace-nowrap py-1 pl-1 pr-2 text-right align-middle font-medium tabular-nums text-foreground">
+                  {formatOverviewCurrency(r.targetDollars)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
@@ -849,13 +990,29 @@ function SinglePortfolioRebalanceMovementSection({
 }) {
   const profileId = profile.id;
   const [fetchState, setFetchState] = useState<ProfileMovementFetchState | null>(null);
+  const [selectedRebalanceDate, setSelectedRebalanceDate] = useState<string | null>(null);
+  /** Last successful `status === 'ok'` payload so date chrome stays mounted while a new rebalanceDate fetch runs. */
+  const lastOkMovementRef = useRef<PortfolioMovementApiPayload | null>(null);
+  /** Dedupe background warm prefetch for this profile’s rebalance date list. */
+  const movementWarmPrefetchTokenRef = useRef('');
+
+  useEffect(() => {
+    setSelectedRebalanceDate(null);
+    lastOkMovementRef.current = null;
+    movementWarmPrefetchTokenRef.current = '';
+  }, [profileId]);
+
+  useEffect(() => {
+    movementWarmPrefetchTokenRef.current = '';
+  }, [refreshEpoch]);
 
   useEffect(() => {
     if (!fetchEnabled) {
       return;
     }
 
-    const cached = portfolioMovementFetchCache.get(profileId);
+    const cacheKey = portfolioMovementCacheKey(profileId, selectedRebalanceDate);
+    const cached = portfolioMovementFetchCache.get(cacheKey);
     if (cached) {
       setFetchState(cached);
       return;
@@ -864,18 +1021,57 @@ function SinglePortfolioRebalanceMovementSection({
     let cancelled = false;
     setFetchState({ loading: true });
 
-    void loadPortfolioMovementDeduped(profileId).then((result) => {
+    void loadPortfolioMovementDeduped(profileId, selectedRebalanceDate).then((result) => {
       if (!cancelled) setFetchState(result);
     });
 
     return () => {
       cancelled = true;
     };
-  }, [profileId, refreshEpoch, fetchEnabled]);
+  }, [profileId, refreshEpoch, fetchEnabled, selectedRebalanceDate]);
 
   const st = fetchState;
+  useEffect(() => {
+    if (st && !st.loading && 'data' in st && st.data.status === 'ok') {
+      lastOkMovementRef.current = st.data;
+    }
+  }, [st]);
+
+  useEffect(() => {
+    if (!fetchEnabled) return;
+    if (!st || st.loading || !('data' in st) || st.data.status !== 'ok') return;
+    const dates = st.data.rebalanceDates;
+    if (!dates || dates.length < 2) return;
+    const token = `${profileId}\0${dates.join('\0')}`;
+    if (movementWarmPrefetchTokenRef.current === token) return;
+    movementWarmPrefetchTokenRef.current = token;
+    warmPortfolioMovementCacheForProfile(profileId, dates);
+  }, [fetchEnabled, profileId, st]);
+
   const movementPayload = st && !st.loading && 'data' in st ? st.data : null;
   const movementError = st && !st.loading && 'error' in st ? st.error : null;
+
+  const chromeOkPayload =
+    movementPayload?.status === 'ok'
+      ? movementPayload
+      : lastOkMovementRef.current?.status === 'ok'
+        ? lastOkMovementRef.current
+        : null;
+
+  const initialMovementSkeleton = !st || (st.loading === true && chromeOkPayload == null);
+  const actionsTableLoading = st?.loading === true && chromeOkPayload != null;
+  const actionsTablePayload =
+    !st?.loading && movementPayload?.status === 'ok' ? movementPayload : null;
+
+  const cd = chromeOkPayload;
+  const headerLastRebalance =
+    actionsTablePayload?.lastRebalanceDate ??
+    selectedRebalanceDate ??
+    cd?.lastRebalanceDate ??
+    cd?.rebalanceDates?.[0] ??
+    null;
+  const headerNotional =
+    actionsTablePayload?.notionalAtCurrRebalanceEnd ?? cd?.notionalAtCurrRebalanceEnd ?? null;
 
   return (
     <div className="space-y-4">
@@ -910,7 +1106,7 @@ function SinglePortfolioRebalanceMovementSection({
           />
         </div>
         <div className="flex min-w-0 flex-col">
-          {!fetchEnabled ? null : !st || st.loading ? (
+          {!fetchEnabled ? null : initialMovementSkeleton ? (
             <div className="space-y-2">
               <Skeleton className="h-5 w-48" />
               <Skeleton className="h-32 w-full" />
@@ -922,51 +1118,104 @@ function SinglePortfolioRebalanceMovementSection({
             >
               <p className="text-sm text-muted-foreground">{movementError}</p>
             </div>
-          ) : movementPayload?.status === 'ok' ? (
+          ) : cd ? (
             <div className="space-y-3">
-              <div>
-                <p className="text-sm font-semibold">Rebalance</p>
-                <p className="text-xs text-muted-foreground">
-                  {movementPayload.lastRebalanceDate
-                    ? formatYmdDisplay(movementPayload.lastRebalanceDate)
-                    : '—'}
-                  {movementPayload.previousRebalanceDate ? (
-                    <>
-                      <span className="text-muted-foreground/50"> · </span>
-                      vs prior {formatYmdDisplay(movementPayload.previousRebalanceDate)}
-                    </>
+              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+                <div className="min-w-0 space-y-1">
+                  {headerLastRebalance ? (
+                    <p className="text-sm font-medium text-foreground">
+                      {cd.rebalanceDates?.[0] === headerLastRebalance
+                        ? 'Actions for most recent rebalance date: '
+                        : 'Rebalance date: '}
+                      <span className="tabular-nums">
+                        {formatYmdDisplay(headerLastRebalance)}
+                      </span>
+                    </p>
+                  ) : (
+                    <p className="text-sm font-medium text-foreground">Rebalance</p>
+                  )}
+                  {actionsTableLoading ? (
+                    <p className="text-[11px] text-muted-foreground">Loading actions for this date…</p>
                   ) : null}
-                </p>
-                {movementPayload.notionalAtCurrRebalanceEnd != null ? (
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    Portfolio value after this rebalance (your track):{' '}
-                    <span className="font-medium text-foreground tabular-nums">
-                      {formatOverviewCurrency(movementPayload.notionalAtCurrRebalanceEnd)}
-                    </span>
-                  </p>
+                  {headerNotional != null ? (
+                    <p className="text-[11px] text-muted-foreground">
+                      Portfolio value after this rebalance (your track):{' '}
+                      <span className="font-medium text-foreground tabular-nums">
+                        {formatOverviewCurrency(headerNotional)}
+                      </span>
+                    </p>
+                  ) : null}
+                </div>
+                {cd.rebalanceDates && cd.rebalanceDates.length >= 2 ? (
+                  <div className="flex shrink-0 flex-col gap-1">
+                    <Label
+                      htmlFor={`rebalance-date-${profileId}`}
+                      className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+                    >
+                      View rebalance
+                    </Label>
+                    <Select
+                      value={
+                        selectedRebalanceDate ??
+                        cd.lastRebalanceDate ??
+                        cd.rebalanceDates[0]!
+                      }
+                      onValueChange={(v) => {
+                        const newest = cd.rebalanceDates[0];
+                        setSelectedRebalanceDate(newest != null && v === newest ? null : v);
+                      }}
+                    >
+                      <SelectTrigger
+                        id={`rebalance-date-${profileId}`}
+                        className="h-8 w-[min(100%,13rem)] text-xs"
+                      >
+                        <SelectValue placeholder="Choose date" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {cd.rebalanceDates.slice(0, -1).map((d) => (
+                          <SelectItem key={d} value={d} className="text-xs">
+                            {formatYmdDisplay(d)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 ) : null}
               </div>
-              <StockMovementRowTable title="Buy" rows={movementPayload.buy} tone="buy" />
-              <StockMovementRowTable title="Sell" rows={movementPayload.sell} tone="sell" />
-              <StockMovementRowTable
-                title="Hold (still in portfolio)"
-                rows={movementPayload.hold}
-                tone="hold"
-              />
-              {movementPayload.hold.length === 0 &&
-              movementPayload.buy.length === 0 &&
-              movementPayload.sell.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No position changes vs prior rebalance.</p>
+              {actionsTableLoading ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-28 w-full" />
+                  <Skeleton className="h-8 w-48" />
+                </div>
+              ) : actionsTablePayload ? (
+                <>
+                  <RebalanceActionsTable buy={actionsTablePayload.buy} sell={actionsTablePayload.sell} />
+                  {actionsTablePayload.buy.length === 0 && actionsTablePayload.sell.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      No buy or sell actions vs prior rebalance.
+                    </p>
+                  ) : null}
+                </>
               ) : null}
             </div>
           ) : movementPayload ? (
             <div
-              className="flex flex-col justify-center"
+              className="flex min-w-0 flex-col items-center justify-center gap-3 px-2 text-center"
               style={{ minHeight: OVERVIEW_TILE_ROW_HEIGHT }}
             >
-              <p className="text-sm text-muted-foreground">
+              <p className="max-w-md text-sm text-muted-foreground">
                 {movementPayload.message ?? 'Movement data is not available yet.'}
               </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1.5 text-xs font-medium"
+                onClick={() => onOpenEntrySettings(profile.id)}
+              >
+                <Settings2 className="size-3.5 shrink-0" aria-hidden />
+                Entry settings
+              </Button>
             </div>
           ) : null}
         </div>
@@ -1096,6 +1345,13 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   >({});
   const [rankedLoading, setRankedLoading] = useState(false);
   const [cardState, setCardState] = useState<Record<string, OverviewCardPerfState>>({});
+  /** Dedupe overview user-perf fetches per profile when sort order effect re-runs. */
+  const overviewUserEntryFetchStartedRef = useRef<Map<string, string>>(new Map());
+  /** Fingerprint last time user-perf fetch finished for a profile (cleared when profile set changes). */
+  const overviewUserEntryTerminalFpRef = useRef<Map<string, string>>(new Map());
+  const overviewUserPerfAggregateKeyRef = useRef<string>('');
+  const overviewRebalanceSortMetricPrevRef = useRef<PortfolioListSortMetric | null>(null);
+  const overviewUserEntryRunIdRef = useRef(0);
   const [topSpotlightHoldings, setTopSpotlightHoldings] = useState<HoldingItem[]>([]);
   const [topSpotlightHoldingsLoading, setTopSpotlightHoldingsLoading] = useState(false);
   const [topSpotlightHoldingsRefreshing, setTopSpotlightHoldingsRefreshing] = useState(false);
@@ -1201,6 +1457,11 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
       .filter((r): r is NonNullable<typeof r> => r != null);
     return computeOverviewUserCompositeScores(rows);
   }, [profiles, cardState]);
+
+  const cardStateUserFetchRef = useRef(cardState);
+  const overviewCompositeUserFetchRef = useRef(overviewUserCompositeByProfileId);
+  cardStateUserFetchRef.current = cardState;
+  overviewCompositeUserFetchRef.current = overviewUserCompositeByProfileId;
 
   const topSpotlightOverview = useMemo(() => {
     let best: ProfileRow | null = null;
@@ -1413,9 +1674,19 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   const [rebalanceListSortMetric, setRebalanceListSortMetric] =
     useState<PortfolioListSortMetric>('total_return');
 
-  const profilesSortedForRebalance = useMemo(
+  const allOverviewCardStatesReady = useMemo(
     () =>
-      sortProfilesByOverviewCardMetric(
+      profiles.every((p) => {
+        const st = cardState[p.id];
+        return st != null && !st.loading;
+      }),
+    [profiles, cardState]
+  );
+
+  const profilesSortedForRebalance = useMemo(
+    () => {
+      if (!allOverviewCardStatesReady) return [...profiles];
+      return sortProfilesByOverviewCardMetric(
         profiles,
         rebalanceListSortMetric,
         cardState,
@@ -1424,8 +1695,15 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
           investment_size: Number(p.investment_size),
           user_start_date: p.user_start_date,
         })
-      ),
-    [profiles, rebalanceListSortMetric, cardState, overviewUserCompositeByProfileId]
+      );
+    },
+    [
+      profiles,
+      rebalanceListSortMetric,
+      allOverviewCardStatesReady,
+      cardState,
+      overviewUserCompositeByProfileId,
+    ]
   );
 
   const filteredProfilesForRebalance = useMemo(() => {
@@ -1474,7 +1752,32 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
 
   useEffect(() => {
     if (!profiles.length) return;
-    for (const p of profiles) {
+
+    if (overviewUserPerfAggregateKeyRef.current !== overviewUserPerfFetchKey) {
+      overviewUserEntryFetchStartedRef.current.clear();
+      overviewUserEntryTerminalFpRef.current.clear();
+      overviewUserPerfAggregateKeyRef.current = overviewUserPerfFetchKey;
+    } else {
+      const prevSort = overviewRebalanceSortMetricPrevRef.current;
+      if (prevSort !== null && prevSort !== rebalanceListSortMetric) {
+        overviewUserEntryFetchStartedRef.current.clear();
+      }
+    }
+    overviewRebalanceSortMetricPrevRef.current = rebalanceListSortMetric;
+
+    const ordered = sortProfilesByOverviewCardMetric(
+      profiles,
+      rebalanceListSortMetric,
+      cardStateUserFetchRef.current,
+      overviewCompositeUserFetchRef.current,
+      (p) => ({
+        investment_size: Number(p.investment_size),
+        user_start_date: p.user_start_date,
+      })
+    );
+
+    const toStart: ProfileRow[] = [];
+    for (const p of ordered) {
       const key = p.id;
       if (!p.user_start_date) {
         setCardState((s) => ({
@@ -1483,61 +1786,102 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
         }));
         continue;
       }
-      setCardState((s) => ({
-        ...s,
-        [key]: {
-          ...(s[key] ?? emptyOverviewCardPerfState(false)),
-          loading: true,
-        },
-      }));
-      void fetch(`/api/platform/user-portfolio-performance?profileId=${encodeURIComponent(p.id)}`)
-        .then((r) => r.json())
-        .then(
-          (d: {
-            series?: PerformanceSeriesPoint[];
-            metrics?: {
-              totalReturn: number | null;
-              cagr: number | null;
-              maxDrawdown: number | null;
-              sharpeRatio: number | null;
-              consistency: number | null;
-              excessReturnVsNasdaqCap: number | null;
-            } | null;
-            computeStatus?: string;
-            hasMultipleObservations?: boolean;
-          }) => {
-            const series = d.series ?? [];
-            const gathering = d.computeStatus === 'gathering_data';
-            const okFull =
-              d.computeStatus === 'ready' &&
-              series.length > 0 &&
-              d.hasMultipleObservations === true;
+      const fp = `${p.id}:${p.user_start_date ?? ''}:${Number(p.investment_size)}:${p.portfolio_config?.id ?? ''}`;
+      const cur = cardStateUserFetchRef.current[key];
+      if (
+        cur &&
+        !cur.loading &&
+        overviewUserEntryTerminalFpRef.current.get(key) === fp
+      ) {
+        overviewUserEntryFetchStartedRef.current.set(key, fp);
+        continue;
+      }
+      if (overviewUserEntryFetchStartedRef.current.get(key) === fp) {
+        continue;
+      }
+      overviewUserEntryFetchStartedRef.current.set(key, fp);
+      toStart.push(p);
+    }
+
+    const runId = ++overviewUserEntryRunIdRef.current;
+    let cancelled = false;
+    void (async () => {
+      for (let i = 0; i < toStart.length; i += OVERVIEW_USER_ENTRY_FETCH_BATCH) {
+        if (cancelled || runId !== overviewUserEntryRunIdRef.current) return;
+        const slice = toStart.slice(i, i + OVERVIEW_USER_ENTRY_FETCH_BATCH);
+        await Promise.all(
+          slice.map((p) => {
+            const key = p.id;
+            const fp = `${p.id}:${p.user_start_date ?? ''}:${Number(p.investment_size)}:${p.portfolio_config?.id ?? ''}`;
             setCardState((s) => ({
               ...s,
               [key]: {
-                series: series.length > 0 ? series : [],
-                gatheringData: gathering,
-                totalReturn: okFull ? (d.metrics?.totalReturn ?? null) : null,
-                cagr: okFull ? (d.metrics?.cagr ?? null) : null,
-                maxDrawdown: okFull ? (d.metrics?.maxDrawdown ?? null) : null,
-                sharpeRatio: okFull ? (d.metrics?.sharpeRatio ?? null) : null,
-                consistency: okFull ? (d.metrics?.consistency ?? null) : null,
-                excessReturnVsNasdaqCap: okFull
-                  ? (d.metrics?.excessReturnVsNasdaqCap ?? null)
-                  : null,
-                loading: false,
+                ...(s[key] ?? emptyOverviewCardPerfState(false)),
+                loading: true,
               },
             }));
-          }
-        )
-        .catch(() => {
-          setCardState((s) => ({
-            ...s,
-            [key]: emptyOverviewCardPerfState(false),
-          }));
-        });
-    }
-  }, [profiles, overviewUserPerfFetchKey]);
+            return fetch(
+              `/api/platform/user-portfolio-performance?profileId=${encodeURIComponent(p.id)}`
+            )
+              .then((r) => r.json())
+              .then(
+                (d: {
+                  series?: PerformanceSeriesPoint[];
+                  metrics?: {
+                    totalReturn: number | null;
+                    cagr: number | null;
+                    maxDrawdown: number | null;
+                    sharpeRatio: number | null;
+                    consistency: number | null;
+                    excessReturnVsNasdaqCap: number | null;
+                  } | null;
+                  computeStatus?: string;
+                  hasMultipleObservations?: boolean;
+                }) => {
+                  if (runId !== overviewUserEntryRunIdRef.current) return;
+                  const series = d.series ?? [];
+                  const gathering = d.computeStatus === 'gathering_data';
+                  const okFull =
+                    d.computeStatus === 'ready' &&
+                    series.length > 0 &&
+                    d.hasMultipleObservations === true;
+                  overviewUserEntryTerminalFpRef.current.set(key, fp);
+                  setCardState((s) => ({
+                    ...s,
+                    [key]: {
+                      series: series.length > 0 ? series : [],
+                      gatheringData: gathering,
+                      totalReturn: okFull ? (d.metrics?.totalReturn ?? null) : null,
+                      cagr: okFull ? (d.metrics?.cagr ?? null) : null,
+                      maxDrawdown: okFull ? (d.metrics?.maxDrawdown ?? null) : null,
+                      sharpeRatio: okFull ? (d.metrics?.sharpeRatio ?? null) : null,
+                      consistency: okFull ? (d.metrics?.consistency ?? null) : null,
+                      excessReturnVsNasdaqCap: okFull
+                        ? (d.metrics?.excessReturnVsNasdaqCap ?? null)
+                        : null,
+                      loading: false,
+                    },
+                  }));
+                }
+              )
+              .catch(() => {
+                if (runId !== overviewUserEntryRunIdRef.current) return;
+                overviewUserEntryTerminalFpRef.current.delete(key);
+                overviewUserEntryFetchStartedRef.current.delete(key);
+                setCardState((s) => ({
+                  ...s,
+                  [key]: emptyOverviewCardPerfState(false),
+                }));
+              });
+          })
+        );
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [profiles, overviewUserPerfFetchKey, rebalanceListSortMetric]);
 
   const topSpotlightProfileId = topSpotlightOverview?.profile.id ?? null;
   const topSpotlightConfigId = topSpotlightOverview?.profile.portfolio_config?.id ?? null;
@@ -2410,6 +2754,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                                 Allocation
                                                 <HoldingsAllocationColumnTooltip
                                                   weightingMethod={pc?.weighting_method}
+                                                  topN={pc?.top_n}
                                                 />
                                               </span>
                                             </TableHead>

@@ -2,7 +2,7 @@
 
 import { formatHoldingRankChange } from '@/lib/holding-rank-change';
 
-/** Rank number plus vs prior rebalance (↑/↓ and spots) or em dash when unchanged or unknown. */
+/** Rank number plus vs prior rebalance (arrow + spots, no duplicate sign) or em dash when unchanged or unknown. */
 export function HoldingRankWithChange({
   rank,
   rankChange,

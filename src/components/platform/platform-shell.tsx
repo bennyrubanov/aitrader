@@ -1,6 +1,7 @@
 'use client';
 
-import { ReactNode, Suspense } from 'react';
+import { ReactNode, Suspense, useLayoutEffect } from 'react';
+import { markPlatformTabSession } from '@/lib/platform-tab-session';
 import { AppSidebar } from '@/components/platform/app-sidebar';
 import { SiteHeader } from '@/components/platform/site-header';
 import { AccountPromptDialog } from '@/components/platform/account-prompt-dialog';
@@ -12,6 +13,10 @@ type PlatformShellProps = {
 };
 
 export function PlatformShell({ children }: PlatformShellProps) {
+  useLayoutEffect(() => {
+    markPlatformTabSession();
+  }, []);
+
   return (
     <div className="[--header-height:3.5rem] flex h-svh max-h-svh flex-col overflow-hidden bg-muted/30">
       <SidebarProvider className="flex min-h-0 flex-1 flex-col overflow-hidden">

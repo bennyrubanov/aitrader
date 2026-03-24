@@ -17,7 +17,7 @@ export function HoldingsMovementInfoTooltip() {
         <div className="space-y-2">
           <p>
             With <strong>Movement</strong> on, each row is compared to the <strong>prior rebalance</strong>{' '}
-            for this portfolio preset:
+            for this portfolio.
           </p>
           <ul className="list-disc space-y-1 pl-4">
             <li>
@@ -35,14 +35,14 @@ export function HoldingsMovementInfoTooltip() {
             </li>
           </ul>
           <p className="text-muted-foreground">
-            For buys, sells, and turnover detail, open the{' '}
+            For more detail, open the{' '}
             <Link
               href={rebalanceActionsHref}
               className="font-medium text-foreground underline underline-offset-2 hover:no-underline"
             >
               Rebalance actions
             </Link>{' '}
-            tab on Platform overview.
+            tab on the Overview page.
           </p>
         </div>
       </InfoIconTooltip>

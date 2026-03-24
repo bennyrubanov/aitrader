@@ -50,7 +50,11 @@ export function holdingMovementRowCn(kind: HoldingMovementKind | null): string {
     return cn('bg-muted/40 ring-1 ring-inset ring-border/80');
   }
   if (kind === 'entered') {
-    return cn('bg-emerald-500/[0.07] ring-1 ring-inset ring-emerald-500/35');
+    return cn(
+      'bg-emerald-500/[0.07] ring-1 ring-inset ring-emerald-500/35',
+      /* Dark: stronger fill + brighter ring so “entered” clears muted “stayed” rows */
+      'dark:bg-emerald-500/22 dark:ring-emerald-400/60'
+    );
   }
   return cn('bg-red-500/[0.08] ring-1 ring-inset ring-red-500/45');
 }
