@@ -763,9 +763,10 @@ type PortfolioMovementResolved = Extract<ProfileMovementFetchState, { loading: f
 
 /**
  * Rebalance movement loading (overview tab):
- * - Fetch only when the tab is selected (avoid N heavy calls on other tabs).
- * - Session cache + in-flight dedupe per `profileId` (Strict Mode / remounts).
+ * - Session cache + in-flight dedupe per `profileId` + optional rebalanceDate (Strict Mode / remounts).
  * - Bounded parallelism so many portfolios don’t hammer the API/DB at once.
+ * - Parent effect preloads default + warms selectable dates per loaded portfolio (current sort order);
+ *   each section still gates fetches when the tab is inactive (cache reads stay cheap).
  */
 /** Warm prefetch for all rebalance dates shares this limit across overview cards. */
 const PORTFOLIO_MOVEMENT_MAX_PARALLEL = 6;
@@ -850,29 +851,54 @@ function warmPortfolioMovementCacheForProfile(
   if (jobs.length > 0) void Promise.all(jobs);
 }
 
-type RebalanceMovementAction = 'buy' | 'sell';
+type RebalanceMovementAction = 'buy' | 'sell' | 'hold';
 
 function rebalanceMovementRowsFlat(
   buy: PortfolioMovementLine[],
-  sell: PortfolioMovementLine[]
+  sell: PortfolioMovementLine[],
+  hold: PortfolioMovementLine[]
 ): { kind: RebalanceMovementAction; r: PortfolioMovementLine }[] {
   return [
     ...sell.map((r) => ({ kind: 'sell' as const, r })),
     ...buy.map((r) => ({ kind: 'buy' as const, r })),
+    ...hold.map((r) => ({ kind: 'hold' as const, r })),
   ];
 }
 
 function RebalanceActionsTable({
+  hold,
   buy,
   sell,
 }: {
+  hold: PortfolioMovementLine[];
   buy: PortfolioMovementLine[];
   sell: PortfolioMovementLine[];
 }) {
-  const rows = rebalanceMovementRowsFlat(buy, sell);
+  /** Holds list only when there are no buy/sell name changes; otherwise table is buys + sells only. */
+  const includeHoldsInTable = buy.length === 0 && sell.length === 0;
+  const rows = rebalanceMovementRowsFlat(
+    buy,
+    sell,
+    includeHoldsInTable ? hold : []
+  );
   if (rows.length === 0) return null;
 
+  /** Hold-only table (no buy/sell rows): single Allocation column. Otherwise Trade + Target value. */
+  const useAllocationOnly = includeHoldsInTable;
+
   const actionBadge = (kind: RebalanceMovementAction) => {
+    if (kind === 'hold') {
+      return (
+        <span
+          className={cn(
+            'inline-flex min-w-[2.75rem] justify-center rounded border px-1.5 py-0 text-[10px] font-semibold uppercase tracking-wide',
+            'border-border bg-muted/60 text-muted-foreground'
+          )}
+        >
+          Hold
+        </span>
+      );
+    }
     const label = kind === 'buy' ? 'Buy' : 'Sell';
     const cls =
       kind === 'buy'
@@ -890,6 +916,19 @@ function RebalanceActionsTable({
     );
   };
 
+  const allocationCell = (kind: RebalanceMovementAction, r: PortfolioMovementLine) => {
+    if (kind === 'hold') {
+      const pct = (r.targetWeight * 100).toFixed(1);
+      return (
+        <span className="font-medium tabular-nums text-foreground">
+          {formatOverviewCurrency(r.targetDollars)}{' '}
+          <span className="whitespace-nowrap font-normal text-muted-foreground">({pct}%)</span>
+        </span>
+      );
+    }
+    return <span className="tabular-nums text-muted-foreground">—</span>;
+  };
+
   const tradeCell = (kind: RebalanceMovementAction, r: PortfolioMovementLine) => {
     const d = r.deltaDollars;
     if (kind === 'buy') {
@@ -899,8 +938,16 @@ function RebalanceActionsTable({
         </span>
       );
     }
+    if (kind === 'sell') {
+      return (
+        <span className="font-medium tabular-nums text-rose-600 dark:text-rose-400">
+          {formatOverviewCurrency(d)}
+        </span>
+      );
+    }
     return (
-      <span className="font-medium tabular-nums text-rose-600 dark:text-rose-400">
+      <span className="font-medium tabular-nums text-muted-foreground">
+        {d >= 0 ? '+' : ''}
         {formatOverviewCurrency(d)}
       </span>
     );
@@ -921,18 +968,29 @@ function RebalanceActionsTable({
               <th scope="col" className="py-1.5 px-1 font-semibold text-muted-foreground">
                 Stock
               </th>
-              <th
-                scope="col"
-                className="whitespace-nowrap py-1.5 px-1 text-right font-semibold text-muted-foreground"
-              >
-                Trade
-              </th>
-              <th
-                scope="col"
-                className="whitespace-nowrap py-1.5 pl-1 pr-2 text-right font-semibold text-muted-foreground"
-              >
-                Target value
-              </th>
+              {useAllocationOnly ? (
+                <th
+                  scope="col"
+                  className="whitespace-nowrap py-1.5 pl-1 pr-2 text-right font-semibold text-muted-foreground"
+                >
+                  Allocation
+                </th>
+              ) : (
+                <>
+                  <th
+                    scope="col"
+                    className="whitespace-nowrap py-1.5 px-1 text-right font-semibold text-muted-foreground"
+                  >
+                    Trade
+                  </th>
+                  <th
+                    scope="col"
+                    className="whitespace-nowrap py-1.5 pl-1 pr-2 text-right font-semibold text-muted-foreground"
+                  >
+                    Target value
+                  </th>
+                </>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -957,12 +1015,20 @@ function RebalanceActionsTable({
                     ) : null}
                   </div>
                 </td>
-                <td className="whitespace-nowrap py-1 px-1 text-right align-middle tabular-nums">
-                  {tradeCell(kind, r)}
-                </td>
-                <td className="whitespace-nowrap py-1 pl-1 pr-2 text-right align-middle font-medium tabular-nums text-foreground">
-                  {formatOverviewCurrency(r.targetDollars)}
-                </td>
+                {useAllocationOnly ? (
+                  <td className="whitespace-nowrap py-1 pl-1 pr-2 text-right align-middle tabular-nums">
+                    {allocationCell(kind, r)}
+                  </td>
+                ) : (
+                  <>
+                    <td className="whitespace-nowrap py-1 px-1 text-right align-middle tabular-nums">
+                      {tradeCell(kind, r)}
+                    </td>
+                    <td className="whitespace-nowrap py-1 pl-1 pr-2 text-right align-middle font-medium tabular-nums text-foreground">
+                      {formatOverviewCurrency(r.targetDollars)}
+                    </td>
+                  </>
+                )}
               </tr>
             ))}
           </tbody>
@@ -989,21 +1055,30 @@ function SinglePortfolioRebalanceMovementSection({
   fetchEnabled: boolean;
 }) {
   const profileId = profile.id;
-  const [fetchState, setFetchState] = useState<ProfileMovementFetchState | null>(null);
   const [selectedRebalanceDate, setSelectedRebalanceDate] = useState<string | null>(null);
+  /** In-flight / last fetch when cache miss; session cache wins on read when present. */
+  const [localFetchState, setLocalFetchState] = useState<ProfileMovementFetchState | null>(null);
   /** Last successful `status === 'ok'` payload so date chrome stays mounted while a new rebalanceDate fetch runs. */
   const lastOkMovementRef = useRef<PortfolioMovementApiPayload | null>(null);
   /** Dedupe background warm prefetch for this profile’s rebalance date list. */
   const movementWarmPrefetchTokenRef = useRef('');
 
+  const cacheKey = portfolioMovementCacheKey(profileId, selectedRebalanceDate);
+  const st =
+    fetchEnabled
+      ? portfolioMovementFetchCache.get(cacheKey) ?? localFetchState
+      : localFetchState;
+
   useEffect(() => {
     setSelectedRebalanceDate(null);
     lastOkMovementRef.current = null;
     movementWarmPrefetchTokenRef.current = '';
+    setLocalFetchState(null);
   }, [profileId]);
 
   useEffect(() => {
     movementWarmPrefetchTokenRef.current = '';
+    setLocalFetchState(null);
   }, [refreshEpoch]);
 
   useEffect(() => {
@@ -1011,26 +1086,24 @@ function SinglePortfolioRebalanceMovementSection({
       return;
     }
 
-    const cacheKey = portfolioMovementCacheKey(profileId, selectedRebalanceDate);
-    const cached = portfolioMovementFetchCache.get(cacheKey);
-    if (cached) {
-      setFetchState(cached);
+    const hit = portfolioMovementFetchCache.get(cacheKey);
+    if (hit) {
+      setLocalFetchState(hit);
       return;
     }
 
     let cancelled = false;
-    setFetchState({ loading: true });
+    setLocalFetchState({ loading: true });
 
     void loadPortfolioMovementDeduped(profileId, selectedRebalanceDate).then((result) => {
-      if (!cancelled) setFetchState(result);
+      if (!cancelled) setLocalFetchState(result);
     });
 
     return () => {
       cancelled = true;
     };
-  }, [profileId, refreshEpoch, fetchEnabled, selectedRebalanceDate]);
+  }, [profileId, refreshEpoch, fetchEnabled, selectedRebalanceDate, cacheKey]);
 
-  const st = fetchState;
   useEffect(() => {
     if (st && !st.loading && 'data' in st && st.data.status === 'ok') {
       lastOkMovementRef.current = st.data;
@@ -1072,6 +1145,13 @@ function SinglePortfolioRebalanceMovementSection({
     null;
   const headerNotional =
     actionsTablePayload?.notionalAtCurrRebalanceEnd ?? cd?.notionalAtCurrRebalanceEnd ?? null;
+
+  const movementRowSource = actionsTablePayload ?? cd;
+  const portfolioValueLineLabel =
+    movementRowSource != null &&
+    (movementRowSource.buy.length > 0 || movementRowSource.hold.length > 0)
+      ? 'Portfolio value after this rebalance:'
+      : 'Portfolio value this date:';
 
   return (
     <div className="space-y-4">
@@ -1139,7 +1219,7 @@ function SinglePortfolioRebalanceMovementSection({
                   ) : null}
                   {headerNotional != null ? (
                     <p className="text-[11px] text-muted-foreground">
-                      Portfolio value after this rebalance (your track):{' '}
+                      {portfolioValueLineLabel}{' '}
                       <span className="font-medium text-foreground tabular-nums">
                         {formatOverviewCurrency(headerNotional)}
                       </span>
@@ -1162,7 +1242,11 @@ function SinglePortfolioRebalanceMovementSection({
                       }
                       onValueChange={(v) => {
                         const newest = cd.rebalanceDates[0];
-                        setSelectedRebalanceDate(newest != null && v === newest ? null : v);
+                        const nextSel = newest != null && v === newest ? null : v;
+                        const k = portfolioMovementCacheKey(profileId, nextSel);
+                        const hit = portfolioMovementFetchCache.get(k);
+                        setLocalFetchState(hit ?? { loading: true });
+                        setSelectedRebalanceDate(nextSel);
                       }}
                     >
                       <SelectTrigger
@@ -1189,7 +1273,11 @@ function SinglePortfolioRebalanceMovementSection({
                 </div>
               ) : actionsTablePayload ? (
                 <>
-                  <RebalanceActionsTable buy={actionsTablePayload.buy} sell={actionsTablePayload.sell} />
+                  <RebalanceActionsTable
+                    hold={actionsTablePayload.hold}
+                    buy={actionsTablePayload.buy}
+                    sell={actionsTablePayload.sell}
+                  />
                   {actionsTablePayload.buy.length === 0 && actionsTablePayload.sell.length === 0 ? (
                     <p className="text-sm text-muted-foreground">
                       No buy or sell actions vs prior rebalance.
@@ -1239,7 +1327,7 @@ function StockMovementPanel({
   onOpenEntrySettings: (profileId: string) => void;
   /** Bumps when portfolio data is invalidated so movement can refetch. */
   refreshEpoch: number;
-  /** False while another overview tab is selected — avoids N heavy API calls until needed. */
+  /** False while another overview tab is selected — skips network in sections; parent may preload cache. */
   fetchEnabled: boolean;
 }) {
   if (profiles.length === 0) {
@@ -1621,10 +1709,13 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   }, [authState.isAuthenticated]);
 
   const [movementRefreshEpoch, setMovementRefreshEpoch] = useState(0);
+  /** Dedupe overview movement prime + date warm per profile per epoch + user-entry fingerprint. */
+  const overviewMovementWarmStartedRef = useRef<Map<string, string>>(new Map());
   useEffect(() => {
     const handler = () => {
       portfolioMovementFetchCache.clear();
       portfolioMovementInflight.clear();
+      overviewMovementWarmStartedRef.current.clear();
       setMovementRefreshEpoch((e) => e + 1);
       void refreshOverviewProfiles();
     };
@@ -1674,19 +1765,10 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   const [rebalanceListSortMetric, setRebalanceListSortMetric] =
     useState<PortfolioListSortMetric>('total_return');
 
-  const allOverviewCardStatesReady = useMemo(
-    () =>
-      profiles.every((p) => {
-        const st = cardState[p.id];
-        return st != null && !st.loading;
-      }),
-    [profiles, cardState]
-  );
-
+  /** Same ordering as overview card loads — stable while tiles finish so the rebalance list does not reshuffle. */
   const profilesSortedForRebalance = useMemo(
-    () => {
-      if (!allOverviewCardStatesReady) return [...profiles];
-      return sortProfilesByOverviewCardMetric(
+    () =>
+      sortProfilesByOverviewCardMetric(
         profiles,
         rebalanceListSortMetric,
         cardState,
@@ -1695,15 +1777,8 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
           investment_size: Number(p.investment_size),
           user_start_date: p.user_start_date,
         })
-      );
-    },
-    [
-      profiles,
-      rebalanceListSortMetric,
-      allOverviewCardStatesReady,
-      cardState,
-      overviewUserCompositeByProfileId,
-    ]
+      ),
+    [profiles, rebalanceListSortMetric, cardState, overviewUserCompositeByProfileId]
   );
 
   const filteredProfilesForRebalance = useMemo(() => {
@@ -1725,6 +1800,43 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     rebalanceRiskFilter,
     rebalanceFreqFilter,
     rebalanceWeightFilter,
+  ]);
+
+  /**
+   * Per loaded portfolio (user-entry tile done), prime default movement then warm every selectable
+   * rebalance date. Order matches `profilesSortedForRebalance` so top-ranked rows hit the shared
+   * movement FIFO first — even when another overview tab is selected.
+   */
+  useEffect(() => {
+    if (!profiles.length) {
+      overviewMovementWarmStartedRef.current.clear();
+      return;
+    }
+
+    for (const p of profilesSortedForRebalance) {
+      if (!p.user_start_date?.trim()) continue;
+      const st = cardState[p.id];
+      if (!st || st.loading) continue;
+
+      const fp = `${p.id}:${p.user_start_date ?? ''}:${Number(p.investment_size)}:${p.portfolio_config?.id ?? ''}`;
+      const token = `${movementRefreshEpoch}\0${fp}`;
+      if (overviewMovementWarmStartedRef.current.get(p.id) === token) continue;
+      overviewMovementWarmStartedRef.current.set(p.id, token);
+
+      const profileId = p.id;
+      void loadPortfolioMovementDeduped(profileId, null).then((res) => {
+        if (res.loading) return;
+        if (!('data' in res) || res.data.status !== 'ok') return;
+        const dates = res.data.rebalanceDates;
+        if (!dates || dates.length < 2) return;
+        warmPortfolioMovementCacheForProfile(profileId, dates);
+      });
+    }
+  }, [
+    profiles.length,
+    profilesSortedForRebalance,
+    cardState,
+    movementRefreshEpoch,
   ]);
 
   const rebalanceRankedConfigsForQuickPicks = useMemo(() => {

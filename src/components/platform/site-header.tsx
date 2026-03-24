@@ -1,5 +1,6 @@
 'use client';
 
+import { Suspense } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -158,7 +159,16 @@ export function SiteHeader() {
           </div>
         </div>
 
-        <MiniStockSearch />
+        <Suspense
+          fallback={
+            <div
+              className="hidden min-h-8 min-w-[260px] max-w-[340px] flex-1 rounded-md border border-transparent bg-transparent lg:block"
+              aria-hidden
+            />
+          }
+        >
+          <MiniStockSearch />
+        </Suspense>
 
         <div className="flex items-center gap-3">
           <ThemeToggle />
