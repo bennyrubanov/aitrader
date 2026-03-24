@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ExplorePortfoliosEquityChart } from '@/components/platform/explore-portfolios-equity-chart';
 import type {
   ExploreBenchmarkSeries,
@@ -24,6 +24,7 @@ import { format } from 'date-fns';
 import {
   ArrowUpRight,
   Calendar as CalendarIcon,
+  ChevronDown,
   ExternalLink,
   FilterX,
   Info,
@@ -365,6 +366,68 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
     return n;
   }, [filterBeatNasdaq, filterBeatSp500, riskFilter, freqFilter, weightFilter]);
 
+  const asideFiltersScrollRef = useRef<HTMLDivElement | null>(null);
+  const asideFiltersInnerRef = useRef<HTMLDivElement | null>(null);
+  const [showAsideFiltersScrollFade, setShowAsideFiltersScrollFade] = useState(false);
+  const [asideFiltersChevronDismissed, setAsideFiltersChevronDismissed] = useState(false);
+
+  useEffect(() => {
+    setAsideFiltersChevronDismissed(false);
+  }, [strategySlug]);
+
+  const nudgeAsideFiltersScroll = useCallback(() => {
+    const el = asideFiltersScrollRef.current;
+    if (!el) return;
+    setAsideFiltersChevronDismissed(true);
+    const delta = Math.min(220, Math.max(96, Math.round(el.clientHeight * 0.38)));
+    el.scrollBy({ top: delta, behavior: 'smooth' });
+  }, []);
+
+  useEffect(() => {
+    const scrollEl = asideFiltersScrollRef.current;
+    if (!scrollEl) return;
+
+    const updateScrollUi = () => {
+      const canScroll = scrollEl.scrollHeight > scrollEl.clientHeight + 2;
+      const isAtTop = scrollEl.scrollTop <= 2;
+      setShowAsideFiltersScrollFade(canScroll && isAtTop);
+      if (scrollEl.scrollTop > 2) {
+        setAsideFiltersChevronDismissed(true);
+      }
+    };
+
+    updateScrollUi();
+    const raf = requestAnimationFrame(updateScrollUi);
+    scrollEl.addEventListener('scroll', updateScrollUi, { passive: true });
+    window.addEventListener('resize', updateScrollUi);
+    const roScroll = new ResizeObserver(updateScrollUi);
+    roScroll.observe(scrollEl);
+    const inner = asideFiltersInnerRef.current;
+    let roInner: ResizeObserver | null = null;
+    if (inner) {
+      roInner = new ResizeObserver(updateScrollUi);
+      roInner.observe(inner);
+    }
+
+    return () => {
+      cancelAnimationFrame(raf);
+      scrollEl.removeEventListener('scroll', updateScrollUi);
+      window.removeEventListener('resize', updateScrollUi);
+      roScroll.disconnect();
+      roInner?.disconnect();
+    };
+  }, [
+    strategies.length,
+    strategySlug,
+    activeFilterCount,
+    isLoading,
+    filterBeatNasdaq,
+    filterBeatSp500,
+    riskFilter,
+    freqFilter,
+    weightFilter,
+  ]);
+
   const openAddDialog = (c: RankedConfig) => {
     if (!authState.isAuthenticated) {
       router.push('/sign-in?next=/platform/explore-portfolios');
@@ -464,8 +527,9 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
       >
         <aside className="flex w-full shrink-0 flex-col lg:h-full lg:min-h-0 lg:w-72 lg:max-h-full">
           <div
+            ref={asideFiltersScrollRef}
             className={cn(
-              'min-h-0 flex-1 space-y-0 px-4 pt-2 sm:px-6 lg:min-h-0 lg:flex-1 lg:overflow-x-hidden lg:overflow-y-auto lg:overscroll-y-contain lg:px-0 lg:pr-1 lg:pt-0',
+              'relative min-h-0 flex-1 px-4 pt-2 sm:px-6 lg:min-h-0 lg:flex-1 lg:overflow-x-hidden lg:overflow-y-auto lg:overscroll-y-contain lg:px-0 lg:pr-1 lg:pt-0',
               // Thin, low-contrast scrollbar (WebKit + Firefox)
               '[scrollbar-width:thin] [scrollbar-color:hsl(var(--border)/0.55)_transparent]',
               'lg:[&::-webkit-scrollbar]:w-1.5 lg:[&::-webkit-scrollbar]:h-1.5',
@@ -474,6 +538,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
               'lg:hover:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/35'
             )}
           >
+          <div ref={asideFiltersInnerRef} className="space-y-0">
           {strategies.length > 0 ? (
             <StrategyModelSidebarDropdown
               strategies={strategies}
@@ -535,6 +600,24 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
               benchmarkOutperformanceAsOf={latestPerformanceDate}
             />
           </div>
+          </div>
+          {showAsideFiltersScrollFade ? (
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] flex h-10 items-end justify-center bg-gradient-to-t from-background/90 via-background/45 to-transparent pb-1 pt-5">
+              {!asideFiltersChevronDismissed ? (
+                <button
+                  type="button"
+                  className="pointer-events-auto inline-flex size-8 items-center justify-center rounded-full border border-trader-blue/35 bg-background/90 shadow-sm ring-offset-background transition-colors hover:border-trader-blue/55 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-trader-blue/40 focus-visible:ring-offset-2"
+                  onClick={nudgeAsideFiltersScroll}
+                  aria-label="Scroll down to see more filters"
+                >
+                  <ChevronDown
+                    className="size-5 translate-y-2 animate-bounce text-trader-blue"
+                    aria-hidden
+                  />
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           </div>
         </aside>
 

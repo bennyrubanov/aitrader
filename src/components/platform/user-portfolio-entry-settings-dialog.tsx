@@ -159,9 +159,7 @@ export function UserPortfolioEntrySettingsDialog({
         <DialogHeader>
           <DialogTitle>Entry settings</DialogTitle>
           <DialogDescription>
-            Starting investment and when you enter set how your personal performance is calculated.
-            Changing your entry reloads the portfolio holdings and entry prices from the model
-            snapshot for that date.
+            Starting investment and your entry date set how your personal performance is calculated.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-2">

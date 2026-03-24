@@ -9,8 +9,8 @@ import {
   ArrowRight,
   Calendar as CalendarIcon,
   Check,
-  ChevronDown,
   ExternalLink,
+  HelpCircle,
   Layers,
   Sparkles,
   X,
@@ -25,18 +25,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { PortfolioEntryDatePicker } from '@/components/platform/portfolio-entry-date-picker';
 import { portfolioEntryDateBounds } from '@/components/platform/portfolio-entry-date-utils';
 import { PortfolioRankingTooltipBody } from '@/components/tooltips';
+import {
+  CapWeightMiniPie,
+  EqualWeightMiniPie,
+  SingleStockMiniPie,
+} from '@/components/platform/weighting-mini-pies';
 import { useAuthState } from '@/components/auth/auth-state-context';
 import {
   DEFAULT_PORTFOLIO_CONFIG,
@@ -47,6 +46,7 @@ import {
   type PortfolioConfig,
   type RebalanceFrequency,
   type RiskLevel,
+  type WeightingMethod,
 } from '@/components/portfolio-config';
 import type { OnboardingRebalanceCounts } from '@/lib/onboarding-meta';
 import { formatYmdDisplay } from '@/lib/format-ymd-display';
@@ -66,6 +66,11 @@ const RISK_LEVELS: RiskLevel[] = [1, 2, 3, 4, 5, 6];
 const FREQUENCIES: RebalanceFrequency[] = ['weekly', 'monthly', 'quarterly', 'yearly'];
 const INVESTMENT_QUICK_PICKS = [5_000, 10_000, 25_000, 50_000];
 const PERFORMANCE_INITIAL_USD = 10_000;
+
+const ONBOARDING_EQUAL_WEIGHTING_EXPLANATION =
+  'Every stock gets the same allocation. Simple and avoids over-concentration in stocks with large market values.';
+const ONBOARDING_CAP_WEIGHTING_EXPLANATION =
+  'Stocks are weighted by market cap (valuation). Larger companies get a bigger slice, mirroring how indices like the Nasdaq work. This may concentrate risk.';
 
 /** Fixed shell height so the dialog does not resize between steps (capped for small viewports). */
 const ONBOARDING_SHELL_HEIGHT = 'min(31rem, calc((100dvh - 5.5rem) * 0.777))';
@@ -285,15 +290,25 @@ type Step =
   | 'risk'
   | 'frequency'
   | 'investment'
+  | 'allocation'
   | 'entry-date'
   | 'done'
   | 'celebrate';
-const PROGRESS_STEPS = ['risk', 'frequency', 'investment', 'entry-date', 'model', 'done'] as const;
+const PROGRESS_STEPS = [
+  'model',
+  'risk',
+  'frequency',
+  'investment',
+  'allocation',
+  'entry-date',
+  'done',
+] as const;
 
 const PROGRESS_STEP_LABELS: Record<(typeof PROGRESS_STEPS)[number], string> = {
   risk: 'Risk',
   frequency: 'Frequency',
   investment: 'Investment',
+  allocation: 'Allocation',
   'entry-date': 'Your entry',
   model: 'Model',
   done: 'Summary',
@@ -426,8 +441,6 @@ export function PortfolioOnboardingDialog({
 
   const defaultStrategy = strategies.find((s) => s.isDefault) ?? strategies[0] ?? null;
   const selectedStrategy = strategies.find((s) => s.slug === draft.strategySlug) ?? defaultStrategy;
-  const isBestStrategy =
-    selectedStrategy && strategies[0] && strategies[0].id === selectedStrategy.id;
 
   const defaultStrategySlug = defaultStrategy?.slug;
 
@@ -446,6 +459,12 @@ export function PortfolioOnboardingDialog({
       setCustomInvestment(String(draft.investmentSize));
     }
   }, [step, draft.investmentSize]);
+
+  useEffect(() => {
+    if (RISK_TOP_N[draft.riskLevel] === 1 && draft.weightingMethod !== 'equal') {
+      setDraft((d) => ({ ...d, weightingMethod: 'equal' }));
+    }
+  }, [draft.riskLevel, draft.weightingMethod]);
 
   useEffect(() => {
     if (step !== 'celebrate') return;
@@ -795,11 +814,11 @@ export function PortfolioOnboardingDialog({
                       },
                       {
                         n: 2,
-                        text: 'For each model, you choose how to build your portfolio (how many stocks to hold, how often to buy/sell, and how much to invest).',
+                        text: 'You choose how to build your portfolio (how many stocks to hold, how often to buy/sell, and how much to invest).',
                       },
                       {
                         n: 3,
-                        text: 'You can follow multiple portfolios across multiple models and compare their performance in real time.',
+                        text: 'You can follow multiple portfolios and compare their performance in real time.',
                       },
                     ].map(({ n, text }) => (
                       <div
@@ -829,13 +848,68 @@ export function PortfolioOnboardingDialog({
                   <Button
                     type="button"
                     size="sm"
-                    onClick={() => goToStep('risk')}
+                    onClick={() => goToStep('model')}
                     className="gap-1.5"
                   >
                     Get started <ArrowRight className="size-3.5" />
                   </Button>
                 </div>
               </div>
+            </div>
+          )}
+
+          {step === 'model' && (
+            <div className="flex h-full min-h-0 flex-col gap-4">
+              <DialogHeader className="shrink-0">
+                <DialogTitle>AI strategy model</DialogTitle>
+                <DialogDescription>
+                  Stock ratings for your portfolio come from this model. This is the only model
+                  available right now — more are coming soon.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain py-2">
+                {metaLoading ? (
+                  <Skeleton className="h-24 w-full" />
+                ) : !selectedStrategy ? (
+                  <p className="text-sm text-muted-foreground">No active models available.</p>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="rounded-lg border bg-card p-4">
+                      <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        Active model
+                      </p>
+                      <p className="text-sm font-semibold">{selectedStrategy.name}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {strategyModelDropdownSubtitle(selectedStrategy)}
+                      </p>
+                    </div>
+                    <Button
+                      asChild
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-full justify-start gap-1.5 px-1 text-xs"
+                    >
+                      <Link
+                        href={`/strategy-models/${selectedStrategy.slug}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <ExternalLink className="size-3" />
+                        Read more about this model
+                      </Link>
+                    </Button>
+                  </div>
+                )}
+              </div>
+              <OnboardingDialogFooter>
+                <StepIndicator />
+                <StepNav
+                  onBack={() => goToStep('intro')}
+                  onNext={() => goToStep('risk')}
+                  returnToSummary={returnToSummary}
+                  onBackToSummary={backToSummary}
+                />
+              </OnboardingDialogFooter>
             </div>
           )}
 
@@ -868,7 +942,13 @@ export function PortfolioOnboardingDialog({
                         <button
                           key={r}
                           type="button"
-                          onClick={() => setDraft((d) => ({ ...d, riskLevel: r }))}
+                          onClick={() =>
+                            setDraft((d) => ({
+                              ...d,
+                              riskLevel: r,
+                              ...(RISK_TOP_N[r] === 1 ? { weightingMethod: 'equal' as const } : {}),
+                            }))
+                          }
                           className={cn(
                             'flex w-full items-center gap-2 rounded-lg border px-2 py-1.5 text-left transition-all',
                             isSelected
@@ -905,7 +985,7 @@ export function PortfolioOnboardingDialog({
               <OnboardingDialogFooter>
                 <StepIndicator />
                 <StepNav
-                  onBack={() => goToStep('intro')}
+                  onBack={() => goToStep('model')}
                   onNext={() => goToStep('frequency')}
                   returnToSummary={returnToSummary}
                   onBackToSummary={backToSummary}
@@ -917,7 +997,27 @@ export function PortfolioOnboardingDialog({
           {step === 'frequency' && (
             <div className="flex h-full min-h-0 flex-col gap-4">
               <DialogHeader className="shrink-0">
-                <DialogTitle>How often will you rebalance?</DialogTitle>
+                <DialogTitle className="flex flex-wrap items-center gap-2">
+                  How often will you rebalance?
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        className="inline-flex shrink-0 rounded-sm text-muted-foreground/70 outline-none ring-offset-background transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        aria-label="What rebalancing means"
+                      >
+                        <HelpCircle className="size-3.5 cursor-help" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-sm p-3 text-xs leading-relaxed">
+                      <p className="font-semibold text-foreground">Rebalance frequency</p>
+                      <p className="mt-1.5 text-muted-foreground">
+                        Swapping more often lets you align to AI ratings more closely, but adds more
+                        work on your end (and may carry tax implications).
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </DialogTitle>
                 <DialogDescription>
                   How often you swap holdings to match the latest AI ratings.
                 </DialogDescription>
@@ -1057,11 +1157,120 @@ export function PortfolioOnboardingDialog({
                 <StepIndicator />
                 <StepNav
                   onBack={() => goToStep('frequency')}
-                  onNext={() => goToStep('entry-date')}
+                  onNext={() => goToStep('allocation')}
                   returnToSummary={returnToSummary}
                   onBackToSummary={backToSummary}
                 />
               </OnboardingDialogFooter>
+            </div>
+          )}
+
+          {step === 'allocation' && (
+            <div className="flex h-full min-h-0 flex-col gap-4">
+              <DialogHeader className="shrink-0">
+                <DialogTitle>How do you want to allocate your investment?</DialogTitle>
+                <DialogDescription>
+                  {RISK_TOP_N[draft.riskLevel] === 1
+                    ? 'This tier holds one stock, so your full amount goes to that position — equal and cap are the same here.'
+                    : 'Choose how each position is sized across your holdings.'}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain py-2">
+                {RISK_TOP_N[draft.riskLevel] === 1 ? (
+                  <div
+                    className={cn(
+                      'flex flex-col gap-2 rounded-lg transition-opacity',
+                      'pointer-events-none select-none opacity-45'
+                    )}
+                  >
+                    {(['equal', 'cap'] as WeightingMethod[]).map((w) => (
+                      <div
+                        key={w}
+                        className={cn(
+                          'rounded-lg border px-3 py-2.5 text-left text-xs transition-colors',
+                          'border-border bg-card text-muted-foreground'
+                        )}
+                      >
+                        <div className="flex gap-3">
+                          <SingleStockMiniPie
+                            className={cn('shrink-0 size-9', w === 'cap' && 'opacity-30')}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <span className="font-medium leading-tight text-foreground">
+                              {w === 'equal' ? 'Equal' : 'Cap'}
+                            </span>
+                            <p className="mt-1 text-[11px] leading-snug opacity-90">
+                              {w === 'equal'
+                                ? ONBOARDING_EQUAL_WEIGHTING_EXPLANATION
+                                : ONBOARDING_CAP_WEIGHTING_EXPLANATION}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                    <div className="flex flex-col gap-2">
+                      {(['equal', 'cap'] as const).map((w) => {
+                        const isSelected = draft.weightingMethod === w;
+                        return (
+                          <button
+                            key={w}
+                            type="button"
+                            onClick={() =>
+                              setDraft((d) => ({ ...d, weightingMethod: w }))
+                            }
+                            className={cn(
+                              'w-full rounded-lg border px-3 py-2.5 text-left text-xs transition-colors',
+                              isSelected
+                                ? 'border-primary bg-primary text-primary-foreground'
+                                : 'border-border bg-card text-muted-foreground hover:border-foreground/30 hover:text-foreground'
+                            )}
+                          >
+                            <div className="flex gap-3">
+                              {w === 'equal' ? (
+                                <EqualWeightMiniPie className="shrink-0 size-9" />
+                              ) : (
+                                <CapWeightMiniPie className="shrink-0 size-9" />
+                              )}
+                              <div className="min-w-0 flex-1 text-left">
+                                <span
+                                  className={cn(
+                                    'font-medium leading-tight',
+                                    !isSelected && 'text-foreground'
+                                  )}
+                                >
+                                  {w === 'equal' ? 'Equal' : 'Cap'}
+                                </span>
+                                <p
+                                  className={cn(
+                                    'mt-1 text-[11px] leading-snug',
+                                    isSelected
+                                      ? 'text-primary-foreground/90'
+                                      : 'opacity-90'
+                                  )}
+                                >
+                                  {w === 'equal'
+                                    ? ONBOARDING_EQUAL_WEIGHTING_EXPLANATION
+                                    : ONBOARDING_CAP_WEIGHTING_EXPLANATION}
+                                </p>
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+                <OnboardingDialogFooter>
+                  <StepIndicator />
+                  <StepNav
+                    onBack={() => goToStep('investment')}
+                    onNext={() => goToStep('entry-date')}
+                    returnToSummary={returnToSummary}
+                    onBackToSummary={backToSummary}
+                  />
+                </OnboardingDialogFooter>
             </div>
           )}
 
@@ -1073,7 +1282,7 @@ export function PortfolioOnboardingDialog({
                   When do you want to start tracking this portfolio?
                 </DialogTitle>
                 <DialogDescription>
-                  This is the hypothetical date that you'll invest in this portfolio. It can be
+                  This is the hypothetical date that you'll invest in this portfolio. It is used to track your portfolio performance, and can be
                   changed anytime.
                 </DialogDescription>
               </DialogHeader>
@@ -1089,119 +1298,7 @@ export function PortfolioOnboardingDialog({
               <OnboardingDialogFooter>
                 <StepIndicator />
                 <StepNav
-                  onBack={() => goToStep('investment')}
-                  onNext={() => goToStep('model')}
-                  returnToSummary={returnToSummary}
-                  onBackToSummary={backToSummary}
-                />
-              </OnboardingDialogFooter>
-            </div>
-          )}
-
-          {step === 'model' && (
-            <div className="flex h-full min-h-0 flex-col gap-4">
-              <DialogHeader className="shrink-0">
-                <DialogTitle>Which strategy model?</DialogTitle>
-                <DialogDescription>
-                  Stock ratings come from the model you pick. Your portfolio rules are set — choose
-                  which model powers those ratings.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain py-2">
-                {metaLoading ? (
-                  <Skeleton className="h-24 w-full" />
-                ) : !selectedStrategy ? (
-                  <p className="text-sm text-muted-foreground">No active models available.</p>
-                ) : !canPickModel ? (
-                  <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
-                    <p className="text-sm text-muted-foreground">
-                      Your plan uses the default strategy model. Upgrade to{' '}
-                      <strong className="text-foreground">Outperformer</strong> to compare and
-                      switch models.
-                    </p>
-                    <div className="rounded-lg border bg-card p-3">
-                      <p className="text-sm font-semibold">{selectedStrategy.name}</p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {strategyModelDropdownSubtitle(selectedStrategy)}
-                      </p>
-                    </div>
-                    <Button asChild variant="outline" size="sm" className="w-full gap-1.5">
-                      <Link href="/pricing">Compare plans</Link>
-                    </Button>
-                  </div>
-                ) : (
-                  <>
-                    <div className="space-y-1.5">
-                      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                        Strategy model
-                      </p>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="w-full justify-between gap-2 text-left"
-                          >
-                            <span className="truncate">{selectedStrategy.name}</span>
-                            <div className="flex items-center gap-1 shrink-0">
-                              {isBestStrategy && (
-                                <Badge className="text-xs bg-trader-blue text-white border-0 px-1.5 py-0">
-                                  Top
-                                </Badge>
-                              )}
-                              <ChevronDown className="size-3.5" />
-                            </div>
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="start" className="min-w-56">
-                          {strategies.map((strategy, index) => (
-                            <DropdownMenuItem
-                              key={strategy.id}
-                              onSelect={() => {
-                                setDraft((d) => ({ ...d, strategySlug: strategy.slug }));
-                              }}
-                              className="flex flex-col items-start gap-0.5 py-2"
-                            >
-                              <div className="flex items-center gap-1.5 w-full">
-                                <span className="font-medium text-sm">{strategy.name}</span>
-                                {index === 0 && (
-                                  <Badge className="text-xs bg-trader-blue text-white border-0 px-1.5 py-0 ml-auto">
-                                    Top
-                                  </Badge>
-                                )}
-                              </div>
-                              <span className="text-xs text-muted-foreground">
-                                {strategyModelDropdownSubtitle(strategy)}
-                              </span>
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                    {selectedStrategy && (
-                      <Button
-                        asChild
-                        variant="ghost"
-                        size="sm"
-                        className="w-full justify-start gap-1.5 text-xs h-8 px-1"
-                      >
-                        <Link
-                          href={`/strategy-models/${selectedStrategy.slug}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          <ExternalLink className="size-3" />
-                          Read more about this model
-                        </Link>
-                      </Button>
-                    )}
-                  </>
-                )}
-              </div>
-              <OnboardingDialogFooter>
-                <StepIndicator />
-                <StepNav
-                  onBack={() => goToStep('entry-date')}
+                  onBack={() => goToStep('allocation')}
                   onNext={() => goToStep('done')}
                   returnToSummary={returnToSummary}
                   onBackToSummary={backToSummary}
@@ -1219,6 +1316,11 @@ export function PortfolioOnboardingDialog({
               <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
                 <div className="flex min-h-0 flex-1 flex-col justify-center">
                   <div className="space-y-1.5 py-2">
+                    <EditableSummaryRow
+                      label="Strategy model"
+                      value={selectedStrategy?.name ?? draft.strategySlug}
+                      onClick={() => goToStep('model', true)}
+                    />
                     <EditableSummaryRow
                       label="Risk level"
                       value={
@@ -1254,16 +1356,22 @@ export function PortfolioOnboardingDialog({
                       onClick={() => goToStep('investment', true)}
                     />
                     <EditableSummaryRow
+                      label="Allocation"
+                      value={
+                        RISK_TOP_N[draft.riskLevel] === 1
+                          ? 'Equal weight'
+                          : draft.weightingMethod === 'equal'
+                            ? 'Equal weight'
+                            : 'Cap weight'
+                      }
+                      onClick={() => goToStep('allocation', true)}
+                    />
+                    <EditableSummaryRow
                       label="Your entry"
                       value={
                         draftEntryDate === entryMaxYmd ? 'Today' : formatYmdDisplay(draftEntryDate)
                       }
                       onClick={() => goToStep('entry-date', true)}
-                    />
-                    <EditableSummaryRow
-                      label="Strategy model"
-                      value={selectedStrategy?.name ?? draft.strategySlug}
-                      onClick={() => goToStep('model', true)}
                     />
                     <div className="rounded-lg border bg-muted/40 px-3 py-2.5 text-xs text-muted-foreground">
                       You can follow additional portfolios anytime from the Explore Portfolios page.
@@ -1274,7 +1382,7 @@ export function PortfolioOnboardingDialog({
               <OnboardingDialogFooter>
                 <StepIndicator />
                 <StepNav
-                  onBack={() => goToStep('model')}
+                  onBack={() => goToStep('entry-date')}
                   onNext={() => handleSummaryContinue()}
                   nextLabel="Save and continue"
                   returnToSummary={returnToSummary}

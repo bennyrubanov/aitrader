@@ -1479,8 +1479,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                         Overview
                       </h1>
                       <p className="text-sm leading-relaxed text-muted-foreground">
-                        Your top portfolio, rebalance actions, and quick access to ratings and the
-                        portfolios you follow.
+                        Your top performing portfolio, and how to rebalance to keep up with the AI's ratings.
                       </p>
                     </div>
                     <TabsList
@@ -1559,6 +1558,9 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                 <div className="space-y-3">
                   {spotlightSectionLoading ? (
                     <>
+                      <h2 className="mb-3 text-sm font-semibold tracking-tight text-foreground">
+                        Your top portfolio by portfolio value
+                      </h2>
                       <section className="rounded-xl border border-border bg-card/50 p-4 sm:p-5">
                         <div className="mb-4">
                           <Skeleton className="h-7 w-full max-w-xl rounded-md" />
@@ -1615,6 +1617,9 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                           : excessVsNasdaqCap;
                       return (
                         <>
+                          <h2 className="mb-3 text-sm font-semibold tracking-tight text-foreground">
+                            Your top portfolio by portfolio value
+                          </h2>
                           <section className="rounded-xl border border-border bg-card/50 p-4 sm:p-5">
                             <div className="mb-4 flex min-w-0 items-start justify-between gap-3">
                               <div className="min-w-0 flex flex-wrap items-center gap-x-1.5 gap-y-1">

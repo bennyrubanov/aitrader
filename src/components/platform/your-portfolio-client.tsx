@@ -8,6 +8,7 @@ import type { LucideIcon } from 'lucide-react';
 import {
   ArrowRight,
   ArrowUpRight,
+  ChevronDown,
   Compass,
   ExternalLink,
   FilterX,
@@ -1201,6 +1202,156 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     setHoldingsRowChartSymbol(null);
   }, [selectedProfile?.id]);
 
+  const modelComputeStatus =
+    perfPayload?.computeStatus === 'pending'
+      ? 'in_progress'
+      : (perfPayload?.computeStatus ?? 'empty');
+
+  const userEntryStatus = userEntryPayload?.computeStatus;
+  const perfLoading = selectedProfile?.user_start_date
+    ? isLoadingUserEntry
+    : isLoadingPerf;
+  const activeComputeStatus =
+    selectedProfile?.user_start_date
+      ? userEntryStatus === 'ready'
+        ? 'ready'
+        : userEntryStatus === 'gathering_data'
+          ? 'gathering'
+          : userEntryStatus === 'failed'
+            ? 'failed'
+            : userEntryStatus === 'pending'
+              ? 'in_progress'
+              : userEntryStatus === 'no_start_date' || userEntryStatus === 'no_positions'
+                ? 'empty'
+                : userEntryStatus === 'no_holdings_run'
+                  ? 'unsupported'
+                  : userEntryStatus === 'empty'
+                    ? 'empty'
+                    : isLoadingUserEntry
+                      ? 'in_progress'
+                      : 'empty'
+      : modelComputeStatus;
+
+  const yourPortfolioMetricsScrollRef = useRef<HTMLDivElement | null>(null);
+  const yourPortfolioMetricsInnerRef = useRef<HTMLDivElement | null>(null);
+  const [showYourPortfolioMetricsScrollFade, setShowYourPortfolioMetricsScrollFade] =
+    useState(false);
+  const [yourPortfolioMetricsChevronDismissed, setYourPortfolioMetricsChevronDismissed] =
+    useState(false);
+
+  const yourPortfolioHoldingsScrollRef = useRef<HTMLDivElement | null>(null);
+  const yourPortfolioHoldingsInnerRef = useRef<HTMLDivElement | null>(null);
+  const [showYourPortfolioHoldingsScrollFade, setShowYourPortfolioHoldingsScrollFade] =
+    useState(false);
+  const [yourPortfolioHoldingsChevronDismissed, setYourPortfolioHoldingsChevronDismissed] =
+    useState(false);
+
+  useEffect(() => {
+    setYourPortfolioMetricsChevronDismissed(false);
+    setYourPortfolioHoldingsChevronDismissed(false);
+  }, [selectedProfile?.id]);
+
+  const nudgeYourPortfolioMetricsScroll = useCallback(() => {
+    const el = yourPortfolioMetricsScrollRef.current;
+    if (!el) return;
+    setYourPortfolioMetricsChevronDismissed(true);
+    const delta = Math.min(220, Math.max(96, Math.round(el.clientHeight * 0.38)));
+    el.scrollBy({ top: delta, behavior: 'smooth' });
+  }, []);
+
+  const nudgeYourPortfolioHoldingsScroll = useCallback(() => {
+    const el = yourPortfolioHoldingsScrollRef.current;
+    if (!el) return;
+    setYourPortfolioHoldingsChevronDismissed(true);
+    const delta = Math.min(220, Math.max(96, Math.round(el.clientHeight * 0.38)));
+    el.scrollBy({ top: delta, behavior: 'smooth' });
+  }, []);
+
+  useEffect(() => {
+    const scrollEl = yourPortfolioMetricsScrollRef.current;
+    if (!scrollEl) return;
+
+    const updateScrollUi = () => {
+      const canScroll = scrollEl.scrollHeight > scrollEl.clientHeight + 2;
+      const isAtTop = scrollEl.scrollTop <= 2;
+      setShowYourPortfolioMetricsScrollFade(canScroll && isAtTop);
+      if (scrollEl.scrollTop > 2) {
+        setYourPortfolioMetricsChevronDismissed(true);
+      }
+    };
+
+    updateScrollUi();
+    const raf = requestAnimationFrame(updateScrollUi);
+    scrollEl.addEventListener('scroll', updateScrollUi, { passive: true });
+    window.addEventListener('resize', updateScrollUi);
+    const roScroll = new ResizeObserver(updateScrollUi);
+    roScroll.observe(scrollEl);
+    const inner = yourPortfolioMetricsInnerRef.current;
+    let roInner: ResizeObserver | null = null;
+    if (inner) {
+      roInner = new ResizeObserver(updateScrollUi);
+      roInner.observe(inner);
+    }
+
+    return () => {
+      cancelAnimationFrame(raf);
+      scrollEl.removeEventListener('scroll', updateScrollUi);
+      window.removeEventListener('resize', updateScrollUi);
+      roScroll.disconnect();
+      roInner?.disconnect();
+    };
+  }, [
+    selectedProfile?.id,
+    activeComputeStatus,
+    perfLoading,
+    displayMetrics,
+    portfolioValueAmount,
+    consistencyForSpotlight,
+    excessNdxForSpotlight,
+    benchmarkBench.excessVsSp500,
+  ]);
+
+  useEffect(() => {
+    const scrollEl = yourPortfolioHoldingsScrollRef.current;
+    if (!scrollEl) return;
+
+    const updateScrollUi = () => {
+      const canScroll = scrollEl.scrollHeight > scrollEl.clientHeight + 2;
+      const isAtTop = scrollEl.scrollTop <= 2;
+      setShowYourPortfolioHoldingsScrollFade(canScroll && isAtTop);
+      if (scrollEl.scrollTop > 2) {
+        setYourPortfolioHoldingsChevronDismissed(true);
+      }
+    };
+
+    updateScrollUi();
+    const raf = requestAnimationFrame(updateScrollUi);
+    scrollEl.addEventListener('scroll', updateScrollUi, { passive: true });
+    window.addEventListener('resize', updateScrollUi);
+    const roScroll = new ResizeObserver(updateScrollUi);
+    roScroll.observe(scrollEl);
+    const inner = yourPortfolioHoldingsInnerRef.current;
+    let roInner: ResizeObserver | null = null;
+    if (inner) {
+      roInner = new ResizeObserver(updateScrollUi);
+      roInner.observe(inner);
+    }
+
+    return () => {
+      cancelAnimationFrame(raf);
+      scrollEl.removeEventListener('scroll', updateScrollUi);
+      window.removeEventListener('resize', updateScrollUi);
+      roScroll.disconnect();
+      roInner?.disconnect();
+    };
+  }, [
+    selectedProfile?.id,
+    configHoldings,
+    configHoldingsLoading,
+    configHoldingsRefreshing,
+    topN,
+  ]);
+
   if (!authState.isLoaded) {
     return (
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-6">
@@ -1259,36 +1410,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       </div>
     );
   }
-
-  const modelComputeStatus =
-    perfPayload?.computeStatus === 'pending'
-      ? 'in_progress'
-      : (perfPayload?.computeStatus ?? 'empty');
-
-  const userEntryStatus = userEntryPayload?.computeStatus;
-  const perfLoading = selectedProfile?.user_start_date
-    ? isLoadingUserEntry
-    : isLoadingPerf;
-  const activeComputeStatus =
-    selectedProfile?.user_start_date
-      ? userEntryStatus === 'ready'
-        ? 'ready'
-        : userEntryStatus === 'gathering_data'
-          ? 'gathering'
-          : userEntryStatus === 'failed'
-            ? 'failed'
-            : userEntryStatus === 'pending'
-              ? 'in_progress'
-              : userEntryStatus === 'no_start_date' || userEntryStatus === 'no_positions'
-                ? 'empty'
-                : userEntryStatus === 'no_holdings_run'
-                  ? 'unsupported'
-                  : userEntryStatus === 'empty'
-                    ? 'empty'
-                    : isLoadingUserEntry
-                      ? 'in_progress'
-                      : 'empty'
-      : modelComputeStatus;
 
   const cfg = selectedProfile?.portfolio_config;
   const headerRiskLevel = (cfg?.risk_level ?? 3) as RiskLevel;
@@ -1606,8 +1727,13 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
               ) : null}
 
               <div className="grid w-full min-w-0 grid-cols-1 gap-4 rounded-lg border border-border/70 bg-muted/20 p-3 sm:gap-5 sm:p-4 lg:p-5">
-                <div className="flex min-w-0 w-full max-w-full flex-col gap-4 lg:flex-row lg:items-start lg:gap-5">
-                  <div className="flex w-full min-w-0 shrink-0 flex-col gap-2 lg:w-[16rem] lg:max-w-[16rem]">
+                <div className="flex max-h-[min(52vh,360px)] min-h-0 w-full max-w-full flex-col gap-4 overflow-hidden lg:max-h-[min(48vh,340px)] lg:flex-row lg:items-stretch lg:gap-5">
+                  <div className="relative flex min-h-0 w-full min-w-0 flex-1 basis-0 flex-col lg:w-[16rem] lg:max-w-[16rem] lg:flex-none lg:shrink-0 lg:basis-auto">
+                    <div
+                      ref={yourPortfolioMetricsScrollRef}
+                      className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto"
+                    >
+                      <div ref={yourPortfolioMetricsInnerRef} className="flex flex-col gap-2">
                     <SpotlightStatCard
                       tooltipKey="portfolio_value"
                       label="Portfolio value"
@@ -1707,10 +1833,26 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                           : undefined
                       }
                     />
+                      </div>
+                    </div>
+                    {showYourPortfolioMetricsScrollFade ? (
+                      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] flex h-10 items-end justify-center bg-gradient-to-t from-background/90 via-background/45 to-transparent pb-1 pt-5">
+                        {!yourPortfolioMetricsChevronDismissed ? (
+                          <button
+                            type="button"
+                            className="pointer-events-auto inline-flex size-8 items-center justify-center rounded-full border border-trader-blue/35 bg-background/90 shadow-sm ring-offset-background transition-colors hover:border-trader-blue/55 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-trader-blue/40 focus-visible:ring-offset-2"
+                            onClick={nudgeYourPortfolioMetricsScroll}
+                            aria-label="Scroll down to see more metrics"
+                          >
+                            <ChevronDown className="size-5 animate-bounce text-trader-blue" aria-hidden />
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
 
-                  <div className="min-w-0 w-full max-w-full flex-1 space-y-2 rounded-xl border border-border/80 bg-background/80 p-3 shadow-sm sm:p-4">
-                  <div className="flex min-w-0 w-full flex-wrap items-end justify-between gap-x-3 gap-y-2">
+                  <div className="relative flex min-h-0 min-w-0 w-full max-w-full flex-1 basis-0 flex-col overflow-hidden rounded-xl border border-border/80 bg-background/80 p-3 shadow-sm sm:p-4">
+                  <div className="flex shrink-0 min-w-0 w-full flex-wrap items-end justify-between gap-x-3 gap-y-2">
                     <h4 className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       Portfolio holdings
                     </h4>
@@ -1750,15 +1892,24 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                       </p>
                     )}
                   </div>
+                  <div className="relative min-h-0 flex-1 overflow-hidden">
+                    <div
+                      ref={yourPortfolioHoldingsScrollRef}
+                      className="h-full min-h-0 overflow-y-auto"
+                    >
                   {configHoldingsLoading && configHoldings.length === 0 ? (
-                    <Skeleton className="h-48 w-full rounded-md" />
+                    <div ref={yourPortfolioHoldingsInnerRef}>
+                      <Skeleton className="h-48 w-full rounded-md" />
+                    </div>
                   ) : configHoldings.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      No holdings for this date — scores may still be processing.
-                    </p>
+                    <div ref={yourPortfolioHoldingsInnerRef}>
+                      <p className="text-sm text-muted-foreground">
+                        No holdings for this date — scores may still be processing.
+                      </p>
+                    </div>
                   ) : (
                     <TooltipProvider delayDuration={200}>
-                      <div className="relative w-full min-w-0">
+                      <div ref={yourPortfolioHoldingsInnerRef} className="relative w-full min-w-0">
                         {configHoldingsRefreshing ? (
                           <div
                             className="pointer-events-none absolute inset-0 z-[1] flex justify-center rounded-md bg-background/50 pt-6 backdrop-blur-[0.5px]"
@@ -1773,7 +1924,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                             'w-full min-w-0'
                           )}
                         >
-                      <div className="max-h-[min(56vh,400px)] w-full min-w-0 overflow-auto rounded-md border">
+                      <div className="w-full min-w-0 overflow-x-auto rounded-md border">
                         <Table className="w-full min-w-0">
                           <TableHeader>
                             <TableRow className="hover:bg-transparent">
@@ -1866,6 +2017,22 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                       </div>
                     </TooltipProvider>
                   )}
+                    </div>
+                    {showYourPortfolioHoldingsScrollFade ? (
+                      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] flex h-10 items-end justify-center bg-gradient-to-t from-background/90 via-background/45 to-transparent pb-1 pt-5">
+                        {!yourPortfolioHoldingsChevronDismissed ? (
+                          <button
+                            type="button"
+                            className="pointer-events-auto inline-flex size-8 items-center justify-center rounded-full border border-trader-blue/35 bg-background/90 shadow-sm ring-offset-background transition-colors hover:border-trader-blue/55 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-trader-blue/40 focus-visible:ring-offset-2"
+                            onClick={nudgeYourPortfolioHoldingsScroll}
+                            aria-label="Scroll down to see more holdings"
+                          >
+                            <ChevronDown className="size-5 animate-bounce text-trader-blue" aria-hidden />
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
                 </div>
 
