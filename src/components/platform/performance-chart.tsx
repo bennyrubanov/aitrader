@@ -161,6 +161,9 @@ export function PerformanceChart({
   const [range, setRange] = useState<TimeRange>('All');
   const [view, setView] = useState<'equity' | 'drawdown'>('equity');
   const [hidden, setHidden] = useState<Set<SeriesKey>>(new Set());
+  const [startingRefHovered, setStartingRefHovered] = useState(false);
+  /** Pill hover only — avoids Recharts Line mouse handlers (they fight tooltips / hit-testing). */
+  const [emphasizedSeriesKey, setEmphasizedSeriesKey] = useState<SeriesKey | null>(null);
 
   const omittedSet = useMemo(() => new Set(omitSeriesKeys), [omitSeriesKeys]);
   const chartSeriesKeys = useMemo(
@@ -179,6 +182,10 @@ export function PerformanceChart({
       return changed ? next : prev;
     });
   }, [omittedSet]);
+
+  useEffect(() => {
+    setEmphasizedSeriesKey(null);
+  }, [range, view]);
 
   const toggleSeries = (key: SeriesKey) => {
     setHidden((prev) => {
@@ -299,35 +306,57 @@ export function PerformanceChart({
         )}
       </div>
 
-      {/* Series toggle chips */}
-      <div className="flex flex-wrap gap-1.5">
-        {(Object.entries(config) as [SeriesKey, { label: string; color: string }][]).map(
-          ([key, cfg]) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => toggleSeries(key)}
-              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs transition-opacity ${
-                hidden.has(key) ? 'opacity-40' : ''
-              }`}
-            >
-              <span
-                className="size-2 rounded-full shrink-0"
-                style={{ background: cfg.color }}
-              />
-              {cfg.label}
-            </button>
-          )
-        )}
-      </div>
-
-      {/* Chart */}
-      <ChartContainer
-        className={cn('w-full', chartContainerClassName ?? 'h-[340px]')}
-        config={Object.fromEntries(
-          Object.entries(config).map(([key, cfg]) => [key, { label: cfg.label, color: cfg.color }])
-        )}
+      <div
+        className="space-y-3"
+        onMouseLeave={(e) => {
+          const next = e.relatedTarget;
+          if (
+            !next ||
+            !(next instanceof Node) ||
+            !e.currentTarget.contains(next)
+          ) {
+            setEmphasizedSeriesKey(null);
+          }
+        }}
       >
+        {/* Series toggle chips — hover emphasizes matching line (no SVG pointer handlers). */}
+        <div className="flex flex-wrap gap-1.5">
+          {(Object.entries(config) as [SeriesKey, { label: string; color: string }][]).map(
+            ([key, cfg]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => toggleSeries(key)}
+                onMouseEnter={() => setEmphasizedSeriesKey(key)}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs transition-opacity',
+                  hidden.has(key) ? 'opacity-40' : '',
+                  emphasizedSeriesKey != null &&
+                    emphasizedSeriesKey !== key &&
+                    !hidden.has(key) &&
+                    'opacity-50'
+                )}
+              >
+                <span
+                  className="size-2 rounded-full shrink-0"
+                  style={{ background: cfg.color }}
+                />
+                {cfg.label}
+              </button>
+            )
+          )}
+        </div>
+
+        <ChartContainer
+          className={cn('w-full', chartContainerClassName ?? 'h-[340px]')}
+          config={Object.fromEntries(
+            Object.entries(config).map(([key, cfg]) => [key, { label: cfg.label, color: cfg.color }])
+          )}
+          onPointerEnter={() => {
+            setHidden(new Set());
+            setEmphasizedSeriesKey(null);
+          }}
+        >
         <LineChart data={chartData} margin={{ top: 8, right: 8, left: 8, bottom: 4 }}>
           <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.4} />
           <XAxis dataKey="shortDate" tick={{ fontSize: 11 }} />
@@ -344,7 +373,8 @@ export function PerformanceChart({
               y={notional}
               stroke="#64748b"
               strokeDasharray="4 3"
-              strokeOpacity={0.4}
+              strokeOpacity={startingRefHovered ? 0.8 : 0.4}
+              strokeWidth={startingRefHovered ? 2 : 1}
             />
           )}
           <ChartTooltip
@@ -363,27 +393,46 @@ export function PerformanceChart({
               />
             }
           />
-          {chartSeriesKeys.map((key) => (
-            <Line
-              key={key}
-              type="monotone"
-              dataKey={key}
-              stroke={config[key]!.color}
-              strokeWidth={key === 'aiTop20' ? 2.5 : 1.75}
-              dot={usePointMarkers ? { r: key === 'aiTop20' ? 5 : 3.5, strokeWidth: 1 } : false}
-              hide={hidden.has(key)}
-              connectNulls
-            />
-          ))}
+          {chartSeriesKeys.map((key) => {
+            const baseStroke = key === 'aiTop20' ? 2.5 : 1.75;
+            const emphasized = emphasizedSeriesKey === key;
+            const dimOthers =
+              emphasizedSeriesKey != null &&
+              emphasizedSeriesKey !== key &&
+              !hidden.has(key);
+            return (
+              <Line
+                key={key}
+                type="monotone"
+                dataKey={key}
+                stroke={config[key]!.color}
+                strokeWidth={emphasized ? baseStroke + 0.75 : baseStroke}
+                strokeOpacity={dimOthers ? 0.6 : 1}
+                dot={usePointMarkers ? { r: key === 'aiTop20' ? 5 : 3.5, strokeWidth: 1 } : false}
+                hide={hidden.has(key)}
+                connectNulls
+              />
+            );
+          })}
         </LineChart>
       </ChartContainer>
+      </div>
 
       {/* Was Recharts legend (series names); chips above still toggle series. */}
       {view === 'equity' && (
         <div className="flex items-center justify-center pt-3">
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <div
+            className="flex cursor-default items-center gap-1.5 rounded-md px-1 py-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+            onMouseEnter={() => setStartingRefHovered(true)}
+            onMouseLeave={() => setStartingRefHovered(false)}
+          >
             <span
-              className="inline-block h-0 w-3 shrink-0 border-t-[1.5px] border-dashed border-[#64748b] opacity-90"
+              className={cn(
+                'inline-block h-0 w-3 shrink-0 border-dashed border-[#64748b] transition-[border-width,opacity]',
+                startingRefHovered
+                  ? 'border-t-[2.25px] opacity-100'
+                  : 'border-t-[1.5px] opacity-90'
+              )}
               aria-hidden
             />
             <span>{formatStartingInvestmentLabel(notional)}</span>

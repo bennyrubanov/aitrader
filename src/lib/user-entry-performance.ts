@@ -57,3 +57,14 @@ export function computeExcessReturnVsNasdaqCap(series: PerformanceSeriesPoint[])
   if (!Number.isFinite(portRet) || !Number.isFinite(capRet)) return null;
   return portRet - capRet;
 }
+
+export function computeExcessReturnVsNasdaqEqual(series: PerformanceSeriesPoint[]): number | null {
+  if (series.length < 2) return null;
+  const a = series[0]!;
+  const b = series[series.length - 1]!;
+  if (a.aiTop20 <= 0 || a.nasdaq100EqualWeight <= 0 || b.nasdaq100EqualWeight <= 0) return null;
+  const portRet = b.aiTop20 / a.aiTop20 - 1;
+  const eqRet = b.nasdaq100EqualWeight / a.nasdaq100EqualWeight - 1;
+  if (!Number.isFinite(portRet) || !Number.isFinite(eqRet)) return null;
+  return portRet - eqRet;
+}

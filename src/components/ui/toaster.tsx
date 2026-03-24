@@ -7,6 +7,7 @@ import {
   ToastTitle,
   ToastViewport,
 } from "@/components/ui/toast"
+import { cn } from "@/lib/utils"
 
 export function Toaster() {
   const { toasts } = useToast()
@@ -22,7 +23,16 @@ export function Toaster() {
                 <ToastDescription>{description}</ToastDescription>
               )}
             </div>
-            {action}
+            {action ? (
+              <div
+                className={cn(
+                  "flex flex-wrap items-center justify-end gap-2 border-t border-border/60 pt-3",
+                  "group-[.destructive]:border-destructive-foreground/25"
+                )}
+              >
+                {action}
+              </div>
+            ) : null}
             <ToastClose />
           </Toast>
         )

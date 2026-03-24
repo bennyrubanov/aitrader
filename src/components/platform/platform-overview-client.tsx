@@ -1,15 +1,27 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowDownRight,
   ArrowRight,
+  ArrowUpDown,
   ArrowUpRight,
   Compass,
+  FilterX,
   Folders,
+  ListFilter,
+  Loader2,
   Plus,
   Settings2,
   Sparkles,
@@ -17,13 +29,22 @@ import {
 } from 'lucide-react';
 import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
 import { useAuthState } from '@/components/auth/auth-state-context';
-import { RISK_LABELS, usePortfolioConfig, type RiskLevel } from '@/components/portfolio-config';
+import {
+  RISK_LABELS,
+  usePortfolioConfig,
+  type RebalanceFrequency,
+  type RiskLevel,
+} from '@/components/portfolio-config';
+import { ExplorePortfolioFilterControls } from '@/components/platform/explore-portfolio-filter-controls';
 import { ExplorePortfolioDetailDialog } from '@/components/platform/explore-portfolio-detail-dialog';
+import { PortfolioListSortDialog } from '@/components/platform/portfolio-list-sort-dialog';
+import { HoldingRankWithChange } from '@/components/platform/holding-rank-with-change';
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
 import { PortfolioOnboardingDialog } from '@/components/platform/portfolio-onboarding-dialog';
 import { USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT } from '@/components/platform/portfolio-unfollow-toast';
 import { UserPortfolioEntrySettingsDialog } from '@/components/platform/user-portfolio-entry-settings-dialog';
 import { Badge } from '@/components/ui/badge';
+import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -42,6 +63,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
 import {
   Table,
   TableBody,
@@ -57,7 +79,11 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { SpotlightStatCard } from '@/components/tooltips';
+import {
+  HoldingsAllocationColumnTooltip,
+  HoldingsMovementInfoTooltip,
+  SpotlightStatCard,
+} from '@/components/tooltips';
 import { StockChartDialog } from '@/components/platform/stock-chart-dialog';
 import { computeOverviewUserCompositeScores } from '@/lib/overview-user-composite';
 import type {
@@ -71,6 +97,11 @@ import {
   formatPortfolioSpotlightConfigLine,
 } from '@/lib/portfolio-config-display';
 import { formatYmdDisplay } from '@/lib/format-ymd-display';
+import {
+  buildHoldingMovementTableRows,
+  getPreviousRebalanceDate,
+  holdingMovementRowCn,
+} from '@/lib/holdings-rebalance-movement';
 import { visibleOverviewSlotCount, isValidOverviewSlot } from '@/lib/overview-slots';
 import type { PortfolioMovementLine } from '@/lib/portfolio-movement';
 import {
@@ -86,6 +117,13 @@ import {
   PLATFORM_OVERVIEW_TAB_PARAM,
   type PlatformOverviewTab,
 } from '@/lib/platform-overview-tab';
+import { createConcurrencyLimit } from '@/lib/concurrency-limit';
+import {
+  overviewCardSortValue,
+  type PortfolioListSortMetric,
+  sortProfilesByOverviewCardMetric,
+} from '@/lib/portfolio-profile-list-sort';
+import { PORTFOLIO_EXPLORE_QUICK_PICKS } from '@/lib/portfolio-explore-quick-picks';
 import { cn } from '@/lib/utils';
 
 const PerformanceChart = dynamic(
@@ -122,6 +160,32 @@ const spotlightHoldingsShortDateFmt = new Intl.DateTimeFormat('en-US', {
   year: 'numeric',
   timeZone: 'UTC',
 });
+
+/** Metrics column + chart + table — matches loaded Top portfolio layout (not overview tiles). */
+function OverviewTopPortfolioSpotlightSkeleton() {
+  return (
+    <>
+      <h2 className="mb-3 text-sm font-semibold tracking-tight text-foreground">
+        Your top portfolio by performance
+      </h2>
+      <section className="rounded-xl border border-border bg-card/50 p-4 sm:p-5">
+        <div className="mb-2">
+          <Skeleton className="h-7 w-full max-w-xl rounded-md" />
+        </div>
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,11rem)_minmax(0,1.25fr)_minmax(0,0.75fr)]">
+          <div className="space-y-2">
+            <Skeleton className="h-14 w-full rounded-lg" />
+            <Skeleton className="h-14 w-full rounded-lg" />
+            <Skeleton className="h-14 w-full rounded-lg" />
+            <Skeleton className="h-14 w-full rounded-lg" />
+          </div>
+          <Skeleton className="min-h-[276px] rounded-lg sm:min-h-[316px]" />
+          <Skeleton className="min-h-[200px] rounded-lg lg:min-h-[260px]" />
+        </div>
+      </section>
+    </>
+  );
+}
 
 function spotlightHoldingScoreBucketClass(bucket: HoldingItem['bucket']) {
   if (bucket === 'buy') {
@@ -190,27 +254,7 @@ type OverviewCardPerfState = {
   loading: boolean;
 };
 
-type TopPortfolioSortMetric =
-  | 'portfolio_value'
-  | 'total_return'
-  | 'composite_score'
-  | 'consistency'
-  | 'sharpe_ratio'
-  | 'cagr'
-  | 'max_drawdown';
-
-/** Reserved for a future “top portfolio by” control; spotlight uses {@link TOP_SPOTLIGHT_SORT_METRIC} only. */
-const TOP_PORTFOLIO_SORT_OPTIONS: { value: TopPortfolioSortMetric; label: string }[] = [
-  { value: 'portfolio_value', label: 'Portfolio value' },
-  { value: 'total_return', label: 'Return %' },
-  { value: 'composite_score', label: 'Composite score' },
-  { value: 'consistency', label: 'Consistency' },
-  { value: 'sharpe_ratio', label: 'Sharpe ratio' },
-  { value: 'cagr', label: 'CAGR' },
-  { value: 'max_drawdown', label: 'Steadiness (drawdown)' },
-];
-
-const TOP_SPOTLIGHT_SORT_METRIC: TopPortfolioSortMetric = 'portfolio_value';
+const TOP_SPOTLIGHT_SORT_METRIC: PortfolioListSortMetric = 'total_return';
 
 function emptyOverviewCardPerfState(loading: boolean): OverviewCardPerfState {
   return {
@@ -227,36 +271,21 @@ function emptyOverviewCardPerfState(loading: boolean): OverviewCardPerfState {
 }
 
 function spotlightSortValue(
-  metric: TopPortfolioSortMetric,
+  metric: PortfolioListSortMetric,
   profile: ProfileRow,
   st: OverviewCardPerfState | undefined,
   userCompositeScore: number | null
 ): number | null {
-  switch (metric) {
-    case 'portfolio_value':
-      if (!st || st.loading) return null;
-      return computeOverviewPortfolioValue(
-        st.series,
-        Number(profile.investment_size),
-        profile.user_start_date
-      );
-    case 'total_return':
-    case 'cagr':
-    case 'max_drawdown':
-    case 'consistency':
-    case 'sharpe_ratio': {
-      if (!st || st.loading) return null;
-      if (metric === 'total_return') return st.totalReturn;
-      if (metric === 'cagr') return st.cagr;
-      if (metric === 'max_drawdown') return st.maxDrawdown;
-      if (metric === 'consistency') return st.consistency;
-      return st.sharpeRatio;
-    }
-    case 'composite_score':
-      return userCompositeScore;
-    default:
-      return null;
-  }
+  return overviewCardSortValue(
+    metric,
+    {
+      id: profile.id,
+      investment_size: Number(profile.investment_size),
+      user_start_date: profile.user_start_date,
+    },
+    st,
+    userCompositeScore
+  );
 }
 
 function normalizeOverviewProfile(p: ProfileRow): ProfileRow {
@@ -311,6 +340,39 @@ function resolveRankedConfigForProfile(
     badges: [],
     dataStatus: 'empty',
   };
+}
+
+/** Same rules as Your portfolios sidebar filters; uses overview `RankedBundle` per strategy slug. */
+function profileMatchesOverviewRebalanceFilters(
+  p: ProfileRow,
+  rankedBySlug: Record<string, RankedBundle>,
+  opts: {
+    filterBeatNasdaq: boolean;
+    filterBeatSp500: boolean;
+    riskFilter: RiskLevel | null;
+    freqFilter: RebalanceFrequency | null;
+    weightFilter: 'equal' | 'cap' | null;
+  }
+): boolean {
+  const pc = p.portfolio_config;
+  if (!pc) return false;
+  const risk = pc.risk_level as RiskLevel;
+  const freq = pc.rebalance_frequency as RebalanceFrequency;
+  const weight = pc.weighting_method as 'equal' | 'cap';
+  if (opts.riskFilter != null && risk !== opts.riskFilter) return false;
+  if (opts.freqFilter != null && freq !== opts.freqFilter) return false;
+  if (opts.weightFilter != null && weight !== opts.weightFilter) return false;
+  const slug = p.strategy_models?.slug;
+  if (!slug) return false;
+  const ranked = resolveRankedConfigForProfile(p, rankedBySlug[slug]);
+  if (opts.filterBeatNasdaq && ranked?.metrics.beatsMarket !== true) return false;
+  if (opts.filterBeatSp500 && ranked?.metrics.beatsSp500 !== true) return false;
+  return true;
+}
+
+function fmtQuickPickReturnOverview(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return '';
+  return `${n >= 0 ? '+' : ''}${(n * 100).toFixed(1)}%`;
 }
 
 const fmt = {
@@ -433,12 +495,18 @@ function OverviewPortfolioTile({
   cardState,
   onOpenDetail,
   headerRight,
+  interactive = true,
+  yourPortfoliosHref,
 }: {
   profile: ProfileRow;
   rankedBySlug: Record<string, RankedBundle>;
   cardState: Record<string, OverviewCardPerfState>;
-  onOpenDetail: (profileId: string) => void;
+  onOpenDetail?: (profileId: string) => void;
   headerRight?: ReactNode;
+  /** When false, the tile is not clickable (e.g. rebalance tab). */
+  interactive?: boolean;
+  /** Footer link to open this profile on Your portfolios. */
+  yourPortfoliosHref?: string | null;
 }) {
   const cfg = p.portfolio_config;
   const st = cardState[p.id];
@@ -477,22 +545,32 @@ function OverviewPortfolioTile({
       ? formatOverviewCurrency(portfolioValueAmount)
       : '—';
 
+  const isInteractive = interactive !== false;
+
   return (
     <div
-      role="button"
-      tabIndex={0}
+      {...(isInteractive
+        ? {
+            role: 'button' as const,
+            tabIndex: 0,
+            onClick: () => onOpenDetail?.(p.id),
+            onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onOpenDetail?.(p.id);
+              }
+            },
+          }
+        : {})}
       className={cn(
-        'group relative flex h-full min-h-0 max-h-full flex-col overflow-hidden rounded-2xl border-2 border-border bg-transparent text-left shadow-none transition-colors hover:border-trader-blue/55 hover:bg-muted/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-trader-blue/40'
+        'group relative flex h-full min-h-0 max-h-full flex-col overflow-hidden rounded-2xl border-2 border-border bg-transparent text-left shadow-none transition-colors',
+        isInteractive &&
+          'cursor-pointer hover:border-trader-blue/55 hover:bg-muted/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-trader-blue/40',
+        !isInteractive && 'cursor-default'
       )}
-      onClick={() => onOpenDetail(p.id)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onOpenDetail(p.id);
-        }
-      }}
     >
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4">
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1 space-y-1">
             {p.is_starting_portfolio ? (
@@ -579,6 +657,28 @@ function OverviewPortfolioTile({
         <div className="mt-3">
           <MiniSparkline points={spark} />
         </div>
+        </div>
+        {yourPortfoliosHref ? (
+          <div className="shrink-0 border-t border-border/60 bg-background/95 px-2 py-1.5 backdrop-blur-sm dark:bg-background/90">
+            <div className="flex justify-end">
+              <Button
+                asChild
+                variant="secondary"
+                size="sm"
+                className="h-7 gap-1 px-2 text-[10px] font-semibold shadow-sm"
+              >
+                <Link
+                  href={yourPortfoliosHref}
+                  prefetch
+                  className="inline-flex items-center gap-1"
+                >
+                  <Folders className="size-3.5 shrink-0" aria-hidden />
+                  Your portfolios
+                </Link>
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -606,6 +706,65 @@ type ProfileMovementFetchState =
   | { loading: true }
   | { loading: false; error: string }
   | { loading: false; data: PortfolioMovementApiPayload };
+
+type PortfolioMovementResolved = Extract<ProfileMovementFetchState, { loading: false }>;
+
+/**
+ * Rebalance movement loading (overview tab):
+ * - Fetch only when the tab is selected (avoid N heavy calls on other tabs).
+ * - Session cache + in-flight dedupe per `profileId` (Strict Mode / remounts).
+ * - Bounded parallelism so many portfolios don’t hammer the API/DB at once.
+ */
+const PORTFOLIO_MOVEMENT_MAX_PARALLEL = 3;
+const portfolioMovementFetchLimit = createConcurrencyLimit(PORTFOLIO_MOVEMENT_MAX_PARALLEL);
+
+const portfolioMovementFetchCache = new Map<string, PortfolioMovementResolved>();
+const portfolioMovementInflight = new Map<string, Promise<PortfolioMovementResolved>>();
+
+async function loadPortfolioMovementDeduped(profileId: string): Promise<PortfolioMovementResolved> {
+  const cached = portfolioMovementFetchCache.get(profileId);
+  if (cached) return cached;
+
+  const inflight = portfolioMovementInflight.get(profileId);
+  if (inflight) return inflight;
+
+  const promise = portfolioMovementFetchLimit(() =>
+    (async (): Promise<PortfolioMovementResolved> => {
+      try {
+        const r = await fetch(
+          `/api/platform/portfolio-movement?profileId=${encodeURIComponent(profileId)}`,
+          { cache: 'no-store' }
+        );
+        const raw = (await r.json().catch(() => ({}))) as PortfolioMovementApiPayload & {
+          error?: string;
+        };
+        let result: PortfolioMovementResolved;
+        if (!r.ok) {
+          result = {
+            loading: false as const,
+            error: typeof raw.error === 'string' ? raw.error : 'Could not load movement.',
+          };
+        } else {
+          result = { loading: false as const, data: raw };
+        }
+        portfolioMovementFetchCache.set(profileId, result);
+        return result;
+      } catch {
+        const result: PortfolioMovementResolved = {
+          loading: false as const,
+          error: 'Network error.',
+        };
+        portfolioMovementFetchCache.set(profileId, result);
+        return result;
+      }
+    })()
+  ).finally(() => {
+    portfolioMovementInflight.delete(profileId);
+  });
+
+  portfolioMovementInflight.set(profileId, promise);
+  return promise;
+}
 
 function StockMovementRowTable({
   title,
@@ -672,91 +831,47 @@ function StockMovementRowTable({
   );
 }
 
-/** In-memory cache for rebalance movement API (per session; panel stays mounted via tab `forceMount`). */
-const portfolioMovementFetchCache = new Map<
-  string,
-  | { loading: false; data: PortfolioMovementApiPayload }
-  | { loading: false; error: string }
->();
-
-function StockMovementPanel({
-  topProfile,
+function SinglePortfolioRebalanceMovementSection({
+  profile,
   rankedBySlug,
   cardState,
-  onOpenDetail,
+  onOpenEntrySettings,
   refreshEpoch,
+  fetchEnabled,
 }: {
-  /** Same profile as the Top portfolio tab (current sort metric). */
-  topProfile: ProfileRow | null;
+  profile: ProfileRow;
   rankedBySlug: Record<string, RankedBundle>;
   cardState: Record<string, OverviewCardPerfState>;
-  onOpenDetail: (profileId: string) => void;
-  /** Bumps when portfolio data is invalidated so movement can refetch. */
+  onOpenEntrySettings: (profileId: string) => void;
   refreshEpoch: number;
+  /** When false, skip network (tab inactive); cached data still shown after first load. */
+  fetchEnabled: boolean;
 }) {
-  const profileId = topProfile?.id ?? '';
+  const profileId = profile.id;
   const [fetchState, setFetchState] = useState<ProfileMovementFetchState | null>(null);
 
   useEffect(() => {
-    if (!profileId) {
-      setFetchState(null);
+    if (!fetchEnabled) {
       return;
     }
+
     const cached = portfolioMovementFetchCache.get(profileId);
     if (cached) {
       setFetchState(cached);
       return;
     }
+
     let cancelled = false;
     setFetchState({ loading: true });
 
-    void (async () => {
-      try {
-        const r = await fetch(
-          `/api/platform/portfolio-movement?profileId=${encodeURIComponent(profileId)}`,
-          { cache: 'no-store' }
-        );
-        const raw = (await r.json().catch(() => ({}))) as PortfolioMovementApiPayload & {
-          error?: string;
-        };
-        if (cancelled) return;
-        if (!r.ok) {
-          const err = {
-            loading: false as const,
-            error: typeof raw.error === 'string' ? raw.error : 'Could not load movement.',
-          };
-          portfolioMovementFetchCache.set(profileId, err);
-          setFetchState(err);
-          return;
-        }
-        const ok = { loading: false as const, data: raw };
-        portfolioMovementFetchCache.set(profileId, ok);
-        setFetchState(ok);
-      } catch {
-        if (!cancelled) {
-          const err = { loading: false as const, error: 'Network error.' };
-          portfolioMovementFetchCache.set(profileId, err);
-          setFetchState(err);
-        }
-      }
-    })();
+    void loadPortfolioMovementDeduped(profileId).then((result) => {
+      if (!cancelled) setFetchState(result);
+    });
 
     return () => {
       cancelled = true;
     };
-  }, [profileId, refreshEpoch]);
-
-  if (!topProfile) {
-    return (
-      <Card className="border-dashed">
-        <CardContent className="py-6">
-          <p className="text-center text-sm text-muted-foreground">
-            Follow a portfolio to see rebalance instructions for your top portfolio here.
-          </p>
-        </CardContent>
-      </Card>
-    );
-  }
+  }, [profileId, refreshEpoch, fetchEnabled]);
 
   const st = fetchState;
   const movementPayload = st && !st.loading && 'data' in st ? st.data : null;
@@ -764,30 +879,51 @@ function StockMovementPanel({
 
   return (
     <div className="space-y-4">
-      <p className="text-xs text-muted-foreground">
-        For your <span className="font-medium text-foreground">top portfolio</span> (same pick as
-        the Top portfolio tab): last config rebalance — what to hold, buy, or sell, with target
-        weights and dollar amounts aligned with your entry and investment size.
-      </p>
       <div className="grid gap-4 rounded-2xl border border-border bg-card/30 p-4 lg:grid-cols-[minmax(0,17rem)_minmax(0,1fr)] lg:items-start">
-        <div className="min-h-[12rem] lg:min-h-[14rem]">
+        <div
+          className="w-full max-w-[17rem] shrink-0 overflow-hidden"
+          style={{ height: OVERVIEW_TILE_ROW_HEIGHT }}
+        >
           <OverviewPortfolioTile
-            profile={topProfile}
+            profile={profile}
             rankedBySlug={rankedBySlug}
             cardState={cardState}
-            onOpenDetail={onOpenDetail}
+            interactive={false}
+            yourPortfoliosHref={`/platform/your-portfolios?profile=${encodeURIComponent(profile.id)}`}
+            headerRight={
+              profile.user_start_date ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
+                  aria-label="Entry settings"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenEntrySettings(profile.id);
+                  }}
+                >
+                  <Settings2 className="size-4" />
+                </Button>
+              ) : null
+            }
           />
         </div>
-        <div className="min-w-0 space-y-3">
-          {!st || st.loading ? (
+        <div className="flex min-w-0 flex-col">
+          {!fetchEnabled ? null : !st || st.loading ? (
             <div className="space-y-2">
               <Skeleton className="h-5 w-48" />
               <Skeleton className="h-32 w-full" />
             </div>
           ) : movementError != null ? (
-            <p className="text-sm text-muted-foreground">{movementError}</p>
+            <div
+              className="flex flex-col justify-center"
+              style={{ minHeight: OVERVIEW_TILE_ROW_HEIGHT }}
+            >
+              <p className="text-sm text-muted-foreground">{movementError}</p>
+            </div>
           ) : movementPayload?.status === 'ok' ? (
-            <>
+            <div className="space-y-3">
               <div>
                 <p className="text-sm font-semibold">Rebalance</p>
                 <p className="text-xs text-muted-foreground">
@@ -822,14 +958,66 @@ function StockMovementPanel({
               movementPayload.sell.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No position changes vs prior rebalance.</p>
               ) : null}
-            </>
+            </div>
           ) : movementPayload ? (
-            <p className="text-sm text-muted-foreground">
-              {movementPayload.message ?? 'Movement data is not available yet.'}
-            </p>
+            <div
+              className="flex flex-col justify-center"
+              style={{ minHeight: OVERVIEW_TILE_ROW_HEIGHT }}
+            >
+              <p className="text-sm text-muted-foreground">
+                {movementPayload.message ?? 'Movement data is not available yet.'}
+              </p>
+            </div>
           ) : null}
         </div>
       </div>
+    </div>
+  );
+}
+
+function StockMovementPanel({
+  profiles,
+  rankedBySlug,
+  cardState,
+  onOpenEntrySettings,
+  refreshEpoch,
+  fetchEnabled,
+}: {
+  /** Pre-sorted (e.g. by portfolio return) and pre-filtered followed portfolios. */
+  profiles: ProfileRow[];
+  rankedBySlug: Record<string, RankedBundle>;
+  cardState: Record<string, OverviewCardPerfState>;
+  onOpenEntrySettings: (profileId: string) => void;
+  /** Bumps when portfolio data is invalidated so movement can refetch. */
+  refreshEpoch: number;
+  /** False while another overview tab is selected — avoids N heavy API calls until needed. */
+  fetchEnabled: boolean;
+}) {
+  if (profiles.length === 0) {
+    return (
+      <Card className="border-dashed">
+        <CardContent className="py-6">
+          <p className="text-center text-sm text-muted-foreground">
+            Follow a portfolio to see rebalance instructions here.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-8">
+      {profiles.map((profile) => (
+        <SinglePortfolioRebalanceMovementSection
+          key={profile.id}
+          profile={profile}
+          rankedBySlug={rankedBySlug}
+          cardState={cardState}
+          onOpenEntrySettings={onOpenEntrySettings}
+          refreshEpoch={refreshEpoch}
+          fetchEnabled={fetchEnabled}
+        />
+      ))}
     </div>
   );
 }
@@ -903,6 +1091,9 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     [authState.isAuthenticated, authState.isLoaded]
   );
   const [rankedBySlug, setRankedBySlug] = useState<Record<string, RankedBundle>>({});
+  const [latestPerfDateBySlug, setLatestPerfDateBySlug] = useState<
+    Record<string, string | null>
+  >({});
   const [rankedLoading, setRankedLoading] = useState(false);
   const [cardState, setCardState] = useState<Record<string, OverviewCardPerfState>>({});
   const [topSpotlightHoldings, setTopSpotlightHoldings] = useState<HoldingItem[]>([]);
@@ -914,6 +1105,12 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   const spotlightHoldingsLenRef = useRef(0);
   spotlightHoldingsLenRef.current = topSpotlightHoldings.length;
   const [spotlightStockChartSymbol, setSpotlightStockChartSymbol] = useState<string | null>(null);
+  const [spotlightHoldingsMovementView, setSpotlightHoldingsMovementView] = useState(false);
+  const [prevSpotlightMovementHoldings, setPrevSpotlightMovementHoldings] = useState<
+    HoldingItem[] | null
+  >(null);
+  const [prevSpotlightMovementLoading, setPrevSpotlightMovementLoading] = useState(false);
+  const [prevSpotlightMovementError, setPrevSpotlightMovementError] = useState(false);
   const [entrySettingsProfileId, setEntrySettingsProfileId] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailProfileId, setDetailProfileId] = useState<string | null>(null);
@@ -1090,6 +1287,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   useEffect(() => {
     if (!authState.isAuthenticated || !profiles.length) {
       setRankedBySlug({});
+      setLatestPerfDateBySlug({});
       setRankedLoading(false);
       return;
     }
@@ -1107,6 +1305,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
               configs?: RankedConfig[];
               modelInceptionDate?: string | null;
               strategyName?: string;
+              latestPerformanceDate?: string | null;
             }) => ({
               slug,
               bundle: {
@@ -1114,6 +1313,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                 modelInceptionDate: d.modelInceptionDate ?? null,
                 strategyName: d.strategyName ?? slug,
               },
+              latestPerformanceDate: d.latestPerformanceDate ?? null,
             })
           )
           .catch(() => ({
@@ -1123,13 +1323,19 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
               modelInceptionDate: null as string | null,
               strategyName: slug,
             },
+            latestPerformanceDate: null as string | null,
           }))
       )
     ).then((rows) => {
       if (cancelled) return;
       const next: Record<string, RankedBundle> = {};
-      for (const { slug, bundle } of rows) next[slug] = bundle;
+      const dates: Record<string, string | null> = {};
+      for (const { slug, bundle, latestPerformanceDate } of rows) {
+        next[slug] = bundle;
+        dates[slug] = latestPerformanceDate;
+      }
       setRankedBySlug(next);
+      setLatestPerfDateBySlug(dates);
       setRankedLoading(false);
     });
     return () => {
@@ -1157,12 +1363,103 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   useEffect(() => {
     const handler = () => {
       portfolioMovementFetchCache.clear();
+      portfolioMovementInflight.clear();
       setMovementRefreshEpoch((e) => e + 1);
       void refreshOverviewProfiles();
     };
     window.addEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, handler);
     return () => window.removeEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, handler);
   }, [refreshOverviewProfiles]);
+
+  const rebalanceFilterDialogBenchmarkNasdaqRef = useRef<HTMLButtonElement>(null);
+  const [rebalanceFiltersDialogOpen, setRebalanceFiltersDialogOpen] = useState(false);
+  const [rebalanceSortDialogOpen, setRebalanceSortDialogOpen] = useState(false);
+  const [rebalanceFilterBeatNasdaq, setRebalanceFilterBeatNasdaq] = useState(false);
+  const [rebalanceFilterBeatSp500, setRebalanceFilterBeatSp500] = useState(false);
+  const [rebalanceRiskFilter, setRebalanceRiskFilter] = useState<RiskLevel | null>(null);
+  const [rebalanceFreqFilter, setRebalanceFreqFilter] = useState<RebalanceFrequency | null>(null);
+  const [rebalanceWeightFilter, setRebalanceWeightFilter] = useState<'equal' | 'cap' | null>(null);
+
+  useEffect(() => {
+    if (rebalanceRiskFilter === 6 && rebalanceWeightFilter === 'cap') {
+      setRebalanceWeightFilter(null);
+    }
+  }, [rebalanceRiskFilter, rebalanceWeightFilter]);
+
+  const activeRebalanceFilterCount = useMemo(() => {
+    let n = 0;
+    if (rebalanceFilterBeatNasdaq) n++;
+    if (rebalanceFilterBeatSp500) n++;
+    if (rebalanceRiskFilter != null) n++;
+    if (rebalanceFreqFilter != null) n++;
+    if (rebalanceWeightFilter != null) n++;
+    return n;
+  }, [
+    rebalanceFilterBeatNasdaq,
+    rebalanceFilterBeatSp500,
+    rebalanceRiskFilter,
+    rebalanceFreqFilter,
+    rebalanceWeightFilter,
+  ]);
+
+  const clearRebalanceFilters = useCallback(() => {
+    setRebalanceFilterBeatNasdaq(false);
+    setRebalanceFilterBeatSp500(false);
+    setRebalanceRiskFilter(null);
+    setRebalanceFreqFilter(null);
+    setRebalanceWeightFilter(null);
+  }, []);
+
+  const [rebalanceListSortMetric, setRebalanceListSortMetric] =
+    useState<PortfolioListSortMetric>('total_return');
+
+  const profilesSortedForRebalance = useMemo(
+    () =>
+      sortProfilesByOverviewCardMetric(
+        profiles,
+        rebalanceListSortMetric,
+        cardState,
+        overviewUserCompositeByProfileId,
+        (p) => ({
+          investment_size: Number(p.investment_size),
+          user_start_date: p.user_start_date,
+        })
+      ),
+    [profiles, rebalanceListSortMetric, cardState, overviewUserCompositeByProfileId]
+  );
+
+  const filteredProfilesForRebalance = useMemo(() => {
+    const opts = {
+      filterBeatNasdaq: rebalanceFilterBeatNasdaq,
+      filterBeatSp500: rebalanceFilterBeatSp500,
+      riskFilter: rebalanceRiskFilter,
+      freqFilter: rebalanceFreqFilter,
+      weightFilter: rebalanceWeightFilter,
+    };
+    return profilesSortedForRebalance.filter((p) =>
+      profileMatchesOverviewRebalanceFilters(p, rankedBySlug, opts)
+    );
+  }, [
+    profilesSortedForRebalance,
+    rankedBySlug,
+    rebalanceFilterBeatNasdaq,
+    rebalanceFilterBeatSp500,
+    rebalanceRiskFilter,
+    rebalanceFreqFilter,
+    rebalanceWeightFilter,
+  ]);
+
+  const rebalanceRankedConfigsForQuickPicks = useMemo(() => {
+    const slug =
+      profilesSortedForRebalance[0]?.strategy_models?.slug ?? strategies[0]?.slug ?? null;
+    if (!slug) {
+      return { configs: [] as RankedConfig[], latestAsOf: null as string | null };
+    }
+    return {
+      configs: rankedBySlug[slug]?.configs ?? [],
+      latestAsOf: latestPerfDateBySlug[slug] ?? null,
+    };
+  }, [profilesSortedForRebalance, strategies, rankedBySlug, latestPerfDateBySlug]);
 
   const overviewUserPerfFetchKey = useMemo(
     () =>
@@ -1321,6 +1618,85 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   }, [topSpotlightProfileId, topSpotlightConfigId, topSpotlightSlug, fetchTopSpotlightHoldings]);
 
   useEffect(() => {
+    setSpotlightHoldingsMovementView(false);
+    setPrevSpotlightMovementHoldings(null);
+    setPrevSpotlightMovementError(false);
+    setPrevSpotlightMovementLoading(false);
+  }, [topSpotlightProfileId, topSpotlightConfigId]);
+
+  const spotlightHoldingsTopN =
+    topSpotlightOverview?.profile.portfolio_config?.top_n ?? 20;
+
+  const spotlightHoldingsPrevRebalanceDate = useMemo(
+    () => getPreviousRebalanceDate(topSpotlightRebalanceDates, topSpotlightHoldingsAsOf),
+    [topSpotlightRebalanceDates, topSpotlightHoldingsAsOf]
+  );
+
+  useEffect(() => {
+    if (
+      !spotlightHoldingsMovementView ||
+      !spotlightHoldingsPrevRebalanceDate ||
+      !topSpotlightSlug?.trim() ||
+      !topSpotlightConfigId
+    ) {
+      setPrevSpotlightMovementHoldings(null);
+      setPrevSpotlightMovementLoading(false);
+      setPrevSpotlightMovementError(false);
+      return;
+    }
+    let cancelled = false;
+    setPrevSpotlightMovementLoading(true);
+    setPrevSpotlightMovementError(false);
+    const slug = topSpotlightSlug.trim();
+    const configId = topSpotlightConfigId;
+    void loadExplorePortfolioConfigHoldings(slug, configId, spotlightHoldingsPrevRebalanceDate).then(
+      (data) => {
+        if (cancelled) return;
+        if (!data?.holdings) {
+          setPrevSpotlightMovementHoldings(null);
+          setPrevSpotlightMovementError(true);
+        } else {
+          setPrevSpotlightMovementHoldings(data.holdings);
+        }
+        setPrevSpotlightMovementLoading(false);
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    spotlightHoldingsMovementView,
+    spotlightHoldingsPrevRebalanceDate,
+    topSpotlightSlug,
+    topSpotlightConfigId,
+  ]);
+
+  const spotlightHoldingsMovementModel = useMemo(() => {
+    if (
+      !spotlightHoldingsMovementView ||
+      !spotlightHoldingsPrevRebalanceDate ||
+      prevSpotlightMovementLoading ||
+      prevSpotlightMovementError ||
+      prevSpotlightMovementHoldings === null
+    ) {
+      return null;
+    }
+    return buildHoldingMovementTableRows(
+      topSpotlightHoldings,
+      prevSpotlightMovementHoldings,
+      spotlightHoldingsTopN
+    );
+  }, [
+    spotlightHoldingsMovementView,
+    spotlightHoldingsPrevRebalanceDate,
+    prevSpotlightMovementLoading,
+    prevSpotlightMovementError,
+    prevSpotlightMovementHoldings,
+    topSpotlightHoldings,
+    spotlightHoldingsTopN,
+  ]);
+
+  useEffect(() => {
     setSpotlightStockChartSymbol(null);
   }, [topSpotlightProfileId, topSpotlightConfigId]);
 
@@ -1419,6 +1795,17 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                 id: entrySettingsProfile.id,
                 investment_size: entrySettingsProfile.investment_size,
                 user_start_date: entrySettingsProfile.user_start_date,
+                strategySlug: entrySettingsProfile.strategy_models?.slug ?? null,
+                strategyModelName: entrySettingsProfile.strategy_models?.name ?? null,
+                portfolioConfig: entrySettingsProfile.portfolio_config
+                  ? {
+                      risk_level: entrySettingsProfile.portfolio_config.risk_level,
+                      risk_label: entrySettingsProfile.portfolio_config.risk_label,
+                      top_n: entrySettingsProfile.portfolio_config.top_n,
+                      weighting_method: entrySettingsProfile.portfolio_config.weighting_method,
+                      rebalance_frequency: entrySettingsProfile.portfolio_config.rebalance_frequency,
+                    }
+                  : null,
               }
             : null
         }
@@ -1426,17 +1813,153 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
           void refreshOverviewProfiles();
         }}
       />
+      <PortfolioListSortDialog
+        open={rebalanceSortDialogOpen}
+        onOpenChange={setRebalanceSortDialogOpen}
+        value={rebalanceListSortMetric}
+        onValueChange={setRebalanceListSortMetric}
+      />
+      <Dialog open={rebalanceFiltersDialogOpen} onOpenChange={setRebalanceFiltersDialogOpen}>
+        <DialogContent
+          className="flex max-h-[min(90vh,720px)] w-[calc(100vw-1.5rem)] max-w-lg flex-col gap-0 overflow-hidden p-0 sm:w-full"
+          onOpenAutoFocus={(e) => {
+            e.preventDefault();
+            rebalanceFilterDialogBenchmarkNasdaqRef.current?.focus();
+          }}
+        >
+          <DialogHeader className="shrink-0 space-y-1 border-b px-6 py-5 text-left">
+            <DialogTitle>Filter portfolios</DialogTitle>
+            <DialogDescription>
+              Narrow the rebalance list the same way as Your portfolios.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-6 py-4">
+            <ExplorePortfolioFilterControls
+              filterBeatNasdaq={rebalanceFilterBeatNasdaq}
+              filterBeatSp500={rebalanceFilterBeatSp500}
+              onFilterBeatNasdaqChange={setRebalanceFilterBeatNasdaq}
+              onFilterBeatSp500Change={setRebalanceFilterBeatSp500}
+              riskFilter={rebalanceRiskFilter}
+              freqFilter={rebalanceFreqFilter}
+              weightFilter={rebalanceWeightFilter}
+              onRiskChange={setRebalanceRiskFilter}
+              onFreqChange={setRebalanceFreqFilter}
+              onWeightChange={setRebalanceWeightFilter}
+              benchmarkOutperformanceAsOf={rebalanceRankedConfigsForQuickPicks.latestAsOf}
+              benchmarkNasdaqToggleRef={rebalanceFilterDialogBenchmarkNasdaqRef}
+              benchmarkHeaderEnd={
+                activeRebalanceFilterCount > 0 ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                    onClick={clearRebalanceFilters}
+                  >
+                    <FilterX className="size-3.5 shrink-0" aria-hidden />
+                    Clear
+                  </Button>
+                ) : null
+              }
+              betweenBenchmarkAndRisk={
+                <div className="space-y-2 border-t border-border/60 pt-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Quick picks
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {PORTFOLIO_EXPLORE_QUICK_PICKS.map((pick) => {
+                      const matched = rebalanceRankedConfigsForQuickPicks.configs.find(
+                        (c) =>
+                          c.riskLevel === pick.riskLevel &&
+                          c.rebalanceFrequency === pick.rebalanceFrequency &&
+                          c.weightingMethod === pick.weightingMethod
+                      );
+                      const isQuickPickActive =
+                        !rebalanceFilterBeatNasdaq &&
+                        !rebalanceFilterBeatSp500 &&
+                        rebalanceRiskFilter === pick.riskLevel &&
+                        rebalanceFreqFilter === pick.rebalanceFrequency &&
+                        (pick.riskLevel === 6 && pick.weightingMethod === 'equal'
+                          ? rebalanceWeightFilter === 'equal' || rebalanceWeightFilter === null
+                          : rebalanceWeightFilter === pick.weightingMethod);
+                      return (
+                        <button
+                          key={pick.key}
+                          type="button"
+                          aria-pressed={isQuickPickActive}
+                          onClick={() => {
+                            if (isQuickPickActive) {
+                              clearRebalanceFilters();
+                            } else {
+                              setRebalanceFilterBeatNasdaq(false);
+                              setRebalanceFilterBeatSp500(false);
+                              setRebalanceRiskFilter(pick.riskLevel);
+                              setRebalanceFreqFilter(pick.rebalanceFrequency);
+                              setRebalanceWeightFilter(pick.weightingMethod);
+                            }
+                          }}
+                          className={cn(
+                            'rounded-lg border px-2.5 py-2 text-left transition-all hover:shadow-sm',
+                            isQuickPickActive
+                              ? 'border-trader-blue bg-trader-blue/10 shadow-sm ring-2 ring-trader-blue/35 hover:border-trader-blue'
+                              : pick.highlight
+                                ? 'border-trader-blue/25 bg-trader-blue/[0.04] hover:border-trader-blue/50'
+                                : 'border-border hover:border-foreground/20 hover:bg-muted/30'
+                          )}
+                        >
+                          <p className="text-[11px] font-semibold leading-tight">{pick.label}</p>
+                          <p className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-muted-foreground">
+                            {pick.description}
+                          </p>
+                          {matched?.metrics.totalReturn != null && (
+                            <p
+                              className={cn(
+                                'mt-1 text-[10px] font-medium',
+                                matched.metrics.totalReturn >= 0
+                                  ? 'text-green-600 dark:text-green-400'
+                                  : 'text-red-600 dark:text-red-400'
+                              )}
+                            >
+                              {fmtQuickPickReturnOverview(matched.metrics.totalReturn)}
+                            </p>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              }
+            />
+          </div>
+          <DialogFooter className="shrink-0 flex-col gap-2 border-t px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-muted-foreground">
+              {activeRebalanceFilterCount > 0
+                ? `${filteredProfilesForRebalance.length} of ${profiles.length} match filters`
+                : `${profiles.length} portfolio${profiles.length === 1 ? '' : 's'}`}
+            </p>
+            <Button type="button" size="sm" onClick={() => setRebalanceFiltersDialogOpen(false)}>
+              Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <div className="flex h-full min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-y-contain px-0 pb-3 sm:pb-4">
           {loading ? (
-            <div className="relative -m-1 rounded-2xl border border-border p-2">
-              <div
-                className="grid grid-cols-2 gap-3 sm:grid-cols-3"
-                style={{ gridAutoRows: OVERVIEW_TILE_ROW_HEIGHT }}
-              >
-                {Array.from({ length: visibleOverviewSlotCount(0) }, (__, i) => (
-                  <Skeleton key={i} className="h-full w-full min-h-0 rounded-2xl" />
-                ))}
+            <div className="w-full space-y-3">
+              <div className="space-y-2 pb-2">
+                <div className="rounded-xl border border-border/70 bg-muted/25 px-3 py-3 shadow-sm sm:px-4 sm:py-3.5 dark:bg-muted/15">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+                      <Skeleton className="h-8 w-40 shrink-0 rounded-md" />
+                      <Skeleton className="h-4 w-full max-w-xl flex-1 rounded-md" />
+                    </div>
+                    <Skeleton className="h-9 w-full max-w-md rounded-lg lg:w-[min(20rem,100%)]" />
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-3">
+                <OverviewTopPortfolioSpotlightSkeleton />
               </div>
             </div>
           ) : !authState.isAuthenticated ? (
@@ -1470,16 +1993,17 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
               </Card>
             </>
           ) : (
-            <Tabs value={overviewTab} onValueChange={setOverviewTab} className="w-full space-y-4">
-              <div className="space-y-2 border-b border-border/80 pb-4">
+            <Tabs value={overviewTab} onValueChange={setOverviewTab} className="w-full space-y-3">
+              <div className="space-y-2 pb-2">
                 <div className="rounded-xl border border-border/70 bg-muted/25 px-3 py-3 shadow-sm sm:px-4 sm:py-3.5 dark:bg-muted/15">
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                    <div className="min-w-0 max-w-2xl space-y-1">
-                      <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                    <div className="flex min-w-0 flex-1 flex-col gap-1.5 sm:flex-row sm:items-start sm:gap-4 lg:gap-6">
+                      <h1 className="shrink-0 text-2xl font-semibold tracking-tight text-foreground">
                         Overview
                       </h1>
-                      <p className="text-sm leading-relaxed text-muted-foreground">
-                        Your top performing portfolio, and how to rebalance to keep up with the AI's ratings.
+                      <p className="min-w-0 max-w-2xl flex-1 text-sm leading-relaxed text-muted-foreground sm:pt-1">
+                        Your top portfolio by performance, and how to
+                        rebalance to keep up with the AI's ratings.
                       </p>
                     </div>
                     <TabsList
@@ -1492,7 +2016,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                         value="top-portfolio"
                         className="rounded-md px-3 py-2 text-xs font-medium data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm sm:py-1.5 sm:text-sm"
                       >
-                        Top Portfolio
+                        Top portfolio
                       </TabsTrigger>
                       <TabsTrigger
                         value="rebalance-actions"
@@ -1514,69 +2038,17 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                     </TabsList>
                   </div>
                 </div>
-                <div className="flex justify-end pt-0">
-                  <div className="inline-flex max-w-full flex-wrap justify-end gap-1.5 rounded-2xl border border-border/80 bg-card/95 p-1.5 shadow-lg shadow-black/[0.06] ring-1 ring-black/[0.04] backdrop-blur-sm dark:bg-card/90 dark:shadow-black/20 dark:ring-white/[0.06]">
-                    {OVERVIEW_PAGE_QUICK_LINKS.map(({ href, label, icon: Icon }) => (
-                      <Link
-                        key={href}
-                        href={href}
-                        prefetch
-                        onMouseEnter={() => router.prefetch(href)}
-                        onFocus={() => router.prefetch(href)}
-                        onPointerDown={() => router.prefetch(href)}
-                        className="inline-flex items-center gap-2 rounded-xl border border-border/70 bg-background/95 px-3 py-1.5 text-sm font-medium shadow-sm transition-colors hover:bg-muted/60"
-                      >
-                        <Icon className="size-4 shrink-0 text-trader-blue" />
-                        <span className="leading-tight">{label}</span>
-                        <ArrowRight className="size-3.5 shrink-0 text-muted-foreground" />
-                      </Link>
-                    ))}
-                    {process.env.NODE_ENV === 'development' ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-auto shrink-0 gap-1.5 rounded-xl border border-dashed border-border/80 bg-background/95 px-3 py-1.5 text-sm font-medium shadow-sm hover:bg-muted/60"
-                        onClick={() => {
-                          resetOnboarding();
-                          setOnboardingDevKey((k) => k + 1);
-                        }}
-                      >
-                        <span>Open onboarding</span>
-                        <span className="font-normal text-muted-foreground">(local only)</span>
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
               </div>
 
               <TabsContent
                 value="top-portfolio"
                 forceMount
+                data-platform-tour="overview-top-portfolio-panel"
                 className="mt-0 space-y-3 ring-offset-0 focus-visible:outline-none focus-visible:ring-0 data-[state=inactive]:hidden"
               >
                 <div className="space-y-3">
                   {spotlightSectionLoading ? (
-                    <>
-                      <h2 className="mb-3 text-sm font-semibold tracking-tight text-foreground">
-                        Your top portfolio by portfolio value
-                      </h2>
-                      <section className="rounded-xl border border-border bg-card/50 p-4 sm:p-5">
-                        <div className="mb-4">
-                          <Skeleton className="h-7 w-full max-w-xl rounded-md" />
-                        </div>
-                        <div className="grid gap-4 lg:grid-cols-[minmax(0,11rem)_minmax(0,1.25fr)_minmax(0,0.75fr)]">
-                          <div className="space-y-2">
-                            <Skeleton className="h-14 w-full rounded-lg" />
-                            <Skeleton className="h-14 w-full rounded-lg" />
-                            <Skeleton className="h-14 w-full rounded-lg" />
-                            <Skeleton className="h-14 w-full rounded-lg" />
-                          </div>
-                          <Skeleton className="min-h-[300px] rounded-lg sm:min-h-[340px]" />
-                          <Skeleton className="min-h-[200px] rounded-lg lg:min-h-[260px]" />
-                        </div>
-                      </section>
-                    </>
+                    <OverviewTopPortfolioSpotlightSkeleton />
                   ) : topSpotlightOverview ? (
                     (() => {
                       const bp = topSpotlightOverview.profile;
@@ -1618,10 +2090,10 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                       return (
                         <>
                           <h2 className="mb-3 text-sm font-semibold tracking-tight text-foreground">
-                            Your top portfolio by portfolio value
+                            Your top portfolio by performance
                           </h2>
                           <section className="rounded-xl border border-border bg-card/50 p-4 sm:p-5">
-                            <div className="mb-4 flex min-w-0 items-start justify-between gap-3">
+                            <div className="mb-2 flex min-w-0 items-start justify-between gap-3">
                               <div className="min-w-0 flex flex-wrap items-center gap-x-1.5 gap-y-1">
                                 <span className="min-w-0 shrink text-base font-semibold leading-snug text-foreground">
                                   {strategyTitle}
@@ -1721,7 +2193,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                 />
                                 <SpotlightStatCard
                                   tooltipKey="return_pct"
-                                  label="Return %"
+                                  label="Performance (return %)"
                                   value={fmt.pct(st.totalReturn)}
                                   positive={
                                     st.totalReturn != null && Number.isFinite(st.totalReturn)
@@ -1795,12 +2267,32 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                     series={series}
                                     strategyName={bp.strategy_models?.name ?? 'Portfolio'}
                                     hideDrawdown
+                                    hideFootnote
                                     initialNotional={initialNotional}
-                                    chartContainerClassName="h-[300px] sm:h-[340px]"
+                                    chartContainerClassName="h-[276px] sm:h-[316px]"
                                   />
                                 ) : (
-                                  <div className="flex h-[260px] items-center justify-center text-sm text-muted-foreground lg:h-[340px]">
-                                    Not enough history to chart yet.
+                                  <div className="flex h-[260px] flex-col items-center justify-center gap-2 px-4 text-center text-sm text-muted-foreground lg:h-[316px]">
+                                    <p>Not enough history to chart yet.</p>
+                                    {bp.user_start_date ? (
+                                      <>
+                                        <p className="max-w-sm text-xs leading-snug">
+                                          You can change your portfolio entry date to see
+                                          more data and change how much performance history this chart
+                                          shows.
+                                        </p>
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="sm"
+                                          className="mt-1 gap-1.5"
+                                          onClick={() => setEntrySettingsProfileId(bp.id)}
+                                        >
+                                          <Settings2 className="size-3.5" aria-hidden />
+                                          Entry settings
+                                        </Button>
+                                      </>
+                                    ) : null}
                                   </div>
                                 )}
                               </div>
@@ -1810,35 +2302,62 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                     Portfolio holdings
                                   </h4>
                                   {topSpotlightRebalanceDates.length > 0 ? (
-                                    <Select
-                                      value={
-                                        topSpotlightHoldingsAsOf &&
-                                        topSpotlightRebalanceDates.includes(
-                                          topSpotlightHoldingsAsOf
-                                        )
-                                          ? topSpotlightHoldingsAsOf
-                                          : undefined
-                                      }
-                                      onValueChange={(v) => {
-                                        if (v && v !== topSpotlightHoldingsAsOf) {
-                                          void fetchTopSpotlightHoldings(v);
+                                    <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-2 sm:gap-x-3">
+                                      <Select
+                                        value={
+                                          topSpotlightHoldingsAsOf &&
+                                          topSpotlightRebalanceDates.includes(
+                                            topSpotlightHoldingsAsOf
+                                          )
+                                            ? topSpotlightHoldingsAsOf
+                                            : undefined
                                         }
-                                      }}
-                                      disabled={topSpotlightHoldingsLoading}
-                                    >
-                                      <SelectTrigger className="h-9 w-full max-w-[168px] shrink-0 text-xs sm:w-[168px]">
-                                        <SelectValue placeholder="Rebalance date" />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        {topSpotlightRebalanceDates.map((d) => (
-                                          <SelectItem key={d} value={d} className="text-xs">
-                                            {spotlightHoldingsShortDateFmt.format(
-                                              new Date(`${d}T00:00:00Z`)
-                                            )}
-                                          </SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
+                                        onValueChange={(v) => {
+                                          if (v && v !== topSpotlightHoldingsAsOf) {
+                                            void fetchTopSpotlightHoldings(v);
+                                          }
+                                        }}
+                                        disabled={topSpotlightHoldingsLoading}
+                                      >
+                                        <SelectTrigger className="h-9 w-full max-w-[168px] shrink-0 text-xs sm:w-[168px]">
+                                          <SelectValue placeholder="Rebalance date" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {topSpotlightRebalanceDates.map((d) => (
+                                            <SelectItem key={d} value={d} className="text-xs">
+                                              {spotlightHoldingsShortDateFmt.format(
+                                                new Date(`${d}T00:00:00Z`)
+                                              )}
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                      {spotlightHoldingsPrevRebalanceDate ? (
+                                        <div className="flex items-center gap-2 shrink-0">
+                                          <Switch
+                                            id="overview-spotlight-holdings-movement"
+                                            checked={spotlightHoldingsMovementView}
+                                            onCheckedChange={setSpotlightHoldingsMovementView}
+                                            disabled={topSpotlightHoldingsLoading}
+                                            aria-label="Show which holdings entered, stayed, or exited vs prior rebalance"
+                                          />
+                                          <Label
+                                            htmlFor="overview-spotlight-holdings-movement"
+                                            className="text-xs text-muted-foreground cursor-pointer whitespace-nowrap leading-none"
+                                          >
+                                            Movement
+                                          </Label>
+                                          <HoldingsMovementInfoTooltip />
+                                          {spotlightHoldingsMovementView &&
+                                          prevSpotlightMovementLoading ? (
+                                            <Loader2
+                                              className="size-3.5 shrink-0 animate-spin text-muted-foreground"
+                                              aria-hidden
+                                            />
+                                          ) : null}
+                                        </div>
+                                      ) : null}
+                                    </div>
                                   ) : topSpotlightHoldingsLoading ? (
                                     <span className="shrink-0 text-[11px] text-muted-foreground">
                                       Loading…
@@ -1849,6 +2368,11 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                     </p>
                                   )}
                                 </div>
+                                {spotlightHoldingsMovementView && prevSpotlightMovementError ? (
+                                  <p className="text-[11px] text-destructive">
+                                    Could not load the prior rebalance to compare.
+                                  </p>
+                                ) : null}
                                 {topSpotlightHoldingsLoading ? (
                                   <Skeleton className="h-48 w-full rounded-md" />
                                 ) : topSpotlightHoldings.length === 0 ? (
@@ -1875,14 +2399,19 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                       <Table>
                                         <TableHeader>
                                           <TableRow className="hover:bg-transparent">
-                                            <TableHead className="h-9 w-8 py-1.5 pl-2 pr-0.5 text-left align-middle tabular-nums">
+                                            <TableHead className="h-9 min-w-[4.25rem] py-1.5 pl-2 pr-0.5 text-left align-middle tabular-nums">
                                               #
                                             </TableHead>
                                             <TableHead className="h-9 w-16 px-1.5 py-1.5 text-left align-middle">
                                               Stock
                                             </TableHead>
                                             <TableHead className="h-9 px-1.5 py-1.5 text-center align-middle whitespace-nowrap">
-                                              Recommended Allocation
+                                              <span className="inline-flex items-center justify-center gap-1">
+                                                Allocation
+                                                <HoldingsAllocationColumnTooltip
+                                                  weightingMethod={pc?.weighting_method}
+                                                />
+                                              </span>
                                             </TableHead>
                                             <TableHead className="h-9 py-1.5 pl-1.5 pr-3 text-right align-middle whitespace-nowrap">
                                               AI rating
@@ -1890,75 +2419,257 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                           </TableRow>
                                         </TableHeader>
                                         <TableBody>
-                                          {topSpotlightHoldings.map((h) => {
-                                            const company =
-                                              typeof h.companyName === 'string' &&
-                                              h.companyName.trim().length > 0
-                                                ? h.companyName.trim()
-                                                : null;
-                                            return (
-                                              <TableRow
-                                                key={`${h.symbol}-${h.rank}`}
-                                                className="cursor-pointer hover:bg-muted/50"
-                                                tabIndex={0}
-                                                onClick={() => setSpotlightStockChartSymbol(h.symbol)}
-                                                onKeyDown={(e) => {
-                                                  if (e.key === 'Enter' || e.key === ' ') {
-                                                    e.preventDefault();
-                                                    setSpotlightStockChartSymbol(h.symbol);
+                                          {spotlightHoldingsMovementModel
+                                            ? (
+                                              <>
+                                                {spotlightHoldingsMovementModel.active.map(
+                                                  ({ holding: h, kind }) => {
+                                                    const company =
+                                                      typeof h.companyName === 'string' &&
+                                                      h.companyName.trim().length > 0
+                                                        ? h.companyName.trim()
+                                                        : null;
+                                                    return (
+                                                      <TableRow
+                                                        key={`${h.symbol}-${h.rank}-m`}
+                                                        className={cn(
+                                                          'cursor-pointer hover:bg-muted/50',
+                                                          holdingMovementRowCn(kind)
+                                                        )}
+                                                        tabIndex={0}
+                                                        onClick={() =>
+                                                          setSpotlightStockChartSymbol(h.symbol)
+                                                        }
+                                                        onKeyDown={(e) => {
+                                                          if (e.key === 'Enter' || e.key === ' ') {
+                                                            e.preventDefault();
+                                                            setSpotlightStockChartSymbol(h.symbol);
+                                                          }
+                                                        }}
+                                                      >
+                                                        <TableCell className="py-1.5 pl-2 pr-0.5 text-muted-foreground">
+                                                          <HoldingRankWithChange
+                                                            rank={h.rank}
+                                                            rankChange={h.rankChange}
+                                                          />
+                                                        </TableCell>
+                                                        <TableCell className="px-1.5 py-1.5 text-left">
+                                                          {company ? (
+                                                            <Tooltip>
+                                                              <TooltipTrigger asChild>
+                                                                <span className="block truncate font-medium">
+                                                                  {h.symbol}
+                                                                </span>
+                                                              </TooltipTrigger>
+                                                              <TooltipContent
+                                                                side="top"
+                                                                className="max-w-xs text-left"
+                                                              >
+                                                                {company}
+                                                              </TooltipContent>
+                                                            </Tooltip>
+                                                          ) : (
+                                                            <span className="block truncate font-medium">
+                                                              {h.symbol}
+                                                            </span>
+                                                          )}
+                                                        </TableCell>
+                                                        <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap">
+                                                          {Number.isFinite(investmentSize) &&
+                                                          investmentSize > 0
+                                                            ? `${formatOverviewCurrency(h.weight * investmentSize)} (${(h.weight * 100).toFixed(1)}%)`
+                                                            : `— (${(h.weight * 100).toFixed(1)}%)`}
+                                                        </TableCell>
+                                                        <TableCell className="py-1.5 pl-1.5 pr-3 text-right">
+                                                          <span className="inline-flex items-center justify-end gap-1">
+                                                            <Badge
+                                                              variant="outline"
+                                                              className={cn(
+                                                                'px-1.5 py-0 text-[10px] font-normal leading-tight shrink-0',
+                                                                spotlightHoldingScoreBucketClass(
+                                                                  h.bucket
+                                                                )
+                                                              )}
+                                                            >
+                                                              {spotlightHoldingScoreBucketLabel(h.bucket)}
+                                                            </Badge>
+                                                            <span className="tabular-nums font-medium">
+                                                              {h.score != null && Number.isFinite(h.score)
+                                                                ? h.score.toFixed(1)
+                                                                : '—'}
+                                                            </span>
+                                                          </span>
+                                                        </TableCell>
+                                                      </TableRow>
+                                                    );
                                                   }
-                                                }}
-                                              >
-                                                <TableCell className="py-1.5 pl-2 pr-0.5 tabular-nums text-muted-foreground">
-                                                  {h.rank}
-                                                </TableCell>
-                                                <TableCell className="px-1.5 py-1.5 text-left">
-                                                  {company ? (
-                                                    <Tooltip>
-                                                      <TooltipTrigger asChild>
+                                                )}
+                                                {spotlightHoldingsMovementModel.exited.length > 0 ? (
+                                                  <TableRow className="pointer-events-none border-t bg-muted/25 hover:bg-muted/25">
+                                                    <TableCell
+                                                      colSpan={4}
+                                                      className="py-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"
+                                                    >
+                                                      Exited (vs prior rebalance)
+                                                    </TableCell>
+                                                  </TableRow>
+                                                ) : null}
+                                                {spotlightHoldingsMovementModel.exited.map((h) => {
+                                                  const company =
+                                                    typeof h.companyName === 'string' &&
+                                                    h.companyName.trim().length > 0
+                                                      ? h.companyName.trim()
+                                                      : null;
+                                                  return (
+                                                    <TableRow
+                                                      key={`${h.symbol}-${h.rank}-x`}
+                                                      className={cn(
+                                                        'cursor-pointer hover:bg-muted/50',
+                                                        holdingMovementRowCn('exited')
+                                                      )}
+                                                      tabIndex={0}
+                                                      onClick={() =>
+                                                        setSpotlightStockChartSymbol(h.symbol)
+                                                      }
+                                                      onKeyDown={(e) => {
+                                                        if (e.key === 'Enter' || e.key === ' ') {
+                                                          e.preventDefault();
+                                                          setSpotlightStockChartSymbol(h.symbol);
+                                                        }
+                                                      }}
+                                                    >
+                                                      <TableCell className="py-1.5 pl-2 pr-0.5 text-muted-foreground">
+                                                        <HoldingRankWithChange
+                                                          rank={h.rank}
+                                                          rankChange={null}
+                                                        />
+                                                      </TableCell>
+                                                      <TableCell className="px-1.5 py-1.5 text-left">
+                                                        {company ? (
+                                                          <Tooltip>
+                                                            <TooltipTrigger asChild>
+                                                              <span className="block truncate font-medium">
+                                                                {h.symbol}
+                                                              </span>
+                                                            </TooltipTrigger>
+                                                            <TooltipContent
+                                                              side="top"
+                                                              className="max-w-xs text-left"
+                                                            >
+                                                              {company}
+                                                            </TooltipContent>
+                                                          </Tooltip>
+                                                        ) : (
+                                                          <span className="block truncate font-medium">
+                                                            {h.symbol}
+                                                          </span>
+                                                        )}
+                                                      </TableCell>
+                                                      <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap text-muted-foreground">
+                                                        <span className="text-[11px]">
+                                                          Was {(h.weight * 100).toFixed(1)}%
+                                                        </span>
+                                                      </TableCell>
+                                                      <TableCell className="py-1.5 pl-1.5 pr-3 text-right">
+                                                        <span className="inline-flex items-center justify-end gap-1">
+                                                          <Badge
+                                                            variant="outline"
+                                                            className={cn(
+                                                              'px-1.5 py-0 text-[10px] font-normal leading-tight shrink-0 opacity-90',
+                                                              spotlightHoldingScoreBucketClass(
+                                                                h.bucket
+                                                              )
+                                                            )}
+                                                          >
+                                                            {spotlightHoldingScoreBucketLabel(h.bucket)}
+                                                          </Badge>
+                                                          <span className="tabular-nums font-medium text-muted-foreground">
+                                                            {h.score != null && Number.isFinite(h.score)
+                                                              ? h.score.toFixed(1)
+                                                              : '—'}
+                                                          </span>
+                                                        </span>
+                                                      </TableCell>
+                                                    </TableRow>
+                                                  );
+                                                })}
+                                              </>
+                                            )
+                                            : topSpotlightHoldings.slice(0, spotlightHoldingsTopN).map((h) => {
+                                                const company =
+                                                  typeof h.companyName === 'string' &&
+                                                  h.companyName.trim().length > 0
+                                                    ? h.companyName.trim()
+                                                    : null;
+                                                return (
+                                                  <TableRow
+                                                    key={`${h.symbol}-${h.rank}`}
+                                                    className="cursor-pointer hover:bg-muted/50"
+                                                    tabIndex={0}
+                                                    onClick={() =>
+                                                      setSpotlightStockChartSymbol(h.symbol)
+                                                    }
+                                                    onKeyDown={(e) => {
+                                                      if (e.key === 'Enter' || e.key === ' ') {
+                                                        e.preventDefault();
+                                                        setSpotlightStockChartSymbol(h.symbol);
+                                                      }
+                                                    }}
+                                                  >
+                                                    <TableCell className="py-1.5 pl-2 pr-0.5 text-muted-foreground">
+                                                      <HoldingRankWithChange
+                                                        rank={h.rank}
+                                                        rankChange={h.rankChange}
+                                                      />
+                                                    </TableCell>
+                                                    <TableCell className="px-1.5 py-1.5 text-left">
+                                                      {company ? (
+                                                        <Tooltip>
+                                                          <TooltipTrigger asChild>
+                                                            <span className="block truncate font-medium">
+                                                              {h.symbol}
+                                                            </span>
+                                                          </TooltipTrigger>
+                                                          <TooltipContent
+                                                            side="top"
+                                                            className="max-w-xs text-left"
+                                                          >
+                                                            {company}
+                                                          </TooltipContent>
+                                                        </Tooltip>
+                                                      ) : (
                                                         <span className="block truncate font-medium">
                                                           {h.symbol}
                                                         </span>
-                                                      </TooltipTrigger>
-                                                      <TooltipContent
-                                                        side="top"
-                                                        className="max-w-xs text-left"
-                                                      >
-                                                        {company}
-                                                      </TooltipContent>
-                                                    </Tooltip>
-                                                  ) : (
-                                                    <span className="block truncate font-medium">
-                                                      {h.symbol}
-                                                    </span>
-                                                  )}
-                                                </TableCell>
-                                                <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap">
-                                                  {Number.isFinite(investmentSize) && investmentSize > 0
-                                                    ? `${formatOverviewCurrency(h.weight * investmentSize)} (${(h.weight * 100).toFixed(1)}%)`
-                                                    : `— (${(h.weight * 100).toFixed(1)}%)`}
-                                                </TableCell>
-                                                <TableCell className="py-1.5 pl-1.5 pr-3 text-right">
-                                                  <span className="inline-flex items-center justify-end gap-1">
-                                                    <Badge
-                                                      variant="outline"
-                                                      className={cn(
-                                                        'px-1.5 py-0 text-[10px] font-normal leading-tight shrink-0',
-                                                        spotlightHoldingScoreBucketClass(h.bucket)
                                                       )}
-                                                    >
-                                                      {spotlightHoldingScoreBucketLabel(h.bucket)}
-                                                    </Badge>
-                                                    <span className="tabular-nums font-medium">
-                                                      {h.score != null && Number.isFinite(h.score)
-                                                        ? h.score.toFixed(1)
-                                                        : '—'}
-                                                    </span>
-                                                  </span>
-                                                </TableCell>
-                                              </TableRow>
-                                            );
-                                          })}
+                                                    </TableCell>
+                                                    <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap">
+                                                      {Number.isFinite(investmentSize) &&
+                                                      investmentSize > 0
+                                                        ? `${formatOverviewCurrency(h.weight * investmentSize)} (${(h.weight * 100).toFixed(1)}%)`
+                                                        : `— (${(h.weight * 100).toFixed(1)}%)`}
+                                                    </TableCell>
+                                                    <TableCell className="py-1.5 pl-1.5 pr-3 text-right">
+                                                      <span className="inline-flex items-center justify-end gap-1">
+                                                        <Badge
+                                                          variant="outline"
+                                                          className={cn(
+                                                            'px-1.5 py-0 text-[10px] font-normal leading-tight shrink-0',
+                                                            spotlightHoldingScoreBucketClass(h.bucket)
+                                                          )}
+                                                        >
+                                                          {spotlightHoldingScoreBucketLabel(h.bucket)}
+                                                        </Badge>
+                                                        <span className="tabular-nums font-medium">
+                                                          {h.score != null && Number.isFinite(h.score)
+                                                            ? h.score.toFixed(1)
+                                                            : '—'}
+                                                        </span>
+                                                      </span>
+                                                    </TableCell>
+                                                  </TableRow>
+                                                );
+                                              })}
                                         </TableBody>
                                       </Table>
                                     </div>
@@ -1975,8 +2686,8 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                   ) : (
                     <section className="rounded-xl border border-border bg-card/50 p-4 sm:p-5">
                       <p className="text-sm text-muted-foreground">
-                        No portfolio value to compare yet — add a portfolio with a start date, or
-                        wait for metrics to sync.
+                        No return data to compare yet — add a portfolio with a start date, or wait
+                        for metrics to sync.
                       </p>
                     </section>
                   )}
@@ -2222,16 +2933,97 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
               <TabsContent
                 value="rebalance-actions"
                 forceMount
+                data-platform-tour="overview-rebalance-actions-panel"
                 className="mt-0 ring-offset-0 focus-visible:outline-none focus-visible:ring-0 data-[state=inactive]:hidden"
               >
-                <StockMovementPanel
-                  topProfile={topSpotlightOverview?.profile ?? null}
-                  rankedBySlug={rankedBySlug}
-                  cardState={cardState}
-                  onOpenDetail={openPortfolioDetail}
-                  refreshEpoch={movementRefreshEpoch}
-                />
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+                    <p className="text-xs text-muted-foreground">
+                      {activeRebalanceFilterCount > 0
+                        ? `${filteredProfilesForRebalance.length} of ${profiles.length} portfolios`
+                        : `${profiles.length} portfolio${profiles.length === 1 ? '' : 's'}`}
+                    </p>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 shrink-0"
+                      aria-label="Sort portfolios"
+                      onClick={() => setRebalanceSortDialogOpen(true)}
+                    >
+                      <ArrowUpDown className="size-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="relative size-8 shrink-0"
+                      aria-label="Filter portfolios"
+                      onClick={() => setRebalanceFiltersDialogOpen(true)}
+                    >
+                      <ListFilter className="size-4" />
+                      {activeRebalanceFilterCount > 0 ? (
+                        <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold tabular-nums text-primary-foreground">
+                          {activeRebalanceFilterCount}
+                        </span>
+                      ) : null}
+                    </Button>
+                  </div>
+                  {profiles.length > 0 && filteredProfilesForRebalance.length === 0 ? (
+                    <Card className="border-dashed">
+                      <CardContent className="py-6">
+                        <p className="text-center text-sm text-muted-foreground">
+                          No portfolios match these filters. Open filters to adjust or clear.
+                        </p>
+                      </CardContent>
+                    </Card>
+                  ) : (
+                    <StockMovementPanel
+                      profiles={filteredProfilesForRebalance}
+                      rankedBySlug={rankedBySlug}
+                      cardState={cardState}
+                      onOpenEntrySettings={setEntrySettingsProfileId}
+                      refreshEpoch={movementRefreshEpoch}
+                      fetchEnabled={overviewTab === 'rebalance-actions'}
+                    />
+                  )}
+                </div>
               </TabsContent>
+
+              <div className="flex justify-end">
+                <div className="inline-flex max-w-full flex-wrap justify-end gap-1.5 rounded-2xl border border-border/80 bg-card/95 p-1.5 shadow-lg shadow-black/[0.06] ring-1 ring-black/[0.04] backdrop-blur-sm dark:bg-card/90 dark:shadow-black/20 dark:ring-white/[0.06]">
+                  {OVERVIEW_PAGE_QUICK_LINKS.map(({ href, label, icon: Icon }) => (
+                    <Link
+                      key={href}
+                      href={href}
+                      prefetch
+                      onMouseEnter={() => router.prefetch(href)}
+                      onFocus={() => router.prefetch(href)}
+                      onPointerDown={() => router.prefetch(href)}
+                      className="inline-flex items-center gap-2 rounded-xl border border-border/70 bg-background/95 px-3 py-1.5 text-sm font-medium shadow-sm transition-colors hover:bg-muted/60"
+                    >
+                      <Icon className="size-4 shrink-0 text-trader-blue" />
+                      <span className="leading-tight">{label}</span>
+                      <ArrowRight className="size-3.5 shrink-0 text-muted-foreground" />
+                    </Link>
+                  ))}
+                  {process.env.NODE_ENV === 'development' ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-auto shrink-0 gap-1.5 rounded-xl border border-dashed border-border/80 bg-background/95 px-3 py-1.5 text-sm font-medium shadow-sm hover:bg-muted/60"
+                      onClick={() => {
+                        resetOnboarding();
+                        setOnboardingDevKey((k) => k + 1);
+                      }}
+                    >
+                      <span>Open onboarding</span>
+                      <span className="font-normal text-muted-foreground">(local only)</span>
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
             </Tabs>
           )}
         </div>

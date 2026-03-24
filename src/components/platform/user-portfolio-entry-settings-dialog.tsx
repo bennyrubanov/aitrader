@@ -15,6 +15,7 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { PortfolioEntryDatePicker } from '@/components/platform/portfolio-entry-date-picker';
 import { portfolioEntryDateBounds } from '@/components/platform/portfolio-entry-date-utils';
+import { PortfolioIdentitySummaryRow } from '@/components/platform/portfolio-identity-summary-row';
 
 export type UserPortfolioEntrySettingsProfile = {
   id: string;
@@ -22,6 +23,14 @@ export type UserPortfolioEntrySettingsProfile = {
   user_start_date: string | null;
   /** Used to load model inception for the same calendar bounds as onboarding. */
   strategySlug?: string | null;
+  strategyModelName?: string | null;
+  portfolioConfig?: {
+    risk_level: number;
+    risk_label?: string | null;
+    top_n: number;
+    weighting_method: string;
+    rebalance_frequency: string;
+  } | null;
 };
 
 type Props = {
@@ -82,6 +91,20 @@ export function UserPortfolioEntrySettingsDialog({
     () => portfolioEntryDateBounds(modelInceptionYmd),
     [modelInceptionYmd]
   );
+
+  const portfolioIdentity = useMemo(() => {
+    const pc = profile?.portfolioConfig;
+    const name = profile?.strategyModelName?.trim();
+    if (!pc || !name) return null;
+    return {
+      riskLevel: pc.risk_level,
+      riskLabel: pc.risk_label,
+      topN: pc.top_n,
+      weightingMethod: pc.weighting_method,
+      rebalanceFrequency: pc.rebalance_frequency,
+      strategyModelName: name,
+    };
+  }, [profile?.portfolioConfig, profile?.strategyModelName]);
 
   const pickerValueYmd = useMemo(() => {
     if (YMD.test(startDate)) return startDate;
@@ -158,6 +181,17 @@ export function UserPortfolioEntrySettingsDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Entry settings</DialogTitle>
+          {portfolioIdentity ? (
+            <PortfolioIdentitySummaryRow
+              variant="boxed"
+              riskLevel={portfolioIdentity.riskLevel}
+              riskLabel={portfolioIdentity.riskLabel}
+              topN={portfolioIdentity.topN}
+              weightingMethod={portfolioIdentity.weightingMethod}
+              rebalanceFrequency={portfolioIdentity.rebalanceFrequency}
+              strategyModelName={portfolioIdentity.strategyModelName}
+            />
+          ) : null}
           <DialogDescription>
             Starting investment and your entry date set how your personal performance is calculated.
           </DialogDescription>

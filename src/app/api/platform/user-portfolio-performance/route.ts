@@ -21,6 +21,7 @@ import {
 import { pickHoldingsRunDate } from '@/lib/user-portfolio-entry';
 import {
   computeExcessReturnVsNasdaqCap,
+  computeExcessReturnVsNasdaqEqual,
   computeWeeklyConsistencyVsNasdaqCap,
 } from '@/lib/user-entry-performance';
 
@@ -129,6 +130,7 @@ export async function GET(req: Request) {
             maxDrawdown: configTrack.metrics.maxDrawdown,
             consistency: computeWeeklyConsistencyVsNasdaqCap(configTrack.series),
             excessReturnVsNasdaqCap: computeExcessReturnVsNasdaqCap(configTrack.series),
+            excessReturnVsNasdaqEqual: computeExcessReturnVsNasdaqEqual(configTrack.series),
           }
         : {
             sharpeRatio: null,
@@ -137,6 +139,7 @@ export async function GET(req: Request) {
             maxDrawdown: null,
             consistency: null,
             excessReturnVsNasdaqCap: null,
+            excessReturnVsNasdaqEqual: null,
           },
   };
 

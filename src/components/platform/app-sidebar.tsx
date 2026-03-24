@@ -41,6 +41,7 @@ type NavItem = {
   icon: ComponentType<{ className?: string }>;
   disabled?: boolean;
   badge?: string;
+  dataPlatformTour?: string;
 };
 
 const mainItems: NavItem[] = [
@@ -48,6 +49,7 @@ const mainItems: NavItem[] = [
     title: 'Overview',
     href: '/platform',
     icon: House,
+    dataPlatformTour: 'nav-overview',
   },
 ];
 
@@ -56,16 +58,19 @@ const platformItems: NavItem[] = [
     title: 'Stock Ratings',
     href: '/platform/ratings',
     icon: ListOrdered,
+    dataPlatformTour: 'nav-stock-ratings',
   },
   {
     title: 'Your Portfolios',
     href: '/platform/your-portfolios',
     icon: Folders,
+    dataPlatformTour: 'nav-your-portfolios',
   },
   {
     title: 'Explore Portfolios',
     href: '/platform/explore-portfolios',
     icon: Compass,
+    dataPlatformTour: 'nav-explore-portfolios',
   },
 ];
 
@@ -227,6 +232,7 @@ export function AppSidebar() {
             onPrefetch: handlePrefetchIntent,
             disabled: item.disabled,
             badge: item.badge,
+            dataPlatformTour: item.dataPlatformTour,
           }))}
           label="Platform"
         />

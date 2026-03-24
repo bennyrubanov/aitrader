@@ -39,6 +39,7 @@ import {
 } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
+import { formatHoldingRankChange } from '@/lib/holding-rank-change';
 import type { StrategyListItem } from '@/lib/platform-performance-payload';
 import { strategyModelDropdownSubtitle } from '@/lib/strategy-list-meta';
 import type { RatingsPageData, RatingsRow } from '@/lib/platform-server-data';
@@ -117,14 +118,6 @@ const getBucketClasses = (bucket: RatingsRow['bucket']) => {
 const formatBucketLabel = (bucket: RatingsRow['bucket']) => {
   if (!bucket) return 'N/A';
   return bucket[0]?.toUpperCase() + bucket.slice(1);
-};
-
-const formatRankChange = (value: number | null) => {
-  if (value === null || value === 0) return null;
-  if (value > 0) {
-    return { icon: ArrowUp, label: `+${value}`, className: 'text-emerald-600 dark:text-emerald-400' };
-  }
-  return { icon: ArrowDown, label: String(value), className: 'text-rose-600 dark:text-rose-400' };
 };
 
 const getBucketChangeMeta = (value: RatingsRow['bucketChange']) => {
@@ -322,7 +315,10 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
 
   return (
     <TooltipProvider delayDuration={150}>
-      <div className="flex h-full min-h-0 flex-1 flex-col">
+      <div
+        className="flex h-full min-h-0 flex-1 flex-col"
+        data-platform-tour="ratings-page-root"
+      >
         {/* Floating header: title + date nav + strategy dropdown */}
         <div className="sticky top-0 z-30 border-b bg-background/95 px-4 py-2.5 backdrop-blur-sm sm:px-6">
           <div className="flex items-center gap-3">
@@ -553,7 +549,7 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                   </TableHeader>
                   <TableBody>
                     {visibleRows.map((row) => {
-                      const rankChange = formatRankChange(row.rankChange);
+                      const rankChange = formatHoldingRankChange(row.rankChange);
                       const bucketChange = getBucketChangeMeta(row.bucketChange);
                       const RankChangeIcon = rankChange?.icon;
                       const BucketChangeIcon = bucketChange?.icon;

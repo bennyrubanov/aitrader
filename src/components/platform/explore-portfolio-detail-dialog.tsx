@@ -1,7 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
+import { HoldingRankWithChange } from '@/components/platform/holding-rank-with-change';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -18,7 +19,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   Table,
@@ -35,11 +38,17 @@ import {
   type RiskLevel,
 } from '@/components/portfolio-config';
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
+import { HoldingsMovementInfoTooltip } from '@/components/tooltips';
 import type { HoldingItem } from '@/lib/platform-performance-payload';
 import type { ConfigHoldingsSummary } from '@/lib/portfolio-config-holdings';
+import {
+  buildHoldingMovementTableRows,
+  getPreviousRebalanceDate,
+  holdingMovementRowCn,
+} from '@/lib/holdings-rebalance-movement';
 import { sharpeRatioValueClass } from '@/lib/sharpe-value-class';
 import Link from 'next/link';
-import { ChevronDown, ExternalLink, Plus, UserMinus } from 'lucide-react';
+import { ChevronDown, ExternalLink, Loader2, Plus, UserMinus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const INITIAL_CAPITAL = 10_000;
@@ -260,6 +269,10 @@ export function ExplorePortfolioDetailDialog({
   const [holdings, setHoldings] = useState<HoldingItem[]>([]);
   const [rebalanceDates, setRebalanceDates] = useState<string[]>([]);
   const [selectedAsOf, setSelectedAsOf] = useState<string | null>(null);
+  const [holdingsMovementView, setHoldingsMovementView] = useState(false);
+  const [prevExploreHoldings, setPrevExploreHoldings] = useState<HoldingItem[] | null>(null);
+  const [prevExploreLoading, setPrevExploreLoading] = useState(false);
+  const [prevExploreError, setPrevExploreError] = useState(false);
 
   const fetchHoldings = useCallback(
     async (asOf: string | null) => {
@@ -296,11 +309,93 @@ export function ExplorePortfolioDetailDialog({
       setHoldings([]);
       setRebalanceDates([]);
       setSelectedAsOf(null);
+      setHoldingsMovementView(false);
+      setPrevExploreHoldings(null);
+      setPrevExploreError(false);
+      setPrevExploreLoading(false);
       return;
     }
     setSelectedAsOf(null);
     void fetchHoldings(null);
   }, [open, config?.id, fetchHoldings, config]);
+
+  const exploreHoldingsPrevRebalanceDate = useMemo(
+    () => getPreviousRebalanceDate(rebalanceDates, selectedAsOf),
+    [rebalanceDates, selectedAsOf]
+  );
+
+  const exploreHoldingsTopN = config?.topN ?? 20;
+
+  useEffect(() => {
+    if (
+      !holdingsMovementView ||
+      !exploreHoldingsPrevRebalanceDate ||
+      !config ||
+      !strategySlug?.trim()
+    ) {
+      setPrevExploreHoldings(null);
+      setPrevExploreLoading(false);
+      setPrevExploreError(false);
+      return;
+    }
+    let cancelled = false;
+    setPrevExploreLoading(true);
+    setPrevExploreError(false);
+    const slug = strategySlug.trim();
+    const q = new URLSearchParams({
+      slug,
+      configId: config.id,
+      asOfDate: exploreHoldingsPrevRebalanceDate,
+    });
+    void fetch(`/api/platform/explore-portfolio-config-holdings?${q}`)
+      .then(async (res) => {
+        if (cancelled) return;
+        const data = (await res.json()) as HoldingsResponse;
+        if (!res.ok || !data.holdings) {
+          setPrevExploreHoldings(null);
+          setPrevExploreError(true);
+        } else {
+          setPrevExploreHoldings(data.holdings);
+        }
+        setPrevExploreLoading(false);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPrevExploreHoldings(null);
+          setPrevExploreError(true);
+          setPrevExploreLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    holdingsMovementView,
+    exploreHoldingsPrevRebalanceDate,
+    config?.id,
+    strategySlug,
+  ]);
+
+  const exploreHoldingsMovementModel = useMemo(() => {
+    if (
+      !holdingsMovementView ||
+      !exploreHoldingsPrevRebalanceDate ||
+      prevExploreLoading ||
+      prevExploreError ||
+      prevExploreHoldings === null
+    ) {
+      return null;
+    }
+    return buildHoldingMovementTableRows(holdings, prevExploreHoldings, exploreHoldingsTopN);
+  }, [
+    holdingsMovementView,
+    exploreHoldingsPrevRebalanceDate,
+    prevExploreLoading,
+    prevExploreError,
+    prevExploreHoldings,
+    holdings,
+    exploreHoldingsTopN,
+  ]);
 
   const onPickRebalance = (date: string) => {
     if (date === selectedAsOf) return;
@@ -488,31 +583,57 @@ export function ExplorePortfolioDetailDialog({
           <section className="space-y-3">
             <div className="flex flex-row flex-wrap items-center justify-between gap-x-3 gap-y-2">
               <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground shrink-0">
-                Holdings by rebalance
+                Portfolio Holdings
               </h4>
               {rebalanceDates.length > 0 ? (
-                <Select
-                  value={
-                    selectedAsOf && rebalanceDates.includes(selectedAsOf)
-                      ? selectedAsOf
-                      : undefined
-                  }
-                  onValueChange={(v) => {
-                    if (v) onPickRebalance(v);
-                  }}
-                  disabled={loading}
-                >
-                  <SelectTrigger className="h-9 w-full max-w-[240px] shrink-0 text-xs sm:w-[240px]">
-                    <SelectValue placeholder="Rebalance date" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {rebalanceDates.map((d) => (
-                      <SelectItem key={d} value={d} className="text-xs">
-                        {shortDateFmt.format(new Date(`${d}T00:00:00Z`))}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-2 sm:gap-x-3">
+                  <Select
+                    value={
+                      selectedAsOf && rebalanceDates.includes(selectedAsOf)
+                        ? selectedAsOf
+                        : undefined
+                    }
+                    onValueChange={(v) => {
+                      if (v) onPickRebalance(v);
+                    }}
+                    disabled={loading}
+                  >
+                    <SelectTrigger className="h-9 w-full max-w-[240px] shrink-0 text-xs sm:w-[240px]">
+                      <SelectValue placeholder="Rebalance date" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {rebalanceDates.map((d) => (
+                        <SelectItem key={d} value={d} className="text-xs">
+                          {shortDateFmt.format(new Date(`${d}T00:00:00Z`))}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {exploreHoldingsPrevRebalanceDate ? (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Switch
+                        id="explore-holdings-movement"
+                        checked={holdingsMovementView}
+                        onCheckedChange={setHoldingsMovementView}
+                        disabled={loading}
+                        aria-label="Show which holdings entered, stayed, or exited vs prior rebalance"
+                      />
+                      <Label
+                        htmlFor="explore-holdings-movement"
+                        className="text-xs text-muted-foreground cursor-pointer whitespace-nowrap leading-none"
+                      >
+                        Movement
+                      </Label>
+                      <HoldingsMovementInfoTooltip />
+                      {holdingsMovementView && prevExploreLoading ? (
+                        <Loader2
+                          className="size-3.5 shrink-0 animate-spin text-muted-foreground"
+                          aria-hidden
+                        />
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
               ) : loading ? (
                 <span className="text-[11px] text-muted-foreground shrink-0">Loading…</span>
               ) : (
@@ -521,6 +642,11 @@ export function ExplorePortfolioDetailDialog({
                 </p>
               )}
             </div>
+            {holdingsMovementView && prevExploreError ? (
+              <p className="text-[11px] text-destructive">
+                Could not load the prior rebalance to compare.
+              </p>
+            ) : null}
 
             {loading ? (
               <Skeleton className="h-48 w-full rounded-md" />
@@ -533,7 +659,7 @@ export function ExplorePortfolioDetailDialog({
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-10">#</TableHead>
+                      <TableHead className="min-w-[4.25rem]">#</TableHead>
                       <TableHead>Symbol</TableHead>
                       <TableHead className="hidden sm:table-cell">Company</TableHead>
                       <TableHead className="text-right">Weight</TableHead>
@@ -541,36 +667,123 @@ export function ExplorePortfolioDetailDialog({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {holdings.map((h) => (
-                      <TableRow key={`${h.symbol}-${h.rank}`}>
-                        <TableCell className="tabular-nums text-muted-foreground">{h.rank}</TableCell>
-                        <TableCell className="font-medium">{h.symbol}</TableCell>
-                        <TableCell className="hidden sm:table-cell max-w-[200px] truncate text-muted-foreground">
-                          {h.companyName}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {(h.weight * 100).toFixed(1)}%
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <span className="inline-flex items-center justify-end gap-1.5">
-                            <span className="tabular-nums text-muted-foreground">
-                              {h.score != null && Number.isFinite(h.score)
-                                ? h.score.toFixed(1)
-                                : '—'}
-                            </span>
-                            <Badge
-                              variant="outline"
-                              className={cn(
-                                'px-1.5 py-0 text-[10px] font-normal leading-tight shrink-0',
-                                holdingScoreBucketClass(h.bucket)
-                              )}
+                    {exploreHoldingsMovementModel
+                      ? (
+                        <>
+                          {exploreHoldingsMovementModel.active.map(({ holding: h, kind }) => (
+                            <TableRow
+                              key={`${h.symbol}-${h.rank}-m`}
+                              className={holdingMovementRowCn(kind)}
                             >
-                              {holdingScoreBucketLabel(h.bucket)}
-                            </Badge>
-                          </span>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                              <TableCell className="text-muted-foreground">
+                                <HoldingRankWithChange rank={h.rank} rankChange={h.rankChange} />
+                              </TableCell>
+                              <TableCell className="font-medium">{h.symbol}</TableCell>
+                              <TableCell className="hidden sm:table-cell max-w-[200px] truncate text-muted-foreground">
+                                {h.companyName}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums">
+                                {(h.weight * 100).toFixed(1)}%
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <span className="inline-flex items-center justify-end gap-1.5">
+                                  <span className="tabular-nums text-muted-foreground">
+                                    {h.score != null && Number.isFinite(h.score)
+                                      ? h.score.toFixed(1)
+                                      : '—'}
+                                  </span>
+                                  <Badge
+                                    variant="outline"
+                                    className={cn(
+                                      'px-1.5 py-0 text-[10px] font-normal leading-tight shrink-0',
+                                      holdingScoreBucketClass(h.bucket)
+                                    )}
+                                  >
+                                    {holdingScoreBucketLabel(h.bucket)}
+                                  </Badge>
+                                </span>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                          {exploreHoldingsMovementModel.exited.length > 0 ? (
+                            <TableRow className="pointer-events-none border-t bg-muted/25 hover:bg-muted/25">
+                              <TableCell
+                                colSpan={5}
+                                className="py-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"
+                              >
+                                Exited (vs prior rebalance)
+                              </TableCell>
+                            </TableRow>
+                          ) : null}
+                          {exploreHoldingsMovementModel.exited.map((h) => (
+                            <TableRow
+                              key={`${h.symbol}-${h.rank}-x`}
+                              className={holdingMovementRowCn('exited')}
+                            >
+                              <TableCell className="text-muted-foreground">
+                                <HoldingRankWithChange rank={h.rank} rankChange={null} />
+                              </TableCell>
+                              <TableCell className="font-medium">{h.symbol}</TableCell>
+                              <TableCell className="hidden sm:table-cell max-w-[200px] truncate text-muted-foreground">
+                                {h.companyName}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums text-muted-foreground">
+                                <span className="text-[11px]">Was {(h.weight * 100).toFixed(1)}%</span>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <span className="inline-flex items-center justify-end gap-1.5">
+                                  <span className="tabular-nums text-muted-foreground">
+                                    {h.score != null && Number.isFinite(h.score)
+                                      ? h.score.toFixed(1)
+                                      : '—'}
+                                  </span>
+                                  <Badge
+                                    variant="outline"
+                                    className={cn(
+                                      'px-1.5 py-0 text-[10px] font-normal leading-tight shrink-0 opacity-90',
+                                      holdingScoreBucketClass(h.bucket)
+                                    )}
+                                  >
+                                    {holdingScoreBucketLabel(h.bucket)}
+                                  </Badge>
+                                </span>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </>
+                      )
+                      : holdings.slice(0, exploreHoldingsTopN).map((h) => (
+                          <TableRow key={`${h.symbol}-${h.rank}`}>
+                            <TableCell className="text-muted-foreground">
+                              <HoldingRankWithChange rank={h.rank} rankChange={h.rankChange} />
+                            </TableCell>
+                            <TableCell className="font-medium">{h.symbol}</TableCell>
+                            <TableCell className="hidden sm:table-cell max-w-[200px] truncate text-muted-foreground">
+                              {h.companyName}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums">
+                              {(h.weight * 100).toFixed(1)}%
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <span className="inline-flex items-center justify-end gap-1.5">
+                                <span className="tabular-nums text-muted-foreground">
+                                  {h.score != null && Number.isFinite(h.score)
+                                    ? h.score.toFixed(1)
+                                    : '—'}
+                                </span>
+                                <Badge
+                                  variant="outline"
+                                  className={cn(
+                                    'px-1.5 py-0 text-[10px] font-normal leading-tight shrink-0',
+                                    holdingScoreBucketClass(h.bucket)
+                                  )}
+                                >
+                                  {holdingScoreBucketLabel(h.bucket)}
+                                </Badge>
+                              </span>
+                            </TableCell>
+                          </TableRow>
+                        ))}
                   </TableBody>
                 </Table>
               </div>
@@ -605,7 +818,7 @@ export function ExplorePortfolioDetailDialog({
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="top" className="max-w-xs text-xs">
-                Remove from Your Portfolios. You can undo from the notice.
+                Remove from Your Portfolios.
               </TooltipContent>
             </Tooltip>
           ) : null}

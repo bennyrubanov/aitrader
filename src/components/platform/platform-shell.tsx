@@ -1,9 +1,10 @@
 'use client';
 
-import { ReactNode } from 'react';
+import { ReactNode, Suspense } from 'react';
 import { AppSidebar } from '@/components/platform/app-sidebar';
 import { SiteHeader } from '@/components/platform/site-header';
 import { AccountPromptDialog } from '@/components/platform/account-prompt-dialog';
+import { PostOnboardingPlatformTour } from '@/components/platform/post-onboarding-platform-tour';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 
 type PlatformShellProps = {
@@ -25,6 +26,9 @@ export function PlatformShell({ children }: PlatformShellProps) {
             </div>
           </SidebarInset>
         </div>
+        <Suspense fallback={null}>
+          <PostOnboardingPlatformTour />
+        </Suspense>
       </SidebarProvider>
       <AccountPromptDialog />
     </div>

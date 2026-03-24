@@ -62,6 +62,11 @@ export type HoldingItem = {
   latentRank: number | null;
   /** AI output bucket for this run (from `ai_analysis_runs`). */
   bucket: 'buy' | 'hold' | 'sell' | null;
+  /**
+   * vs prior rebalance for this portfolio config (`previousRank - rank`).
+   * Null when there is no prior rebalance, the symbol was not in the prior top-N, or unavailable.
+   */
+  rankChange: number | null;
 };
 
 type HoldingRow = {
@@ -784,6 +789,7 @@ export const getHoldingsForStrategy = async (
         score: toNullableNumber(row.score),
         latentRank: toNullableNumber(row.latent_rank),
         bucket: bucketByStock.get(row.stock_id) ?? null,
+        rankChange: null,
       };
     });
   } catch {

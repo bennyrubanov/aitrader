@@ -7,8 +7,10 @@ import dynamic from 'next/dynamic';
 import type { LucideIcon } from 'lucide-react';
 import {
   ArrowRight,
+  ArrowUpDown,
   ArrowUpRight,
   ChevronDown,
+  Loader2,
   Compass,
   ExternalLink,
   FilterX,
@@ -29,8 +31,10 @@ import {
 } from 'lucide-react';
 import { useAuthState } from '@/components/auth/auth-state-context';
 import { ExplorePortfolioFilterControls } from '@/components/platform/explore-portfolio-filter-controls';
+import { PortfolioListSortDialog } from '@/components/platform/portfolio-list-sort-dialog';
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
 import { StrategyModelSidebarDropdown } from '@/components/platform/strategy-model-sidebar-dropdown';
+import { HoldingRankWithChange } from '@/components/platform/holding-rank-with-change';
 import { StockChartDialog } from '@/components/platform/stock-chart-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -49,7 +53,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
 import {
   Table,
   TableBody,
@@ -59,6 +65,10 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  HoldingsAllocationColumnTooltip,
+  HoldingsMovementInfoTooltip,
+} from '@/components/tooltips';
 import { SpotlightStatCard } from '@/components/tooltips/spotlight-overview-tooltips';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -88,12 +98,22 @@ import {
   prefetchExploreHoldingsDates,
   sleepMs,
 } from '@/lib/portfolio-config-holdings-cache';
+import {
+  buildHoldingMovementTableRows,
+  getPreviousRebalanceDate,
+  holdingMovementRowCn,
+} from '@/lib/holdings-rebalance-movement';
 import { sharpeRatioValueClass } from '@/lib/sharpe-value-class';
 import { computeWeeklyConsistencyVsNasdaqCap } from '@/lib/user-entry-performance';
 import {
   portfolioConfigBadgeClassName,
   portfolioConfigBadgeTooltip,
 } from '@/lib/portfolio-config-badges';
+import {
+  buildCompositeMapFromUserEntryCache,
+  type PortfolioListSortMetric,
+  sortProfilesByUserEntryCache,
+} from '@/lib/portfolio-profile-list-sort';
 import { PORTFOLIO_EXPLORE_QUICK_PICKS } from '@/lib/portfolio-explore-quick-picks';
 import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import { formatYmdDisplay } from '@/lib/format-ymd-display';
@@ -178,18 +198,24 @@ function computeYourPortfolioValue(
 
 function benchmarkStatsFromYourPortfolioSeries(series: PerformanceSeriesPoint[] | undefined): {
   excessVsNasdaqCap: number | null;
+  excessVsNasdaqEqual: number | null;
   excessVsSp500: number | null;
 } {
   if (!series || series.length < 2) {
-    return { excessVsNasdaqCap: null, excessVsSp500: null };
+    return { excessVsNasdaqCap: null, excessVsNasdaqEqual: null, excessVsSp500: null };
   }
   const f = series[0]!;
   const l = series[series.length - 1]!;
   if (f.aiTop20 <= 0 || f.nasdaq100CapWeight <= 0 || l.nasdaq100CapWeight <= 0) {
-    return { excessVsNasdaqCap: null, excessVsSp500: null };
+    return { excessVsNasdaqCap: null, excessVsNasdaqEqual: null, excessVsSp500: null };
   }
   const portRet = l.aiTop20 / f.aiTop20 - 1;
   const benchRet = l.nasdaq100CapWeight / f.nasdaq100CapWeight - 1;
+  let excessVsNasdaqEqual: number | null = null;
+  if (f.nasdaq100EqualWeight > 0 && l.nasdaq100EqualWeight > 0) {
+    const eqRet = l.nasdaq100EqualWeight / f.nasdaq100EqualWeight - 1;
+    if (Number.isFinite(eqRet)) excessVsNasdaqEqual = portRet - eqRet;
+  }
   let excessVsSp500: number | null = null;
   if (f.sp500 > 0 && l.sp500 > 0) {
     const spRet = l.sp500 / f.sp500 - 1;
@@ -197,6 +223,7 @@ function benchmarkStatsFromYourPortfolioSeries(series: PerformanceSeriesPoint[] 
   }
   return {
     excessVsNasdaqCap: portRet - benchRet,
+    excessVsNasdaqEqual,
     excessVsSp500,
   };
 }
@@ -270,6 +297,7 @@ type UserEntryPerfApiResponse = {
     maxDrawdown: number | null;
     consistency?: number | null;
     excessReturnVsNasdaqCap?: number | null;
+    excessReturnVsNasdaqEqual?: number | null;
   } | null;
   computeStatus?:
     | 'ready'
@@ -637,7 +665,10 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     Record<string, string | null>
   >({});
   const [filtersDialogOpen, setFiltersDialogOpen] = useState(false);
+  const [sidebarSortDialogOpen, setSidebarSortDialogOpen] = useState(false);
   const filterDialogBenchmarkNasdaqRef = useRef<HTMLButtonElement>(null);
+  const [sidebarSortMetric, setSidebarSortMetric] =
+    useState<PortfolioListSortMetric>('follow_order');
   const [filterBeatNasdaq, setFilterBeatNasdaq] = useState(false);
   const [filterBeatSp500, setFilterBeatSp500] = useState(false);
   const [riskFilter, setRiskFilter] = useState<RiskLevel | null>(null);
@@ -649,11 +680,15 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const userEntryRequestIdRef = useRef(0);
   const [entrySettingsOpen, setEntrySettingsOpen] = useState(false);
   const [holdingsRowChartSymbol, setHoldingsRowChartSymbol] = useState<string | null>(null);
+  const [holdingsMovementView, setHoldingsMovementView] = useState(false);
+  const [prevMovementHoldings, setPrevMovementHoldings] = useState<HoldingItem[] | null>(null);
+  const [prevMovementLoading, setPrevMovementLoading] = useState(false);
+  const [prevMovementError, setPrevMovementError] = useState(false);
 
   const loadProfiles = useCallback(async () => {
     setIsLoadingProfiles(true);
     try {
-      const res = await fetch('/api/platform/user-portfolio-profile');
+      const res = await fetch('/api/platform/user-portfolio-profile', { cache: 'no-store' });
       if (res.ok) {
         const data = (await res.json()) as { profiles?: UserPortfolioProfileRow[] };
         const list = data.profiles ?? [];
@@ -677,8 +712,21 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   }, [authState.isLoaded, authState.isAuthenticated, loadProfiles]);
 
   useEffect(() => {
+    if (!authState.isAuthenticated) return;
+    const handler = () => {
+      void loadProfiles();
+    };
+    window.addEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, handler);
+    return () => window.removeEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, handler);
+  }, [authState.isAuthenticated, loadProfiles]);
+
+  const [sidebarSortCacheEpoch, setSidebarSortCacheEpoch] = useState(0);
+
+  useEffect(() => {
     if (!authState.isAuthenticated || profiles.length === 0) return;
-    prefetchYourPortfolioMainData(profiles);
+    void prefetchYourPortfolioMainData(profiles).then(() => {
+      setSidebarSortCacheEpoch((e) => e + 1);
+    });
   }, [authState.isAuthenticated, profiles]);
 
   const selectedProfile = useMemo(() => {
@@ -703,6 +751,21 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     return profiles.filter((p) => p.strategy_models?.slug === slug);
   }, [profiles, selectedProfile?.strategy_models?.slug]);
 
+  const sidebarUserCompositeByProfileId = useMemo(
+    () => buildCompositeMapFromUserEntryCache(sidebarProfiles),
+    [sidebarProfiles, sidebarSortCacheEpoch, userEntryPayload]
+  );
+
+  const sortedSidebarProfiles = useMemo(
+    () =>
+      sortProfilesByUserEntryCache(
+        sidebarProfiles,
+        sidebarSortMetric,
+        sidebarUserCompositeByProfileId
+      ),
+    [sidebarProfiles, sidebarSortMetric, sidebarUserCompositeByProfileId]
+  );
+
   const filteredSidebarProfiles = useMemo(() => {
     const opts = {
       filterBeatNasdaq,
@@ -711,11 +774,11 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       freqFilter,
       weightFilter,
     };
-    return sidebarProfiles.filter((p) =>
+    return sortedSidebarProfiles.filter((p) =>
       profileMatchesYourPortfolioFilters(p, rankedBySlug, opts)
     );
   }, [
-    sidebarProfiles,
+    sortedSidebarProfiles,
     rankedBySlug,
     filterBeatNasdaq,
     filterBeatSp500,
@@ -1051,6 +1114,13 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     setHoldingsRowChartSymbol(null);
   }, [selectedProfile?.id, selectedProfileConfigId]);
 
+  useEffect(() => {
+    setHoldingsMovementView(false);
+    setPrevMovementHoldings(null);
+    setPrevMovementError(false);
+    setPrevMovementLoading(false);
+  }, [selectedProfile?.id, selectedProfileConfigId]);
+
   const modelChart = useMemo(() => buildConfigPerformanceChart(rawRows), [rawRows]);
 
   const userEntrySeries = userEntryPayload?.series ?? [];
@@ -1109,7 +1179,87 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     benchmarkBench.excessVsNasdaqCap,
   ]);
 
+  const excessNdxEqualForSpotlight = useMemo(() => {
+    if (
+      selectedProfile?.user_start_date &&
+      userEntryMetricsFull?.excessReturnVsNasdaqEqual != null &&
+      Number.isFinite(userEntryMetricsFull.excessReturnVsNasdaqEqual)
+    ) {
+      return userEntryMetricsFull.excessReturnVsNasdaqEqual;
+    }
+    return benchmarkBench.excessVsNasdaqEqual;
+  }, [
+    selectedProfile?.user_start_date,
+    userEntryMetricsFull?.excessReturnVsNasdaqEqual,
+    benchmarkBench.excessVsNasdaqEqual,
+  ]);
+
   const topN = selectedProfile?.portfolio_config?.top_n ?? 20;
+
+  const holdingsPrevRebalanceDate = useMemo(
+    () => getPreviousRebalanceDate(configHoldingsRebalanceDates, configHoldingsAsOf),
+    [configHoldingsRebalanceDates, configHoldingsAsOf]
+  );
+
+  useEffect(() => {
+    if (
+      !holdingsMovementView ||
+      !holdingsPrevRebalanceDate ||
+      !strategySlug?.trim() ||
+      !selectedProfileConfigId
+    ) {
+      setPrevMovementHoldings(null);
+      setPrevMovementLoading(false);
+      setPrevMovementError(false);
+      return;
+    }
+    let cancelled = false;
+    setPrevMovementLoading(true);
+    setPrevMovementError(false);
+    const slug = strategySlug.trim();
+    const configId = selectedProfileConfigId;
+    void loadExplorePortfolioConfigHoldings(slug, configId, holdingsPrevRebalanceDate).then(
+      (data) => {
+        if (cancelled) return;
+        if (!data?.holdings) {
+          setPrevMovementHoldings(null);
+          setPrevMovementError(true);
+        } else {
+          setPrevMovementHoldings(data.holdings);
+        }
+        setPrevMovementLoading(false);
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    holdingsMovementView,
+    holdingsPrevRebalanceDate,
+    strategySlug,
+    selectedProfileConfigId,
+  ]);
+
+  const holdingsMovementModel = useMemo(() => {
+    if (
+      !holdingsMovementView ||
+      !holdingsPrevRebalanceDate ||
+      prevMovementLoading ||
+      prevMovementError ||
+      prevMovementHoldings === null
+    ) {
+      return null;
+    }
+    return buildHoldingMovementTableRows(configHoldings, prevMovementHoldings, topN);
+  }, [
+    holdingsMovementView,
+    holdingsPrevRebalanceDate,
+    prevMovementLoading,
+    prevMovementError,
+    prevMovementHoldings,
+    configHoldings,
+    topN,
+  ]);
 
   const handleCreatePreset = async (preset: PresetConfig) => {
     setPresetBusyKey(preset.key);
@@ -1308,6 +1458,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     portfolioValueAmount,
     consistencyForSpotlight,
     excessNdxForSpotlight,
+    excessNdxEqualForSpotlight,
     benchmarkBench.excessVsSp500,
   ]);
 
@@ -1431,6 +1582,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         className={cn(
           'flex min-h-0 min-w-0 w-full flex-1 flex-col lg:h-full lg:max-h-full lg:flex-row lg:items-stretch lg:overflow-hidden lg:overscroll-y-contain'
         )}
+        data-platform-tour="your-portfolios-page-root"
       >
       {holdingsRowChartSymbol ? (
         <StockChartDialog
@@ -1507,7 +1659,17 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Portfolios
             </p>
-            <div className="flex shrink-0 items-center gap-0.5">
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-8 shrink-0"
+                aria-label="Sort portfolios"
+                onClick={() => setSidebarSortDialogOpen(true)}
+              >
+                <ArrowUpDown className="size-4" />
+              </Button>
               <Button
                 type="button"
                 variant="ghost"
@@ -1720,8 +1882,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                 <div className="mx-5 rounded-lg border border-border/60 bg-muted/30 p-3 text-sm text-muted-foreground sm:mx-7">
                   <p className="font-medium text-foreground">Tracking from your entry</p>
                   <p className="text-xs mt-1 leading-relaxed">
-                    You have a starting point at your chosen investment. Return and risk stats will
-                    populate after more market closes; this page refreshes automatically.
+                    Not enough history yet. Stats will fill in as more time passes. Refreshes automatically.
                   </p>
                 </div>
               ) : null}
@@ -1757,7 +1918,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                     />
                     <SpotlightStatCard
                       tooltipKey="return_pct"
-                      label="Return %"
+                      label="Performance (return %)"
                       value={spotlightFmt.pct(displayMetrics?.totalReturn)}
                       positive={
                         displayMetrics?.totalReturn != null &&
@@ -1823,6 +1984,17 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                       }
                     />
                     <SpotlightStatCard
+                      tooltipKey="vs_nasdaq_equal"
+                      label="Performance vs Nasdaq-100 (equal)"
+                      value={spotlightFmt.pct(excessNdxEqualForSpotlight)}
+                      positive={
+                        excessNdxEqualForSpotlight != null &&
+                        Number.isFinite(excessNdxEqualForSpotlight)
+                          ? excessNdxEqualForSpotlight > 0
+                          : undefined
+                      }
+                    />
+                    <SpotlightStatCard
                       tooltipKey="vs_sp500"
                       label="Performance vs S&P 500 (cap)"
                       value={spotlightFmt.pct(benchmarkBench.excessVsSp500)}
@@ -1851,39 +2023,65 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                     ) : null}
                   </div>
 
-                  <div className="relative flex min-h-0 min-w-0 w-full max-w-full flex-1 basis-0 flex-col overflow-hidden rounded-xl border border-border/80 bg-background/80 p-3 shadow-sm sm:p-4">
+                  <div className="relative flex min-h-0 min-w-0 w-full max-w-full flex-1 basis-0 flex-col gap-1.5 overflow-hidden rounded-xl border border-border/80 bg-background/80 p-3 shadow-sm sm:p-4 sm:gap-2">
                   <div className="flex shrink-0 min-w-0 w-full flex-wrap items-end justify-between gap-x-3 gap-y-2">
                     <h4 className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       Portfolio holdings
                     </h4>
                     {configHoldingsRebalanceDates.length > 0 ? (
-                      <Select
-                        value={
-                          configHoldingsAsOf &&
-                          configHoldingsRebalanceDates.includes(configHoldingsAsOf)
-                            ? configHoldingsAsOf
-                            : undefined
-                        }
-                        onValueChange={(v) => {
-                          if (v && v !== configHoldingsAsOf) {
-                            void fetchYourPortfolioConfigHoldings(v);
+                      <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-2 sm:gap-x-3">
+                        <Select
+                          value={
+                            configHoldingsAsOf &&
+                            configHoldingsRebalanceDates.includes(configHoldingsAsOf)
+                              ? configHoldingsAsOf
+                              : undefined
                           }
-                        }}
-                        disabled={configHoldingsLoading}
-                      >
-                        <SelectTrigger className="h-9 w-full max-w-[168px] shrink-0 text-xs sm:w-[168px]">
-                          <SelectValue placeholder="Rebalance date" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {configHoldingsRebalanceDates.map((d) => (
-                            <SelectItem key={d} value={d} className="text-xs">
-                              {yourPortfolioHoldingsShortDateFmt.format(
-                                new Date(`${d}T00:00:00Z`)
-                              )}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                          onValueChange={(v) => {
+                            if (v && v !== configHoldingsAsOf) {
+                              void fetchYourPortfolioConfigHoldings(v);
+                            }
+                          }}
+                          disabled={configHoldingsLoading}
+                        >
+                          <SelectTrigger className="h-9 w-full max-w-[168px] shrink-0 text-xs sm:w-[168px]">
+                            <SelectValue placeholder="Rebalance date" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {configHoldingsRebalanceDates.map((d) => (
+                              <SelectItem key={d} value={d} className="text-xs">
+                                {yourPortfolioHoldingsShortDateFmt.format(
+                                  new Date(`${d}T00:00:00Z`)
+                                )}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {holdingsPrevRebalanceDate ? (
+                          <div className="flex items-center gap-2 shrink-0">
+                            <Switch
+                              id="your-portfolio-holdings-movement"
+                              checked={holdingsMovementView}
+                              onCheckedChange={setHoldingsMovementView}
+                              disabled={configHoldingsLoading}
+                              aria-label="Show which holdings entered, stayed, or exited vs prior rebalance"
+                            />
+                            <Label
+                              htmlFor="your-portfolio-holdings-movement"
+                              className="text-xs text-muted-foreground cursor-pointer whitespace-nowrap leading-none"
+                            >
+                              Movement
+                            </Label>
+                            <HoldingsMovementInfoTooltip />
+                            {holdingsMovementView && prevMovementLoading ? (
+                              <Loader2
+                                className="size-3.5 shrink-0 animate-spin text-muted-foreground"
+                                aria-hidden
+                              />
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
                     ) : configHoldingsLoading ? (
                       <span className="shrink-0 text-[11px] text-muted-foreground">Loading…</span>
                     ) : (
@@ -1891,6 +2089,11 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                         No rebalance history yet.
                       </p>
                     )}
+                    {holdingsMovementView && prevMovementError ? (
+                      <p className="w-full text-[11px] text-destructive">
+                        Could not load the prior rebalance to compare.
+                      </p>
+                    ) : null}
                   </div>
                   <div className="relative min-h-0 flex-1 overflow-hidden">
                     <div
@@ -1928,14 +2131,21 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                         <Table className="w-full min-w-0">
                           <TableHeader>
                             <TableRow className="hover:bg-transparent">
-                              <TableHead className="h-9 w-8 py-1.5 pl-2 pr-0.5 text-left align-middle tabular-nums">
+                              <TableHead className="h-9 min-w-[4.25rem] py-1.5 pl-2 pr-0.5 text-left align-middle tabular-nums">
                                 #
                               </TableHead>
                               <TableHead className="h-9 w-16 px-1.5 py-1.5 text-left align-middle">
                                 Stock
                               </TableHead>
                               <TableHead className="h-9 px-1.5 py-1.5 text-center align-middle whitespace-nowrap">
-                                Recommended Allocation
+                                <span className="inline-flex items-center justify-center gap-1">
+                                  Allocation
+                                  <HoldingsAllocationColumnTooltip
+                                    weightingMethod={
+                                      selectedProfile?.portfolio_config?.weighting_method
+                                    }
+                                  />
+                                </span>
                               </TableHead>
                               <TableHead className="h-9 py-1.5 pl-1.5 pr-3 text-right align-middle whitespace-nowrap">
                                 AI rating
@@ -1943,68 +2153,242 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                             </TableRow>
                           </TableHeader>
                           <TableBody>
-                            {configHoldings.slice(0, topN).map((h) => {
-                              const company =
-                                typeof h.companyName === 'string' && h.companyName.trim().length > 0
-                                  ? h.companyName.trim()
-                                  : null;
-                              const inv = num(selectedProfile?.investment_size);
-                              return (
-                                <TableRow
-                                  key={`${h.symbol}-${h.rank}`}
-                                  className="cursor-pointer hover:bg-muted/50"
-                                  tabIndex={0}
-                                  onClick={() => setHoldingsRowChartSymbol(h.symbol)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter' || e.key === ' ') {
-                                      e.preventDefault();
-                                      setHoldingsRowChartSymbol(h.symbol);
-                                    }
-                                  }}
-                                >
-                                  <TableCell className="py-1.5 pl-2 pr-0.5 tabular-nums text-muted-foreground">
-                                    {h.rank}
-                                  </TableCell>
-                                  <TableCell className="px-1.5 py-1.5 text-left">
-                                    {company ? (
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <span className="block truncate font-medium">{h.symbol}</span>
-                                        </TooltipTrigger>
-                                        <TooltipContent side="top" className="max-w-xs text-left">
-                                          {company}
-                                        </TooltipContent>
-                                      </Tooltip>
-                                    ) : (
-                                      <span className="block truncate font-medium">{h.symbol}</span>
-                                    )}
-                                  </TableCell>
-                                  <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap">
-                                    {Number.isFinite(inv) && inv > 0
-                                      ? `${formatYourPortfolioCurrency(h.weight * inv)} (${(h.weight * 100).toFixed(1)}%)`
-                                      : `— (${(h.weight * 100).toFixed(1)}%)`}
-                                  </TableCell>
-                                  <TableCell className="py-1.5 pl-1.5 pr-3 text-right">
-                                    <span className="inline-flex items-center justify-end gap-1">
-                                      <Badge
-                                        variant="outline"
+                            {holdingsMovementModel
+                              ? (
+                                <>
+                                  {holdingsMovementModel.active.map(({ holding: h, kind }) => {
+                                    const company =
+                                      typeof h.companyName === 'string' &&
+                                      h.companyName.trim().length > 0
+                                        ? h.companyName.trim()
+                                        : null;
+                                    const inv = num(selectedProfile?.investment_size);
+                                    return (
+                                      <TableRow
+                                        key={`${h.symbol}-${h.rank}-m`}
                                         className={cn(
-                                          'px-1.5 py-0 text-[10px] font-normal leading-tight shrink-0',
-                                          yourPortfolioHoldingScoreBucketClass(h.bucket)
+                                          'cursor-pointer hover:bg-muted/50',
+                                          holdingMovementRowCn(kind)
                                         )}
+                                        tabIndex={0}
+                                        onClick={() => setHoldingsRowChartSymbol(h.symbol)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter' || e.key === ' ') {
+                                            e.preventDefault();
+                                            setHoldingsRowChartSymbol(h.symbol);
+                                          }
+                                        }}
                                       >
-                                        {yourPortfolioHoldingScoreBucketLabel(h.bucket)}
-                                      </Badge>
-                                      <span className="tabular-nums font-medium">
-                                        {h.score != null && Number.isFinite(h.score)
-                                          ? h.score.toFixed(1)
-                                          : '—'}
-                                      </span>
-                                    </span>
-                                  </TableCell>
-                                </TableRow>
-                              );
-                            })}
+                                        <TableCell className="py-1.5 pl-2 pr-0.5 text-muted-foreground">
+                                          <HoldingRankWithChange
+                                            rank={h.rank}
+                                            rankChange={h.rankChange}
+                                          />
+                                        </TableCell>
+                                        <TableCell className="px-1.5 py-1.5 text-left">
+                                          {company ? (
+                                            <Tooltip>
+                                              <TooltipTrigger asChild>
+                                                <span className="block truncate font-medium">
+                                                  {h.symbol}
+                                                </span>
+                                              </TooltipTrigger>
+                                              <TooltipContent
+                                                side="top"
+                                                className="max-w-xs text-left"
+                                              >
+                                                {company}
+                                              </TooltipContent>
+                                            </Tooltip>
+                                          ) : (
+                                            <span className="block truncate font-medium">
+                                              {h.symbol}
+                                            </span>
+                                          )}
+                                        </TableCell>
+                                        <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap">
+                                          {Number.isFinite(inv) && inv > 0
+                                            ? `${formatYourPortfolioCurrency(h.weight * inv)} (${(h.weight * 100).toFixed(1)}%)`
+                                            : `— (${(h.weight * 100).toFixed(1)}%)`}
+                                        </TableCell>
+                                        <TableCell className="py-1.5 pl-1.5 pr-3 text-right">
+                                          <span className="inline-flex items-center justify-end gap-1">
+                                            <Badge
+                                              variant="outline"
+                                              className={cn(
+                                                'px-1.5 py-0 text-[10px] font-normal leading-tight shrink-0',
+                                                yourPortfolioHoldingScoreBucketClass(h.bucket)
+                                              )}
+                                            >
+                                              {yourPortfolioHoldingScoreBucketLabel(h.bucket)}
+                                            </Badge>
+                                            <span className="tabular-nums font-medium">
+                                              {h.score != null && Number.isFinite(h.score)
+                                                ? h.score.toFixed(1)
+                                                : '—'}
+                                            </span>
+                                          </span>
+                                        </TableCell>
+                                      </TableRow>
+                                    );
+                                  })}
+                                  {holdingsMovementModel.exited.length > 0 ? (
+                                    <TableRow className="pointer-events-none border-t bg-muted/25 hover:bg-muted/25">
+                                      <TableCell
+                                        colSpan={4}
+                                        className="py-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"
+                                      >
+                                        Exited (vs prior rebalance)
+                                      </TableCell>
+                                    </TableRow>
+                                  ) : null}
+                                  {holdingsMovementModel.exited.map((h) => {
+                                    const company =
+                                      typeof h.companyName === 'string' &&
+                                      h.companyName.trim().length > 0
+                                        ? h.companyName.trim()
+                                        : null;
+                                    return (
+                                      <TableRow
+                                        key={`${h.symbol}-${h.rank}-x`}
+                                        className={cn(
+                                          'cursor-pointer hover:bg-muted/50',
+                                          holdingMovementRowCn('exited')
+                                        )}
+                                        tabIndex={0}
+                                        onClick={() => setHoldingsRowChartSymbol(h.symbol)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter' || e.key === ' ') {
+                                            e.preventDefault();
+                                            setHoldingsRowChartSymbol(h.symbol);
+                                          }
+                                        }}
+                                      >
+                                        <TableCell className="py-1.5 pl-2 pr-0.5 text-muted-foreground">
+                                          <HoldingRankWithChange rank={h.rank} rankChange={null} />
+                                        </TableCell>
+                                        <TableCell className="px-1.5 py-1.5 text-left">
+                                          {company ? (
+                                            <Tooltip>
+                                              <TooltipTrigger asChild>
+                                                <span className="block truncate font-medium">
+                                                  {h.symbol}
+                                                </span>
+                                              </TooltipTrigger>
+                                              <TooltipContent
+                                                side="top"
+                                                className="max-w-xs text-left"
+                                              >
+                                                {company}
+                                              </TooltipContent>
+                                            </Tooltip>
+                                          ) : (
+                                            <span className="block truncate font-medium">
+                                              {h.symbol}
+                                            </span>
+                                          )}
+                                        </TableCell>
+                                        <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap text-muted-foreground">
+                                          <span className="text-[11px]">
+                                            Was {(h.weight * 100).toFixed(1)}%
+                                          </span>
+                                        </TableCell>
+                                        <TableCell className="py-1.5 pl-1.5 pr-3 text-right">
+                                          <span className="inline-flex items-center justify-end gap-1">
+                                            <Badge
+                                              variant="outline"
+                                              className={cn(
+                                                'px-1.5 py-0 text-[10px] font-normal leading-tight shrink-0 opacity-90',
+                                                yourPortfolioHoldingScoreBucketClass(h.bucket)
+                                              )}
+                                            >
+                                              {yourPortfolioHoldingScoreBucketLabel(h.bucket)}
+                                            </Badge>
+                                            <span className="tabular-nums font-medium text-muted-foreground">
+                                              {h.score != null && Number.isFinite(h.score)
+                                                ? h.score.toFixed(1)
+                                                : '—'}
+                                            </span>
+                                          </span>
+                                        </TableCell>
+                                      </TableRow>
+                                    );
+                                  })}
+                                </>
+                              )
+                              : configHoldings.slice(0, topN).map((h) => {
+                                  const company =
+                                    typeof h.companyName === 'string' &&
+                                    h.companyName.trim().length > 0
+                                      ? h.companyName.trim()
+                                      : null;
+                                  const inv = num(selectedProfile?.investment_size);
+                                  return (
+                                    <TableRow
+                                      key={`${h.symbol}-${h.rank}`}
+                                      className="cursor-pointer hover:bg-muted/50"
+                                      tabIndex={0}
+                                      onClick={() => setHoldingsRowChartSymbol(h.symbol)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter' || e.key === ' ') {
+                                          e.preventDefault();
+                                          setHoldingsRowChartSymbol(h.symbol);
+                                        }
+                                      }}
+                                    >
+                                      <TableCell className="py-1.5 pl-2 pr-0.5 text-muted-foreground">
+                                        <HoldingRankWithChange
+                                          rank={h.rank}
+                                          rankChange={h.rankChange}
+                                        />
+                                      </TableCell>
+                                      <TableCell className="px-1.5 py-1.5 text-left">
+                                        {company ? (
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <span className="block truncate font-medium">
+                                                {h.symbol}
+                                              </span>
+                                            </TooltipTrigger>
+                                            <TooltipContent
+                                              side="top"
+                                              className="max-w-xs text-left"
+                                            >
+                                              {company}
+                                            </TooltipContent>
+                                          </Tooltip>
+                                        ) : (
+                                          <span className="block truncate font-medium">
+                                            {h.symbol}
+                                          </span>
+                                        )}
+                                      </TableCell>
+                                      <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap">
+                                        {Number.isFinite(inv) && inv > 0
+                                          ? `${formatYourPortfolioCurrency(h.weight * inv)} (${(h.weight * 100).toFixed(1)}%)`
+                                          : `— (${(h.weight * 100).toFixed(1)}%)`}
+                                      </TableCell>
+                                      <TableCell className="py-1.5 pl-1.5 pr-3 text-right">
+                                        <span className="inline-flex items-center justify-end gap-1">
+                                          <Badge
+                                            variant="outline"
+                                            className={cn(
+                                              'px-1.5 py-0 text-[10px] font-normal leading-tight shrink-0',
+                                              yourPortfolioHoldingScoreBucketClass(h.bucket)
+                                            )}
+                                          >
+                                            {yourPortfolioHoldingScoreBucketLabel(h.bucket)}
+                                          </Badge>
+                                          <span className="tabular-nums font-medium">
+                                            {h.score != null && Number.isFinite(h.score)
+                                              ? h.score.toFixed(1)
+                                              : '—'}
+                                          </span>
+                                        </span>
+                                      </TableCell>
+                                    </TableRow>
+                                  );
+                                })}
                           </TableBody>
                         </Table>
                       </div>
@@ -2051,8 +2435,26 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                       chartContainerClassName="h-[300px] sm:h-[340px]"
                     />
                   ) : (
-                    <div className="flex h-[260px] items-center justify-center text-sm text-muted-foreground lg:h-[340px]">
-                      Not enough history to chart yet.
+                    <div className="flex h-[260px] flex-col items-center justify-center gap-2 px-4 text-center text-sm text-muted-foreground lg:h-[340px]">
+                      <p>Not enough history to chart yet.</p>
+                      {selectedProfile?.user_start_date ? (
+                        <>
+                          <p className="max-w-sm text-xs leading-snug">
+                            You can change your portfolio entry date to see more data and
+                            change how much performance history this chart shows.
+                          </p>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="mt-1 gap-1.5"
+                            onClick={() => setEntrySettingsOpen(true)}
+                          >
+                            <Settings2 className="size-3.5" aria-hidden />
+                            Entry settings
+                          </Button>
+                        </>
+                      ) : null}
                     </div>
                   )}
                 </div>
@@ -2063,6 +2465,13 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         </div>
       </div>
 
+      <PortfolioListSortDialog
+        open={sidebarSortDialogOpen}
+        onOpenChange={setSidebarSortDialogOpen}
+        value={sidebarSortMetric}
+        onValueChange={setSidebarSortMetric}
+        includeFollowOrder
+      />
       <Dialog open={filtersDialogOpen} onOpenChange={setFiltersDialogOpen}>
         <DialogContent
           className="flex max-h-[min(90vh,720px)] w-[calc(100vw-1.5rem)] max-w-lg flex-col gap-0 overflow-hidden p-0 sm:w-full"
@@ -2197,6 +2606,16 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                 investment_size: selectedProfile.investment_size,
                 user_start_date: selectedProfile.user_start_date,
                 strategySlug: selectedProfile.strategy_models?.slug ?? null,
+                strategyModelName: selectedProfile.strategy_models?.name ?? null,
+                portfolioConfig: selectedProfile.portfolio_config
+                  ? {
+                      risk_level: selectedProfile.portfolio_config.risk_level,
+                      risk_label: selectedProfile.portfolio_config.risk_label,
+                      top_n: selectedProfile.portfolio_config.top_n,
+                      weighting_method: selectedProfile.portfolio_config.weighting_method,
+                      rebalance_frequency: selectedProfile.portfolio_config.rebalance_frequency,
+                    }
+                  : null,
               }
             : null
         }

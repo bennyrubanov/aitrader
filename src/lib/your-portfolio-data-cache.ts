@@ -25,6 +25,7 @@ export type CachedUserEntryPayload = {
     maxDrawdown: number | null;
     consistency?: number | null;
     excessReturnVsNasdaqCap?: number | null;
+    excessReturnVsNasdaqEqual?: number | null;
   } | null;
   computeStatus?: string;
   configComputeStatus?: string;
@@ -172,8 +173,8 @@ type ProfilePrefetchShape = {
 /** Warm config + user-entry performance for followed portfolios (batched). */
 export function prefetchYourPortfolioMainData(
   profiles: ReadonlyArray<ProfilePrefetchShape>
-): void {
-  if (profiles.length === 0) return;
+): Promise<void> {
+  if (profiles.length === 0) return Promise.resolve();
 
   const jobs: Array<Promise<unknown>> = [];
   for (const p of profiles) {
@@ -193,9 +194,9 @@ export function prefetchYourPortfolioMainData(
       jobs.push(loadUserEntryPayloadCached(p.id));
     }
   }
-  if (jobs.length === 0) return;
+  if (jobs.length === 0) return Promise.resolve();
 
-  void (async () => {
+  return (async () => {
     for (let i = 0; i < jobs.length; i += PREFETCH_BATCH) {
       await Promise.all(jobs.slice(i, i + PREFETCH_BATCH));
     }

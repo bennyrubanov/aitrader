@@ -60,10 +60,19 @@ import {
 import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
 import type { FullConfigPerformanceMetrics } from '@/lib/config-performance-chart';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
+import { queuePlatformPostOnboardingTour } from '@/lib/platform-post-onboarding-tour';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
 
 const RISK_LEVELS: RiskLevel[] = [1, 2, 3, 4, 5, 6];
 const FREQUENCIES: RebalanceFrequency[] = ['weekly', 'monthly', 'quarterly', 'yearly'];
+
+function pickTopRankedConfig(configs: RankedConfig[]): RankedConfig | null {
+  const ranked = configs.filter((c) => c.rank != null && c.rank >= 1);
+  if (ranked.length === 0) return null;
+  const rankOne = ranked.find((c) => c.rank === 1);
+  if (rankOne) return rankOne;
+  return ranked.reduce((a, b) => ((a.rank ?? 999) <= (b.rank ?? 999) ? a : b));
+}
 const INVESTMENT_QUICK_PICKS = [5_000, 10_000, 25_000, 50_000];
 const PERFORMANCE_INITIAL_USD = 10_000;
 
@@ -328,12 +337,15 @@ function StepNav({
   nextLabel = 'Next',
   returnToSummary,
   onBackToSummary,
+  beforeNext,
 }: {
   onBack: () => void;
   onNext?: () => void;
   nextLabel?: string;
   returnToSummary: boolean;
   onBackToSummary: () => void;
+  /** Shown in the trailing group, immediately left of the primary next button (e.g. summary reset). */
+  beforeNext?: ReactNode;
 }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -348,6 +360,7 @@ function StepNav({
             Back to summary
           </Button>
         )}
+        {beforeNext}
         {onNext && (
           <Button size="sm" onClick={onNext} className="gap-1.5">
             {nextLabel}
@@ -378,6 +391,11 @@ export function PortfolioOnboardingDialog({
     String(DEFAULT_PORTFOLIO_CONFIG.investmentSize)
   );
   const [returnToSummary, setReturnToSummary] = useState(false);
+  /** After “select top-ranked” from celebrate, snapshot of draft + entry so summary can restore. */
+  const [draftBeforeTopRankedSelection, setDraftBeforeTopRankedSelection] = useState<{
+    config: PortfolioConfig;
+    entryYmd: string;
+  } | null>(null);
   const customInputRef = useRef<HTMLInputElement>(null);
   const prevStepRef = useRef<Step>(step);
 
@@ -386,6 +404,7 @@ export function PortfolioOnboardingDialog({
     latestPerformanceDate: string | null;
     matched: RankedConfig | null;
     rankedEligibleCount: number;
+    topRanked: RankedConfig | null;
   } | null>(null);
   const [finaleLoading, setFinaleLoading] = useState(false);
   const [followPhase, setFollowPhase] = useState<'idle' | 'posting' | 'syncing'>('idle');
@@ -495,6 +514,7 @@ export function PortfolioOnboardingDialog({
             latestPerformanceDate: data.latestPerformanceDate ?? null,
             matched,
             rankedEligibleCount,
+            topRanked: pickTopRankedConfig(configs),
           });
         }
       )
@@ -505,6 +525,7 @@ export function PortfolioOnboardingDialog({
             latestPerformanceDate: null,
             matched: null,
             rankedEligibleCount: 0,
+            topRanked: null,
           });
         }
       })
@@ -622,8 +643,46 @@ export function PortfolioOnboardingDialog({
     setStep('celebrate');
   };
 
+  const selectTopRankedPortfolioForSummary = () => {
+    const top = finaleRanked?.topRanked;
+    if (!top) return;
+    setDraftBeforeTopRankedSelection({
+      config: { ...draft },
+      entryYmd: draftEntryDate || localTodayYmd(),
+    });
+    const r = Math.min(6, Math.max(1, Math.round(Number(top.riskLevel)))) as RiskLevel;
+    const freq = (FREQUENCIES as readonly string[]).includes(top.rebalanceFrequency)
+      ? (top.rebalanceFrequency as RebalanceFrequency)
+      : DEFAULT_PORTFOLIO_CONFIG.rebalanceFrequency;
+    const baseW: WeightingMethod =
+      top.weightingMethod === 'equal' || top.weightingMethod === 'cap'
+        ? top.weightingMethod
+        : 'equal';
+    const weightingMethod: WeightingMethod = RISK_TOP_N[r] === 1 ? 'equal' : baseW;
+    const next: PortfolioConfig = {
+      ...draft,
+      riskLevel: r,
+      rebalanceFrequency: freq,
+      weightingMethod,
+    };
+    setDraft(next);
+    setConfig(next);
+    setReturnToSummary(false);
+    setStep('done');
+  };
+
+  const resetToUserSelectionsAfterTopRanked = () => {
+    if (!draftBeforeTopRankedSelection) return;
+    const { config: saved, entryYmd } = draftBeforeTopRankedSelection;
+    setDraft(saved);
+    setConfig(saved);
+    setDraftEntryDate(entryYmd);
+    setDraftBeforeTopRankedSelection(null);
+  };
+
   const handleFollowThisPortfolio = async () => {
     if (!authState.isAuthenticated) {
+      queuePlatformPostOnboardingTour();
       markOnboardingDone();
       router.push(`/sign-in?next=${encodeURIComponent('/platform/overview')}`);
       return;
@@ -679,6 +738,7 @@ export function PortfolioOnboardingDialog({
           router.refresh();
         },
       });
+      queuePlatformPostOnboardingTour();
       markOnboardingDone();
       router.refresh();
     } finally {
@@ -1387,6 +1447,19 @@ export function PortfolioOnboardingDialog({
                   nextLabel="Save and continue"
                   returnToSummary={returnToSummary}
                   onBackToSummary={backToSummary}
+                  beforeNext={
+                    draftBeforeTopRankedSelection ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="gap-1.5"
+                        onClick={resetToUserSelectionsAfterTopRanked}
+                      >
+                        Your selections
+                      </Button>
+                    ) : null
+                  }
                 />
               </OnboardingDialogFooter>
             </div>
@@ -1462,6 +1535,15 @@ export function PortfolioOnboardingDialog({
                               rank={finaleRanked.matched.rank}
                               rankedTotal={finaleRanked.rankedEligibleCount}
                               strategySlug={draft.strategySlug}
+                              rankingAction={
+                                finaleRanked.topRanked
+                                  ? {
+                                      label: 'Select the current top-ranked portfolio',
+                                      onClick: selectTopRankedPortfolioForSummary,
+                                      disabled: finaleRanked.matched.rank === 1,
+                                    }
+                                  : undefined
+                              }
                             />
                           </TooltipContent>
                         </Tooltip>

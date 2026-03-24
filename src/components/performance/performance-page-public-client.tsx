@@ -15,6 +15,7 @@ import {
   Star,
   TrendingUp,
 } from 'lucide-react';
+import { HoldingRankWithChange } from '@/components/platform/holding-rank-with-change';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -1072,7 +1073,7 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Rank</TableHead>
+                      <TableHead className="min-w-[4.25rem]">Rank</TableHead>
                       <TableHead>Stock</TableHead>
                       <TableHead className="text-right">Weight</TableHead>
                       <TableHead className="text-right">AI score</TableHead>
@@ -1081,7 +1082,12 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
                   <TableBody>
                     {holdings.map((holding) => (
                       <TableRow key={`${holding.symbol}-${holding.rank}`}>
-                        <TableCell className="text-muted-foreground">#{holding.rank}</TableCell>
+                        <TableCell className="text-muted-foreground">
+                          <HoldingRankWithChange
+                            rank={holding.rank}
+                            rankChange={holding.rankChange}
+                          />
+                        </TableCell>
                         <TableCell>
                           <span className="font-medium">{holding.symbol}</span>
                           {holding.companyName && holding.companyName !== holding.symbol && (

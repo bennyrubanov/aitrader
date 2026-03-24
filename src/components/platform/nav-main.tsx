@@ -21,6 +21,8 @@ type NavMainItem = {
   onPrefetch?: (url: string) => void;
   disabled?: boolean;
   badge?: string;
+  /** `data-platform-tour` on the nav link (e.g. post-onboarding tour). */
+  dataPlatformTour?: string;
 };
 
 type NavMainProps = {
@@ -79,6 +81,7 @@ export function NavMain({
                   <Link
                     href={item.url}
                     prefetch
+                    data-platform-tour={item.dataPlatformTour}
                     onMouseEnter={() => item.onPrefetch?.(item.url!)}
                     onFocus={() => item.onPrefetch?.(item.url!)}
                     onPointerDown={() => item.onNavigate?.(item.url!)}
