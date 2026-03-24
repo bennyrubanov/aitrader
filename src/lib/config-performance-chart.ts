@@ -69,6 +69,18 @@ export type ConfigChartMetrics = {
 
 export type FullConfigPerformanceMetrics = NonNullable<PlatformPerformancePayload['metrics']>;
 
+export type UserEntryConfigTrack = {
+  series: PerformanceSeriesPoint[];
+  metrics: ConfigChartMetrics | null;
+  fullMetrics: FullConfigPerformanceMetrics | null;
+  hasMultipleObservations: boolean;
+};
+
+/**
+ * Derive metrics from the series exactly as displayed.
+ * Important: the first plotted point is the true capital base for return/CAGR math,
+ * so this works for both canonical $10k model series and user-rebased series.
+ */
 function buildFullMetricsFromSeries(
   series: PerformanceSeriesPoint[],
   netReturns: number[]
@@ -78,17 +90,21 @@ function buildFullMetricsFromSeries(
   const lastPoint = series[series.length - 1]!;
   const firstDate = firstPoint.date;
   const lastDate = lastPoint.date;
+  const aiStart = firstPoint.aiTop20;
+  const capStart = firstPoint.nasdaq100CapWeight;
+  const eqStart = firstPoint.nasdaq100EqualWeight;
+  const spStart = firstPoint.sp500;
 
-  const totalReturnAi = computeTotalReturn(INITIAL_CAPITAL, lastPoint.aiTop20);
-  const totalReturnCap = computeTotalReturn(INITIAL_CAPITAL, lastPoint.nasdaq100CapWeight);
-  const totalReturnEqual = computeTotalReturn(INITIAL_CAPITAL, lastPoint.nasdaq100EqualWeight);
-  const totalReturnSp = computeTotalReturn(INITIAL_CAPITAL, lastPoint.sp500);
+  const totalReturnAi = computeTotalReturn(aiStart, lastPoint.aiTop20);
+  const totalReturnCap = computeTotalReturn(capStart, lastPoint.nasdaq100CapWeight);
+  const totalReturnEqual = computeTotalReturn(eqStart, lastPoint.nasdaq100EqualWeight);
+  const totalReturnSp = computeTotalReturn(spStart, lastPoint.sp500);
 
   return {
-    startingCapital: INITIAL_CAPITAL,
+    startingCapital: aiStart,
     endingValue: lastPoint.aiTop20,
     totalReturn: totalReturnAi,
-    cagr: computeCagr(INITIAL_CAPITAL, lastPoint.aiTop20, firstDate, lastDate),
+    cagr: computeCagr(aiStart, lastPoint.aiTop20, firstDate, lastDate),
     maxDrawdown: computeMaxDrawdown(series.map((p) => p.aiTop20)),
     sharpeRatio: computeSharpeWeekly(netReturns),
     pctWeeksBeatingNasdaq100: computePctWeeksBeatingNasdaq100(
@@ -105,22 +121,110 @@ function buildFullMetricsFromSeries(
       nasdaq100CapWeight: {
         endingValue: lastPoint.nasdaq100CapWeight,
         totalReturn: totalReturnCap,
-        cagr: computeCagr(INITIAL_CAPITAL, lastPoint.nasdaq100CapWeight, firstDate, lastDate),
+        cagr: computeCagr(capStart, lastPoint.nasdaq100CapWeight, firstDate, lastDate),
         maxDrawdown: computeMaxDrawdown(series.map((p) => p.nasdaq100CapWeight)),
       },
       nasdaq100EqualWeight: {
         endingValue: lastPoint.nasdaq100EqualWeight,
         totalReturn: totalReturnEqual,
-        cagr: computeCagr(INITIAL_CAPITAL, lastPoint.nasdaq100EqualWeight, firstDate, lastDate),
+        cagr: computeCagr(eqStart, lastPoint.nasdaq100EqualWeight, firstDate, lastDate),
         maxDrawdown: computeMaxDrawdown(series.map((p) => p.nasdaq100EqualWeight)),
       },
       sp500: {
         endingValue: lastPoint.sp500,
         totalReturn: totalReturnSp,
-        cagr: computeCagr(INITIAL_CAPITAL, lastPoint.sp500, firstDate, lastDate),
+        cagr: computeCagr(spStart, lastPoint.sp500, firstDate, lastDate),
         maxDrawdown: computeMaxDrawdown(series.map((p) => p.sp500)),
       },
     },
+  };
+}
+
+function scaleConfigEquities(row: ConfigPerfRow, scale: number): PerformanceSeriesPoint {
+  return {
+    date: row.run_date,
+    aiTop20: toNumber(row.ending_equity, INITIAL_CAPITAL) * scale,
+    nasdaq100CapWeight: toNumber(row.nasdaq100_cap_weight_equity, INITIAL_CAPITAL) * scale,
+    nasdaq100EqualWeight: toNumber(row.nasdaq100_equal_weight_equity, INITIAL_CAPITAL) * scale,
+    sp500: toNumber(row.sp500_equity, INITIAL_CAPITAL) * scale,
+  };
+}
+
+/**
+ * Personal-track config series rebased to the user's entry date and investment size.
+ * Uses the latest ready config row on or before the entry date as the baseline, then
+ * applies all later ready config rows on the same scaled strategy path.
+ * The inserted entry-date baseline becomes the capital base for all downstream stats.
+ */
+export function buildUserEntryConfigTrack(
+  rows: ConfigPerfRow[],
+  userStartDate: string,
+  investmentSize: number
+): UserEntryConfigTrack {
+  const empty: UserEntryConfigTrack = {
+    series: [],
+    metrics: null,
+    fullMetrics: null,
+    hasMultipleObservations: false,
+  };
+
+  if (!userStartDate || !Number.isFinite(investmentSize) || investmentSize <= 0) {
+    return empty;
+  }
+
+  const readyRows = [...rows]
+    .filter((row) => row.compute_status === 'ready')
+    .sort((a, b) => a.run_date.localeCompare(b.run_date));
+  if (!readyRows.length) {
+    return empty;
+  }
+
+  let baseIndex = -1;
+  for (let i = 0; i < readyRows.length; i++) {
+    if (readyRows[i]!.run_date <= userStartDate) {
+      baseIndex = i;
+    } else {
+      break;
+    }
+  }
+  if (baseIndex < 0) {
+    return empty;
+  }
+
+  const baseRow = readyRows[baseIndex]!;
+  const baseEnd = toNumber(baseRow.ending_equity, INITIAL_CAPITAL);
+  if (baseEnd <= 0) {
+    return empty;
+  }
+
+  const scale = investmentSize / baseEnd;
+  const futureRows = readyRows.slice(baseIndex + 1);
+  const series: PerformanceSeriesPoint[] = [
+    {
+      date: userStartDate,
+      aiTop20: investmentSize,
+      nasdaq100CapWeight: investmentSize,
+      nasdaq100EqualWeight: investmentSize,
+      sp500: investmentSize,
+    },
+    ...futureRows.map((row) => scaleConfigEquities(row, scale)),
+  ];
+
+  const metricReturns = futureRows.map((row) => toNumber(row.net_return, 0));
+  const fullMetrics = buildFullMetricsFromSeries(series, metricReturns);
+
+  return {
+    series,
+    metrics: fullMetrics
+      ? {
+          sharpeRatio: fullMetrics.sharpeRatio,
+          totalReturn: fullMetrics.totalReturn,
+          cagr: fullMetrics.cagr,
+          maxDrawdown: fullMetrics.maxDrawdown,
+        }
+      : null,
+    fullMetrics,
+    hasMultipleObservations: series.length >= 2,
   };
 }
 

@@ -71,7 +71,7 @@ const compareFeatures: CompareFeature[] = [
   { label: 'Full recommendation history', free: false, supporter: true, outperformer: true },
   { label: 'Stock news & detailed pages', free: false, supporter: true, outperformer: true },
   { label: 'Rating change notifications', free: false, supporter: true, outperformer: true },
-  { label: 'Strategy model comparison', free: false, supporter: false, outperformer: true },
+  { label: 'Multiple strategy models', free: false, supporter: false, outperformer: true },
   { label: 'Chat with strategy models', free: false, supporter: false, outperformer: true },
   { label: 'Custom strategy models', free: false, supporter: false, outperformer: true },
 ];

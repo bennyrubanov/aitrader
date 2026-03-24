@@ -2,13 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import type { LucideIcon } from 'lucide-react';
 import {
   ArrowRight,
-  Bell,
-  BellOff,
+  ArrowUpDown,
+  ArrowUpRight,
+  ChevronDown,
+  Loader2,
   Compass,
   ExternalLink,
   FilterX,
@@ -29,12 +31,13 @@ import {
 } from 'lucide-react';
 import { useAuthState } from '@/components/auth/auth-state-context';
 import { ExplorePortfolioFilterControls } from '@/components/platform/explore-portfolio-filter-controls';
+import { PortfolioListSortDialog } from '@/components/platform/portfolio-list-sort-dialog';
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
 import { StrategyModelSidebarDropdown } from '@/components/platform/strategy-model-sidebar-dropdown';
+import { HoldingRankWithChange } from '@/components/platform/holding-rank-with-change';
 import { StockChartDialog } from '@/components/platform/stock-chart-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -43,9 +46,30 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Switch } from '@/components/ui/switch';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  HoldingsAllocationColumnTooltip,
+  HoldingsMovementInfoTooltip,
+} from '@/components/tooltips';
+import { SpotlightStatCard } from '@/components/tooltips/spotlight-overview-tooltips';
 import { useToast } from '@/hooks/use-toast';
 import {
   showPortfolioUnfollowToast,
@@ -62,22 +86,147 @@ import {
   type RebalanceFrequency,
 } from '@/components/portfolio-config';
 import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
-import type { StrategyListItem } from '@/lib/platform-performance-payload';
+import type {
+  HoldingItem,
+  PerformanceSeriesPoint,
+  StrategyListItem,
+} from '@/lib/platform-performance-payload';
+import {
+  getCachedExploreHoldings,
+  HOLDINGS_DATE_SWITCH_MIN_SKELETON_MS,
+  loadExplorePortfolioConfigHoldings,
+  prefetchExploreHoldingsDates,
+  sleepMs,
+} from '@/lib/portfolio-config-holdings-cache';
+import {
+  buildHoldingMovementTableRows,
+  getPreviousRebalanceDate,
+  holdingMovementRowCn,
+} from '@/lib/holdings-rebalance-movement';
+import { sharpeRatioValueClass } from '@/lib/sharpe-value-class';
+import { computeWeeklyConsistencyVsNasdaqCap } from '@/lib/user-entry-performance';
 import {
   portfolioConfigBadgeClassName,
   portfolioConfigBadgeTooltip,
 } from '@/lib/portfolio-config-badges';
+import {
+  buildCompositeMapFromUserEntryCache,
+  type PortfolioListSortMetric,
+  sortProfilesByUserEntryCache,
+} from '@/lib/portfolio-profile-list-sort';
 import { PORTFOLIO_EXPLORE_QUICK_PICKS } from '@/lib/portfolio-explore-quick-picks';
 import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import { formatYmdDisplay } from '@/lib/format-ymd-display';
 import { cn } from '@/lib/utils';
 import type { ConfigPerfRow } from '@/lib/portfolio-config-utils';
 import { buildConfigPerformanceChart } from '@/lib/config-performance-chart';
+import {
+  getCachedConfigPerfPayload,
+  getCachedUserEntryPayload,
+  invalidateUserEntryPerformanceCache,
+  loadConfigPerfPayloadCached,
+  loadUserEntryPayloadCached,
+  prefetchYourPortfolioMainData,
+} from '@/lib/your-portfolio-data-cache';
 
 const PerformanceChart = dynamic(
   () => import('@/components/platform/performance-chart').then((m) => m.PerformanceChart),
-  { ssr: false }
+  { ssr: false, loading: () => <Skeleton className="h-[320px] w-full rounded-lg" /> }
 );
+
+/** Same $10k model baseline as config performance charts. */
+const YOUR_PORTFOLIOS_MODEL_INITIAL = 10_000;
+
+/** Rebalance date labels in holdings picker (aligned with platform overview). */
+const yourPortfolioHoldingsShortDateFmt = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+  timeZone: 'UTC',
+});
+
+const spotlightFmt = {
+  pct: (v: number | null | undefined, digits = 1) =>
+    v == null || !Number.isFinite(v) ? '—' : `${v >= 0 ? '+' : ''}${(v * 100).toFixed(digits)}%`,
+  num: (v: number | null | undefined, digits = 2) =>
+    v == null || !Number.isFinite(v) ? '—' : v.toFixed(digits),
+};
+
+function formatYourPortfolioCurrency(amount: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
+
+/** Aligned with overview spotlight holdings table (`platform-overview-client`). */
+function yourPortfolioHoldingScoreBucketClass(bucket: HoldingItem['bucket']) {
+  if (bucket === 'buy') {
+    return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300';
+  }
+  if (bucket === 'sell') {
+    return 'border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300';
+  }
+  if (bucket === 'hold') {
+    return 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300';
+  }
+  return 'border-muted-foreground/25 bg-muted/40 text-muted-foreground';
+}
+
+function yourPortfolioHoldingScoreBucketLabel(bucket: HoldingItem['bucket']) {
+  if (!bucket) return '—';
+  return bucket.charAt(0).toUpperCase() + bucket.slice(1);
+}
+
+function computeYourPortfolioValue(
+  series: PerformanceSeriesPoint[] | undefined,
+  investmentSize: number,
+  userStartDate: string | null | undefined
+): number | null {
+  if (!series?.length) return null;
+  const last = series[series.length - 1]?.aiTop20;
+  if (last == null || !Number.isFinite(last) || last <= 0) return null;
+  if (userStartDate && String(userStartDate).trim()) {
+    return last;
+  }
+  if (Number.isFinite(investmentSize) && investmentSize > 0) {
+    return last * (investmentSize / YOUR_PORTFOLIOS_MODEL_INITIAL);
+  }
+  return last;
+}
+
+function benchmarkStatsFromYourPortfolioSeries(series: PerformanceSeriesPoint[] | undefined): {
+  excessVsNasdaqCap: number | null;
+  excessVsNasdaqEqual: number | null;
+  excessVsSp500: number | null;
+} {
+  if (!series || series.length < 2) {
+    return { excessVsNasdaqCap: null, excessVsNasdaqEqual: null, excessVsSp500: null };
+  }
+  const f = series[0]!;
+  const l = series[series.length - 1]!;
+  if (f.aiTop20 <= 0 || f.nasdaq100CapWeight <= 0 || l.nasdaq100CapWeight <= 0) {
+    return { excessVsNasdaqCap: null, excessVsNasdaqEqual: null, excessVsSp500: null };
+  }
+  const portRet = l.aiTop20 / f.aiTop20 - 1;
+  const benchRet = l.nasdaq100CapWeight / f.nasdaq100CapWeight - 1;
+  let excessVsNasdaqEqual: number | null = null;
+  if (f.nasdaq100EqualWeight > 0 && l.nasdaq100EqualWeight > 0) {
+    const eqRet = l.nasdaq100EqualWeight / f.nasdaq100EqualWeight - 1;
+    if (Number.isFinite(eqRet)) excessVsNasdaqEqual = portRet - eqRet;
+  }
+  let excessVsSp500: number | null = null;
+  if (f.sp500 > 0 && l.sp500 > 0) {
+    const spRet = l.sp500 / f.sp500 - 1;
+    excessVsSp500 = portRet - spRet;
+  }
+  return {
+    excessVsNasdaqCap: portRet - benchRet,
+    excessVsNasdaqEqual,
+    excessVsSp500,
+  };
+}
 
 function localTodayYmd(): string {
   const now = new Date();
@@ -118,19 +267,6 @@ export type UserPortfolioProfileRow = {
   user_portfolio_positions: PositionRow[] | null;
 };
 
-type Holding = {
-  symbol: string;
-  companyName: string;
-  rank: number;
-  weight: number;
-  score: number | null;
-};
-
-type RecommendedPayload = {
-  holdings?: Holding[];
-  runDate?: string;
-};
-
 type ConfigPerfChartPoint = {
   date: string;
   aiTop20: number;
@@ -159,6 +295,9 @@ type UserEntryPerfApiResponse = {
     totalReturn: number | null;
     cagr: number | null;
     maxDrawdown: number | null;
+    consistency?: number | null;
+    excessReturnVsNasdaqCap?: number | null;
+    excessReturnVsNasdaqEqual?: number | null;
   } | null;
   computeStatus?:
     | 'ready'
@@ -493,8 +632,12 @@ type YourPortfolioClientProps = {
 
 export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const profileParam = searchParams.get('profile');
+  const isYourPortfoliosRoute =
+    pathname === '/platform/your-portfolios' ||
+    pathname.startsWith('/platform/your-portfolios/');
   const { toast } = useToast();
   const authState = useAuthState();
   const { config } = usePortfolioConfig();
@@ -506,33 +649,48 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const [isLoadingPerf, setIsLoadingPerf] = useState(true);
   const [perfPayload, setPerfPayload] = useState<ConfigPerfApiResponse | null>(null);
   const [rawRows, setRawRows] = useState<ConfigPerfRow[]>([]);
+  const perfRequestIdRef = useRef(0);
 
-  const [isLoadingScores, setIsLoadingScores] = useState(false);
-  const [scoreBySymbol, setScoreBySymbol] = useState<Map<string, number | null>>(new Map());
-  const [runDate, setRunDate] = useState<string | null>(null);
+  const yourPortfolioHoldingsRequestIdRef = useRef(0);
+  const [configHoldings, setConfigHoldings] = useState<HoldingItem[]>([]);
+  const [configHoldingsLoading, setConfigHoldingsLoading] = useState(false);
+  const [configHoldingsRefreshing, setConfigHoldingsRefreshing] = useState(false);
+  const [configHoldingsAsOf, setConfigHoldingsAsOf] = useState<string | null>(null);
+  const [configHoldingsRebalanceDates, setConfigHoldingsRebalanceDates] = useState<string[]>([]);
+  const configHoldingsLenRef = useRef(0);
+  configHoldingsLenRef.current = configHoldings.length;
 
   const [rankedBySlug, setRankedBySlug] = useState<Record<string, RankedConfig[]>>({});
   const [latestPerfDateBySlug, setLatestPerfDateBySlug] = useState<
     Record<string, string | null>
   >({});
   const [filtersDialogOpen, setFiltersDialogOpen] = useState(false);
+  const [sidebarSortDialogOpen, setSidebarSortDialogOpen] = useState(false);
   const filterDialogBenchmarkNasdaqRef = useRef<HTMLButtonElement>(null);
+  const [sidebarSortMetric, setSidebarSortMetric] =
+    useState<PortfolioListSortMetric>('follow_order');
   const [filterBeatNasdaq, setFilterBeatNasdaq] = useState(false);
   const [filterBeatSp500, setFilterBeatSp500] = useState(false);
   const [riskFilter, setRiskFilter] = useState<RiskLevel | null>(null);
   const [freqFilter, setFreqFilter] = useState<RebalanceFrequency | null>(null);
   const [weightFilter, setWeightFilter] = useState<'equal' | 'cap' | null>(null);
-  const [notifyPending, setNotifyPending] = useState(false);
   const [unfollowBusy, setUnfollowBusy] = useState(false);
-  const [perfView, setPerfView] = useState<'user' | 'model'>('user');
   const [userEntryPayload, setUserEntryPayload] = useState<UserEntryPerfApiResponse | null>(null);
   const [isLoadingUserEntry, setIsLoadingUserEntry] = useState(false);
+  const userEntryRequestIdRef = useRef(0);
   const [entrySettingsOpen, setEntrySettingsOpen] = useState(false);
+  const [holdingsRowChartSymbol, setHoldingsRowChartSymbol] = useState<string | null>(null);
+  const [holdingsMovementView, setHoldingsMovementView] = useState(false);
+  const [prevMovementHoldings, setPrevMovementHoldings] = useState<HoldingItem[] | null>(null);
+  const [prevMovementLoading, setPrevMovementLoading] = useState(false);
+  const [prevMovementError, setPrevMovementError] = useState(false);
+  /** Keeps the rebalance Select on the chosen date while holdings fetch runs (controlled value otherwise snaps back). */
+  const [pendingHoldingsAsOf, setPendingHoldingsAsOf] = useState<string | null>(null);
 
   const loadProfiles = useCallback(async () => {
     setIsLoadingProfiles(true);
     try {
-      const res = await fetch('/api/platform/user-portfolio-profile');
+      const res = await fetch('/api/platform/user-portfolio-profile', { cache: 'no-store' });
       if (res.ok) {
         const data = (await res.json()) as { profiles?: UserPortfolioProfileRow[] };
         const list = data.profiles ?? [];
@@ -554,6 +712,17 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     if (!authState.isLoaded || !authState.isAuthenticated) return;
     void loadProfiles();
   }, [authState.isLoaded, authState.isAuthenticated, loadProfiles]);
+
+  useEffect(() => {
+    if (!authState.isAuthenticated) return;
+    const handler = () => {
+      void loadProfiles();
+    };
+    window.addEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, handler);
+    return () => window.removeEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, handler);
+  }, [authState.isAuthenticated, loadProfiles]);
+
+  const [sidebarSortCacheEpoch, setSidebarSortCacheEpoch] = useState(0);
 
   const selectedProfile = useMemo(() => {
     if (!profiles.length) return null;
@@ -577,6 +746,22 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     return profiles.filter((p) => p.strategy_models?.slug === slug);
   }, [profiles, selectedProfile?.strategy_models?.slug]);
 
+  const allSidebarCached = useMemo(
+    () =>
+      sidebarProfiles.every(
+        (p) => !p.user_start_date?.trim() || getCachedUserEntryPayload(p.id) != null
+      ),
+    [sidebarProfiles, sidebarSortCacheEpoch, userEntryPayload]
+  );
+
+  const sortedSidebarProfiles = useMemo(() => {
+    if (sidebarSortMetric === 'follow_order' || !allSidebarCached) {
+      return [...sidebarProfiles];
+    }
+    const composite = buildCompositeMapFromUserEntryCache(sidebarProfiles);
+    return sortProfilesByUserEntryCache(sidebarProfiles, sidebarSortMetric, composite);
+  }, [sidebarProfiles, sidebarSortMetric, allSidebarCached, sidebarSortCacheEpoch]);
+
   const filteredSidebarProfiles = useMemo(() => {
     const opts = {
       filterBeatNasdaq,
@@ -585,11 +770,11 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       freqFilter,
       weightFilter,
     };
-    return sidebarProfiles.filter((p) =>
+    return sortedSidebarProfiles.filter((p) =>
       profileMatchesYourPortfolioFilters(p, rankedBySlug, opts)
     );
   }, [
-    sidebarProfiles,
+    sortedSidebarProfiles,
     rankedBySlug,
     filterBeatNasdaq,
     filterBeatSp500,
@@ -597,6 +782,81 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     freqFilter,
     weightFilter,
   ]);
+
+  /**
+   * Visible (filter-passing) rows first in current sort, then same-strategy rows hidden by the
+   * filter, then other strategies — matches what the user sees, then the rest.
+   */
+  const profilesPrefetchOrdered = useMemo(() => {
+    const filteredIds = new Set(filteredSidebarProfiles.map((p) => p.id));
+    const sidebarIds = new Set(sortedSidebarProfiles.map((p) => p.id));
+
+    let visibleHead = filteredSidebarProfiles;
+    if (selectedProfile) {
+      const sid = selectedProfile.id;
+      const idx = visibleHead.findIndex((p) => p.id === sid);
+      if (idx > 0) {
+        visibleHead = [
+          visibleHead[idx]!,
+          ...visibleHead.slice(0, idx),
+          ...visibleHead.slice(idx + 1),
+        ];
+      }
+    }
+
+    const sameStrategyFilteredOut = sortedSidebarProfiles.filter((p) => !filteredIds.has(p.id));
+    const rest = profiles.filter((p) => !sidebarIds.has(p.id));
+
+    return [...visibleHead, ...sameStrategyFilteredOut, ...rest];
+  }, [filteredSidebarProfiles, sortedSidebarProfiles, profiles, selectedProfile]);
+
+  /**
+   * Prefetch effect must not depend on performance-sorted id order: that order changes as the
+   * cache fills, which was restarting prefetch + bumping epoch in a loop and visibly reshuffling
+   * the list. Key = sort metric + sidebar filters + sidebar cohort (ids in stable lexicographic order).
+   */
+  const profilesPrefetchStableKey = useMemo(
+    () =>
+      [
+        sidebarSortMetric,
+        filterBeatNasdaq ? '1' : '0',
+        filterBeatSp500 ? '1' : '0',
+        riskFilter === null ? '' : String(riskFilter),
+        freqFilter ?? '',
+        weightFilter ?? '',
+        sidebarProfiles
+          .map((p) => p.id)
+          .slice()
+          .sort((a, b) => a.localeCompare(b))
+          .join('\0'),
+      ].join('\0'),
+    [
+      sidebarSortMetric,
+      filterBeatNasdaq,
+      filterBeatSp500,
+      riskFilter,
+      freqFilter,
+      weightFilter,
+      sidebarProfiles,
+    ]
+  );
+
+  const profilesPrefetchOrderedRef = useRef(profilesPrefetchOrdered);
+  profilesPrefetchOrderedRef.current = profilesPrefetchOrdered;
+  const ypPrefetchGenRef = useRef(0);
+
+  useEffect(() => {
+    if (!authState.isAuthenticated || profilesPrefetchOrderedRef.current.length === 0) return;
+    const gen = ++ypPrefetchGenRef.current;
+    let cancelled = false;
+    void prefetchYourPortfolioMainData(profilesPrefetchOrderedRef.current).then((didWork) => {
+      if (cancelled || gen !== ypPrefetchGenRef.current) return;
+      if (didWork) setSidebarSortCacheEpoch((e) => e + 1);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [authState.isAuthenticated, profilesPrefetchStableKey]);
 
   const activeSidebarFilterCount = useMemo(() => {
     let n = 0;
@@ -617,6 +877,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   }, []);
 
   useEffect(() => {
+    if (!isYourPortfoliosRoute) return;
     if (!authState.isAuthenticated || isLoadingProfiles) return;
     if (activeSidebarFilterCount === 0) return;
     if (!selectedProfile) return;
@@ -633,6 +894,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     authState.isAuthenticated,
     filteredSidebarProfiles,
     isLoadingProfiles,
+    isYourPortfoliosRoute,
     router,
     selectedProfile,
   ]);
@@ -642,15 +904,23 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     [selectedProfile, rankedBySlug]
   );
 
-  // Sync ?profile= to a valid id
+  // Sync ?profile= only on this route — workspace keeps this tree mounted while other platform tabs are open.
   useEffect(() => {
+    if (!isYourPortfoliosRoute) return;
     if (!authState.isAuthenticated || isLoadingProfiles) return;
     if (profiles.length === 0) return;
     const valid = profileParam && profiles.some((p) => p.id === profileParam);
     if (!valid) {
       router.replace(`/platform/your-portfolios?profile=${profiles[0]!.id}`, { scroll: false });
     }
-  }, [authState.isAuthenticated, isLoadingProfiles, profiles, profileParam, router]);
+  }, [
+    authState.isAuthenticated,
+    isLoadingProfiles,
+    isYourPortfoliosRoute,
+    profiles,
+    profileParam,
+    router,
+  ]);
 
   const strategySlug = selectedProfile?.strategy_models?.slug ?? config.strategySlug;
 
@@ -710,32 +980,53 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     };
   }, [profiles]);
 
-  const loadPerf = useCallback(async () => {
+  const loadPerf = useCallback(async (opts?: { bypassCache?: boolean }) => {
     if (!selectedProfile?.portfolio_config || !strategySlug) {
+      perfRequestIdRef.current += 1;
       setPerfPayload(null);
       setRawRows([]);
       setIsLoadingPerf(false);
       return;
     }
     const cfg = selectedProfile.portfolio_config;
-    setIsLoadingPerf(true);
+    const slug = strategySlug.trim();
+    const frequency = cfg.rebalance_frequency;
+    const weighting = cfg.weighting_method;
+    const reqId = ++perfRequestIdRef.current;
+
+    if (!opts?.bypassCache) {
+      const syncHit = getCachedConfigPerfPayload(slug, cfg.risk_level, frequency, weighting);
+      if (syncHit) {
+        if (perfRequestIdRef.current !== reqId) return;
+        setPerfPayload(syncHit as ConfigPerfApiResponse);
+        setRawRows(Array.isArray(syncHit.rows) ? syncHit.rows : []);
+        setIsLoadingPerf(false);
+        return;
+      }
+    }
+
+    if (!opts?.bypassCache) {
+      setIsLoadingPerf(true);
+    }
     try {
-      const params = new URLSearchParams({
-        slug: strategySlug,
-        risk: String(cfg.risk_level),
-        frequency: cfg.rebalance_frequency,
-        weighting: cfg.weighting_method,
-      });
-      const res = await fetch(`/api/platform/portfolio-config-performance?${params}`);
-      if (res.ok) {
-        const data = (await res.json()) as ConfigPerfApiResponse;
-        setPerfPayload(data);
+      const data = await loadConfigPerfPayloadCached(
+        slug,
+        cfg.risk_level,
+        frequency,
+        weighting,
+        opts
+      );
+      if (perfRequestIdRef.current !== reqId) return;
+      if (data) {
+        setPerfPayload(data as ConfigPerfApiResponse);
         setRawRows(Array.isArray(data.rows) ? data.rows : []);
       }
     } catch {
       // silent
     } finally {
-      setIsLoadingPerf(false);
+      if (perfRequestIdRef.current === reqId) {
+        setIsLoadingPerf(false);
+      }
     }
   }, [selectedProfile, strategySlug]);
 
@@ -743,27 +1034,41 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     void loadPerf();
   }, [loadPerf]);
 
-  const loadUserEntry = useCallback(async () => {
+  const loadUserEntry = useCallback(async (opts?: { bypassCache?: boolean }) => {
     if (!selectedProfile?.id || !selectedProfile.user_start_date) {
+      userEntryRequestIdRef.current += 1;
       setUserEntryPayload(null);
       setIsLoadingUserEntry(false);
       return;
     }
-    setIsLoadingUserEntry(true);
+    const profileId = selectedProfile.id;
+    const reqId = ++userEntryRequestIdRef.current;
+
+    if (!opts?.bypassCache) {
+      const syncHit = getCachedUserEntryPayload(profileId);
+      if (syncHit) {
+        if (userEntryRequestIdRef.current !== reqId) return;
+        setUserEntryPayload(syncHit as UserEntryPerfApiResponse);
+        setIsLoadingUserEntry(false);
+        return;
+      }
+    }
+
+    if (!opts?.bypassCache) {
+      setIsLoadingUserEntry(true);
+    }
     try {
-      const res = await fetch(
-        `/api/platform/user-portfolio-performance?profileId=${encodeURIComponent(selectedProfile.id)}`
-      );
-      const data = (await res.json()) as UserEntryPerfApiResponse;
-      if (res.ok) {
-        setUserEntryPayload(data);
-      } else {
+      const data = await loadUserEntryPayloadCached(profileId, opts);
+      if (userEntryRequestIdRef.current !== reqId) return;
+      setUserEntryPayload(data as UserEntryPerfApiResponse);
+    } catch {
+      if (userEntryRequestIdRef.current === reqId) {
         setUserEntryPayload({ computeStatus: 'failed', series: [], metrics: null });
       }
-    } catch {
-      setUserEntryPayload({ computeStatus: 'failed', series: [], metrics: null });
     } finally {
-      setIsLoadingUserEntry(false);
+      if (userEntryRequestIdRef.current === reqId) {
+        setIsLoadingUserEntry(false);
+      }
     }
   }, [selectedProfile?.id, selectedProfile?.user_start_date]);
 
@@ -776,7 +1081,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     const st = perfPayload?.computeStatus;
     const active = st === 'pending' || st === 'in_progress';
     if (!active || !selectedProfile) return;
-    const t = setInterval(() => void loadPerf(), 4000);
+    const t = setInterval(() => void loadPerf({ bypassCache: true }), 4000);
     return () => clearInterval(t);
   }, [perfPayload?.computeStatus, loadPerf, selectedProfile]);
 
@@ -785,7 +1090,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     const entrySt = userEntryPayload?.computeStatus;
     const needsData = cfgSt === 'pending' || entrySt === 'pending';
     if (!needsData || !selectedProfile?.id) return;
-    const t = setInterval(() => void loadUserEntry(), 4000);
+    const t = setInterval(() => void loadUserEntry({ bypassCache: true }), 4000);
     return () => clearInterval(t);
   }, [
     userEntryPayload?.configComputeStatus,
@@ -794,30 +1099,107 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     selectedProfile?.id,
   ]);
 
-  const loadScoresForSlug = useCallback(async (slug: string) => {
-    setIsLoadingScores(true);
-    try {
-      const res = await fetch(`/api/platform/recommended-portfolio?slug=${encodeURIComponent(slug)}`);
-      if (res.ok) {
-        const data = (await res.json()) as RecommendedPayload;
-        const m = new Map<string, number | null>();
-        for (const h of data.holdings ?? []) {
-          m.set(h.symbol.toUpperCase(), h.score);
-        }
-        setScoreBySymbol(m);
-        setRunDate(data.runDate ?? null);
+  const selectedProfileConfigId =
+    selectedProfile?.portfolio_config?.id ?? selectedProfile?.config_id ?? null;
+
+  const fetchYourPortfolioConfigHoldings = useCallback(
+    async (asOf: string | null) => {
+      const slug = strategySlug?.trim();
+      const configId = selectedProfileConfigId;
+      if (!selectedProfile?.id || !configId || !slug) return;
+      const reqId = ++yourPortfolioHoldingsRequestIdRef.current;
+
+      const hadTableData = configHoldingsLenRef.current > 0;
+      const isDatePick = asOf != null;
+      const useRefreshChrome = isDatePick && hadTableData;
+
+      if (asOf != null && holdingsMovementView) {
+        setPrevMovementLoading(true);
+        setPrevMovementHoldings(null);
+        setPrevMovementError(false);
       }
-    } catch {
-      // silent
-    } finally {
-      setIsLoadingScores(false);
-    }
-  }, []);
+
+      const syncHit = getCachedExploreHoldings(slug, configId, asOf);
+      if (syncHit) {
+        if (yourPortfolioHoldingsRequestIdRef.current !== reqId) return;
+        setConfigHoldings(syncHit.holdings);
+        setConfigHoldingsAsOf(syncHit.asOfDate);
+        setConfigHoldingsRebalanceDates(syncHit.rebalanceDates);
+        setConfigHoldingsLoading(false);
+        setConfigHoldingsRefreshing(false);
+        setPendingHoldingsAsOf(null);
+        prefetchExploreHoldingsDates(slug, configId, syncHit.rebalanceDates);
+        return;
+      }
+
+      if (useRefreshChrome) {
+        setConfigHoldingsRefreshing(true);
+      } else {
+        setConfigHoldingsLoading(true);
+      }
+
+      const started = Date.now();
+      try {
+        const data = await loadExplorePortfolioConfigHoldings(slug, configId, asOf);
+        if (yourPortfolioHoldingsRequestIdRef.current !== reqId) return;
+
+        if (!data) {
+          setConfigHoldings([]);
+          setConfigHoldingsAsOf(null);
+          setConfigHoldingsRebalanceDates([]);
+        } else {
+          if (useRefreshChrome) {
+            const elapsed = Date.now() - started;
+            if (elapsed < HOLDINGS_DATE_SWITCH_MIN_SKELETON_MS) {
+              await sleepMs(HOLDINGS_DATE_SWITCH_MIN_SKELETON_MS - elapsed);
+            }
+            if (yourPortfolioHoldingsRequestIdRef.current !== reqId) return;
+          }
+          setConfigHoldings(data.holdings);
+          setConfigHoldingsAsOf(data.asOfDate);
+          setConfigHoldingsRebalanceDates(data.rebalanceDates);
+          prefetchExploreHoldingsDates(slug, configId, data.rebalanceDates);
+        }
+      } finally {
+        if (yourPortfolioHoldingsRequestIdRef.current === reqId) {
+          setConfigHoldingsLoading(false);
+          setConfigHoldingsRefreshing(false);
+          setPendingHoldingsAsOf(null);
+        }
+      }
+    },
+    [selectedProfile?.id, selectedProfileConfigId, strategySlug, holdingsMovementView]
+  );
 
   useEffect(() => {
-    if (!strategySlug) return;
-    void loadScoresForSlug(strategySlug);
-  }, [strategySlug, loadScoresForSlug]);
+    if (!selectedProfile?.id || !selectedProfileConfigId || !strategySlug?.trim()) {
+      yourPortfolioHoldingsRequestIdRef.current += 1;
+      setConfigHoldings([]);
+      setConfigHoldingsAsOf(null);
+      setConfigHoldingsRebalanceDates([]);
+      setConfigHoldingsLoading(false);
+      setConfigHoldingsRefreshing(false);
+      setPendingHoldingsAsOf(null);
+      return;
+    }
+    void fetchYourPortfolioConfigHoldings(null);
+  }, [
+    selectedProfile?.id,
+    selectedProfileConfigId,
+    strategySlug,
+    fetchYourPortfolioConfigHoldings,
+  ]);
+
+  useEffect(() => {
+    setHoldingsRowChartSymbol(null);
+  }, [selectedProfile?.id, selectedProfileConfigId]);
+
+  useEffect(() => {
+    setHoldingsMovementView(false);
+    setPrevMovementHoldings(null);
+    setPrevMovementError(false);
+    setPrevMovementLoading(false);
+  }, [selectedProfile?.id, selectedProfileConfigId]);
 
   const modelChart = useMemo(() => buildConfigPerformanceChart(rawRows), [rawRows]);
 
@@ -828,29 +1210,139 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const modelDisplaySeries =
     modelChart.series.length > 0 ? modelChart.series : (perfPayload?.series ?? []);
 
-  const displayMetrics =
-    perfView === 'user' && selectedProfile?.user_start_date
-      ? userEntryMetrics
-      : modelDisplayMetrics;
-  const displaySeries =
-    perfView === 'user' && selectedProfile?.user_start_date
-      ? userEntrySeries
-      : modelDisplaySeries;
+  const displayMetrics = selectedProfile?.user_start_date
+    ? userEntryMetrics
+    : modelDisplayMetrics;
+  const displaySeries = selectedProfile?.user_start_date
+    ? userEntrySeries
+    : modelDisplaySeries;
 
-  const holdingsRows = useMemo(() => {
-    const positions = selectedProfile?.user_portfolio_positions ?? [];
-    const sorted = [...positions].sort((a, b) => num(b.target_weight) - num(a.target_weight));
-    return sorted.map((pos, i) => ({
-      symbol: pos.symbol.toUpperCase(),
-      companyName: pos.stocks?.company_name ?? '—',
-      weight: num(pos.target_weight),
-      entryPrice: pos.entry_price != null ? num(pos.entry_price) : null,
-      score: scoreBySymbol.get(pos.symbol.toUpperCase()) ?? null,
-      rank: i + 1,
-    }));
-  }, [selectedProfile, scoreBySymbol]);
+  const userEntryMetricsFull = userEntryPayload?.metrics;
+
+  const portfolioValueAmount = useMemo(() => {
+    const pts = displaySeries as PerformanceSeriesPoint[];
+    return computeYourPortfolioValue(
+      pts,
+      num(selectedProfile?.investment_size),
+      selectedProfile?.user_start_date ?? null
+    );
+  }, [displaySeries, selectedProfile?.investment_size, selectedProfile?.user_start_date]);
+
+  const benchmarkBench = useMemo(() => {
+    return benchmarkStatsFromYourPortfolioSeries(displaySeries as PerformanceSeriesPoint[]);
+  }, [displaySeries]);
+
+  const consistencyForSpotlight = useMemo(() => {
+    const pts = displaySeries as PerformanceSeriesPoint[];
+    if (
+      selectedProfile?.user_start_date &&
+      userEntryMetricsFull?.consistency != null &&
+      Number.isFinite(userEntryMetricsFull.consistency)
+    ) {
+      return userEntryMetricsFull.consistency;
+    }
+    return computeWeeklyConsistencyVsNasdaqCap(pts);
+  }, [displaySeries, selectedProfile?.user_start_date, userEntryMetricsFull?.consistency]);
+
+  const excessNdxForSpotlight = useMemo(() => {
+    if (
+      selectedProfile?.user_start_date &&
+      userEntryMetricsFull?.excessReturnVsNasdaqCap != null &&
+      Number.isFinite(userEntryMetricsFull.excessReturnVsNasdaqCap)
+    ) {
+      return userEntryMetricsFull.excessReturnVsNasdaqCap;
+    }
+    return benchmarkBench.excessVsNasdaqCap;
+  }, [
+    selectedProfile?.user_start_date,
+    userEntryMetricsFull?.excessReturnVsNasdaqCap,
+    benchmarkBench.excessVsNasdaqCap,
+  ]);
+
+  const excessNdxEqualForSpotlight = useMemo(() => {
+    if (
+      selectedProfile?.user_start_date &&
+      userEntryMetricsFull?.excessReturnVsNasdaqEqual != null &&
+      Number.isFinite(userEntryMetricsFull.excessReturnVsNasdaqEqual)
+    ) {
+      return userEntryMetricsFull.excessReturnVsNasdaqEqual;
+    }
+    return benchmarkBench.excessVsNasdaqEqual;
+  }, [
+    selectedProfile?.user_start_date,
+    userEntryMetricsFull?.excessReturnVsNasdaqEqual,
+    benchmarkBench.excessVsNasdaqEqual,
+  ]);
 
   const topN = selectedProfile?.portfolio_config?.top_n ?? 20;
+
+  const effectiveHoldingsAsOf = pendingHoldingsAsOf ?? configHoldingsAsOf;
+
+  const holdingsPrevRebalanceDate = useMemo(
+    () => getPreviousRebalanceDate(configHoldingsRebalanceDates, configHoldingsAsOf),
+    [configHoldingsRebalanceDates, configHoldingsAsOf]
+  );
+
+  useEffect(() => {
+    if (
+      !holdingsMovementView ||
+      !holdingsPrevRebalanceDate ||
+      !strategySlug?.trim() ||
+      !selectedProfileConfigId
+    ) {
+      setPrevMovementHoldings(null);
+      setPrevMovementLoading(false);
+      setPrevMovementError(false);
+      return;
+    }
+    let cancelled = false;
+    setPrevMovementLoading(true);
+    setPrevMovementError(false);
+    const slug = strategySlug.trim();
+    const configId = selectedProfileConfigId;
+    void loadExplorePortfolioConfigHoldings(slug, configId, holdingsPrevRebalanceDate).then(
+      (data) => {
+        if (cancelled) return;
+        if (!data?.holdings) {
+          setPrevMovementHoldings(null);
+          setPrevMovementError(true);
+        } else {
+          setPrevMovementHoldings(data.holdings);
+        }
+        setPrevMovementLoading(false);
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    holdingsMovementView,
+    holdingsPrevRebalanceDate,
+    configHoldingsAsOf,
+    strategySlug,
+    selectedProfileConfigId,
+  ]);
+
+  const holdingsMovementModel = useMemo(() => {
+    if (
+      !holdingsMovementView ||
+      !holdingsPrevRebalanceDate ||
+      prevMovementLoading ||
+      prevMovementError ||
+      prevMovementHoldings === null
+    ) {
+      return null;
+    }
+    return buildHoldingMovementTableRows(configHoldings, prevMovementHoldings, topN);
+  }, [
+    holdingsMovementView,
+    holdingsPrevRebalanceDate,
+    prevMovementLoading,
+    prevMovementError,
+    prevMovementHoldings,
+    configHoldings,
+    topN,
+  ]);
 
   const handleCreatePreset = async (preset: PresetConfig) => {
     setPresetBusyKey(preset.key);
@@ -902,35 +1394,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     }
   };
 
-  const handleToggleNotify = async () => {
-    if (!selectedProfile) return;
-    setNotifyPending(true);
-    const next = !selectedProfile.notifications_enabled;
-    try {
-      const res = await fetch('/api/platform/user-portfolio-profile', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          profileId: selectedProfile.id,
-          notificationsEnabled: next,
-        }),
-      });
-      if (!res.ok) {
-        toast({ title: 'Could not update notifications', variant: 'destructive' });
-        return;
-      }
-      setProfiles((prev) =>
-        prev.map((p) => (p.id === selectedProfile.id ? { ...p, notifications_enabled: next } : p))
-      );
-      toast({
-        title: next ? 'Rebalance reminders on' : 'Notifications off',
-        description: 'Applies to this portfolio only.',
-      });
-    } finally {
-      setNotifyPending(false);
-    }
-  };
-
   const handleUnfollowSelected = useCallback(async () => {
     if (!selectedProfile) return;
     setUnfollowBusy(true);
@@ -966,8 +1429,162 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
 
   const selectProfile = (id: string) => {
     router.push(`/platform/your-portfolios?profile=${id}`);
-    setPerfView('user');
   };
+
+  useEffect(() => {
+    setHoldingsRowChartSymbol(null);
+  }, [selectedProfile?.id]);
+
+  const modelComputeStatus =
+    perfPayload?.computeStatus === 'pending'
+      ? 'in_progress'
+      : (perfPayload?.computeStatus ?? 'empty');
+
+  const userEntryStatus = userEntryPayload?.computeStatus;
+  const perfLoading = selectedProfile?.user_start_date
+    ? isLoadingUserEntry
+    : isLoadingPerf;
+  const activeComputeStatus =
+    selectedProfile?.user_start_date
+      ? userEntryStatus === 'ready'
+        ? 'ready'
+        : userEntryStatus === 'gathering_data'
+          ? 'gathering'
+          : userEntryStatus === 'failed'
+            ? 'failed'
+            : userEntryStatus === 'pending'
+              ? 'in_progress'
+              : userEntryStatus === 'no_start_date' || userEntryStatus === 'no_positions'
+                ? 'empty'
+                : userEntryStatus === 'no_holdings_run'
+                  ? 'unsupported'
+                  : userEntryStatus === 'empty'
+                    ? 'empty'
+                    : isLoadingUserEntry
+                      ? 'in_progress'
+                      : 'empty'
+      : modelComputeStatus;
+
+  const yourPortfolioMetricsScrollRef = useRef<HTMLDivElement | null>(null);
+  const yourPortfolioMetricsInnerRef = useRef<HTMLDivElement | null>(null);
+  const [showYourPortfolioMetricsScrollFade, setShowYourPortfolioMetricsScrollFade] =
+    useState(false);
+  const [yourPortfolioMetricsChevronDismissed, setYourPortfolioMetricsChevronDismissed] =
+    useState(false);
+
+  const yourPortfolioHoldingsScrollRef = useRef<HTMLDivElement | null>(null);
+  const yourPortfolioHoldingsInnerRef = useRef<HTMLDivElement | null>(null);
+  const [showYourPortfolioHoldingsScrollFade, setShowYourPortfolioHoldingsScrollFade] =
+    useState(false);
+  const [yourPortfolioHoldingsChevronDismissed, setYourPortfolioHoldingsChevronDismissed] =
+    useState(false);
+
+  useEffect(() => {
+    setYourPortfolioMetricsChevronDismissed(false);
+    setYourPortfolioHoldingsChevronDismissed(false);
+  }, [selectedProfile?.id]);
+
+  const nudgeYourPortfolioMetricsScroll = useCallback(() => {
+    const el = yourPortfolioMetricsScrollRef.current;
+    if (!el) return;
+    setYourPortfolioMetricsChevronDismissed(true);
+    const delta = Math.min(220, Math.max(96, Math.round(el.clientHeight * 0.38)));
+    el.scrollBy({ top: delta, behavior: 'smooth' });
+  }, []);
+
+  const nudgeYourPortfolioHoldingsScroll = useCallback(() => {
+    const el = yourPortfolioHoldingsScrollRef.current;
+    if (!el) return;
+    setYourPortfolioHoldingsChevronDismissed(true);
+    const delta = Math.min(220, Math.max(96, Math.round(el.clientHeight * 0.38)));
+    el.scrollBy({ top: delta, behavior: 'smooth' });
+  }, []);
+
+  useEffect(() => {
+    const scrollEl = yourPortfolioMetricsScrollRef.current;
+    if (!scrollEl) return;
+
+    const updateScrollUi = () => {
+      const canScroll = scrollEl.scrollHeight > scrollEl.clientHeight + 2;
+      const isAtTop = scrollEl.scrollTop <= 2;
+      setShowYourPortfolioMetricsScrollFade(canScroll && isAtTop);
+      if (scrollEl.scrollTop > 2) {
+        setYourPortfolioMetricsChevronDismissed(true);
+      }
+    };
+
+    updateScrollUi();
+    const raf = requestAnimationFrame(updateScrollUi);
+    scrollEl.addEventListener('scroll', updateScrollUi, { passive: true });
+    window.addEventListener('resize', updateScrollUi);
+    const roScroll = new ResizeObserver(updateScrollUi);
+    roScroll.observe(scrollEl);
+    const inner = yourPortfolioMetricsInnerRef.current;
+    let roInner: ResizeObserver | null = null;
+    if (inner) {
+      roInner = new ResizeObserver(updateScrollUi);
+      roInner.observe(inner);
+    }
+
+    return () => {
+      cancelAnimationFrame(raf);
+      scrollEl.removeEventListener('scroll', updateScrollUi);
+      window.removeEventListener('resize', updateScrollUi);
+      roScroll.disconnect();
+      roInner?.disconnect();
+    };
+  }, [
+    selectedProfile?.id,
+    activeComputeStatus,
+    perfLoading,
+    displayMetrics,
+    portfolioValueAmount,
+    consistencyForSpotlight,
+    excessNdxForSpotlight,
+    excessNdxEqualForSpotlight,
+    benchmarkBench.excessVsSp500,
+  ]);
+
+  useEffect(() => {
+    const scrollEl = yourPortfolioHoldingsScrollRef.current;
+    if (!scrollEl) return;
+
+    const updateScrollUi = () => {
+      const canScroll = scrollEl.scrollHeight > scrollEl.clientHeight + 2;
+      const isAtTop = scrollEl.scrollTop <= 2;
+      setShowYourPortfolioHoldingsScrollFade(canScroll && isAtTop);
+      if (scrollEl.scrollTop > 2) {
+        setYourPortfolioHoldingsChevronDismissed(true);
+      }
+    };
+
+    updateScrollUi();
+    const raf = requestAnimationFrame(updateScrollUi);
+    scrollEl.addEventListener('scroll', updateScrollUi, { passive: true });
+    window.addEventListener('resize', updateScrollUi);
+    const roScroll = new ResizeObserver(updateScrollUi);
+    roScroll.observe(scrollEl);
+    const inner = yourPortfolioHoldingsInnerRef.current;
+    let roInner: ResizeObserver | null = null;
+    if (inner) {
+      roInner = new ResizeObserver(updateScrollUi);
+      roInner.observe(inner);
+    }
+
+    return () => {
+      cancelAnimationFrame(raf);
+      scrollEl.removeEventListener('scroll', updateScrollUi);
+      window.removeEventListener('resize', updateScrollUi);
+      roScroll.disconnect();
+      roInner?.disconnect();
+    };
+  }, [
+    selectedProfile?.id,
+    configHoldings,
+    configHoldingsLoading,
+    configHoldingsRefreshing,
+    topN,
+  ]);
 
   if (!authState.isLoaded) {
     return (
@@ -1028,35 +1645,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     );
   }
 
-  const modelComputeStatus =
-    perfPayload?.computeStatus === 'pending'
-      ? 'in_progress'
-      : (perfPayload?.computeStatus ?? 'empty');
-
-  const userEntryStatus = userEntryPayload?.computeStatus;
-  const perfLoading =
-    perfView === 'user' && selectedProfile?.user_start_date ? isLoadingUserEntry : isLoadingPerf;
-  const activeComputeStatus =
-    perfView === 'user' && selectedProfile?.user_start_date
-      ? userEntryStatus === 'ready'
-        ? 'ready'
-        : userEntryStatus === 'gathering_data'
-          ? 'gathering'
-          : userEntryStatus === 'failed'
-            ? 'failed'
-            : userEntryStatus === 'pending'
-              ? 'in_progress'
-              : userEntryStatus === 'no_start_date' || userEntryStatus === 'no_positions'
-                ? 'empty'
-                : userEntryStatus === 'no_holdings_run'
-                  ? 'unsupported'
-                  : userEntryStatus === 'empty'
-                    ? 'empty'
-                    : isLoadingUserEntry
-                      ? 'in_progress'
-                      : 'empty'
-      : modelComputeStatus;
-
   const cfg = selectedProfile?.portfolio_config;
   const headerRiskLevel = (cfg?.risk_level ?? 3) as RiskLevel;
   const headerRiskTitle =
@@ -1066,38 +1654,45 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     ? formatYmdDisplay(String(selectedProfile.user_start_date).trim())
     : null;
 
-  const showUserPerfToggle = Boolean(
-    selectedProfile?.user_start_date &&
-      (userEntrySeries.length >= 1 ||
-        modelChart.series.length > 1 ||
-        modelDisplaySeries.length > 1)
-  );
-
-  const showUserPerfChart =
-    perfView === 'user' &&
-    !perfLoading &&
-    userEntryStatus !== 'no_positions' &&
-    userEntryStatus !== 'no_holdings_run' &&
-    userEntryStatus !== 'failed' &&
-    userEntryStatus !== 'empty' &&
-    userEntryStatus !== 'pending' &&
-    displaySeries.length >= 1;
-  const showModelPerfChart =
-    perfView === 'model' && !perfLoading && displaySeries.length > 1;
-
-  const holdingsAsOfDate =
-    perfView === 'user' && userEntryPayload?.anchorHoldingsRunDate
-      ? userEntryPayload.anchorHoldingsRunDate
-      : runDate;
+  const chartStrategyName = selectedProfile?.strategy_models?.name ?? 'AI Strategy';
+  const chartInitialNotional =
+    num(selectedProfile?.investment_size) > 0
+      ? num(selectedProfile?.investment_size)
+      : YOUR_PORTFOLIOS_MODEL_INITIAL;
 
   return (
     <div
         className={cn(
-          'flex min-h-0 flex-1 flex-col lg:h-full lg:max-h-full lg:flex-row lg:items-stretch lg:overflow-hidden lg:overscroll-y-contain'
+          'flex min-h-0 min-w-0 w-full flex-1 flex-col lg:h-full lg:max-h-full lg:flex-row lg:items-stretch lg:overflow-hidden lg:overscroll-y-contain'
         )}
+        data-platform-tour="your-portfolios-page-root"
       >
-      {/* Sidebar — mirror explore-portfolios flex/scroll structure */}
-      <aside className="flex w-full shrink-0 flex-col border-b bg-muted/20 lg:h-full lg:min-h-0 lg:w-72 lg:max-h-full lg:border-b-0 lg:border-r">
+      {holdingsRowChartSymbol ? (
+        <StockChartDialog
+          key={holdingsRowChartSymbol}
+          symbol={holdingsRowChartSymbol}
+          strategySlug={strategySlug}
+          open
+          onOpenChange={(o) => {
+            if (!o) setHoldingsRowChartSymbol(null);
+          }}
+          showDefaultTrigger={false}
+          footer={
+            <Button variant="outline" size="sm" asChild className="gap-1">
+              <a
+                href={`/stocks/${holdingsRowChartSymbol.toLowerCase()}`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Full analysis
+                <ArrowUpRight className="size-3" />
+              </a>
+            </Button>
+          }
+        />
+      ) : null}
+      {/* Sidebar — match explore-portfolios shell so the top offset stays identical across pages. */}
+      <aside className="flex w-full shrink-0 flex-col lg:h-full lg:min-h-0 lg:w-72 lg:max-h-full">
         <div
           className={cn(
             'min-h-0 flex-1 space-y-0 px-4 pt-2 sm:px-6 lg:min-h-0 lg:flex-1 lg:overflow-x-hidden lg:overflow-y-auto lg:overscroll-y-contain lg:px-0 lg:pr-1 lg:pt-0',
@@ -1147,7 +1742,17 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Portfolios
             </p>
-            <div className="flex shrink-0 items-center gap-0.5">
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-8 shrink-0"
+                aria-label="Sort portfolios"
+                onClick={() => setSidebarSortDialogOpen(true)}
+              >
+                <ArrowUpDown className="size-4" />
+              </Button>
               <Button
                 type="button"
                 variant="ghost"
@@ -1189,6 +1794,11 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
               const rowStartAbbrev = p.user_start_date?.trim()
                 ? formatYmdDisplay(p.user_start_date.trim())
                 : null;
+              const rowInvestment = num(p.investment_size);
+              const rowInvestmentDigits =
+                Number.isFinite(rowInvestment) && rowInvestment > 0
+                  ? rowInvestment.toLocaleString('en-US', { maximumFractionDigits: 0 })
+                  : null;
               return (
                 <div
                   key={p.id}
@@ -1220,10 +1830,19 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                           <span className="min-w-0 text-sm font-semibold text-foreground line-clamp-2">
                             {pc?.label ?? 'Portfolio'}
                           </span>
-                          {rowStartAbbrev ? (
-                            <span className="shrink-0 pt-0.5 text-right text-[10px] leading-snug text-muted-foreground tabular-nums">
-                              {rowStartAbbrev}
-                            </span>
+                          {rowStartAbbrev || rowInvestmentDigits ? (
+                            <div className="flex shrink-0 flex-col items-end gap-0.5 pt-0.5 text-right">
+                              {rowStartAbbrev ? (
+                                <span className="text-[10px] leading-snug text-muted-foreground tabular-nums">
+                                  {rowStartAbbrev}
+                                </span>
+                              ) : null}
+                              {rowInvestmentDigits ? (
+                                <span className="text-[10px] leading-snug text-muted-foreground tabular-nums">
+                                  {`$${rowInvestmentDigits}`}
+                                </span>
+                              ) : null}
+                            </div>
                           ) : null}
                         </div>
                         {(rowRanked?.badges ?? []).length > 0 ? (
@@ -1248,9 +1867,10 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       </aside>
 
       {/* Main — single scroll column (header + body), same as explore-portfolios */}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-y-contain lg:h-full lg:max-h-full lg:min-h-0 lg:pl-8">
-        <div className="shrink-0 border-b bg-background/95 px-4 py-3 sm:px-6">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-y-auto overscroll-y-contain lg:h-full lg:max-h-full lg:min-h-0 lg:pl-8">
+        <div className="flex min-h-0 w-full min-w-0 max-w-none flex-1 flex-col self-stretch">
+          <div className="shrink-0 border-b bg-background/95 px-5 py-3 sm:px-7 sm:py-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-1.5 gap-y-2">
                 <span
@@ -1266,8 +1886,14 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                   <h2 className="min-w-0 text-base font-semibold text-foreground">Portfolio</h2>
                 )}
               </div>
-              {entryLabel ? (
-                <p className="mt-1 text-xs text-muted-foreground">Started {entryLabel}</p>
+              {entryLabel && selectedProfile ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Investment: $
+                  {num(selectedProfile.investment_size).toLocaleString('en-US', {
+                    maximumFractionDigits: 0,
+                  })}{' '}
+                  · Entered on {entryLabel}
+                </p>
               ) : null}
               {(selectedRanked?.badges ?? []).length > 0 ? (
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5 gap-y-1">
@@ -1278,23 +1904,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
               ) : null}
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              {showUserPerfToggle ? (
-                <ToggleGroup
-                  type="single"
-                  value={perfView}
-                  onValueChange={(v) => {
-                    if (v === 'user' || v === 'model') setPerfView(v);
-                  }}
-                  className="justify-start"
-                >
-                  <ToggleGroupItem value="user" className="text-xs px-2 h-8">
-                    Your performance
-                  </ToggleGroupItem>
-                  <ToggleGroupItem value="model" className="text-xs px-2 h-8">
-                    Model (inception)
-                  </ToggleGroupItem>
-                </ToggleGroup>
-              ) : null}
               {selectedProfile?.user_start_date ? (
                 <Button
                   type="button"
@@ -1307,22 +1916,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                   <span className="hidden sm:inline">Entry settings</span>
                 </Button>
               ) : null}
-              <Button
-                variant="ghost"
-                size="sm"
-                className="gap-1.5"
-                onClick={() => void handleToggleNotify()}
-                disabled={notifyPending}
-              >
-                {selectedProfile?.notifications_enabled ? (
-                  <Bell className="size-3.5 text-trader-blue" />
-                ) : (
-                  <BellOff className="size-3.5 text-muted-foreground" />
-                )}
-                <span className="hidden sm:inline">
-                  {selectedProfile?.notifications_enabled ? 'Notifications on' : 'Notifications off'}
-                </span>
-              </Button>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -1341,214 +1934,643 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                 </TooltipContent>
               </Tooltip>
             </div>
+            </div>
           </div>
-        </div>
 
-        <div className="flex-1 space-y-4 px-4 py-4 sm:px-6 sm:pb-10">
-          {perfLoading ? (
-            <Skeleton className="h-24 w-full" />
-          ) : perfView === 'user' && userEntryStatus === 'no_positions' ? (
-            <div className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
-              <p className="font-medium">No saved entry positions</p>
-              <p className="text-xs mt-1">Update your entry in entry settings to rebuild holdings.</p>
-            </div>
-          ) : perfView === 'user' && userEntryStatus === 'no_holdings_run' ? (
-            <div className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
-              <p className="font-medium">No model snapshot for that entry</p>
-              <p className="text-xs mt-1">Pick an entry on or after the strategy&apos;s first rebalance.</p>
-            </div>
-          ) : activeComputeStatus === 'empty' ? (
-            <div className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
-              <p className="font-medium">Performance data computing…</p>
-              <p className="text-xs mt-1">
-                Historical performance for this configuration is being calculated. This page refreshes automatically.
-              </p>
-            </div>
-          ) : activeComputeStatus === 'in_progress' ? (
-            <div className="rounded-lg border bg-amber-500/10 border-amber-500/30 p-4 text-sm text-amber-700 dark:text-amber-300">
-              Performance data is being computed. Checking every few seconds…
-            </div>
-          ) : activeComputeStatus === 'gathering' ? (
-            <>
-              <div className="rounded-lg border border-border/60 bg-muted/30 p-3 text-sm text-muted-foreground">
-                <p className="font-medium text-foreground">Tracking from your entry</p>
-                <p className="text-xs mt-1 leading-relaxed">
-                  You have a starting point at your chosen investment. Return and risk stats will
-                  populate after more market closes; this page refreshes automatically.
+          {/* No horizontal padding here so the main portfolio section can span the full main column
+              (negative margins fight overflow-x-clip on the platform shell and often clip the right edge). */}
+          <div className="flex w-full min-w-0 max-w-full flex-1 flex-col space-y-4 py-4 sm:pb-10">
+            {perfLoading ? (
+              <div className="px-5 sm:px-7">
+                <Skeleton className="h-24 w-full" />
+              </div>
+            ) : selectedProfile?.user_start_date && userEntryStatus === 'no_positions' ? (
+              <div className="mx-5 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground sm:mx-7">
+                <p className="font-medium">No saved entry positions</p>
+                <p className="text-xs mt-1">Update your entry in entry settings to rebuild holdings.</p>
+              </div>
+            ) : selectedProfile?.user_start_date && userEntryStatus === 'no_holdings_run' ? (
+              <div className="mx-5 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground sm:mx-7">
+                <p className="font-medium">No model snapshot for that entry</p>
+                <p className="text-xs mt-1">Pick an entry on or after the strategy&apos;s first rebalance.</p>
+              </div>
+            ) : activeComputeStatus === 'empty' ? (
+              <div className="mx-5 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground sm:mx-7">
+                <p className="font-medium">Performance data computing…</p>
+                <p className="text-xs mt-1">
+                  Historical performance for this configuration is being calculated. This page refreshes automatically.
                 </p>
               </div>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                {[
-                  { label: 'Total return', value: fmt(null, 'pct'), positive: false },
-                  { label: 'Sharpe ratio', value: fmt(null, 'num'), positive: false },
-                  { label: 'CAGR', value: fmt(null, 'pct'), positive: false },
-                  { label: 'Max drawdown', value: fmt(null, 'pct'), positive: false },
-                ].map(({ label, value, positive }) => (
-                  <div key={label} className="rounded-lg border bg-card p-4">
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
-                    <p
-                      className={`text-xl font-semibold mt-1 ${value !== 'N/A' && positive ? 'text-green-600 dark:text-green-400' : value !== 'N/A' && label !== 'Sharpe ratio' ? 'text-foreground' : ''}`}
-                    >
-                      {value}
-                    </p>
-                  </div>
-                ))}
+            ) : activeComputeStatus === 'in_progress' ? (
+              <div className="mx-5 rounded-lg border bg-amber-500/10 border-amber-500/30 p-4 text-sm text-amber-700 dark:text-amber-300 sm:mx-7">
+                Performance data is being computed. Checking every few seconds…
               </div>
-            </>
-          ) : activeComputeStatus === 'failed' ? (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
-              Couldn&apos;t load performance for this configuration. Try again later.
-            </div>
-          ) : activeComputeStatus === 'unsupported' ? (
-            <div className="rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground">
-              This portfolio isn&apos;t available yet.
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              {[
-                { label: 'Total return', value: fmt(displayMetrics?.totalReturn ?? null, 'pct'), positive: (displayMetrics?.totalReturn ?? 0) >= 0 },
-                { label: 'Sharpe ratio', value: fmt(displayMetrics?.sharpeRatio ?? null, 'num'), positive: (displayMetrics?.sharpeRatio ?? 0) >= 1 },
-                { label: 'CAGR', value: fmt(displayMetrics?.cagr ?? null, 'pct'), positive: (displayMetrics?.cagr ?? 0) >= 0 },
-                { label: 'Max drawdown', value: fmt(displayMetrics?.maxDrawdown ?? null, 'pct'), positive: false },
-              ].map(({ label, value, positive }) => (
-                <div key={label} className="rounded-lg border bg-card p-4">
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
-                  <p
-                    className={`text-xl font-semibold mt-1 ${value !== 'N/A' && positive ? 'text-green-600 dark:text-green-400' : value !== 'N/A' && label !== 'Sharpe ratio' ? 'text-foreground' : ''}`}
-                  >
-                    {value}
+            ) : activeComputeStatus === 'failed' ? (
+              <div className="mx-5 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive sm:mx-7">
+                Couldn&apos;t load performance for this configuration. Try again later.
+              </div>
+            ) : activeComputeStatus === 'unsupported' ? (
+              <div className="mx-5 rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground sm:mx-7">
+                This portfolio isn&apos;t available yet.
+              </div>
+            ) : (
+              <div className="flex w-full min-w-0 max-w-full flex-col space-y-4 sm:space-y-5">
+              {activeComputeStatus === 'gathering' ? (
+                <div className="mx-5 rounded-lg border border-border/60 bg-muted/30 p-3 text-sm text-muted-foreground sm:mx-7">
+                  <p className="font-medium text-foreground">Tracking from your entry</p>
+                  <p className="text-xs mt-1 leading-relaxed">
+                    Not enough history yet. Stats will fill in as more time passes. Refreshes automatically.
                   </p>
                 </div>
-              ))}
-            </div>
-          )}
+              ) : null}
 
-          {perfView === 'user' && selectedProfile?.user_start_date ? (
-            <p className="text-[11px] text-muted-foreground">
-              Showing returns since you entered ({entryLabel}) with a starting balance of $
-              {num(selectedProfile.investment_size).toLocaleString('en-US', { maximumFractionDigits: 0 })}
-              . Holdings and entry prices use the model snapshot on{' '}
-              {userEntryPayload?.anchorHoldingsRunDate
-                ? new Date(userEntryPayload.anchorHoldingsRunDate + 'T00:00:00Z').toLocaleDateString(
-                    'en-US',
-                    { month: 'short', day: 'numeric', year: 'numeric' }
-                  )
-                : 'the nearest rebalance on or before that date'}
-              .
-            </p>
-          ) : null}
+              <div className="grid w-full min-w-0 grid-cols-1 gap-4 rounded-lg border border-border/70 bg-muted/20 p-3 sm:gap-5 sm:p-4 lg:p-5">
+                <div className="flex max-h-[min(52vh,360px)] min-h-0 w-full max-w-full flex-col gap-4 overflow-hidden lg:max-h-[min(48vh,340px)] lg:flex-row lg:items-stretch lg:gap-5">
+                  <div className="relative flex min-h-0 w-full min-w-0 flex-1 basis-0 flex-col lg:w-[16rem] lg:max-w-[16rem] lg:flex-none lg:shrink-0 lg:basis-auto">
+                    <div
+                      ref={yourPortfolioMetricsScrollRef}
+                      className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto"
+                    >
+                      <div ref={yourPortfolioMetricsInnerRef} className="flex flex-col gap-2">
+                    <SpotlightStatCard
+                      tooltipKey="portfolio_value"
+                      label="Portfolio value"
+                      value={
+                        portfolioValueAmount != null
+                          ? formatYourPortfolioCurrency(portfolioValueAmount)
+                          : '—'
+                      }
+                      valueSuffix={
+                        portfolioValueAmount != null
+                          ? ` (${spotlightFmt.pct(displayMetrics?.totalReturn ?? null)})`
+                          : undefined
+                      }
+                      suffixPositive={
+                        portfolioValueAmount != null &&
+                        displayMetrics?.totalReturn != null &&
+                        Number.isFinite(displayMetrics.totalReturn)
+                          ? displayMetrics.totalReturn > 0
+                          : undefined
+                      }
+                    />
+                    <SpotlightStatCard
+                      tooltipKey="return_pct"
+                      label="Performance (return %)"
+                      value={spotlightFmt.pct(displayMetrics?.totalReturn)}
+                      positive={
+                        displayMetrics?.totalReturn != null &&
+                        Number.isFinite(displayMetrics.totalReturn)
+                          ? displayMetrics.totalReturn > 0
+                          : undefined
+                      }
+                    />
+                    <SpotlightStatCard
+                      tooltipKey="cagr"
+                      label="CAGR"
+                      value={spotlightFmt.pct(displayMetrics?.cagr)}
+                      positive={
+                        displayMetrics?.cagr != null && Number.isFinite(displayMetrics.cagr)
+                          ? displayMetrics.cagr > 0
+                          : undefined
+                      }
+                    />
+                    <SpotlightStatCard
+                      tooltipKey="sharpe_ratio"
+                      label="Sharpe ratio"
+                      value={spotlightFmt.num(displayMetrics?.sharpeRatio)}
+                      valueClassName={
+                        displayMetrics?.sharpeRatio != null &&
+                        Number.isFinite(displayMetrics.sharpeRatio)
+                          ? sharpeRatioValueClass(displayMetrics.sharpeRatio)
+                          : undefined
+                      }
+                    />
+                    <SpotlightStatCard
+                      tooltipKey="max_drawdown"
+                      label="Max drawdown"
+                      value={spotlightFmt.pct(displayMetrics?.maxDrawdown)}
+                      positive={
+                        displayMetrics?.maxDrawdown != null &&
+                        Number.isFinite(displayMetrics.maxDrawdown)
+                          ? displayMetrics.maxDrawdown > -0.2
+                          : undefined
+                      }
+                    />
+                    <SpotlightStatCard
+                      tooltipKey="consistency"
+                      label="Consistency (weekly vs NDX cap)"
+                      value={
+                        consistencyForSpotlight != null
+                          ? spotlightFmt.pct(consistencyForSpotlight, 0)
+                          : '—'
+                      }
+                      positive={
+                        consistencyForSpotlight != null
+                          ? consistencyForSpotlight > 0.5
+                          : undefined
+                      }
+                    />
+                    <SpotlightStatCard
+                      tooltipKey="vs_nasdaq_cap"
+                      label="Performance vs Nasdaq-100 (cap)"
+                      value={spotlightFmt.pct(excessNdxForSpotlight)}
+                      positive={
+                        excessNdxForSpotlight != null && Number.isFinite(excessNdxForSpotlight)
+                          ? excessNdxForSpotlight > 0
+                          : undefined
+                      }
+                    />
+                    <SpotlightStatCard
+                      tooltipKey="vs_nasdaq_equal"
+                      label="Performance vs Nasdaq-100 (equal)"
+                      value={spotlightFmt.pct(excessNdxEqualForSpotlight)}
+                      positive={
+                        excessNdxEqualForSpotlight != null &&
+                        Number.isFinite(excessNdxEqualForSpotlight)
+                          ? excessNdxEqualForSpotlight > 0
+                          : undefined
+                      }
+                    />
+                    <SpotlightStatCard
+                      tooltipKey="vs_sp500"
+                      label="Performance vs S&P 500 (cap)"
+                      value={spotlightFmt.pct(benchmarkBench.excessVsSp500)}
+                      positive={
+                        benchmarkBench.excessVsSp500 != null &&
+                        Number.isFinite(benchmarkBench.excessVsSp500)
+                          ? benchmarkBench.excessVsSp500 > 0
+                          : undefined
+                      }
+                    />
+                      </div>
+                    </div>
+                    {showYourPortfolioMetricsScrollFade ? (
+                      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] flex h-10 items-end justify-center bg-gradient-to-t from-background/90 via-background/45 to-transparent pb-1 pt-5">
+                        {!yourPortfolioMetricsChevronDismissed ? (
+                          <button
+                            type="button"
+                            className="pointer-events-auto inline-flex size-8 items-center justify-center rounded-full border border-trader-blue/35 bg-background/90 shadow-sm ring-offset-background transition-colors hover:border-trader-blue/55 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-trader-blue/40 focus-visible:ring-offset-2"
+                            onClick={nudgeYourPortfolioMetricsScroll}
+                            aria-label="Scroll down to see more metrics"
+                          >
+                            <ChevronDown className="size-5 animate-bounce text-trader-blue" aria-hidden />
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
 
-          {(showUserPerfChart || showModelPerfChart) && (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm flex items-center justify-between gap-2">
-                  <span>
-                    {perfView === 'user' ? 'Portfolio vs. benchmarks' : 'Model track vs. benchmarks'}
-                  </span>
-                  <Button asChild variant="ghost" size="sm" className="text-xs gap-1 h-7 shrink-0">
-                    <Link href={`/performance/${strategySlug}`}>
-                      Full chart <ArrowRight className="size-3" />
-                    </Link>
-                  </Button>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-0">
-                <PerformanceChart series={displaySeries} strategyName="AI Strategy" hideDrawdown />
-              </CardContent>
-            </Card>
-          )}
-
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm flex items-center justify-between gap-2">
-                <span>
-                  Holdings at entry
-                  {holdingsAsOfDate && (
-                    <span className="ml-2 text-xs font-normal text-muted-foreground">
-                      scores as of{' '}
-                      {new Date(holdingsAsOfDate + 'T00:00:00Z').toLocaleDateString('en-US', {
-                        weekday: 'short',
-                        month: 'short',
-                        day: 'numeric',
-                      })}
-                    </span>
-                  )}
-                </span>
-                <Button asChild variant="ghost" size="sm" className="text-xs gap-1 h-7 shrink-0">
-                  <Link href="/platform/ratings">
-                    Ratings <ArrowRight className="size-3" />
-                  </Link>
-                </Button>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0">
-              {isLoadingScores && holdingsRows.length === 0 ? (
-                <div className="space-y-2">
-                  {Array.from({ length: 5 }).map((_, i) => (
-                    <Skeleton key={i} className="h-10 w-full" />
-                  ))}
-                </div>
-              ) : holdingsRows.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-6">
-                  No saved positions for this profile yet.
-                </p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[480px] text-sm">
-                    <thead>
-                      <tr className="border-b text-xs text-muted-foreground">
-                        <th className="pb-2 text-left font-medium">#</th>
-                        <th className="pb-2 text-left font-medium">Symbol</th>
-                        <th className="pb-2 text-left font-medium hidden sm:table-cell">Company</th>
-                        <th className="pb-2 text-right font-medium">Weight</th>
-                        <th className="pb-2 text-right font-medium hidden md:table-cell">Entry</th>
-                        <th className="pb-2 text-right font-medium">Score</th>
-                        <th className="pb-2 text-center font-medium">Chart</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y">
-                      {holdingsRows.slice(0, topN).map((h) => (
-                        <tr key={h.symbol} className="hover:bg-muted/30 transition-colors">
-                          <td className="py-2.5 pr-2 tabular-nums font-medium w-8">{h.rank}</td>
-                          <td className="py-2.5 pr-3">
-                            <Link
-                              href={`/stocks/${h.symbol.toLowerCase()}`}
-                              className="font-semibold hover:text-trader-blue transition-colors"
+                  <div className="relative flex min-h-0 min-w-0 w-full max-w-full flex-1 basis-0 flex-col gap-1.5 overflow-hidden rounded-xl border border-border/80 bg-background/80 p-3 shadow-sm sm:p-4 sm:gap-2">
+                  <div className="flex shrink-0 min-w-0 w-full flex-wrap items-end justify-between gap-x-3 gap-y-2">
+                    <h4 className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Portfolio holdings
+                    </h4>
+                    {configHoldingsRebalanceDates.length > 0 ? (
+                      <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-2 sm:gap-x-3">
+                        <Select
+                          value={
+                            effectiveHoldingsAsOf &&
+                            configHoldingsRebalanceDates.includes(effectiveHoldingsAsOf)
+                              ? effectiveHoldingsAsOf
+                              : undefined
+                          }
+                          onValueChange={(v) => {
+                            if (v && v !== effectiveHoldingsAsOf) {
+                              setPendingHoldingsAsOf(v);
+                              void fetchYourPortfolioConfigHoldings(v);
+                            }
+                          }}
+                          disabled={configHoldingsLoading}
+                        >
+                          <SelectTrigger className="h-9 w-full max-w-[168px] shrink-0 text-xs sm:w-[168px]">
+                            <SelectValue placeholder="Rebalance date" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {configHoldingsRebalanceDates.map((d) => (
+                              <SelectItem key={d} value={d} className="text-xs">
+                                {yourPortfolioHoldingsShortDateFmt.format(
+                                  new Date(`${d}T00:00:00Z`)
+                                )}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {holdingsPrevRebalanceDate ? (
+                          <div className="flex items-center gap-2 shrink-0">
+                            <Switch
+                              id="your-portfolio-holdings-movement"
+                              checked={holdingsMovementView}
+                              onCheckedChange={setHoldingsMovementView}
+                              disabled={configHoldingsLoading}
+                              aria-label="Show which holdings entered, stayed, or exited vs prior rebalance"
+                            />
+                            <Label
+                              htmlFor="your-portfolio-holdings-movement"
+                              className="text-xs text-muted-foreground cursor-pointer whitespace-nowrap leading-none"
                             >
-                              {h.symbol}
-                            </Link>
-                          </td>
-                          <td className="py-2.5 pr-3 text-muted-foreground hidden sm:table-cell max-w-[160px] truncate">
-                            {h.companyName}
-                          </td>
-                          <td className="py-2.5 pr-3 text-right tabular-nums text-muted-foreground">
-                            {(h.weight * 100).toFixed(1)}%
-                          </td>
-                          <td className="py-2.5 pr-3 text-right tabular-nums text-muted-foreground hidden md:table-cell">
-                            {h.entryPrice != null && h.entryPrice > 0 ? h.entryPrice.toFixed(2) : '—'}
-                          </td>
-                          <td className="py-2.5 pr-3 text-right tabular-nums">
-                            {h.score != null ? (h.score >= 0 ? '+' : '') + h.score : '—'}
-                          </td>
-                          <td className="py-2.5 text-center">
-                            <StockChartDialog symbol={h.symbol} />
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {holdingsRows.length > topN && (
-                    <p className="mt-3 text-xs text-muted-foreground text-center">
-                      Showing top {topN} of {holdingsRows.length} positions.
-                    </p>
+                              Movement
+                            </Label>
+                            <HoldingsMovementInfoTooltip />
+                            {holdingsMovementView && prevMovementLoading ? (
+                              <Loader2
+                                className="size-3.5 shrink-0 animate-spin text-muted-foreground"
+                                aria-hidden
+                              />
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : configHoldingsLoading ? (
+                      <span className="shrink-0 text-[11px] text-muted-foreground">Loading…</span>
+                    ) : (
+                      <p className="shrink-0 text-right text-[11px] text-muted-foreground">
+                        No rebalance history yet.
+                      </p>
+                    )}
+                    {holdingsMovementView && prevMovementError ? (
+                      <p className="w-full text-[11px] text-destructive">
+                        Could not load the prior rebalance to compare.
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="relative min-h-0 flex-1 overflow-hidden">
+                    <div
+                      ref={yourPortfolioHoldingsScrollRef}
+                      className="h-full min-h-0 overflow-y-auto"
+                    >
+                  {configHoldingsLoading && configHoldings.length === 0 ? (
+                    <div ref={yourPortfolioHoldingsInnerRef}>
+                      <Skeleton className="h-48 w-full rounded-md" />
+                    </div>
+                  ) : configHoldings.length === 0 ? (
+                    <div ref={yourPortfolioHoldingsInnerRef}>
+                      <p className="text-sm text-muted-foreground">
+                        No holdings for this date — scores may still be processing.
+                      </p>
+                    </div>
+                  ) : (
+                    <TooltipProvider delayDuration={200}>
+                      <div ref={yourPortfolioHoldingsInnerRef} className="relative w-full min-w-0">
+                        {configHoldingsRefreshing ? (
+                          <div
+                            className="pointer-events-none absolute inset-0 z-[1] flex justify-center rounded-md bg-background/50 pt-6 backdrop-blur-[0.5px]"
+                            aria-hidden
+                          >
+                            <Skeleton className="h-36 w-full max-w-lg rounded-md" />
+                          </div>
+                        ) : null}
+                        <div
+                          className={cn(
+                            configHoldingsRefreshing && 'opacity-[0.65]',
+                            'w-full min-w-0'
+                          )}
+                        >
+                      <div className="w-full min-w-0 overflow-x-auto rounded-md border">
+                        <Table className="w-full min-w-0">
+                          <TableHeader>
+                            <TableRow className="hover:bg-transparent">
+                              <TableHead className="h-9 min-w-[4.25rem] py-1.5 pl-2 pr-0.5 text-left align-middle tabular-nums">
+                                #
+                              </TableHead>
+                              <TableHead className="h-9 w-16 px-1.5 py-1.5 text-left align-middle">
+                                Stock
+                              </TableHead>
+                              <TableHead className="h-9 px-1.5 py-1.5 text-center align-middle whitespace-nowrap">
+                                <span className="inline-flex items-center justify-center gap-1">
+                                  Allocation
+                                  <HoldingsAllocationColumnTooltip
+                                    weightingMethod={
+                                      selectedProfile?.portfolio_config?.weighting_method
+                                    }
+                                    topN={selectedProfile?.portfolio_config?.top_n}
+                                  />
+                                </span>
+                              </TableHead>
+                              <TableHead className="h-9 py-1.5 pl-1.5 pr-3 text-right align-middle whitespace-nowrap">
+                                AI rating
+                              </TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {holdingsMovementModel
+                              ? (
+                                <>
+                                  {holdingsMovementModel.active.map(({ holding: h, kind }) => {
+                                    const company =
+                                      typeof h.companyName === 'string' &&
+                                      h.companyName.trim().length > 0
+                                        ? h.companyName.trim()
+                                        : null;
+                                    const inv = num(selectedProfile?.investment_size);
+                                    return (
+                                      <TableRow
+                                        key={`${h.symbol}-${h.rank}-m`}
+                                        className={cn(
+                                          'cursor-pointer hover:bg-muted/50',
+                                          holdingMovementRowCn(kind)
+                                        )}
+                                        tabIndex={0}
+                                        onClick={() => setHoldingsRowChartSymbol(h.symbol)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter' || e.key === ' ') {
+                                            e.preventDefault();
+                                            setHoldingsRowChartSymbol(h.symbol);
+                                          }
+                                        }}
+                                      >
+                                        <TableCell className="py-1.5 pl-2 pr-0.5 text-muted-foreground">
+                                          <HoldingRankWithChange
+                                            rank={h.rank}
+                                            rankChange={h.rankChange}
+                                          />
+                                        </TableCell>
+                                        <TableCell className="px-1.5 py-1.5 text-left">
+                                          {company ? (
+                                            <Tooltip>
+                                              <TooltipTrigger asChild>
+                                                <span className="block truncate font-medium">
+                                                  {h.symbol}
+                                                </span>
+                                              </TooltipTrigger>
+                                              <TooltipContent
+                                                side="top"
+                                                className="max-w-xs text-left"
+                                              >
+                                                {company}
+                                              </TooltipContent>
+                                            </Tooltip>
+                                          ) : (
+                                            <span className="block truncate font-medium">
+                                              {h.symbol}
+                                            </span>
+                                          )}
+                                        </TableCell>
+                                        <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap">
+                                          {Number.isFinite(inv) && inv > 0
+                                            ? `${formatYourPortfolioCurrency(h.weight * inv)} (${(h.weight * 100).toFixed(1)}%)`
+                                            : `— (${(h.weight * 100).toFixed(1)}%)`}
+                                        </TableCell>
+                                        <TableCell className="py-1.5 pl-1.5 pr-3 text-right">
+                                          <span className="inline-flex items-center justify-end gap-1">
+                                            <Badge
+                                              variant="outline"
+                                              className={cn(
+                                                'px-1.5 py-0 text-[10px] font-normal leading-tight shrink-0',
+                                                yourPortfolioHoldingScoreBucketClass(h.bucket)
+                                              )}
+                                            >
+                                              {yourPortfolioHoldingScoreBucketLabel(h.bucket)}
+                                            </Badge>
+                                            <span className="tabular-nums font-medium">
+                                              {h.score != null && Number.isFinite(h.score)
+                                                ? h.score.toFixed(1)
+                                                : '—'}
+                                            </span>
+                                          </span>
+                                        </TableCell>
+                                      </TableRow>
+                                    );
+                                  })}
+                                  {holdingsMovementModel.exited.length > 0 ? (
+                                    <TableRow className="pointer-events-none border-t bg-muted/25 hover:bg-muted/25">
+                                      <TableCell
+                                        colSpan={4}
+                                        className="py-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"
+                                      >
+                                        Exited (vs prior rebalance)
+                                      </TableCell>
+                                    </TableRow>
+                                  ) : null}
+                                  {holdingsMovementModel.exited.map((h) => {
+                                    const company =
+                                      typeof h.companyName === 'string' &&
+                                      h.companyName.trim().length > 0
+                                        ? h.companyName.trim()
+                                        : null;
+                                    return (
+                                      <TableRow
+                                        key={`${h.symbol}-${h.rank}-x`}
+                                        className={cn(
+                                          'cursor-pointer hover:bg-muted/50',
+                                          holdingMovementRowCn('exited')
+                                        )}
+                                        tabIndex={0}
+                                        onClick={() => setHoldingsRowChartSymbol(h.symbol)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter' || e.key === ' ') {
+                                            e.preventDefault();
+                                            setHoldingsRowChartSymbol(h.symbol);
+                                          }
+                                        }}
+                                      >
+                                        <TableCell className="py-1.5 pl-2 pr-0.5 text-muted-foreground">
+                                          <HoldingRankWithChange rank={h.rank} rankChange={null} />
+                                        </TableCell>
+                                        <TableCell className="px-1.5 py-1.5 text-left">
+                                          {company ? (
+                                            <Tooltip>
+                                              <TooltipTrigger asChild>
+                                                <span className="block truncate font-medium">
+                                                  {h.symbol}
+                                                </span>
+                                              </TooltipTrigger>
+                                              <TooltipContent
+                                                side="top"
+                                                className="max-w-xs text-left"
+                                              >
+                                                {company}
+                                              </TooltipContent>
+                                            </Tooltip>
+                                          ) : (
+                                            <span className="block truncate font-medium">
+                                              {h.symbol}
+                                            </span>
+                                          )}
+                                        </TableCell>
+                                        <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap text-muted-foreground">
+                                          <span className="text-[11px]">
+                                            Was {(h.weight * 100).toFixed(1)}%
+                                          </span>
+                                        </TableCell>
+                                        <TableCell className="py-1.5 pl-1.5 pr-3 text-right">
+                                          <span className="inline-flex items-center justify-end gap-1">
+                                            <Badge
+                                              variant="outline"
+                                              className={cn(
+                                                'px-1.5 py-0 text-[10px] font-normal leading-tight shrink-0 opacity-90',
+                                                yourPortfolioHoldingScoreBucketClass(h.bucket)
+                                              )}
+                                            >
+                                              {yourPortfolioHoldingScoreBucketLabel(h.bucket)}
+                                            </Badge>
+                                            <span className="tabular-nums font-medium text-muted-foreground">
+                                              {h.score != null && Number.isFinite(h.score)
+                                                ? h.score.toFixed(1)
+                                                : '—'}
+                                            </span>
+                                          </span>
+                                        </TableCell>
+                                      </TableRow>
+                                    );
+                                  })}
+                                </>
+                              )
+                              : configHoldings.slice(0, topN).map((h) => {
+                                  const company =
+                                    typeof h.companyName === 'string' &&
+                                    h.companyName.trim().length > 0
+                                      ? h.companyName.trim()
+                                      : null;
+                                  const inv = num(selectedProfile?.investment_size);
+                                  return (
+                                    <TableRow
+                                      key={`${h.symbol}-${h.rank}`}
+                                      className="cursor-pointer hover:bg-muted/50"
+                                      tabIndex={0}
+                                      onClick={() => setHoldingsRowChartSymbol(h.symbol)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter' || e.key === ' ') {
+                                          e.preventDefault();
+                                          setHoldingsRowChartSymbol(h.symbol);
+                                        }
+                                      }}
+                                    >
+                                      <TableCell className="py-1.5 pl-2 pr-0.5 text-muted-foreground">
+                                        <HoldingRankWithChange
+                                          rank={h.rank}
+                                          rankChange={h.rankChange}
+                                        />
+                                      </TableCell>
+                                      <TableCell className="px-1.5 py-1.5 text-left">
+                                        {company ? (
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <span className="block truncate font-medium">
+                                                {h.symbol}
+                                              </span>
+                                            </TooltipTrigger>
+                                            <TooltipContent
+                                              side="top"
+                                              className="max-w-xs text-left"
+                                            >
+                                              {company}
+                                            </TooltipContent>
+                                          </Tooltip>
+                                        ) : (
+                                          <span className="block truncate font-medium">
+                                            {h.symbol}
+                                          </span>
+                                        )}
+                                      </TableCell>
+                                      <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap">
+                                        {Number.isFinite(inv) && inv > 0
+                                          ? `${formatYourPortfolioCurrency(h.weight * inv)} (${(h.weight * 100).toFixed(1)}%)`
+                                          : `— (${(h.weight * 100).toFixed(1)}%)`}
+                                      </TableCell>
+                                      <TableCell className="py-1.5 pl-1.5 pr-3 text-right">
+                                        <span className="inline-flex items-center justify-end gap-1">
+                                          <Badge
+                                            variant="outline"
+                                            className={cn(
+                                              'px-1.5 py-0 text-[10px] font-normal leading-tight shrink-0',
+                                              yourPortfolioHoldingScoreBucketClass(h.bucket)
+                                            )}
+                                          >
+                                            {yourPortfolioHoldingScoreBucketLabel(h.bucket)}
+                                          </Badge>
+                                          <span className="tabular-nums font-medium">
+                                            {h.score != null && Number.isFinite(h.score)
+                                              ? h.score.toFixed(1)
+                                              : '—'}
+                                          </span>
+                                        </span>
+                                      </TableCell>
+                                    </TableRow>
+                                  );
+                                })}
+                          </TableBody>
+                        </Table>
+                      </div>
+                      {configHoldings.length > topN ? (
+                        <p className="text-center text-xs text-muted-foreground">
+                          Showing top {topN} of {configHoldings.length} positions.
+                        </p>
+                      ) : null}
+                        </div>
+                      </div>
+                    </TooltipProvider>
+                  )}
+                    </div>
+                    {showYourPortfolioHoldingsScrollFade ? (
+                      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] flex h-10 items-end justify-center bg-gradient-to-t from-background/90 via-background/45 to-transparent pb-1 pt-5">
+                        {!yourPortfolioHoldingsChevronDismissed ? (
+                          <button
+                            type="button"
+                            className="pointer-events-auto inline-flex size-8 items-center justify-center rounded-full border border-trader-blue/35 bg-background/90 shadow-sm ring-offset-background transition-colors hover:border-trader-blue/55 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-trader-blue/40 focus-visible:ring-offset-2"
+                            onClick={nudgeYourPortfolioHoldingsScroll}
+                            aria-label="Scroll down to see more holdings"
+                          >
+                            <ChevronDown className="size-5 animate-bounce text-trader-blue" aria-hidden />
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+                </div>
+
+                <div className="min-w-0 w-full max-w-full rounded-xl border border-border/80 bg-background/80 p-3 shadow-sm sm:p-4">
+                  <p className="mb-2 text-xs font-semibold text-muted-foreground">
+                    {selectedProfile?.user_start_date
+                      ? 'Portfolio vs. benchmarks'
+                      : 'Model track vs. benchmarks'}
+                  </p>
+                  {displaySeries.length > 1 ? (
+                    <PerformanceChart
+                      series={displaySeries}
+                      strategyName={chartStrategyName}
+                      hideDrawdown
+                      initialNotional={chartInitialNotional}
+                      chartContainerClassName="h-[300px] sm:h-[340px]"
+                    />
+                  ) : (
+                    <div className="flex h-[260px] flex-col items-center justify-center gap-2 px-4 text-center text-sm text-muted-foreground lg:h-[340px]">
+                      <p>Not enough history to chart yet.</p>
+                      {selectedProfile?.user_start_date ? (
+                        <>
+                          <p className="max-w-sm text-xs leading-snug">
+                            You can change your portfolio entry date to see more data and
+                            change how much performance history this chart shows.
+                          </p>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="mt-1 gap-1.5"
+                            onClick={() => setEntrySettingsOpen(true)}
+                          >
+                            <Settings2 className="size-3.5" aria-hidden />
+                            Entry settings
+                          </Button>
+                        </>
+                      ) : null}
+                    </div>
                   )}
                 </div>
-              )}
-            </CardContent>
-          </Card>
+              </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
+      <PortfolioListSortDialog
+        open={sidebarSortDialogOpen}
+        onOpenChange={setSidebarSortDialogOpen}
+        value={sidebarSortMetric}
+        onValueChange={setSidebarSortMetric}
+        includeFollowOrder
+      />
       <Dialog open={filtersDialogOpen} onOpenChange={setFiltersDialogOpen}>
         <DialogContent
           className="flex max-h-[min(90vh,720px)] w-[calc(100vw-1.5rem)] max-w-lg flex-col gap-0 overflow-hidden p-0 sm:w-full"
@@ -1683,10 +2705,23 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                 investment_size: selectedProfile.investment_size,
                 user_start_date: selectedProfile.user_start_date,
                 strategySlug: selectedProfile.strategy_models?.slug ?? null,
+                strategyModelName: selectedProfile.strategy_models?.name ?? null,
+                portfolioConfig: selectedProfile.portfolio_config
+                  ? {
+                      risk_level: selectedProfile.portfolio_config.risk_level,
+                      risk_label: selectedProfile.portfolio_config.risk_label,
+                      top_n: selectedProfile.portfolio_config.top_n,
+                      weighting_method: selectedProfile.portfolio_config.weighting_method,
+                      rebalance_frequency: selectedProfile.portfolio_config.rebalance_frequency,
+                    }
+                  : null,
               }
             : null
         }
         onSaved={() => {
+          if (selectedProfile?.id) {
+            invalidateUserEntryPerformanceCache(selectedProfile.id);
+          }
           void loadProfiles();
           void loadUserEntry();
         }}

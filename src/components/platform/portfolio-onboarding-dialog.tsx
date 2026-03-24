@@ -9,10 +9,11 @@ import {
   ArrowRight,
   Calendar as CalendarIcon,
   Check,
-  ChevronDown,
   ExternalLink,
+  HelpCircle,
   Layers,
   Sparkles,
+  X,
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { enUS } from 'date-fns/locale';
@@ -24,18 +25,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { PortfolioEntryDatePicker } from '@/components/platform/portfolio-entry-date-picker';
 import { portfolioEntryDateBounds } from '@/components/platform/portfolio-entry-date-utils';
 import { PortfolioRankingTooltipBody } from '@/components/tooltips';
+import {
+  CapWeightMiniPie,
+  EqualWeightMiniPie,
+  SingleStockMiniPie,
+} from '@/components/platform/weighting-mini-pies';
 import { useAuthState } from '@/components/auth/auth-state-context';
 import {
   DEFAULT_PORTFOLIO_CONFIG,
@@ -46,22 +46,40 @@ import {
   type PortfolioConfig,
   type RebalanceFrequency,
   type RiskLevel,
+  type WeightingMethod,
 } from '@/components/portfolio-config';
 import type { OnboardingRebalanceCounts } from '@/lib/onboarding-meta';
 import { formatYmdDisplay } from '@/lib/format-ymd-display';
 import { strategyModelDropdownSubtitle } from '@/lib/strategy-list-meta';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
-import { showPortfolioFollowToast } from '@/components/platform/portfolio-unfollow-toast';
+import {
+  invalidateUserPortfolioProfiles,
+  showPortfolioFollowToast,
+} from '@/components/platform/portfolio-unfollow-toast';
 import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
 import type { FullConfigPerformanceMetrics } from '@/lib/config-performance-chart';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
+import { queuePlatformPostOnboardingTour } from '@/lib/platform-post-onboarding-tour';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
 
 const RISK_LEVELS: RiskLevel[] = [1, 2, 3, 4, 5, 6];
 const FREQUENCIES: RebalanceFrequency[] = ['weekly', 'monthly', 'quarterly', 'yearly'];
+
+function pickTopRankedConfig(configs: RankedConfig[]): RankedConfig | null {
+  const ranked = configs.filter((c) => c.rank != null && c.rank >= 1);
+  if (ranked.length === 0) return null;
+  const rankOne = ranked.find((c) => c.rank === 1);
+  if (rankOne) return rankOne;
+  return ranked.reduce((a, b) => ((a.rank ?? 999) <= (b.rank ?? 999) ? a : b));
+}
 const INVESTMENT_QUICK_PICKS = [5_000, 10_000, 25_000, 50_000];
 const PERFORMANCE_INITIAL_USD = 10_000;
+
+const ONBOARDING_EQUAL_WEIGHTING_EXPLANATION =
+  'Every stock gets the same allocation. Simple and avoids over-concentration in stocks with large market values.';
+const ONBOARDING_CAP_WEIGHTING_EXPLANATION =
+  'Stocks are weighted by market cap (valuation). Larger companies get a bigger slice, mirroring how indices like the Nasdaq work. This may concentrate risk.';
 
 /** Fixed shell height so the dialog does not resize between steps (capped for small viewports). */
 const ONBOARDING_SHELL_HEIGHT = 'min(31rem, calc((100dvh - 5.5rem) * 0.777))';
@@ -74,9 +92,7 @@ const CelebratePerformanceChart = dynamic(
   () => import('@/components/platform/performance-chart').then((m) => m.PerformanceChart),
   {
     ssr: false,
-    loading: () => (
-      <Skeleton className={cn(CELEBRATE_CHART_HEIGHT_CLASS, 'w-full rounded-lg')} />
-    ),
+    loading: () => <Skeleton className={cn(CELEBRATE_CHART_HEIGHT_CLASS, 'w-full rounded-lg')} />,
   }
 );
 
@@ -143,7 +159,9 @@ function CelebrateMetricBlock({
 }) {
   return (
     <div className="rounded-lg border bg-background/90 px-3 py-2.5 shadow-sm">
-      <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+        {label}
+      </p>
       <p className={cn('mt-1 text-lg font-semibold tabular-nums leading-tight', valueClassName)}>
         {value}
       </p>
@@ -281,15 +299,17 @@ type Step =
   | 'risk'
   | 'frequency'
   | 'investment'
+  | 'allocation'
   | 'entry-date'
   | 'done'
   | 'celebrate';
 const PROGRESS_STEPS = [
+  'model',
   'risk',
   'frequency',
   'investment',
+  'allocation',
   'entry-date',
-  'model',
   'done',
 ] as const;
 
@@ -297,6 +317,7 @@ const PROGRESS_STEP_LABELS: Record<(typeof PROGRESS_STEPS)[number], string> = {
   risk: 'Risk',
   frequency: 'Frequency',
   investment: 'Investment',
+  allocation: 'Allocation',
   'entry-date': 'Your entry',
   model: 'Model',
   done: 'Summary',
@@ -316,12 +337,15 @@ function StepNav({
   nextLabel = 'Next',
   returnToSummary,
   onBackToSummary,
+  beforeNext,
 }: {
   onBack: () => void;
   onNext?: () => void;
   nextLabel?: string;
   returnToSummary: boolean;
   onBackToSummary: () => void;
+  /** Shown in the trailing group, immediately left of the primary next button (e.g. summary reset). */
+  beforeNext?: ReactNode;
 }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -336,6 +360,7 @@ function StepNav({
             Back to summary
           </Button>
         )}
+        {beforeNext}
         {onNext && (
           <Button size="sm" onClick={onNext} className="gap-1.5">
             {nextLabel}
@@ -366,6 +391,11 @@ export function PortfolioOnboardingDialog({
     String(DEFAULT_PORTFOLIO_CONFIG.investmentSize)
   );
   const [returnToSummary, setReturnToSummary] = useState(false);
+  /** After “select top-ranked” from celebrate, snapshot of draft + entry so summary can restore. */
+  const [draftBeforeTopRankedSelection, setDraftBeforeTopRankedSelection] = useState<{
+    config: PortfolioConfig;
+    entryYmd: string;
+  } | null>(null);
   const customInputRef = useRef<HTMLInputElement>(null);
   const prevStepRef = useRef<Step>(step);
 
@@ -374,6 +404,7 @@ export function PortfolioOnboardingDialog({
     latestPerformanceDate: string | null;
     matched: RankedConfig | null;
     rankedEligibleCount: number;
+    topRanked: RankedConfig | null;
   } | null>(null);
   const [finaleLoading, setFinaleLoading] = useState(false);
   const [followPhase, setFollowPhase] = useState<'idle' | 'posting' | 'syncing'>('idle');
@@ -429,8 +460,6 @@ export function PortfolioOnboardingDialog({
 
   const defaultStrategy = strategies.find((s) => s.isDefault) ?? strategies[0] ?? null;
   const selectedStrategy = strategies.find((s) => s.slug === draft.strategySlug) ?? defaultStrategy;
-  const isBestStrategy =
-    selectedStrategy && strategies[0] && strategies[0].id === selectedStrategy.id;
 
   const defaultStrategySlug = defaultStrategy?.slug;
 
@@ -449,6 +478,12 @@ export function PortfolioOnboardingDialog({
       setCustomInvestment(String(draft.investmentSize));
     }
   }, [step, draft.investmentSize]);
+
+  useEffect(() => {
+    if (RISK_TOP_N[draft.riskLevel] === 1 && draft.weightingMethod !== 'equal') {
+      setDraft((d) => ({ ...d, weightingMethod: 'equal' }));
+    }
+  }, [draft.riskLevel, draft.weightingMethod]);
 
   useEffect(() => {
     if (step !== 'celebrate') return;
@@ -479,6 +514,7 @@ export function PortfolioOnboardingDialog({
             latestPerformanceDate: data.latestPerformanceDate ?? null,
             matched,
             rankedEligibleCount,
+            topRanked: pickTopRankedConfig(configs),
           });
         }
       )
@@ -489,6 +525,7 @@ export function PortfolioOnboardingDialog({
             latestPerformanceDate: null,
             matched: null,
             rankedEligibleCount: 0,
+            topRanked: null,
           });
         }
       })
@@ -606,8 +643,46 @@ export function PortfolioOnboardingDialog({
     setStep('celebrate');
   };
 
+  const selectTopRankedPortfolioForSummary = () => {
+    const top = finaleRanked?.topRanked;
+    if (!top) return;
+    setDraftBeforeTopRankedSelection({
+      config: { ...draft },
+      entryYmd: draftEntryDate || localTodayYmd(),
+    });
+    const r = Math.min(6, Math.max(1, Math.round(Number(top.riskLevel)))) as RiskLevel;
+    const freq = (FREQUENCIES as readonly string[]).includes(top.rebalanceFrequency)
+      ? (top.rebalanceFrequency as RebalanceFrequency)
+      : DEFAULT_PORTFOLIO_CONFIG.rebalanceFrequency;
+    const baseW: WeightingMethod =
+      top.weightingMethod === 'equal' || top.weightingMethod === 'cap'
+        ? top.weightingMethod
+        : 'equal';
+    const weightingMethod: WeightingMethod = RISK_TOP_N[r] === 1 ? 'equal' : baseW;
+    const next: PortfolioConfig = {
+      ...draft,
+      riskLevel: r,
+      rebalanceFrequency: freq,
+      weightingMethod,
+    };
+    setDraft(next);
+    setConfig(next);
+    setReturnToSummary(false);
+    setStep('done');
+  };
+
+  const resetToUserSelectionsAfterTopRanked = () => {
+    if (!draftBeforeTopRankedSelection) return;
+    const { config: saved, entryYmd } = draftBeforeTopRankedSelection;
+    setDraft(saved);
+    setConfig(saved);
+    setDraftEntryDate(entryYmd);
+    setDraftBeforeTopRankedSelection(null);
+  };
+
   const handleFollowThisPortfolio = async () => {
     if (!authState.isAuthenticated) {
+      queuePlatformPostOnboardingTour();
       markOnboardingDone();
       router.push(`/sign-in?next=${encodeURIComponent('/platform/overview')}`);
       return;
@@ -648,6 +723,7 @@ export function PortfolioOnboardingDialog({
       }
       setFollowPhase('syncing');
       const synced = onFollowPortfolioSynced ? await onFollowPortfolioSynced(profileId) : true;
+      invalidateUserPortfolioProfiles();
       setEntryDate(entryYmd);
       requestAnimationFrame(() => {
         void fireHeartConfettiBurst();
@@ -662,6 +738,7 @@ export function PortfolioOnboardingDialog({
           router.refresh();
         },
       });
+      queuePlatformPostOnboardingTour();
       markOnboardingDone();
       router.refresh();
     } finally {
@@ -701,8 +778,7 @@ export function PortfolioOnboardingDialog({
       )
     : null;
 
-  const celebrateModelInceptionYmd =
-    finaleRanked?.modelInceptionDate ?? modelInceptionDate ?? null;
+  const celebrateModelInceptionYmd = finaleRanked?.modelInceptionDate ?? modelInceptionDate ?? null;
   const celebrateModelInceptionDisplay =
     celebrateModelInceptionYmd != null && String(celebrateModelInceptionYmd).trim() !== ''
       ? formatYmdDisplay(String(celebrateModelInceptionYmd).trim())
@@ -753,422 +829,125 @@ export function PortfolioOnboardingDialog({
       <DialogContent
         className={cn(
           'flex max-h-[calc(100dvh-1.5rem)] w-full flex-col gap-0 overflow-hidden p-6',
-          step === 'celebrate'
-            ? 'sm:max-w-[min(62rem,calc(100vw-1.5rem))] sm:p-7'
-            : 'sm:max-w-md'
+          step === 'celebrate' ? 'sm:max-w-[min(62rem,calc(100vw-1.5rem))] sm:p-7' : 'sm:max-w-md'
         )}
         showCloseButton={false}
         onPointerDownOutside={(e) => e.preventDefault()}
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
+        {process.env.NODE_ENV === 'development' ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="absolute right-2 top-2 z-10 size-8 text-muted-foreground hover:text-foreground sm:right-3 sm:top-3"
+            aria-label="Close onboarding (local dev)"
+            onClick={() => markOnboardingDone()}
+          >
+            <X className="size-4" />
+          </Button>
+        ) : null}
         <div
           className="flex w-full min-h-0 flex-col overflow-hidden"
           style={{
             height: step === 'celebrate' ? CELEBRATE_SHELL_HEIGHT : ONBOARDING_SHELL_HEIGHT,
           }}
         >
-        {step === 'intro' && (
-          <div className="flex h-full min-h-0 flex-col">
-            <DialogHeader className="shrink-0">
-              <DialogTitle className="flex items-center gap-2">
-                <Layers className="size-5 text-trader-blue" />
-                Welcome to the AI Trader Platform
-              </DialogTitle>
-            </DialogHeader>
-            <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain">
-              <div className="flex min-h-0 flex-1 flex-col justify-center">
-                <div className="space-y-3 py-2">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    How it works
-                  </p>
-                  {[
-                    {
-                      n: 1,
-                      text: 'Our AI strategy models rank stocks every week.',
-                    },
-                    {
-                      n: 2,
-                      text: 'For each model, you choose how to build your portfolio (how many stocks to hold, how often to buy/sell, and how much to invest).',
-                    },
-                    {
-                      n: 3,
-                      text: 'You can follow multiple portfolios and compare their performance in real time.',
-                    },
-                  ].map(({ n, text }) => (
-                    <div
-                      key={n}
-                      className="flex items-center gap-3 rounded-lg border bg-muted/30 px-4 py-3 text-sm"
-                    >
-                      <span
-                        className="flex size-7 shrink-0 items-center justify-center rounded-full border border-trader-blue/30 bg-trader-blue/10 text-xs font-bold tabular-nums text-trader-blue"
-                        aria-hidden
-                      >
-                        {n}
-                      </span>
-                      <span className="min-w-0 flex-1 text-pretty">{text}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="flex shrink-0 justify-between border-t border-border/50 pt-3 dark:border-border/40">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleUseDefaults}
-                  className="text-muted-foreground"
-                >
-                  Use defaults
-                </Button>
-                <Button type="button" size="sm" onClick={() => goToStep('risk')} className="gap-1.5">
-                  Get started <ArrowRight className="size-3.5" />
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {step === 'risk' && (
-          <div className="flex h-full min-h-0 flex-col gap-4">
-            <DialogHeader className="shrink-0">
-              <DialogTitle>How much risk are you comfortable with?</DialogTitle>
-              <DialogDescription>
-                More stocks = more diversification. Fewer stocks = more concentrated bets on the
-                AI&apos;s top picks.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="min-h-0 flex-1 overflow-hidden py-2">
-              <div className="flex gap-2.5">
-                <div className="flex flex-col items-center gap-1 shrink-0 py-0.5">
-                  <span className="text-[8px] font-medium uppercase tracking-wide text-muted-foreground text-center leading-tight max-w-[4.5rem]">
-                    Safer / more diversified
-                  </span>
-                  <div className="w-2 flex-1 min-h-[168px] rounded-full bg-gradient-to-b from-emerald-400 via-amber-400 to-rose-500" />
-                  <span className="text-[8px] font-medium uppercase tracking-wide text-muted-foreground text-center leading-tight max-w-[4.5rem]">
-                    Higher risk / concentrated
-                  </span>
-                </div>
-                <div className="flex min-w-0 flex-1 flex-col gap-1">
-                  {RISK_LEVELS.map((r) => {
-                    const isSelected = draft.riskLevel === r;
-                    const barColor = RISK_SPECTRUM_BAR[r];
-                    const thumbRing = RISK_THUMB_RING[r];
-                    return (
-                      <button
-                        key={r}
-                        type="button"
-                        onClick={() => setDraft((d) => ({ ...d, riskLevel: r }))}
-                        className={cn(
-                          'flex w-full items-center gap-2 rounded-lg border px-2 py-1.5 text-left transition-all',
-                          isSelected
-                            ? `border-transparent ring-2 ${thumbRing} bg-card shadow-sm`
-                            : 'border-border hover:border-foreground/20 hover:bg-muted/30'
-                        )}
-                      >
-                        <div
-                          className={cn(
-                            'h-6 w-1 shrink-0 rounded-full',
-                            barColor,
-                            !isSelected && 'opacity-40'
-                          )}
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div
-                            className={cn(
-                              'text-[11px] font-semibold',
-                              isSelected ? 'text-foreground' : 'text-muted-foreground'
-                            )}
-                          >
-                            {RISK_LABELS[r]}
-                          </div>
-                          <div className="text-[10px] text-muted-foreground">
-                            Top {RISK_TOP_N[r]} stocks
-                          </div>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-            <OnboardingDialogFooter>
-              <StepIndicator />
-              <StepNav
-                onBack={() => goToStep('intro')}
-                onNext={() => goToStep('frequency')}
-                returnToSummary={returnToSummary}
-                onBackToSummary={backToSummary}
-              />
-            </OnboardingDialogFooter>
-          </div>
-        )}
-
-        {step === 'frequency' && (
-          <div className="flex h-full min-h-0 flex-col gap-4">
-            <DialogHeader className="shrink-0">
-              <DialogTitle>How often will you rebalance?</DialogTitle>
-              <DialogDescription>
-                How often you swap holdings to match the latest AI ratings.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="min-h-0 flex-1 space-y-1.5 overflow-hidden py-2">
-            <div className="space-y-1.5">
-              {!frequencyMeta ? (
-                <Skeleton className="h-40 w-full" />
-              ) : (
-                FREQUENCIES.map((f) => {
-                  const meta = frequencyMeta[f];
-                  const isSelected = draft.rebalanceFrequency === f;
-                  const toneClass =
-                    meta.tone === 'green'
-                      ? 'text-emerald-600 dark:text-emerald-400'
-                      : meta.tone === 'amber'
-                        ? 'text-amber-600 dark:text-amber-400'
-                        : 'text-rose-600 dark:text-rose-400';
-                  return (
-                    <button
-                      key={f}
-                      type="button"
-                      onClick={() => setDraft((d) => ({ ...d, rebalanceFrequency: f }))}
-                      className={cn(
-                        'w-full rounded-lg border px-3 py-2.5 text-left transition-colors',
-                        isSelected
-                          ? 'border-primary bg-primary/10 ring-1 ring-primary'
-                          : 'border-border hover:border-foreground/20 hover:bg-muted/30'
-                      )}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-sm font-semibold">{FREQUENCY_LABELS[f]}</span>
-                            <span className={`text-[11px] font-medium ${toneClass}`}>
-                              {meta.dataLabel}
-                            </span>
-                          </div>
-                          <p className="mt-0.5 text-xs text-muted-foreground leading-snug">
-                            {meta.implication}
-                          </p>
-                        </div>
-                        {isSelected && <Check className="size-3.5 text-primary shrink-0 mt-0.5" />}
-                      </div>
-                    </button>
-                  );
-                })
-              )}
-            </div>
-            </div>
-            <OnboardingDialogFooter>
-              <StepIndicator />
-              <StepNav
-                onBack={() => goToStep('risk')}
-                onNext={() => goToStep('investment')}
-                returnToSummary={returnToSummary}
-                onBackToSummary={backToSummary}
-              />
-            </OnboardingDialogFooter>
-          </div>
-        )}
-
-        {step === 'investment' && (
-          <div className="flex h-full min-h-0 flex-col gap-4">
-            <DialogHeader className="shrink-0">
-              <DialogTitle>How large is your starting portfolio?</DialogTitle>
-              <DialogDescription>
-                Used for performance guidance. Change it anytime.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain py-2">
-              <div className="grid grid-cols-4 gap-2">
-                {INVESTMENT_QUICK_PICKS.map((size) => {
-                  const isSelected =
-                    draft.investmentSize === size && Number(customInvestment) === size;
-                  return (
-                    <button
-                      key={size}
-                      type="button"
-                      onClick={() => {
-                        setCustomInvestment(String(size));
-                        setDraft((d) => ({ ...d, investmentSize: size }));
-                      }}
-                      className={cn(
-                        'rounded-lg border py-2.5 text-center text-sm font-semibold transition-colors',
-                        isSelected
-                          ? 'border-primary bg-primary/10 ring-1 ring-primary text-primary'
-                          : 'border-border hover:border-foreground/20 hover:bg-muted/30'
-                      )}
-                    >
-                      {formatCurrency(size)}
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="relative">
-                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
-                  $
-                </span>
-                <input
-                  ref={customInputRef}
-                  type="number"
-                  min={100}
-                  step="any"
-                  inputMode="numeric"
-                  placeholder="Custom amount"
-                  value={customInvestment}
-                  onChange={(e) => {
-                    const raw = e.target.value;
-                    setCustomInvestment(raw);
-                    const n = Number(raw);
-                    if (Number.isFinite(n) && n > 0) {
-                      setDraft((d) => ({ ...d, investmentSize: n }));
-                    }
-                  }}
-                  className={cn(
-                    'w-full rounded-lg border bg-background pl-7 pr-3 py-2.5 text-sm transition-colors focus:outline-none focus:ring-1 focus:ring-primary',
-                    '[appearance:textfield] [-moz-appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none',
-                    customInvestment !== ''
-                      ? 'border-primary ring-1 ring-primary'
-                      : 'border-border hover:border-foreground/20'
-                  )}
-                />
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Current:{' '}
-                <span className="font-medium text-foreground">
-                  {formatCurrency(draft.investmentSize)}
-                </span>{' '}
-                → ~{formatCurrency(draft.investmentSize / RISK_TOP_N[draft.riskLevel])}                 per position
-              </p>
-            </div>
-            <OnboardingDialogFooter>
-              <StepIndicator />
-              <StepNav
-                onBack={() => goToStep('frequency')}
-                onNext={() => goToStep('entry-date')}
-                returnToSummary={returnToSummary}
-                onBackToSummary={backToSummary}
-              />
-            </OnboardingDialogFooter>
-          </div>
-        )}
-
-        {step === 'entry-date' && (
-          <div className="flex h-full min-h-0 flex-col gap-4">
-            <DialogHeader className="shrink-0">
-              <DialogTitle className="flex items-center gap-2">
-                <CalendarIcon className="size-4 text-trader-blue" />
-                When do you want to start tracking this portfolio?
-              </DialogTitle>
-              <DialogDescription>
-                This is the hypothetical date that you'll invest in this portfolio.
-                It can be changed anytime.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain py-2">
-              <PortfolioEntryDatePicker
-                valueYmd={draftEntryDate}
-                onChangeYmd={setDraftEntryDate}
-                minYmd={entryMinYmd}
-                maxYmd={entryMaxYmd}
-                modelInceptionYmd={modelInceptionDate}
-              />
-            </div>
-            <OnboardingDialogFooter>
-              <StepIndicator />
-              <StepNav
-                onBack={() => goToStep('investment')}
-                onNext={() => goToStep('model')}
-                returnToSummary={returnToSummary}
-                onBackToSummary={backToSummary}
-              />
-            </OnboardingDialogFooter>
-          </div>
-        )}
-
-        {step === 'model' && (
-          <div className="flex h-full min-h-0 flex-col gap-4">
-            <DialogHeader className="shrink-0">
-              <DialogTitle>Which strategy model?</DialogTitle>
-              <DialogDescription>
-                Stock ratings come from the model you pick. Your portfolio rules are set — choose
-                which model powers those ratings.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain py-2">
-              {metaLoading ? (
-                <Skeleton className="h-24 w-full" />
-              ) : !selectedStrategy ? (
-                <p className="text-sm text-muted-foreground">No active models available.</p>
-              ) : !canPickModel ? (
-                <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
-                  <p className="text-sm text-muted-foreground">
-                    Your plan uses the default strategy model. Upgrade to{' '}
-                    <strong className="text-foreground">Outperformer</strong> to compare and switch
-                    models.
-                  </p>
-                  <div className="rounded-lg border bg-card p-3">
-                    <p className="text-sm font-semibold">{selectedStrategy.name}</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {strategyModelDropdownSubtitle(selectedStrategy)}
+          {step === 'intro' && (
+            <div className="flex h-full min-h-0 flex-col">
+              <DialogHeader className="shrink-0">
+                <DialogTitle className="flex items-center gap-2">
+                  <Layers className="size-5 text-trader-blue" />
+                  Welcome to the AI Trader Platform
+                </DialogTitle>
+              </DialogHeader>
+              <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain">
+                <div className="flex min-h-0 flex-1 flex-col justify-center">
+                  <div className="space-y-3 py-2">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      How it works
                     </p>
+                    {[
+                      {
+                        n: 1,
+                        text: 'Our AI strategy models rank stocks every week.',
+                      },
+                      {
+                        n: 2,
+                        text: 'You choose how to build your portfolio (how many stocks to hold, how often to buy/sell, and how much to invest).',
+                      },
+                      {
+                        n: 3,
+                        text: 'You can follow multiple portfolios and compare their performance in real time.',
+                      },
+                    ].map(({ n, text }) => (
+                      <div
+                        key={n}
+                        className="flex items-center gap-3 rounded-lg border bg-muted/30 px-4 py-3 text-sm"
+                      >
+                        <span
+                          className="flex size-7 shrink-0 items-center justify-center rounded-full border border-trader-blue/30 bg-trader-blue/10 text-xs font-bold tabular-nums text-trader-blue"
+                          aria-hidden
+                        >
+                          {n}
+                        </span>
+                        <span className="min-w-0 flex-1 text-pretty">{text}</span>
+                      </div>
+                    ))}
                   </div>
-                  <Button asChild variant="outline" size="sm" className="w-full gap-1.5">
-                    <Link href="/pricing">Compare plans</Link>
+                </div>
+                <div className="flex shrink-0 justify-between border-t border-border/50 pt-3 dark:border-border/40">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleUseDefaults}
+                    className="text-muted-foreground"
+                  >
+                    Use defaults
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => goToStep('model')}
+                    className="gap-1.5"
+                  >
+                    Get started <ArrowRight className="size-3.5" />
                   </Button>
                 </div>
-              ) : (
-                <>
-                  <div className="space-y-1.5">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                      Strategy model
-                    </p>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="w-full justify-between gap-2 text-left"
-                        >
-                          <span className="truncate">{selectedStrategy.name}</span>
-                          <div className="flex items-center gap-1 shrink-0">
-                            {isBestStrategy && (
-                              <Badge className="text-xs bg-trader-blue text-white border-0 px-1.5 py-0">
-                                Top
-                              </Badge>
-                            )}
-                            <ChevronDown className="size-3.5" />
-                          </div>
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="start" className="min-w-56">
-                        {strategies.map((strategy, index) => (
-                          <DropdownMenuItem
-                            key={strategy.id}
-                            onSelect={() => {
-                              setDraft((d) => ({ ...d, strategySlug: strategy.slug }));
-                            }}
-                            className="flex flex-col items-start gap-0.5 py-2"
-                          >
-                            <div className="flex items-center gap-1.5 w-full">
-                              <span className="font-medium text-sm">{strategy.name}</span>
-                              {index === 0 && (
-                                <Badge className="text-xs bg-trader-blue text-white border-0 px-1.5 py-0 ml-auto">
-                                  Top
-                                </Badge>
-                              )}
-                            </div>
-                            <span className="text-xs text-muted-foreground">
-                              {strategyModelDropdownSubtitle(strategy)}
-                            </span>
-                          </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                  {selectedStrategy && (
+              </div>
+            </div>
+          )}
+
+          {step === 'model' && (
+            <div className="flex h-full min-h-0 flex-col gap-4">
+              <DialogHeader className="shrink-0">
+                <DialogTitle>AI strategy model</DialogTitle>
+                <DialogDescription>
+                  Stock ratings for your portfolio come from this model. This is the only model
+                  available right now — more are coming soon.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain py-2">
+                {metaLoading ? (
+                  <Skeleton className="h-24 w-full" />
+                ) : !selectedStrategy ? (
+                  <p className="text-sm text-muted-foreground">No active models available.</p>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="rounded-lg border bg-card p-4">
+                      <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        Active model
+                      </p>
+                      <p className="text-sm font-semibold">{selectedStrategy.name}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {strategyModelDropdownSubtitle(selectedStrategy)}
+                      </p>
+                    </div>
                     <Button
                       asChild
                       variant="ghost"
                       size="sm"
-                      className="w-full justify-start gap-1.5 text-xs h-8 px-1"
+                      className="h-8 w-full justify-start gap-1.5 px-1 text-xs"
                     >
                       <Link
                         href={`/strategy-models/${selectedStrategy.slug}`}
@@ -1179,257 +958,671 @@ export function PortfolioOnboardingDialog({
                         Read more about this model
                       </Link>
                     </Button>
-                  )}
-                </>
-              )}
+                  </div>
+                )}
+              </div>
+              <OnboardingDialogFooter>
+                <StepIndicator />
+                <StepNav
+                  onBack={() => goToStep('intro')}
+                  onNext={() => goToStep('risk')}
+                  returnToSummary={returnToSummary}
+                  onBackToSummary={backToSummary}
+                />
+              </OnboardingDialogFooter>
             </div>
-            <OnboardingDialogFooter>
-              <StepIndicator />
-              <StepNav
-                onBack={() => goToStep('entry-date')}
-                onNext={() => goToStep('done')}
-                returnToSummary={returnToSummary}
-                onBackToSummary={backToSummary}
-              />
-            </OnboardingDialogFooter>
-          </div>
-        )}
+          )}
 
-        {step === 'done' && (
-          <div className="flex h-full min-h-0 flex-col gap-4">
-            <DialogHeader className="shrink-0">
-              <DialogTitle>Your starting portfolio is configured</DialogTitle>
-              <DialogDescription>Tap any row to edit it.</DialogDescription>
-            </DialogHeader>
-            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
-              <div className="flex min-h-0 flex-1 flex-col justify-center">
-                <div className="space-y-1.5 py-2">
-                  <EditableSummaryRow
-                    label="Risk level"
-                    value={
-                      <>
-                        <span
-                          className="inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-muted/50 px-2 py-0.5 text-[11px] font-semibold text-foreground shrink-0"
-                          title={RISK_LABELS[draft.riskLevel]}
+          {step === 'risk' && (
+            <div className="flex h-full min-h-0 flex-col gap-4">
+              <DialogHeader className="shrink-0">
+                <DialogTitle>How much risk are you comfortable with?</DialogTitle>
+                <DialogDescription>
+                  More stocks = more diversification. Fewer stocks = more concentrated bets on the
+                  AI&apos;s top picks.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="min-h-0 flex-1 overflow-hidden py-2">
+                <div className="flex gap-2.5">
+                  <div className="flex flex-col items-center gap-1 shrink-0 py-0.5">
+                    <span className="text-[8px] font-medium uppercase tracking-wide text-muted-foreground text-center leading-tight max-w-[4.5rem]">
+                      Safer / more diversified
+                    </span>
+                    <div className="w-2 flex-1 min-h-[168px] rounded-full bg-gradient-to-b from-emerald-400 via-amber-400 to-rose-500" />
+                    <span className="text-[8px] font-medium uppercase tracking-wide text-muted-foreground text-center leading-tight max-w-[4.5rem]">
+                      Higher risk / concentrated
+                    </span>
+                  </div>
+                  <div className="flex min-w-0 flex-1 flex-col gap-1">
+                    {RISK_LEVELS.map((r) => {
+                      const isSelected = draft.riskLevel === r;
+                      const barColor = RISK_SPECTRUM_BAR[r];
+                      const thumbRing = RISK_THUMB_RING[r];
+                      return (
+                        <button
+                          key={r}
+                          type="button"
+                          onClick={() =>
+                            setDraft((d) => ({
+                              ...d,
+                              riskLevel: r,
+                              ...(RISK_TOP_N[r] === 1 ? { weightingMethod: 'equal' as const } : {}),
+                            }))
+                          }
+                          className={cn(
+                            'flex w-full items-center gap-2 rounded-lg border px-2 py-1.5 text-left transition-all',
+                            isSelected
+                              ? `border-transparent ring-2 ${thumbRing} bg-card shadow-sm`
+                              : 'border-border hover:border-foreground/20 hover:bg-muted/30'
+                          )}
                         >
-                          <span
+                          <div
                             className={cn(
-                              'size-1.5 shrink-0 rounded-full',
-                              RISK_SPECTRUM_BAR[draft.riskLevel]
+                              'h-6 w-1 shrink-0 rounded-full',
+                              barColor,
+                              !isSelected && 'opacity-40'
                             )}
-                            aria-hidden
                           />
-                          {RISK_LABELS[draft.riskLevel]}
-                        </span>
-                        <span className="text-xs font-medium">
-                          · Top {RISK_TOP_N[draft.riskLevel]} stocks
-                        </span>
-                      </>
-                    }
-                    onClick={() => goToStep('risk', true)}
-                  />
-                  <EditableSummaryRow
-                    label="Rebalancing"
-                    value={FREQUENCY_LABELS[draft.rebalanceFrequency]}
-                    onClick={() => goToStep('frequency', true)}
-                  />
-                  <EditableSummaryRow
-                    label="Investment"
-                    value={formatCurrency(draft.investmentSize)}
-                    onClick={() => goToStep('investment', true)}
-                  />
-                  <EditableSummaryRow
-                    label="Your entry"
-                    value={
-                      draftEntryDate === entryMaxYmd ? 'Today' : formatYmdDisplay(draftEntryDate)
-                    }
-                    onClick={() => goToStep('entry-date', true)}
-                  />
-                  <EditableSummaryRow
-                    label="Strategy model"
-                    value={selectedStrategy?.name ?? draft.strategySlug}
-                    onClick={() => goToStep('model', true)}
-                  />
-                  <div className="rounded-lg border bg-muted/40 px-3 py-2.5 text-xs text-muted-foreground">
-                    You can follow additional portfolios anytime from the Explore Portfolios page.
+                          <div className="min-w-0 flex-1">
+                            <div
+                              className={cn(
+                                'text-[11px] font-semibold',
+                                isSelected ? 'text-foreground' : 'text-muted-foreground'
+                              )}
+                            >
+                              {RISK_LABELS[r]}
+                            </div>
+                            <div className="text-[10px] text-muted-foreground">
+                              Top {RISK_TOP_N[r]} stocks
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
+              <OnboardingDialogFooter>
+                <StepIndicator />
+                <StepNav
+                  onBack={() => goToStep('model')}
+                  onNext={() => goToStep('frequency')}
+                  returnToSummary={returnToSummary}
+                  onBackToSummary={backToSummary}
+                />
+              </OnboardingDialogFooter>
             </div>
-            <OnboardingDialogFooter>
-              <StepIndicator />
-              <StepNav
-                onBack={() => goToStep('model')}
-                onNext={() => handleSummaryContinue()}
-                nextLabel="Save and continue"
-                returnToSummary={returnToSummary}
-                onBackToSummary={backToSummary}
-              />
-            </OnboardingDialogFooter>
-          </div>
-        )}
+          )}
 
-        {step === 'celebrate' && (
-          <div className="flex h-full min-h-0 flex-col gap-3 sm:gap-4">
-            <DialogHeader className="shrink-0 space-y-1">
-              <DialogTitle className="flex items-center gap-2 text-lg sm:text-xl">
-                <Sparkles className="size-5 shrink-0 text-amber-500" aria-hidden />
-                You&apos;re all set
-              </DialogTitle>
-              <DialogDescription className="text-sm">
-                Your picks are saved. This is what{' '}
-                <strong className="text-foreground">{formatUsdWhole(celebrateNotional)}</strong> would
-                have turned into if you followed this portfolio since inception
-                {celebrateModelInceptionDisplay ? (
-                  <>
-                    {' '}
-                    (
-                    <span className="font-medium text-foreground tabular-nums">
-                      {celebrateModelInceptionDisplay}
-                    </span>
-                    )
-                  </>
-                ) : null}
-                .
-              </DialogDescription>
-            </DialogHeader>
-            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain py-0.5">
-              {finaleLoading || finaleRanked === null ? (
-                <div className="space-y-2">
-                  <Skeleton className="h-28 w-full rounded-lg" />
-                  <Skeleton className={cn(CELEBRATE_CHART_HEIGHT_CLASS, 'w-full rounded-lg')} />
-                </div>
-              ) : (
-                <div className="space-y-3 rounded-xl border bg-muted/20 p-3 sm:p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        Starting portfolio
+          {step === 'frequency' && (
+            <div className="flex h-full min-h-0 flex-col gap-4">
+              <DialogHeader className="shrink-0">
+                <DialogTitle className="flex flex-wrap items-center gap-2">
+                  How often will you rebalance?
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        className="inline-flex shrink-0 rounded-sm text-muted-foreground/70 outline-none ring-offset-background transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        aria-label="What rebalancing means"
+                      >
+                        <HelpCircle className="size-3.5 cursor-help" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-sm p-3 text-xs leading-relaxed">
+                      <p className="font-semibold text-foreground">Rebalance frequency</p>
+                      <p className="mt-1.5 text-muted-foreground">
+                        Swapping more often lets you align to AI ratings more closely, but adds more
+                        work on your end (and may carry tax implications).
                       </p>
-                      <div className="flex flex-wrap items-center gap-2 min-w-0">
-                        <span
-                          className="inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-muted/50 px-2 py-0.5 text-[11px] font-semibold text-foreground shrink-0"
-                          title={RISK_LABELS[draft.riskLevel]}
+                    </TooltipContent>
+                  </Tooltip>
+                </DialogTitle>
+                <DialogDescription>
+                  How often you swap holdings to match the latest AI ratings.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="min-h-0 flex-1 space-y-1.5 overflow-hidden py-2">
+                <div className="space-y-1.5">
+                  {!frequencyMeta ? (
+                    <Skeleton className="h-40 w-full" />
+                  ) : (
+                    FREQUENCIES.map((f) => {
+                      const meta = frequencyMeta[f];
+                      const isSelected = draft.rebalanceFrequency === f;
+                      const toneClass =
+                        meta.tone === 'green'
+                          ? 'text-emerald-600 dark:text-emerald-400'
+                          : meta.tone === 'amber'
+                            ? 'text-amber-600 dark:text-amber-400'
+                            : 'text-rose-600 dark:text-rose-400';
+                      return (
+                        <button
+                          key={f}
+                          type="button"
+                          onClick={() => setDraft((d) => ({ ...d, rebalanceFrequency: f }))}
+                          className={cn(
+                            'w-full rounded-lg border px-3 py-2.5 text-left transition-colors',
+                            isSelected
+                              ? 'border-primary bg-primary/10 ring-1 ring-primary'
+                              : 'border-border hover:border-foreground/20 hover:bg-muted/30'
+                          )}
                         >
-                          <span
-                            className={cn(
-                              'size-1.5 shrink-0 rounded-full',
-                              RISK_SPECTRUM_BAR[draft.riskLevel]
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-sm font-semibold">{FREQUENCY_LABELS[f]}</span>
+                                <span className={`text-[11px] font-medium ${toneClass}`}>
+                                  {meta.dataLabel}
+                                </span>
+                              </div>
+                              <p className="mt-0.5 text-xs text-muted-foreground leading-snug">
+                                {meta.implication}
+                              </p>
+                            </div>
+                            {isSelected && (
+                              <Check className="size-3.5 text-primary shrink-0 mt-0.5" />
                             )}
-                            aria-hidden
+                          </div>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+              <OnboardingDialogFooter>
+                <StepIndicator />
+                <StepNav
+                  onBack={() => goToStep('risk')}
+                  onNext={() => goToStep('investment')}
+                  returnToSummary={returnToSummary}
+                  onBackToSummary={backToSummary}
+                />
+              </OnboardingDialogFooter>
+            </div>
+          )}
+
+          {step === 'investment' && (
+            <div className="flex h-full min-h-0 flex-col gap-4">
+              <DialogHeader className="shrink-0">
+                <DialogTitle>How large is your starting portfolio?</DialogTitle>
+                <DialogDescription>
+                  Used for performance guidance. Change it anytime.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain py-2">
+                <div className="grid grid-cols-4 gap-2">
+                  {INVESTMENT_QUICK_PICKS.map((size) => {
+                    const isSelected =
+                      draft.investmentSize === size && Number(customInvestment) === size;
+                    return (
+                      <button
+                        key={size}
+                        type="button"
+                        onClick={() => {
+                          setCustomInvestment(String(size));
+                          setDraft((d) => ({ ...d, investmentSize: size }));
+                        }}
+                        className={cn(
+                          'rounded-lg border py-2.5 text-center text-sm font-semibold transition-colors',
+                          isSelected
+                            ? 'border-primary bg-primary/10 ring-1 ring-primary text-primary'
+                            : 'border-border hover:border-foreground/20 hover:bg-muted/30'
+                        )}
+                      >
+                        {formatCurrency(size)}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="relative">
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                    $
+                  </span>
+                  <input
+                    ref={customInputRef}
+                    type="number"
+                    min={100}
+                    step="any"
+                    inputMode="numeric"
+                    placeholder="Custom amount"
+                    value={customInvestment}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      setCustomInvestment(raw);
+                      const n = Number(raw);
+                      if (Number.isFinite(n) && n > 0) {
+                        setDraft((d) => ({ ...d, investmentSize: n }));
+                      }
+                    }}
+                    className={cn(
+                      'w-full rounded-lg border bg-background pl-7 pr-3 py-2.5 text-sm transition-colors focus:outline-none focus:ring-1 focus:ring-primary',
+                      '[appearance:textfield] [-moz-appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none',
+                      customInvestment !== ''
+                        ? 'border-primary ring-1 ring-primary'
+                        : 'border-border hover:border-foreground/20'
+                    )}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Current:{' '}
+                  <span className="font-medium text-foreground">
+                    {formatCurrency(draft.investmentSize)}
+                  </span>{' '}
+                  → ~{formatCurrency(draft.investmentSize / RISK_TOP_N[draft.riskLevel])} per
+                  position
+                </p>
+              </div>
+              <OnboardingDialogFooter>
+                <StepIndicator />
+                <StepNav
+                  onBack={() => goToStep('frequency')}
+                  onNext={() => goToStep('allocation')}
+                  returnToSummary={returnToSummary}
+                  onBackToSummary={backToSummary}
+                />
+              </OnboardingDialogFooter>
+            </div>
+          )}
+
+          {step === 'allocation' && (
+            <div className="flex h-full min-h-0 flex-col gap-4">
+              <DialogHeader className="shrink-0">
+                <DialogTitle>How do you want to allocate your investment?</DialogTitle>
+                <DialogDescription>
+                  {RISK_TOP_N[draft.riskLevel] === 1
+                    ? 'This tier holds one stock, so your full amount goes to that position — equal and cap are the same here.'
+                    : 'Choose how each position is sized across your holdings.'}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain py-2">
+                {RISK_TOP_N[draft.riskLevel] === 1 ? (
+                  <div
+                    className={cn(
+                      'flex flex-col gap-2 rounded-lg transition-opacity',
+                      'pointer-events-none select-none opacity-45'
+                    )}
+                  >
+                    {(['equal', 'cap'] as WeightingMethod[]).map((w) => (
+                      <div
+                        key={w}
+                        className={cn(
+                          'rounded-lg border px-3 py-2.5 text-left text-xs transition-colors',
+                          'border-border bg-card text-muted-foreground'
+                        )}
+                      >
+                        <div className="flex gap-3">
+                          <SingleStockMiniPie
+                            className={cn('shrink-0 size-9', w === 'cap' && 'opacity-30')}
                           />
-                          {RISK_LABELS[draft.riskLevel]}
-                        </span>
-                        <p className="text-sm font-semibold leading-snug min-w-0">
-                          {celebrateChartTitle}
-                        </p>
+                          <div className="min-w-0 flex-1">
+                            <span className="font-medium leading-tight text-foreground">
+                              {w === 'equal' ? 'Equal' : 'Cap'}
+                            </span>
+                            <p className="mt-1 text-[11px] leading-snug opacity-90">
+                              {w === 'equal'
+                                ? ONBOARDING_EQUAL_WEIGHTING_EXPLANATION
+                                : ONBOARDING_CAP_WEIGHTING_EXPLANATION}
+                            </p>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                    {finaleRanked.matched?.rank != null ? (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="inline-flex shrink-0 cursor-help">
-                            <Badge variant="secondary" className="tabular-nums">
-                              Rank #{finaleRanked.matched.rank}
-                            </Badge>
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent className="max-w-xs text-xs" side="left">
-                          <PortfolioRankingTooltipBody
-                            rank={finaleRanked.matched.rank}
-                            rankedTotal={finaleRanked.rankedEligibleCount}
-                            strategySlug={draft.strategySlug}
-                          />
-                        </TooltipContent>
-                      </Tooltip>
-                    ) : null}
+                    ))}
                   </div>
-                  {finaleRanked.matched && finaleRanked.matched.badges.length > 0 ? (
-                    <div className="flex flex-wrap gap-1">
-                      {finaleRanked.matched.badges.slice(0, 3).map((b) => (
-                        <Badge key={b} variant="outline" className="text-[10px] font-normal">
-                          {b}
-                        </Badge>
-                      ))}
-                    </div>
-                  ) : null}
-
-                  <div className="grid min-h-0 gap-4 lg:grid-cols-[minmax(12.5rem,14rem)_1fr] lg:items-start">
-                    <div className="space-y-2 lg:sticky lg:top-0">
-                      {celebratePerfLoading && celebratePerf == null ? (
-                        <>
-                          <Skeleton className="h-[4.5rem] w-full rounded-lg" />
-                          <Skeleton className="h-[4.5rem] w-full rounded-lg" />
-                          <Skeleton className="h-[4.5rem] w-full rounded-lg" />
-                        </>
-                      ) : celebrateFm ? (
-                        <>
-                          <CelebrateMetricBlock
-                            label="Portfolio value"
-                            value={
-                              celebrateScaledEndingValue != null
-                                ? formatUsdWhole(celebrateScaledEndingValue)
-                                : formatUsdWhole(celebrateFm.endingValue)
+                ) : (
+                    <div className="flex flex-col gap-2">
+                      {(['equal', 'cap'] as const).map((w) => {
+                        const isSelected = draft.weightingMethod === w;
+                        return (
+                          <button
+                            key={w}
+                            type="button"
+                            onClick={() =>
+                              setDraft((d) => ({ ...d, weightingMethod: w }))
                             }
-                            subValue={fmtCelebratePct(celebrateFm.totalReturn)}
-                            valueClassName="text-foreground"
-                            subValueClassName={deltaToneClass(
-                              celebrateFm.totalReturn != null && Number.isFinite(celebrateFm.totalReturn)
-                                ? celebrateFm.totalReturn
-                                : null
+                            className={cn(
+                              'w-full rounded-lg border px-3 py-2.5 text-left text-xs transition-colors',
+                              isSelected
+                                ? 'border-primary bg-primary text-primary-foreground'
+                                : 'border-border bg-card text-muted-foreground hover:border-foreground/30 hover:text-foreground'
                             )}
-                          />
-                          <CelebrateMetricBlock
-                            label="vs S&P 500"
-                            value={fmtCelebratePct(celebrateVsSp500)}
-                            valueClassName={deltaToneClass(celebrateVsSp500)}
-                          />
-                          <CelebrateMetricBlock
-                            label="vs Nasdaq-100"
-                            value={fmtCelebratePct(celebrateVsNasdaqCap)}
-                            valueClassName={deltaToneClass(celebrateVsNasdaqCap)}
-                          />
-                        </>
-                      ) : (
-                        <p className="text-xs text-muted-foreground leading-snug">
-                          {celebratePerf?.computeStatus === 'in_progress'
-                            ? 'Loading performance…'
-                            : celebratePerf?.computeStatus === 'failed'
-                              ? 'Could not load metrics.'
-                              : 'Metrics will appear when performance data is ready.'}
-                        </p>
-                      )}
+                          >
+                            <div className="flex gap-3">
+                              {w === 'equal' ? (
+                                <EqualWeightMiniPie className="shrink-0 size-9" />
+                              ) : (
+                                <CapWeightMiniPie className="shrink-0 size-9" />
+                              )}
+                              <div className="min-w-0 flex-1 text-left">
+                                <span
+                                  className={cn(
+                                    'font-medium leading-tight',
+                                    !isSelected && 'text-foreground'
+                                  )}
+                                >
+                                  {w === 'equal' ? 'Equal' : 'Cap'}
+                                </span>
+                                <p
+                                  className={cn(
+                                    'mt-1 text-[11px] leading-snug',
+                                    isSelected
+                                      ? 'text-primary-foreground/90'
+                                      : 'opacity-90'
+                                  )}
+                                >
+                                  {w === 'equal'
+                                    ? ONBOARDING_EQUAL_WEIGHTING_EXPLANATION
+                                    : ONBOARDING_CAP_WEIGHTING_EXPLANATION}
+                                </p>
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
                     </div>
+                  )}
+                </div>
+                <OnboardingDialogFooter>
+                  <StepIndicator />
+                  <StepNav
+                    onBack={() => goToStep('investment')}
+                    onNext={() => goToStep('entry-date')}
+                    returnToSummary={returnToSummary}
+                    onBackToSummary={backToSummary}
+                  />
+                </OnboardingDialogFooter>
+            </div>
+          )}
 
-                    <div className="min-w-0 space-y-2 rounded-lg border bg-card/80 p-2 sm:p-3">
-                      {celebratePerf?.isHoldingPeriod &&
-                      celebratePerf.computeStatus === 'ready' &&
-                      celebratePerf.series.length >= 1 ? (
-                        <p className="text-[11px] text-muted-foreground rounded-md border border-blue-500/25 bg-blue-500/5 px-2.5 py-2">
-                          This portfolio is in a <strong>buy-and-hold</strong> stretch — holdings stay
-                          fixed until the next scheduled rebalance. The chart reflects price movement of
-                          those positions.
+          {step === 'entry-date' && (
+            <div className="flex h-full min-h-0 flex-col gap-4">
+              <DialogHeader className="shrink-0">
+                <DialogTitle className="flex items-center gap-2">
+                  <CalendarIcon className="size-4 text-trader-blue" />
+                  When do you want to start tracking this portfolio?
+                </DialogTitle>
+                <DialogDescription>
+                  This is the hypothetical date that you'll invest in this portfolio. It is used to track your portfolio performance, and can be
+                  changed anytime.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain py-2">
+                <PortfolioEntryDatePicker
+                  valueYmd={draftEntryDate}
+                  onChangeYmd={setDraftEntryDate}
+                  minYmd={entryMinYmd}
+                  maxYmd={entryMaxYmd}
+                  modelInceptionYmd={modelInceptionDate}
+                />
+              </div>
+              <OnboardingDialogFooter>
+                <StepIndicator />
+                <StepNav
+                  onBack={() => goToStep('allocation')}
+                  onNext={() => goToStep('done')}
+                  returnToSummary={returnToSummary}
+                  onBackToSummary={backToSummary}
+                />
+              </OnboardingDialogFooter>
+            </div>
+          )}
+
+          {step === 'done' && (
+            <div className="flex h-full min-h-0 flex-col gap-4">
+              <DialogHeader className="shrink-0">
+                <DialogTitle>Your starting portfolio is configured</DialogTitle>
+                <DialogDescription>Tap any row to edit it.</DialogDescription>
+              </DialogHeader>
+              <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
+                <div className="flex min-h-0 flex-1 flex-col justify-center">
+                  <div className="space-y-1.5 py-2">
+                    <EditableSummaryRow
+                      label="Strategy model"
+                      value={selectedStrategy?.name ?? draft.strategySlug}
+                      onClick={() => goToStep('model', true)}
+                    />
+                    <EditableSummaryRow
+                      label="Risk level"
+                      value={
+                        <>
+                          <span
+                            className="inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-muted/50 px-2 py-0.5 text-[11px] font-semibold text-foreground shrink-0"
+                            title={RISK_LABELS[draft.riskLevel]}
+                          >
+                            <span
+                              className={cn(
+                                'size-1.5 shrink-0 rounded-full',
+                                RISK_SPECTRUM_BAR[draft.riskLevel]
+                              )}
+                              aria-hidden
+                            />
+                            {RISK_LABELS[draft.riskLevel]}
+                          </span>
+                          <span className="text-xs font-medium">
+                            · Top {RISK_TOP_N[draft.riskLevel]} stocks
+                          </span>
+                        </>
+                      }
+                      onClick={() => goToStep('risk', true)}
+                    />
+                    <EditableSummaryRow
+                      label="Rebalancing"
+                      value={FREQUENCY_LABELS[draft.rebalanceFrequency]}
+                      onClick={() => goToStep('frequency', true)}
+                    />
+                    <EditableSummaryRow
+                      label="Investment"
+                      value={formatCurrency(draft.investmentSize)}
+                      onClick={() => goToStep('investment', true)}
+                    />
+                    <EditableSummaryRow
+                      label="Allocation"
+                      value={
+                        RISK_TOP_N[draft.riskLevel] === 1
+                          ? 'Equal weight'
+                          : draft.weightingMethod === 'equal'
+                            ? 'Equal weight'
+                            : 'Cap weight'
+                      }
+                      onClick={() => goToStep('allocation', true)}
+                    />
+                    <EditableSummaryRow
+                      label="Your entry"
+                      value={
+                        draftEntryDate === entryMaxYmd ? 'Today' : formatYmdDisplay(draftEntryDate)
+                      }
+                      onClick={() => goToStep('entry-date', true)}
+                    />
+                    <div className="rounded-lg border bg-muted/40 px-3 py-2.5 text-xs text-muted-foreground">
+                      You can follow additional portfolios anytime from the Explore Portfolios page.
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <OnboardingDialogFooter>
+                <StepIndicator />
+                <StepNav
+                  onBack={() => goToStep('entry-date')}
+                  onNext={() => handleSummaryContinue()}
+                  nextLabel="Save and continue"
+                  returnToSummary={returnToSummary}
+                  onBackToSummary={backToSummary}
+                  beforeNext={
+                    draftBeforeTopRankedSelection ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="gap-1.5"
+                        onClick={resetToUserSelectionsAfterTopRanked}
+                      >
+                        Your selections
+                      </Button>
+                    ) : null
+                  }
+                />
+              </OnboardingDialogFooter>
+            </div>
+          )}
+
+          {step === 'celebrate' && (
+            <div className="flex h-full min-h-0 flex-col gap-3 sm:gap-4">
+              <DialogHeader className="shrink-0 space-y-1">
+                <DialogTitle className="flex items-center gap-2 text-lg sm:text-xl">
+                  <Sparkles className="size-5 shrink-0 text-amber-500" aria-hidden />
+                  You&apos;re all set
+                </DialogTitle>
+                <DialogDescription className="text-sm">
+                  Your picks are saved. This is what{' '}
+                  <strong className="text-foreground">{formatUsdWhole(celebrateNotional)}</strong>{' '}
+                  would have turned into if you followed this portfolio since inception
+                  {celebrateModelInceptionDisplay ? (
+                    <>
+                      {' '}
+                      (
+                      <span className="font-medium text-foreground tabular-nums">
+                        {celebrateModelInceptionDisplay}
+                      </span>
+                      )
+                    </>
+                  ) : null}
+                  .
+                </DialogDescription>
+              </DialogHeader>
+              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain py-0.5">
+                {finaleLoading || finaleRanked === null ? (
+                  <div className="space-y-2">
+                    <Skeleton className="h-28 w-full rounded-lg" />
+                    <Skeleton className={cn(CELEBRATE_CHART_HEIGHT_CLASS, 'w-full rounded-lg')} />
+                  </div>
+                ) : (
+                  <div className="space-y-3 rounded-xl border bg-muted/20 p-3 sm:p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                          Starting portfolio
                         </p>
-                      ) : null}
-                      {celebratePerfLoading && celebratePerf == null ? (
-                        <Skeleton className={cn(CELEBRATE_CHART_HEIGHT_CLASS, 'w-full rounded-lg')} />
-                      ) : celebratePerf?.computeStatus === 'ready' && celebratePerf.series.length > 1 ? (
-                        <CelebratePerformanceChart
-                          series={celebratePerf.series}
-                          strategyName={celebrateChartTitle}
-                          hideDrawdown
-                          hideFootnote
-                          initialNotional={celebrateNotional}
-                          omitSeriesKeys={['nasdaq100EqualWeight']}
-                          seriesLabelOverrides={{ nasdaq100CapWeight: 'Nasdaq-100' }}
-                          chartContainerClassName={CELEBRATE_CHART_HEIGHT_CLASS}
-                        />
-                      ) : celebratePerf?.computeStatus === 'ready' && celebratePerf.series.length === 1 ? (
-                        <div className="space-y-2">
-                          <p className="text-[11px] text-muted-foreground rounded-md border border-amber-500/25 bg-amber-500/5 px-2.5 py-2">
-                            Only one performance point is recorded so far — the line will grow as more
-                            weeks are saved.
+                        <div className="flex flex-wrap items-center gap-2 min-w-0">
+                          <span
+                            className="inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-muted/50 px-2 py-0.5 text-[11px] font-semibold text-foreground shrink-0"
+                            title={RISK_LABELS[draft.riskLevel]}
+                          >
+                            <span
+                              className={cn(
+                                'size-1.5 shrink-0 rounded-full',
+                                RISK_SPECTRUM_BAR[draft.riskLevel]
+                              )}
+                              aria-hidden
+                            />
+                            {RISK_LABELS[draft.riskLevel]}
+                          </span>
+                          <p className="text-sm font-semibold leading-snug min-w-0">
+                            {celebrateChartTitle}
                           </p>
+                        </div>
+                      </div>
+                      {finaleRanked.matched?.rank != null ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="inline-flex shrink-0 cursor-help">
+                              <Badge variant="secondary" className="tabular-nums">
+                                Rank #{finaleRanked.matched.rank}
+                              </Badge>
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs text-xs" side="left">
+                            <PortfolioRankingTooltipBody
+                              rank={finaleRanked.matched.rank}
+                              rankedTotal={finaleRanked.rankedEligibleCount}
+                              strategySlug={draft.strategySlug}
+                              rankingAction={
+                                finaleRanked.topRanked
+                                  ? {
+                                      label: 'Select the current top-ranked portfolio',
+                                      onClick: selectTopRankedPortfolioForSummary,
+                                      disabled: finaleRanked.matched.rank === 1,
+                                    }
+                                  : undefined
+                              }
+                            />
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : null}
+                    </div>
+                    {finaleRanked.matched && finaleRanked.matched.badges.length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {finaleRanked.matched.badges.slice(0, 3).map((b) => (
+                          <Badge key={b} variant="outline" className="text-[10px] font-normal">
+                            {b}
+                          </Badge>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    <div className="grid min-h-0 gap-4 lg:grid-cols-[minmax(12.5rem,14rem)_1fr] lg:items-start">
+                      <div className="space-y-2 lg:sticky lg:top-0">
+                        {celebratePerfLoading && celebratePerf == null ? (
+                          <>
+                            <Skeleton className="h-[4.5rem] w-full rounded-lg" />
+                            <Skeleton className="h-[4.5rem] w-full rounded-lg" />
+                            <Skeleton className="h-[4.5rem] w-full rounded-lg" />
+                          </>
+                        ) : celebrateFm ? (
+                          <>
+                            <CelebrateMetricBlock
+                              label="Portfolio value"
+                              value={
+                                celebrateScaledEndingValue != null
+                                  ? formatUsdWhole(celebrateScaledEndingValue)
+                                  : formatUsdWhole(celebrateFm.endingValue)
+                              }
+                              subValue={fmtCelebratePct(celebrateFm.totalReturn)}
+                              valueClassName="text-foreground"
+                              subValueClassName={deltaToneClass(
+                                celebrateFm.totalReturn != null &&
+                                  Number.isFinite(celebrateFm.totalReturn)
+                                  ? celebrateFm.totalReturn
+                                  : null
+                              )}
+                            />
+                            <CelebrateMetricBlock
+                              label="vs S&P 500"
+                              value={fmtCelebratePct(celebrateVsSp500)}
+                              valueClassName={deltaToneClass(celebrateVsSp500)}
+                            />
+                            <CelebrateMetricBlock
+                              label="vs Nasdaq-100"
+                              value={fmtCelebratePct(celebrateVsNasdaqCap)}
+                              valueClassName={deltaToneClass(celebrateVsNasdaqCap)}
+                            />
+                          </>
+                        ) : (
+                          <p className="text-xs text-muted-foreground leading-snug">
+                            {celebratePerf?.computeStatus === 'in_progress'
+                              ? 'Loading performance…'
+                              : celebratePerf?.computeStatus === 'failed'
+                                ? 'Could not load metrics.'
+                                : 'Metrics will appear when performance data is ready.'}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="min-w-0 space-y-2 rounded-lg border bg-card/80 p-2 sm:p-3">
+                        {celebratePerf?.isHoldingPeriod &&
+                        celebratePerf.computeStatus === 'ready' &&
+                        celebratePerf.series.length >= 1 ? (
+                          <p className="text-[11px] text-muted-foreground rounded-md border border-blue-500/25 bg-blue-500/5 px-2.5 py-2">
+                            This portfolio is in a <strong>buy-and-hold</strong> stretch — holdings
+                            stay fixed until the next scheduled rebalance. The chart reflects price
+                            movement of those positions.
+                          </p>
+                        ) : null}
+                        {celebratePerfLoading && celebratePerf == null ? (
+                          <Skeleton
+                            className={cn(CELEBRATE_CHART_HEIGHT_CLASS, 'w-full rounded-lg')}
+                          />
+                        ) : celebratePerf?.computeStatus === 'ready' &&
+                          celebratePerf.series.length > 1 ? (
                           <CelebratePerformanceChart
                             series={celebratePerf.series}
                             strategyName={celebrateChartTitle}
@@ -1440,51 +1633,68 @@ export function PortfolioOnboardingDialog({
                             seriesLabelOverrides={{ nasdaq100CapWeight: 'Nasdaq-100' }}
                             chartContainerClassName={CELEBRATE_CHART_HEIGHT_CLASS}
                           />
-                        </div>
-                      ) : (
-                        <div className="flex min-h-[12rem] flex-col items-center justify-center rounded-lg border border-dashed bg-muted/30 px-4 py-8 text-center text-sm text-muted-foreground">
-                          {celebratePerf?.computeStatus === 'in_progress'
-                            ? 'Chart is computing — this usually takes a short moment.'
-                            : celebratePerf?.computeStatus === 'failed'
-                              ? 'Could not load the performance chart.'
-                              : 'No chart data yet for this portfolio. You can still follow it below.'}
-                        </div>
-                      )}
+                        ) : celebratePerf?.computeStatus === 'ready' &&
+                          celebratePerf.series.length === 1 ? (
+                          <div className="space-y-2">
+                            <p className="text-[11px] text-muted-foreground rounded-md border border-amber-500/25 bg-amber-500/5 px-2.5 py-2">
+                              Only one performance point is recorded so far — the line will grow as
+                              more weeks are saved.
+                            </p>
+                            <CelebratePerformanceChart
+                              series={celebratePerf.series}
+                              strategyName={celebrateChartTitle}
+                              hideDrawdown
+                              hideFootnote
+                              initialNotional={celebrateNotional}
+                              omitSeriesKeys={['nasdaq100EqualWeight']}
+                              seriesLabelOverrides={{ nasdaq100CapWeight: 'Nasdaq-100' }}
+                              chartContainerClassName={CELEBRATE_CHART_HEIGHT_CLASS}
+                            />
+                          </div>
+                        ) : (
+                          <div className="flex min-h-[12rem] flex-col items-center justify-center rounded-lg border border-dashed bg-muted/30 px-4 py-8 text-center text-sm text-muted-foreground">
+                            {celebratePerf?.computeStatus === 'in_progress'
+                              ? 'Chart is computing — this usually takes a short moment.'
+                              : celebratePerf?.computeStatus === 'failed'
+                                ? 'Could not load the performance chart.'
+                                : 'No chart data yet for this portfolio. You can still follow it below.'}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
-            </div>
-            <OnboardingDialogFooter>
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-auto shrink-0 gap-1.5 px-2 -ml-2 text-muted-foreground hover:text-foreground"
-                  onClick={() => goToStep('done')}
-                >
-                  <ArrowLeft className="size-3.5" />
-                  Change selections
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  className="shrink-0 gap-1.5"
-                  disabled={followPhase !== 'idle'}
-                  onClick={() => void handleFollowThisPortfolio()}
-                >
-                  {followPhase === 'syncing'
-                    ? 'Adding to overview…'
-                    : followPhase === 'posting'
-                      ? 'Following…'
-                      : 'Follow this portfolio'}
-                  {followPhase === 'idle' ? <ArrowRight className="size-3.5" /> : null}
-                </Button>
+                )}
               </div>
-            </OnboardingDialogFooter>
-          </div>
-        )}
+              <OnboardingDialogFooter>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-auto shrink-0 gap-1.5 px-2 -ml-2 text-muted-foreground hover:text-foreground"
+                    onClick={() => goToStep('done')}
+                  >
+                    <ArrowLeft className="size-3.5" />
+                    Change selections
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="shrink-0 gap-1.5"
+                    disabled={followPhase !== 'idle'}
+                    onClick={() => void handleFollowThisPortfolio()}
+                  >
+                    {followPhase === 'syncing'
+                      ? 'Adding to overview…'
+                      : followPhase === 'posting'
+                        ? 'Following…'
+                        : 'Follow this portfolio'}
+                    {followPhase === 'idle' ? <ArrowRight className="size-3.5" /> : null}
+                  </Button>
+                </div>
+              </OnboardingDialogFooter>
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>

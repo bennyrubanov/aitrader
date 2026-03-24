@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { ExternalLink } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 /**
  * Explains rank for a strategy model; links to methodology.
@@ -10,11 +11,18 @@ export function PortfolioRankingTooltipBody({
   rank,
   rankedTotal,
   strategySlug,
+  rankingAction,
 }: {
   rank: number;
   /** When set and positive, shows “rank out of total” copy. */
   rankedTotal?: number;
   strategySlug: string;
+  /** Optional button below “How rankings work” (e.g. apply #1 config in onboarding). */
+  rankingAction?: {
+    label: string;
+    onClick: () => void;
+    disabled?: boolean;
+  };
 }) {
   const main =
     rankedTotal != null && rankedTotal > 0
@@ -38,6 +46,22 @@ export function PortfolioRankingTooltipBody({
         How rankings work
         <ExternalLink className="size-3 shrink-0" aria-hidden />
       </Link>
+      {rankingAction ? (
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          className="mt-2 h-8 w-full text-xs"
+          disabled={rankingAction.disabled}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            rankingAction.onClick();
+          }}
+        >
+          {rankingAction.label}
+        </Button>
+      ) : null}
     </div>
   );
 }

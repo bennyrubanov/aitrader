@@ -1,8 +1,10 @@
 import { unstable_cache } from 'next/cache';
+import type { RecommendationBucket } from '@/lib/recommendation-bucket';
+import { bucketFromScore } from '@/lib/recommendation-bucket';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { createPublicClient } from '@/utils/supabase/public';
 
-export type RecommendationBucket = 'buy' | 'hold' | 'sell' | null;
+export type { RecommendationBucket };
 
 export type DailyRow = {
   symbol: string;
@@ -56,6 +58,8 @@ export type RatingsRow = {
   symbol: string;
   name: string | null;
   score: number | null;
+  /** `current_score - previous_score` from the latest AI run vs prior week. */
+  scoreDelta: number | null;
   rank: number;
   bucket: RecommendationBucket;
   rankChange: number | null;
@@ -63,10 +67,21 @@ export type RatingsRow = {
   avgScore4w: number | null;
   avgBucket4w: RecommendationBucket;
   reason1s: string | null;
+  /** Short risk strings from AI output (`ai_analysis_runs.risks` / current recommendations). */
+  risks: string[];
   lastPrice: string | null;
   priceDate: string | null;
   isTop20: boolean;
   updatedAt: string | null;
+  /**
+   * Mean weekly AI score from the first ratings run for this model through the selected run week
+   * (same universe as ratings).
+   */
+  cumulativeAvgScore: number | null;
+  /** Rank by `cumulativeAvgScore` (1 = highest) among stocks in this run. */
+  cumulativeViewRank: number;
+  /** Prior cumulative-view rank minus current; positive means moved up the cumulative leaderboard. */
+  cumulativeRankChange: number | null;
 };
 
 export type RatingsPageData = {
@@ -80,6 +95,8 @@ export type RatingsPageData = {
   } | null;
   latestRunDate: string | null;
   availableRunDates: string[];
+  /** First weekly AI ratings `run_date` for this strategy (start of cumulative average). */
+  modelInceptionDate: string | null;
 };
 
 type RatingsStrategyRow = {
@@ -96,6 +113,7 @@ type CurrentRecommendationRow = {
   score_delta: number | null;
   bucket: RecommendationBucket;
   reason_1s: string | null;
+  risks: unknown;
   updated_at: string | null;
   stocks:
     | { symbol: string; company_name: string | null }
@@ -110,6 +128,7 @@ type StrategyAnalysisRow = {
   score_delta: number | null;
   bucket: RecommendationBucket;
   reason_1s: string | null;
+  risks: unknown;
   created_at: string | null;
   stocks:
     | { symbol: string; company_name: string | null }
@@ -134,10 +153,19 @@ type RatingsBaseRow = {
   symbol: string;
   name: string | null;
   score: number | null;
+  scoreDelta: number | null;
   latentRank: number | null;
   bucket: RecommendationBucket;
   reason1s: string | null;
+  risks: string[];
   updatedAt: string | null;
+};
+
+const parseRisksFromJson = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((item): item is string => typeof item === 'string');
 };
 
 type BatchRankingRow = {
@@ -148,19 +176,6 @@ type BatchRankingRow = {
   bucket: RecommendationBucket;
 };
 
-const bucketFromScore = (score: number | null): RecommendationBucket => {
-  if (score === null || Number.isNaN(score)) {
-    return null;
-  }
-  if (score >= 2) {
-    return 'buy';
-  }
-  if (score <= -2) {
-    return 'sell';
-  }
-  return 'hold';
-};
-
 const averageScores = (scores: number[]) => {
   if (!scores.length) {
     return null;
@@ -169,6 +184,71 @@ const averageScores = (scores: number[]) => {
   const average = scores.reduce((sum, value) => sum + value, 0) / scores.length;
   return Number(average.toFixed(2));
 };
+
+const ANALYSIS_RUNS_BATCH_CHUNK = 80;
+
+function chunkIds<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    out.push(items.slice(i, i + size));
+  }
+  return out;
+}
+
+async function loadCumulativeAverageScoresByStock(
+  supabase: ReturnType<typeof createAdminClient>,
+  batchIds: string[]
+): Promise<Map<string, number>> {
+  const totals = new Map<string, { sum: number; n: number }>();
+  if (!batchIds.length) {
+    return new Map();
+  }
+  for (const idChunk of chunkIds(batchIds, ANALYSIS_RUNS_BATCH_CHUNK)) {
+    const { data: runs } = await supabase
+      .from('ai_analysis_runs')
+      .select('stock_id, score')
+      .in('batch_id', idChunk);
+    for (const r of runs ?? []) {
+      if (typeof r.score !== 'number') {
+        continue;
+      }
+      const t = totals.get(r.stock_id) ?? { sum: 0, n: 0 };
+      t.sum += r.score;
+      t.n += 1;
+      totals.set(r.stock_id, t);
+    }
+  }
+  const out = new Map<string, number>();
+  totals.forEach((v, k) => {
+    if (v.n > 0) {
+      out.set(k, Number((v.sum / v.n).toFixed(2)));
+    }
+  });
+  return out;
+}
+
+/** Dense ranks 1..n by cumulative average (desc); missing averages sort last. */
+function assignCumulativeViewRankMap(
+  rows: Array<{ stockId: string; symbol: string }>,
+  avgByStock: Map<string, number>
+): Map<string, number> {
+  const sorted = [...rows].sort((a, b) => {
+    const va = avgByStock.get(a.stockId);
+    const vb = avgByStock.get(b.stockId);
+    const aHas = va !== undefined;
+    const bHas = vb !== undefined;
+    if (!aHas && !bHas) {
+      return a.symbol.localeCompare(b.symbol) || a.stockId.localeCompare(b.stockId);
+    }
+    if (!aHas) return 1;
+    if (!bHas) return -1;
+    if (vb !== va) return vb - va;
+    return a.symbol.localeCompare(b.symbol) || a.stockId.localeCompare(b.stockId);
+  });
+  const out = new Map<string, number>();
+  sorted.forEach((r, i) => out.set(r.stockId, i + 1));
+  return out;
+}
 
 const assignRanks = (rows: RatingsBaseRow[]) => {
   const sorted = [...rows].sort((a, b) => {
@@ -420,9 +500,11 @@ const getWeeklyRecommendationsDataCached = unstable_cache(
 export const getDailyRecommendationsData = async () => getDailyRecommendationsDataCached();
 export const getWeeklyRecommendationsData = async () => getWeeklyRecommendationsDataCached();
 
-const getRatingsPageDataCached = unstable_cache(
-  async (strategySlug: string | null = null, runDate: string | null = null): Promise<RatingsPageData> => {
-    try {
+async function loadRatingsPageData(
+  strategySlug: string | null,
+  runDate: string | null
+): Promise<RatingsPageData> {
+  try {
       const supabase = createAdminClient();
 
       let strategyQuery = supabase
@@ -445,6 +527,7 @@ const getRatingsPageDataCached = unstable_cache(
           strategy: null,
           latestRunDate: null,
           availableRunDates: [],
+          modelInceptionDate: null,
         };
       }
 
@@ -467,6 +550,7 @@ const getRatingsPageDataCached = unstable_cache(
           },
           latestRunDate: null,
           availableRunDates: [],
+          modelInceptionDate: null,
         };
       }
 
@@ -486,18 +570,36 @@ const getRatingsPageDataCached = unstable_cache(
 
       const isLatestRun = selectedBatch.id === allBatches[0].id;
 
-      const [baseResponse, holdingsResponse, batchScoresResponse, rankingHistoryResponse, latestPriceDateResponse] =
-        await Promise.all([
+      const modelInceptionDate =
+        allBatches.length > 0 ? (allBatches[allBatches.length - 1]!.run_date ?? null) : null;
+
+      const batchIdsCumulativeThroughSelected = allBatches.slice(selectedIdx).map((b) => b.id);
+      const batchIdsCumulativeThroughPrevious =
+        previousBatch != null ? allBatches.slice(selectedIdx + 1).map((b) => b.id) : [];
+
+      const [
+        cumulativeAvgByStock,
+        cumulativeAvgPreviousByStock,
+        baseResponse,
+        holdingsResponse,
+        batchScoresResponse,
+        rankingHistoryResponse,
+        latestPriceDateResponse,
+      ] = await Promise.all([
+        loadCumulativeAverageScoresByStock(supabase, batchIdsCumulativeThroughSelected),
+        batchIdsCumulativeThroughPrevious.length > 0
+          ? loadCumulativeAverageScoresByStock(supabase, batchIdsCumulativeThroughPrevious)
+          : Promise.resolve(new Map<string, number>()),
         strategy.is_default && !strategySlug && isLatestRun
           ? supabase
               .from('nasdaq100_recommendations_current')
               .select(
-                'stock_id, score, latent_rank, score_delta, bucket, reason_1s, updated_at, stocks(symbol, company_name)'
+                'stock_id, score, latent_rank, score_delta, bucket, reason_1s, risks, updated_at, stocks(symbol, company_name)'
               )
           : supabase
               .from('ai_analysis_runs')
               .select(
-                'stock_id, score, latent_rank, score_delta, bucket, reason_1s, created_at, stocks(symbol, company_name)'
+                'stock_id, score, latent_rank, score_delta, bucket, reason_1s, risks, created_at, stocks(symbol, company_name)'
               )
               .eq('batch_id', selectedBatch.id),
         supabase
@@ -533,6 +635,7 @@ const getRatingsPageDataCached = unstable_cache(
           },
           latestRunDate,
           availableRunDates,
+          modelInceptionDate,
         };
       }
 
@@ -583,9 +686,11 @@ const getRatingsPageDataCached = unstable_cache(
                 symbol: stock.symbol,
                 name: stock.company_name ?? stock.symbol,
                 score: typeof row.score === 'number' ? row.score : null,
+                scoreDelta: typeof row.score_delta === 'number' ? row.score_delta : null,
                 latentRank: typeof row.latent_rank === 'number' ? row.latent_rank : null,
                 bucket: row.bucket ?? null,
                 reason1s: row.reason_1s ?? null,
+                risks: parseRisksFromJson(row.risks),
                 updatedAt: row.updated_at ?? null,
               };
             })
@@ -600,13 +705,22 @@ const getRatingsPageDataCached = unstable_cache(
                 symbol: stock.symbol,
                 name: stock.company_name ?? stock.symbol,
                 score: typeof row.score === 'number' ? row.score : null,
+                scoreDelta: typeof row.score_delta === 'number' ? row.score_delta : null,
                 latentRank: typeof row.latent_rank === 'number' ? row.latent_rank : null,
                 bucket: row.bucket ?? null,
                 reason1s: row.reason_1s ?? null,
+                risks: parseRisksFromJson(row.risks),
                 updatedAt: row.created_at ?? latestRunDate,
               };
             })
       ).filter((row): row is RatingsBaseRow => Boolean(row));
+
+      const rankMeta = baseRows.map((r) => ({ stockId: r.stockId, symbol: r.symbol }));
+      const cumulativeRankSelMap = assignCumulativeViewRankMap(rankMeta, cumulativeAvgByStock);
+      const cumulativeRankPrevMap =
+        batchIdsCumulativeThroughPrevious.length > 0
+          ? assignCumulativeViewRankMap(rankMeta, cumulativeAvgPreviousByStock)
+          : null;
 
       const rankingRows = (rankingHistoryResponse.data ?? []) as BatchRankingRow[];
       const latestRankingRows = rankingRows.filter((row) => row.batch_id === selectedBatch.id);
@@ -628,6 +742,7 @@ const getRatingsPageDataCached = unstable_cache(
           symbol: row.symbol,
           name: row.name,
           score: row.score,
+          scoreDelta: row.scoreDelta,
           rank,
           bucket: row.bucket,
           rankChange,
@@ -635,10 +750,18 @@ const getRatingsPageDataCached = unstable_cache(
           avgScore4w,
           avgBucket4w: bucketFromScore(avgScore4w),
           reason1s: row.reason1s,
+          risks: row.risks,
           lastPrice: latestPrice?.lastPrice ?? null,
           priceDate: latestPrice?.priceDate ?? null,
           isTop20: isTop20Ids.has(row.stockId),
           updatedAt: row.updatedAt,
+          cumulativeAvgScore: cumulativeAvgByStock.get(row.stockId) ?? null,
+          cumulativeViewRank: cumulativeRankSelMap.get(row.stockId) ?? 1,
+          cumulativeRankChange:
+            cumulativeRankPrevMap == null
+              ? null
+              : (cumulativeRankPrevMap.get(row.stockId) ?? 1) -
+                (cumulativeRankSelMap.get(row.stockId) ?? 1),
         } satisfies RatingsRow;
       });
 
@@ -653,6 +776,7 @@ const getRatingsPageDataCached = unstable_cache(
         },
         latestRunDate,
         availableRunDates,
+        modelInceptionDate,
       };
     } catch {
       return {
@@ -661,12 +785,20 @@ const getRatingsPageDataCached = unstable_cache(
         strategy: null,
         latestRunDate: null,
         availableRunDates: [],
+        modelInceptionDate: null,
       };
     }
-  },
-  ['platform-ratings-page'],
-  { revalidate: 300 }
-);
+}
 
-export const getRatingsPageData = async (strategySlug?: string | null, runDate?: string | null) =>
-  getRatingsPageDataCached(strategySlug ?? null, runDate ?? null);
+export const getRatingsPageData = async (
+  strategySlug?: string | null,
+  runDate?: string | null
+): Promise<RatingsPageData> => {
+  const slug = strategySlug ?? null;
+  const date = runDate ?? null;
+  return unstable_cache(
+    async () => loadRatingsPageData(slug, date),
+    ['platform-ratings-page', slug ?? 'default', date ?? 'latest'],
+    { revalidate: 300 }
+  )();
+};

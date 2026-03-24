@@ -38,7 +38,7 @@ const methodBadge = (lastMethod: string | null, method: string) =>
 function SignInPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { hasPremiumAccess, isLoaded } = useAuthState();
+  const { isAuthenticated, isLoaded } = useAuthState();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -51,16 +51,16 @@ function SignInPageContent() {
   const oauthInFlightRef = useRef(false);
 
   const nextPath = useMemo(
-    () => sanitizeNextPath(searchParams.get("next"), "/pricing"),
+    () => sanitizeNextPath(searchParams.get("next"), "/platform/overview"),
     [searchParams],
   );
 
   useEffect(() => {
     if (!isLoaded) return;
-    if (hasPremiumAccess) {
-      router.replace("/platform/overview");
+    if (isAuthenticated) {
+      router.replace(nextPath);
     }
-  }, [hasPremiumAccess, isLoaded, router]);
+  }, [isAuthenticated, isLoaded, nextPath, router]);
 
   useEffect(() => {
     setLastMethod(getLastSignInMethod());
@@ -68,7 +68,7 @@ function SignInPageContent() {
 
   useEffect(() => {
     const explicit = searchParams.get("next");
-    if (explicit && explicit !== "/pricing" && explicit.startsWith("/")) {
+    if (explicit && explicit !== "/platform/overview" && explicit.startsWith("/")) {
       savePreAuthReturnUrl(explicit);
     } else if (typeof document !== "undefined" && document.referrer) {
       try {
@@ -87,8 +87,8 @@ function SignInPageContent() {
       "/",
       "/sign-up",
       "/forgot-password",
-      "/pricing",
       "/platform/overview",
+      "/pricing",
       "/privacy",
       "/terms",
     ].forEach((href) => {
@@ -124,7 +124,7 @@ function SignInPageContent() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`,
       },
     });
 
@@ -184,7 +184,7 @@ function SignInPageContent() {
     } else {
       const redirectRes = await fetch("/api/auth/post-login-redirect");
       const { redirectTo } = (await redirectRes.json()) as { redirectTo: string };
-      router.push(redirectTo ?? "/pricing");
+      router.push(redirectTo ?? "/platform/overview");
     }
     router.refresh();
   };

@@ -1,5 +1,6 @@
 /**
- * Canonical display label for a portfolio (matches DB migration).
+ * Canonical display label for a portfolio (matches DB).
+ * Order: Top N · rebalance frequency · weighting (e.g. Top 5 · Weekly · Cap).
  * Tier/risk is shown separately via risk_label in the UI.
  */
 
@@ -21,39 +22,26 @@ export function formatPortfolioConfigLabel(params: {
   const freq =
     FREQ_DISPLAY[params.rebalanceFrequency] ??
     params.rebalanceFrequency.charAt(0).toUpperCase() + params.rebalanceFrequency.slice(1);
-  if (params.topN === 1) return `Top 1 · ${freq}`;
   const weight = params.weightingMethod === 'cap' ? 'Cap' : 'Equal';
-  return `Top ${params.topN} · ${weight} · ${freq}`;
+  return `Top ${params.topN} · ${freq} · ${weight}`;
 }
 
-/**
- * Overview tiles / picker rows: same parts as {@link formatPortfolioConfigLabel} but frequency before weighting
- * (`Top 20 · Weekly · Equal`). Risk tier is shown separately in the UI.
- */
+/** Overview tiles / picker rows (same string as {@link formatPortfolioConfigLabel}). */
 export function formatPortfolioConfigOverviewLine(params: {
   topN: number;
   weightingMethod: string;
   rebalanceFrequency: string;
 }): string {
-  const freq =
-    FREQ_DISPLAY[params.rebalanceFrequency] ??
-    params.rebalanceFrequency.charAt(0).toUpperCase() + params.rebalanceFrequency.slice(1);
-  if (params.topN === 1) return `Top 1 · ${freq}`;
-  const weight = params.weightingMethod === 'cap' ? 'Cap' : 'Equal';
-  return `Top ${params.topN} · ${freq} · ${weight}`;
+  return formatPortfolioConfigLabel(params);
 }
 
-/** Platform overview spotlight: always includes weight (`Top 1 · Weekly · Equal`). */
+/** Platform overview spotlight (same string as {@link formatPortfolioConfigLabel}). */
 export function formatPortfolioSpotlightConfigLine(params: {
   topN: number;
   weightingMethod: string;
   rebalanceFrequency: string;
 }): string {
-  const freq =
-    FREQ_DISPLAY[params.rebalanceFrequency] ??
-    params.rebalanceFrequency.charAt(0).toUpperCase() + params.rebalanceFrequency.slice(1);
-  const weight = params.weightingMethod === 'cap' ? 'Cap' : 'Equal';
-  return `Top ${params.topN} · ${freq} · ${weight}`;
+  return formatPortfolioConfigLabel(params);
 }
 
 /** Short line for subtitles: `Top 20 · Weekly` (frequency only, no weighting). */

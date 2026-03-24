@@ -1,9 +1,10 @@
 'use client';
 
+import { Suspense } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Home } from 'lucide-react';
+import { Compass, Folders, Home, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SidebarControlDialog } from '@/components/platform/sidebar-control-dialog';
 import { Separator } from '@/components/ui/separator';
@@ -30,6 +31,10 @@ const viewMetaByPath: Record<string, ViewMeta> = {
     title: 'Your Portfolios',
     subtitle: 'Track and manage the portfolios you follow',
   },
+  '/platform/explore-portfolios': {
+    title: 'Explore Portfolios',
+    subtitle: 'Compare portfolios and follow the ones that fit your style',
+  },
   '/performance': {
     title: 'Performance',
     subtitle: 'Transparent live results for the weekly Top-20 strategy',
@@ -38,19 +43,38 @@ const viewMetaByPath: Record<string, ViewMeta> = {
     title: 'Settings',
     subtitle: 'Manage account, billing, and notification preferences',
   },
+  '/platform/overview': {
+    title: 'Overview',
+    subtitle: 'Top portfolio by performance, rebalance actions, and quick links',
+  },
+  '/platform': {
+    title: 'Overview',
+    subtitle: 'Top portfolio by performance, rebalance actions, and quick links',
+  },
 };
 
 const getMetaFromPath = (pathname: string): ViewMeta => {
-  if (viewMetaByPath[pathname]) {
-    return viewMetaByPath[pathname];
+  const normalized = pathname.replace(/\/+$/, '') || '/';
+
+  if (viewMetaByPath[normalized]) {
+    return viewMetaByPath[normalized];
   }
 
-  const matchedEntry = Object.entries(viewMetaByPath).find(([path]) =>
-    pathname === path || pathname.startsWith(`${path}/`)
-  );
+  // Longest-prefix match so `/platform` never shadows `/platform/explore-portfolios`.
+  let best: ViewMeta | undefined;
+  let bestLen = 0;
+  for (const [path, meta] of Object.entries(viewMetaByPath)) {
+    if (
+      (normalized === path || normalized.startsWith(`${path}/`)) &&
+      path.length > bestLen
+    ) {
+      best = meta;
+      bestLen = path.length;
+    }
+  }
 
   return (
-    matchedEntry?.[1] ?? {
+    best ?? {
       title: 'Platform',
       subtitle: 'Search, compare, and monitor AI-ranked stocks',
     }
@@ -69,7 +93,11 @@ export function SiteHeader() {
     email,
   } = useAuthState();
   const viewMeta = getMetaFromPath(pathname);
-  const getStartedHref = hasPremiumAccess ? '/platform/overview' : isAuthenticated ? '/pricing' : '/sign-up';
+  const getStartedHref = hasPremiumAccess
+    ? '/platform/overview'
+    : isAuthenticated
+      ? '/pricing'
+      : '/sign-up';
 
   const displayName = !isLoaded
     ? ''
@@ -78,7 +106,7 @@ export function SiteHeader() {
       : authName?.trim() || email?.split('@')[0] || 'Account';
 
   return (
-    <header className="bg-background sticky top-0 z-50 border-b">
+    <header className="sticky top-0 z-50 border-b bg-background">
       <div className="flex h-[var(--header-height)] items-center gap-3 px-4">
         <Link
           href="/"
@@ -131,9 +159,16 @@ export function SiteHeader() {
           </div>
         </div>
 
-        <Separator orientation="vertical" className="h-5 shrink-0" />
-
-        <MiniStockSearch />
+        <Suspense
+          fallback={
+            <div
+              className="hidden min-h-8 min-w-[260px] max-w-[340px] flex-1 rounded-md border border-transparent bg-transparent lg:block"
+              aria-hidden
+            />
+          }
+        >
+          <MiniStockSearch />
+        </Suspense>
 
         <div className="flex items-center gap-3">
           <ThemeToggle />
@@ -150,7 +185,11 @@ export function SiteHeader() {
                   Sign in
                 </Link>
               </Button>
-              <Button asChild size="sm" className="hidden sm:inline-flex bg-trader-blue hover:bg-trader-blue-dark text-white">
+              <Button
+                asChild
+                size="sm"
+                className="hidden sm:inline-flex bg-trader-blue hover:bg-trader-blue-dark text-white"
+              >
                 <Link
                   href={getStartedHref}
                   prefetch

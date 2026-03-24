@@ -165,6 +165,7 @@ async function buildHoldingsForBatch(
       score: s != null ? toNullableNumber(s.score) : null,
       latentRank: s != null ? toNullableNumber(s.latent_rank) : null,
       bucket: bucketByStockId.get(h.stock_id) ?? null,
+      rankChange: null,
     };
   });
 
@@ -216,7 +217,29 @@ export async function getPortfolioConfigHoldings(
   }
 
   const { holdings, asOfDate } = await buildHoldingsForBatch(supabase, batch, configSummary);
-  return { holdings, asOfDate, configSummary, rebalanceDates };
+
+  const batchIndex = rebalanceBatches.findIndex((b) => b.run_date === batch.run_date);
+  let holdingsOut = holdings;
+  if (batchIndex > 0) {
+    const prevBatch = rebalanceBatches[batchIndex - 1]!;
+    const { holdings: prevHoldings } = await buildHoldingsForBatch(
+      supabase,
+      prevBatch,
+      configSummary
+    );
+    const prevRankBySymbol = new Map(
+      prevHoldings.map((h) => [h.symbol.toUpperCase(), h.rank] as const)
+    );
+    holdingsOut = holdings.map((h) => {
+      const prevRank = prevRankBySymbol.get(h.symbol.toUpperCase()) ?? null;
+      return {
+        ...h,
+        rankChange: prevRank === null ? null : prevRank - h.rank,
+      };
+    });
+  }
+
+  return { holdings: holdingsOut, asOfDate, configSummary, rebalanceDates };
 }
 
 export async function getLatestHoldingsForPortfolioConfig(

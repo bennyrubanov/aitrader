@@ -1,6 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react';
 import {
   CartesianGrid,
   Line,
@@ -120,7 +127,8 @@ export function StockChartDialog({
   const [scoreAxisHovered, setScoreAxisHovered] = useState(false);
   const cacheKey = `${symbol.toUpperCase()}::${strategySlug ?? 'default'}`;
 
-  useEffect(() => {
+  /** Before paint: apply cache or enter loading so we never flash “no history” pre-fetch. */
+  useLayoutEffect(() => {
     if (!open) return;
     const cached = stockHistoryCache.get(cacheKey);
     if (cached) {
@@ -129,13 +137,19 @@ export function StockChartDialog({
       setIsLoading(false);
       return;
     }
+    setData(null);
+    setErrorMessage(null);
+    setIsLoading(true);
+  }, [cacheKey, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const cached = stockHistoryCache.get(cacheKey);
+    if (cached) return;
 
     const controller = new AbortController();
     const params = new URLSearchParams({ symbol });
     if (strategySlug) params.set('strategy', strategySlug);
-
-    setIsLoading(true);
-    setErrorMessage(null);
 
     fetch(`/api/platform/stock-history?${params.toString()}`, { signal: controller.signal })
       .then(async (r) => {
@@ -153,7 +167,9 @@ export function StockChartDialog({
         if ((err as { name?: string })?.name === 'AbortError') return;
         setErrorMessage(err instanceof Error ? err.message : 'Unable to load chart data.');
       })
-      .finally(() => setIsLoading(false));
+      .finally(() => {
+        if (!controller.signal.aborted) setIsLoading(false);
+      });
 
     return () => controller.abort();
   }, [cacheKey, open, strategySlug, symbol]);
@@ -199,6 +215,10 @@ export function StockChartDialog({
       .map((r) => ({ key: r.date, shortDate: shortByIso.get(r.date)! }));
   }, [data, chartData]);
 
+  /** Covers first paint before useLayoutEffect runs (open + no data yet). */
+  const showChartLoading =
+    isLoading || (open && data === null && errorMessage === null);
+
   const ticker = symbol.toUpperCase();
   const titleStockLabel =
     data?.companyName && data.companyName.length > 0
@@ -242,8 +262,12 @@ export function StockChartDialog({
           ))}
         </div>
 
-        {isLoading ? (
-          <Skeleton className="h-[320px] w-full rounded-lg" />
+        {showChartLoading ? (
+          <div className="flex h-[320px] w-full flex-col justify-center gap-3 rounded-lg border border-dashed border-muted-foreground/20 bg-muted/30 px-4">
+            <Skeleton className="h-3 w-3/5 max-w-xs" />
+            <Skeleton className="h-[240px] w-full rounded-md" />
+            <Skeleton className="mx-auto h-3 w-2/5 max-w-[180px]" />
+          </div>
         ) : errorMessage ? (
           <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
             {errorMessage}

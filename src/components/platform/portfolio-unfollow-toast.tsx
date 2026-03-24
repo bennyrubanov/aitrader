@@ -2,6 +2,7 @@
 
 import { toast } from '@/hooks/use-toast';
 import { ToastAction } from '@/components/ui/toast';
+import { cn } from '@/lib/utils';
 
 /** Fired after follow is undone (PATCH isActive: false) so clients can refetch profiles. */
 export const USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT = 'user-portfolio-profiles-invalidate';
@@ -72,6 +73,8 @@ export type PortfolioFollowToastOptions = {
   description?: string;
   /** Extra work after profiles are invalidated (e.g. Explore list, router.refresh). */
   onAfterUndo?: () => void | Promise<void>;
+  /** Optional primary navigation CTA stacked above Undo (e.g. open Your portfolios). */
+  viewAction?: { label: string; onClick: () => void };
 };
 
 /** Toast after a successful follow; Undo deactivates the profile (same as unfollow). */
@@ -80,32 +83,54 @@ export function showPortfolioFollowToast({
   title,
   description,
   onAfterUndo,
+  viewAction,
 }: PortfolioFollowToastOptions): void {
+  const renderUndo = (actionClassName?: string) => (
+    <ToastAction
+      altText="Undo follow"
+      className={actionClassName}
+      onClick={() => {
+        void (async () => {
+          const ok = await setUserPortfolioProfileActive(profileId, false);
+          if (ok) {
+            invalidateUserPortfolioProfiles();
+            await onAfterUndo?.();
+            toast({ title: 'Follow removed' });
+          } else {
+            toast({
+              title: 'Could not undo',
+              description: 'Try removing the portfolio from Your portfolio.',
+              variant: 'destructive',
+            });
+          }
+        })();
+      }}
+    >
+      Undo
+    </ToastAction>
+  );
+
   toast({
     title,
     description,
-    action: (
-      <ToastAction
-        altText="Undo follow"
-        onClick={() => {
-          void (async () => {
-            const ok = await setUserPortfolioProfileActive(profileId, false);
-            if (ok) {
-              invalidateUserPortfolioProfiles();
-              await onAfterUndo?.();
-              toast({ title: 'Follow removed' });
-            } else {
-              toast({
-                title: 'Could not undo',
-                description: 'Try removing the portfolio from Your portfolio.',
-                variant: 'destructive',
-              });
-            }
-          })();
-        }}
-      >
-        Undo
-      </ToastAction>
-    ),
+    action:
+      viewAction != null ? (
+        <div className="flex shrink-0 flex-row flex-wrap items-center justify-end gap-2">
+          <ToastAction
+            altText={viewAction.label}
+            className={cn(
+              'h-9 shrink-0 border-transparent bg-primary px-3 text-primary-foreground shadow-sm',
+              'hover:bg-primary/90 hover:text-primary-foreground',
+              'focus-visible:ring-primary'
+            )}
+            onClick={viewAction.onClick}
+          >
+            {viewAction.label}
+          </ToastAction>
+          {renderUndo('h-9 shrink-0')}
+        </div>
+      ) : (
+        renderUndo()
+      ),
   });
 }

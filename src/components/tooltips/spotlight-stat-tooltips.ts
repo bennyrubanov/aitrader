@@ -5,7 +5,7 @@ export const SPOTLIGHT_STAT_TOOLTIPS = {
     body: 'Estimated current dollar value of this followed portfolio over your personal track (from your entry, positions, and investment size). The percentage in parentheses is cumulative return over that same window.',
   },
   return_pct: {
-    title: 'Return %',
+    title: 'Performance (return %)',
     body: 'Cumulative percentage gain or loss from your portfolio’s starting value at your entry through today—the raw total return over your window, before annualizing.',
   },
   cagr: {
@@ -22,11 +22,15 @@ export const SPOTLIGHT_STAT_TOOLTIPS = {
   },
   consistency: {
     title: 'Consistency (weekly vs NDX cap)',
-    body: 'Share of ISO weeks since your entry where your portfolio’s week-over-week return beat the Nasdaq-100 cap-weight benchmark for the same week. 50% means you matched the index half the time; above 50% means you won more weeks than you lost.',
+    body: 'Share of weeks since your entry where your portfolio’s week-over-week return beat the Nasdaq-100 cap-weight benchmark for the same week. 50% means you matched the index half the time; above 50% means you won more weeks than you lost.',
   },
   vs_nasdaq_cap: {
     title: 'Performance vs Nasdaq-100 (cap)',
     body: 'Your portfolio’s cumulative return minus the Nasdaq-100 cap-weight benchmark’s cumulative return over the same dates—both series aligned to your window. Positive means you added more percentage points than the index over that span.',
+  },
+  vs_nasdaq_equal: {
+    title: 'Performance vs Nasdaq-100 (equal)',
+    body: 'Your portfolio’s cumulative return minus the Nasdaq-100 equal-weight benchmark’s cumulative return over the same window. Equal weight spreads the same dollar share across every index member each period. Positive means you beat that benchmark in percentage points over that span.',
   },
   vs_sp500: {
     title: 'Performance vs S&P 500 (cap)',

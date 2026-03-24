@@ -10,6 +10,11 @@ import {
   type ExploreBenchmarkSeries,
   type ExploreEquitySeriesRow,
 } from '@/components/platform/explore-portfolios-equity-chart-shared';
+import {
+  CHART_INDEX_SERIES_COLORS,
+  CHART_NEUTRAL_REFERENCE_STROKE,
+  CHART_PORTFOLIO_SERIES_COLOR,
+} from '@/lib/chart-index-series-colors';
 import { cn } from '@/lib/utils';
 
 /** Same labels/colors as `performance-chart.tsx` benchmarks */
@@ -28,9 +33,15 @@ const EXPLORE_BM_ORDER: ExploreBenchmarkKey[] = [
 ];
 
 const EXPLORE_BM_CONFIG: Record<ExploreBenchmarkKey, { label: string; color: string }> = {
-  [EXPLORE_BM_KEYS.cap]: { label: 'Nasdaq-100 (cap-weighted)', color: '#64748b' },
-  [EXPLORE_BM_KEYS.eq]: { label: 'Nasdaq-100 (equal-weighted)', color: '#16a34a' },
-  [EXPLORE_BM_KEYS.sp]: { label: 'S&P 500 (cap-weighted)', color: '#a855f7' },
+  [EXPLORE_BM_KEYS.cap]: {
+    label: 'Nasdaq-100 (cap-weighted)',
+    color: CHART_INDEX_SERIES_COLORS.nasdaq100CapWeight,
+  },
+  [EXPLORE_BM_KEYS.eq]: {
+    label: 'Nasdaq-100 (equal-weighted)',
+    color: CHART_INDEX_SERIES_COLORS.nasdaq100EqualWeight,
+  },
+  [EXPLORE_BM_KEYS.sp]: { label: 'S&P 500 (cap-weighted)', color: CHART_INDEX_SERIES_COLORS.sp500 },
 };
 
 type ExploreSidebarListRow =
@@ -571,7 +582,7 @@ export function ExplorePortfoliosEquityChart({
               />
               <ReferenceLine
                 y={10_000}
-                stroke="#64748b"
+                stroke={CHART_NEUTRAL_REFERENCE_STROKE}
                 strokeWidth={1}
                 strokeDasharray="5 4"
                 strokeOpacity={0.55}
@@ -579,7 +590,7 @@ export function ExplorePortfoliosEquityChart({
               {pinnedXLabel != null ? (
                 <ReferenceLine
                   x={pinnedXLabel}
-                  stroke="#2563eb"
+                  stroke={CHART_PORTFOLIO_SERIES_COLOR}
                   strokeWidth={1}
                   strokeDasharray="4 3"
                   strokeOpacity={0.65}
@@ -589,7 +600,11 @@ export function ExplorePortfoliosEquityChart({
                 cursor={
                   isPicker
                     ? false
-                    : { stroke: '#64748b', strokeWidth: 1, strokeOpacity: 0.45 }
+                    : {
+                        stroke: CHART_NEUTRAL_REFERENCE_STROKE,
+                        strokeWidth: 1,
+                        strokeOpacity: 0.45,
+                      }
                 }
                 content={() => null}
                 isAnimationActive={false}
@@ -600,7 +615,7 @@ export function ExplorePortfoliosEquityChart({
                   '';
                 const sel = selectedConfigId === cfgId;
                 const lineHover = hoveredLineKey === k;
-                const color = chartConfig[k]?.color ?? '#64748b';
+                const color = chartConfig[k]?.color ?? CHART_NEUTRAL_REFERENCE_STROKE;
                 const showPinDots = !isPicker && pinnedIndex != null;
                 return (
                   <Line
@@ -668,7 +683,7 @@ export function ExplorePortfoliosEquityChart({
                 );
               })}
               {benchmarkKeys.map((k) => {
-                const color = chartConfig[k]?.color ?? '#64748b';
+                const color = chartConfig[k]?.color ?? CHART_NEUTRAL_REFERENCE_STROKE;
                 const lineHover = hoveredLineKey === k;
                 const showPinDots = !isPicker && pinnedIndex != null;
                 return (
@@ -704,7 +719,7 @@ export function ExplorePortfoliosEquityChart({
             aria-label="$10k initial investment reference"
           >
             <span
-              className="h-0 w-9 shrink-0 border-t border-dashed border-[#64748b]/80 dark:border-[#94a3b8]/80"
+              className="h-0 w-9 shrink-0 border-t border-dashed border-slate-400/80 dark:border-slate-400/70"
               aria-hidden
             />
             <span className="text-[10px] leading-none text-muted-foreground">

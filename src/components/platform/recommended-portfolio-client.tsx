@@ -9,11 +9,8 @@ import {
   Info,
   Loader2,
 } from 'lucide-react';
-import {
-  usePortfolioConfig,
-  RISK_LABELS,
-  FREQUENCY_LABELS,
-} from '@/components/portfolio-config';
+import { usePortfolioConfig } from '@/components/portfolio-config';
+import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -81,7 +78,7 @@ function formatDate(d: string): string {
 const pctStr = (v: number | null) => (v !== null ? `${(v * 100).toFixed(2)}%` : '-');
 
 export function RecommendedPortfolioClient() {
-  const { config, riskLabel, topN, frequencyLabel, dataNote } = usePortfolioConfig();
+  const { config, riskLabel, topN, dataNote } = usePortfolioConfig();
   const [payload, setPayload] = useState<PortfolioPayload | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSwitching, setIsSwitching] = useState(false);
@@ -151,9 +148,12 @@ export function RecommendedPortfolioClient() {
             <div className="min-w-0 space-y-0.5">
               <h2 className="text-base font-semibold">Recommended portfolio</h2>
               <p className="text-xs text-muted-foreground">
-                Based on {strategy.name} · {riskLabel} · Top {topN} ·{' '}
-                {config.weightingMethod === 'equal' ? 'Equal weight' : 'Cap weight'} ·{' '}
-                Rebalance {frequencyLabel}
+                Based on {strategy.name} · {riskLabel} ·{' '}
+                {formatPortfolioConfigLabel({
+                  topN,
+                  weightingMethod: config.weightingMethod,
+                  rebalanceFrequency: config.rebalanceFrequency,
+                })}
               </p>
             </div>
 
@@ -206,9 +206,14 @@ export function RecommendedPortfolioClient() {
         <div className="flex items-center gap-2 border-b px-4 py-2 sm:px-6">
           <div className="flex flex-1 flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
             <span>
-              Config: <span className="font-medium text-foreground">{riskLabel}</span> · Top {topN} ·{' '}
-              <span className="font-medium text-foreground">{frequencyLabel}</span> ·{' '}
-              {config.weightingMethod === 'equal' ? 'Equal weight' : 'Cap weight'}
+              Config: <span className="font-medium text-foreground">{riskLabel}</span> ·{' '}
+              <span className="font-medium text-foreground">
+                {formatPortfolioConfigLabel({
+                  topN,
+                  weightingMethod: config.weightingMethod,
+                  rebalanceFrequency: config.rebalanceFrequency,
+                })}
+              </span>
             </span>
           </div>
         </div>

@@ -1,7 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
+import { HoldingRankWithChange } from '@/components/platform/holding-rank-with-change';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -18,8 +19,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Switch } from '@/components/ui/switch';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import {
   Table,
   TableBody,
@@ -35,11 +43,34 @@ import {
   type RiskLevel,
 } from '@/components/portfolio-config';
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
+import {
+  HoldingsAllocationColumnTooltip,
+  HoldingsMovementInfoTooltip,
+} from '@/components/tooltips';
+import { StockChartDialog } from '@/components/platform/stock-chart-dialog';
 import type { HoldingItem } from '@/lib/platform-performance-payload';
-import type { ConfigHoldingsSummary } from '@/lib/portfolio-config-holdings';
+import {
+  buildHoldingMovementTableRows,
+  getPreviousRebalanceDate,
+  holdingMovementRowCn,
+} from '@/lib/holdings-rebalance-movement';
+import {
+  getCachedExploreHoldings,
+  HOLDINGS_DATE_SWITCH_MIN_SKELETON_MS,
+  loadExplorePortfolioConfigHoldings,
+  prefetchExploreHoldingsDates,
+  sleepMs,
+} from '@/lib/portfolio-config-holdings-cache';
 import { sharpeRatioValueClass } from '@/lib/sharpe-value-class';
 import Link from 'next/link';
-import { ChevronDown, ExternalLink, Plus, UserMinus } from 'lucide-react';
+import {
+  ArrowUpRight,
+  ChevronDown,
+  ExternalLink,
+  Loader2,
+  Plus,
+  UserMinus,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const INITIAL_CAPITAL = 10_000;
@@ -215,13 +246,6 @@ function FlipCard({
   );
 }
 
-type HoldingsResponse = {
-  holdings?: HoldingItem[];
-  asOfDate?: string | null;
-  configSummary?: ConfigHoldingsSummary | null;
-  rebalanceDates?: string[];
-};
-
 export function ExplorePortfolioDetailDialog({
   open,
   onOpenChange,
@@ -256,36 +280,75 @@ export function ExplorePortfolioDetailDialog({
   onUnfollow?: () => void;
   unfollowBusy?: boolean;
 }) {
-  const [loading, setLoading] = useState(false);
+  const exploreHoldingsRequestIdRef = useRef(0);
+  const exploreHoldingsLenRef = useRef(0);
+
+  const [holdingsLoading, setHoldingsLoading] = useState(false);
+  const [holdingsRefreshing, setHoldingsRefreshing] = useState(false);
   const [holdings, setHoldings] = useState<HoldingItem[]>([]);
+  exploreHoldingsLenRef.current = holdings.length;
   const [rebalanceDates, setRebalanceDates] = useState<string[]>([]);
   const [selectedAsOf, setSelectedAsOf] = useState<string | null>(null);
+  const [holdingsMovementView, setHoldingsMovementView] = useState(false);
+  const [prevExploreHoldings, setPrevExploreHoldings] = useState<HoldingItem[] | null>(null);
+  const [prevExploreLoading, setPrevExploreLoading] = useState(false);
+  const [prevExploreError, setPrevExploreError] = useState(false);
+  const [stockChartSymbol, setStockChartSymbol] = useState<string | null>(null);
 
-  const fetchHoldings = useCallback(
+  const fetchExploreHoldings = useCallback(
     async (asOf: string | null) => {
       if (!config) return;
-      setLoading(true);
+      const slug = strategySlug?.trim();
+      if (!slug) return;
+      const reqId = ++exploreHoldingsRequestIdRef.current;
+      const hadTableData = exploreHoldingsLenRef.current > 0;
+      const isDatePick = asOf != null;
+      const useRefreshChrome = isDatePick && hadTableData;
+
+      const syncHit = getCachedExploreHoldings(slug, config.id, asOf);
+      if (syncHit) {
+        if (exploreHoldingsRequestIdRef.current !== reqId) return;
+        setHoldings(syncHit.holdings);
+        if (syncHit.asOfDate) setSelectedAsOf(syncHit.asOfDate);
+        setRebalanceDates(syncHit.rebalanceDates);
+        setHoldingsLoading(false);
+        setHoldingsRefreshing(false);
+        prefetchExploreHoldingsDates(slug, config.id, syncHit.rebalanceDates);
+        return;
+      }
+
+      if (useRefreshChrome) {
+        setHoldingsRefreshing(true);
+      } else {
+        setHoldingsLoading(true);
+      }
+
+      const started = Date.now();
       try {
-        const q = new URLSearchParams({
-          slug: strategySlug,
-          configId: config.id,
-        });
-        if (asOf) q.set('asOfDate', asOf);
-        const res = await fetch(`/api/platform/explore-portfolio-config-holdings?${q}`);
-        const data = (await res.json()) as HoldingsResponse & { error?: string };
-        if (!res.ok) {
+        const data = await loadExplorePortfolioConfigHoldings(slug, config.id, asOf);
+        if (exploreHoldingsRequestIdRef.current !== reqId) return;
+        if (!data) {
           setHoldings([]);
+          setSelectedAsOf(null);
           setRebalanceDates([]);
-          return;
+        } else {
+          if (useRefreshChrome) {
+            const elapsed = Date.now() - started;
+            if (elapsed < HOLDINGS_DATE_SWITCH_MIN_SKELETON_MS) {
+              await sleepMs(HOLDINGS_DATE_SWITCH_MIN_SKELETON_MS - elapsed);
+            }
+            if (exploreHoldingsRequestIdRef.current !== reqId) return;
+          }
+          setHoldings(data.holdings);
+          if (data.asOfDate) setSelectedAsOf(data.asOfDate);
+          setRebalanceDates(data.rebalanceDates);
+          prefetchExploreHoldingsDates(slug, config.id, data.rebalanceDates);
         }
-        setHoldings(data.holdings ?? []);
-        setRebalanceDates(data.rebalanceDates ?? []);
-        if (data.asOfDate) setSelectedAsOf(data.asOfDate);
-      } catch {
-        setHoldings([]);
-        setRebalanceDates([]);
       } finally {
-        setLoading(false);
+        if (exploreHoldingsRequestIdRef.current === reqId) {
+          setHoldingsLoading(false);
+          setHoldingsRefreshing(false);
+        }
       }
     },
     [config, strategySlug]
@@ -293,20 +356,100 @@ export function ExplorePortfolioDetailDialog({
 
   useEffect(() => {
     if (!open || !config) {
+      exploreHoldingsRequestIdRef.current += 1;
       setHoldings([]);
       setRebalanceDates([]);
       setSelectedAsOf(null);
+      setHoldingsMovementView(false);
+      setPrevExploreHoldings(null);
+      setPrevExploreError(false);
+      setPrevExploreLoading(false);
+      setHoldingsLoading(false);
+      setHoldingsRefreshing(false);
       return;
     }
     setSelectedAsOf(null);
-    void fetchHoldings(null);
-  }, [open, config?.id, fetchHoldings, config]);
+    void fetchExploreHoldings(null);
+  }, [open, config?.id, fetchExploreHoldings, config]);
+
+  useEffect(() => {
+    setStockChartSymbol(null);
+  }, [open, config?.id, strategySlug]);
+
+  const stockHistoryStrategySlug = strategyIsTop ? null : strategySlug;
+
+  const exploreHoldingsPrevRebalanceDate = useMemo(
+    () => getPreviousRebalanceDate(rebalanceDates, selectedAsOf),
+    [rebalanceDates, selectedAsOf]
+  );
+
+  const exploreHoldingsTopN = config?.topN ?? 20;
+
+  useEffect(() => {
+    if (
+      !holdingsMovementView ||
+      !exploreHoldingsPrevRebalanceDate ||
+      !config ||
+      !strategySlug?.trim()
+    ) {
+      setPrevExploreHoldings(null);
+      setPrevExploreLoading(false);
+      setPrevExploreError(false);
+      return;
+    }
+    let cancelled = false;
+    setPrevExploreLoading(true);
+    setPrevExploreError(false);
+    const slug = strategySlug.trim();
+    void loadExplorePortfolioConfigHoldings(slug, config.id, exploreHoldingsPrevRebalanceDate).then(
+      (data) => {
+        if (cancelled) return;
+        if (!data?.holdings) {
+          setPrevExploreHoldings(null);
+          setPrevExploreError(true);
+        } else {
+          setPrevExploreHoldings(data.holdings);
+        }
+        setPrevExploreLoading(false);
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    holdingsMovementView,
+    exploreHoldingsPrevRebalanceDate,
+    config?.id,
+    strategySlug,
+  ]);
+
+  const exploreHoldingsMovementModel = useMemo(() => {
+    if (
+      !holdingsMovementView ||
+      !exploreHoldingsPrevRebalanceDate ||
+      prevExploreLoading ||
+      prevExploreError ||
+      prevExploreHoldings === null
+    ) {
+      return null;
+    }
+    return buildHoldingMovementTableRows(holdings, prevExploreHoldings, exploreHoldingsTopN);
+  }, [
+    holdingsMovementView,
+    exploreHoldingsPrevRebalanceDate,
+    prevExploreLoading,
+    prevExploreError,
+    prevExploreHoldings,
+    holdings,
+    exploreHoldingsTopN,
+  ]);
 
   const onPickRebalance = (date: string) => {
     if (date === selectedAsOf) return;
-    setSelectedAsOf(date);
-    void fetchHoldings(date);
+    void fetchExploreHoldings(date);
   };
+
+  const holdingsAllocationNotional = INITIAL_CAPITAL;
 
   const hasMetrics = config?.dataStatus === 'ready';
   const m = config?.metrics;
@@ -342,7 +485,32 @@ export function ExplorePortfolioDetailDialog({
       : null;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+      {stockChartSymbol ? (
+        <StockChartDialog
+          key={stockChartSymbol}
+          symbol={stockChartSymbol}
+          strategySlug={stockHistoryStrategySlug}
+          open
+          onOpenChange={(o) => {
+            if (!o) setStockChartSymbol(null);
+          }}
+          showDefaultTrigger={false}
+          footer={
+            <Button variant="outline" size="sm" asChild className="gap-1">
+              <a
+                href={`/stocks/${stockChartSymbol.toLowerCase()}`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Full analysis
+                <ArrowUpRight className="size-3.5" />
+              </a>
+            </Button>
+          }
+        />
+      ) : null}
+      <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[min(90vh,880px)] w-[calc(100vw-1.5rem)] max-w-3xl flex flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
         <DialogHeader className="sr-only">
           <DialogTitle>
@@ -485,95 +653,353 @@ export function ExplorePortfolioDetailDialog({
             <p className="text-sm text-muted-foreground">Performance computing…</p>
           ) : null}
 
-          <section className="space-y-3">
-            <div className="flex flex-row flex-wrap items-center justify-between gap-x-3 gap-y-2">
-              <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground shrink-0">
-                Holdings by rebalance
+          <section className="space-y-2">
+            <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-2">
+              <h4 className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Portfolio holdings
               </h4>
               {rebalanceDates.length > 0 ? (
-                <Select
-                  value={
-                    selectedAsOf && rebalanceDates.includes(selectedAsOf)
-                      ? selectedAsOf
-                      : undefined
-                  }
-                  onValueChange={(v) => {
-                    if (v) onPickRebalance(v);
-                  }}
-                  disabled={loading}
-                >
-                  <SelectTrigger className="h-9 w-full max-w-[240px] shrink-0 text-xs sm:w-[240px]">
-                    <SelectValue placeholder="Rebalance date" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {rebalanceDates.map((d) => (
-                      <SelectItem key={d} value={d} className="text-xs">
-                        {shortDateFmt.format(new Date(`${d}T00:00:00Z`))}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : loading ? (
-                <span className="text-[11px] text-muted-foreground shrink-0">Loading…</span>
+                <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-2 sm:gap-x-3">
+                  <Select
+                    value={
+                      selectedAsOf && rebalanceDates.includes(selectedAsOf)
+                        ? selectedAsOf
+                        : undefined
+                    }
+                    onValueChange={(v) => {
+                      if (v) onPickRebalance(v);
+                    }}
+                    disabled={holdingsLoading}
+                  >
+                    <SelectTrigger className="h-9 w-full max-w-[168px] shrink-0 text-xs sm:w-[168px]">
+                      <SelectValue placeholder="Rebalance date" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {rebalanceDates.map((d) => (
+                        <SelectItem key={d} value={d} className="text-xs">
+                          {shortDateFmt.format(new Date(`${d}T00:00:00Z`))}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {exploreHoldingsPrevRebalanceDate ? (
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Switch
+                        id="explore-holdings-movement"
+                        checked={holdingsMovementView}
+                        onCheckedChange={setHoldingsMovementView}
+                        disabled={holdingsLoading}
+                        aria-label="Show which holdings entered, stayed, or exited vs prior rebalance"
+                      />
+                      <Label
+                        htmlFor="explore-holdings-movement"
+                        className="cursor-pointer whitespace-nowrap text-xs leading-none text-muted-foreground"
+                      >
+                        Movement
+                      </Label>
+                      <HoldingsMovementInfoTooltip />
+                      {holdingsMovementView && prevExploreLoading ? (
+                        <Loader2
+                          className="size-3.5 shrink-0 animate-spin text-muted-foreground"
+                          aria-hidden
+                        />
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              ) : holdingsLoading ? (
+                <span className="shrink-0 text-[11px] text-muted-foreground">Loading…</span>
               ) : (
-                <p className="text-sm text-muted-foreground shrink-0 text-right">
+                <p className="shrink-0 text-right text-[11px] text-muted-foreground">
                   No rebalance history yet.
                 </p>
               )}
             </div>
+            {holdingsMovementView && prevExploreError ? (
+              <p className="text-[11px] text-destructive">
+                Could not load the prior rebalance to compare.
+              </p>
+            ) : null}
 
-            {loading ? (
+            {holdingsLoading ? (
               <Skeleton className="h-48 w-full rounded-md" />
             ) : holdings.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 No holdings for this date — scores may still be processing.
               </p>
             ) : (
-              <div className="rounded-md border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-10">#</TableHead>
-                      <TableHead>Symbol</TableHead>
-                      <TableHead className="hidden sm:table-cell">Company</TableHead>
-                      <TableHead className="text-right">Weight</TableHead>
-                      <TableHead className="text-right">Score</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {holdings.map((h) => (
-                      <TableRow key={`${h.symbol}-${h.rank}`}>
-                        <TableCell className="tabular-nums text-muted-foreground">{h.rank}</TableCell>
-                        <TableCell className="font-medium">{h.symbol}</TableCell>
-                        <TableCell className="hidden sm:table-cell max-w-[200px] truncate text-muted-foreground">
-                          {h.companyName}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {(h.weight * 100).toFixed(1)}%
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <span className="inline-flex items-center justify-end gap-1.5">
-                            <span className="tabular-nums text-muted-foreground">
-                              {h.score != null && Number.isFinite(h.score)
-                                ? h.score.toFixed(1)
-                                : '—'}
-                            </span>
-                            <Badge
-                              variant="outline"
-                              className={cn(
-                                'px-1.5 py-0 text-[10px] font-normal leading-tight shrink-0',
-                                holdingScoreBucketClass(h.bucket)
-                              )}
-                            >
-                              {holdingScoreBucketLabel(h.bucket)}
-                            </Badge>
-                          </span>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+              <TooltipProvider delayDuration={200}>
+                <div className="relative">
+                  {holdingsRefreshing ? (
+                    <div
+                      className="pointer-events-none absolute inset-0 z-[1] flex justify-center rounded-md bg-background/50 pt-6 backdrop-blur-[0.5px]"
+                      aria-hidden
+                    >
+                      <Skeleton className="h-36 w-full max-w-lg rounded-md" />
+                    </div>
+                  ) : null}
+                  <div className={cn(holdingsRefreshing && 'opacity-[0.65]')}>
+                    <div className="max-h-[min(56vh,400px)] overflow-auto rounded-md border">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="hover:bg-transparent">
+                            <TableHead className="h-9 min-w-[4.25rem] py-1.5 pl-2 pr-0.5 text-left align-middle tabular-nums">
+                              #
+                            </TableHead>
+                            <TableHead className="h-9 w-16 px-1.5 py-1.5 text-left align-middle">
+                              Stock
+                            </TableHead>
+                            <TableHead className="h-9 px-1.5 py-1.5 text-center align-middle whitespace-nowrap">
+                              <span className="inline-flex items-center justify-center gap-1">
+                                Allocation
+                                <HoldingsAllocationColumnTooltip
+                                  weightingMethod={config?.weightingMethod}
+                                  topN={config?.topN}
+                                />
+                              </span>
+                            </TableHead>
+                            <TableHead className="h-9 py-1.5 pl-1.5 pr-3 text-right align-middle whitespace-nowrap">
+                              AI rating
+                            </TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {exploreHoldingsMovementModel ? (
+                            <>
+                              {exploreHoldingsMovementModel.active.map(({ holding: h, kind }) => {
+                                const company =
+                                  typeof h.companyName === 'string' &&
+                                  h.companyName.trim().length > 0
+                                    ? h.companyName.trim()
+                                    : null;
+                                return (
+                                  <TableRow
+                                    key={`${h.symbol}-${h.rank}-m`}
+                                    className={cn(
+                                      'cursor-pointer hover:bg-muted/50',
+                                      holdingMovementRowCn(kind)
+                                    )}
+                                    tabIndex={0}
+                                    onClick={() => setStockChartSymbol(h.symbol)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault();
+                                        setStockChartSymbol(h.symbol);
+                                      }
+                                    }}
+                                  >
+                                    <TableCell className="py-1.5 pl-2 pr-0.5 text-muted-foreground">
+                                      <HoldingRankWithChange
+                                        rank={h.rank}
+                                        rankChange={h.rankChange}
+                                      />
+                                    </TableCell>
+                                    <TableCell className="px-1.5 py-1.5 text-left">
+                                      {company ? (
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <span className="block truncate font-medium">
+                                              {h.symbol}
+                                            </span>
+                                          </TooltipTrigger>
+                                          <TooltipContent
+                                            side="top"
+                                            className="max-w-xs text-left"
+                                          >
+                                            {company}
+                                          </TooltipContent>
+                                        </Tooltip>
+                                      ) : (
+                                        <span className="block truncate font-medium">{h.symbol}</span>
+                                      )}
+                                    </TableCell>
+                                    <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap">
+                                      {Number.isFinite(holdingsAllocationNotional) &&
+                                      holdingsAllocationNotional > 0
+                                        ? `${fmtUsd(h.weight * holdingsAllocationNotional)} (${(h.weight * 100).toFixed(1)}%)`
+                                        : `— (${(h.weight * 100).toFixed(1)}%)`}
+                                    </TableCell>
+                                    <TableCell className="py-1.5 pl-1.5 pr-3 text-right">
+                                      <span className="inline-flex items-center justify-end gap-1">
+                                        <Badge
+                                          variant="outline"
+                                          className={cn(
+                                            'shrink-0 px-1.5 py-0 text-[10px] font-normal leading-tight',
+                                            holdingScoreBucketClass(h.bucket)
+                                          )}
+                                        >
+                                          {holdingScoreBucketLabel(h.bucket)}
+                                        </Badge>
+                                        <span className="font-medium tabular-nums">
+                                          {h.score != null && Number.isFinite(h.score)
+                                            ? h.score.toFixed(1)
+                                            : '—'}
+                                        </span>
+                                      </span>
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              })}
+                              {exploreHoldingsMovementModel.exited.length > 0 ? (
+                                <TableRow className="pointer-events-none border-t bg-muted/25 hover:bg-muted/25">
+                                  <TableCell
+                                    colSpan={4}
+                                    className="py-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"
+                                  >
+                                    Exited (vs prior rebalance)
+                                  </TableCell>
+                                </TableRow>
+                              ) : null}
+                              {exploreHoldingsMovementModel.exited.map((h) => {
+                                const company =
+                                  typeof h.companyName === 'string' &&
+                                  h.companyName.trim().length > 0
+                                    ? h.companyName.trim()
+                                    : null;
+                                return (
+                                  <TableRow
+                                    key={`${h.symbol}-${h.rank}-x`}
+                                    className={cn(
+                                      'cursor-pointer hover:bg-muted/50',
+                                      holdingMovementRowCn('exited')
+                                    )}
+                                    tabIndex={0}
+                                    onClick={() => setStockChartSymbol(h.symbol)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault();
+                                        setStockChartSymbol(h.symbol);
+                                      }
+                                    }}
+                                  >
+                                    <TableCell className="py-1.5 pl-2 pr-0.5 text-muted-foreground">
+                                      <HoldingRankWithChange rank={h.rank} rankChange={null} />
+                                    </TableCell>
+                                    <TableCell className="px-1.5 py-1.5 text-left">
+                                      {company ? (
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <span className="block truncate font-medium">
+                                              {h.symbol}
+                                            </span>
+                                          </TooltipTrigger>
+                                          <TooltipContent
+                                            side="top"
+                                            className="max-w-xs text-left"
+                                          >
+                                            {company}
+                                          </TooltipContent>
+                                        </Tooltip>
+                                      ) : (
+                                        <span className="block truncate font-medium">{h.symbol}</span>
+                                      )}
+                                    </TableCell>
+                                    <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap text-muted-foreground">
+                                      <span className="text-[11px]">
+                                        Was {(h.weight * 100).toFixed(1)}%
+                                      </span>
+                                    </TableCell>
+                                    <TableCell className="py-1.5 pl-1.5 pr-3 text-right">
+                                      <span className="inline-flex items-center justify-end gap-1">
+                                        <Badge
+                                          variant="outline"
+                                          className={cn(
+                                            'shrink-0 px-1.5 py-0 text-[10px] font-normal leading-tight opacity-90',
+                                            holdingScoreBucketClass(h.bucket)
+                                          )}
+                                        >
+                                          {holdingScoreBucketLabel(h.bucket)}
+                                        </Badge>
+                                        <span className="font-medium tabular-nums text-muted-foreground">
+                                          {h.score != null && Number.isFinite(h.score)
+                                            ? h.score.toFixed(1)
+                                            : '—'}
+                                        </span>
+                                      </span>
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              })}
+                            </>
+                          ) : (
+                            holdings.slice(0, exploreHoldingsTopN).map((h) => {
+                              const company =
+                                typeof h.companyName === 'string' &&
+                                h.companyName.trim().length > 0
+                                  ? h.companyName.trim()
+                                  : null;
+                              return (
+                                <TableRow
+                                  key={`${h.symbol}-${h.rank}`}
+                                  className="cursor-pointer hover:bg-muted/50"
+                                  tabIndex={0}
+                                  onClick={() => setStockChartSymbol(h.symbol)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                      e.preventDefault();
+                                      setStockChartSymbol(h.symbol);
+                                    }
+                                  }}
+                                >
+                                  <TableCell className="py-1.5 pl-2 pr-0.5 text-muted-foreground">
+                                    <HoldingRankWithChange
+                                      rank={h.rank}
+                                      rankChange={h.rankChange}
+                                    />
+                                  </TableCell>
+                                  <TableCell className="px-1.5 py-1.5 text-left">
+                                    {company ? (
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <span className="block truncate font-medium">
+                                            {h.symbol}
+                                          </span>
+                                        </TooltipTrigger>
+                                        <TooltipContent
+                                          side="top"
+                                          className="max-w-xs text-left"
+                                        >
+                                          {company}
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    ) : (
+                                      <span className="block truncate font-medium">{h.symbol}</span>
+                                    )}
+                                  </TableCell>
+                                  <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap">
+                                    {Number.isFinite(holdingsAllocationNotional) &&
+                                    holdingsAllocationNotional > 0
+                                      ? `${fmtUsd(h.weight * holdingsAllocationNotional)} (${(h.weight * 100).toFixed(1)}%)`
+                                      : `— (${(h.weight * 100).toFixed(1)}%)`}
+                                  </TableCell>
+                                  <TableCell className="py-1.5 pl-1.5 pr-3 text-right">
+                                    <span className="inline-flex items-center justify-end gap-1">
+                                      <Badge
+                                        variant="outline"
+                                        className={cn(
+                                          'shrink-0 px-1.5 py-0 text-[10px] font-normal leading-tight',
+                                          holdingScoreBucketClass(h.bucket)
+                                        )}
+                                      >
+                                        {holdingScoreBucketLabel(h.bucket)}
+                                      </Badge>
+                                      <span className="font-medium tabular-nums">
+                                        {h.score != null && Number.isFinite(h.score)
+                                          ? h.score.toFixed(1)
+                                          : '—'}
+                                      </span>
+                                    </span>
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                </div>
+              </TooltipProvider>
             )}
           </section>
         </div>
@@ -605,7 +1031,7 @@ export function ExplorePortfolioDetailDialog({
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="top" className="max-w-xs text-xs">
-                Remove from Your Portfolios. You can undo from the notice.
+                Remove from Your Portfolios.
               </TooltipContent>
             </Tooltip>
           ) : null}
@@ -618,5 +1044,6 @@ export function ExplorePortfolioDetailDialog({
         </div>
       </DialogContent>
     </Dialog>
+    </>
   );
 }
