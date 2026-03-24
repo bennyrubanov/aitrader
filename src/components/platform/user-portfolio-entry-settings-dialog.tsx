@@ -38,6 +38,9 @@ type Props = {
   onOpenChange: (open: boolean) => void;
   profile: UserPortfolioEntrySettingsProfile | null;
   onSaved?: () => void;
+  /** Guests: persist to localStorage via `onLocalPersist` instead of the authenticated API. */
+  persistMode?: 'api' | 'local';
+  onLocalPersist?: (args: { investmentSize: number; userStartDate: string }) => void;
 };
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
@@ -52,6 +55,8 @@ export function UserPortfolioEntrySettingsDialog({
   onOpenChange,
   profile,
   onSaved,
+  persistMode = 'api',
+  onLocalPersist,
 }: Props) {
   const { toast } = useToast();
   const [investment, setInvestment] = useState('');
@@ -146,6 +151,26 @@ export function UserPortfolioEntrySettingsDialog({
 
     setBusy(true);
     try {
+      if (persistMode === 'local') {
+        if (!onLocalPersist) {
+          toast({
+            title: 'Could not save',
+            description: 'Local save is not available.',
+            variant: 'destructive',
+          });
+          return;
+        }
+        onLocalPersist({ investmentSize: inv, userStartDate: sd });
+        toast({
+          title: 'Portfolio settings updated',
+          description:
+            'Saved on this device only. Sign up to keep your portfolio when you switch browsers or devices.',
+        });
+        onOpenChange(false);
+        onSaved?.();
+        return;
+      }
+
       const res = await fetch('/api/platform/user-portfolio-profile', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },

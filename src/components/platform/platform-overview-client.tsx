@@ -37,6 +37,7 @@ import {
   type RebalanceFrequency,
   type RiskLevel,
 } from '@/components/portfolio-config';
+import { ENTRY_DATE_KEY } from '@/components/portfolio-config/portfolio-config-storage';
 import { ExplorePortfolioFilterControls } from '@/components/platform/explore-portfolio-filter-controls';
 import { ExplorePortfolioDetailDialog } from '@/components/platform/explore-portfolio-detail-dialog';
 import { PortfolioListSortDialog } from '@/components/platform/portfolio-list-sort-dialog';
@@ -128,6 +129,7 @@ import {
 import { PORTFOLIO_EXPLORE_QUICK_PICKS } from '@/lib/portfolio-explore-quick-picks';
 import type { SubscriptionTier } from '@/lib/auth-state';
 import { canAccessPaidPortfolioHoldings, getAppAccessState } from '@/lib/app-access';
+import { hasGuestDeclinedAccountNudgeThisSession } from '@/lib/guest-account-nudge-session';
 import {
   buildGuestLocalProfileRows,
   buildGuestUserEntryPerformancePayload,
@@ -1423,6 +1425,8 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     isOnboardingDone,
     config: portfolioConfigCtx,
     entryDate: portfolioEntryDate,
+    setEntryDate,
+    updateConfig,
   } = usePortfolioConfig();
 
   useEffect(() => {
@@ -1436,6 +1440,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   useEffect(() => {
     if (!authState.isLoaded || authState.isAuthenticated) return;
     if (!portfolioConfigHydrated || !isOnboardingDone) return;
+    if (hasGuestDeclinedAccountNudgeThisSession()) return;
     if (!pathname?.startsWith('/platform')) return;
     const t = window.setTimeout(() => openSignupPrompt(), 600);
     return () => clearTimeout(t);
@@ -1601,7 +1606,20 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
       setLoading(true);
       const strategy =
         strategies.find((s) => s.slug === portfolioConfigCtx.strategySlug) ?? strategies[0] ?? null;
-      void buildGuestLocalProfileRows(portfolioConfigCtx, portfolioEntryDate, strategy).then((rows) => {
+      let entryYmd = portfolioEntryDate?.trim() ?? '';
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(entryYmd)) {
+        try {
+          const fromStore = localStorage.getItem(ENTRY_DATE_KEY);
+          if (fromStore && /^\d{4}-\d{2}-\d{2}$/.test(fromStore)) entryYmd = fromStore;
+        } catch {
+          // ignore
+        }
+      }
+      void buildGuestLocalProfileRows(
+        portfolioConfigCtx,
+        entryYmd || null,
+        strategy
+      ).then((rows) => {
         if (!mounted) return;
         if (rows) {
           setProfiles([normalizeOverviewProfile(rows.overview as ProfileRow)]);
@@ -2475,8 +2493,19 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
               }
             : null
         }
+        persistMode={
+          entrySettingsProfile?.id && isGuestLocalProfileId(entrySettingsProfile.id)
+            ? 'local'
+            : 'api'
+        }
+        onLocalPersist={({ investmentSize, userStartDate }) => {
+          setEntryDate(userStartDate);
+          updateConfig({ investmentSize });
+        }}
         onSaved={() => {
-          void refreshOverviewProfiles();
+          if (authState.isAuthenticated) {
+            void refreshOverviewProfiles();
+          }
         }}
       />
       <PortfolioListSortDialog
@@ -2628,7 +2657,9 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                 <OverviewTopPortfolioSpotlightSkeleton />
               </div>
             </div>
-          ) : !authState.isAuthenticated ? (
+          ) : !authState.isAuthenticated && !isOnboardingDone ? null : !authState.isAuthenticated &&
+            isOnboardingDone &&
+            profiles.length === 0 ? (
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Sign in to view Overview</CardTitle>
@@ -2646,7 +2677,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                 </Button>
               </CardContent>
             </Card>
-          ) : profiles.length === 0 ? (
+          ) : authState.isAuthenticated && profiles.length === 0 ? (
             <>
               <Card className="border-dashed">
                 <CardHeader>
@@ -2681,47 +2712,67 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                         rebalance to keep up with the AI's ratings.
                       </p>
                     </div>
-                    <TabsList
-                      className={cn(
-                        'grid h-auto w-full max-w-md shrink-0 gap-1 rounded-lg bg-muted p-1 text-muted-foreground lg:h-9 lg:w-auto lg:max-w-none lg:inline-flex lg:shrink-0',
-                        SHOW_OVERVIEW_TILES_TAB_IN_UI ? 'grid-cols-3' : 'grid-cols-2'
-                      )}
-                    >
-                      <TabsTrigger
-                        value="top-portfolio"
-                        className="rounded-md px-3 py-2 text-xs font-medium data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm sm:py-1.5 sm:text-sm"
-                      >
-                        Top portfolio
-                      </TabsTrigger>
-                      <TabsTrigger
-                        value="rebalance-actions"
-                        disabled={!overviewPaidHoldings}
-                        title={
-                          !overviewPaidHoldings
-                            ? 'Rebalance actions require Supporter or Outperformer'
-                            : undefined
-                        }
-                        className="rounded-md px-3 py-2 text-xs font-medium data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm sm:py-1.5 sm:text-sm"
-                      >
-                        <span className="inline-flex items-center gap-1.5">
-                          Rebalance Actions
-                          {!overviewPaidHoldings ? (
-                            <Lock className="size-3 shrink-0 opacity-70" aria-hidden />
-                          ) : null}
-                        </span>
-                      </TabsTrigger>
-                      <TabsTrigger
-                        value="overview-tiles"
+                    <TooltipProvider delayDuration={200}>
+                      <TabsList
                         className={cn(
-                          'rounded-md px-3 py-2 text-xs font-medium data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm sm:py-1.5 sm:text-sm',
-                          !SHOW_OVERVIEW_TILES_TAB_IN_UI && 'hidden'
+                          'grid h-auto w-full max-w-md shrink-0 gap-1 rounded-lg bg-muted p-1 text-muted-foreground lg:h-9 lg:w-auto lg:max-w-none lg:inline-flex lg:shrink-0',
+                          SHOW_OVERVIEW_TILES_TAB_IN_UI ? 'grid-cols-3' : 'grid-cols-2'
                         )}
-                        tabIndex={SHOW_OVERVIEW_TILES_TAB_IN_UI ? 0 : -1}
-                        aria-hidden={!SHOW_OVERVIEW_TILES_TAB_IN_UI}
                       >
-                        Overview tiles
-                      </TabsTrigger>
-                    </TabsList>
+                        <TabsTrigger
+                          value="top-portfolio"
+                          className="rounded-md px-3 py-2 text-xs font-medium data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm sm:py-1.5 sm:text-sm"
+                        >
+                          Top portfolio
+                        </TabsTrigger>
+                        {!overviewPaidHoldings ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="inline-flex min-w-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background">
+                                <TabsTrigger
+                                  value="rebalance-actions"
+                                  disabled
+                                  className="w-full rounded-md px-3 py-2 text-xs font-medium data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm sm:py-1.5 sm:text-sm"
+                                >
+                                  <span className="inline-flex items-center gap-1.5">
+                                    Rebalance Actions
+                                    <Lock className="size-3 shrink-0 opacity-70" aria-hidden />
+                                  </span>
+                                </TabsTrigger>
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom" className="max-w-xs text-xs">
+                              <p className="mb-2 leading-snug">
+                                To see the stocks you need to buy and sell to stay invested, you need a paid plan — Supporter or Outperformer.
+                              </p>
+                              <div className="flex justify-center">
+                                <Button size="sm" className="h-8" asChild>
+                                  <Link href="/pricing">View plans</Link>
+                                </Button>
+                              </div>
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          <TabsTrigger
+                            value="rebalance-actions"
+                            className="rounded-md px-3 py-2 text-xs font-medium data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm sm:py-1.5 sm:text-sm"
+                          >
+                            <span className="inline-flex items-center gap-1.5">Rebalance Actions</span>
+                          </TabsTrigger>
+                        )}
+                        <TabsTrigger
+                          value="overview-tiles"
+                          className={cn(
+                            'rounded-md px-3 py-2 text-xs font-medium data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm sm:py-1.5 sm:text-sm',
+                            !SHOW_OVERVIEW_TILES_TAB_IN_UI && 'hidden'
+                          )}
+                          tabIndex={SHOW_OVERVIEW_TILES_TAB_IN_UI ? 0 : -1}
+                          aria-hidden={!SHOW_OVERVIEW_TILES_TAB_IN_UI}
+                        >
+                          Overview tiles
+                        </TabsTrigger>
+                      </TabsList>
+                    </TooltipProvider>
                   </div>
                 </div>
               </div>
@@ -3057,15 +3108,36 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                   ) : null}
                                 </div>
                                 {!overviewPaidHoldings ? (
-                                  <div className="flex min-h-[12rem] flex-col items-center justify-center gap-3 rounded-lg border border-dashed bg-muted/15 px-4 py-8 text-center">
-                                    <Lock className="size-8 shrink-0 text-muted-foreground" aria-hidden />
-                                    <p className="max-w-sm text-sm text-muted-foreground">
-                                      Holdings and weights are available on a paid plan. Performance
-                                      and the chart above stay visible on your free account.
-                                    </p>
-                                    <Button size="sm" asChild>
-                                      <Link href="/pricing">View plans</Link>
-                                    </Button>
+                                  <div className="space-y-3">
+                                    {!authState.isAuthenticated ? (
+                                      <Card className="border-trader-blue/25 bg-trader-blue/[0.06] dark:bg-trader-blue/[0.08]">
+                                        <CardHeader className="space-y-1 pb-2 pt-4">
+                                          <CardTitle className="text-base text-center">
+                                            Sign up to save this portfolio
+                                          </CardTitle>
+                                        </CardHeader>
+                                        <CardContent className="pb-4 pt-0">
+                                          <div className="flex justify-center">
+                                            <Button size="sm" asChild>
+                                              <Link
+                                                href={`/sign-up?next=${encodeURIComponent('/platform/overview')}`}
+                                              >
+                                                Sign up
+                                              </Link>
+                                            </Button>
+                                          </div>
+                                        </CardContent>
+                                      </Card>
+                                    ) : null}
+                                    <div className="flex min-h-[12rem] flex-col items-center justify-center gap-3 rounded-lg border border-dashed bg-muted/15 px-4 py-8 text-center">
+                                      <Lock className="size-8 shrink-0 text-muted-foreground" aria-hidden />
+                                      <p className="max-w-sm text-sm text-muted-foreground">
+                                        Portfolio holdings and allocations are available on a paid plan.
+                                      </p>
+                                      <Button size="sm" asChild>
+                                        <Link href="/pricing">View plans</Link>
+                                      </Button>
+                                    </div>
                                   </div>
                                 ) : (
                                   <>

@@ -41,7 +41,7 @@ export function showPortfolioUnfollowToast({
 
   toast({
     title: `Stopped following ${label}`,
-    description: 'You can follow again from Explore anytime.',
+    description: 'You can follow again from the Explore Portfolios page anytime.',
     action: (
       <ToastAction
         altText="Undo unfollow"

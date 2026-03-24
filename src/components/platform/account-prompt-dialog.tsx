@@ -23,6 +23,10 @@ import { Button } from "@/components/ui/button";
 import { isSupabaseConfigured } from "@/utils/supabase/browser";
 import { useAuthState } from "@/components/auth/auth-state-context";
 import { usePortfolioConfig } from "@/components/portfolio-config";
+import {
+  clearGuestDeclinedAccountNudgeSession,
+  hasGuestDeclinedAccountNudgeThisSession,
+} from "@/lib/guest-account-nudge-session";
 
 const PROMPT_DISMISS_KEY = "platform-account-prompt-dismissed-at";
 const ACCOUNT_SEEN_KEY = "platform-account-seen-on-device";
@@ -133,6 +137,7 @@ function AccountPromptDialog({
     }
 
     if (isAuthenticated) {
+      clearGuestDeclinedAccountNudgeSession();
       markAccountSeenOnDevice();
       setHasSeenAccount(true);
       setOpen(false);
@@ -163,11 +168,18 @@ function AccountPromptDialog({
       return;
     }
 
+    if (hasGuestDeclinedAccountNudgeThisSession()) {
+      return;
+    }
+
     if (hasDismissedRecently() || hasPromptShownThisSession()) {
       return;
     }
 
     const timerId = window.setTimeout(() => {
+      if (hasGuestDeclinedAccountNudgeThisSession()) {
+        return;
+      }
       if (hasDismissedRecently() || hasPromptShownThisSession()) {
         return;
       }

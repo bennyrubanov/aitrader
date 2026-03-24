@@ -48,6 +48,26 @@ export function writePendingGuestPortfolioFollow(payload: PendingGuestPortfolioF
   }
 }
 
+/** Keeps pending signup POST in sync with local guest state (continue-as-guest + entry settings). */
+export function syncPendingGuestPortfolioFollowForGuestLocal(
+  config: PortfolioConfig,
+  userStartDateYmd: string
+): void {
+  const y = userStartDateYmd.trim();
+  if (!YMD_PENDING_RE.test(y)) return;
+  const slug = typeof config.strategySlug === 'string' ? config.strategySlug.trim() : '';
+  if (!slug) return;
+  writePendingGuestPortfolioFollow({
+    strategySlug: slug,
+    riskLevel: config.riskLevel,
+    frequency: config.rebalanceFrequency,
+    weighting: config.weightingMethod,
+    investmentSize: config.investmentSize,
+    userStartDate: y,
+    startingPortfolio: true,
+  });
+}
+
 export function readPendingGuestPortfolioFollow(): PendingGuestPortfolioFollowPayload | null {
   try {
     const raw = localStorage.getItem(PENDING_GUEST_PORTFOLLOW_KEY);
@@ -153,5 +173,13 @@ export function savePortfolioConfigToStorage(config: PortfolioConfig): void {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
   } catch {
     // ignore storage errors (e.g. private browsing quota)
+  }
+}
+
+export function clearStoredPortfolioConfig(): void {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // ignore
   }
 }

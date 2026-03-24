@@ -23,8 +23,16 @@ import {
   clearOnboardingDoneCache,
   loadPortfolioConfigFromStorage,
   savePortfolioConfigToStorage,
+  syncPendingGuestPortfolioFollowForGuestLocal,
   writeOnboardingDoneCache,
 } from './portfolio-config-storage';
+import {
+  clearGuestEphemeralTrackingKeys,
+  isGuestEphemeralExpired,
+  isGuestEphemeralSessionMarked,
+  markGuestEphemeralSessionActive,
+  purgeGuestEphemeralPlatformState,
+} from '@/lib/guest-ephemeral-local-state';
 import {
   PortfolioConfigContext,
   type PortfolioConfigContextValue,
@@ -54,6 +62,25 @@ export function PortfolioConfigProvider({ children }: { children: ReactNode }) {
 
     if (!auth.isAuthenticated) {
       try {
+        const nav =
+          typeof performance !== 'undefined'
+            ? (performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined)
+            : undefined;
+        const isReload = nav?.type === 'reload';
+        const onboardingDone = localStorage.getItem(ONBOARDING_KEY) === '1';
+
+        if (isReload && onboardingDone) {
+          purgeGuestEphemeralPlatformState();
+          setConfigState(DEFAULT_PORTFOLIO_CONFIG);
+          setEntryDateState(null);
+        } else if (isGuestEphemeralSessionMarked() && isGuestEphemeralExpired()) {
+          purgeGuestEphemeralPlatformState();
+          setConfigState(DEFAULT_PORTFOLIO_CONFIG);
+          setEntryDateState(null);
+        } else if (onboardingDone && !isGuestEphemeralSessionMarked()) {
+          markGuestEphemeralSessionActive();
+        }
+
         setIsOnboardingDone(localStorage.getItem(ONBOARDING_KEY) === '1');
       } catch {
         setIsOnboardingDone(false);
@@ -62,6 +89,8 @@ export function PortfolioConfigProvider({ children }: { children: ReactNode }) {
       setOnboardingResolved(true);
       return;
     }
+
+    clearGuestEphemeralTrackingKeys();
 
     const dbDone = auth.portfolioOnboardingDone;
     if (auth.userId) {
@@ -81,6 +110,21 @@ export function PortfolioConfigProvider({ children }: { children: ReactNode }) {
   }, [auth.isLoaded, auth.isAuthenticated, auth.userId, auth.portfolioOnboardingDone]);
 
   const portfolioConfigHydrated = storageHydrated && onboardingResolved;
+
+  useEffect(() => {
+    if (!auth.isLoaded || auth.isAuthenticated) return;
+    if (!portfolioConfigHydrated || !isOnboardingDone) return;
+    const y = entryDate?.trim() ?? '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(y)) return;
+    syncPendingGuestPortfolioFollowForGuestLocal(config, y);
+  }, [
+    auth.isAuthenticated,
+    auth.isLoaded,
+    portfolioConfigHydrated,
+    isOnboardingDone,
+    config,
+    entryDate,
+  ]);
 
   const setConfig = useCallback((newConfig: PortfolioConfig) => {
     setConfigState(newConfig);
@@ -141,6 +185,7 @@ export function PortfolioConfigProvider({ children }: { children: ReactNode }) {
       } catch {
         // ignore
       }
+      markGuestEphemeralSessionActive();
       setIsOnboardingDone(true);
     })();
   }, [refreshProfile]);
@@ -170,14 +215,19 @@ export function PortfolioConfigProvider({ children }: { children: ReactNode }) {
           refreshedFromServer = true;
         }
       }
-      try {
-        localStorage.removeItem(ONBOARDING_KEY);
-      } catch {
-        // ignore
-      }
-      if (!refreshedFromServer) {
+      if (refreshedFromServer) {
+        clearGuestEphemeralTrackingKeys();
+        try {
+          localStorage.removeItem(ONBOARDING_KEY);
+        } catch {
+          // ignore
+        }
+      } else {
+        purgeGuestEphemeralPlatformState();
         clearOnboardingDoneCache();
         setIsOnboardingDone(false);
+        setConfigState(DEFAULT_PORTFOLIO_CONFIG);
+        setEntryDateState(null);
       }
     })();
   }, [refreshProfile]);

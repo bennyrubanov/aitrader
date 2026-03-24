@@ -20,7 +20,6 @@ import { enUS } from 'date-fns/locale';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
-  AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -58,8 +57,7 @@ import {
   type WeightingMethod,
 } from '@/components/portfolio-config';
 import {
-  clearPendingGuestPortfolioFollow,
-  writePendingGuestPortfolioFollow,
+  syncPendingGuestPortfolioFollowForGuestLocal,
 } from '@/components/portfolio-config/portfolio-config-storage';
 import type { OnboardingRebalanceCounts } from '@/lib/onboarding-meta';
 import { formatYmdDisplay } from '@/lib/format-ymd-display';
@@ -73,6 +71,7 @@ import {
 import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
 import type { FullConfigPerformanceMetrics } from '@/lib/config-performance-chart';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
+import { setGuestDeclinedAccountNudgeThisSession } from '@/lib/guest-account-nudge-session';
 import { queuePlatformPostOnboardingTour } from '@/lib/platform-post-onboarding-tour';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
 
@@ -699,25 +698,14 @@ export function PortfolioOnboardingDialog({
     const entryYmd = draftEntryDate || localTodayYmd();
     setConfig(draft);
     setEntryDate(entryYmd);
-    writePendingGuestPortfolioFollow({
-      strategySlug: draft.strategySlug,
-      riskLevel: draft.riskLevel,
-      frequency: draft.rebalanceFrequency,
-      weighting: draft.weightingMethod,
-      investmentSize: draft.investmentSize,
-      userStartDate: entryYmd,
-      startingPortfolio: true,
-    });
+    syncPendingGuestPortfolioFollowForGuestLocal(draft, entryYmd);
     setGuestAccountDialogOpen(true);
   };
 
-  const handleGuestDialogBack = () => {
-    clearPendingGuestPortfolioFollow();
-    setGuestAccountDialogOpen(false);
-  };
-
   const handleContinueAsGuestLocalOnly = () => {
-    clearPendingGuestPortfolioFollow();
+    const entryYmd = draftEntryDate || localTodayYmd();
+    syncPendingGuestPortfolioFollowForGuestLocal(draft, entryYmd);
+    setGuestDeclinedAccountNudgeThisSession();
     setGuestAccountDialogOpen(false);
     void markOnboardingDone();
   };
@@ -944,7 +932,7 @@ export function PortfolioOnboardingDialog({
                     onClick={handleUseDefaults}
                     className="text-muted-foreground"
                   >
-                    Use defaults
+                    Skip portfolio setup
                   </Button>
                   <Button
                     type="button"
@@ -1671,7 +1659,10 @@ export function PortfolioOnboardingDialog({
                             hideFootnote
                             initialNotional={celebrateNotional}
                             omitSeriesKeys={['nasdaq100EqualWeight']}
-                            seriesLabelOverrides={{ nasdaq100CapWeight: 'Nasdaq-100' }}
+                            seriesLabelOverrides={{
+                              nasdaq100CapWeight: 'Nasdaq-100',
+                              sp500: 'S&P 500',
+                            }}
                             chartContainerClassName={CELEBRATE_CHART_HEIGHT_CLASS}
                           />
                         ) : celebratePerf?.computeStatus === 'ready' &&
@@ -1688,7 +1679,10 @@ export function PortfolioOnboardingDialog({
                               hideFootnote
                               initialNotional={celebrateNotional}
                               omitSeriesKeys={['nasdaq100EqualWeight']}
-                              seriesLabelOverrides={{ nasdaq100CapWeight: 'Nasdaq-100' }}
+                              seriesLabelOverrides={{
+                                nasdaq100CapWeight: 'Nasdaq-100',
+                                sp500: 'S&P 500',
+                              }}
                               chartContainerClassName={CELEBRATE_CHART_HEIGHT_CLASS}
                             />
                           </div>
@@ -1747,50 +1741,32 @@ export function PortfolioOnboardingDialog({
           <AlertDialogDescription asChild>
             <div className="space-y-3 text-sm text-muted-foreground">
               <p>
-                Sign up or log in to attach your portfolio to your account so it follows you across
-                devices and browsers.
+                Sign up for an account to save your portfolio.
               </p>
               <p>
                 <span className="font-medium text-foreground">Continue as guest</span> keeps everything
-                on this device only — like a local-only free account. If you leave, clear site data, or
-                use another browser, your portfolio won&apos;t be here. Rebalancing detail views stay
-                locked until you have a saved account with a paid plan.
+                on this device only. If you leave this page, your portfolio won&apos;t be here.
               </p>
             </div>
           </AlertDialogDescription>
         </AlertDialogHeader>
-        <AlertDialogFooter className="flex-col gap-2 sm:flex-col sm:justify-stretch">
-          <Button className="w-full sm:w-auto sm:self-end" asChild>
-            <Link
-              href={`/sign-up?next=${encodeURIComponent(PLATFORM_OVERVIEW_NEXT_PATH)}`}
-              onClick={() => setGuestAccountDialogOpen(false)}
-            >
-              Sign up free
-            </Link>
-          </Button>
-          <Button variant="outline" className="w-full sm:w-auto sm:self-end" asChild>
-            <Link
-              href={`/sign-in?next=${encodeURIComponent(PLATFORM_OVERVIEW_NEXT_PATH)}`}
-              onClick={() => setGuestAccountDialogOpen(false)}
-            >
-              Log in
-            </Link>
-          </Button>
+        <AlertDialogFooter className="flex w-full flex-row flex-wrap gap-2 sm:gap-3">
           <Button
             type="button"
             variant="outline"
-            className="w-full border-dashed sm:w-auto sm:self-stretch"
+            className="min-w-0 flex-1 border-dashed"
             onClick={() => handleContinueAsGuestLocalOnly()}
           >
             Continue as guest
           </Button>
-          <AlertDialogCancel
-            type="button"
-            className="mt-0 w-full sm:w-auto"
-            onClick={() => handleGuestDialogBack()}
-          >
-            Back
-          </AlertDialogCancel>
+          <Button className="min-w-0 flex-1" asChild>
+            <Link
+              href={`/sign-up?next=${encodeURIComponent(PLATFORM_OVERVIEW_NEXT_PATH)}`}
+              onClick={() => setGuestAccountDialogOpen(false)}
+            >
+              Sign up for free
+            </Link>
+          </Button>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

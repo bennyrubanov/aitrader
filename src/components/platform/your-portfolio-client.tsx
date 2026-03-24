@@ -86,6 +86,7 @@ import {
   type RiskLevel,
   type RebalanceFrequency,
 } from '@/components/portfolio-config';
+import { ENTRY_DATE_KEY } from '@/components/portfolio-config/portfolio-config-storage';
 import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
 import type {
   HoldingItem,
@@ -655,6 +656,8 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     entryDate: portfolioEntryDate,
     portfolioConfigHydrated,
     isOnboardingDone,
+    setEntryDate,
+    updateConfig,
   } = usePortfolioConfig();
 
   const [profiles, setProfiles] = useState<UserPortfolioProfileRow[]>([]);
@@ -743,7 +746,17 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     const strategy =
       strategies.find((s) => s.slug === portfolioConfigCtx.strategySlug) ?? strategies[0] ?? null;
 
-    void buildGuestLocalProfileRows(portfolioConfigCtx, portfolioEntryDate, strategy).then((rows) => {
+    let entryYmd = portfolioEntryDate?.trim() ?? '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(entryYmd)) {
+      try {
+        const fromStore = localStorage.getItem(ENTRY_DATE_KEY);
+        if (fromStore && /^\d{4}-\d{2}-\d{2}$/.test(fromStore)) entryYmd = fromStore;
+      } catch {
+        // ignore
+      }
+    }
+
+    void buildGuestLocalProfileRows(portfolioConfigCtx, entryYmd || null, strategy).then((rows) => {
       if (cancelled) return;
       if (rows) {
         setProfiles([
@@ -1730,9 +1743,9 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         <p className="mt-1 text-xs text-muted-foreground">
           Follow portfolios with different risk, cadence, and weighting — synced to your account.
         </p>
-        <Button className="mt-5" onClick={() => router.push('/sign-in?next=/platform/your-portfolios')}>
+        <Button className="mt-5" onClick={() => router.push('/sign-up?next=/platform/your-portfolios')}>
           <LogIn className="mr-2 size-4" />
-          Sign in
+          Sign up
         </Button>
       </div>
     );
@@ -2328,8 +2341,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                     <div className="flex min-h-[12rem] flex-col items-center justify-center gap-3 px-4 py-8 text-center">
                       <Lock className="size-8 shrink-0 text-muted-foreground" aria-hidden />
                       <p className="max-w-sm text-sm text-muted-foreground">
-                        Holdings and weights are available on Supporter or Outperformer. Performance
-                        and metrics above stay on your free account.
+                        Portfolio holdings and allocations are available on the Supporter or Outperformer plans.
                       </p>
                       <Button size="sm" asChild>
                         <Link href="/pricing">View plans</Link>
@@ -2859,11 +2871,20 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
               }
             : null
         }
+        persistMode={
+          selectedProfile?.id && isGuestLocalProfileId(selectedProfile.id) ? 'local' : 'api'
+        }
+        onLocalPersist={({ investmentSize, userStartDate }) => {
+          setEntryDate(userStartDate);
+          updateConfig({ investmentSize });
+        }}
         onSaved={() => {
           if (selectedProfile?.id) {
             invalidateUserEntryPerformanceCache(selectedProfile.id);
           }
-          void loadProfiles();
+          if (authState.isAuthenticated) {
+            void loadProfiles();
+          }
           void loadUserEntry();
         }}
       />

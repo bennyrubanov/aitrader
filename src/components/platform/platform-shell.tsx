@@ -1,6 +1,7 @@
 'use client';
 
-import { ReactNode, Suspense, useLayoutEffect } from 'react';
+import { ReactNode, Suspense, useEffect, useLayoutEffect } from 'react';
+import { installGuestEphemeralPagehidePurge } from '@/lib/guest-ephemeral-local-state';
 import { markPlatformTabSession } from '@/lib/platform-tab-session';
 import { AppSidebar } from '@/components/platform/app-sidebar';
 import { SiteHeader } from '@/components/platform/site-header';
@@ -17,6 +18,10 @@ type PlatformShellProps = {
 export function PlatformShell({ children }: PlatformShellProps) {
   useLayoutEffect(() => {
     markPlatformTabSession();
+  }, []);
+
+  useEffect(() => {
+    return installGuestEphemeralPagehidePurge();
   }, []);
 
   return (
