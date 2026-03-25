@@ -81,47 +81,45 @@ const compareFeatures: CompareFeature[] = [
     outperformer: 'Any stock',
   },
   {
-    label: 'Weekly buy-potential rankings',
+    label: 'Stock news & detailed stock pages',
+    free: '40+ free stocks',
+    supporter: 'Premium Nasdaq 100 stocks',
+    outperformer: 'Any stock',
+  },
+  {
+    label: 'Weekly stock rankings',
     free: false,
-    supporter: true,
+    supporter: 'Active model only',
     outperformer: true,
   },
   {
-    label: 'AI ratings with full explanations',
+    label: 'Portfolio holdings tracking',
     free: false,
-    supporter: true,
+    supporter: 'Active model only',
     outperformer: true,
   },
-  { label: 'Full recommendation history', free: false, supporter: true, outperformer: true },
-  { label: 'Stock news & detailed stock pages', free: false, supporter: true, outperformer: true },
-  {
-    label: 'Customizable rating change notifications',
-    free: false,
-    supporter: true,
+  { 
+    label: 'Full stock recommendation history', 
+    free: false, 
+    supporter: 'Active model only',
     outperformer: true,
   },
   {
     label: 'Follow & compare portfolios (Explore / Your portfolios)',
     free: false,
-    supporter: true,
+    supporter: 'Active model only',
     outperformer: true,
   },
   {
-    label: 'Holdings, weights & rebalance breakdowns',
+    label: 'Portfolio rebalance actions to invest alongside the AI',
     free: false,
-    supporter: true,
+    supporter: 'Active model only',
     outperformer: true,
   },
   {
-    label: 'Strategy models on Ratings & Performance',
+    label: 'Customizable rating change notifications',
     free: false,
-    supporter: 'Active model',
-    outperformer: 'All models',
-  },
-  {
-    label: 'Switch strategy model in Ratings (all models)',
-    free: false,
-    supporter: false,
+    supporter: true,
     outperformer: true,
   },
   {
@@ -210,34 +208,18 @@ function PricingPageContent() {
   const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>('monthly');
   const [isProcessingCheckout, setIsProcessingCheckout] = useState(false);
   const [checkoutPlan, setCheckoutPlan] = useState<Plan | null>(null);
-  const [isOpeningPortal, setIsOpeningPortal] = useState(false);
   const [upgradeDialogOpen, setUpgradeDialogOpen] = useState(false);
   const [downgradeDialogOpen, setDowngradeDialogOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const postAuthCheckoutHandled = useRef(false);
 
-  const openBillingPortal = useCallback(
-    async (flow: 'default' | 'subscription_cancel') => {
-      setErrorMessage(null);
-      setIsOpeningPortal(true);
-      try {
-        const response = await fetch('/api/stripe/portal', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ flow }),
-        });
-        const payload = (await response.json()) as { url?: string; error?: string };
-        if (!response.ok || !payload.url) {
-          throw new Error(payload.error ?? 'Unable to open billing portal.');
-        }
-        window.location.href = payload.url;
-      } catch (error) {
-        setErrorMessage(error instanceof Error ? error.message : 'Unable to open billing portal.');
-        setIsOpeningPortal(false);
-      }
-    },
-    []
+  /** No further plan switches while a downgrade/upgrade is pending or cancel-at-period-end is set. */
+  const planChangeActionsLocked = useMemo(
+    () =>
+      hasPremiumAccess &&
+      (Boolean(stripePendingTier) || Boolean(stripeCancelAtPeriodEnd)),
+    [hasPremiumAccess, stripePendingTier, stripeCancelAtPeriodEnd]
   );
 
   const startStripeCheckout = useCallback(
@@ -484,27 +466,16 @@ function PricingPageContent() {
                     ))}
                   </ul>
                   {isAuthenticated && hasPremiumAccess ? (
-                    <div className="mt-auto flex w-full flex-col gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="w-full"
-                        disabled={isOpeningPortal}
-                        onClick={() => void openBillingPortal('default')}
+                    <p className="mt-auto text-center text-sm text-muted-foreground">
+                      Billing and cancellation are in{' '}
+                      <Link
+                        href="/platform/settings"
+                        className="font-medium text-trader-blue underline-offset-4 hover:underline"
                       >
-                        Manage billing
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="w-full text-destructive hover:text-destructive"
-                        disabled={isOpeningPortal}
-                        onClick={() => void openBillingPortal('subscription_cancel')}
-                      >
-                        Cancel subscription
-                      </Button>
-                    </div>
+                        Settings
+                      </Link>
+                      .
+                    </p>
                   ) : isCurrentFreePlan ? (
                     <Button disabled variant="secondary" className="w-full mt-auto">
                       Current plan
@@ -564,31 +535,44 @@ function PricingPageContent() {
                       <Button disabled variant="secondary" className="w-full">
                         Current plan
                       </Button>
+                      {!planChangeActionsLocked && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="w-full"
+                          onClick={() => setUpgradeDialogOpen(true)}
+                        >
+                          Upgrade to Outperformer
+                        </Button>
+                      )}
+                    </div>
+                  ) : subscriptionTier === 'outperformer' ? (
+                    planChangeActionsLocked ? (
+                      <p className="mt-auto text-center text-sm text-muted-foreground">
+                        A subscription change is already scheduled. Use{' '}
+                        <Link
+                          href="/platform/settings"
+                          className="font-medium text-trader-blue underline-offset-4 hover:underline"
+                        >
+                          Settings
+                        </Link>{' '}
+                        if you need help.
+                      </p>
+                    ) : (
                       <Button
                         type="button"
                         variant="outline"
-                        size="sm"
-                        className="w-full"
-                        disabled={isOpeningPortal}
-                        onClick={() => setUpgradeDialogOpen(true)}
+                        className="w-full mt-auto"
+                        onClick={() => setDowngradeDialogOpen(true)}
                       >
-                        Upgrade to Outperformer
+                        Switch to Supporter
                       </Button>
-                    </div>
-                  ) : subscriptionTier === 'outperformer' ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="w-full mt-auto"
-                      disabled={isOpeningPortal}
-                      onClick={() => setDowngradeDialogOpen(true)}
-                    >
-                      Switch to Supporter
-                    </Button>
+                    )
                   ) : (
                     <Button
                       onClick={() => handleSubscribe('supporter')}
-                      disabled={isProcessingCheckout || isOpeningPortal}
+                      disabled={isProcessingCheckout}
                       className="w-full mt-auto"
                       variant="outline"
                     >
@@ -675,31 +659,44 @@ function PricingPageContent() {
                       <Button disabled variant="secondary" className="w-full">
                         Current plan
                       </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="w-full"
-                        disabled={isOpeningPortal}
-                        onClick={() => setDowngradeDialogOpen(true)}
-                      >
-                        Downgrade to Supporter
-                      </Button>
+                      {!planChangeActionsLocked && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="w-full"
+                          onClick={() => setDowngradeDialogOpen(true)}
+                        >
+                          Downgrade to Supporter
+                        </Button>
+                      )}
                     </div>
                   ) : subscriptionTier === 'supporter' ? (
-                    <Button
-                      type="button"
-                      className="w-full mt-auto bg-trader-blue hover:bg-trader-blue-dark text-white"
-                      disabled={isOpeningPortal}
-                      onClick={() => setUpgradeDialogOpen(true)}
-                    >
-                      Upgrade to Outperformer
-                      <ArrowRight className="ml-2 size-4" />
-                    </Button>
+                    planChangeActionsLocked ? (
+                      <p className="mt-auto text-center text-sm text-muted-foreground">
+                        A subscription change is already scheduled. Use{' '}
+                        <Link
+                          href="/platform/settings"
+                          className="font-medium text-trader-blue underline-offset-4 hover:underline"
+                        >
+                          Settings
+                        </Link>{' '}
+                        if you need help.
+                      </p>
+                    ) : (
+                      <Button
+                        type="button"
+                        className="w-full mt-auto bg-trader-blue hover:bg-trader-blue-dark text-white"
+                        onClick={() => setUpgradeDialogOpen(true)}
+                      >
+                        Upgrade to Outperformer
+                        <ArrowRight className="ml-2 size-4" />
+                      </Button>
+                    )
                   ) : (
                     <Button
                       onClick={() => handleSubscribe('outperformer')}
-                      disabled={isProcessingCheckout || isOpeningPortal}
+                      disabled={isProcessingCheckout}
                       className="w-full mt-auto bg-trader-blue hover:bg-trader-blue-dark text-white"
                     >
                       {isProcessingCheckout && checkoutPlan === 'outperformer' ? (
@@ -804,6 +801,7 @@ function PricingPageContent() {
       <DowngradeToSupporterDialog
         open={downgradeDialogOpen}
         onOpenChange={setDowngradeDialogOpen}
+        currentPeriodEndIso={stripeCurrentPeriodEnd}
         onAfterSuccess={async () => {
           await refreshProfile();
           router.refresh();

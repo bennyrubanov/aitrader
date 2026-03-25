@@ -67,13 +67,14 @@ export const PLATFORM_POST_ONBOARDING_TOUR_STEPS: PlatformPostOnboardingTourStep
     path: '',
     anchors: [
       '[data-platform-tour="nav-overview"]',
+      '[data-platform-tour="overview-rebalance-tab"]',
       '[data-platform-tour="overview-rebalance-actions-first-portfolio"]',
     ],
   },
   {
     id: 'ratings',
     title: 'Stock ratings',
-    body: 'Browse current AI ratings across the universe and dig into how each stock is scored.',
+    body: 'Browse current AI ratings and dig into how each stock is scored.',
     path: '/platform/ratings',
     anchors: [
       '[data-platform-tour="nav-stock-ratings"]',

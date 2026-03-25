@@ -644,7 +644,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
           </div>
 
           <div className="flex-1 space-y-4 px-4 pb-8 pt-2.5 sm:px-6 sm:pb-10 sm:pt-3">
-            {/* Quick picks — preset portfolios */}
+            {/* Quick picks — portfolios */}
             <div className="space-y-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Quick picks

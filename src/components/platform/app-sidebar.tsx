@@ -2,6 +2,7 @@
 
 import type { ComponentType } from 'react';
 import { useEffect } from 'react';
+import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   ArrowUpRight,
@@ -10,10 +11,12 @@ import {
   Cpu,
   FlaskConical,
   Folders,
+  HeartHandshake,
   House,
   Info,
   ListOrdered,
   MessageSquare,
+  Sparkles,
 } from 'lucide-react';
 import {
   SIDEBAR_MENU_TRAILING_CLASSNAME,
@@ -140,6 +143,7 @@ export function AppSidebar() {
       ...advancedItems.flatMap((item) => (item.href ? [item.href] : [])),
       '/platform/settings',
       '/performance',
+      '/pricing',
       '/strategy-models',
     ];
     const prefetchAllRoutes = () => {
@@ -268,6 +272,26 @@ export function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
+              {authState.isLoaded && !account.isPremium ? (
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild size="sm" tooltip="Upgrade to a paid plan">
+                    <Link href="/pricing">
+                      <span
+                        className="flex shrink-0 items-center gap-1"
+                        aria-hidden
+                      >
+                        <HeartHandshake className="size-4 shrink-0 text-amber-600 dark:text-amber-500" />
+                        <Sparkles className="size-4 shrink-0 text-trader-blue" />
+                      </span>
+                      <span className={SIDEBAR_MENU_TRAILING_CLASSNAME}>
+                        <span className="min-w-0 flex-1 truncate font-medium text-trader-blue">
+                          Upgrade to a paid plan
+                        </span>
+                      </span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ) : null}
               <SidebarMenuItem>
                 <SidebarMenuButton asChild size="sm" tooltip="Performance (public)">
                   <button type="button" onClick={() => openPath('/performance')}>

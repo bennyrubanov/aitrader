@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
+import type { SubscriptionTier } from '@/lib/auth-state';
 import { canQueryStockCurrentRecommendation, getAppAccessState, type AppAccessState } from '@/lib/app-access';
 import { buildAuthStateFromUserAndProfile } from '@/lib/build-auth-state';
+import { allowedStrategyIdsForSubscriptionTier } from '@/lib/strategy-plan-access';
+import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { createClient } from '@/utils/supabase/server';
 
@@ -10,6 +13,7 @@ type StrategyRow = {
   id: string;
   slug: string;
   is_default: boolean;
+  minimum_plan_tier?: string | null;
 };
 
 type BatchRow = {
@@ -37,21 +41,25 @@ const parsePrice = (value: string | null) => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
-const requireOutperformerForCustomStrategy = async (strategySlug: string | null) => {
+/**
+ * When a specific strategy slug is requested, require a signed-in user whose plan includes that model
+ * (same rules as `/api/stocks/.../premium`). Omit `strategy` to use the default model without this gate.
+ */
+const requirePlanAllowsStrategySlug = async (strategySlug: string | null) => {
   if (!strategySlug) {
     return null;
   }
 
-  const supabase = await createClient();
+  const session = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await session.auth.getUser();
 
   if (!user) {
     return NextResponse.json({ error: 'Sign in required.' }, { status: 401 });
   }
 
-  const { data: profile, error } = await supabase
+  const { data: profile, error } = await session
     .from('user_profiles')
     .select('subscription_tier')
     .eq('id', user.id)
@@ -61,8 +69,34 @@ const requireOutperformerForCustomStrategy = async (strategySlug: string | null)
     return NextResponse.json({ error: 'Unable to verify plan access.' }, { status: 500 });
   }
 
-  if (profile?.subscription_tier !== 'outperformer') {
-    return NextResponse.json({ error: 'Outperformer plan required.' }, { status: 403 });
+  const rawTier = profile?.subscription_tier;
+  const subscriptionTier: SubscriptionTier =
+    rawTier === 'supporter' || rawTier === 'outperformer' ? rawTier : 'free';
+
+  const admin = createAdminClient();
+  const { data: strategies, error: stratErr } = await admin
+    .from('strategy_models')
+    .select('id, minimum_plan_tier, slug, is_default')
+    .eq('status', 'active');
+
+  if (stratErr) {
+    return NextResponse.json({ error: 'Unable to load strategies.' }, { status: 500 });
+  }
+
+  let allowedIds: string[];
+  if (subscriptionTier === 'free') {
+    const list = strategies ?? [];
+    const bySlug = list.find((s) => s.slug === STRATEGY_CONFIG.slug);
+    const byDefault = list.find((s) => s.is_default === true);
+    const defaultId = bySlug?.id ?? byDefault?.id;
+    allowedIds = defaultId ? [defaultId] : [];
+  } else {
+    allowedIds = allowedStrategyIdsForSubscriptionTier(strategies ?? [], subscriptionTier);
+  }
+
+  const match = (strategies ?? []).find((s) => s.slug === strategySlug);
+  if (!match || !allowedIds.includes(match.id)) {
+    return NextResponse.json({ error: 'Strategy not allowed for your plan.' }, { status: 403 });
   }
 
   return null;
@@ -78,7 +112,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'symbol is required.' }, { status: 400 });
   }
 
-  const accessError = await requireOutperformerForCustomStrategy(strategySlug);
+  const accessError = await requirePlanAllowsStrategySlug(strategySlug);
   if (accessError) {
     return accessError;
   }
@@ -104,7 +138,7 @@ export async function GET(req: Request) {
     (async () => {
       let strategyQuery = supabase
         .from('strategy_models')
-        .select('id, slug, is_default')
+        .select('id, slug, is_default, minimum_plan_tier')
         .limit(1);
 
       if (strategySlug) {

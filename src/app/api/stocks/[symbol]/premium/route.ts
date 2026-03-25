@@ -27,7 +27,9 @@ const toRiskList = (value: unknown): string[] => {
   return value.filter((item): item is string => typeof item === 'string');
 };
 
-export async function GET(_req: Request, { params }: RouteContext) {
+export async function GET(req: Request, { params }: RouteContext) {
+  const strategySlugParam = new URL(req.url).searchParams.get('strategy')?.trim() || null;
+
   const supabase = await createClient();
   const { data: userData, error: userError } = await supabase.auth.getUser();
 
@@ -88,9 +90,18 @@ export async function GET(_req: Request, { params }: RouteContext) {
     return NextResponse.json({ history: [] });
   }
 
+  let rpcStrategyIds = allowedStrategyIds;
+  if (strategySlugParam) {
+    const match = (strategies ?? []).find((s) => s.slug === strategySlugParam);
+    if (!match || !allowedStrategyIds.includes(match.id)) {
+      return NextResponse.json({ error: 'Strategy not allowed for your plan.' }, { status: 403 });
+    }
+    rpcStrategyIds = [match.id];
+  }
+
   const { data: rpcRows, error: rpcErr } = await admin.rpc('stock_ai_analysis_history_for_strategies', {
     p_stock_id: stockRow.id,
-    p_strategy_ids: allowedStrategyIds,
+    p_strategy_ids: rpcStrategyIds,
     p_limit: 30,
   });
 

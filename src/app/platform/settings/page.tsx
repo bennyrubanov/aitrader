@@ -474,11 +474,6 @@ const SettingsPageContent = () => {
             <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
                 <p className="text-sm font-medium">Subscription & payments</p>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  Supporter → Outperformer upgrades use an in-app proration preview. Outperformer → Supporter
-                  downgrades can be scheduled for period end here. Payment method and invoices open in
-                  Stripe&apos;s billing portal; cancellation at period end uses the portal flow.
-                </p>
                 {authState.hasPremiumAccess && authState.stripeCurrentPeriodEnd && (
                   <p className="mt-2 text-xs text-muted-foreground">
                     Current period renews or changes on{' '}
@@ -660,6 +655,7 @@ const SettingsPageContent = () => {
       <DowngradeToSupporterDialog
         open={downgradeDialogOpen}
         onOpenChange={setDowngradeDialogOpen}
+        currentPeriodEndIso={authState.stripeCurrentPeriodEnd}
         onAfterSuccess={async () => {
           await refreshProfile();
           router.refresh();

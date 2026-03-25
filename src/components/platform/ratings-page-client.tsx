@@ -4,7 +4,6 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
-  ArrowRight,
   ArrowUpRight,
   ChevronDown,
   CircleHelp,
@@ -93,6 +92,72 @@ const formatBucketLabel = (bucket: RatingsRow['bucket']) => {
   return bucket[0]?.toUpperCase() + bucket.slice(1);
 };
 
+/** Placeholder shapes for free-tier rank column (no real rank in JSON). */
+function BlurredRankCellPlaceholder() {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          className="inline-flex cursor-help select-none flex-col gap-1 blur-[3px]"
+          aria-hidden
+        >
+          <span className="h-4 w-8 rounded-sm bg-foreground/25 dark:bg-foreground/20" />
+          <span className="h-3 w-11 rounded-sm bg-foreground/15 dark:bg-foreground/12" />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-xs text-xs">
+        Upgrade to a paid plan to see model rankings and week-over-week changes.
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+const PAID_PLAN_TOOLTIP_DESCRIPTION = 'Sign up for a paid plan to unlock AI ratings';
+
+const RATINGS_TABLE_PADDING_PAID = '[&_th]:!px-3 [&_th]:!py-2.5 [&_td]:!px-3 [&_td]:!py-3';
+const RATINGS_TABLE_PADDING_FREE = '[&_th]:px-3 [&_th]:!py-2.5 [&_td]:px-3 [&_td]:!py-3';
+
+/** Lock + “Paid plan” trigger; tooltip explains upgrade with primary CTA (premium rows, free tier). */
+function PaidPlanLockTooltip({
+  triggerClassName,
+  contentAlign = 'start',
+}: {
+  triggerClassName?: string;
+  contentAlign?: 'start' | 'center' | 'end';
+}) {
+  return (
+    <Tooltip delayDuration={200}>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+            triggerClassName
+          )}
+          aria-label="Paid plan — hover for details"
+        >
+          <Lock className="size-3.5 shrink-0" aria-hidden />
+          <span className="text-xs">Paid plan</span>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent
+        side="top"
+        align={contentAlign}
+        className="pointer-events-auto w-[min(100vw-2rem,16rem)] border-border p-3 text-left shadow-lg"
+      >
+        <p className="mb-2.5 text-xs leading-snug text-popover-foreground">{PAID_PLAN_TOOLTIP_DESCRIPTION}</p>
+        <Button
+          size="sm"
+          className="h-8 w-full gap-1 border-0 bg-trader-blue font-medium text-white hover:bg-trader-blue/90 dark:bg-trader-blue dark:hover:bg-trader-blue/90"
+          asChild
+        >
+          <Link href="/pricing">Upgrade</Link>
+        </Button>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 export function RatingsPageClient({ initialData, strategies }: RatingsPageClientProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -128,8 +193,15 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
   const access = useMemo(() => getAppAccessState(authState), [authState]);
   const canUseStrategyFilter = canUseRatingsStrategyFilter(access);
   const fullRatingsAccess = ratingsAccessMode === 'full';
-  const hideRankings = !fullRatingsAccess;
+  /** Free tier: show Rank column layout but blur values (data not in payload). */
+  const rankColumnBlurred = ratingsAccessMode === 'free';
   const guestRatingsShell = ratingsAccessMode === 'guest';
+
+  const ratingsRunDateSelectDisabled =
+    isDateLoading ||
+    isStrategyLoading ||
+    availableRunDates.length === 0 ||
+    ratingsAccessMode === 'free';
 
   const ratingsCacheRef = useRef<Map<string, RatingsPageData>>(new Map());
 
@@ -422,21 +494,24 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
               <div className="min-w-0 shrink-0">
                 <h2 className="text-base font-semibold leading-tight">Stock Ratings</h2>
                 <p className="text-[11px] text-muted-foreground">
-                  {headerStockCountLabel}
                   {ratingsAccessMode === 'free' ? (
-                    <>
-                      <span className="mx-1" aria-hidden>
-                        ·
+                    <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-1.5">
+                      <span>{headerStockCountLabel}</span>
+                      <span aria-hidden>·</span>
+                      <span className="min-w-0 max-w-full leading-snug">
+                        Upgrade to unlock full ratings, rankings, history, and analyses for all stocks.
                       </span>
-                      <span className="text-[11px] leading-snug">
-                        Free preview: non-premium stocks only, alphabetical.{' '}
-                        <Link href="/pricing" className="font-medium text-foreground underline-offset-2 hover:underline">
-                          Upgrade
-                        </Link>{' '}
-                        for rankings, history, and full coverage.
-                      </span>
-                    </>
-                  ) : null}
+                      <Button
+                        size="sm"
+                        className="h-7 shrink-0 border-0 bg-trader-blue px-2.5 text-xs font-medium text-white hover:bg-trader-blue/90 dark:bg-trader-blue dark:hover:bg-trader-blue/90"
+                        asChild
+                      >
+                        <Link href="/pricing">Upgrade</Link>
+                      </Button>
+                    </span>
+                  ) : (
+                    headerStockCountLabel
+                  )}
                 </p>
                 {ratingsAccessMode === 'free' ? (
                   <div className="mt-2">
@@ -735,20 +810,47 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                     onValueChange={(v) => {
                       if (v) void handleRunDateSelect(v);
                     }}
-                    disabled={
-                      isDateLoading ||
-                      isStrategyLoading ||
-                      availableRunDates.length === 0 ||
-                      ratingsAccessMode === 'free'
-                    }
+                    disabled={ratingsRunDateSelectDisabled}
                   >
-                    <SelectTrigger
-                      id="ratings-run-date-select"
-                      aria-label="Ratings run date"
-                      className="h-8 w-full max-w-[168px] shrink-0 text-xs sm:w-[168px]"
-                    >
-                      <SelectValue placeholder={availableRunDates.length ? 'Run date' : 'No dates'} />
-                    </SelectTrigger>
+                    {ratingsAccessMode === 'free' ? (
+                      <Tooltip delayDuration={200}>
+                        <TooltipTrigger asChild>
+                          <span className="inline-flex cursor-help rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+                            <SelectTrigger
+                              id="ratings-run-date-select"
+                              aria-label="Ratings run date — upgrade for history"
+                              className="h-8 w-full max-w-[168px] shrink-0 pointer-events-none text-xs sm:w-[168px]"
+                            >
+                              <SelectValue placeholder={availableRunDates.length ? 'Run date' : 'No dates'} />
+                            </SelectTrigger>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent
+                          side="top"
+                          align="end"
+                          className="pointer-events-auto w-[min(100vw-2rem,18rem)] border-border p-3 text-left shadow-lg"
+                        >
+                          <p className="mb-2.5 text-xs leading-snug text-popover-foreground">
+                            Rating history and past run dates are available on Supporter or Outperformer plans.
+                          </p>
+                          <Button
+                            size="sm"
+                            className="h-8 w-full gap-1 border-0 bg-trader-blue font-medium text-white hover:bg-trader-blue/90 dark:bg-trader-blue dark:hover:bg-trader-blue/90"
+                            asChild
+                          >
+                            <Link href="/pricing">Upgrade</Link>
+                          </Button>
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      <SelectTrigger
+                        id="ratings-run-date-select"
+                        aria-label="Ratings run date"
+                        className="h-8 w-full max-w-[168px] shrink-0 text-xs sm:w-[168px]"
+                      >
+                        <SelectValue placeholder={availableRunDates.length ? 'Run date' : 'No dates'} />
+                      </SelectTrigger>
+                    )}
                     <SelectContent align="end">
                       {availableRunDates.map((d) => (
                         <SelectItem key={d} value={d} className="text-xs">
@@ -768,40 +870,52 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                     noScrollWrapper
                     className={cn(
                       'w-full min-w-[920px] border-separate border-spacing-0 table-auto',
-                      '[&_th]:!px-3 [&_th]:!py-2.5 [&_td]:!px-3 [&_td]:!py-3'
+                      rankColumnBlurred ? RATINGS_TABLE_PADDING_FREE : RATINGS_TABLE_PADDING_PAID
                     )}
                   >
                     <TableHeader className={ratingsTableStickyHeaderClass} style={ratingsTheadStickyStyle}>
                       <TableRow>
-                        {!hideRankings ? (
-                          <TableHead className="min-w-[5.75rem] max-w-[7.5rem] whitespace-nowrap">
-                            <span className="inline-flex items-center gap-1">
-                              Rank
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <button
-                                    type="button"
-                                    className="-m-0.5 rounded-sm p-0.5 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                                    aria-label="About rank and change vs prior week"
-                                  >
-                                    <CircleHelp className="size-3.5 shrink-0" aria-hidden />
-                                  </button>
-                                </TooltipTrigger>
-                                <TooltipContent side="top" className="max-w-xs text-xs">
-                                  Current ranking by cumulative average AI rating. Rating changes are compared to prior week.
-                                </TooltipContent>
-                              </Tooltip>
-                            </span>
-                          </TableHead>
-                        ) : null}
+                        <TableHead className="min-w-[5.75rem] max-w-[7.5rem] whitespace-nowrap">
+                          <span className="inline-flex items-center gap-1">
+                            Rank
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="-m-0.5 rounded-sm p-0.5 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                                  aria-label={
+                                    rankColumnBlurred
+                                      ? 'Why rankings are hidden on the free plan'
+                                      : 'About rank and change vs prior week'
+                                  }
+                                >
+                                  <CircleHelp className="size-3.5 shrink-0" aria-hidden />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="max-w-xs text-xs">
+                                {rankColumnBlurred
+                                  ? 'Upgrade to a paid plan to see cumulative rankings and week-over-week changes.'
+                                  : 'Current ranking by cumulative average AI rating. Rating changes are compared to prior week.'}
+                              </TooltipContent>
+                            </Tooltip>
+                          </span>
+                        </TableHead>
                         <TableHead className="min-w-[3.75rem] max-w-[5.5rem] whitespace-nowrap">Symbol</TableHead>
                         <TableHead className="min-w-0 max-w-[7rem] whitespace-nowrap">Company</TableHead>
                         <TableHead className="min-w-[5.5rem] whitespace-nowrap">Price</TableHead>
-                        <TableHead className="min-w-[10.5rem] whitespace-nowrap !pr-1.5">
+                        <TableHead
+                          className={cn(
+                            'min-w-[10.5rem] whitespace-nowrap',
+                            rankColumnBlurred ? '!pr-0' : '!pr-1.5'
+                          )}
+                        >
                           Cumulative AI score
                         </TableHead>
                         <TableHead
-                          className="min-w-[7rem] whitespace-nowrap !pl-1 !pr-2 text-center align-middle"
+                          className={cn(
+                            'min-w-[7rem] whitespace-nowrap !pr-2 text-center align-middle',
+                            rankColumnBlurred ? '!pl-0' : '!pl-1'
+                          )}
                           aria-label="Price vs rating"
                         >
                           Price vs rating
@@ -820,14 +934,21 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                         const cumulativeBucket = bucketFromScore(row.cumulativeAvgScore);
                         return (
                           <TableRow key={row.stockId}>
-                            {!hideRankings ? (
-                              <TableCell className="min-w-0 font-medium">
+                            <TableCell className="min-w-0 font-medium">
+                              {rankColumnBlurred ? (
+                                <>
+                                  <BlurredRankCellPlaceholder />
+                                  <span className="sr-only">
+                                    Rankings are available on a paid plan.
+                                  </span>
+                                </>
+                              ) : (
                                 <HoldingRankWithChange
                                   rank={row.cumulativeViewRank}
                                   rankChange={row.cumulativeRankChange}
                                 />
-                              </TableCell>
-                            ) : null}
+                              )}
+                            </TableCell>
                             <TableCell className="min-w-0">
                               {companyFull ? (
                                 <Tooltip>
@@ -864,7 +985,12 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                                 </span>
                               </div>
                             </TableCell>
-                            <TableCell className="min-w-0 !pr-1.5">
+                            <TableCell
+                              className={cn(
+                                'min-w-0',
+                                rankColumnBlurred ? '!pr-0' : '!pr-1.5'
+                              )}
+                            >
                               <span className="inline-flex min-w-0 flex-wrap items-center gap-1.5">
                                 <span className="tabular-nums font-medium">
                                   {row.cumulativeAvgScore != null ? row.cumulativeAvgScore : '—'}
@@ -879,7 +1005,12 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                                 ) : null}
                               </span>
                             </TableCell>
-                            <TableCell className="min-w-[7rem] !pl-1 !pr-2 text-center">
+                            <TableCell
+                              className={cn(
+                                'min-w-[7rem] !pr-2 text-center',
+                                rankColumnBlurred ? '!pl-0' : '!pl-1'
+                              )}
+                            >
                               <StockChartDialog
                                 symbol={row.symbol}
                                 strategySlug={
@@ -889,8 +1020,12 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                             </TableCell>
                             <TableCell className="min-w-0 text-right">
                               <Button variant="ghost" size="sm" asChild className="h-7 gap-1 px-2 text-xs">
-                                <Link href={`/stocks/${row.symbol.toLowerCase()}`}>
-                                  View <ArrowRight className="size-3" />
+                                <Link
+                                  href={`/stocks/${row.symbol.toLowerCase()}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  View <ArrowUpRight className="size-3" />
                                 </Link>
                               </Button>
                             </TableCell>
@@ -904,22 +1039,52 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                     noScrollWrapper
                     className={cn(
                       'w-full min-w-[1100px] border-separate border-spacing-0 table-auto',
-                      '[&_th]:!px-3 [&_th]:!py-2.5 [&_td]:!px-3 [&_td]:!py-3'
+                      rankColumnBlurred ? RATINGS_TABLE_PADDING_FREE : RATINGS_TABLE_PADDING_PAID
                     )}
                   >
                     <TableHeader className={ratingsTableStickyHeaderClass} style={ratingsTheadStickyStyle}>
                       <TableRow>
-                        {!hideRankings ? (
-                          <TableHead className="min-w-[5.75rem] whitespace-nowrap">Rank</TableHead>
-                        ) : null}
+                        <TableHead className="min-w-[5.75rem] whitespace-nowrap">
+                          {rankColumnBlurred ? (
+                            <span className="inline-flex items-center gap-1">
+                              Rank
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    type="button"
+                                    className="-m-0.5 rounded-sm p-0.5 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                                    aria-label="Why rankings are hidden on the free plan"
+                                  >
+                                    <CircleHelp className="size-3.5 shrink-0" aria-hidden />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-xs text-xs">
+                                  Upgrade to a paid plan to see model rankings and week-over-week changes.
+                                </TooltipContent>
+                              </Tooltip>
+                            </span>
+                          ) : (
+                            'Rank'
+                          )}
+                        </TableHead>
                         <TableHead className="min-w-[3.75rem] max-w-[5.5rem] whitespace-nowrap">Symbol</TableHead>
                         <TableHead className="hidden min-w-0 max-w-[7rem] whitespace-nowrap lg:table-cell">
                           Company
                         </TableHead>
                         <TableHead className="min-w-[5.5rem] whitespace-nowrap">Price</TableHead>
-                        <TableHead className="min-w-[8.5rem] whitespace-nowrap !pr-1.5">AI rating</TableHead>
                         <TableHead
-                          className="min-w-[9rem] whitespace-nowrap !pl-1 !pr-2 text-center align-middle"
+                          className={cn(
+                            'min-w-[8.5rem] whitespace-nowrap',
+                            rankColumnBlurred ? '!pr-0' : '!pr-1.5'
+                          )}
+                        >
+                          AI rating
+                        </TableHead>
+                        <TableHead
+                          className={cn(
+                            'min-w-[9rem] whitespace-nowrap !pr-2 text-center align-middle',
+                            rankColumnBlurred ? '!pl-0' : '!pl-1'
+                          )}
                           aria-label="Price vs rating"
                         >
                           Price vs rating
@@ -948,27 +1113,46 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                           companyFull && companyFull.toUpperCase() !== row.symbol.toUpperCase()
                             ? `${row.symbol} · ${companyFull}`
                             : row.symbol;
+                        const lockedPremium = row.premiumFieldsLocked === true;
 
                         return (
                           <TableRow key={row.stockId}>
-                            {!hideRankings ? (
-                              <TableCell className="min-w-0 font-medium">
-                                <HoldingRankWithChange rank={row.rank} rankChange={row.rankChange} />
-                              </TableCell>
-                            ) : null}
-                            <TableCell className="min-w-0">
-                              {companyFull ? (
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <span className="block truncate font-semibold">{row.symbol}</span>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="top" className="max-w-xs text-left">
-                                    {companyFull}
-                                  </TooltipContent>
-                                </Tooltip>
+                            <TableCell className="min-w-0 font-medium">
+                              {rankColumnBlurred ? (
+                                <>
+                                  <BlurredRankCellPlaceholder />
+                                  <span className="sr-only">
+                                    Rankings are available on a paid plan.
+                                  </span>
+                                </>
                               ) : (
-                                <span className="block truncate font-semibold">{row.symbol}</span>
+                                <HoldingRankWithChange rank={row.rank} rankChange={row.rankChange} />
                               )}
+                            </TableCell>
+                            <TableCell className="min-w-0">
+                              <div className="flex min-w-0 items-center gap-1.5">
+                                {companyFull ? (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <span className="block min-w-0 truncate font-semibold">{row.symbol}</span>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top" className="max-w-xs text-left">
+                                      {companyFull}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                ) : (
+                                  <span className="block min-w-0 truncate font-semibold">{row.symbol}</span>
+                                )}
+                                {lockedPremium ? (
+                                  <Badge
+                                    variant="outline"
+                                    className="shrink-0 gap-0.5 px-1 py-0 text-[9px] font-semibold uppercase tracking-wide"
+                                  >
+                                    <Lock className="size-2.5 shrink-0" aria-hidden />
+                                    Premium
+                                  </Badge>
+                                ) : null}
+                              </div>
                             </TableCell>
                             <TableCell className="hidden min-w-0 max-w-[7rem] overflow-hidden text-muted-foreground lg:table-cell">
                               {companyFull ? (
@@ -992,36 +1176,57 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                                 </span>
                               </div>
                             </TableCell>
-                            <TableCell className="!pr-1.5">
-                              <span className="inline-flex flex-wrap items-center gap-1.5">
-                                <span className="tabular-nums font-medium">{row.score ?? 'N/A'}</span>
-                                {scoreChange && ScoreChangeIcon ? (
-                                  <span
-                                    className={`inline-flex items-center gap-0.5 text-[11px] tabular-nums ${scoreChange.className}`}
-                                  >
-                                    <ScoreChangeIcon className="size-3 shrink-0" aria-hidden />
-                                    <span>{scoreChange.label}</span>
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center text-[11px] tabular-nums text-muted-foreground">
-                                    -
-                                  </span>
-                                )}
-                                <Badge variant="outline" className={`text-xs ${getBucketClasses(row.bucket)}`}>
-                                  {formatBucketLabel(row.bucket)}
-                                </Badge>
-                              </span>
+                            <TableCell
+                              className={rankColumnBlurred ? '!pr-0' : '!pr-1.5'}
+                            >
+                              {lockedPremium ? (
+                                <PaidPlanLockTooltip />
+                              ) : (
+                                <span className="inline-flex flex-wrap items-center gap-1.5">
+                                  <span className="tabular-nums font-medium">{row.score ?? 'N/A'}</span>
+                                  {scoreChange && ScoreChangeIcon ? (
+                                    <span
+                                      className={`inline-flex items-center gap-0.5 text-[11px] tabular-nums ${scoreChange.className}`}
+                                    >
+                                      <ScoreChangeIcon className="size-3 shrink-0" aria-hidden />
+                                      <span>{scoreChange.label}</span>
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center text-[11px] tabular-nums text-muted-foreground">
+                                      -
+                                    </span>
+                                  )}
+                                  <Badge variant="outline" className={`text-xs ${getBucketClasses(row.bucket)}`}>
+                                    {formatBucketLabel(row.bucket)}
+                                  </Badge>
+                                </span>
+                              )}
                             </TableCell>
-                            <TableCell className="min-w-[9rem] !pl-1 !pr-2 text-center">
-                              <StockChartDialog
-                                symbol={row.symbol}
-                                strategySlug={
-                                  selectedStrategySlug === defaultStrategy.slug ? null : selectedStrategySlug
-                                }
-                              />
+                            <TableCell
+                              className={cn(
+                                'min-w-[9rem] !pr-2 text-center',
+                                rankColumnBlurred ? '!pl-0' : '!pl-1'
+                              )}
+                            >
+                              {lockedPremium ? (
+                                <div className="flex justify-center">
+                                  <PaidPlanLockTooltip contentAlign="center" />
+                                </div>
+                              ) : (
+                                <StockChartDialog
+                                  symbol={row.symbol}
+                                  strategySlug={
+                                    selectedStrategySlug === defaultStrategy.slug ? null : selectedStrategySlug
+                                  }
+                                />
+                              )}
                             </TableCell>
-                            <TableCell className="hidden min-w-0 xl:table-cell">
-                              {row.reason1s ? (
+                            <TableCell className="hidden min-w-0 align-middle xl:table-cell">
+                              {lockedPremium ? (
+                                <div className="flex min-h-10 items-center">
+                                  <PaidPlanLockTooltip />
+                                </div>
+                              ) : row.reason1s ? (
                                 <Tooltip>
                                   <TooltipTrigger asChild>
                                     <span className="line-clamp-1 break-words text-sm text-muted-foreground">
@@ -1041,8 +1246,17 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                                 <span className="text-muted-foreground">-</span>
                               )}
                             </TableCell>
-                            <TableCell className="hidden min-w-0 max-w-[min(10rem,12vw)] align-top xl:table-cell">
-                              {risks.length > 0 ? (
+                            <TableCell
+                              className={cn(
+                                'hidden min-w-0 max-w-[min(10rem,12vw)] xl:table-cell',
+                                lockedPremium ? 'align-middle' : 'align-top'
+                              )}
+                            >
+                              {lockedPremium ? (
+                                <div className="flex min-h-10 items-center">
+                                  <PaidPlanLockTooltip />
+                                </div>
+                              ) : risks.length > 0 ? (
                                 <Tooltip>
                                   <TooltipTrigger asChild>
                                     <span className="line-clamp-2 cursor-help text-left text-xs text-muted-foreground">
@@ -1071,11 +1285,21 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                               )}
                             </TableCell>
                             <TableCell className="text-right">
-                              <Button variant="ghost" size="sm" asChild className="h-7 gap-1 px-2 text-xs">
-                                <Link href={`/stocks/${row.symbol.toLowerCase()}`}>
-                                  View <ArrowRight className="size-3" />
-                                </Link>
-                              </Button>
+                              {lockedPremium ? (
+                                <div className="flex justify-end">
+                                  <PaidPlanLockTooltip contentAlign="end" />
+                                </div>
+                              ) : (
+                                <Button variant="ghost" size="sm" asChild className="h-7 gap-1 px-2 text-xs">
+                                  <Link
+                                    href={`/stocks/${row.symbol.toLowerCase()}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                  >
+                                    View <ArrowUpRight className="size-3" />
+                                  </Link>
+                                </Button>
+                              )}
                             </TableCell>
                           </TableRow>
                         );

@@ -749,7 +749,7 @@ export function ExplorePortfolioDetailDialog({
                 <Lock className="size-7 shrink-0 text-muted-foreground" aria-hidden />
                 <p className="max-w-sm text-sm text-muted-foreground">
                   {authState.isAuthenticated
-                    ? 'Holdings tables unlock on Supporter or Outperformer. Rankings and performance stats stay visible above.'
+                    ? 'Holdings tables unlock on Supporter or Outperformer.'
                     : 'Sign in to follow portfolios. Full holdings unlock on a paid plan.'}
                 </p>
                 {authState.isAuthenticated ? (

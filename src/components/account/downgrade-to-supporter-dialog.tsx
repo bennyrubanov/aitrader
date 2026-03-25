@@ -12,16 +12,30 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 
+function formatBillingPeriodEnd(iso: string | null | undefined) {
+  if (!iso) return null;
+  try {
+    return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeZone: 'UTC' }).format(
+      new Date(iso)
+    );
+  } catch {
+    return null;
+  }
+}
+
 type DowngradeToSupporterDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onAfterSuccess: () => void | Promise<void>;
+  /** ISO timestamp from `user_profiles.stripe_current_period_end` (end of current billing period). */
+  currentPeriodEndIso?: string | null;
 };
 
 export function DowngradeToSupporterDialog({
   open,
   onOpenChange,
   onAfterSuccess,
+  currentPeriodEndIso,
 }: DowngradeToSupporterDialogProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -55,8 +69,25 @@ export function DowngradeToSupporterDialog({
         <DialogHeader>
           <DialogTitle>Downgrade to Supporter?</DialogTitle>
           <DialogDescription>
-            Your Outperformer access stays through the end of your current billing period. After that,
-            your subscription continues on Supporter at the matching monthly or yearly price.
+            {(() => {
+              const endLabel = formatBillingPeriodEnd(currentPeriodEndIso);
+              if (endLabel) {
+                return (
+                  <>
+                    Your Outperformer access stays through{' '}
+                    <span className="font-semibold text-foreground">{endLabel}</span>, the end of your
+                    current billing period. After that, your subscription continues on Supporter at the
+                    matching monthly or yearly price.
+                  </>
+                );
+              }
+              return (
+                <>
+                  Your Outperformer access stays through the end of your current billing period. After
+                  that, your subscription continues on Supporter at the matching monthly or yearly price.
+                </>
+              );
+            })()}
           </DialogDescription>
         </DialogHeader>
         {error && <p className="text-sm text-destructive">{error}</p>}

@@ -1,6 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { cn } from '@/lib/utils';
 import { ChevronDown } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -19,6 +20,8 @@ type Props = {
   selectedSlug: string | null | undefined;
   onSelectStrategy: (slug: string) => void;
   children?: ReactNode;
+  /** Stock page / embedded: omit the bottom rule used on performance sidebars. */
+  hideBottomBorder?: boolean;
 };
 
 /**
@@ -30,6 +33,7 @@ export function StrategyModelSidebarDropdown({
   selectedSlug,
   onSelectStrategy,
   children,
+  hideBottomBorder = false,
 }: Props) {
   if (strategies.length === 0) return null;
 
@@ -40,7 +44,12 @@ export function StrategyModelSidebarDropdown({
   const isBestSelected = !bestStrategy || bestStrategy.id === effective.id;
 
   return (
-    <div className="space-y-4 border-b border-border pt-5 pb-4">
+    <div
+      className={cn(
+        'space-y-4 pt-5 pb-4',
+        !hideBottomBorder && 'border-b border-border',
+      )}
+    >
       <div className="space-y-1.5">
         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Strategy model

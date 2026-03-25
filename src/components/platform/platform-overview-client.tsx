@@ -1033,6 +1033,8 @@ function RebalanceActionsTable({
                   <div className="min-w-0">
                     <Link
                       href={`/stocks/${r.symbol.toLowerCase()}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
                       className="font-semibold text-foreground hover:underline"
                     >
                       {r.symbol}
@@ -2012,7 +2014,9 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
       portfolioMovementInflight.clear();
       overviewMovementWarmStartedRef.current.clear();
       setMovementRefreshEpoch((e) => e + 1);
-      void refreshOverviewProfiles();
+      // Re-run the authenticated profile effect (abort + loading) so POST-follow data isn’t missed
+      // when the prior fetch returned [] or the tree remounted.
+      setProfileFetchNonce((n) => n + 1);
     };
     window.addEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, handler);
     return () => window.removeEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, handler);
@@ -2210,6 +2214,8 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
       overviewUserEntryFetchStartedRef.current.set(key, fp);
       toStart.push(p);
     }
+
+    if (toStart.length === 0) return;
 
     const runId = ++overviewUserEntryRunIdRef.current;
     let cancelled = false;
@@ -2797,7 +2803,22 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                 </Button>
               </CardContent>
             </Card>
-          ) : !authState.isAuthenticated && !isOnboardingDone ? null : !authState.isAuthenticated &&
+          ) : !authState.isAuthenticated && !isOnboardingDone ? (
+            <Card className="border-dashed">
+              <CardHeader>
+                <CardTitle className="text-base">Set up your overview</CardTitle>
+                <CardDescription>
+                  Complete the short setup, or browse Explore portfolios and follow one to populate this
+                  page.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button asChild size="sm">
+                  <Link href="/platform/explore-portfolios">Explore portfolios</Link>
+                </Button>
+              </CardContent>
+            </Card>
+          ) : !authState.isAuthenticated &&
             isOnboardingDone &&
             profiles.length === 0 ? (
             <Card>
@@ -2823,12 +2844,16 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                 <CardHeader>
                   <CardTitle className="text-base">No portfolios yet</CardTitle>
                   <CardDescription>
-                    Choose a starting portfolio configuration. You can follow more from Explore
-                    Portfolios later.
+                    {isOnboardingDone
+                      ? 'Follow a portfolio from Explore portfolios to see your top performer and rebalance guidance here.'
+                      : 'Finish the setup dialog, or follow a portfolio from Explore portfolios when you’re ready.'}
                   </CardDescription>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="flex flex-wrap gap-2">
                   <Button asChild size="sm">
+                    <Link href="/platform/explore-portfolios">Explore portfolios</Link>
+                  </Button>
+                  <Button asChild size="sm" variant="outline">
                     <Link href="/platform/your-portfolios">Your portfolios</Link>
                   </Button>
                 </CardContent>
@@ -2868,6 +2893,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                 <TabsTrigger
                                   value="rebalance-actions"
                                   disabled
+                                  data-platform-tour="overview-rebalance-tab"
                                   className="w-full rounded-md px-3 py-2 text-xs font-medium data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm sm:py-1.5 sm:text-sm"
                                 >
                                   <span className="inline-flex items-center gap-1.5">
@@ -2891,6 +2917,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                         ) : (
                           <TabsTrigger
                             value="rebalance-actions"
+                            data-platform-tour="overview-rebalance-tab"
                             className="rounded-md px-3 py-2 text-xs font-medium data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm sm:py-1.5 sm:text-sm"
                           >
                             <span className="inline-flex items-center gap-1.5">Rebalance Actions</span>

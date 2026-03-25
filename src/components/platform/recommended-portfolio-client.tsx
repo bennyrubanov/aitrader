@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   AlertTriangle,
-  ArrowRight,
+  ArrowUpRight,
   Calendar,
   Info,
   Loader2,
@@ -271,8 +271,12 @@ export function RecommendedPortfolioClient() {
                       <TableCell className="text-right tabular-nums">{(h.weight * 100).toFixed(1)}%</TableCell>
                       <TableCell className="text-right">
                         <Button variant="ghost" size="sm" asChild className="h-7 gap-1 px-2 text-xs">
-                          <Link href={`/stocks/${h.symbol.toLowerCase()}`}>
-                            View <ArrowRight className="size-3" />
+                          <Link
+                            href={`/stocks/${h.symbol.toLowerCase()}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            View <ArrowUpRight className="size-3" />
                           </Link>
                         </Button>
                       </TableCell>

@@ -186,8 +186,7 @@ export function SubscriptionUpgradeDialog({
         <DialogHeader>
           <DialogTitle>Upgrade to Outperformer</DialogTitle>
           <DialogDescription>
-            We&apos;ll invoice a prorated amount for the rest of your current billing period. The exact
-            total can change slightly if you wait; confirm soon after preview. If payment fails, you stay on
+            We&apos;ll invoice a prorated amount for the rest of your current billing period. If payment fails, you&apos;ll stay on
             Supporter until the invoice is paid.
           </DialogDescription>
         </DialogHeader>

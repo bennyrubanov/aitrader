@@ -18,7 +18,9 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { Expand } from 'lucide-react';
+import Link from 'next/link';
+import { Expand, Lock } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -29,6 +31,7 @@ import {
 } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
+import { useAuthState } from '@/components/auth/auth-state-context';
 
 type TimeRange = '1M' | '3M' | '6M' | 'All';
 
@@ -98,8 +101,6 @@ export type StockPriceRatingChartProps = {
   chartClassName?: string;
   /** Min height for loading skeleton stack. */
   loadingContainerClassName?: string;
-  /** Show strategy slug from API under the range/series toggles. */
-  showStrategyCaption?: boolean;
   /** e.g. dialog title above toggles */
   renderHeader?: (args: { titleStockLabel: string; titleSuffix: string }) => ReactNode;
   /**
@@ -107,8 +108,13 @@ export type StockPriceRatingChartProps = {
    * Use guest | free | supporter | outperformer | pending.
    */
   authSegment?: string;
-  /** When false, only price is shown and the AI rating toggle is hidden (guest / free on premium tickers). */
+  /** When false, only price is shown and the AI rating toggle is disabled or hidden. */
   allowAiRatingSeries?: boolean;
+  /**
+   * When `allowAiRatingSeries` is false and this href is set, the AI rating toggle appears
+   * grayed-out alongside a small "Upgrade" link. Omit to hide the toggle entirely.
+   */
+  aiRatingGatedHref?: string;
 };
 
 /**
@@ -120,10 +126,10 @@ export function StockPriceRatingChart({
   enabled = true,
   chartClassName = 'h-[320px] w-full [&_.recharts-responsive-container]:!h-full',
   loadingContainerClassName = 'h-[320px]',
-  showStrategyCaption = false,
   renderHeader,
   authSegment = 'guest',
   allowAiRatingSeries = true,
+  aiRatingGatedHref,
 }: StockPriceRatingChartProps) {
   const [range, setRange] = useState<TimeRange>('3M');
   /** Independent toggles; at least one stays on (default both on = same as former “Both”). */
@@ -239,6 +245,7 @@ export function StockPriceRatingChart({
 
   const showPrice = seriesSelection.price;
   const showRating = seriesSelection.rating;
+  const showScoreBands = showRating;
   const hasPriceData = chartData.some((r) => r.price != null);
   const hasScoreData = chartData.some((r) => r.score != null);
 
@@ -341,14 +348,37 @@ export function StockPriceRatingChart({
               AI rating
             </button>
           </div>
+        ) : aiRatingGatedHref ? (
+          <div
+            className="flex items-center gap-1.5 border-l border-border pl-3"
+            role="group"
+            aria-label="Chart series"
+          >
+            <span className="rounded bg-trader-blue px-2 py-1 text-xs font-medium text-white">
+              Price
+            </span>
+            <TooltipProvider delayDuration={200}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex cursor-not-allowed items-center gap-1 rounded bg-muted px-2 py-1 text-xs font-medium text-muted-foreground/50">
+                    <Lock className="size-3" />
+                    AI rating
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-[220px] text-center text-xs">
+                  Sign up for a paid plan to unlock AI ratings on the chart
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <Link
+              href={aiRatingGatedHref}
+              className="ml-1 rounded bg-trader-blue/10 px-2 py-1 text-[11px] font-semibold text-trader-blue transition-colors hover:bg-trader-blue/20"
+            >
+              Upgrade
+            </Link>
+          </div>
         ) : null}
       </div>
-
-      {showStrategyCaption && data?.strategy ? (
-        <p className="text-xs text-muted-foreground mt-2">
-          Ratings from strategy <span className="font-mono text-foreground/80">{data.strategy}</span>
-        </p>
-      ) : null}
 
       {showChartLoading ? (
         <div
@@ -422,119 +452,130 @@ export function StockPriceRatingChart({
                   }}
                 />
               ) : null}
-              {showRating ? (
-                <YAxis
-                  yAxisId="score"
-                  orientation={showPrice ? 'right' : 'left'}
-                  domain={[-5, 5]}
-                  ticks={[5, 2, 0, -2, -5]}
-                  tickFormatter={(v: number) => v.toFixed(0)}
-                  tick={{ fontSize: 10 }}
-                  width={44}
-                  label={{
-                    position: showPrice ? 'insideRight' : 'insideLeft',
-                    angle: showPrice ? 90 : -90,
-                    offset: 5,
-                    content: (props: { viewBox?: AxisLabelViewBox; offset?: number }) => {
-                      const vb = props.viewBox;
-                      if (!vb) return null;
-                      const c = cartesianAxisLabelCoords(
-                        vb,
-                        showPrice ? 'insideRight' : 'insideLeft',
-                        props.offset ?? 5,
-                      );
-                      return (
-                        <Text
-                          x={c.x}
-                          y={c.y}
-                          textAnchor={c.textAnchor}
-                          verticalAnchor="middle"
-                          angle={showPrice ? 90 : -90}
-                          fill="#2563eb"
-                          style={{
-                            fontSize: 10,
-                            fontWeight: scoreAxisHovered ? 700 : 400,
-                            cursor: 'default',
-                          }}
-                          onMouseEnter={() => setScoreAxisHovered(true)}
-                          onMouseLeave={() => setScoreAxisHovered(false)}
-                        >
-                          AI rating
-                        </Text>
-                      );
-                    },
-                  }}
-                />
-              ) : null}
-              {showRating ? (
-                <>
-                  <ReferenceArea
-                    yAxisId="score"
-                    y1={-5}
-                    y2={-2}
-                    fill="#e11d48"
-                    fillOpacity={0.1}
-                    stroke="none"
-                    isFront={false}
-                    label={{
-                      value: 'Sell',
-                      position: 'center',
-                      fill: 'hsl(var(--foreground))',
-                      fontSize: 11,
-                      fontWeight: 600,
-                      opacity: 0.55,
-                    }}
-                  />
-                  <ReferenceArea
-                    yAxisId="score"
-                    y1={-2}
-                    y2={2}
-                    fill="#2563eb"
-                    fillOpacity={0.07}
-                    stroke="none"
-                    isFront={false}
-                    label={{
-                      value: 'Hold',
-                      position: 'center',
-                      fill: 'hsl(var(--foreground))',
-                      fontSize: 11,
-                      fontWeight: 600,
-                      opacity: 0.5,
-                    }}
-                  />
-                  <ReferenceArea
-                    yAxisId="score"
-                    y1={2}
-                    y2={5}
-                    fill="#16a34a"
-                    fillOpacity={0.1}
-                    stroke="none"
-                    isFront={false}
-                    label={{
-                      value: 'Buy',
-                      position: 'center',
-                      fill: 'hsl(var(--foreground))',
-                      fontSize: 11,
-                      fontWeight: 600,
-                      opacity: 0.55,
-                    }}
-                  />
-                  <ReferenceLine
-                    yAxisId="score"
-                    y={2}
-                    stroke="#16a34a"
-                    strokeDasharray="4 2"
-                    strokeOpacity={0.35}
-                  />
-                  <ReferenceLine
-                    yAxisId="score"
-                    y={-2}
-                    stroke="#e11d48"
-                    strokeDasharray="4 2"
-                    strokeOpacity={0.35}
-                  />
-                </>
-              ) : null}
+              <YAxis
+                yAxisId="score"
+                orientation={showPrice ? 'right' : 'left'}
+                domain={[-5, 5]}
+                ticks={showRating ? [5, 2, 0, -2, -5] : undefined}
+                tickFormatter={showRating ? (v: number) => v.toFixed(0) : undefined}
+                tick={showRating ? { fontSize: 10 } : false}
+                width={showRating ? 44 : 0}
+                hide={!showRating}
+                label={
+                  showRating
+                    ? {
+                        position: showPrice ? 'insideRight' : 'insideLeft',
+                        angle: showPrice ? 90 : -90,
+                        offset: 5,
+                        content: (props: { viewBox?: AxisLabelViewBox; offset?: number }) => {
+                          const vb = props.viewBox;
+                          if (!vb) return null;
+                          const c = cartesianAxisLabelCoords(
+                            vb,
+                            showPrice ? 'insideRight' : 'insideLeft',
+                            props.offset ?? 5,
+                          );
+                          return (
+                            <Text
+                              x={c.x}
+                              y={c.y}
+                              textAnchor={c.textAnchor}
+                              verticalAnchor="middle"
+                              angle={showPrice ? 90 : -90}
+                              fill="#2563eb"
+                              style={{
+                                fontSize: 10,
+                                fontWeight: scoreAxisHovered ? 700 : 400,
+                                cursor: 'default',
+                              }}
+                              onMouseEnter={() => setScoreAxisHovered(true)}
+                              onMouseLeave={() => setScoreAxisHovered(false)}
+                            >
+                              AI rating
+                            </Text>
+                          );
+                        },
+                      }
+                    : undefined
+                }
+              />
+              <ReferenceArea
+                yAxisId="score"
+                y1={-5}
+                y2={-2}
+                fill="#e11d48"
+                fillOpacity={showScoreBands ? 0.14 : 0}
+                stroke="none"
+                isFront={false}
+                label={
+                  showScoreBands
+                    ? {
+                        value: 'Sell',
+                        position: 'center' as const,
+                        fill: 'hsl(var(--foreground))',
+                        fontSize: 11,
+                        fontWeight: 600,
+                        opacity: 0.55,
+                      }
+                    : undefined
+                }
+              />
+              <ReferenceArea
+                yAxisId="score"
+                y1={-2}
+                y2={2}
+                fill="#2563eb"
+                fillOpacity={showScoreBands ? 0.11 : 0}
+                stroke="none"
+                isFront={false}
+                label={
+                  showScoreBands
+                    ? {
+                        value: 'Hold',
+                        position: 'center' as const,
+                        fill: 'hsl(var(--foreground))',
+                        fontSize: 11,
+                        fontWeight: 600,
+                        opacity: 0.5,
+                      }
+                    : undefined
+                }
+              />
+              <ReferenceArea
+                yAxisId="score"
+                y1={2}
+                y2={5}
+                fill="#16a34a"
+                fillOpacity={showScoreBands ? 0.14 : 0}
+                stroke="none"
+                isFront={false}
+                label={
+                  showScoreBands
+                    ? {
+                        value: 'Buy',
+                        position: 'center' as const,
+                        fill: 'hsl(var(--foreground))',
+                        fontSize: 11,
+                        fontWeight: 600,
+                        opacity: 0.55,
+                      }
+                    : undefined
+                }
+              />
+              <ReferenceLine
+                yAxisId="score"
+                y={2}
+                stroke="#16a34a"
+                strokeDasharray="4 2"
+                strokeOpacity={showScoreBands ? 0.5 : 0}
+              />
+              <ReferenceLine
+                yAxisId="score"
+                y={-2}
+                stroke="#e11d48"
+                strokeDasharray="4 2"
+                strokeOpacity={showScoreBands ? 0.5 : 0}
+              />
               {showRating && ratingDayMarkers.length > 0
                 ? ratingDayMarkers.map((m) => (
                     <ReferenceLine
@@ -651,6 +692,8 @@ export function StockChartDialog({
   /** Renders below the chart, right-aligned (e.g. link to full stock analysis). */
   footer?: ReactNode;
 }) {
+  const { isAuthenticated, isLoaded, subscriptionTier } = useAuthState();
+  const chartAuthSegment = !isLoaded ? 'pending' : !isAuthenticated ? 'guest' : subscriptionTier;
   const [internalOpen, setInternalOpen] = useState(false);
   const isControlled = openProp !== undefined;
   const open = isControlled ? openProp : internalOpen;
@@ -678,6 +721,7 @@ export function StockChartDialog({
             <StockPriceRatingChart
               symbol={symbol}
               strategySlug={strategySlug}
+              authSegment={chartAuthSegment}
               enabled
               renderHeader={({ titleStockLabel, titleSuffix }) => (
                 <DialogHeader>

@@ -40,6 +40,12 @@ export function PlatformWorkspaceMount({ strategies, ratingsInitial }: Props) {
     setEverVisited((prev) => (prev.has(active) ? prev : new Set([...prev, active])));
   }, [active]);
 
+  /** Keep overview mounted after onboarding completes (it was only mounted hidden for the dialog). */
+  useEffect(() => {
+    if (!mountOverviewForOnboarding) return;
+    setEverVisited((prev) => (prev.has('overview') ? prev : new Set([...prev, 'overview'])));
+  }, [mountOverviewForOnboarding]);
+
   if (!active) {
     return null;
   }
