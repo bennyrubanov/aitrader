@@ -44,9 +44,10 @@ import { getSupabaseBrowserClient } from "@/utils/supabase/browser";
 import { useAuthState } from "@/components/auth/auth-state-context";
 import { PlanLabel } from "@/components/account/plan-label";
 import { navigateWithFallback } from "@/lib/client-navigation";
+import { STRATEGY_CONFIG } from "@/lib/strategyConfig";
 
 const platformNavItems: PlatformNavItem[] = [
-  { label: "Performance", href: "/performance", icon: Gauge },
+  { label: "Performance", href: `/performance/${STRATEGY_CONFIG.slug}`, icon: Gauge },
   { label: "Strategy Models", href: "/strategy-models", icon: FlaskConical },
   { label: "Pricing & Features", href: "/pricing", icon: Landmark },
   {
@@ -107,6 +108,8 @@ const Navbar: React.FC = () => {
   const [avatarLoaded, setAvatarLoaded] = useState(false);
   const [openMenu, setOpenMenu] = useState<"platform" | "resources" | "company" | null>(null);
   const pathname = usePathname();
+  /** Avoid nav active-state hydration mismatches when SSR pathname and client usePathname() disagree. */
+  const [navPathReady, setNavPathReady] = useState(false);
   const router = useRouter();
   const authState = useAuthState();
   const isAuthenticated = authState.isAuthenticated;
@@ -128,6 +131,10 @@ const Navbar: React.FC = () => {
   useEffect(() => {
     setIsNavigatingToSignIn(false);
   }, [pathname]);
+
+  useEffect(() => {
+    setNavPathReady(true);
+  }, []);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -223,12 +230,17 @@ const Navbar: React.FC = () => {
   };
 
   const isActive = (href: string) => {
+    if (!navPathReady) return false;
     if (href === "/") return pathname === "/";
     return pathname === href || pathname.startsWith(`${href}/`);
   };
 
   const isPlatformActive =
-    pathname.startsWith("/platform") || pathname.startsWith("/strategy-models") || pathname.startsWith("/performance") || pathname === "/pricing";
+    navPathReady &&
+    (pathname.startsWith("/platform") ||
+      pathname.startsWith("/strategy-models") ||
+      pathname.startsWith("/performance") ||
+      pathname === "/pricing");
 
   const dropdownButtonClass = (active: boolean) =>
     `inline-flex items-center gap-1 transition-colors ${

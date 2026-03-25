@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import {
   Dialog,
   DialogContent,
@@ -12,7 +13,9 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ToastAction } from '@/components/ui/toast';
 import { useToast } from '@/hooks/use-toast';
+import { cn } from '@/lib/utils';
 import { PortfolioEntryDatePicker } from '@/components/platform/portfolio-entry-date-picker';
 import { portfolioEntryDateBounds } from '@/components/platform/portfolio-entry-date-utils';
 import { PortfolioIdentitySummaryRow } from '@/components/platform/portfolio-identity-summary-row';
@@ -161,10 +164,29 @@ export function UserPortfolioEntrySettingsDialog({
           return;
         }
         onLocalPersist({ investmentSize: inv, userStartDate: sd });
+        const signUpNext =
+          typeof window !== 'undefined'
+            ? `${window.location.pathname}${window.location.search}`
+            : '/platform/overview';
         toast({
           title: 'Portfolio settings updated',
           description:
-            'Saved on this device only. Sign up to keep your portfolio when you switch browsers or devices.',
+            'Saved locally to your guest profile. Sign up for a free account to keep your portfolio saved across devices.',
+          action: (
+            <div className="flex w-full shrink-0 justify-center">
+              <ToastAction
+                asChild
+                altText="Sign up for a free account"
+                className={cn(
+                  'h-9 border-transparent bg-trader-blue px-4 text-primary-foreground shadow-sm',
+                  'hover:bg-trader-blue-dark hover:text-primary-foreground',
+                  'focus-visible:ring-trader-blue'
+                )}
+              >
+                <Link href={`/sign-up?next=${encodeURIComponent(signUpNext)}`}>Sign up free</Link>
+              </ToastAction>
+            </div>
+          ),
         });
         onOpenChange(false);
         onSaved?.();
@@ -192,7 +214,7 @@ export function UserPortfolioEntrySettingsDialog({
       toast({
         title: 'Portfolio settings updated',
         description:
-          'Performance now reflects your entry, holdings, and investment amount.',
+          'Performance now reflects your updated entry date and investment amount.',
       });
       onOpenChange(false);
       onSaved?.();

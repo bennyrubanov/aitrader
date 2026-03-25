@@ -4,7 +4,7 @@ import { Suspense } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Compass, Folders, Home, Sparkles } from 'lucide-react';
+import { Home } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SidebarControlDialog } from '@/components/platform/sidebar-control-dialog';
 import { Separator } from '@/components/ui/separator';
@@ -12,6 +12,7 @@ import { ThemeToggle } from '@/components/theme-toggle';
 import { MiniStockSearch } from '@/components/platform/mini-stock-search';
 import { PlanLabel } from '@/components/account/plan-label';
 import { useAuthState } from '@/components/auth/auth-state-context';
+import { SiteHeaderGuestAuth } from '@/components/platform/site-header-guest-auth';
 
 type ViewMeta = {
   title: string;
@@ -93,11 +94,6 @@ export function SiteHeader() {
     email,
   } = useAuthState();
   const viewMeta = getMetaFromPath(pathname);
-  const getStartedHref = hasPremiumAccess
-    ? '/platform/overview'
-    : isAuthenticated
-      ? '/pricing'
-      : '/sign-up';
 
   const displayName = !isLoaded
     ? ''
@@ -175,34 +171,13 @@ export function SiteHeader() {
         <div className="flex items-center gap-3">
           <ThemeToggle />
           {isLoaded && !isAuthenticated ? (
-            <>
-              <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
-                <Link
-                  href="/sign-in?next=/platform/overview"
-                  prefetch
-                  onMouseEnter={() => router.prefetch('/sign-in')}
-                  onFocus={() => router.prefetch('/sign-in')}
-                  onPointerDown={() => router.prefetch('/sign-in')}
-                >
-                  Sign in
-                </Link>
-              </Button>
-              <Button
-                asChild
-                size="sm"
-                className="hidden sm:inline-flex bg-trader-blue hover:bg-trader-blue-dark text-white"
-              >
-                <Link
-                  href={getStartedHref}
-                  prefetch
-                  onMouseEnter={() => router.prefetch(getStartedHref)}
-                  onFocus={() => router.prefetch(getStartedHref)}
-                  onPointerDown={() => router.prefetch(getStartedHref)}
-                >
-                  Get started
-                </Link>
-              </Button>
-            </>
+            <Suspense
+              fallback={
+                <div className="hidden h-8 w-[200px] shrink-0 sm:block" aria-hidden />
+              }
+            >
+              <SiteHeaderGuestAuth />
+            </Suspense>
           ) : (
             <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
               <Link

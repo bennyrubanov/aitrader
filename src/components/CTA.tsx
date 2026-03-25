@@ -19,8 +19,8 @@ const FALLBACK_NAMES: Record<(typeof LANDING_SYMBOLS)[number], string> = {
 
 const CTA: React.FC = () => {
   const { hasPremiumAccess, isAuthenticated } = useAuthState();
-  const ctaHref = isAuthenticated ? '/platform/overview' : '/sign-up';
-  const ctaLabel = 'Go to Platform';
+  const ctaHref = isAuthenticated ? '/platform/overview' : '/platform/overview';
+  const ctaLabel = 'Check out the platform';
 
   const [stocks, setStocks] = useState<Stock[]>([]);
 
@@ -59,7 +59,7 @@ const CTA: React.FC = () => {
     'Full history of AI decisions',
     'Transparent performance vs benchmark',
     'Detailed breakdowns for each stock',
-    'Nothing edited or removed after the fact',
+    'Performance breakdowns for portfolios of stocks',
   ];
 
   return (
@@ -71,7 +71,7 @@ const CTA: React.FC = () => {
               Let&apos;s outperform the market with AI
             </h2>
             <p className="text-xl text-muted-foreground max-w-3xl mx-auto">
-              Every decision, every trade, and every result — tracked in public. Follow along, or
+              Every decision, every trade, and every result are tracked in public. Follow along, or
               support the experiment by accessing full data and insights.
             </p>
           </div>

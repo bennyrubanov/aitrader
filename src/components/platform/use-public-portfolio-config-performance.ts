@@ -1,17 +1,25 @@
 'use client';
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
-import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
-import {
-  RISK_TOP_N,
-  type RebalanceFrequency,
-  type RiskLevel,
-  type WeightingMethod,
-} from '@/components/portfolio-config';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type {
+  BenchmarkEndingValues,
+  RankedConfig,
+} from '@/app/api/platform/portfolio-configs-ranked/route';
+import { RISK_TOP_N } from '@/components/portfolio-config';
 import type { PortfolioConfigSlice } from '@/components/platform/portfolio-config-controls';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
 import type { FullConfigPerformanceMetrics } from '@/lib/config-performance-chart';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
+import {
+  filterConfigsReadyWithEndingValue,
+  getEndingValueRankForConfigId,
+} from '@/lib/portfolio-config-value-rank';
+import {
+  pickDefaultPortfolioSliceFromRanked,
+  portfolioSliceIsInRankedList,
+  portfolioSliceMatchesRankedRow,
+  portfolioSliceMatchesRankOne,
+} from '@/lib/performance-portfolio-url';
 
 export type PublicPortfolioPerfApiPayload = {
   computeStatus: 'ready' | 'in_progress' | 'failed' | 'empty' | 'unsupported';
@@ -50,45 +58,9 @@ export type UsePublicPortfolioConfigPerformanceArgs = {
   onSliceChange?: (slice: PublicConfigPerfSlice) => void;
   portfolioConfigOverride?: PortfolioConfigSlice | null;
   onPortfolioConfigChange?: (c: PortfolioConfigSlice | null) => void;
+  /** Parsed `config=topN-…` query param; applied once ranked configs load when valid. */
+  urlPortfolioSelection?: PortfolioConfigSlice | null;
 };
-
-function pickDefaultPortfolioConfig(configs: RankedConfig[]): PortfolioConfigSlice {
-  const top = configs.find((c) => c.rank === 1);
-  if (top) {
-    return {
-      riskLevel: top.riskLevel as RiskLevel,
-      rebalanceFrequency: top.rebalanceFrequency as RebalanceFrequency,
-      weightingMethod: top.weightingMethod as WeightingMethod,
-    };
-  }
-  const def = configs.find((c) => c.isDefault);
-  if (def) {
-    return {
-      riskLevel: def.riskLevel as RiskLevel,
-      rebalanceFrequency: def.rebalanceFrequency as RebalanceFrequency,
-      weightingMethod: def.weightingMethod as WeightingMethod,
-    };
-  }
-  return { riskLevel: 3, rebalanceFrequency: 'weekly', weightingMethod: 'equal' };
-}
-
-function normKey(s: string) {
-  return String(s).trim().toLowerCase();
-}
-
-function portfolioMatchesRankedRow(slice: PortfolioConfigSlice, c: RankedConfig): boolean {
-  return (
-    Number(slice.riskLevel) === Number(c.riskLevel) &&
-    normKey(slice.rebalanceFrequency) === normKey(c.rebalanceFrequency) &&
-    normKey(slice.weightingMethod) === normKey(c.weightingMethod)
-  );
-}
-
-function matchesRankOne(slice: PortfolioConfigSlice, configs: RankedConfig[]): boolean {
-  const r1 = configs.find((c) => c.rank === 1);
-  if (!r1) return false;
-  return portfolioMatchesRankedRow(slice, r1);
-}
 
 export function usePublicPortfolioConfigPerformance({
   slug,
@@ -97,9 +69,12 @@ export function usePublicPortfolioConfigPerformance({
   onSliceChange,
   portfolioConfigOverride,
   onPortfolioConfigChange,
+  urlPortfolioSelection = null,
 }: UsePublicPortfolioConfigPerformanceArgs) {
   const [rankedConfigs, setRankedConfigs] = useState<RankedConfig[]>([]);
   const [internalPortfolioConfig, setInternalPortfolioConfig] = useState<PortfolioConfigSlice | null>(null);
+  const urlPortfolioSelectionRef = useRef<PortfolioConfigSlice | null>(null);
+  urlPortfolioSelectionRef.current = urlPortfolioSelection;
 
   const portfolioConfig = portfolioConfigOverride ?? internalPortfolioConfig;
   const setPortfolioConfig = useCallback(
@@ -113,24 +88,38 @@ export function usePublicPortfolioConfigPerformance({
   const [perf, setPerf] = useState<PublicPortfolioPerfApiPayload | null>(null);
   const [perfLoading, setPerfLoading] = useState(false);
   const [rankedConfigBadges, setRankedConfigBadges] = useState<string[]>([]);
+  const [benchmarkEndingValues, setBenchmarkEndingValues] =
+    useState<BenchmarkEndingValues | null>(null);
 
   useEffect(() => {
     if (!slug) return;
     setPortfolioConfig(null);
     setRankedConfigs([]);
+    setBenchmarkEndingValues(null);
     setPerf(null);
 
     let cancelled = false;
     void fetch(`/api/platform/portfolio-configs-ranked?slug=${encodeURIComponent(slug)}`)
       .then((r) => r.json())
-      .then((d: { configs?: RankedConfig[] }) => {
+      .then(
+        (d: {
+          configs?: RankedConfig[];
+          benchmarkEndingValues?: BenchmarkEndingValues | null;
+        }) => {
         if (cancelled) return;
         const list = d.configs ?? [];
         setRankedConfigs(list);
-        setPortfolioConfig(pickDefaultPortfolioConfig(list));
+        setBenchmarkEndingValues(d.benchmarkEndingValues ?? null);
+        const hint = urlPortfolioSelectionRef.current;
+        const chosen =
+          hint && portfolioSliceIsInRankedList(hint, list)
+            ? hint
+            : pickDefaultPortfolioSliceFromRanked(list);
+        setPortfolioConfig(chosen);
       })
       .catch(() => {
         if (!cancelled) {
+          setBenchmarkEndingValues(null);
           setPortfolioConfig({ riskLevel: 3, rebalanceFrequency: 'weekly', weightingMethod: 'equal' });
         }
       });
@@ -192,14 +181,29 @@ export function usePublicPortfolioConfigPerformance({
     });
   }, [onSliceChange, perf, portfolioConfig]);
 
-  const isTopRanked = Boolean(portfolioConfig && matchesRankOne(portfolioConfig, rankedConfigs));
+  const isTopRanked = Boolean(
+    portfolioConfig && portfolioSliceMatchesRankOne(portfolioConfig, rankedConfigs)
+  );
+
+  /** Same ordering as the select-portfolio dialog: ending $ merge with benchmarks. */
+  const portfolioEndingValueRank = useMemo(() => {
+    if (!portfolioConfig || rankedConfigs.length === 0) return null;
+    const row = rankedConfigs.find((c) => portfolioSliceMatchesRankedRow(portfolioConfig, c));
+    if (!row) return null;
+    return getEndingValueRankForConfigId(row.id, rankedConfigs, benchmarkEndingValues);
+  }, [portfolioConfig, rankedConfigs, benchmarkEndingValues]);
+
+  const portfolioEndingValueRankPeers = useMemo(
+    () => filterConfigsReadyWithEndingValue(rankedConfigs).length,
+    [rankedConfigs]
+  );
 
   useLayoutEffect(() => {
     if (!portfolioConfig || rankedConfigs.length === 0) {
       setRankedConfigBadges([]);
       return;
     }
-    const m = rankedConfigs.find((c) => portfolioMatchesRankedRow(portfolioConfig, c));
+    const m = rankedConfigs.find((c) => portfolioSliceMatchesRankedRow(portfolioConfig, c));
     setRankedConfigBadges(m?.badges ?? []);
   }, [portfolioConfig, rankedConfigs]);
 
@@ -252,6 +256,8 @@ export function usePublicPortfolioConfigPerformance({
     configChartReady,
     useFallbackTrack,
     isTopRanked,
+    portfolioEndingValueRank,
+    portfolioEndingValueRankPeers,
     rankedConfigBadges,
     chartTitle,
     statusMessage,

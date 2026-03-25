@@ -508,7 +508,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
         description: 'Added to Your portfolios.',
         onAfterUndo: () => void loadFollowedProfiles(),
         viewAction: {
-          label: 'See portfolios',
+          label: 'See portfolio',
           onClick: () =>
             router.push(
               `/platform/your-portfolios?profile=${encodeURIComponent(newProfileId)}`

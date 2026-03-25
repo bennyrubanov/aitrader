@@ -78,7 +78,7 @@ export function PortfolioEntryDatePicker({
           </div>
           {valueYmd === maxYmd ? <Check className="size-3.5 text-primary" aria-hidden /> : null}
         </div>
-        <p className="mt-0.5 text-xs text-muted-foreground">Track returns from now.</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">Track returns from now. Performance data will initially be limited as history builds. </p>
       </button>
 
       <div className="space-y-1.5">

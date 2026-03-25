@@ -51,6 +51,7 @@ import type { StrategyListItem } from '@/lib/platform-performance-payload';
 import { strategyModelDropdownSubtitle } from '@/lib/strategy-list-meta';
 import { bucketFromScore } from '@/lib/recommendation-bucket';
 import type { RatingsPageData, RatingsRow } from '@/lib/platform-server-data';
+import { RatingsGuestPreview } from '@/components/platform/ratings-guest-preview';
 import { cn } from '@/lib/utils';
 
 type RatingsPageClientProps = {
@@ -392,31 +393,14 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
     '[&_tr]:border-0 [&_th]:sticky [&_th]:top-[var(--ratings-thead-top)] [&_th]:z-10 [&_th]:border-b [&_th]:border-border [&_th]:bg-background/95';
 
   if (guestRatingsShell && !errorMessage) {
+    const nextParam = encodeURIComponent(
+      `${pathname}${searchParams.toString() ? `?${searchParams.toString()}` : ''}` || '/platform/ratings'
+    );
     return (
-      <TooltipProvider delayDuration={150}>
-        <div
-          className="flex h-full min-h-0 flex-1 flex-col"
-          data-platform-tour="ratings-page-root"
-        >
-          <div className="sticky top-0 z-30 border-b bg-background/95 px-4 py-2.5 backdrop-blur-sm sm:px-6">
-            <h2 className="text-base font-semibold leading-tight">Stock Ratings</h2>
-            <p className="text-[11px] text-muted-foreground">Sign up to view ratings</p>
-          </div>
-          <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 px-4 py-12 text-center sm:px-6">
-            <p className="max-w-sm text-sm text-muted-foreground">
-              Create an account or log in to see this week&apos;s AI ratings and analysis for the platform.
-            </p>
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              <Button size="sm" asChild>
-                <Link href="/sign-in">Log in</Link>
-              </Button>
-              <Button size="sm" variant="outline" asChild>
-                <Link href="/sign-up">Sign up</Link>
-              </Button>
-            </div>
-          </div>
-        </div>
-      </TooltipProvider>
+      <RatingsGuestPreview
+        signInHref={`/sign-in?next=${nextParam}`}
+        signUpHref={`/sign-up?next=${nextParam}`}
+      />
     );
   }
 
@@ -429,21 +413,55 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
         {/* Floating header: title + date nav + strategy dropdown */}
         <div className="sticky top-0 z-30 border-b bg-background/95 px-4 py-2.5 backdrop-blur-sm sm:px-6">
           <div className="flex flex-wrap items-center gap-3">
-            <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+            <div
+              className={cn(
+                'flex min-w-0 gap-2 sm:gap-3',
+                ratingsAccessMode === 'free' ? 'flex-col items-stretch' : 'items-center'
+              )}
+            >
               <div className="min-w-0 shrink-0">
                 <h2 className="text-base font-semibold leading-tight">Stock Ratings</h2>
                 <p className="text-[11px] text-muted-foreground">
                   {headerStockCountLabel}
                   {ratingsAccessMode === 'free' ? (
-                    <span className="mt-0.5 block text-[10px] leading-snug">
-                      Free preview: non-premium stocks only, alphabetical.{' '}
-                      <Link href="/pricing" className="font-medium text-foreground underline-offset-2 hover:underline">
-                        Upgrade
-                      </Link>{' '}
-                      for rankings, history, and full coverage.
-                    </span>
+                    <>
+                      <span className="mx-1" aria-hidden>
+                        ·
+                      </span>
+                      <span className="text-[11px] leading-snug">
+                        Free preview: non-premium stocks only, alphabetical.{' '}
+                        <Link href="/pricing" className="font-medium text-foreground underline-offset-2 hover:underline">
+                          Upgrade
+                        </Link>{' '}
+                        for rankings, history, and full coverage.
+                      </span>
+                    </>
                   ) : null}
                 </p>
+                {ratingsAccessMode === 'free' ? (
+                  <div className="mt-2">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="inline-flex shrink-0">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled
+                            className="h-8 gap-1.5 px-2.5 pl-3 text-xs font-medium text-muted-foreground"
+                            aria-label="Top rated view — requires a paid plan"
+                          >
+                            <Lock className="size-3.5 shrink-0" aria-hidden />
+                            Top rated
+                          </Button>
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="max-w-xs text-xs">
+                        Upgrade to a paid plan for rankings and the cumulative top-rated leaderboard.
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                ) : null}
               </div>
               {fullRatingsAccess ? (
                 <Button
@@ -494,28 +512,7 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                     </TooltipContent>
                   </Tooltip>
                 </Button>
-              ) : (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="inline-flex shrink-0">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled
-                        className="h-8 gap-1.5 px-2.5 pl-3 text-xs font-medium text-muted-foreground"
-                        aria-label="Top rated view — requires a paid plan"
-                      >
-                        <Lock className="size-3.5 shrink-0" aria-hidden />
-                        Top rated
-                      </Button>
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" className="max-w-xs text-xs">
-                    Upgrade to a paid plan for rankings and the cumulative top-rated leaderboard.
-                  </TooltipContent>
-                </Tooltip>
-              )}
+              ) : null}
             </div>
 
             <div className="ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2">

@@ -110,6 +110,9 @@ function buildFullMetricsFromSeries(
     pctWeeksBeatingNasdaq100: computePctWeeksBeatingNasdaq100(
       series.map((p) => ({ aiValue: p.aiTop20, benchmarkValue: p.nasdaq100CapWeight }))
     ),
+    pctWeeksBeatingSp500: computePctWeeksBeatingNasdaq100(
+      series.map((p) => ({ aiValue: p.aiTop20, benchmarkValue: p.sp500 }))
+    ),
     pctMonthsBeatingNasdaq100: computePctMonthsBeating(
       series.map((p) => ({
         date: p.date,

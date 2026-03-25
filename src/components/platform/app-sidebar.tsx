@@ -41,6 +41,7 @@ type NavItem = {
   icon: ComponentType<{ className?: string }>;
   disabled?: boolean;
   badge?: string;
+  badgeHref?: string;
   dataPlatformTour?: string;
 };
 
@@ -80,12 +81,14 @@ const advancedItems: NavItem[] = [
     icon: FlaskConical,
     disabled: true,
     badge: 'Soon',
+    badgeHref: '/roadmap-changelog',
   },
   {
     title: 'Chat',
     icon: MessageSquare,
     disabled: true,
     badge: 'Soon',
+    badgeHref: '/roadmap-changelog',
   },
 ];
 
@@ -246,6 +249,7 @@ export function AppSidebar() {
             onPrefetch: handlePrefetchIntent,
             disabled: item.disabled,
             badge: item.badge,
+            badgeHref: item.badgeHref,
           }))}
           label="Advanced Features"
         />

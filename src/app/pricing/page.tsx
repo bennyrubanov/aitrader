@@ -44,11 +44,11 @@ const plans = {
       'Compare across multiple strategy models',
       {
         text: 'Chat with strategy models for any stock analysis',
-        soonHref: '/roadmap-changelog#roadmap',
+        soonHref: '/roadmap-changelog',
       },
       {
         text: 'Create your own custom strategy models',
-        soonHref: '/roadmap-changelog#roadmap',
+        soonHref: '/roadmap-changelog',
       },
       'Priority support',
     ] satisfies readonly PricingPlanFeature[],
@@ -127,14 +127,14 @@ const compareFeatures: CompareFeature[] = [
     free: false,
     supporter: false,
     outperformer: true,
-    outperformerSoonHref: '/roadmap-changelog#roadmap',
+    outperformerSoonHref: '/roadmap-changelog',
   },
   {
     label: 'Custom strategy models',
     free: false,
     supporter: false,
     outperformer: true,
-    outperformerSoonHref: '/roadmap-changelog#roadmap',
+    outperformerSoonHref: '/roadmap-changelog',
   },
   { label: 'Priority support', free: false, supporter: false, outperformer: true },
 ];

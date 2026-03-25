@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, ChevronDown, FilterX, LayoutList, LineChart, ListFilter } from 'lucide-react';
+import { ArrowDown, FilterX, LayoutList, LineChart, ListFilter } from 'lucide-react';
 import type {
   BenchmarkEndingValues,
   RankedConfig,
@@ -646,7 +646,7 @@ export function SidebarPortfolioConfigPicker({
             <DialogTrigger asChild>
               <Button
                 variant="outline"
-                className="h-auto min-h-10 w-full justify-between gap-2 py-2.5 text-left font-normal"
+                className="h-auto min-h-10 w-full justify-start gap-2 py-2.5 text-left font-normal"
               >
                 <span className="flex min-w-0 flex-1 flex-col items-start gap-1 text-left">
                   <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -686,7 +686,6 @@ export function SidebarPortfolioConfigPicker({
                     <span className="text-sm text-muted-foreground">Choose a portfolio</span>
                   )}
                 </span>
-                <ChevronDown className="size-4 shrink-0 self-center opacity-60" />
               </Button>
             </DialogTrigger>
             <DialogContent

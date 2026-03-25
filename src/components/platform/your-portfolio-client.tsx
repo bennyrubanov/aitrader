@@ -20,7 +20,6 @@ import {
   LayoutTemplate,
   ListFilter,
   Lock,
-  LogIn,
   Percent,
   Plus,
   Scale,
@@ -79,6 +78,7 @@ import {
   USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT,
 } from '@/components/platform/portfolio-unfollow-toast';
 import { UserPortfolioEntrySettingsDialog } from '@/components/platform/user-portfolio-entry-settings-dialog';
+import { YourPortfoliosGuestPreview } from '@/components/platform/your-portfolios-guest-preview';
 import {
   usePortfolioConfig,
   RISK_LABELS,
@@ -1736,18 +1736,15 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   }
 
   if (!authState.isAuthenticated) {
+    const nextParam = encodeURIComponent(
+      `${pathname}${searchParams.toString() ? `?${searchParams.toString()}` : ''}` ||
+        '/platform/your-portfolios'
+    );
     return (
-      <div className="flex h-full min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto rounded-lg border border-dashed p-12 text-center">
-        <FolderHeart className="mb-3 size-10 text-muted-foreground/40" />
-        <p className="text-sm font-medium">Sign up to save portfolios</p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Follow portfolios with different risk, cadence, and weighting — synced to your account.
-        </p>
-        <Button className="mt-5" onClick={() => router.push('/sign-up?next=/platform/your-portfolios')}>
-          <LogIn className="mr-2 size-4" />
-          Sign up
-        </Button>
-      </div>
+      <YourPortfoliosGuestPreview
+        signInHref={`/sign-in?next=${nextParam}`}
+        signUpHref={`/sign-up?next=${nextParam}`}
+      />
     );
   }
 

@@ -902,7 +902,7 @@ const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef }) => {
             <div className="mt-6 flex justify-center">
               <Link href="/performance">
                 <Button variant="outline" className="gap-2">
-                  See how the experiment is performing
+                  See how the AI models are performing
                   <svg
                     width="16"
                     height="16"

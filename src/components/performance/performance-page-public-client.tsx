@@ -2,8 +2,15 @@
 
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   ArrowRight,
   BadgeCheck,
@@ -85,12 +92,19 @@ import { SidebarPortfolioConfigPicker } from '@/components/platform/sidebar-port
 import { StrategyModelSidebarDropdown } from '@/components/platform/strategy-model-sidebar-dropdown';
 import { CapWeightMiniPie, EqualWeightMiniPie } from '@/components/platform/weighting-mini-pies';
 import {
-  FREQUENCY_LABELS,
   RISK_LABELS,
   RISK_TOP_N,
   type RebalanceFrequency,
   type RiskLevel,
 } from '@/components/portfolio-config';
+import {
+  mergePortfolioIntoSearchParams,
+  parsePerformancePortfolioConfigParam,
+  portfolioConfigParamMatchesSearchParams,
+  portfolioSliceIsInRankedList,
+  portfolioSlicesEqual,
+} from '@/lib/performance-portfolio-url';
+import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
 
 const PerformanceChart = dynamic(
   () => import('@/components/platform/performance-chart').then((module) => module.PerformanceChart),
@@ -112,6 +126,16 @@ const PERFORMANCE_TOC_BASE = [
   { id: 'research-validation', label: 'Research validation' },
   { id: 'reality-checks', label: 'Reality checks' },
 ];
+
+/** Same risk dot colors as selected-portfolio card / sidebar picker */
+const RETURNS_TABLE_RISK_DOT: Record<RiskLevel, string> = {
+  1: 'bg-emerald-500',
+  2: 'bg-lime-500',
+  3: 'bg-amber-500',
+  4: 'bg-orange-500',
+  5: 'bg-orange-600',
+  6: 'bg-rose-600',
+};
 
 const WEEKDAY_LABELS = [
   'Sunday',
@@ -291,10 +315,25 @@ type Props = {
   payload: PlatformPerformancePayload;
   strategies: StrategyListItem[];
   slug?: string;
+  /** From the server page so first paint matches SSR (avoids hydration drift with `useSearchParams`). */
+  initialSearchParamsString?: string;
 };
 
-export function PerformancePagePublicClient({ payload, strategies, slug }: Props) {
+function PerformancePagePublicClientInner({
+  payload,
+  strategies,
+  slug,
+  initialSearchParamsString = '',
+}: Props) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParamsFromNavigation = useSearchParams();
+  const spSerialized = searchParamsFromNavigation.toString();
+  const [searchParamsString, setSearchParamsString] = useState(initialSearchParamsString);
+
+  useEffect(() => {
+    setSearchParamsString(spSerialized);
+  }, [spSerialized]);
   const authState = useAuthState();
   const access = useMemo(() => getAppAccessState(authState), [authState]);
   const entitledToHoldings =
@@ -323,10 +362,32 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
 
   const holdingsSectionLabel = entitledToHoldings ? 'Portfolio holdings' : 'Top rated stocks';
 
+  /** Tracks which query string we last applied from the URL (back/forward, external edits). */
+  const lastSyncedSearchParamsStringRef = useRef<string | null>(null);
+
+  useLayoutEffect(() => {
+    lastSyncedSearchParamsStringRef.current = null;
+  }, [slug]);
+
+  const urlPortfolioSelection = useMemo(() => {
+    if (!slug) return null;
+    return parsePerformancePortfolioConfigParam(new URLSearchParams(searchParamsString));
+  }, [slug, searchParamsString]);
+
   const navigateToSelectedPortfolioSection = useCallback(() => {
     if (!slug) return;
-    const href = `/performance/${slug}#selected-portfolio`;
-    router.replace(href, { scroll: false });
+    const targetPath = `/performance/${slug}`;
+    if (typeof window !== 'undefined' && window.location.pathname === targetPath) {
+      const qs = window.location.search ?? '';
+      window.history.replaceState(
+        window.history.state,
+        '',
+        `${targetPath}${qs}#selected-portfolio`
+      );
+    } else {
+      const qs = searchParamsString ? `?${searchParamsString}` : '';
+      router.replace(`${targetPath}${qs}#selected-portfolio`, { scroll: false });
+    }
     const runScroll = () => {
       document.getElementById('selected-portfolio')?.scrollIntoView({
         behavior: 'smooth',
@@ -334,7 +395,7 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
       });
     };
     requestAnimationFrame(() => requestAnimationFrame(runScroll));
-  }, [router, slug]);
+  }, [router, searchParamsString, slug]);
 
   const portfolioPerf = usePublicPortfolioConfigPerformance({
     slug: slug ?? '',
@@ -343,7 +404,58 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
     portfolioConfigOverride: sidebarPortfolioConfig,
     onPortfolioConfigChange: setSidebarPortfolioConfig,
     onSliceChange: setConfigPerfSlice,
+    urlPortfolioSelection,
   });
+
+  // URL → sidebar: only when the query string changes (avoids fighting user-driven portfolio picks).
+  // useLayoutEffect so this runs before passive state→URL effects in the same turn, avoiding stale portfolioConfig rewriting the URL.
+  useLayoutEffect(() => {
+    if (!slug || portfolioPerf.rankedConfigs.length === 0) return;
+
+    if (lastSyncedSearchParamsStringRef.current === searchParamsString) return;
+
+    const parsed = parsePerformancePortfolioConfigParam(
+      new URLSearchParams(searchParamsString)
+    );
+    if (
+      !parsed ||
+      !portfolioSliceIsInRankedList(parsed, portfolioPerf.rankedConfigs)
+    ) {
+      lastSyncedSearchParamsStringRef.current = searchParamsString;
+      return;
+    }
+
+    lastSyncedSearchParamsStringRef.current = searchParamsString;
+    setSidebarPortfolioConfig(parsed);
+  }, [slug, searchParamsString, portfolioPerf.rankedConfigs]);
+
+  // Sidebar → URL: keep `config` in sync; preserve hash and non-portfolio query keys.
+  // Server routes (`getCanonicalPerformancePathIfNeeded`) already normalize missing/invalid `config`
+  // and strip legacy `risk`/`frequency`/`weighting` when ranked data is available — this effect is
+  // for user-driven portfolio changes and for the fallback when the server could not canonicalize.
+  useEffect(() => {
+    if (!slug) return;
+    const ranked = portfolioPerf.rankedConfigs;
+    const config = portfolioPerf.portfolioConfig;
+    if (!config || ranked.length === 0) return;
+    if (!portfolioSliceIsInRankedList(config, ranked)) return;
+
+    const params = new URLSearchParams(searchParamsString);
+    if (portfolioConfigParamMatchesSearchParams(params, config, ranked)) return;
+
+    const nextParams = mergePortfolioIntoSearchParams(params, config, ranked);
+    const hash = typeof window !== 'undefined' ? window.location.hash : '';
+    const q = nextParams.toString();
+    const path = q ? `${pathname}?${q}` : pathname;
+    router.replace(`${path}${hash}`, { scroll: false });
+  }, [
+    pathname,
+    portfolioPerf.portfolioConfig,
+    portfolioPerf.rankedConfigs,
+    router,
+    searchParamsString,
+    slug,
+  ]);
 
   const holdingsPortfolioConfig = portfolioPerf.portfolioConfig;
 
@@ -451,16 +563,37 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
 
   const configMetricsReady =
     Boolean(slug) &&
-    configPerfSlice?.computeStatus === 'ready' &&
+    !portfolioPerf.perfLoading &&
+    portfolioPerf.portfolioConfig != null &&
+    configPerfSlice?.portfolioConfig != null &&
+    portfolioSlicesEqual(
+      configPerfSlice.portfolioConfig,
+      portfolioPerf.portfolioConfig
+    ) &&
+    configPerfSlice.computeStatus === 'ready' &&
     configPerfSlice.fullMetrics != null;
 
-  const displayMetrics = configMetricsReady ? configPerfSlice!.fullMetrics! : metrics;
+  /** Portfolio-scoped metrics only when they match the current selection; never fall back to payload metrics on /performance/[slug] while a preset is selected. */
+  const displayMetrics =
+    slug && portfolioPerf.portfolioConfig != null
+      ? configMetricsReady
+        ? configPerfSlice!.fullMetrics!
+        : null
+      : configMetricsReady
+        ? configPerfSlice!.fullMetrics!
+        : metrics;
+
+  const overviewPortfolioDataLoading =
+    Boolean(slug) &&
+    portfolioPerf.portfolioConfig != null &&
+    portfolioPerf.rankedConfigs.length > 0 &&
+    !configMetricsReady;
 
   const performanceTableOfContents = useMemo(() => {
     const entries = PERFORMANCE_TOC_BASE.map((item) =>
       item.id === 'holdings' ? { ...item, label: holdingsSectionLabel } : { ...item }
     );
-    if (!displayMetrics) return entries;
+    if (!displayMetrics && !overviewPortfolioDataLoading) return entries;
     const overviewIdx = entries.findIndex((e) => e.id === 'overview');
     if (overviewIdx < 0) return entries;
     entries.splice(overviewIdx + 1, 0, {
@@ -468,17 +601,36 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
       label: '↳ Metrics at-a-glance',
     });
     return entries;
-  }, [displayMetrics, holdingsSectionLabel]);
+  }, [displayMetrics, holdingsSectionLabel, overviewPortfolioDataLoading]);
 
   const displaySeries =
     configMetricsReady && (configPerfSlice?.series?.length ?? 0) > 1
       ? configPerfSlice!.series
-      : series;
+      : slug && portfolioPerf.portfolioConfig != null
+        ? []
+        : series;
 
   const latestDisplayDate =
     displaySeries.length > 0
       ? displaySeries[displaySeries.length - 1]!.date
       : (payload.latestRunDate ?? null);
+
+  const returnsBenchmarkTablePortfolioLine = useMemo(() => {
+    if (!slug || !portfolioPerf.portfolioConfig) return null;
+    const pc = portfolioPerf.portfolioConfig;
+    const topN =
+      configPerfSlice?.config?.top_n != null && Number.isFinite(Number(configPerfSlice.config.top_n))
+        ? Number(configPerfSlice.config.top_n)
+        : RISK_TOP_N[pc.riskLevel];
+    return {
+      label: formatPortfolioConfigLabel({
+        topN,
+        weightingMethod: pc.weightingMethod,
+        rebalanceFrequency: pc.rebalanceFrequency,
+      }),
+      dotClass: RETURNS_TABLE_RISK_DOT[pc.riskLevel] ?? 'bg-muted',
+    };
+  }, [slug, portfolioPerf.portfolioConfig, configPerfSlice?.config?.top_n]);
 
   const whatYouSeeTopN = useMemo(() => {
     if (configMetricsReady && configPerfSlice?.config?.top_n != null) {
@@ -528,21 +680,24 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
     return null;
   }, [configMetricsReady, configPerfSlice, slug, portfolioPerf.portfolioConfig, whatYouSeeTopN]);
 
-  /** Gray text after Performance Overview: tier · top n · cadence · weighting. */
-  const performanceOverviewDetailLine = useMemo(() => {
+  /** After Performance Overview: optional discontinued, risk pill, then Top N · cadence · weighting (canonical caps). */
+  const performanceOverviewSubtitle = useMemo(() => {
     if (!effectiveStrategy) return null;
-    const parts: string[] = [];
     const st = (effectiveStrategy.status ?? '').trim().toLowerCase();
-    if (st === 'discontinued') parts.push('Discontinued');
-    if (whatYouSeeRiskLevel != null) {
-      parts.push(RISK_LABELS[whatYouSeeRiskLevel]);
-    }
-    parts.push(`top ${whatYouSeeTopN}`);
-    const freqKey = whatYouSeeFreq as RebalanceFrequency;
-    const freqWord = (FREQUENCY_LABELS[freqKey] ?? String(freqKey)).toLowerCase();
-    parts.push(freqWord);
-    parts.push(whatYouSeeWeightCap ? 'cap' : 'equal');
-    return parts.join(' · ');
+    const showDiscontinued = st === 'discontinued';
+    const riskPill =
+      whatYouSeeRiskLevel != null
+        ? {
+            label: RISK_LABELS[whatYouSeeRiskLevel],
+            dotClass: RETURNS_TABLE_RISK_DOT[whatYouSeeRiskLevel] ?? 'bg-muted',
+          }
+        : null;
+    const configLine = formatPortfolioConfigLabel({
+      topN: whatYouSeeTopN,
+      weightingMethod: whatYouSeeWeightCap ? 'cap' : 'equal',
+      rebalanceFrequency: whatYouSeeFreq as RebalanceFrequency,
+    });
+    return { showDiscontinued, riskPill, configLine };
   }, [
     effectiveStrategy,
     whatYouSeeRiskLevel,
@@ -690,28 +845,24 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
           {effectiveStrategy && (
             <div className="space-y-0.5">
               {isBestSelected ? (
-                <>
-                  <div className="flex items-start gap-1.5 text-xs min-h-7 py-1.5 px-1 whitespace-normal text-left leading-snug text-muted-foreground">
-                    <Star className="size-3 shrink-0 mt-0.5" fill="currentColor" />
-                    <span>
-                      Top performing strategy model{' '}
-                      <span className="text-trader-blue dark:text-trader-blue-light">
-                        (by composite ranking)
-                      </span>
-                    </span>
-                  </div>
-                  <Button
-                    asChild
-                    variant="ghost"
-                    size="sm"
-                    className="w-full justify-start gap-1.5 text-xs min-h-7 h-auto py-1 px-1 whitespace-normal text-left"
-                  >
-                    <Link href={`/strategy-models/${STRATEGY_CONFIG.slug}#model-ranking`}>
-                      <ExternalLink className="size-3 shrink-0 mt-0.5" />
-                      See how we calculate the composite ranking
+                <div className="flex items-start gap-1.5 text-xs min-h-7 py-1.5 px-1 whitespace-normal text-left leading-snug text-muted-foreground">
+                  <Star className="size-3 shrink-0 mt-0.5" fill="currentColor" />
+                  <span>
+                    Top performing strategy model{' '}
+                    <Link
+                      href={`/strategy-models/${STRATEGY_CONFIG.slug}#model-ranking`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="group inline-flex items-center font-medium text-trader-blue dark:text-trader-blue-light underline-offset-2 transition hover:underline"
+                    >
+                      (by composite ranking)
+                      <ExternalLink
+                        className="size-3 shrink-0 ml-1 mt-0.5 opacity-0 transition-opacity group-hover:opacity-100"
+                        aria-hidden
+                      />
                     </Link>
-                  </Button>
-                </>
+                  </span>
+                </div>
               ) : null}
               <Button
                 asChild
@@ -744,7 +895,7 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
 
   return (
     <ContentPageLayout
-      title="Strategy Model Performance"
+      title="Performance"
       tableOfContents={performanceTableOfContents}
       sidebarSlot={sidebarSlot}
       tocPosition="right"
@@ -784,6 +935,8 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
             isTopRanked={portfolioPerf.isTopRanked}
             badges={portfolioPerf.rankedConfigBadges}
             strategySlug={slug}
+            endingValueRank={portfolioPerf.portfolioEndingValueRank}
+            endingValueRankPeerCount={portfolioPerf.portfolioEndingValueRankPeers}
           />
         </section>
       ) : null}
@@ -792,9 +945,39 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
       <section id="overview" className="space-y-5 mb-10">
         <div className="mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-1">
           <h2 className="text-2xl font-bold">Performance Overview</h2>
-          {performanceOverviewDetailLine ? (
-            <span className="text-sm font-normal normal-case tracking-normal text-muted-foreground">
-              {performanceOverviewDetailLine}
+          {overviewPortfolioDataLoading ? (
+            <Skeleton className="h-5 w-64 max-w-full shrink-0" aria-hidden />
+          ) : performanceOverviewSubtitle ? (
+            <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-normal tracking-normal text-muted-foreground">
+              {performanceOverviewSubtitle.showDiscontinued ? (
+                <>
+                  <span className="font-medium text-foreground/90">Discontinued</span>
+                  <span aria-hidden className="select-none">
+                    ·
+                  </span>
+                </>
+              ) : null}
+              {performanceOverviewSubtitle.riskPill ? (
+                <>
+                  <span
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border/80 bg-muted/50 px-2 py-0.5 text-[11px] font-semibold text-foreground"
+                    title={performanceOverviewSubtitle.riskPill.label}
+                  >
+                    <span
+                      className={cn(
+                        'size-1.5 shrink-0 rounded-full',
+                        performanceOverviewSubtitle.riskPill.dotClass
+                      )}
+                      aria-hidden
+                    />
+                    {performanceOverviewSubtitle.riskPill.label}
+                  </span>
+                  <span aria-hidden className="select-none">
+                    ·
+                  </span>
+                </>
+              ) : null}
+              <span>{performanceOverviewSubtitle.configLine}</span>
             </span>
           ) : null}
         </div>
@@ -805,17 +988,27 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
         </p>
 
         {slug ? (
-          <ConfigPerformanceChartBlock
-            className="rounded-xl border bg-card p-4"
-            chartSeries={portfolioPerf.chartSeries}
-            configChartReady={portfolioPerf.configChartReady}
-            useFallbackTrack={portfolioPerf.useFallbackTrack}
-            perf={portfolioPerf.perf}
-            perfLoading={portfolioPerf.perfLoading}
-            portfolioConfig={portfolioPerf.portfolioConfig}
-            chartTitle={portfolioPerf.chartTitle}
-            statusMessage={portfolioPerf.statusMessage}
-          />
+          overviewPortfolioDataLoading ? (
+            <div
+              className="rounded-xl border bg-card p-4"
+              aria-busy="true"
+              aria-label="Loading performance chart for selected portfolio"
+            >
+              <Skeleton className="h-[340px] w-full rounded-lg" />
+            </div>
+          ) : (
+            <ConfigPerformanceChartBlock
+              className="rounded-xl border bg-card p-4"
+              chartSeries={portfolioPerf.chartSeries}
+              configChartReady={portfolioPerf.configChartReady}
+              useFallbackTrack={portfolioPerf.useFallbackTrack}
+              perf={portfolioPerf.perf}
+              perfLoading={portfolioPerf.perfLoading}
+              portfolioConfig={portfolioPerf.portfolioConfig}
+              chartTitle={portfolioPerf.chartTitle}
+              statusMessage={portfolioPerf.statusMessage}
+            />
+          )
         ) : series.length > 1 ? (
           <PerformanceChart series={series} strategyName={effectiveStrategy?.name} hideDrawdown />
         ) : (
@@ -903,7 +1096,7 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
           </p>
         )}
         {/* Bento box flip-card stats */}
-        {displayMetrics && (
+        {(displayMetrics || overviewPortfolioDataLoading) && (
           <div
             id="overview-metrics"
             className="scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
@@ -911,6 +1104,17 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
             <h3 className="text-lg font-semibold tracking-tight text-foreground mb-3">
               Metrics at-a-glance
             </h3>
+            {overviewPortfolioDataLoading ? (
+              <div
+                className="grid grid-cols-2 sm:grid-cols-3 gap-3"
+                aria-busy="true"
+                aria-label="Loading metrics for selected portfolio"
+              >
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <Skeleton key={i} className="min-h-[118px] w-full rounded-lg" />
+                ))}
+              </div>
+            ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               <FlipCard
                 label="CAGR"
@@ -937,23 +1141,24 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
                 positive={(displayMetrics.sharpeRatio ?? 0) > 1}
                 positiveTone="brand"
               />
-              {displayMetrics.pctMonthsBeatingNasdaq100 != null && (
+              {displayMetrics.pctWeeksBeatingNasdaq100 != null && (
                 <FlipCard
-                  label="% months outperforming Nasdaq-100"
-                  value={fmt.pct(displayMetrics.pctMonthsBeatingNasdaq100, 0)}
-                  explanation="How often the AI strategy outperformed the Nasdaq-100 cap-weighted index in a given calendar month. 50% means it matched the benchmark half the time on a month-by-month basis. Above 50% means it wins more often than it loses."
-                  positive={(displayMetrics.pctMonthsBeatingNasdaq100 ?? 0) > 0.5}
+                  label="% weeks outperforming Nasdaq-100"
+                  value={fmt.pct(displayMetrics.pctWeeksBeatingNasdaq100, 0)}
+                  explanation="Share of rebalance-to-rebalance weeks where the portfolio return beat the Nasdaq-100 cap-weighted index. Above 50% means it wins more weeks than it loses."
+                  positive={(displayMetrics.pctWeeksBeatingNasdaq100 ?? 0) > 0.5}
                 />
               )}
-              {research?.quintileWinRate != null && (
+              {displayMetrics.pctWeeksBeatingSp500 != null && (
                 <FlipCard
-                  label="Q5 vs Q1 win rate"
-                  value={`${Math.round(research.quintileWinRate.rate * 100)}%`}
-                  explanation={`In ${research.quintileWinRate.wins} out of ${research.quintileWinRate.total} weeks, the top-rated stocks (Q5) outperformed the bottom-rated stocks (Q1). This measures whether the AI ratings actually predict relative performance.`}
-                  positive={(research.quintileWinRate?.rate ?? 0) > 0.5}
+                  label="% weeks outperforming S&P 500"
+                  value={fmt.pct(displayMetrics.pctWeeksBeatingSp500, 0)}
+                  explanation="Share of rebalance-to-rebalance weeks where the portfolio return beat the S&P 500 cap-weighted index. Above 50% means it wins more weeks than it loses."
+                  positive={(displayMetrics.pctWeeksBeatingSp500 ?? 0) > 0.5}
                 />
               )}
             </div>
+            )}
           </div>
         )}
       </section>
@@ -963,54 +1168,69 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
         <h2 className="text-2xl font-bold mb-4">What you are looking at</h2>
         {effectiveStrategy && (
           <div className="rounded-lg border bg-muted/30 p-5 space-y-3">
-            <ul className="space-y-2 text-sm text-foreground/90">
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="size-4 text-trader-blue mt-0.5 shrink-0" />
-                <span>
-                  We pick the <strong>top {whatYouSeeTopN} stocks</strong> every{' '}
-                  <strong>{whatYouSeeFreqLabel}</strong> from the Nasdaq-100, ranked by AI score
-                  (selected portfolio).
-                </span>
-              </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="size-4 text-trader-blue mt-0.5 shrink-0" />
-                <span>
-                  {whatYouSeeWeightCap ? (
-                    <>
-                      Holdings are <strong>cap-weighted</strong> by market cap within the top picks.
-                    </>
-                  ) : (
-                    <>
-                      Each stock gets <strong>equal weight</strong> — no outsized bets on single
-                      names.
-                    </>
-                  )}
-                </span>
-              </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="size-4 text-trader-blue mt-0.5 shrink-0" />
-                <span>
-                  Model batch day:{' '}
-                  <strong>{WEEKDAY_LABELS[effectiveStrategy.rebalanceDayOfWeek]}</strong>
-                  {whatYouSeeFreq === 'weekly'
-                    ? ' (weekly rebalance aligns with each batch).'
-                    : ' — longer cadences use the first batch in each period.'}
-                </span>
-              </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="size-4 text-trader-blue mt-0.5 shrink-0" />
-                <span>
-                  We subtract <strong>realistic trading costs</strong> so the chart reflects what
-                  you would actually keep.
-                </span>
-              </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="size-4 text-trader-blue mt-0.5 shrink-0" />
-                <span>
-                  <strong>No retroactive edits.</strong> Once a week closes, the results are locked.
-                </span>
-              </li>
-            </ul>
+            {overviewPortfolioDataLoading ? (
+              <div
+                className="space-y-3"
+                aria-busy="true"
+                aria-label="Loading description for selected portfolio"
+              >
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className="flex items-start gap-2">
+                    <Skeleton className="size-4 shrink-0 rounded mt-0.5" />
+                    <Skeleton className="h-4 flex-1 max-w-2xl" />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <ul className="space-y-2 text-sm text-foreground/90">
+                <li className="flex items-start gap-2">
+                  <CheckCircle2 className="size-4 text-trader-blue mt-0.5 shrink-0" />
+                  <span>
+                    We pick the <strong>top {whatYouSeeTopN} stocks</strong> every{' '}
+                    <strong>{whatYouSeeFreqLabel}</strong> from the Nasdaq-100, ranked by AI score
+                    (selected portfolio).
+                  </span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <CheckCircle2 className="size-4 text-trader-blue mt-0.5 shrink-0" />
+                  <span>
+                    {whatYouSeeWeightCap ? (
+                      <>
+                        Holdings are <strong>cap-weighted</strong> by market cap within the top picks.
+                      </>
+                    ) : (
+                      <>
+                        Each stock gets <strong>equal weight</strong> — no outsized bets on single
+                        names.
+                      </>
+                    )}
+                  </span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <CheckCircle2 className="size-4 text-trader-blue mt-0.5 shrink-0" />
+                  <span>
+                    Model batch day:{' '}
+                    <strong>{WEEKDAY_LABELS[effectiveStrategy.rebalanceDayOfWeek]}</strong>
+                    {whatYouSeeFreq === 'weekly'
+                      ? ' (weekly rebalance aligns with each batch).'
+                      : ' — longer cadences use the first batch in each period.'}
+                  </span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <CheckCircle2 className="size-4 text-trader-blue mt-0.5 shrink-0" />
+                  <span>
+                    We subtract <strong>realistic trading costs</strong> so the chart reflects what
+                    you would actually keep.
+                  </span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <CheckCircle2 className="size-4 text-trader-blue mt-0.5 shrink-0" />
+                  <span>
+                    <strong>No retroactive edits.</strong> Once a week closes, the results are locked.
+                  </span>
+                </li>
+              </ul>
+            )}
             <p className="text-xs text-muted-foreground pt-1">
               Starting capital: $10,000 simulated.{' '}
               <Link href="/disclaimer" className="underline hover:text-foreground">
@@ -1168,12 +1388,12 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
               <p className="font-semibold text-sm">Supporter &amp; Outperformer</p>
               <p className="text-xs text-muted-foreground max-w-xs">
                 {authState.isAuthenticated
-                  ? 'Upgrade to Supporter or Outperformer to see full holdings for your selected portfolio and browse past rebalance dates.'
-                  : 'Sign in and subscribe to Supporter or Outperformer to see holdings for each portfolio preset and past rebalances.'}
+                  ? 'Upgrade to Supporter or Outperformer to see full holdings for your selected portfolio.'
+                  : 'Sign up for a Supporter or Outperformer plan to see top holdings for each portfolio.'}
               </p>
               <Button asChild size="sm">
-                <Link href={authState.isAuthenticated ? '/pricing' : '/sign-up'}>
-                  {authState.isAuthenticated ? 'View plans' : 'Get started'}
+                <Link href="/pricing">
+                    View plans
                 </Link>
               </Button>
             </div>
@@ -1185,7 +1405,24 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
       {/* ── C: Returns ──────────────────────────────────────────────────── */}
       <section id="returns" className="mb-10">
         <h2 className="text-2xl font-bold mb-4">Returns</h2>
-        {displayMetrics ? (
+        {overviewPortfolioDataLoading ? (
+          <div
+            className="space-y-4"
+            aria-busy="true"
+            aria-label="Loading returns for selected portfolio"
+          >
+            <div className="grid grid-cols-2 gap-3">
+              <Skeleton className="min-h-[118px] w-full rounded-lg" />
+              <Skeleton className="min-h-[118px] w-full rounded-lg" />
+            </div>
+            <Skeleton className="min-h-[200px] w-full rounded-lg" />
+            <Skeleton className="h-[240px] w-full rounded-lg" />
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <Skeleton className="h-[180px] w-full rounded-lg" />
+              <Skeleton className="h-[180px] w-full rounded-lg" />
+            </div>
+          </div>
+        ) : displayMetrics ? (
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <FlipCard
@@ -1222,16 +1459,32 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
                 <TableBody>
                   <TableRow className="bg-trader-blue/5">
                     <TableCell className="font-medium">
-                      {effectiveStrategy?.name ?? 'AI Strategy'}
-                      {outperformanceVsCap != null && (
-                        <span
-                          className={`ml-2 text-xs ${outperformanceVsCap >= 0 ? 'text-green-600' : 'text-red-500'}`}
-                        >
-                          {outperformanceVsCap >= 0 ? '+' : ''}
-                          {(outperformanceVsCap * 100).toFixed(1)}% vs Nasdaq-100 (cap-weighted,
-                          cumulative)
-                        </span>
-                      )}
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                          <span>{effectiveStrategy?.name ?? 'AI Strategy'}</span>
+                          {returnsBenchmarkTablePortfolioLine ? (
+                            <span className="inline-flex items-center gap-1.5 text-xs font-normal text-muted-foreground">
+                              <span
+                                className={cn(
+                                  'size-1.5 shrink-0 rounded-full',
+                                  returnsBenchmarkTablePortfolioLine.dotClass
+                                )}
+                                aria-hidden
+                              />
+                              <span>{returnsBenchmarkTablePortfolioLine.label}</span>
+                            </span>
+                          ) : null}
+                        </div>
+                        {outperformanceVsCap != null && (
+                          <div
+                            className={`text-xs font-normal ${outperformanceVsCap >= 0 ? 'text-green-600' : 'text-red-500'}`}
+                          >
+                            {outperformanceVsCap >= 0 ? '+' : ''}
+                            {(outperformanceVsCap * 100).toFixed(1)}% vs Nasdaq-100 (cap-weighted,
+                            cumulative)
+                          </div>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="text-right font-semibold">
                       {fmt.pct(displayMetrics.totalReturn)}
@@ -1319,7 +1572,19 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
       {/* ── D: Risk ──────────────────────────────────────────────────────── */}
       <section id="risk" className="mb-10">
         <h2 className="text-2xl font-bold mb-4">Risk</h2>
-        {displayMetrics ? (
+        {overviewPortfolioDataLoading ? (
+          <div
+            className="space-y-4"
+            aria-busy="true"
+            aria-label="Loading risk metrics for selected portfolio"
+          >
+            <div className="grid grid-cols-2 gap-3">
+              <Skeleton className="min-h-[118px] w-full rounded-lg" />
+              <Skeleton className="min-h-[118px] w-full rounded-lg" />
+            </div>
+            <Skeleton className="h-[260px] w-full rounded-lg" />
+          </div>
+        ) : displayMetrics ? (
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <FlipCard
@@ -1348,15 +1613,38 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
       {/* ── E: Consistency ───────────────────────────────────────────────── */}
       <section id="consistency" className="mb-10">
         <h2 className="text-2xl font-bold mb-4">Consistency</h2>
-        {displayMetrics?.pctMonthsBeatingNasdaq100 != null ? (
+        {overviewPortfolioDataLoading ? (
+          <div
+            className="space-y-4"
+            aria-busy="true"
+            aria-label="Loading consistency metrics for selected portfolio"
+          >
+            <div className="grid grid-cols-2 gap-3">
+              <Skeleton className="min-h-[118px] w-full rounded-lg" />
+              <Skeleton className="min-h-[118px] w-full rounded-lg" />
+            </div>
+            <Skeleton className="h-[220px] w-full rounded-lg" />
+          </div>
+        ) : displayMetrics?.pctWeeksBeatingNasdaq100 != null ||
+          displayMetrics?.pctWeeksBeatingSp500 != null ? (
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
-              <FlipCard
-                label="% months outperforming Nasdaq-100 (cap-weighted)"
-                value={fmt.pct(displayMetrics.pctMonthsBeatingNasdaq100, 0)}
-                explanation="How often the AI strategy outperformed the Nasdaq-100 cap-weighted benchmark in a given calendar month. Above 50% means it wins more months than it loses."
-                positive={(displayMetrics.pctMonthsBeatingNasdaq100 ?? 0) > 0.5}
-              />
+              {displayMetrics.pctWeeksBeatingNasdaq100 != null && (
+                <FlipCard
+                  label="% weeks outperforming Nasdaq-100 (cap-weighted)"
+                  value={fmt.pct(displayMetrics.pctWeeksBeatingNasdaq100, 0)}
+                  explanation="Share of weeks where the portfolio beat the Nasdaq-100 cap-weighted benchmark. Above 50% means it wins more weeks than it loses."
+                  positive={(displayMetrics.pctWeeksBeatingNasdaq100 ?? 0) > 0.5}
+                />
+              )}
+              {displayMetrics.pctWeeksBeatingSp500 != null && (
+                <FlipCard
+                  label="% weeks outperforming S&P 500 (cap-weighted)"
+                  value={fmt.pct(displayMetrics.pctWeeksBeatingSp500, 0)}
+                  explanation="Share of weeks where the portfolio beat the S&P 500 cap-weighted benchmark. Above 50% means it wins more weeks than it loses."
+                  positive={(displayMetrics.pctWeeksBeatingSp500 ?? 0) > 0.5}
+                />
+              )}
             </div>
             {displaySeries.length > 2 && (
               <RelativeOutperformanceChart
@@ -1367,7 +1655,8 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
           </div>
         ) : (
           <p className="text-muted-foreground text-sm">
-            Consistency data will appear after several months of live tracking.
+            Consistency stats will appear once there are enough weekly data points to compare against
+            both benchmarks.
           </p>
         )}
       </section>
@@ -1833,4 +2122,8 @@ export function PerformancePagePublicClient({ payload, strategies, slug }: Props
       <Disclaimer variant="inline" className="text-center" />
     </ContentPageLayout>
   );
+}
+
+export function PerformancePagePublicClient(props: Props) {
+  return <PerformancePagePublicClientInner {...props} />;
 }

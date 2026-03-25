@@ -204,7 +204,7 @@ const ExperimentSection: React.FC = () => {
                   </div>
                 )}
               </div>
-              <Button asChild size="sm" className="mt-5 gap-1.5 rounded-xl bg-trader-blue hover:bg-trader-blue-dark text-white">
+              <Button asChild variant="outline" size="sm" className="mt-5 gap-1.5 rounded-xl">
                 <Link href={`/performance/${topStrategy.slug}`}>
                   See {topStrategy.name} performance
                   <ArrowRight className="size-3.5" />

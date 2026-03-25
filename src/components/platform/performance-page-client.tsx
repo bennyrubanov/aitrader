@@ -13,7 +13,9 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
+import { headerStatSentiment } from '@/lib/header-stat-sentiment';
 import { PlatformPerformancePayload } from '@/lib/platform-performance-payload';
+import { cn } from '@/lib/utils';
 import { Disclaimer } from '@/components/Disclaimer';
 
 const PerformanceChart = dynamic(
@@ -39,6 +41,20 @@ const formatNullable = (value: number | null | undefined, digits = 2) =>
 
 const weekdayLabel = (day: number) =>
   ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][day] ?? 'N/A';
+
+/** Matches Key metrics / FlipCard: green or brand for good, red for weak. */
+function metricValueClass(sentiment: ReturnType<typeof headerStatSentiment>): string {
+  if (!('positive' in sentiment) || sentiment.positive === undefined) {
+    return 'text-foreground';
+  }
+  if (!sentiment.positive) {
+    return 'text-red-600 dark:text-red-400';
+  }
+  if (sentiment.positiveTone === 'brand') {
+    return 'text-trader-blue dark:text-trader-blue-light';
+  }
+  return 'text-green-600 dark:text-green-400';
+}
 
 type PerformancePageClientProps = {
   payload: PlatformPerformancePayload;
@@ -76,8 +92,8 @@ export function PerformancePageClient({ payload }: PerformancePageClientProps) {
     outperformanceVsCap === null
       ? ''
       : outperformanceVsCap >= 0
-        ? 'text-green-600'
-        : 'text-red-600';
+        ? 'text-green-600 dark:text-green-400'
+        : 'text-red-600 dark:text-red-400';
 
   const weeklySpread = useMemo(() => {
     const weekly = research?.weeklyQuintiles;
@@ -174,7 +190,7 @@ export function PerformancePageClient({ payload }: PerformancePageClientProps) {
         </CardHeader>
         <CardContent>
           {metrics ? (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3 lg:grid-cols-6">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3 lg:grid-cols-7">
               <div className="rounded-lg border bg-background p-4">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">
                   Ending value
@@ -185,30 +201,83 @@ export function PerformancePageClient({ payload }: PerformancePageClientProps) {
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">
                   Total return
                 </p>
-                <p className="mt-2 text-xl font-semibold">{formatPercent(metrics.totalReturn)}</p>
+                <p
+                  className={cn(
+                    'mt-2 text-xl font-semibold',
+                    metricValueClass(headerStatSentiment('Total return', metrics.totalReturn))
+                  )}
+                >
+                  {formatPercent(metrics.totalReturn)}
+                </p>
               </div>
               <div className="rounded-lg border bg-background p-4">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">CAGR</p>
-                <p className="mt-2 text-xl font-semibold">{formatPercent(metrics.cagr)}</p>
+                <p
+                  className={cn(
+                    'mt-2 text-xl font-semibold',
+                    metricValueClass(headerStatSentiment('CAGR', metrics.cagr))
+                  )}
+                >
+                  {formatPercent(metrics.cagr)}
+                </p>
               </div>
               <div className="rounded-lg border bg-background p-4">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">
                   Max drawdown
                 </p>
-                <p className="mt-2 text-xl font-semibold">{formatPercent(metrics.maxDrawdown)}</p>
+                <p
+                  className={cn(
+                    'mt-2 text-xl font-semibold',
+                    metricValueClass(headerStatSentiment('Max drawdown', metrics.maxDrawdown))
+                  )}
+                >
+                  {formatPercent(metrics.maxDrawdown)}
+                </p>
               </div>
               <div className="rounded-lg border bg-background p-4">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">
                   Sharpe ratio
                 </p>
-                <p className="mt-2 text-xl font-semibold">{formatNullable(metrics.sharpeRatio)}</p>
+                <p
+                  className={cn(
+                    'mt-2 text-xl font-semibold',
+                    metricValueClass(headerStatSentiment('Sharpe', metrics.sharpeRatio))
+                  )}
+                >
+                  {formatNullable(metrics.sharpeRatio)}
+                </p>
               </div>
               <div className="rounded-lg border bg-background p-4">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                  % months outperforming Nasdaq-100
+                  % weeks outperforming Nasdaq-100
                 </p>
-                <p className="mt-2 text-xl font-semibold">
-                  {formatPercent(metrics.pctMonthsBeatingNasdaq100, 1)}
+                <p
+                  className={cn(
+                    'mt-2 text-xl font-semibold',
+                    metricValueClass(
+                      headerStatSentiment(
+                        '% weeks outperforming Nasdaq-100',
+                        metrics.pctWeeksBeatingNasdaq100
+                      )
+                    )
+                  )}
+                >
+                  {formatPercent(metrics.pctWeeksBeatingNasdaq100, 1)}
+                </p>
+              </div>
+              <div className="rounded-lg border bg-background p-4">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  % weeks outperforming S&P 500
+                </p>
+                <p
+                  className={cn(
+                    'mt-2 text-xl font-semibold',
+                    metricValueClass(
+                      headerStatSentiment('% weeks outperforming S&P 500', metrics.pctWeeksBeatingSp500)
+                    )
+                  )}
+                >
+                  {formatPercent(metrics.pctWeeksBeatingSp500, 1)}
                 </p>
               </div>
             </div>

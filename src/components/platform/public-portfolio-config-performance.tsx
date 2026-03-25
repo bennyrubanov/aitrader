@@ -3,6 +3,7 @@
 import dynamic from 'next/dynamic';
 import { type ReactNode } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Badge } from '@/components/ui/badge';
 import {
   Tooltip,
   TooltipContent,
@@ -22,6 +23,7 @@ import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config
 import type { PublicPortfolioPerfApiPayload } from '@/components/platform/use-public-portfolio-config-performance';
 import {
   InfoIconTooltip,
+  PortfolioEndingValueRankTooltipBody,
   SingleStockWeightingTooltipContent,
   WeightingMethodTooltipContent,
 } from '@/components/tooltips';
@@ -68,7 +70,7 @@ function ConfigRow({
 }) {
   return (
     <div className="flex gap-3 py-3 border-b border-border/60 last:border-0">
-      <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-background/80 text-trader-blue ring-1 ring-border/80">
+      <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center text-trader-blue">
         <Icon className="size-4" />
       </div>
       <div className="min-w-0 flex-1">
@@ -94,6 +96,8 @@ export function PortfolioAtAGlanceCard({
   perfLoading,
   isTopRanked,
   strategySlug,
+  endingValueRank = null,
+  endingValueRankPeerCount = 0,
   badges = [],
 }: {
   className?: string;
@@ -103,13 +107,17 @@ export function PortfolioAtAGlanceCard({
   isTopRanked: boolean;
   /** Strategy slug for badge pill links (e.g. Top ranked → methodology) */
   strategySlug?: string;
+  /** Ending-$ rank (select-portfolio dialog ordering); null if not in the ready merge set */
+  endingValueRank?: number | null;
+  /** Ready portfolios with ending value (denominator for tooltip) */
+  endingValueRankPeerCount?: number;
   /** From ranked config match (Top ranked, Default, etc.) */
   badges?: string[];
 }) {
   const m = perf?.metrics;
   const fm = perf?.fullMetrics;
-  const pctWeeks = fm?.pctWeeksBeatingNasdaq100 ?? null;
-  const pctMonths = fm?.pctMonthsBeatingNasdaq100 ?? null;
+  const pctWeeksNasdaq = fm?.pctWeeksBeatingNasdaq100 ?? null;
+  const pctWeeksSp500 = fm?.pctWeeksBeatingSp500 ?? null;
 
   const metricRows: {
     label: string;
@@ -125,6 +133,12 @@ export function PortfolioAtAGlanceCard({
   if (m && perf?.computeStatus === 'ready') {
     metricRows.push(
       {
+        label: 'Total return',
+        value: fmt.pct(m.totalReturn),
+        hint: `Cumulative gain or loss so far. ${metricsPeriodNote}`,
+        ...headerStatSentiment('Total return', m.totalReturn),
+      },
+      {
         label: 'Sharpe ratio',
         value: fmt.num(m.sharpeRatio),
         hint: `Excess return per unit of risk (volatility), annualized (higher is better, above 1 is good). ${metricsPeriodNote}`,
@@ -137,32 +151,26 @@ export function PortfolioAtAGlanceCard({
         ...headerStatSentiment('CAGR', m.cagr),
       },
       {
-        label: 'Total return',
-        value: fmt.pct(m.totalReturn),
-        hint: `Cumulative gain or loss so far. ${metricsPeriodNote}`,
-        ...headerStatSentiment('Total return', m.totalReturn),
-      },
-      {
         label: 'Max drawdown',
         value: fmt.pct(m.maxDrawdown),
         hint: `Largest peak-to-trough percentage decline (more negative is deeper drawdown). ${metricsPeriodNote}`,
         ...headerStatSentiment('Max drawdown', m.maxDrawdown),
       }
     );
-    if (pctWeeks != null && Number.isFinite(pctWeeks)) {
+    if (pctWeeksNasdaq != null && Number.isFinite(pctWeeksNasdaq)) {
       metricRows.push({
         label: '% weeks outperforming Nasdaq-100',
-        value: fmt.pct(pctWeeks, 0),
+        value: fmt.pct(pctWeeksNasdaq, 0),
         hint: `Share of weekly periods where this portfolio's return beat the Nasdaq-100 cap-weight benchmark that same week. Tracked from inception through the latest AI ratings day, net of trading costs.`,
-        ...headerStatSentiment('% weeks outperforming Nasdaq-100', pctWeeks),
+        ...headerStatSentiment('% weeks outperforming Nasdaq-100', pctWeeksNasdaq),
       });
     }
-    if (pctMonths != null && Number.isFinite(pctMonths)) {
+    if (pctWeeksSp500 != null && Number.isFinite(pctWeeksSp500)) {
       metricRows.push({
-        label: '% months outperforming Nasdaq-100',
-        value: fmt.pct(pctMonths, 0),
-        hint: `Share of calendar months where this portfolio's month return beat the Nasdaq-100 cap-weight benchmark. Tracked from inception through the latest AI ratings day, net of trading costs.`,
-        ...headerStatSentiment('% months outperforming Nasdaq-100', pctMonths),
+        label: '% weeks outperforming S&P 500',
+        value: fmt.pct(pctWeeksSp500, 0),
+        hint: `Share of weekly periods where this portfolio's return beat the S&P 500 cap-weight benchmark that same week. Tracked from inception through the latest AI ratings day, net of trading costs.`,
+        ...headerStatSentiment('% weeks outperforming S&P 500', pctWeeksSp500),
       });
     }
   }
@@ -173,15 +181,26 @@ export function PortfolioAtAGlanceCard({
       ? Number(perf.config.top_n)
       : null;
 
-  const cardTitle =
-    apiLabel ||
-    (portfolioConfig != null
+  /** While perf is refetching, avoid mixing new `portfolioConfig` with stale `perf.config` from the prior selection. */
+  const sliceDerivedTitle =
+    portfolioConfig != null
       ? formatPortfolioConfigLabel({
           topN: topNFromApi ?? RISK_TOP_N[portfolioConfig.riskLevel],
           weightingMethod: portfolioConfig.weightingMethod,
           rebalanceFrequency: portfolioConfig.rebalanceFrequency,
         })
-      : null);
+      : null;
+
+  const cardTitle =
+    perfLoading && portfolioConfig != null
+      ? formatPortfolioConfigLabel({
+          topN: RISK_TOP_N[portfolioConfig.riskLevel],
+          weightingMethod: portfolioConfig.weightingMethod,
+          rebalanceFrequency: portfolioConfig.rebalanceFrequency,
+        })
+      : apiLabel || sliceDerivedTitle;
+
+  const showLeftConfigSkeleton = Boolean(portfolioConfig && perfLoading);
 
   const riskValue =
     portfolioConfig != null ? RISK_LABELS[portfolioConfig.riskLevel] : '—';
@@ -233,77 +252,132 @@ export function PortfolioAtAGlanceCard({
       <div className={cn('rounded-xl border bg-card shadow-sm overflow-hidden', className)}>
         <div className="grid gap-0 md:grid-cols-2 md:divide-x divide-border">
           <div className="p-5 md:p-6 bg-muted/25 dark:bg-muted/10">
-            <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-              {cardTitle ? (
-                <div className="flex min-w-0 flex-wrap items-center gap-1.5 gap-y-1">
-                  {portfolioConfig ? (
-                    <span
-                      className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border/80 bg-muted/50 px-2 py-0.5 text-[11px] font-semibold text-foreground"
-                      title={riskPillTitle}
-                    >
-                      <span className={cn('size-1.5 shrink-0 rounded-full', riskDotClass)} aria-hidden />
-                      {riskPillTitle}
-                    </span>
-                  ) : null}
-                  <p className="min-w-0 text-base font-semibold text-foreground tracking-tight">{cardTitle}</p>
+            {showLeftConfigSkeleton ? (
+              <div className="space-y-4" aria-busy="true" aria-label="Loading portfolio configuration">
+                <div className="flex min-w-0 flex-wrap items-center gap-2 gap-y-2">
+                  <Skeleton className="h-6 w-28 rounded-full" />
+                  <Skeleton className="h-6 w-52 max-w-full" />
                 </div>
-              ) : (
-                <Skeleton className="h-6 w-48" />
-              )}
-            </div>
-            <div className="mb-4 space-y-2">
-              <p className="text-[11px] text-muted-foreground">
-                Configuration for the selected portfolio
-              </p>
-              {rankingBadgePills.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5">
-                  {rankingBadgePills.map((b) => (
-                    <PortfolioConfigBadgePill key={b} name={b} strategySlug={strategySlug} />
+                <div className="space-y-2">
+                  <p className="text-[11px] text-muted-foreground">
+                    Configuration for the selected portfolio
+                  </p>
+                  <Skeleton className="h-6 w-40 rounded-md" />
+                </div>
+                <div className="space-y-0 overflow-hidden">
+                  {[1, 2, 3, 4].map((i) => (
+                    <div
+                      key={i}
+                      className="flex gap-3 py-3 border-b border-border/60 last:border-0"
+                    >
+                      <Skeleton className="mt-0.5 size-4 shrink-0" />
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <Skeleton className="h-3 w-24" />
+                        <Skeleton className="h-4 w-36 max-w-full" />
+                      </div>
+                    </div>
                   ))}
                 </div>
-              ) : null}
-            </div>
-          {!portfolioConfig ? (
-            <div className="space-y-3">
-              <Skeleton className="h-4 w-full" />
-              <Skeleton className="h-4 w-5/6" />
-              <Skeleton className="h-4 w-4/6" />
-            </div>
-          ) : (
-            <div className="space-y-0">
-              <ConfigRow
-                icon={Shield}
-                label="Risk"
-                value={riskValue}
-                tooltip="How broad or concentrated the portfolio is."
-              />
-              <ConfigRow
-                icon={Hash}
-                label="Stocks included"
-                value={stocksValue}
-                tooltip="How many stocks we hold each period."
-              />
-              <ConfigRow
-                icon={CalendarDays}
-                label="Rebalance"
-                value={freqValue}
-                tooltip="How often positions refresh."
-              />
-              <ConfigRow
-                icon={Scale}
-                label="Weighting"
-                value={weightValue}
-                tooltip={
-                  isSingleStockTier ? (
-                    <SingleStockWeightingTooltipContent />
+              </div>
+            ) : (
+              <>
+                <div className="mb-1 flex min-w-0 items-center justify-between gap-3">
+                  {cardTitle ? (
+                    <>
+                      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 gap-y-1">
+                        {portfolioConfig ? (
+                          <span
+                            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border/80 bg-muted/50 px-2 py-0.5 text-[11px] font-semibold text-foreground"
+                            title={riskPillTitle}
+                          >
+                            <span
+                              className={cn('size-1.5 shrink-0 rounded-full', riskDotClass)}
+                              aria-hidden
+                            />
+                            {riskPillTitle}
+                          </span>
+                        ) : null}
+                        <p className="min-w-0 text-base font-semibold text-foreground tracking-tight">
+                          {cardTitle}
+                        </p>
+                      </div>
+                      {endingValueRank != null ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="inline-flex shrink-0 cursor-help self-center">
+                              <Badge variant="secondary" className="tabular-nums">
+                                Rank #{endingValueRank}
+                              </Badge>
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs" side="left">
+                            <PortfolioEndingValueRankTooltipBody
+                              rank={endingValueRank}
+                              peerCount={endingValueRankPeerCount}
+                            />
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : null}
+                    </>
                   ) : (
-                    <WeightingMethodTooltipContent />
-                  )
-                }
-                tooltipContentClassName="max-w-sm p-3 text-xs leading-relaxed"
-              />
-            </div>
-          )}
+                    <Skeleton className="h-6 w-48" />
+                  )}
+                </div>
+                <div className="mb-4 space-y-2">
+                  <p className="text-[11px] text-muted-foreground">
+                    Configuration for the selected portfolio
+                  </p>
+                  {rankingBadgePills.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {rankingBadgePills.map((b) => (
+                        <PortfolioConfigBadgePill key={b} name={b} strategySlug={strategySlug} />
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+                {!portfolioConfig ? (
+                  <div className="space-y-3">
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-4 w-5/6" />
+                    <Skeleton className="h-4 w-4/6" />
+                  </div>
+                ) : (
+                  <div className="space-y-0">
+                    <ConfigRow
+                      icon={Shield}
+                      label="Risk"
+                      value={riskValue}
+                      tooltip="How broad or concentrated the portfolio is."
+                    />
+                    <ConfigRow
+                      icon={Hash}
+                      label="Stocks included"
+                      value={stocksValue}
+                      tooltip="How many stocks are held each period, selected from the top rated stocks for that period."
+                    />
+                    <ConfigRow
+                      icon={CalendarDays}
+                      label="Rebalance"
+                      value={freqValue}
+                      tooltip="How often positions refresh."
+                    />
+                    <ConfigRow
+                      icon={Scale}
+                      label="Weighting"
+                      value={weightValue}
+                      tooltip={
+                        isSingleStockTier ? (
+                          <SingleStockWeightingTooltipContent />
+                        ) : (
+                          <WeightingMethodTooltipContent />
+                        )
+                      }
+                      tooltipContentClassName="max-w-sm p-3 text-xs leading-relaxed"
+                    />
+                  </div>
+                )}
+              </>
+            )}
         </div>
 
         <div className="p-5 md:p-6 flex flex-col justify-center min-h-[200px]">
@@ -327,7 +401,9 @@ export function PortfolioAtAGlanceCard({
                   row.positive === undefined
                     ? 'text-foreground'
                     : row.positive
-                      ? 'text-green-600 dark:text-green-400'
+                      ? row.positiveTone === 'brand'
+                        ? 'text-trader-blue dark:text-trader-blue-light'
+                        : 'text-green-600 dark:text-green-400'
                       : 'text-red-600 dark:text-red-400';
                 return (
                   <li

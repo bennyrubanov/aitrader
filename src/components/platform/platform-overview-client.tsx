@@ -2688,10 +2688,6 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <p className="mb-3 text-xs text-muted-foreground">
-                    The setup dialog should open automatically. If you dismissed it, refresh this
-                    page (testing) or go to Your Portfolios.
-                  </p>
                   <Button asChild size="sm">
                     <Link href="/platform/your-portfolios">Your portfolios</Link>
                   </Button>
