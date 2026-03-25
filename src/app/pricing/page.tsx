@@ -179,16 +179,61 @@ function OutperformerCompareCell({
   return <FeatureCell value={value} />;
 }
 
+function formatBillingDate(iso: string | null) {
+  if (!iso) return '';
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: 'medium',
+      timeZone: 'UTC',
+    }).format(new Date(iso));
+  } catch {
+    return iso;
+  }
+}
+
 function PricingPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { email, isAuthenticated, isLoaded, subscriptionTier } = useAuthState();
+  const {
+    email,
+    isAuthenticated,
+    isLoaded,
+    subscriptionTier,
+    hasPremiumAccess,
+    stripePendingTier,
+    stripeCurrentPeriodEnd,
+    stripeCancelAtPeriodEnd,
+  } = useAuthState();
   const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>('monthly');
   const [isProcessingCheckout, setIsProcessingCheckout] = useState(false);
   const [checkoutPlan, setCheckoutPlan] = useState<Plan | null>(null);
+  const [isOpeningPortal, setIsOpeningPortal] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const postAuthCheckoutHandled = useRef(false);
+
+  const openBillingPortal = useCallback(
+    async (flow: 'default' | 'subscription_update' | 'subscription_cancel') => {
+      setErrorMessage(null);
+      setIsOpeningPortal(true);
+      try {
+        const response = await fetch('/api/stripe/portal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ flow }),
+        });
+        const payload = (await response.json()) as { url?: string; error?: string };
+        if (!response.ok || !payload.url) {
+          throw new Error(payload.error ?? 'Unable to open billing portal.');
+        }
+        window.location.href = payload.url;
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : 'Unable to open billing portal.');
+        setIsOpeningPortal(false);
+      }
+    },
+    []
+  );
 
   const startStripeCheckout = useCallback(
     async (plan: Plan, period: BillingPeriod) => {
@@ -215,7 +260,20 @@ function PricingPageContent() {
           }),
         });
 
-        const payload = (await response.json()) as { url?: string; error?: string };
+        const payload = (await response.json()) as {
+          url?: string;
+          error?: string;
+          code?: string;
+        };
+        if (response.status === 409 && payload.code === 'USE_PORTAL') {
+          setErrorMessage(
+            payload.error ??
+              'You already have a subscription. Use Manage billing to change plans.'
+          );
+          setIsProcessingCheckout(false);
+          setCheckoutPlan(null);
+          return;
+        }
         if (!response.ok || !payload.url) {
           throw new Error(payload.error ?? 'Failed to create checkout session');
         }
@@ -248,7 +306,7 @@ function PricingPageContent() {
 
     router.replace('/pricing');
 
-    if (subscriptionTier === plan) {
+    if (subscriptionTier === 'supporter' || subscriptionTier === 'outperformer') {
       return;
     }
 
@@ -259,6 +317,9 @@ function PricingPageContent() {
     if (!isAuthenticated) {
       const returnTo = `/pricing?checkout=${plan}&billing=${billingPeriod}`;
       router.push(`/sign-up?next=${encodeURIComponent(returnTo)}`);
+      return;
+    }
+    if (subscriptionTier === 'supporter' || subscriptionTier === 'outperformer') {
       return;
     }
     await startStripeCheckout(plan, billingPeriod);
@@ -363,6 +424,33 @@ function PricingPageContent() {
                 </div>
               )}
 
+              {isAuthenticated &&
+                hasPremiumAccess &&
+                stripeCurrentPeriodEnd &&
+                (stripeCancelAtPeriodEnd || stripePendingTier) && (
+                  <div className="max-w-xl mx-auto mb-8 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-center text-sm text-amber-950 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-100">
+                    {stripeCancelAtPeriodEnd ? (
+                      <>
+                        Your subscription is set to end on{' '}
+                        <span className="font-semibold">
+                          {formatBillingDate(stripeCurrentPeriodEnd)}
+                        </span>
+                        . You&apos;ll keep paid access until then.
+                      </>
+                    ) : stripePendingTier ? (
+                      <>
+                        A plan change is scheduled for{' '}
+                        <span className="font-semibold">
+                          {formatBillingDate(stripeCurrentPeriodEnd)}
+                        </span>
+                        {stripePendingTier === 'supporter' ? ' (Supporter)' : null}
+                        {stripePendingTier === 'outperformer' ? ' (Outperformer)' : null}
+                        {stripePendingTier === 'free' ? ' (Free)' : null}.
+                      </>
+                    ) : null}
+                  </div>
+                )}
+
               {/* Plan cards */}
               <div className="grid gap-6 md:grid-cols-3 mb-16">
                 {/* Free */}
@@ -390,7 +478,29 @@ function PricingPageContent() {
                       </li>
                     ))}
                   </ul>
-                  {isCurrentFreePlan ? (
+                  {isAuthenticated && hasPremiumAccess ? (
+                    <div className="mt-auto flex w-full flex-col gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full"
+                        disabled={isOpeningPortal}
+                        onClick={() => void openBillingPortal('default')}
+                      >
+                        Manage billing
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="w-full text-destructive hover:text-destructive"
+                        disabled={isOpeningPortal}
+                        onClick={() => void openBillingPortal('subscription_cancel')}
+                      >
+                        Cancel subscription
+                      </Button>
+                    </div>
+                  ) : isCurrentFreePlan ? (
                     <Button disabled variant="secondary" className="w-full mt-auto">
                       Current plan
                     </Button>
@@ -445,13 +555,35 @@ function PricingPageContent() {
                     ))}
                   </ul>
                   {isCurrentPlan('supporter') ? (
-                    <Button disabled variant="secondary" className="w-full mt-auto">
-                      Current plan
+                    <div className="mt-auto flex w-full flex-col gap-2">
+                      <Button disabled variant="secondary" className="w-full">
+                        Current plan
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                        disabled={isOpeningPortal}
+                        onClick={() => void openBillingPortal('subscription_update')}
+                      >
+                        Change plan
+                      </Button>
+                    </div>
+                  ) : subscriptionTier === 'outperformer' ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full mt-auto"
+                      disabled={isOpeningPortal}
+                      onClick={() => void openBillingPortal('subscription_update')}
+                    >
+                      Switch to Supporter
                     </Button>
                   ) : (
                     <Button
                       onClick={() => handleSubscribe('supporter')}
-                      disabled={isProcessingCheckout}
+                      disabled={isProcessingCheckout || isOpeningPortal}
                       className="w-full mt-auto"
                       variant="outline"
                     >
@@ -534,13 +666,35 @@ function PricingPageContent() {
                     ))}
                   </ul>
                   {isCurrentPlan('outperformer') ? (
-                    <Button disabled variant="secondary" className="w-full mt-auto">
-                      Current plan
+                    <div className="mt-auto flex w-full flex-col gap-2">
+                      <Button disabled variant="secondary" className="w-full">
+                        Current plan
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                        disabled={isOpeningPortal}
+                        onClick={() => void openBillingPortal('subscription_update')}
+                      >
+                        Change plan
+                      </Button>
+                    </div>
+                  ) : subscriptionTier === 'supporter' ? (
+                    <Button
+                      type="button"
+                      className="w-full mt-auto bg-trader-blue hover:bg-trader-blue-dark text-white"
+                      disabled={isOpeningPortal}
+                      onClick={() => void openBillingPortal('subscription_update')}
+                    >
+                      Upgrade to Outperformer
+                      <ArrowRight className="ml-2 size-4" />
                     </Button>
                   ) : (
                     <Button
                       onClick={() => handleSubscribe('outperformer')}
-                      disabled={isProcessingCheckout}
+                      disabled={isProcessingCheckout || isOpeningPortal}
                       className="w-full mt-auto bg-trader-blue hover:bg-trader-blue-dark text-white"
                     >
                       {isProcessingCheckout && checkoutPlan === 'outperformer' ? (

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { SubscriptionTier } from '@/lib/auth-state';
 import { allowedStrategyIdsForSubscriptionTier } from '@/lib/strategy-plan-access';
+import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { createClient } from '@/utils/supabase/server';
 
@@ -44,31 +45,44 @@ export async function GET(_req: Request, { params }: RouteContext) {
   const subscriptionTier: SubscriptionTier =
     rawTier === 'supporter' || rawTier === 'outperformer' ? rawTier : 'free';
 
-  if (subscriptionTier === 'free') {
-    return NextResponse.json({ error: 'Supporter or Outperformer plan required' }, { status: 403 });
-  }
-
   const resolvedParams = await params;
   const symbol = resolvedParams.symbol.toUpperCase();
 
   const admin = createAdminClient();
 
-  const { data: stockRow } = await admin.from('stocks').select('id').eq('symbol', symbol).maybeSingle();
+  const { data: stockRow } = await admin
+    .from('stocks')
+    .select('id, is_premium_stock')
+    .eq('symbol', symbol)
+    .maybeSingle();
 
   if (!stockRow?.id) {
     return NextResponse.json({ error: 'Stock not found' }, { status: 404 });
   }
 
+  if (subscriptionTier === 'free' && stockRow.is_premium_stock) {
+    return NextResponse.json({ error: 'Supporter or Outperformer plan required' }, { status: 403 });
+  }
+
   const { data: strategies, error: stratErr } = await admin
     .from('strategy_models')
-    .select('id, minimum_plan_tier')
+    .select('id, minimum_plan_tier, slug, is_default')
     .eq('status', 'active');
 
   if (stratErr) {
     return NextResponse.json({ error: stratErr.message }, { status: 500 });
   }
 
-  const allowedStrategyIds = allowedStrategyIdsForSubscriptionTier(strategies ?? [], subscriptionTier);
+  let allowedStrategyIds: string[];
+  if (subscriptionTier === 'free') {
+    const list = strategies ?? [];
+    const bySlug = list.find((s) => s.slug === STRATEGY_CONFIG.slug);
+    const byDefault = list.find((s) => s.is_default === true);
+    const defaultId = bySlug?.id ?? byDefault?.id;
+    allowedStrategyIds = defaultId ? [defaultId] : [];
+  } else {
+    allowedStrategyIds = allowedStrategyIdsForSubscriptionTier(strategies ?? [], subscriptionTier);
+  }
 
   if (allowedStrategyIds.length === 0) {
     return NextResponse.json({ history: [] });

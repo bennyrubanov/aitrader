@@ -66,10 +66,9 @@ const StockDetailClient = ({ symbol, stockName, isPremiumStock, price, latest, n
   const router = useRouter();
   const { isAuthenticated, isLoaded, hasPremiumAccess } = useAuthState();
   const upgradeHref = isAuthenticated ? '/pricing' : '/sign-up';
-  // Premium stocks require Supporter+ for all ratings.
-  // Free stocks allow authenticated users to see the basic bucket,
-  // but detailed history / risks require Supporter+.
-  const canAccessPremiumStock = hasPremiumAccess;
+  // Premium stocks: Supporter+ for ratings, history, and chart.
+  // Non-premium: signed-in free users get default-model history via API (see /api/stocks/.../premium).
+  const canLoadPremiumHistory = hasPremiumAccess || (!isPremiumStock && isAuthenticated);
   const premiumGateMessage = isPremiumStock
     ? 'This is a premium stock. Upgrade to Supporter or Outperformer to see AI ratings and history.'
     : 'Full history and detailed analysis require a Supporter or Outperformer plan.';
@@ -104,7 +103,7 @@ const StockDetailClient = ({ symbol, stockName, isPremiumStock, price, latest, n
         return;
       }
 
-      if (!isAuthenticated || !canAccessPremiumStock) {
+      if (!isAuthenticated || !canLoadPremiumHistory) {
         if (isMounted) {
           setPremiumState('locked');
         }
@@ -167,7 +166,7 @@ const StockDetailClient = ({ symbol, stockName, isPremiumStock, price, latest, n
     return () => {
       isMounted = false;
     };
-  }, [isAuthenticated, isLoaded, canAccessPremiumStock, normalizedSymbol, premiumCacheKey]);
+  }, [isAuthenticated, isLoaded, canLoadPremiumHistory, normalizedSymbol, premiumCacheKey]);
 
   useEffect(() => {
     router.prefetch('/');

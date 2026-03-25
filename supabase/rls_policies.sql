@@ -8,6 +8,9 @@
 
 -- -------------------------------------------------------
 -- 1) user_profiles – full CRUD for own row
+--     Billing columns (subscription_tier, stripe_*) are enforced by trigger
+--     user_profiles_protect_billing_columns (see migrations + schema.sql): only
+--     service_role / privileged sessions may change them.
 -- -------------------------------------------------------
 alter table public.user_profiles enable row level security;
 

@@ -7,19 +7,23 @@ import { Button } from "@/components/ui/button";
 import { useAuthState } from "@/components/auth/auth-state-context";
 
 const BillingPage = () => {
-  const [loading, setLoading] = useState(false);
-  const { isAuthenticated } = useAuthState();
+  const [loadingFlow, setLoadingFlow] = useState<string | null>(null);
+  const { isAuthenticated, hasPremiumAccess } = useAuthState();
 
-  const handleManageSubscription = async () => {
+  const openPortal = async (flow: "default" | "subscription_update" | "subscription_cancel") => {
     if (!isAuthenticated) {
-      setLoading(true);
+      setLoadingFlow("auth");
       window.location.href = "/sign-in?next=/billing";
       return;
     }
 
-    setLoading(true);
+    setLoadingFlow(flow);
     try {
-      const response = await fetch("/api/stripe/portal", { method: "POST" });
+      const response = await fetch("/api/stripe/portal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ flow }),
+      });
       const payload = await response.json();
       if (!response.ok) {
         throw new Error(payload?.error ?? "Unable to open billing portal");
@@ -29,7 +33,7 @@ const BillingPage = () => {
       }
     } catch (error) {
       alert(error instanceof Error ? error.message : "Unable to open billing portal");
-      setLoading(false);
+      setLoadingFlow(null);
     }
   };
 
@@ -42,16 +46,42 @@ const BillingPage = () => {
             <div className="max-w-2xl mx-auto text-center">
               <h1 className="text-3xl md:text-5xl font-bold mb-4">Billing & Subscription</h1>
               <p className="text-lg text-muted-foreground mb-8">
-                Open Stripe&apos;s secure billing portal to update payment method, view invoices, or
-                cancel your subscription.
+                Open Stripe&apos;s secure billing portal to update payment method, view invoices, change
+                plans, or cancel your subscription.
               </p>
-              <Button
-                onClick={handleManageSubscription}
-                disabled={loading}
-                className="bg-trader-blue text-white hover:bg-trader-blue-dark"
-              >
-                {loading ? "Opening..." : "Manage Subscription"}
-              </Button>
+              <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
+                <Button
+                  onClick={() => void openPortal("default")}
+                  disabled={loadingFlow !== null}
+                  className="bg-trader-blue text-white hover:bg-trader-blue-dark"
+                >
+                  {loadingFlow === "auth"
+                    ? "Redirecting..."
+                    : loadingFlow === "default"
+                      ? "Opening..."
+                      : isAuthenticated
+                        ? "Billing & invoices"
+                        : "Sign in to manage billing"}
+                </Button>
+                {isAuthenticated && hasPremiumAccess && (
+                  <>
+                    <Button
+                      variant="outline"
+                      onClick={() => void openPortal("subscription_update")}
+                      disabled={loadingFlow !== null}
+                    >
+                      {loadingFlow === "subscription_update" ? "Opening..." : "Change plan"}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => void openPortal("subscription_cancel")}
+                      disabled={loadingFlow !== null}
+                    >
+                      {loadingFlow === "subscription_cancel" ? "Opening..." : "Cancel subscription"}
+                    </Button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </section>
