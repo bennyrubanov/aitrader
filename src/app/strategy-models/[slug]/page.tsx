@@ -11,7 +11,6 @@ import {
   FlaskConical,
   Info,
   LayoutGrid,
-  Scale,
   TrendingUp,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -238,18 +237,67 @@ export default async function StrategyModelDetailPage({ params }: Props) {
         id="model-ranking"
         className="mb-10 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
       >
-        <h3 className="text-2xl font-bold tracking-tight mb-3 flex items-center gap-2">
-          <Scale className="size-5 text-trader-blue shrink-0" />
-          How we rank models
-        </h3>
-        <div className="text-sm text-muted-foreground space-y-3 leading-relaxed max-w-3xl">
-          <p className="text-foreground/90">
-            Composite rank blends three signals so no single portfolio skews the headline:{' '}
-            <strong className="text-foreground">50%</strong> breadth (share of portfolio configs
-            with positive excess), <strong className="text-foreground">30%</strong> median quality across
-            eligible portfolios, and <strong className="text-foreground">20%</strong> upside from the
-            best-performing portfolio.
-          </p>
+        <div className="space-y-3">
+          <h4 className="text-base font-bold text-foreground flex items-center gap-2">
+            <Info className="size-5 text-trader-blue shrink-0" />
+            How we rank models
+          </h4>
+          <div className="text-sm text-muted-foreground space-y-3 leading-relaxed">
+            <p>
+              We order strategy models with a <strong className="text-foreground">composite score</strong>{' '}
+              so the headline reflects both{' '}
+              <strong className="text-foreground">how broadly</strong> the model&apos;s portfolio
+              configs are working (not just one lucky configuration) and{' '}
+              <strong className="text-foreground">how strong risk-adjusted results</strong> look in the
+              middle and at the top of the config set.
+            </p>
+            <p>
+              Each ingredient is scaled relative to other strategy models{' '}
+              (min–max normalization), then combined with the weights below. Higher is better for all
+              three after normalization.
+            </p>
+            <p>
+              The score blends <strong className="text-foreground">three</strong> dimensions:
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {[
+              {
+                label: 'Breadth',
+                weight: '50%',
+                note: 'Share of eligible configs with positive total return since inception',
+              },
+              {
+                label: 'Median Sharpe',
+                weight: '30%',
+                note: 'Median risk-adjusted weekly return across eligible configs',
+              },
+              {
+                label: 'Best Sharpe',
+                weight: '20%',
+                note: 'Highest Sharpe among eligible configs',
+              },
+            ].map(({ label, weight, note }) => (
+              <div key={label} className="rounded-lg border bg-card p-3">
+                <p className="font-medium text-foreground">{label}</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">{note}</p>
+                <p className="text-xs font-semibold text-trader-blue mt-1">{weight}</p>
+              </div>
+            ))}
+          </div>
+          <div className="text-sm text-muted-foreground space-y-2 leading-relaxed">
+            <p>
+              <strong className="text-foreground">Why this mix:</strong> breadth keeps a model from
+              ranking first on a single outlier portfolio; median Sharpe captures typical
+              risk-adjusted quality; best Sharpe still rewards a strong top end without letting it
+              dominate the headline.
+            </p>
+            <p className="text-xs">
+              Only portfolio configs with a ready composite rank feed these inputs (same eligibility as
+              the per-model portfolio list). Models with no eligible configs still appear in the list
+              using fallback metrics so the page does not break.
+            </p>
+          </div>
         </div>
       </section>
 

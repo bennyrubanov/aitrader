@@ -67,15 +67,8 @@ function SignInPageContent() {
     const explicit = searchParams.get("next");
     if (explicit && explicit !== DEFAULT_POST_AUTH_PATH && explicit.startsWith("/")) {
       savePreAuthReturnUrl(explicit);
-    } else if (typeof document !== "undefined" && document.referrer) {
-      try {
-        const ref = new URL(document.referrer);
-        if (ref.origin === window.location.origin) {
-          savePreAuthReturnUrl(ref.pathname + ref.search);
-        }
-      } catch {
-        /* ignore invalid referrer */
-      }
+    } else {
+      clearPreAuthReturnUrl();
     }
   }, [searchParams]);
 
