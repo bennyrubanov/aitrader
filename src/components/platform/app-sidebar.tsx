@@ -34,6 +34,10 @@ import { getSupabaseBrowserClient } from '@/utils/supabase/browser';
 import { useAuthState } from '@/components/auth/auth-state-context';
 import { navigateWithFallback } from '@/lib/client-navigation';
 import { Disclaimer } from '@/components/Disclaimer';
+import {
+  PLATFORM_POST_ONBOARDING_TOUR_SHELL_READY_EVENT,
+  PLATFORM_TOUR_SHELL_READY_ATTR,
+} from '@/lib/platform-post-onboarding-tour';
 
 type NavItem = {
   title: string;
@@ -116,6 +120,11 @@ export function AppSidebar() {
     subscriptionTier: authState.subscriptionTier,
     isAuthenticated: authState.isAuthenticated,
   };
+  useEffect(() => {
+    if (!authState.isLoaded || typeof window === 'undefined') return;
+    window.dispatchEvent(new Event(PLATFORM_POST_ONBOARDING_TOUR_SHELL_READY_EVENT));
+  }, [authState.isLoaded]);
+
   const handlePrefetchIntent = (href: string) => {
     router.prefetch(href);
   };
@@ -307,15 +316,17 @@ export function AppSidebar() {
             },
           ]}
         />
-        <NavUser
-          user={account}
-          onOpenAccount={() => openPath('/platform/settings')}
-          onOpenBilling={() => openPath('/platform/settings')}
-          onOpenNotifications={() => openPath('/platform/settings')}
-          onUpgrade={() => openPath('/pricing')}
-          onSignOut={handleSignOut}
-          onSignUp={handleSignUp}
-        />
+        <div {...(authState.isLoaded ? { [PLATFORM_TOUR_SHELL_READY_ATTR]: '1' } : {})}>
+          <NavUser
+            user={account}
+            onOpenAccount={() => openPath('/platform/settings')}
+            onOpenBilling={() => openPath('/platform/settings')}
+            onOpenNotifications={() => openPath('/platform/settings')}
+            onUpgrade={() => openPath('/pricing')}
+            onSignOut={handleSignOut}
+            onSignUp={handleSignUp}
+          />
+        </div>
       </SidebarFooter>
     </Sidebar>
   );

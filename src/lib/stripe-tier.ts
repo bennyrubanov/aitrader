@@ -28,6 +28,20 @@ export function configuredPriceIdToTierMap(): Map<string, SubscriptionTier> {
   return m;
 }
 
+export async function recurringIntervalFromPriceId(
+  stripe: Stripe,
+  priceId: string
+): Promise<'month' | 'year' | null> {
+  try {
+    const price = await stripe.prices.retrieve(priceId);
+    const i = price.recurring?.interval;
+    if (i === 'month' || i === 'year') return i;
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
 export async function resolveTierFromPriceId(
   stripe: Stripe,
   priceId: string
@@ -50,14 +64,17 @@ export async function resolveTierFromSubscription(
   stripe: Stripe,
   subscription: Stripe.Subscription
 ): Promise<SubscriptionTier> {
+  const priceId = subscription.items.data[0]?.price?.id;
+  if (priceId) {
+    const fromPrice = await resolveTierFromPriceId(stripe, priceId);
+    if (fromPrice !== 'free') {
+      return fromPrice;
+    }
+  }
+
   const metaTier = subscription.metadata?.tier as SubscriptionTier | undefined;
   if (metaTier === 'supporter' || metaTier === 'outperformer') {
     return metaTier;
-  }
-
-  const priceId = subscription.items.data[0]?.price?.id;
-  if (priceId) {
-    return resolveTierFromPriceId(stripe, priceId);
   }
 
   return 'free';
@@ -115,6 +132,31 @@ export async function resolvePendingTierFromSubscription(
   return null;
 }
 
+/**
+ * When a subscription update is held until invoice payment (pending updates), Stripe keeps the
+ * current items but sets `pending_update` with the target items.
+ */
+export async function resolvePendingTierFromPendingUpdate(
+  stripe: Stripe,
+  subscription: Stripe.Subscription,
+  currentTier: SubscriptionTier
+): Promise<SubscriptionTier | null> {
+  const items = subscription.pending_update?.subscription_items;
+  if (!items?.length) {
+    return null;
+  }
+  const price = items[0]?.price;
+  const priceId = typeof price === 'string' ? price : price?.id;
+  if (!priceId) {
+    return null;
+  }
+  const nextTier = await resolveTierFromPriceId(stripe, priceId);
+  if (nextTier !== currentTier) {
+    return nextTier;
+  }
+  return null;
+}
+
 export type SubscriptionBillingExtras = {
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
@@ -138,15 +180,21 @@ export function getStripeCustomerIdFromField(
   return customer.id;
 }
 
+const subscriptionStatusSyncsBillingSnapshot = (status: Stripe.Subscription.Status) =>
+  status === 'active' || status === 'trialing' || status === 'past_due';
+
 export async function buildSubscriptionBillingExtras(
   stripe: Stripe,
   subscription: Stripe.Subscription
 ): Promise<SubscriptionBillingExtras> {
   const tier = await resolveTierFromSubscription(stripe, subscription);
-  const pending =
-    subscription.status === 'active' || subscription.status === 'trialing'
-      ? await resolvePendingTierFromSubscription(stripe, subscription, tier)
-      : null;
+  let pending: SubscriptionTier | null = null;
+  if (subscriptionStatusSyncsBillingSnapshot(subscription.status)) {
+    pending = await resolvePendingTierFromSubscription(stripe, subscription, tier);
+    if (!pending) {
+      pending = await resolvePendingTierFromPendingUpdate(stripe, subscription, tier);
+    }
+  }
 
   const periodEnd = subscriptionCurrentPeriodEndUnix(subscription);
   return {

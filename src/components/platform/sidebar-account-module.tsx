@@ -23,9 +23,7 @@ export function SidebarAccountModule({ onNavigateStart }: SidebarAccountModulePr
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
 
-  const handleOpenPortal = async (
-    flow: "default" | "subscription_update" | "subscription_cancel" = "default"
-  ) => {
+  const handleOpenPortal = async (flow: "default" | "subscription_cancel" = "default") => {
     setIsOpeningPortal(true);
     try {
       const response = await fetch("/api/stripe/portal", {
@@ -106,27 +104,38 @@ export function SidebarAccountModule({ onNavigateStart }: SidebarAccountModulePr
       <div className="space-y-2">
         {isAuthenticated ? (
           <>
-            <Button
-              type="button"
-              size="sm"
-              className="w-full justify-start bg-trader-blue hover:bg-trader-blue-dark"
-              onClick={() =>
-                void handleOpenPortal(hasPremiumAccess ? "subscription_update" : "default")
-              }
-              disabled={isOpeningPortal}
-            >
-              {isOpeningPortal ? (
-                <>
-                  <Loader2 className="mr-2 size-3 animate-spin" />
-                  Opening billing...
-                </>
-              ) : (
-                <>
+            {hasPremiumAccess ? (
+              <Button type="button" size="sm" className="w-full justify-start bg-trader-blue hover:bg-trader-blue-dark" asChild>
+                <Link
+                  href="/pricing"
+                  prefetch
+                  onClick={() => onNavigateStart?.("/pricing")}
+                >
                   <CreditCard className="mr-2 size-3" />
-                  {hasPremiumAccess ? "Change plan" : "Billing portal"}
-                </>
-              )}
-            </Button>
+                  Plans & pricing
+                </Link>
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                className="w-full justify-start bg-trader-blue hover:bg-trader-blue-dark"
+                onClick={() => void handleOpenPortal("default")}
+                disabled={isOpeningPortal}
+              >
+                {isOpeningPortal ? (
+                  <>
+                    <Loader2 className="mr-2 size-3 animate-spin" />
+                    Opening billing...
+                  </>
+                ) : (
+                  <>
+                    <CreditCard className="mr-2 size-3" />
+                    Billing portal
+                  </>
+                )}
+              </Button>
+            )}
             {hasPremiumAccess && (
               <Button
                 type="button"

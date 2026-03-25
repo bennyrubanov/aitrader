@@ -24,6 +24,7 @@ import {
   DEFAULT_POST_AUTH_PATH,
   parseSafeAuthRedirectPath,
   sanitizeAuthRedirectPath,
+  shouldPersistSignInReturnPath,
 } from "@/lib/auth-redirect";
 
 const methodBadge = (lastMethod: string | null, method: string) =>
@@ -67,7 +68,10 @@ function SignInPageContent() {
       try {
         const ref = new URL(document.referrer);
         if (ref.origin === window.location.origin) {
-          savePreAuthReturnUrl(ref.pathname + ref.search);
+          const refPath = ref.pathname + ref.search;
+          if (shouldPersistSignInReturnPath(refPath)) {
+            savePreAuthReturnUrl(refPath);
+          }
         }
       } catch {
         /* ignore invalid referrer */

@@ -135,8 +135,8 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           error:
-            'You already have a paid subscription. Use Manage subscription in Settings to upgrade, downgrade, or cancel.',
-          code: 'USE_PORTAL',
+            'You already have a paid subscription. Use Pricing or Settings to upgrade or downgrade; use Billing for invoices and cancellation.',
+          code: 'ALREADY_SUBSCRIBED',
         },
         { status: 409 }
       );

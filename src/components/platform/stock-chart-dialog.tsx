@@ -32,9 +32,6 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/
 
 type TimeRange = '1M' | '3M' | '6M' | 'All';
 
-/** What to plot: both axes (default), price only (no buckets / score), or AI rating only (buckets + score, no price). */
-export type StockChartSeriesMode = 'both' | 'price' | 'rating';
-
 type StockHistoryResponse = {
   symbol: string;
   companyName: string | null;
@@ -93,53 +90,57 @@ function cartesianAxisLabelCoords(
   return { x: x + width - horizontalOffset, y: y + height / 2, textAnchor: horizontalEnd };
 }
 
-const SERIES_MODES: { value: StockChartSeriesMode; label: string }[] = [
-  { value: 'both', label: 'Both' },
-  { value: 'price', label: 'Price' },
-  { value: 'rating', label: 'AI rating' },
-];
-
-export function StockChartDialog({
-  symbol,
-  strategySlug,
-  open: openProp,
-  onOpenChange: onOpenChangeProp,
-  showDefaultTrigger = true,
-  footer,
-}: {
+export type StockPriceRatingChartProps = {
   symbol: string;
   strategySlug?: string | null;
-  /** Controlled mode — pair with `onOpenChange` and usually `showDefaultTrigger={false}`. */
-  open?: boolean;
-  onOpenChange?: (open: boolean) => void;
-  /** When false, no expand button is rendered (open via controlled `open` / parent). */
-  showDefaultTrigger?: boolean;
-  /** Renders below the chart, right-aligned (e.g. link to full stock analysis). */
-  footer?: ReactNode;
-}) {
-  const [internalOpen, setInternalOpen] = useState(false);
-  const isControlled = openProp !== undefined;
-  const open = isControlled ? openProp : internalOpen;
-  const setOpen = useCallback(
-    (next: boolean) => {
-      onOpenChangeProp?.(next);
-      if (!isControlled) setInternalOpen(next);
-    },
-    [isControlled, onOpenChangeProp]
-  );
+  /** When false, skips fetch and renders nothing (parent controls visibility). Default true. */
+  enabled?: boolean;
+  chartClassName?: string;
+  /** Min height for loading skeleton stack. */
+  loadingContainerClassName?: string;
+  /** Show strategy slug from API under the range/series toggles. */
+  showStrategyCaption?: boolean;
+  /** e.g. dialog title above toggles */
+  renderHeader?: (args: { titleStockLabel: string; titleSuffix: string }) => ReactNode;
+  /**
+   * Cache key segment when auth/plan changes the payload (ratings present vs stripped).
+   * Use guest | free | supporter | outperformer | pending.
+   */
+  authSegment?: string;
+  /** When false, only price is shown and the AI rating toggle is hidden (guest / free on premium tickers). */
+  allowAiRatingSeries?: boolean;
+};
+
+/**
+ * Price + AI rating history (same data as platform ratings expand chart). Use on stock pages or inside a dialog.
+ */
+export function StockPriceRatingChart({
+  symbol,
+  strategySlug,
+  enabled = true,
+  chartClassName = 'h-[320px] w-full [&_.recharts-responsive-container]:!h-full',
+  loadingContainerClassName = 'h-[320px]',
+  showStrategyCaption = false,
+  renderHeader,
+  authSegment = 'guest',
+  allowAiRatingSeries = true,
+}: StockPriceRatingChartProps) {
   const [range, setRange] = useState<TimeRange>('3M');
-  const [seriesMode, setSeriesMode] = useState<StockChartSeriesMode>('both');
+  /** Independent toggles; at least one stays on (default both on = same as former “Both”). */
+  const [seriesSelection, setSeriesSelection] = useState({
+    price: true,
+    rating: allowAiRatingSeries,
+  });
   const [data, setData] = useState<StockHistoryResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [legendHovered, setLegendHovered] = useState(false);
   const [priceAxisHovered, setPriceAxisHovered] = useState(false);
   const [scoreAxisHovered, setScoreAxisHovered] = useState(false);
-  const cacheKey = `${symbol.toUpperCase()}::${strategySlug ?? 'default'}`;
+  const cacheKey = `${symbol.toUpperCase()}::${strategySlug ?? 'default'}::${authSegment}`;
 
-  /** Before paint: apply cache or enter loading so we never flash “no history” pre-fetch. */
   useLayoutEffect(() => {
-    if (!open) return;
+    if (!enabled) return;
     const cached = stockHistoryCache.get(cacheKey);
     if (cached) {
       setData(cached);
@@ -150,10 +151,10 @@ export function StockChartDialog({
     setData(null);
     setErrorMessage(null);
     setIsLoading(true);
-  }, [cacheKey, open]);
+  }, [cacheKey, enabled]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!enabled) return;
     const cached = stockHistoryCache.get(cacheKey);
     if (cached) return;
 
@@ -182,21 +183,31 @@ export function StockChartDialog({
       });
 
     return () => controller.abort();
-  }, [cacheKey, open, strategySlug, symbol]);
+  }, [cacheKey, enabled, strategySlug, symbol]);
 
   useEffect(() => {
-    if (!open) {
+    if (!allowAiRatingSeries) {
+      setSeriesSelection((s) => (s.rating ? { ...s, rating: false } : s));
+    } else {
+      setSeriesSelection({ price: true, rating: true });
+    }
+  }, [allowAiRatingSeries]);
+
+  useEffect(() => {
+    if (!enabled) {
       setLegendHovered(false);
       setPriceAxisHovered(false);
       setScoreAxisHovered(false);
-      setSeriesMode('both');
+      setSeriesSelection({ price: true, rating: allowAiRatingSeries });
     }
-  }, [open]);
+  }, [enabled, allowAiRatingSeries]);
 
   const chartData = useMemo(() => {
     if (!data) return [];
     const priceMap = new Map(data.prices.map((r) => [r.date, r.price]));
-    const allDates = Array.from(new Set([...data.prices.map((r) => r.date), ...data.ratings.map((r) => r.date)])).sort();
+    const allDates = Array.from(
+      new Set([...data.prices.map((r) => r.date), ...data.ratings.map((r) => r.date)]),
+    ).sort();
     const sortedRatings = [...data.ratings].sort((a, b) => a.date.localeCompare(b.date));
 
     let ratingCursor = 0;
@@ -226,30 +237,28 @@ export function StockChartDialog({
       .map((r) => ({ key: r.date, shortDate: shortByIso.get(r.date)! }));
   }, [data, chartData]);
 
-  const showPrice = seriesMode === 'both' || seriesMode === 'price';
-  const showRating = seriesMode === 'both' || seriesMode === 'rating';
+  const showPrice = seriesSelection.price;
+  const showRating = seriesSelection.rating;
   const hasPriceData = chartData.some((r) => r.price != null);
   const hasScoreData = chartData.some((r) => r.score != null);
 
   const chartRenderable =
     chartData.length > 0 &&
-    (seriesMode === 'both'
+    (showPrice && showRating
       ? hasPriceData || hasScoreData
-      : seriesMode === 'price'
+      : showPrice
         ? hasPriceData
         : hasScoreData);
 
   const emptyHint = !chartData.length
     ? null
-    : seriesMode === 'price' && !hasPriceData
+    : showPrice && !showRating && !hasPriceData
       ? 'No price history in this range.'
-      : seriesMode === 'rating' && !hasScoreData
+      : showRating && !showPrice && !hasScoreData
         ? 'No AI rating history in this range.'
         : null;
 
-  /** Covers first paint before useLayoutEffect runs (open + no data yet). */
-  const showChartLoading =
-    isLoading || (open && data === null && errorMessage === null);
+  const showChartLoading = isLoading || (enabled && data === null && errorMessage === null);
 
   const ticker = symbol.toUpperCase();
   const titleStockLabel =
@@ -260,83 +269,103 @@ export function StockChartDialog({
         : ticker;
 
   const titleSuffix =
-    seriesMode === 'both'
+    showPrice && showRating
       ? ' — Price vs. AI rating'
-      : seriesMode === 'price'
+      : showPrice
         ? ' — Price'
         : ' — AI rating';
 
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      {showDefaultTrigger ? (
-        <DialogTrigger asChild>
-          <Button variant="ghost" size="icon" className="size-7">
-            <Expand className="size-3.5" />
-            <span className="sr-only">Chart for {symbol}</span>
-          </Button>
-        </DialogTrigger>
-      ) : null}
-      <DialogContent className="max-w-3xl">
-        <DialogHeader>
-          <DialogTitle>
-            {titleStockLabel}
-            <span className="font-normal text-muted-foreground">{titleSuffix}</span>
-          </DialogTitle>
-        </DialogHeader>
+  if (!enabled) {
+    return null;
+  }
 
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <div className="flex items-center gap-1.5">
-            {TIME_RANGES.map((tr) => (
-              <button
-                key={tr}
-                type="button"
-                onClick={() => setRange(tr)}
-                className={`rounded px-2 py-1 text-xs font-medium transition-colors ${
-                  range === tr
-                    ? 'bg-trader-blue text-white'
-                    : 'bg-muted text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {tr}
-              </button>
-            ))}
-          </div>
+  return (
+    <>
+      {renderHeader ? renderHeader({ titleStockLabel, titleSuffix }) : null}
+
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div className="flex items-center gap-1.5">
+          {TIME_RANGES.map((tr) => (
+            <button
+              key={tr}
+              type="button"
+              onClick={() => setRange(tr)}
+              className={`rounded px-2 py-1 text-xs font-medium transition-colors ${
+                range === tr
+                  ? 'bg-trader-blue text-white'
+                  : 'bg-muted text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {tr}
+            </button>
+          ))}
+        </div>
+        {allowAiRatingSeries ? (
           <div
             className="flex items-center gap-1.5 border-l border-border pl-3"
             role="group"
             aria-label="Chart series"
           >
-            {SERIES_MODES.map(({ value, label }) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => setSeriesMode(value)}
-                className={`rounded px-2 py-1 text-xs font-medium transition-colors ${
-                  seriesMode === value
-                    ? 'bg-trader-blue text-white'
-                    : 'bg-muted text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
+            <button
+              type="button"
+              aria-pressed={seriesSelection.price}
+              onClick={() =>
+                setSeriesSelection((s) => {
+                  if (s.price && !s.rating) return s;
+                  return { ...s, price: !s.price };
+                })
+              }
+              className={`rounded px-2 py-1 text-xs font-medium transition-colors ${
+                seriesSelection.price
+                  ? 'bg-trader-blue text-white'
+                  : 'bg-muted text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Price
+            </button>
+            <button
+              type="button"
+              aria-pressed={seriesSelection.rating}
+              onClick={() =>
+                setSeriesSelection((s) => {
+                  if (s.rating && !s.price) return s;
+                  return { ...s, rating: !s.rating };
+                })
+              }
+              className={`rounded px-2 py-1 text-xs font-medium transition-colors ${
+                seriesSelection.rating
+                  ? 'bg-trader-blue text-white'
+                  : 'bg-muted text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              AI rating
+            </button>
           </div>
-        </div>
+        ) : null}
+      </div>
 
-        {showChartLoading ? (
-          <div className="flex h-[320px] w-full flex-col justify-center gap-3 rounded-lg border border-dashed border-muted-foreground/20 bg-muted/30 px-4">
-            <Skeleton className="h-3 w-3/5 max-w-xs" />
-            <Skeleton className="h-[240px] w-full rounded-md" />
-            <Skeleton className="mx-auto h-3 w-2/5 max-w-[180px]" />
-          </div>
-        ) : errorMessage ? (
-          <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
-            {errorMessage}
-          </div>
-        ) : chartRenderable ? (
-          <>
+      {showStrategyCaption && data?.strategy ? (
+        <p className="text-xs text-muted-foreground mt-2">
+          Ratings from strategy <span className="font-mono text-foreground/80">{data.strategy}</span>
+        </p>
+      ) : null}
+
+      {showChartLoading ? (
+        <div
+          className={`mt-3 flex w-full flex-col justify-center gap-3 rounded-lg border border-dashed border-muted-foreground/20 bg-muted/30 px-4 ${loadingContainerClassName}`}
+        >
+          <Skeleton className="h-3 w-3/5 max-w-xs" />
+          <Skeleton className="h-[240px] w-full rounded-md" />
+          <Skeleton className="mx-auto h-3 w-2/5 max-w-[180px]" />
+        </div>
+      ) : errorMessage ? (
+        <div className="mt-3 rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+          {errorMessage}
+        </div>
+      ) : chartRenderable ? (
+        <>
           <ChartContainer
-            className="h-[320px] w-full [&_.recharts-responsive-container]:!h-full"
+            className={`mt-3 ${chartClassName}`}
             config={{
               price: {
                 label: 'Price (USD)',
@@ -566,7 +595,13 @@ export function StockChartDialog({
                 onMouseEnter={() => setLegendHovered(true)}
                 onMouseLeave={() => setLegendHovered(false)}
               >
-                <svg width="14" height="22" viewBox="0 0 14 22" className="shrink-0 text-foreground/40" aria-hidden>
+                <svg
+                  width="14"
+                  height="22"
+                  viewBox="0 0 14 22"
+                  className="shrink-0 text-foreground/40"
+                  aria-hidden
+                >
                   <line
                     x1="7"
                     y1="20"
@@ -584,18 +619,79 @@ export function StockChartDialog({
               </div>
             </div>
           ) : null}
+        </>
+      ) : emptyHint ? (
+        <div className="mt-3 rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+          {emptyHint}
+        </div>
+      ) : (
+        <div className="mt-3 rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+          No chart history available yet.
+        </div>
+      )}
+    </>
+  );
+}
+
+export function StockChartDialog({
+  symbol,
+  strategySlug,
+  open: openProp,
+  onOpenChange: onOpenChangeProp,
+  showDefaultTrigger = true,
+  footer,
+}: {
+  symbol: string;
+  strategySlug?: string | null;
+  /** Controlled mode — pair with `onOpenChange` and usually `showDefaultTrigger={false}`. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** When false, no expand button is rendered (open via controlled `open` / parent). */
+  showDefaultTrigger?: boolean;
+  /** Renders below the chart, right-aligned (e.g. link to full stock analysis). */
+  footer?: ReactNode;
+}) {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isControlled = openProp !== undefined;
+  const open = isControlled ? openProp : internalOpen;
+  const setOpen = useCallback(
+    (next: boolean) => {
+      onOpenChangeProp?.(next);
+      if (!isControlled) setInternalOpen(next);
+    },
+    [isControlled, onOpenChangeProp]
+  );
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      {showDefaultTrigger ? (
+        <DialogTrigger asChild>
+          <Button variant="ghost" size="icon" className="size-7">
+            <Expand className="size-3.5" />
+            <span className="sr-only">Chart for {symbol}</span>
+          </Button>
+        </DialogTrigger>
+      ) : null}
+      <DialogContent className="max-w-3xl">
+        {open ? (
+          <>
+            <StockPriceRatingChart
+              symbol={symbol}
+              strategySlug={strategySlug}
+              enabled
+              renderHeader={({ titleStockLabel, titleSuffix }) => (
+                <DialogHeader>
+                  <DialogTitle>
+                    {titleStockLabel}
+                    <span className="font-normal text-muted-foreground">{titleSuffix}</span>
+                  </DialogTitle>
+                </DialogHeader>
+              )}
+            />
+            {footer ? (
+              <div className="flex shrink-0 justify-end border-t pt-4">{footer}</div>
+            ) : null}
           </>
-        ) : emptyHint ? (
-          <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
-            {emptyHint}
-          </div>
-        ) : (
-          <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
-            No chart history available yet.
-          </div>
-        )}
-        {footer ? (
-          <div className="flex shrink-0 justify-end border-t pt-4">{footer}</div>
         ) : null}
       </DialogContent>
     </Dialog>

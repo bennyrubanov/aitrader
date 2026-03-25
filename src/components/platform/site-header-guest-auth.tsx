@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
+import { shouldPersistSignInReturnPath } from '@/lib/auth-redirect';
 
 /**
  * Guest CTAs with `next` pointing at the current URL so users return after sign-in or sign-up.
@@ -14,13 +15,12 @@ export function SiteHeaderGuestAuth() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
-  const nextRaw =
-    `${pathname}${searchParams.toString() ? `?${searchParams.toString()}` : ''}` ||
-    '/platform/overview';
+  const nextRaw = `${pathname}${searchParams.toString() ? `?${searchParams.toString()}` : ''}`;
+  const withNext = shouldPersistSignInReturnPath(nextRaw);
   const nextParam = encodeURIComponent(nextRaw);
 
-  const signInHref = `/sign-in?next=${nextParam}`;
-  const getStartedHref = `/sign-up?next=${nextParam}`;
+  const signInHref = withNext ? `/sign-in?next=${nextParam}` : '/sign-in';
+  const getStartedHref = withNext ? `/sign-up?next=${nextParam}` : '/sign-up';
 
   return (
     <>

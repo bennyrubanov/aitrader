@@ -707,7 +707,14 @@ export function PortfolioOnboardingDialog({
     syncPendingGuestPortfolioFollowForGuestLocal(draft, entryYmd);
     setGuestDeclinedAccountNudgeThisSession();
     setGuestAccountDialogOpen(false);
-    void markOnboardingDone();
+    void (async () => {
+      await markOnboardingDone();
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          void fireHeartConfettiBurst();
+        });
+      });
+    })();
   };
 
   const handleFollowThisPortfolio = async () => {
@@ -753,9 +760,6 @@ export function PortfolioOnboardingDialog({
       const synced = onFollowPortfolioSynced ? await onFollowPortfolioSynced(profileId) : true;
       invalidateUserPortfolioProfiles();
       setEntryDate(entryYmd);
-      requestAnimationFrame(() => {
-        void fireHeartConfettiBurst();
-      });
       showPortfolioFollowToast({
         profileId,
         title: 'You’re following this portfolio',
@@ -766,7 +770,12 @@ export function PortfolioOnboardingDialog({
           router.refresh();
         },
       });
-      void markOnboardingDone();
+      await markOnboardingDone();
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          void fireHeartConfettiBurst();
+        });
+      });
       router.refresh();
       window.setTimeout(() => {
         queuePlatformPostOnboardingTour();

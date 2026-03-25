@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { Button } from "@/components/ui/button";
@@ -8,9 +9,9 @@ import { useAuthState } from "@/components/auth/auth-state-context";
 
 const BillingPage = () => {
   const [loadingFlow, setLoadingFlow] = useState<string | null>(null);
-  const { isAuthenticated, hasPremiumAccess } = useAuthState();
+  const { isAuthenticated, hasPremiumAccess, subscriptionTier } = useAuthState();
 
-  const openPortal = async (flow: "default" | "subscription_update" | "subscription_cancel") => {
+  const openPortal = async (flow: "default" | "subscription_cancel") => {
     if (!isAuthenticated) {
       setLoadingFlow("auth");
       window.location.href = "/sign-in?next=/billing";
@@ -46,10 +47,14 @@ const BillingPage = () => {
             <div className="max-w-2xl mx-auto text-center">
               <h1 className="text-3xl md:text-5xl font-bold mb-4">Billing & Subscription</h1>
               <p className="text-lg text-muted-foreground mb-8">
-                Open Stripe&apos;s secure billing portal to update payment method, view invoices, change
-                plans, or cancel your subscription.
+                Use Stripe&apos;s billing portal for payment methods and invoice history. Upgrade,
+                downgrade between paid plans, or start a subscription from{" "}
+                <Link href="/pricing" className="font-medium text-trader-blue underline-offset-4 hover:underline">
+                  Pricing
+                </Link>
+                .
               </p>
-              <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
+              <div className="flex flex-col gap-3 sm:flex-row sm:justify-center sm:flex-wrap">
                 <Button
                   onClick={() => void openPortal("default")}
                   disabled={loadingFlow !== null}
@@ -63,23 +68,26 @@ const BillingPage = () => {
                         ? "Billing & invoices"
                         : "Sign in to manage billing"}
                 </Button>
-                {isAuthenticated && hasPremiumAccess && (
-                  <>
-                    <Button
-                      variant="outline"
-                      onClick={() => void openPortal("subscription_update")}
-                      disabled={loadingFlow !== null}
-                    >
-                      {loadingFlow === "subscription_update" ? "Opening..." : "Change plan"}
+                {isAuthenticated &&
+                  (loadingFlow !== null ? (
+                    <Button type="button" variant="outline" disabled>
+                      {hasPremiumAccess ? "Change plan (pricing)" : "View plans & subscribe"}
                     </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => void openPortal("subscription_cancel")}
-                      disabled={loadingFlow !== null}
-                    >
-                      {loadingFlow === "subscription_cancel" ? "Opening..." : "Cancel subscription"}
+                  ) : (
+                    <Button variant="outline" asChild>
+                      <Link href="/pricing" prefetch>
+                        {hasPremiumAccess ? "Change plan (pricing)" : "View plans & subscribe"}
+                      </Link>
                     </Button>
-                  </>
+                  ))}
+                {isAuthenticated && hasPremiumAccess && subscriptionTier !== "free" && (
+                  <Button
+                    variant="outline"
+                    onClick={() => void openPortal("subscription_cancel")}
+                    disabled={loadingFlow !== null}
+                  >
+                    {loadingFlow === "subscription_cancel" ? "Opening..." : "Cancel subscription"}
+                  </Button>
                 )}
               </div>
             </div>

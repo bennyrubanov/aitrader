@@ -27,8 +27,9 @@ type EntitlementContext = {
   subscriptionStatus: Stripe.Subscription.Status | null;
 };
 
-const isPremiumSubscriptionStatus = (status: Stripe.Subscription.Status) => {
-  return status === "active" || status === "trialing";
+/** Subscription statuses where we still derive paid tier from the current subscription items (not free). */
+const keepsPaidEntitlementFromSubscription = (status: Stripe.Subscription.Status) => {
+  return status === "active" || status === "trialing" || status === "past_due";
 };
 
 const isStaleEvent = (incomingEventCreatedIso: string, previousEventCreatedIso: string | null) => {
@@ -357,15 +358,24 @@ export async function POST(req: Request) {
           eventCreatedIso,
           subscriptionStatus: subscription?.status ?? "past_due",
         };
-        const extras = subscription ? inactiveSubscriptionExtras(subscription) : undefined;
-        const userId = subscription?.metadata?.user_id || null;
+        if (!subscription) {
+          break;
+        }
+        const useFullBilling = keepsPaidEntitlementFromSubscription(subscription.status);
+        const tier = useFullBilling
+          ? await resolveTierFromSubscription(stripe, subscription)
+          : "free";
+        const extras = useFullBilling
+          ? await buildSubscriptionBillingExtras(stripe, subscription)
+          : inactiveSubscriptionExtras(subscription);
+        const userId = subscription.metadata?.user_id || null;
         if (userId) {
-          await applyBillingToUserId(userId, null, "free", context, extras);
+          await applyBillingToUserId(userId, null, tier, context, extras);
           break;
         }
         const email = await resolveCustomerEmail(stripe, invoice.customer);
         if (email) {
-          await updateTierByEmail(email, "free", context, extras);
+          await updateTierByEmail(email, tier, context, extras);
         }
         break;
       }
@@ -390,14 +400,16 @@ export async function POST(req: Request) {
       }
       case "customer.subscription.updated": {
         const subscription = event.data.object as Stripe.Subscription;
-        const isActive = isPremiumSubscriptionStatus(subscription.status);
+        const useFullBilling = keepsPaidEntitlementFromSubscription(subscription.status);
         const context: EntitlementContext = {
           eventId: event.id,
           eventCreatedIso,
           subscriptionStatus: subscription.status,
         };
-        const tier = isActive ? await resolveTierFromSubscription(stripe, subscription) : "free";
-        const extras = isActive
+        const tier = useFullBilling
+          ? await resolveTierFromSubscription(stripe, subscription)
+          : "free";
+        const extras = useFullBilling
           ? await buildSubscriptionBillingExtras(stripe, subscription)
           : inactiveSubscriptionExtras(subscription);
         const userId = subscription.metadata?.user_id || null;

@@ -45,6 +45,12 @@ import { HoldingRankWithChange } from '@/components/platform/holding-rank-with-c
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
 import { PortfolioOnboardingDialog } from '@/components/platform/portfolio-onboarding-dialog';
 import { USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT } from '@/components/platform/portfolio-unfollow-toast';
+import {
+  PLATFORM_POST_ONBOARDING_TOUR_PRIMED_EVENT,
+  PLATFORM_POST_ONBOARDING_TOUR_REQUEST_READINESS_EVENT,
+  PLATFORM_POST_ONBOARDING_TOUR_SHELL_READY_EVENT,
+  PLATFORM_TOUR_SHELL_READY_ATTR,
+} from '@/lib/platform-post-onboarding-tour';
 import { UserPortfolioEntrySettingsDialog } from '@/components/platform/user-portfolio-entry-settings-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
@@ -1489,6 +1495,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
               const tier = j.subscriptionTier;
               if (tier === 'supporter' || tier === 'outperformer') {
                 await refreshAuthProfile();
+                router.refresh();
                 resetOnboarding();
                 setOnboardingDevKey((k) => k + 1);
                 stripCheckoutQueryParams();
@@ -1503,6 +1510,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
 
         if (cancelled) return;
         await refreshAuthProfile();
+        router.refresh();
         stripCheckoutQueryParams();
       } finally {
         postCheckoutReconcileInFlight.current = false;
@@ -1803,6 +1811,69 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   }, [profiles, cardState, overviewUserCompositeByProfileId]);
 
   const spotlightSectionLoading = overviewPerfDataLoading;
+
+  /** Post-onboarding tour: emit when overview content + shell account chrome are ready (no time-based fallback). */
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const shellSelector = `[${PLATFORM_TOUR_SHELL_READY_ATTR}="1"]`;
+    let cancelled = false;
+    let raf1 = 0;
+    let raf2 = 0;
+
+    const tryEmitPrimed = () => {
+      if (cancelled) return;
+      if (!authState.isLoaded || !portfolioConfigHydrated || loading) return;
+      if (authState.isAuthenticated && profileLoadError) return;
+      if (profiles.length === 0) return;
+      if (spotlightSectionLoading) return;
+      if (topSpotlightOverview && topSpotlightHoldingsLoading) return;
+
+      const panel = document.querySelector(
+        '[data-platform-tour="overview-top-portfolio-panel"][data-platform-tour-overview-ready="1"]'
+      );
+      if (!panel || !document.querySelector(shellSelector)) return;
+      const r = panel.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) return;
+
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+      raf1 = window.requestAnimationFrame(() => {
+        raf2 = window.requestAnimationFrame(() => {
+          if (!cancelled) {
+            window.dispatchEvent(new Event(PLATFORM_POST_ONBOARDING_TOUR_PRIMED_EVENT));
+          }
+        });
+      });
+    };
+
+    const onTourSignal = () => {
+      tryEmitPrimed();
+    };
+
+    window.addEventListener(PLATFORM_POST_ONBOARDING_TOUR_REQUEST_READINESS_EVENT, onTourSignal);
+    window.addEventListener(PLATFORM_POST_ONBOARDING_TOUR_SHELL_READY_EVENT, onTourSignal);
+    tryEmitPrimed();
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+      window.removeEventListener(PLATFORM_POST_ONBOARDING_TOUR_REQUEST_READINESS_EVENT, onTourSignal);
+      window.removeEventListener(PLATFORM_POST_ONBOARDING_TOUR_SHELL_READY_EVENT, onTourSignal);
+    };
+  }, [
+    authState.isAuthenticated,
+    authState.isLoaded,
+    portfolioConfigHydrated,
+    loading,
+    profileLoadError,
+    profiles.length,
+    pathname,
+    spotlightSectionLoading,
+    topSpotlightOverview,
+    topSpotlightHoldingsLoading,
+  ]);
 
   const [slotPickerOpen, setSlotPickerOpen] = useState(false);
   const [pickerTargetSlot, setPickerTargetSlot] = useState<number | null>(null);
@@ -2846,6 +2917,9 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                 value="top-portfolio"
                 forceMount
                 data-platform-tour="overview-top-portfolio-panel"
+                {...(!spotlightSectionLoading && !(topSpotlightOverview && topSpotlightHoldingsLoading)
+                  ? { 'data-platform-tour-overview-ready': '1' }
+                  : {})}
                 className="mt-0 space-y-2 ring-offset-0 focus-visible:outline-none focus-visible:ring-0 data-[state=inactive]:hidden"
               >
                 <div className="space-y-2">

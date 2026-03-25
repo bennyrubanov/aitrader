@@ -20,7 +20,7 @@ const getStripeClient = () => {
 };
 
 const isPremiumStatus = (status: Stripe.Subscription.Status) =>
-  status === "active" || status === "trialing";
+  status === "active" || status === "trialing" || status === "past_due";
 
 export async function POST() {
   try {

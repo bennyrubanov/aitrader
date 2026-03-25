@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server';
+import { canQueryStockCurrentRecommendation, getAppAccessState, type AppAccessState } from '@/lib/app-access';
+import { buildAuthStateFromUserAndProfile } from '@/lib/build-auth-state';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { createClient } from '@/utils/supabase/server';
 
@@ -83,8 +85,22 @@ export async function GET(req: Request) {
 
   const supabase = createAdminClient();
 
+  const userSession = await createClient();
+  const {
+    data: { user },
+  } = await userSession.auth.getUser();
+  let access: AppAccessState = 'guest';
+  if (user) {
+    const { data: profile, error: profileError } = await userSession
+      .from('user_profiles')
+      .select('subscription_tier, full_name, email')
+      .eq('id', user.id)
+      .maybeSingle();
+    access = getAppAccessState(buildAuthStateFromUserAndProfile(user, profile, Boolean(profileError)));
+  }
+
   const [{ data: stock, error: stockError }, strategyResult] = await Promise.all([
-    supabase.from('stocks').select('id, symbol, company_name').eq('symbol', symbol).maybeSingle(),
+    supabase.from('stocks').select('id, symbol, company_name, is_premium_stock').eq('symbol', symbol).maybeSingle(),
     (async () => {
       let strategyQuery = supabase
         .from('strategy_models')
@@ -123,13 +139,16 @@ export async function GET(req: Request) {
   const batchRows = (batches ?? []) as BatchRow[];
   const batchIds = batchRows.map((batch) => batch.id);
 
+  const isPremiumStock = stock.is_premium_stock ?? true;
+  const includeRatings = canQueryStockCurrentRecommendation(access, isPremiumStock);
+
   const [priceHistoryResponse, ratingHistoryResponse] = await Promise.all([
     supabase
       .from('nasdaq_100_daily_raw')
       .select('run_date, last_sale_price')
       .eq('symbol', symbol)
       .order('run_date', { ascending: true }),
-    batchIds.length
+    includeRatings && batchIds.length
       ? supabase
           .from('ai_analysis_runs')
           .select('batch_id, score, bucket')

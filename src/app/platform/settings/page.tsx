@@ -21,6 +21,8 @@ import { Switch } from '@/components/ui/switch';
 import { toast } from '@/hooks/use-toast';
 import { getSupabaseBrowserClient } from '@/utils/supabase/browser';
 import { PlanLabel } from '@/components/account/plan-label';
+import { SubscriptionUpgradeDialog } from '@/components/account/subscription-upgrade-dialog';
+import { DowngradeToSupporterDialog } from '@/components/account/downgrade-to-supporter-dialog';
 import { useAuthState, useRefreshAuthProfile } from '@/components/auth/auth-state-context';
 import { cn } from '@/lib/utils';
 
@@ -57,6 +59,8 @@ const SettingsPageContent = () => {
   const [isSavingNewsletter, setIsSavingNewsletter] = useState(false);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [isOpeningPortal, setIsOpeningPortal] = useState(false);
+  const [upgradeDialogOpen, setUpgradeDialogOpen] = useState(false);
+  const [downgradeDialogOpen, setDowngradeDialogOpen] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isSendingReset, setIsSendingReset] = useState(false);
   const [followedStocks, setFollowedStocks] = useState<
@@ -145,6 +149,7 @@ const SettingsPageContent = () => {
         // ignore
       } finally {
         await refreshProfile();
+        router.refresh();
         router.replace('/platform/settings');
       }
     })();
@@ -171,9 +176,7 @@ const SettingsPageContent = () => {
     router.push('/sign-in?next=/platform/settings');
   };
 
-  const handleOpenPortal = async (
-    flow: 'default' | 'subscription_update' | 'subscription_cancel' = 'default'
-  ) => {
+  const handleOpenPortal = async (flow: 'default' | 'subscription_cancel' = 'default') => {
     setIsOpeningPortal(true);
 
     try {
@@ -472,9 +475,19 @@ const SettingsPageContent = () => {
               <div className="min-w-0">
                 <p className="text-sm font-medium">Subscription & payments</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  Upgrades typically prorate immediately; downgrades and cancellation can be scheduled for
-                  period end in Stripe (configure in the Stripe Billing Portal).
+                  Supporter → Outperformer upgrades use an in-app proration preview. Outperformer → Supporter
+                  downgrades can be scheduled for period end here. Payment method and invoices open in
+                  Stripe&apos;s billing portal; cancellation at period end uses the portal flow.
                 </p>
+                {authState.hasPremiumAccess && authState.stripeCurrentPeriodEnd && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Current period renews or changes on{' '}
+                    <span className="font-medium text-foreground">
+                      {formatBillingDate(authState.stripeCurrentPeriodEnd)}
+                    </span>
+                    .
+                  </p>
+                )}
               </div>
               <div className="flex flex-col gap-2 sm:shrink-0 sm:items-end">
                 <Button
@@ -496,16 +509,29 @@ const SettingsPageContent = () => {
                   )}
                 </Button>
                 {authState.hasPremiumAccess && (
-                  <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="w-full sm:w-auto"
-                      disabled={isOpeningPortal}
-                      onClick={() => void handleOpenPortal('subscription_update')}
-                    >
-                      Change plan
-                    </Button>
+                  <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:justify-end">
+                    {authState.subscriptionTier === 'supporter' && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full sm:w-auto"
+                        disabled={isOpeningPortal}
+                        onClick={() => setUpgradeDialogOpen(true)}
+                      >
+                        Upgrade to Outperformer
+                      </Button>
+                    )}
+                    {authState.subscriptionTier === 'outperformer' && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full sm:w-auto"
+                        disabled={isOpeningPortal}
+                        onClick={() => setDowngradeDialogOpen(true)}
+                      >
+                        Downgrade to Supporter
+                      </Button>
+                    )}
                     <Button
                       size="sm"
                       variant="outline"
@@ -623,6 +649,22 @@ const SettingsPageContent = () => {
           </Button>
         </section>
       )}
+      <SubscriptionUpgradeDialog
+        open={upgradeDialogOpen}
+        onOpenChange={setUpgradeDialogOpen}
+        onAfterSuccess={async () => {
+          await refreshProfile();
+          router.refresh();
+        }}
+      />
+      <DowngradeToSupporterDialog
+        open={downgradeDialogOpen}
+        onOpenChange={setDowngradeDialogOpen}
+        onAfterSuccess={async () => {
+          await refreshProfile();
+          router.refresh();
+        }}
+      />
     </div>
   );
 };

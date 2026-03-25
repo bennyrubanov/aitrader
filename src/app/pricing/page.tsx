@@ -8,7 +8,9 @@ import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
 import { Button } from '@/components/ui/button';
 import { PlanLabel } from '@/components/account/plan-label';
-import { useAuthState } from '@/components/auth/auth-state-context';
+import { useAuthState, useRefreshAuthProfile } from '@/components/auth/auth-state-context';
+import { SubscriptionUpgradeDialog } from '@/components/account/subscription-upgrade-dialog';
+import { DowngradeToSupporterDialog } from '@/components/account/downgrade-to-supporter-dialog';
 import { cn } from '@/lib/utils';
 
 type Plan = 'supporter' | 'outperformer';
@@ -194,6 +196,7 @@ function formatBillingDate(iso: string | null) {
 function PricingPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const refreshProfile = useRefreshAuthProfile();
   const {
     email,
     isAuthenticated,
@@ -208,12 +211,14 @@ function PricingPageContent() {
   const [isProcessingCheckout, setIsProcessingCheckout] = useState(false);
   const [checkoutPlan, setCheckoutPlan] = useState<Plan | null>(null);
   const [isOpeningPortal, setIsOpeningPortal] = useState(false);
+  const [upgradeDialogOpen, setUpgradeDialogOpen] = useState(false);
+  const [downgradeDialogOpen, setDowngradeDialogOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const postAuthCheckoutHandled = useRef(false);
 
   const openBillingPortal = useCallback(
-    async (flow: 'default' | 'subscription_update' | 'subscription_cancel') => {
+    async (flow: 'default' | 'subscription_cancel') => {
       setErrorMessage(null);
       setIsOpeningPortal(true);
       try {
@@ -265,10 +270,10 @@ function PricingPageContent() {
           error?: string;
           code?: string;
         };
-        if (response.status === 409 && payload.code === 'USE_PORTAL') {
+        if (response.status === 409 && payload.code === 'ALREADY_SUBSCRIBED') {
           setErrorMessage(
             payload.error ??
-              'You already have a subscription. Use Manage billing to change plans.'
+              'You already have a subscription. Use this page or Settings to change plans.'
           );
           setIsProcessingCheckout(false);
           setCheckoutPlan(null);
@@ -565,9 +570,9 @@ function PricingPageContent() {
                         size="sm"
                         className="w-full"
                         disabled={isOpeningPortal}
-                        onClick={() => void openBillingPortal('subscription_update')}
+                        onClick={() => setUpgradeDialogOpen(true)}
                       >
-                        Change plan
+                        Upgrade to Outperformer
                       </Button>
                     </div>
                   ) : subscriptionTier === 'outperformer' ? (
@@ -576,7 +581,7 @@ function PricingPageContent() {
                       variant="outline"
                       className="w-full mt-auto"
                       disabled={isOpeningPortal}
-                      onClick={() => void openBillingPortal('subscription_update')}
+                      onClick={() => setDowngradeDialogOpen(true)}
                     >
                       Switch to Supporter
                     </Button>
@@ -676,9 +681,9 @@ function PricingPageContent() {
                         size="sm"
                         className="w-full"
                         disabled={isOpeningPortal}
-                        onClick={() => void openBillingPortal('subscription_update')}
+                        onClick={() => setDowngradeDialogOpen(true)}
                       >
-                        Change plan
+                        Downgrade to Supporter
                       </Button>
                     </div>
                   ) : subscriptionTier === 'supporter' ? (
@@ -686,7 +691,7 @@ function PricingPageContent() {
                       type="button"
                       className="w-full mt-auto bg-trader-blue hover:bg-trader-blue-dark text-white"
                       disabled={isOpeningPortal}
-                      onClick={() => void openBillingPortal('subscription_update')}
+                      onClick={() => setUpgradeDialogOpen(true)}
                     >
                       Upgrade to Outperformer
                       <ArrowRight className="ml-2 size-4" />
@@ -788,6 +793,22 @@ function PricingPageContent() {
         </section>
       </main>
       <Footer />
+      <SubscriptionUpgradeDialog
+        open={upgradeDialogOpen}
+        onOpenChange={setUpgradeDialogOpen}
+        onAfterSuccess={async () => {
+          await refreshProfile();
+          router.refresh();
+        }}
+      />
+      <DowngradeToSupporterDialog
+        open={downgradeDialogOpen}
+        onOpenChange={setDowngradeDialogOpen}
+        onAfterSuccess={async () => {
+          await refreshProfile();
+          router.refresh();
+        }}
+      />
     </div>
   );
 }

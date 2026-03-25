@@ -18,16 +18,16 @@ export function PlatformOnboardingRedirect() {
   const pathname = usePathname();
   const router = useRouter();
   const { isLoaded: authLoaded } = useAuthState();
-  const { portfolioConfigHydrated, isOnboardingDone } = usePortfolioConfig();
+  const { onboardingResolved, isOnboardingDone } = usePortfolioConfig();
 
   useEffect(() => {
-    if (!authLoaded || !portfolioConfigHydrated) return;
+    if (!authLoaded || !onboardingResolved) return;
     if (isOnboardingDone) return;
     if (!pathname.startsWith('/platform')) return;
     if (isPlatformOverviewPath(pathname)) return;
 
     router.replace('/platform/overview');
-  }, [authLoaded, portfolioConfigHydrated, isOnboardingDone, pathname, router]);
+  }, [authLoaded, onboardingResolved, isOnboardingDone, pathname, router]);
 
   return null;
 }

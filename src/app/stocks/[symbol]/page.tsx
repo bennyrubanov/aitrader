@@ -179,7 +179,6 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
     bucket: 'buy' | 'hold' | 'sell' | null;
     updated_at: string | null;
   } | null = null;
-
   let access: AppAccessState = 'guest';
   const sessionSupabase = await createClient();
   const {
@@ -224,6 +223,7 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
         .maybeSingle();
       currentRow = fetchedCurrentRow;
     }
+
   }
 
   const stocks = await getAllStocks();
@@ -242,6 +242,16 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
     runDate: priceRow?.run_date ?? null,
   };
 
+  const hasSignedInUser = Boolean(user);
+  const serverCanLoadPremiumHistory =
+    hasSignedInUser &&
+    (access === 'supporter' ||
+      access === 'outperformer' ||
+      (access === 'free' && !isPremiumStock));
+
+  const serverCanShowChartAi =
+    hasSignedInUser && canQueryStockCurrentRecommendation(access, isPremiumStock);
+
   return (
     <StockDetailClient
       symbol={symbol}
@@ -250,6 +260,8 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
       price={price}
       latest={latest}
       news={news}
+      serverCanLoadPremiumHistory={serverCanLoadPremiumHistory}
+      serverCanShowChartAi={serverCanShowChartAi}
     />
   );
 };

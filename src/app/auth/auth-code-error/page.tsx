@@ -5,7 +5,10 @@ import { Suspense, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { getSupabaseBrowserClient } from '@/utils/supabase/browser';
-import { DEFAULT_POST_AUTH_PATH } from '@/lib/auth-redirect';
+import {
+  DEFAULT_POST_AUTH_PATH,
+  sanitizeAuthRedirectPath,
+} from '@/lib/auth-redirect';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -23,6 +26,10 @@ function AuthCodeErrorContent() {
   const doneRef = useRef(false);
 
   const reason = searchParams.get('reason');
+  const postAuthPath = sanitizeAuthRedirectPath(
+    searchParams.get('next'),
+    DEFAULT_POST_AUTH_PATH,
+  );
   const resolvedMessage =
     reason && ERROR_REASON_MESSAGES[reason]
       ? ERROR_REASON_MESSAGES[reason]
@@ -43,7 +50,7 @@ function AuthCodeErrorContent() {
       doneRef.current = true;
       subscription?.unsubscribe();
       subscription = null;
-      router.replace(DEFAULT_POST_AUTH_PATH);
+      router.replace(postAuthPath);
       router.refresh();
     };
 
@@ -100,7 +107,7 @@ function AuthCodeErrorContent() {
       cancelled = true;
       subscription?.unsubscribe();
     };
-  }, [router]);
+  }, [router, postAuthPath]);
 
   return (
     <div className="min-h-screen bg-background text-foreground flex items-center justify-center px-4">
@@ -110,7 +117,7 @@ function AuthCodeErrorContent() {
           {isRecovering ? 'Finishing your sign-in...' : resolvedMessage}
         </p>
         <div className="flex flex-col gap-3">
-          <Link href={`/sign-in?next=${encodeURIComponent(DEFAULT_POST_AUTH_PATH)}`}>
+          <Link href={`/sign-in?next=${encodeURIComponent(postAuthPath)}`}>
             <Button className="w-full">Try signing in again</Button>
           </Link>
           <Link href="/">

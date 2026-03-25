@@ -2,10 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
+import { useAuthState } from '@/components/auth/auth-state-context';
 import { ExplorePortfoliosClient } from '@/components/platform/explore-portfolios-client';
 import { PlatformOverviewClient } from '@/components/platform/platform-overview-client';
 import { RatingsPageClient } from '@/components/platform/ratings-page-client';
 import { YourPortfolioClient } from '@/components/platform/your-portfolio-client';
+import { usePortfolioConfig } from '@/components/portfolio-config';
 import type { StrategyListItem } from '@/lib/platform-performance-payload';
 import type { RatingsPageData } from '@/lib/platform-server-data';
 import {
@@ -22,6 +24,12 @@ type Props = {
 export function PlatformWorkspaceMount({ strategies, ratingsInitial }: Props) {
   const pathname = usePathname();
   const active = pathToPlatformWorkspaceView(pathname);
+  const authState = useAuthState();
+  const { portfolioOnboardingNeedsAttention } = usePortfolioConfig();
+
+  /** Mount overview (hidden when another tab is active) so the portfolio onboarding dialog can open as soon as auth + onboarding status resolve, while overview data loads underneath. */
+  const mountOverviewForOnboarding =
+    authState.isLoaded && portfolioOnboardingNeedsAttention;
 
   const [everVisited, setEverVisited] = useState<Set<PlatformWorkspaceView>>(() =>
     active ? new Set([active]) : new Set()
@@ -38,7 +46,7 @@ export function PlatformWorkspaceMount({ strategies, ratingsInitial }: Props) {
 
   return (
     <>
-      {(active === 'overview' || everVisited.has('overview')) && (
+      {(active === 'overview' || everVisited.has('overview') || mountOverviewForOnboarding) && (
         <div
           className={cn(
             'flex min-h-0 min-w-0 flex-1 flex-col',
