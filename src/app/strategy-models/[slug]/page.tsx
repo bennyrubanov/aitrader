@@ -21,6 +21,7 @@ import { StrategyModelSidebarSlot } from '@/components/strategy-models/strategy-
 import { formatStrategyDescriptionForDisplay } from '@/lib/format-strategy-description';
 import { getStrategyDetail, getStrategiesList } from '@/lib/platform-performance-payload';
 import { RegressionScatterExample } from '@/components/strategy-models/regression-scatter-example';
+import { SectionHeadingAnchor } from '@/components/section-heading-anchor';
 
 export const revalidate = 300;
 
@@ -72,6 +73,7 @@ export default async function StrategyModelDetailPage({ params }: Props) {
 
   if (!detail) notFound();
 
+  const strategyPageHrefBase = `/strategy-models/${slug}`;
   const isTop = strategies[0]?.id === detail.id;
 
   const headerCrossSectionRegression =
@@ -150,8 +152,9 @@ export default async function StrategyModelDetailPage({ params }: Props) {
         id="model-overview"
         className="mb-10 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
       >
-        <h2 className="text-2xl font-bold tracking-tight mb-4 flex items-center gap-2">
+        <h2 className="group text-2xl font-bold tracking-tight mb-4 flex items-center gap-2">
           <Cpu className="size-5 text-trader-blue shrink-0" /> Model overview
+          <SectionHeadingAnchor fragmentId="model-overview" hrefBase={strategyPageHrefBase} />
         </h2>
 
         <div
@@ -173,8 +176,12 @@ export default async function StrategyModelDetailPage({ params }: Props) {
           id="model-overview-prompt-design"
           className="mb-10 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
         >
-          <h3 className="text-xl font-bold mb-3 flex items-center gap-2">
+          <h3 className="group text-xl font-bold mb-3 flex items-center gap-2">
             <FileText className="size-5 text-trader-blue shrink-0" /> Prompt design
+            <SectionHeadingAnchor
+              fragmentId="model-overview-prompt-design"
+              hrefBase={strategyPageHrefBase}
+            />
           </h3>
           <p className="text-sm text-muted-foreground mb-3">
             Every stock is evaluated using the same structured prompt. Key instructions:
@@ -193,8 +200,12 @@ export default async function StrategyModelDetailPage({ params }: Props) {
           id="model-overview-how-it-works"
           className="mb-10 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
         >
-          <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
+          <h3 className="group text-xl font-bold mb-4 flex items-center gap-2">
             <FlaskConical className="size-5 text-trader-blue shrink-0" /> How it works
+            <SectionHeadingAnchor
+              fragmentId="model-overview-how-it-works"
+              hrefBase={strategyPageHrefBase}
+            />
           </h3>
           <div className="space-y-3">
             {[
@@ -238,9 +249,10 @@ export default async function StrategyModelDetailPage({ params }: Props) {
         className="mb-10 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
       >
         <div className="space-y-3">
-          <h4 className="text-base font-bold text-foreground flex items-center gap-2">
+          <h4 className="group text-base font-bold text-foreground flex items-center gap-2">
             <Info className="size-5 text-trader-blue shrink-0" />
             How we rank models
+            <SectionHeadingAnchor fragmentId="model-ranking" hrefBase={strategyPageHrefBase} />
           </h4>
           <div className="text-sm text-muted-foreground space-y-3 leading-relaxed">
             <p>
@@ -306,8 +318,9 @@ export default async function StrategyModelDetailPage({ params }: Props) {
         id="methodology"
         className="mb-10 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
       >
-        <h2 className="text-2xl font-bold tracking-tight mb-2 flex items-center gap-2">
+        <h2 className="group text-2xl font-bold tracking-tight mb-2 flex items-center gap-2">
           <FileText className="size-5 text-trader-blue shrink-0" /> Methodology
+          <SectionHeadingAnchor fragmentId="methodology" hrefBase={strategyPageHrefBase} />
         </h2>
         <p className="text-sm text-muted-foreground mb-6">
           Detailed technical notes on how each component is designed and measured.
@@ -319,9 +332,10 @@ export default async function StrategyModelDetailPage({ params }: Props) {
             id="portfolio-ranking"
             className="scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
           >
-            <h3 className="text-xl font-bold mb-3 flex items-center gap-2">
+            <h3 className="group text-xl font-bold mb-3 flex items-center gap-2">
               <LayoutGrid className="size-5 text-trader-blue shrink-0" />
               Portfolios
+              <SectionHeadingAnchor fragmentId="portfolio-ranking" hrefBase={strategyPageHrefBase} />
             </h3>
             <div className="text-sm text-muted-foreground space-y-3 leading-relaxed">
               <p>
@@ -343,9 +357,13 @@ export default async function StrategyModelDetailPage({ params }: Props) {
               id="portfolio-ranking-how"
               className="mt-2 scroll-mt-[5.5rem] space-y-3 pt-2 md:scroll-mt-[6.5rem]"
             >
-              <h4 className="text-base font-bold text-foreground flex items-center gap-2">
+              <h4 className="group text-base font-bold text-foreground flex items-center gap-2">
                 <Info className="size-5 text-trader-blue shrink-0" />
                 How we rank portfolios
+                <SectionHeadingAnchor
+                  fragmentId="portfolio-ranking-how"
+                  hrefBase={strategyPageHrefBase}
+                />
               </h4>
               <div className="text-sm text-muted-foreground space-y-3 leading-relaxed">
                 <p>
@@ -411,7 +429,10 @@ export default async function StrategyModelDetailPage({ params }: Props) {
             id="methodology-scoring"
             className="border-t pt-6 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
           >
-            <h3 className="text-xl font-bold mb-3">Scoring</h3>
+            <h3 className="group text-xl font-bold mb-3 flex flex-wrap items-center gap-x-1">
+              Scoring
+              <SectionHeadingAnchor fragmentId="methodology-scoring" hrefBase={strategyPageHrefBase} />
+            </h3>
             <div className="text-sm text-foreground/80 space-y-3 leading-relaxed">
               <p>
                 Each stock is scored on a discrete integer scale from −5 to +5. The score reflects
@@ -449,7 +470,13 @@ export default async function StrategyModelDetailPage({ params }: Props) {
             id="methodology-performance-metrics"
             className="border-t pt-6 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
           >
-            <h3 className="text-xl font-bold mb-3">Performance metrics</h3>
+            <h3 className="group text-xl font-bold mb-3 flex flex-wrap items-center gap-x-1">
+              Performance metrics
+              <SectionHeadingAnchor
+                fragmentId="methodology-performance-metrics"
+                hrefBase={strategyPageHrefBase}
+              />
+            </h3>
             <div className="text-sm text-foreground/80 space-y-3 leading-relaxed">
               <p>
                 <strong>Total return</strong> is calculated from inception capital:
@@ -474,7 +501,10 @@ export default async function StrategyModelDetailPage({ params }: Props) {
             id="methodology-turnover"
             className="border-t pt-6 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
           >
-            <h3 className="text-xl font-bold mb-3">Turnover &amp; costs</h3>
+            <h3 className="group text-xl font-bold mb-3 flex flex-wrap items-center gap-x-1">
+              Turnover &amp; costs
+              <SectionHeadingAnchor fragmentId="methodology-turnover" hrefBase={strategyPageHrefBase} />
+            </h3>
             <div className="text-sm text-foreground/80 space-y-3 leading-relaxed">
               <p>
                 <strong>Turnover</strong> measures how much the portfolio changes each week. Formally:
@@ -503,7 +533,10 @@ export default async function StrategyModelDetailPage({ params }: Props) {
             id="methodology-quintiles"
             className="border-t pt-6 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
           >
-            <h3 className="text-xl font-bold mb-3">Quintile analysis</h3>
+            <h3 className="group text-xl font-bold mb-3 flex flex-wrap items-center gap-x-1">
+              Quintile analysis
+              <SectionHeadingAnchor fragmentId="methodology-quintiles" hrefBase={strategyPageHrefBase} />
+            </h3>
             <div className="text-sm text-foreground/80 space-y-3 leading-relaxed">
               <p>
                 Every week, all ~100 Nasdaq-100 stocks are sorted by latent rank and split into 5
@@ -530,7 +563,10 @@ export default async function StrategyModelDetailPage({ params }: Props) {
             id="methodology-regression"
             className="border-t pt-6 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
           >
-            <h3 className="text-xl font-bold mb-3">Regression</h3>
+            <h3 className="group text-xl font-bold mb-3 flex flex-wrap items-center gap-x-1">
+              Regression
+              <SectionHeadingAnchor fragmentId="methodology-regression" hrefBase={strategyPageHrefBase} />
+            </h3>
             <div className="text-sm text-foreground/80 space-y-3 leading-relaxed">
               <p>
                 Each week, we test a single question: <em>do higher AI scores lead to higher
@@ -633,7 +669,13 @@ export default async function StrategyModelDetailPage({ params }: Props) {
             id="methodology-quintile-vs-regression"
             className="border-t pt-6 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
           >
-            <h3 className="text-xl font-bold mb-3">Quintile vs. regression</h3>
+            <h3 className="group text-xl font-bold mb-3 flex flex-wrap items-center gap-x-1">
+              Quintile vs. regression
+              <SectionHeadingAnchor
+                fragmentId="methodology-quintile-vs-regression"
+                hrefBase={strategyPageHrefBase}
+              />
+            </h3>
             <div className="text-sm text-foreground/80 space-y-3 leading-relaxed">
               <p>
                 Both tests ask the same underlying question — <em>does score predict return?</em> —
@@ -710,8 +752,9 @@ export default async function StrategyModelDetailPage({ params }: Props) {
         id="scientific-grounding"
         className="mb-10 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
       >
-        <h2 className="text-2xl font-bold tracking-tight mb-2 flex items-center gap-2">
+        <h2 className="group text-2xl font-bold tracking-tight mb-2 flex items-center gap-2">
           <BookOpen className="size-5 text-trader-blue shrink-0" /> Scientific grounding
+          <SectionHeadingAnchor fragmentId="scientific-grounding" hrefBase={strategyPageHrefBase} />
         </h2>
         <p className="text-sm text-foreground/80 mb-5 leading-relaxed">
           This strategy is inspired by two peer-reviewed papers published in{' '}

@@ -237,6 +237,7 @@ function SignUpPageContent() {
                       type="button"
                       variant="outline"
                       onClick={handleGoogleAuth}
+                      onDoubleClick={(e) => e.preventDefault()}
                       disabled={isGoogleLoading || isSubmitting}
                       className="h-11 w-full justify-start"
                     >

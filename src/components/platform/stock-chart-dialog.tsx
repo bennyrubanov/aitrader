@@ -32,6 +32,9 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/
 
 type TimeRange = '1M' | '3M' | '6M' | 'All';
 
+/** What to plot: both axes (default), price only (no buckets / score), or AI rating only (buckets + score, no price). */
+export type StockChartSeriesMode = 'both' | 'price' | 'rating';
+
 type StockHistoryResponse = {
   symbol: string;
   companyName: string | null;
@@ -90,6 +93,12 @@ function cartesianAxisLabelCoords(
   return { x: x + width - horizontalOffset, y: y + height / 2, textAnchor: horizontalEnd };
 }
 
+const SERIES_MODES: { value: StockChartSeriesMode; label: string }[] = [
+  { value: 'both', label: 'Both' },
+  { value: 'price', label: 'Price' },
+  { value: 'rating', label: 'AI rating' },
+];
+
 export function StockChartDialog({
   symbol,
   strategySlug,
@@ -119,6 +128,7 @@ export function StockChartDialog({
     [isControlled, onOpenChangeProp]
   );
   const [range, setRange] = useState<TimeRange>('3M');
+  const [seriesMode, setSeriesMode] = useState<StockChartSeriesMode>('both');
   const [data, setData] = useState<StockHistoryResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -179,6 +189,7 @@ export function StockChartDialog({
       setLegendHovered(false);
       setPriceAxisHovered(false);
       setScoreAxisHovered(false);
+      setSeriesMode('both');
     }
   }, [open]);
 
@@ -215,6 +226,27 @@ export function StockChartDialog({
       .map((r) => ({ key: r.date, shortDate: shortByIso.get(r.date)! }));
   }, [data, chartData]);
 
+  const showPrice = seriesMode === 'both' || seriesMode === 'price';
+  const showRating = seriesMode === 'both' || seriesMode === 'rating';
+  const hasPriceData = chartData.some((r) => r.price != null);
+  const hasScoreData = chartData.some((r) => r.score != null);
+
+  const chartRenderable =
+    chartData.length > 0 &&
+    (seriesMode === 'both'
+      ? hasPriceData || hasScoreData
+      : seriesMode === 'price'
+        ? hasPriceData
+        : hasScoreData);
+
+  const emptyHint = !chartData.length
+    ? null
+    : seriesMode === 'price' && !hasPriceData
+      ? 'No price history in this range.'
+      : seriesMode === 'rating' && !hasScoreData
+        ? 'No AI rating history in this range.'
+        : null;
+
   /** Covers first paint before useLayoutEffect runs (open + no data yet). */
   const showChartLoading =
     isLoading || (open && data === null && errorMessage === null);
@@ -226,6 +258,13 @@ export function StockChartDialog({
       : data?.symbol
         ? data.symbol.toUpperCase()
         : ticker;
+
+  const titleSuffix =
+    seriesMode === 'both'
+      ? ' — Price vs. AI rating'
+      : seriesMode === 'price'
+        ? ' — Price'
+        : ' — AI rating';
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -241,25 +280,47 @@ export function StockChartDialog({
         <DialogHeader>
           <DialogTitle>
             {titleStockLabel}
-            <span className="font-normal text-muted-foreground"> — Price vs. AI rating</span>
+            <span className="font-normal text-muted-foreground">{titleSuffix}</span>
           </DialogTitle>
         </DialogHeader>
 
-        <div className="flex items-center gap-1.5">
-          {TIME_RANGES.map((tr) => (
-            <button
-              key={tr}
-              type="button"
-              onClick={() => setRange(tr)}
-              className={`rounded px-2 py-1 text-xs font-medium transition-colors ${
-                range === tr
-                  ? 'bg-trader-blue text-white'
-                  : 'bg-muted text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              {tr}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <div className="flex items-center gap-1.5">
+            {TIME_RANGES.map((tr) => (
+              <button
+                key={tr}
+                type="button"
+                onClick={() => setRange(tr)}
+                className={`rounded px-2 py-1 text-xs font-medium transition-colors ${
+                  range === tr
+                    ? 'bg-trader-blue text-white'
+                    : 'bg-muted text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {tr}
+              </button>
+            ))}
+          </div>
+          <div
+            className="flex items-center gap-1.5 border-l border-border pl-3"
+            role="group"
+            aria-label="Chart series"
+          >
+            {SERIES_MODES.map(({ value, label }) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setSeriesMode(value)}
+                className={`rounded px-2 py-1 text-xs font-medium transition-colors ${
+                  seriesMode === value
+                    ? 'bg-trader-blue text-white'
+                    : 'bg-muted text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {showChartLoading ? (
@@ -272,7 +333,7 @@ export function StockChartDialog({
           <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
             {errorMessage}
           </div>
-        ) : chartData.length ? (
+        ) : chartRenderable ? (
           <>
           <ChartContainer
             className="h-[320px] w-full [&_.recharts-responsive-container]:!h-full"
@@ -284,191 +345,221 @@ export function StockChartDialog({
               score: { label: 'AI rating (-5 to +5)', color: '#2563eb' },
             }}
           >
-            <LineChart data={chartData} margin={{ top: 8, right: 12, left: 8, bottom: 4 }}>
+            <LineChart
+              data={chartData}
+              margin={{
+                top: 8,
+                right: showPrice && showRating ? 12 : 8,
+                left: 8,
+                bottom: 4,
+              }}
+            >
               <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />
               <XAxis dataKey="shortDate" tick={{ fontSize: 10 }} minTickGap={30} />
-              <YAxis
-                yAxisId="price"
-                tickFormatter={(v: number) => `$${v.toFixed(0)}`}
-                tick={{ fontSize: 10 }}
-                width={56}
-                label={{
-                  position: 'insideLeft',
-                  angle: -90,
-                  offset: 5,
-                  content: (props: { viewBox?: AxisLabelViewBox; offset?: number }) => {
-                    const vb = props.viewBox;
-                    if (!vb) return null;
-                    const c = cartesianAxisLabelCoords(vb, 'insideLeft', props.offset ?? 5);
-                    return (
-                      <Text
-                        x={c.x}
-                        y={c.y}
-                        textAnchor={c.textAnchor}
-                        verticalAnchor="middle"
-                        angle={-90}
-                        fill="hsl(var(--foreground))"
-                        style={{
-                          fontSize: 10,
-                          fontWeight: priceAxisHovered ? 700 : 400,
-                          cursor: 'default',
-                        }}
-                        onMouseEnter={() => setPriceAxisHovered(true)}
-                        onMouseLeave={() => setPriceAxisHovered(false)}
-                      >
-                        Price (USD)
-                      </Text>
-                    );
-                  },
-                }}
-              />
-              <YAxis
-                yAxisId="score"
-                orientation="right"
-                domain={[-5, 5]}
-                ticks={[5, 2, 0, -2, -5]}
-                tickFormatter={(v: number) => v.toFixed(0)}
-                tick={{ fontSize: 10 }}
-                width={44}
-                label={{
-                  position: 'insideRight',
-                  angle: 90,
-                  offset: 5,
-                  content: (props: { viewBox?: AxisLabelViewBox; offset?: number }) => {
-                    const vb = props.viewBox;
-                    if (!vb) return null;
-                    const c = cartesianAxisLabelCoords(vb, 'insideRight', props.offset ?? 5);
-                    return (
-                      <Text
-                        x={c.x}
-                        y={c.y}
-                        textAnchor={c.textAnchor}
-                        verticalAnchor="middle"
-                        angle={90}
-                        fill="#2563eb"
-                        style={{
-                          fontSize: 10,
-                          fontWeight: scoreAxisHovered ? 700 : 400,
-                          cursor: 'default',
-                        }}
-                        onMouseEnter={() => setScoreAxisHovered(true)}
-                        onMouseLeave={() => setScoreAxisHovered(false)}
-                      >
-                        AI rating
-                      </Text>
-                    );
-                  },
-                }}
-              />
-              <ReferenceArea
-                yAxisId="score"
-                y1={-5}
-                y2={-2}
-                fill="#e11d48"
-                fillOpacity={0.1}
-                stroke="none"
-                isFront={false}
-                label={{
-                  value: 'Sell',
-                  position: 'center',
-                  fill: 'hsl(var(--foreground))',
-                  fontSize: 11,
-                  fontWeight: 600,
-                  opacity: 0.55,
-                }}
-              />
-              <ReferenceArea
-                yAxisId="score"
-                y1={-2}
-                y2={2}
-                fill="#2563eb"
-                fillOpacity={0.07}
-                stroke="none"
-                isFront={false}
-                label={{
-                  value: 'Hold',
-                  position: 'center',
-                  fill: 'hsl(var(--foreground))',
-                  fontSize: 11,
-                  fontWeight: 600,
-                  opacity: 0.5,
-                }}
-              />
-              <ReferenceArea
-                yAxisId="score"
-                y1={2}
-                y2={5}
-                fill="#16a34a"
-                fillOpacity={0.1}
-                stroke="none"
-                isFront={false}
-                label={{
-                  value: 'Buy',
-                  position: 'center',
-                  fill: 'hsl(var(--foreground))',
-                  fontSize: 11,
-                  fontWeight: 600,
-                  opacity: 0.55,
-                }}
-              />
-              <ReferenceLine
-                yAxisId="score"
-                y={2}
-                stroke="#16a34a"
-                strokeDasharray="4 2"
-                strokeOpacity={0.35}
-              />
-              <ReferenceLine
-                yAxisId="score"
-                y={-2}
-                stroke="#e11d48"
-                strokeDasharray="4 2"
-                strokeOpacity={0.35}
-              />
-              {ratingDayMarkers.map((m) => (
-                <ReferenceLine
-                  key={m.key}
+              {showPrice ? (
+                <YAxis
                   yAxisId="price"
-                  x={m.shortDate}
-                  stroke="hsl(var(--foreground))"
-                  strokeDasharray="2 4"
-                  strokeWidth={legendHovered ? 1.5 : 1}
-                  strokeOpacity={legendHovered ? 0.85 : 0.35}
+                  tickFormatter={(v: number) => `$${v.toFixed(0)}`}
+                  tick={{ fontSize: 10 }}
+                  width={56}
+                  label={{
+                    position: 'insideLeft',
+                    angle: -90,
+                    offset: 5,
+                    content: (props: { viewBox?: AxisLabelViewBox; offset?: number }) => {
+                      const vb = props.viewBox;
+                      if (!vb) return null;
+                      const c = cartesianAxisLabelCoords(vb, 'insideLeft', props.offset ?? 5);
+                      return (
+                        <Text
+                          x={c.x}
+                          y={c.y}
+                          textAnchor={c.textAnchor}
+                          verticalAnchor="middle"
+                          angle={-90}
+                          fill="hsl(var(--foreground))"
+                          style={{
+                            fontSize: 10,
+                            fontWeight: priceAxisHovered ? 700 : 400,
+                            cursor: 'default',
+                          }}
+                          onMouseEnter={() => setPriceAxisHovered(true)}
+                          onMouseLeave={() => setPriceAxisHovered(false)}
+                        >
+                          Price (USD)
+                        </Text>
+                      );
+                    },
+                  }}
                 />
-              ))}
+              ) : null}
+              {showRating ? (
+                <YAxis
+                  yAxisId="score"
+                  orientation={showPrice ? 'right' : 'left'}
+                  domain={[-5, 5]}
+                  ticks={[5, 2, 0, -2, -5]}
+                  tickFormatter={(v: number) => v.toFixed(0)}
+                  tick={{ fontSize: 10 }}
+                  width={44}
+                  label={{
+                    position: showPrice ? 'insideRight' : 'insideLeft',
+                    angle: showPrice ? 90 : -90,
+                    offset: 5,
+                    content: (props: { viewBox?: AxisLabelViewBox; offset?: number }) => {
+                      const vb = props.viewBox;
+                      if (!vb) return null;
+                      const c = cartesianAxisLabelCoords(
+                        vb,
+                        showPrice ? 'insideRight' : 'insideLeft',
+                        props.offset ?? 5,
+                      );
+                      return (
+                        <Text
+                          x={c.x}
+                          y={c.y}
+                          textAnchor={c.textAnchor}
+                          verticalAnchor="middle"
+                          angle={showPrice ? 90 : -90}
+                          fill="#2563eb"
+                          style={{
+                            fontSize: 10,
+                            fontWeight: scoreAxisHovered ? 700 : 400,
+                            cursor: 'default',
+                          }}
+                          onMouseEnter={() => setScoreAxisHovered(true)}
+                          onMouseLeave={() => setScoreAxisHovered(false)}
+                        >
+                          AI rating
+                        </Text>
+                      );
+                    },
+                  }}
+                />
+              ) : null}
+              {showRating ? (
+                <>
+                  <ReferenceArea
+                    yAxisId="score"
+                    y1={-5}
+                    y2={-2}
+                    fill="#e11d48"
+                    fillOpacity={0.1}
+                    stroke="none"
+                    isFront={false}
+                    label={{
+                      value: 'Sell',
+                      position: 'center',
+                      fill: 'hsl(var(--foreground))',
+                      fontSize: 11,
+                      fontWeight: 600,
+                      opacity: 0.55,
+                    }}
+                  />
+                  <ReferenceArea
+                    yAxisId="score"
+                    y1={-2}
+                    y2={2}
+                    fill="#2563eb"
+                    fillOpacity={0.07}
+                    stroke="none"
+                    isFront={false}
+                    label={{
+                      value: 'Hold',
+                      position: 'center',
+                      fill: 'hsl(var(--foreground))',
+                      fontSize: 11,
+                      fontWeight: 600,
+                      opacity: 0.5,
+                    }}
+                  />
+                  <ReferenceArea
+                    yAxisId="score"
+                    y1={2}
+                    y2={5}
+                    fill="#16a34a"
+                    fillOpacity={0.1}
+                    stroke="none"
+                    isFront={false}
+                    label={{
+                      value: 'Buy',
+                      position: 'center',
+                      fill: 'hsl(var(--foreground))',
+                      fontSize: 11,
+                      fontWeight: 600,
+                      opacity: 0.55,
+                    }}
+                  />
+                  <ReferenceLine
+                    yAxisId="score"
+                    y={2}
+                    stroke="#16a34a"
+                    strokeDasharray="4 2"
+                    strokeOpacity={0.35}
+                  />
+                  <ReferenceLine
+                    yAxisId="score"
+                    y={-2}
+                    stroke="#e11d48"
+                    strokeDasharray="4 2"
+                    strokeOpacity={0.35}
+                  />
+                </>
+              ) : null}
+              {showRating && ratingDayMarkers.length > 0
+                ? ratingDayMarkers.map((m) => (
+                    <ReferenceLine
+                      key={m.key}
+                      yAxisId={showPrice ? 'price' : 'score'}
+                      x={m.shortDate}
+                      stroke="hsl(var(--foreground))"
+                      strokeDasharray="2 4"
+                      strokeWidth={legendHovered ? 1.5 : 1}
+                      strokeOpacity={legendHovered ? 0.85 : 0.35}
+                    />
+                  ))
+                : null}
               <ChartTooltip
                 content={
                   <ChartTooltipContent
                     formatter={(value, name) => {
                       if (value === null || value === undefined) return null;
-                      if (name === 'price') return `$${Number(value).toFixed(2)} USD`;
+                      if (name === 'price') {
+                        if (!showPrice) return null;
+                        return `$${Number(value).toFixed(2)} USD`;
+                      }
+                      if (!showRating) return null;
                       return `${Number(value).toFixed(1)} AI rating`;
                     }}
                     labelFormatter={(label) => `${label}`}
                   />
                 }
               />
-              <Line
-                yAxisId="price"
-                type="monotone"
-                dataKey="price"
-                stroke="var(--color-price)"
-                strokeWidth={priceAxisHovered ? 2.8 : 2}
-                dot={false}
-                connectNulls
-              />
-              <Line
-                yAxisId="score"
-                type="stepAfter"
-                dataKey="score"
-                stroke="var(--color-score)"
-                strokeWidth={scoreAxisHovered ? 2.8 : 2}
-                dot={false}
-                connectNulls
-              />
+              {showPrice ? (
+                <Line
+                  yAxisId="price"
+                  type="monotone"
+                  dataKey="price"
+                  stroke="var(--color-price)"
+                  strokeWidth={priceAxisHovered ? 2.8 : 2}
+                  dot={false}
+                  connectNulls
+                />
+              ) : null}
+              {showRating ? (
+                <Line
+                  yAxisId="score"
+                  type="stepAfter"
+                  dataKey="score"
+                  stroke="var(--color-score)"
+                  strokeWidth={scoreAxisHovered ? 2.8 : 2}
+                  dot={false}
+                  connectNulls
+                />
+              ) : null}
             </LineChart>
           </ChartContainer>
-          {ratingDayMarkers.length > 0 ? (
+          {showRating && ratingDayMarkers.length > 0 ? (
             <div className="mt-2 flex justify-center">
               <div
                 className="flex cursor-default items-center gap-2 rounded-md px-2 py-1 text-center text-[11px] text-muted-foreground transition-colors hover:text-foreground"
@@ -494,6 +585,10 @@ export function StockChartDialog({
             </div>
           ) : null}
           </>
+        ) : emptyHint ? (
+          <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+            {emptyHint}
+          </div>
         ) : (
           <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
             No chart history available yet.

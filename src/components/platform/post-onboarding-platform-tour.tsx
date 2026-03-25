@@ -37,13 +37,14 @@ export function PostOnboardingPlatformTour() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const tabParam = searchParams.get('tab') ?? '';
   const [active, setActive] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
   const [targetRects, setTargetRects] = useState<DOMRect[]>([]);
   const [viewport, setViewport] = useState({ w: 0, h: 0 });
   const lastReplacedPathRef = useRef<string | null>(null);
   const didScrollForStepRef = useRef<number>(-1);
+  /** Prefetch all tour routes once per active session (avoid churn on every pathname change). */
+  const tourPrefetchRanForSessionRef = useRef(false);
 
   const tryStartTour = () => {
     if (isPlatformPostOnboardingTourDone()) return;
@@ -60,7 +61,12 @@ export function PostOnboardingPlatformTour() {
   }, []);
 
   useEffect(() => {
-    if (!active) return;
+    if (!active) {
+      tourPrefetchRanForSessionRef.current = false;
+      return;
+    }
+    if (tourPrefetchRanForSessionRef.current) return;
+    tourPrefetchRanForSessionRef.current = true;
     const paths = new Set<string>();
     for (let i = 0; i < STEP_COUNT; i++) {
       const p = getPlatformPostOnboardingTourNavigationPath(i, pathname);
@@ -78,10 +84,16 @@ export function PostOnboardingPlatformTour() {
 
     const selectors = PLATFORM_POST_ONBOARDING_TOUR_STEPS[stepIndex].anchors;
     const nextPath = getPlatformPostOnboardingTourNavigationPath(stepIndex, pathname);
+    const qs = searchParams.toString();
+    const currentUrl = qs ? `${pathname}?${qs}` : pathname;
 
-    if (lastReplacedPathRef.current !== nextPath) {
+    if (nextPath !== currentUrl) {
+      if (lastReplacedPathRef.current !== nextPath) {
+        lastReplacedPathRef.current = nextPath;
+        router.replace(nextPath);
+      }
+    } else {
       lastReplacedPathRef.current = nextPath;
-      router.replace(nextPath);
     }
 
     const tryMeasure = (): DOMRect[] | null => {
@@ -166,7 +178,7 @@ export function PostOnboardingPlatformTour() {
       window.removeEventListener('scroll', onResizeOrScroll, true);
       ro.disconnect();
     };
-  }, [active, stepIndex, pathname, tabParam, router]);
+  }, [active, stepIndex, pathname, searchParams, router]);
 
   const finishTour = () => {
     markPlatformPostOnboardingTourDone();
