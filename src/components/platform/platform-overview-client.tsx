@@ -150,6 +150,9 @@ const OVERVIEW_TILE_ROW_HEIGHT = '26rem';
 /** Matches `INITIAL_CAPITAL` in config performance / model track rows before user-specific rebase. */
 const OVERVIEW_MODEL_INITIAL = 10_000;
 
+/** Abort bootstrap GET if it hangs so the overview skeleton cannot stay forever. */
+const OVERVIEW_PROFILE_FETCH_TIMEOUT_MS = 25_000;
+
 const OVERVIEW_PAGE_QUICK_LINKS: {
   href: string;
   label: string;
@@ -1520,6 +1523,8 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     searchParams,
   ]);
   const [loading, setLoading] = useState(true);
+  const [profileLoadError, setProfileLoadError] = useState<string | null>(null);
+  const [profileFetchNonce, setProfileFetchNonce] = useState(0);
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
   const [overviewSlotAssignments, setOverviewSlotAssignments] = useState<Map<number, string>>(
     () => new Map()
@@ -1594,62 +1599,42 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
 
   useEffect(() => {
     let mounted = true;
-    if (!authState.isLoaded) return;
+    if (!authState.isLoaded || authState.isAuthenticated) return;
 
-    if (!authState.isAuthenticated) {
-      if (!portfolioConfigHydrated || !isOnboardingDone) {
+    setProfileLoadError(null);
+    if (!portfolioConfigHydrated || !isOnboardingDone) {
+      setProfiles([]);
+      setOverviewSlotAssignments(new Map());
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    const strategy =
+      strategies.find((s) => s.slug === portfolioConfigCtx.strategySlug) ?? strategies[0] ?? null;
+    let entryYmd = portfolioEntryDate?.trim() ?? '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(entryYmd)) {
+      try {
+        const fromStore = localStorage.getItem(ENTRY_DATE_KEY);
+        if (fromStore && /^\d{4}-\d{2}-\d{2}$/.test(fromStore)) entryYmd = fromStore;
+      } catch {
+        // ignore
+      }
+    }
+    void buildGuestLocalProfileRows(
+      portfolioConfigCtx,
+      entryYmd || null,
+      strategy
+    ).then((rows) => {
+      if (!mounted) return;
+      if (rows) {
+        setProfiles([normalizeOverviewProfile(rows.overview as ProfileRow)]);
+        setOverviewSlotAssignments(new Map([[1, rows.overview.id]]));
+      } else {
         setProfiles([]);
         setOverviewSlotAssignments(new Map());
-        setLoading(false);
-        return;
       }
-      setLoading(true);
-      const strategy =
-        strategies.find((s) => s.slug === portfolioConfigCtx.strategySlug) ?? strategies[0] ?? null;
-      let entryYmd = portfolioEntryDate?.trim() ?? '';
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(entryYmd)) {
-        try {
-          const fromStore = localStorage.getItem(ENTRY_DATE_KEY);
-          if (fromStore && /^\d{4}-\d{2}-\d{2}$/.test(fromStore)) entryYmd = fromStore;
-        } catch {
-          // ignore
-        }
-      }
-      void buildGuestLocalProfileRows(
-        portfolioConfigCtx,
-        entryYmd || null,
-        strategy
-      ).then((rows) => {
-        if (!mounted) return;
-        if (rows) {
-          setProfiles([normalizeOverviewProfile(rows.overview as ProfileRow)]);
-          setOverviewSlotAssignments(new Map([[1, rows.overview.id]]));
-        } else {
-          setProfiles([]);
-          setOverviewSlotAssignments(new Map());
-        }
-        setLoading(false);
-      });
-      return () => {
-        mounted = false;
-      };
-    }
-
-    setLoading(true);
-    void fetch('/api/platform/user-portfolio-profile', { cache: 'no-store' })
-      .then((r) => r.json())
-      .then((d: { profiles?: ProfileRow[]; overviewSlotAssignments?: Record<string, string> }) => {
-        if (!mounted) return;
-        const raw = d.profiles ?? [];
-        setProfiles(raw.map((p) => normalizeOverviewProfile({ ...p } as ProfileRow)));
-        setOverviewSlotAssignments(parseOverviewSlotAssignments(d.overviewSlotAssignments));
-      })
-      .catch(() => {
-        if (mounted) setProfiles([]);
-      })
-      .finally(() => {
-        if (mounted) setLoading(false);
-      });
+      setLoading(false);
+    });
     return () => {
       mounted = false;
     };
@@ -1661,6 +1646,68 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     portfolioConfigCtx,
     portfolioEntryDate,
     strategies,
+  ]);
+
+  useEffect(() => {
+    let mounted = true;
+    if (!authState.isLoaded || !authState.isAuthenticated) return;
+
+    setProfileLoadError(null);
+    setLoading(true);
+    const ac = new AbortController();
+    const timeoutId = window.setTimeout(() => ac.abort(), OVERVIEW_PROFILE_FETCH_TIMEOUT_MS);
+
+    void fetch('/api/platform/user-portfolio-profile', { cache: 'no-store', signal: ac.signal })
+      .then(async (r) => {
+        if (!mounted) return;
+        if (!r.ok) {
+          const body = (await r.json().catch(() => ({}))) as { error?: string };
+          const msg =
+            typeof body.error === 'string'
+              ? body.error
+              : `Could not load portfolios (${r.status}).`;
+          setProfileLoadError(msg);
+          setProfiles([]);
+          setOverviewSlotAssignments(new Map());
+          return;
+        }
+        const d = (await r.json()) as {
+          profiles?: ProfileRow[];
+          overviewSlotAssignments?: Record<string, string>;
+        };
+        const raw = d.profiles ?? [];
+        setProfiles(raw.map((p) => normalizeOverviewProfile({ ...p } as ProfileRow)));
+        setOverviewSlotAssignments(parseOverviewSlotAssignments(d.overviewSlotAssignments));
+        setProfileLoadError(null);
+      })
+      .catch((e: unknown) => {
+        if (!mounted) return;
+        setProfiles([]);
+        setOverviewSlotAssignments(new Map());
+        const isAbort =
+          e instanceof DOMException
+            ? e.name === 'AbortError'
+            : e instanceof Error && e.name === 'AbortError';
+        if (isAbort) {
+          setProfileLoadError('Loading took too long. Check your connection and try again.');
+        } else {
+          setProfileLoadError('Could not load your portfolios.');
+        }
+      })
+      .finally(() => {
+        window.clearTimeout(timeoutId);
+        if (mounted) setLoading(false);
+      });
+
+    return () => {
+      mounted = false;
+      window.clearTimeout(timeoutId);
+      ac.abort();
+    };
+  }, [
+    authState.isAuthenticated,
+    authState.isLoaded,
+    profileFetchNonce,
   ]);
 
   const { slotDisplay, overviewTrackedProfiles, visibleSlotCount } = useMemo(() => {
@@ -2657,6 +2704,28 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                 <OverviewTopPortfolioSpotlightSkeleton />
               </div>
             </div>
+          ) : profileLoadError && authState.isAuthenticated ? (
+            <Card className="border-destructive/40">
+              <CardHeader>
+                <CardTitle className="text-base">Could not load overview</CardTitle>
+                <CardDescription>{profileLoadError}</CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => {
+                    setProfileLoadError(null);
+                    setProfileFetchNonce((n) => n + 1);
+                  }}
+                >
+                  Try again
+                </Button>
+                <Button type="button" size="sm" variant="outline" onClick={() => router.refresh()}>
+                  Refresh page
+                </Button>
+              </CardContent>
+            </Card>
           ) : !authState.isAuthenticated && !isOnboardingDone ? null : !authState.isAuthenticated &&
             isOnboardingDone &&
             profiles.length === 0 ? (

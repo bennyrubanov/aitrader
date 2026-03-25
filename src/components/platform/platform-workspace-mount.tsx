@@ -38,7 +38,7 @@ export function PlatformWorkspaceMount({ strategies, ratingsInitial }: Props) {
 
   return (
     <>
-      {everVisited.has('overview') && (
+      {(active === 'overview' || everVisited.has('overview')) && (
         <div
           className={cn(
             'flex min-h-0 min-w-0 flex-1 flex-col',
@@ -49,7 +49,7 @@ export function PlatformWorkspaceMount({ strategies, ratingsInitial }: Props) {
           <PlatformOverviewClient strategies={strategies} />
         </div>
       )}
-      {everVisited.has('ratings') && (
+      {(active === 'ratings' || everVisited.has('ratings')) && (
         <div
           className={cn(
             'flex min-h-0 min-w-0 flex-1 flex-col',
@@ -60,7 +60,7 @@ export function PlatformWorkspaceMount({ strategies, ratingsInitial }: Props) {
           <RatingsPageClient initialData={ratingsInitial} strategies={strategies} />
         </div>
       )}
-      {everVisited.has('your') && (
+      {(active === 'your' || everVisited.has('your')) && (
         <div
           className={cn(
             'flex min-h-0 flex-1 flex-col overflow-hidden',
@@ -71,7 +71,7 @@ export function PlatformWorkspaceMount({ strategies, ratingsInitial }: Props) {
           <YourPortfolioClient strategies={strategies} />
         </div>
       )}
-      {everVisited.has('explore') && (
+      {(active === 'explore' || everVisited.has('explore')) && (
         <div
           className={cn(
             'flex min-h-0 flex-1 flex-col overflow-hidden',

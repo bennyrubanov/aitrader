@@ -766,9 +766,11 @@ export function PortfolioOnboardingDialog({
           router.refresh();
         },
       });
-      queuePlatformPostOnboardingTour();
       void markOnboardingDone();
       router.refresh();
+      window.setTimeout(() => {
+        queuePlatformPostOnboardingTour();
+      }, 150);
     } finally {
       setFollowPhase('idle');
     }

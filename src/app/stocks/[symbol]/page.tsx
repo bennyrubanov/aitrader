@@ -1,6 +1,10 @@
 import type { Metadata } from 'next';
 import StockDetailClient from '@/components/StockDetailClient';
-import { getAppAccessState, type AppAccessState } from '@/lib/app-access';
+import {
+  canQueryStockCurrentRecommendation,
+  getAppAccessState,
+  type AppAccessState,
+} from '@/lib/app-access';
 import { buildAuthStateFromUserAndProfile } from '@/lib/build-auth-state';
 import { getAllStocks } from '@/lib/stocks-cache';
 import { createAdminClient } from '@/utils/supabase/admin';
@@ -132,13 +136,7 @@ function latestForAccess(
     updated_at: string | null;
   } | null
 ) {
-  if (!row) {
-    return emptyLatest();
-  }
-  if (access === 'guest') {
-    return emptyLatest();
-  }
-  if (access === 'free' && isPremiumStock) {
+  if (!row || !canQueryStockCurrentRecommendation(access, isPremiumStock)) {
     return emptyLatest();
   }
   return {
@@ -215,7 +213,10 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
       .maybeSingle();
     priceRow = fetchedPriceRow;
 
-    if (stockRow?.id) {
+    if (
+      stockRow?.id &&
+      canQueryStockCurrentRecommendation(access, stockRow.is_premium_stock)
+    ) {
       const { data: fetchedCurrentRow } = await admin
         .from('nasdaq100_recommendations_current_public')
         .select('score, score_delta, confidence, bucket, updated_at')

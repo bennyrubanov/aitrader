@@ -57,3 +57,21 @@ export function canViewPerformanceHoldingsForStrategy(
 export function canUseRatingsStrategyFilter(access: AppAccessState): boolean {
   return canAccessNonDefaultStrategyPaidData(access);
 }
+
+/**
+ * Whether server code should read `nasdaq100_recommendations_current_public` (or equivalent)
+ * for this viewer and stock. Matches stock-page / list masking: no current AI row for guests
+ * or free users on premium tickers — avoids querying data the tier must not receive.
+ */
+export function canQueryStockCurrentRecommendation(
+  access: AppAccessState,
+  isPremiumStock: boolean
+): boolean {
+  if (access === 'guest') {
+    return false;
+  }
+  if (access === 'free' && isPremiumStock) {
+    return false;
+  }
+  return true;
+}
