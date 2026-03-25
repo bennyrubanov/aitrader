@@ -2,6 +2,13 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { createAdminClient } from "@/utils/supabase/admin";
 import type { SubscriptionTier } from "@/lib/auth-state";
+import {
+  buildSubscriptionBillingExtras,
+  getStripeCustomerIdFromField,
+  resolveTierFromSubscription,
+  subscriptionCurrentPeriodEndUnix,
+  type SubscriptionBillingExtras,
+} from "@/lib/stripe-tier";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,8 +27,9 @@ type EntitlementContext = {
   subscriptionStatus: Stripe.Subscription.Status | null;
 };
 
-const isPremiumSubscriptionStatus = (status: Stripe.Subscription.Status) => {
-  return status === "active" || status === "trialing";
+/** Subscription statuses where we still derive paid tier from the current subscription items (not free). */
+const keepsPaidEntitlementFromSubscription = (status: Stripe.Subscription.Status) => {
+  return status === "active" || status === "trialing" || status === "past_due";
 };
 
 const isStaleEvent = (incomingEventCreatedIso: string, previousEventCreatedIso: string | null) => {
@@ -38,42 +46,12 @@ const isStaleEvent = (incomingEventCreatedIso: string, previousEventCreatedIso: 
   return incomingTs < previousTs;
 };
 
-const resolveTierFromSubscription = async (
-  stripe: Stripe,
-  subscription: Stripe.Subscription
-): Promise<SubscriptionTier> => {
-  // First check subscription metadata (set at checkout time)
-  const metaTier = subscription.metadata?.tier as SubscriptionTier | undefined;
-  if (metaTier === "supporter" || metaTier === "outperformer") {
-    return metaTier;
-  }
-
-  // Fallback: look up product metadata for the first price item
-  try {
-    const priceId = subscription.items.data[0]?.price?.id;
-    if (!priceId) return "outperformer";
-
-    const price = await stripe.prices.retrieve(priceId, { expand: ["product"] });
-    const product = price.product as Stripe.Product | null;
-    if (!product || "deleted" in product) return "outperformer";
-
-    const productTier = product.metadata?.tier as SubscriptionTier | undefined;
-    if (productTier === "supporter" || productTier === "outperformer") {
-      return productTier;
-    }
-  } catch {
-    // ignore lookup failures
-  }
-
-  // Final fallback: existing outperformer subscriptions
-  return "outperformer";
-};
-
-const applyTierByUserId = async (
+const applyBillingToUserId = async (
   userId: string,
   email: string | null,
   tier: SubscriptionTier,
-  context: EntitlementContext
+  context: EntitlementContext,
+  extras?: Partial<SubscriptionBillingExtras> | null
 ) => {
   const supabase = createAdminClient();
   const { data: existing, error: existingError } = await supabase
@@ -90,18 +68,34 @@ const applyTierByUserId = async (
     return;
   }
 
-  const { error: upsertError } = await supabase.from("user_profiles").upsert(
-    {
-      id: userId,
-      ...(email ? { email } : {}),
-      subscription_tier: tier,
-      stripe_last_event_id: context.eventId,
-      stripe_last_event_created: context.eventCreatedIso,
-      stripe_subscription_status: context.subscriptionStatus,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "id" }
-  );
+  const payload: Record<string, unknown> = {
+    id: userId,
+    ...(email ? { email } : {}),
+    subscription_tier: tier,
+    stripe_last_event_id: context.eventId,
+    stripe_last_event_created: context.eventCreatedIso,
+    stripe_subscription_status: context.subscriptionStatus,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (extras) {
+    const keys: (keyof SubscriptionBillingExtras)[] = [
+      "stripe_customer_id",
+      "stripe_subscription_id",
+      "stripe_current_period_end",
+      "stripe_cancel_at_period_end",
+      "stripe_pending_tier",
+    ];
+    for (const key of keys) {
+      if (extras[key] !== undefined) {
+        payload[key] = extras[key];
+      }
+    }
+  }
+
+  const { error: upsertError } = await supabase.from("user_profiles").upsert(payload, {
+    onConflict: "id",
+  });
 
   if (upsertError) {
     throw new Error(upsertError.message);
@@ -134,7 +128,12 @@ const resolveAuthUserIdByEmail = async (email: string) => {
   return null;
 };
 
-const updateTierByEmail = async (email: string, tier: SubscriptionTier, context: EntitlementContext) => {
+const updateTierByEmail = async (
+  email: string,
+  tier: SubscriptionTier,
+  context: EntitlementContext,
+  extras?: Partial<SubscriptionBillingExtras> | null
+) => {
   const supabase = createAdminClient();
   const normalizedEmail = email.trim().toLowerCase();
   const { data, error } = await supabase
@@ -148,13 +147,13 @@ const updateTierByEmail = async (email: string, tier: SubscriptionTier, context:
   }
 
   if (data?.id) {
-    await applyTierByUserId(data.id, normalizedEmail, tier, context);
+    await applyBillingToUserId(data.id, normalizedEmail, tier, context, extras);
     return;
   }
 
   const userId = await resolveAuthUserIdByEmail(normalizedEmail);
   if (userId) {
-    await applyTierByUserId(userId, normalizedEmail, tier, context);
+    await applyBillingToUserId(userId, normalizedEmail, tier, context, extras);
     return;
   }
 
@@ -183,25 +182,7 @@ const resolveCustomerEmail = async (
   return null;
 };
 
-const getCustomerIdFromUnknown = (
-  customer: string | Stripe.Customer | Stripe.DeletedCustomer | null | undefined
-) => {
-  if (!customer) {
-    return null;
-  }
-  if (typeof customer === "string") {
-    return customer;
-  }
-  if ("deleted" in customer && customer.deleted) {
-    return null;
-  }
-  return customer.id;
-};
-
-const maybeSwitchMigratedSubsToAutoCharge = async (
-  stripe: Stripe,
-  customerId: string | null
-) => {
+const maybeSwitchMigratedSubsToAutoCharge = async (stripe: Stripe, customerId: string | null) => {
   if (!customerId) {
     return;
   }
@@ -240,6 +221,29 @@ const maybeSwitchMigratedSubsToAutoCharge = async (
   }
 };
 
+const inactiveSubscriptionExtras = (
+  subscription: Stripe.Subscription
+): Partial<SubscriptionBillingExtras> => {
+  const end = subscriptionCurrentPeriodEndUnix(subscription);
+  return {
+    stripe_customer_id: getStripeCustomerIdFromField(subscription.customer),
+    stripe_subscription_id: subscription.id,
+    stripe_current_period_end: end !== null ? new Date(end * 1000).toISOString() : null,
+    stripe_cancel_at_period_end: subscription.cancel_at_period_end,
+    stripe_pending_tier: null,
+  };
+};
+
+const clearedSubscriptionExtras = (
+  subscription: Stripe.Subscription
+): Partial<SubscriptionBillingExtras> => ({
+  stripe_customer_id: getStripeCustomerIdFromField(subscription.customer),
+  stripe_subscription_id: null,
+  stripe_current_period_end: null,
+  stripe_cancel_at_period_end: false,
+  stripe_pending_tier: null,
+});
+
 export async function POST(req: Request) {
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!webhookSecret) {
@@ -271,19 +275,36 @@ export async function POST(req: Request) {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
         const userId = session.metadata?.user_id || session.client_reference_id || null;
-        const sessionTier = (session.metadata?.tier as SubscriptionTier | undefined) ?? "outperformer";
+        const subscriptionId =
+          typeof session.subscription === "string"
+            ? session.subscription
+            : session.subscription?.id ?? null;
+        const subscription = subscriptionId
+          ? await stripe.subscriptions.retrieve(subscriptionId)
+          : null;
+
+        const metaTier = session.metadata?.tier as SubscriptionTier | undefined;
+        const sessionTier =
+          metaTier === "supporter" || metaTier === "outperformer" ? metaTier : "free";
+        const tier = subscription
+          ? await resolveTierFromSubscription(stripe, subscription)
+          : sessionTier;
+        const extras = subscription
+          ? await buildSubscriptionBillingExtras(stripe, subscription)
+          : undefined;
+
         const context: EntitlementContext = {
           eventId: event.id,
           eventCreatedIso,
-          subscriptionStatus: "active",
+          subscriptionStatus: subscription?.status ?? "active",
         };
         if (userId) {
-          await applyTierByUserId(userId, null, sessionTier, context);
+          await applyBillingToUserId(userId, null, tier, context, extras);
           break;
         }
         const email = session.customer_details?.email || session.customer_email || null;
         if (email) {
-          await updateTierByEmail(email, sessionTier, context);
+          await updateTierByEmail(email, tier, context, extras);
         }
         break;
       }
@@ -306,15 +327,18 @@ export async function POST(req: Request) {
           eventCreatedIso,
           subscriptionStatus: subscription?.status ?? "active",
         };
-        const tier = subscription ? await resolveTierFromSubscription(stripe, subscription) : "outperformer";
+        const tier = subscription ? await resolveTierFromSubscription(stripe, subscription) : "free";
+        const extras = subscription
+          ? await buildSubscriptionBillingExtras(stripe, subscription)
+          : undefined;
         const userId = subscription?.metadata?.user_id || null;
         if (userId) {
-          await applyTierByUserId(userId, null, tier, context);
+          await applyBillingToUserId(userId, null, tier, context, extras);
           break;
         }
         const email = await resolveCustomerEmail(stripe, invoice.customer);
         if (email) {
-          await updateTierByEmail(email, tier, context);
+          await updateTierByEmail(email, tier, context, extras);
         }
         break;
       }
@@ -334,14 +358,24 @@ export async function POST(req: Request) {
           eventCreatedIso,
           subscriptionStatus: subscription?.status ?? "past_due",
         };
-        const userId = subscription?.metadata?.user_id || null;
+        if (!subscription) {
+          break;
+        }
+        const useFullBilling = keepsPaidEntitlementFromSubscription(subscription.status);
+        const tier = useFullBilling
+          ? await resolveTierFromSubscription(stripe, subscription)
+          : "free";
+        const extras = useFullBilling
+          ? await buildSubscriptionBillingExtras(stripe, subscription)
+          : inactiveSubscriptionExtras(subscription);
+        const userId = subscription.metadata?.user_id || null;
         if (userId) {
-          await applyTierByUserId(userId, null, "free", context);
+          await applyBillingToUserId(userId, null, tier, context, extras);
           break;
         }
         const email = await resolveCustomerEmail(stripe, invoice.customer);
         if (email) {
-          await updateTierByEmail(email, "free", context);
+          await updateTierByEmail(email, tier, context, extras);
         }
         break;
       }
@@ -352,46 +386,52 @@ export async function POST(req: Request) {
           eventCreatedIso,
           subscriptionStatus: subscription.status,
         };
+        const extras = clearedSubscriptionExtras(subscription);
         const userId = subscription.metadata?.user_id || null;
         if (userId) {
-          await applyTierByUserId(userId, null, "free", context);
+          await applyBillingToUserId(userId, null, "free", context, extras);
           break;
         }
         const email = await resolveCustomerEmail(stripe, subscription.customer);
         if (email) {
-          await updateTierByEmail(email, "free", context);
+          await updateTierByEmail(email, "free", context, extras);
         }
         break;
       }
       case "customer.subscription.updated": {
         const subscription = event.data.object as Stripe.Subscription;
-        const isActive = isPremiumSubscriptionStatus(subscription.status);
+        const useFullBilling = keepsPaidEntitlementFromSubscription(subscription.status);
         const context: EntitlementContext = {
           eventId: event.id,
           eventCreatedIso,
           subscriptionStatus: subscription.status,
         };
-        const tier = isActive ? await resolveTierFromSubscription(stripe, subscription) : "free";
+        const tier = useFullBilling
+          ? await resolveTierFromSubscription(stripe, subscription)
+          : "free";
+        const extras = useFullBilling
+          ? await buildSubscriptionBillingExtras(stripe, subscription)
+          : inactiveSubscriptionExtras(subscription);
         const userId = subscription.metadata?.user_id || null;
         if (userId) {
-          await applyTierByUserId(userId, null, tier, context);
+          await applyBillingToUserId(userId, null, tier, context, extras);
           break;
         }
         const email = await resolveCustomerEmail(stripe, subscription.customer);
         if (email) {
-          await updateTierByEmail(email, tier, context);
+          await updateTierByEmail(email, tier, context, extras);
         }
         break;
       }
       case "payment_method.attached": {
         const paymentMethod = event.data.object as Stripe.PaymentMethod;
-        const customerId = getCustomerIdFromUnknown(paymentMethod.customer);
+        const customerId = getStripeCustomerIdFromField(paymentMethod.customer);
         await maybeSwitchMigratedSubsToAutoCharge(stripe, customerId);
         break;
       }
       case "customer.updated": {
         const customer = event.data.object as Stripe.Customer;
-        const customerId = getCustomerIdFromUnknown(customer);
+        const customerId = getStripeCustomerIdFromField(customer);
         await maybeSwitchMigratedSubsToAutoCharge(stripe, customerId);
         break;
       }

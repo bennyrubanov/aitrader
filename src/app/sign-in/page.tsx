@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
@@ -22,7 +22,9 @@ import {
 import { useAuthState } from "@/components/auth/auth-state-context";
 import {
   DEFAULT_POST_AUTH_PATH,
+  parseSafeAuthRedirectPath,
   sanitizeAuthRedirectPath,
+  shouldPersistSignInReturnPath,
 } from "@/lib/auth-redirect";
 
 const methodBadge = (lastMethod: string | null, method: string) =>
@@ -46,31 +48,51 @@ function SignInPageContent() {
   const [passwordSetupEmail, setPasswordSetupEmail] = useState<string | null>(null);
   const [lastMethod, setLastMethod] = useState<string | null>(null);
   const oauthInFlightRef = useRef(false);
+  /** Post-auth destination: `?next=` if valid, else cookie (referrer / earlier save), else platform overview. */
+  const [resolvedNextPath, setResolvedNextPath] = useState(DEFAULT_POST_AUTH_PATH);
 
-  const nextPath = useMemo(
-    () => sanitizeAuthRedirectPath(searchParams.get("next"), DEFAULT_POST_AUTH_PATH),
-    [searchParams],
-  );
+  useLayoutEffect(() => {
+    const explicitSafe = parseSafeAuthRedirectPath(searchParams.get("next"));
+    if (explicitSafe) {
+      setResolvedNextPath(explicitSafe);
+      if (explicitSafe !== DEFAULT_POST_AUTH_PATH) {
+        savePreAuthReturnUrl(explicitSafe);
+      } else {
+        clearPreAuthReturnUrl();
+      }
+      return;
+    }
+
+    clearPreAuthReturnUrl();
+    if (typeof document !== "undefined" && document.referrer) {
+      try {
+        const ref = new URL(document.referrer);
+        if (ref.origin === window.location.origin) {
+          const refPath = ref.pathname + ref.search;
+          if (shouldPersistSignInReturnPath(refPath)) {
+            savePreAuthReturnUrl(refPath);
+          }
+        }
+      } catch {
+        /* ignore invalid referrer */
+      }
+    }
+
+    setResolvedNextPath(
+      parseSafeAuthRedirectPath(getPreAuthReturnUrl()) ?? DEFAULT_POST_AUTH_PATH,
+    );
+  }, [searchParams]);
 
   useEffect(() => {
     if (!isLoaded) return;
     if (isAuthenticated) {
-      router.replace(nextPath);
+      router.replace(resolvedNextPath);
     }
-  }, [isAuthenticated, isLoaded, nextPath, router]);
+  }, [isAuthenticated, isLoaded, resolvedNextPath, router]);
 
   useEffect(() => {
     setLastMethod(getLastSignInMethod());
   }, []);
-
-  useEffect(() => {
-    const explicit = searchParams.get("next");
-    if (explicit && explicit !== DEFAULT_POST_AUTH_PATH && explicit.startsWith("/")) {
-      savePreAuthReturnUrl(explicit);
-    } else {
-      clearPreAuthReturnUrl();
-    }
-  }, [searchParams]);
 
   useEffect(() => {
     [
@@ -84,8 +106,8 @@ function SignInPageContent() {
     ].forEach((href) => {
       router.prefetch(href);
     });
-    router.prefetch(nextPath);
-  }, [nextPath, router]);
+    router.prefetch(resolvedNextPath);
+  }, [resolvedNextPath, router]);
 
   useEffect(() => {
     const prefilledEmail = consumeAuthPrefillEmail();
@@ -114,7 +136,7 @@ function SignInPageContent() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`,
+        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(resolvedNextPath)}`,
       },
     });
 
@@ -169,13 +191,13 @@ function SignInPageContent() {
     setStatusMessage("Signed in successfully. Redirecting...");
     const returnUrl = getPreAuthReturnUrl();
     clearPreAuthReturnUrl();
-    if (returnUrl) {
-      router.push(sanitizeAuthRedirectPath(returnUrl, DEFAULT_POST_AUTH_PATH));
-    } else {
+    let target = sanitizeAuthRedirectPath(returnUrl, resolvedNextPath);
+    if (!returnUrl && target === DEFAULT_POST_AUTH_PATH) {
       const redirectRes = await fetch("/api/auth/post-login-redirect");
       const { redirectTo } = (await redirectRes.json()) as { redirectTo: string };
-      router.push(redirectTo ?? DEFAULT_POST_AUTH_PATH);
+      target = redirectTo ?? DEFAULT_POST_AUTH_PATH;
     }
+    router.push(target);
     router.refresh();
   };
 
@@ -277,7 +299,7 @@ function SignInPageContent() {
 
                   <div className="pt-1">
                     <Link
-                      href={`/forgot-password?next=${encodeURIComponent(nextPath)}`}
+                      href={`/forgot-password?next=${encodeURIComponent(resolvedNextPath)}`}
                       onClick={() => clearPreAuthReturnUrl()}
                       className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
                     >
@@ -292,7 +314,7 @@ function SignInPageContent() {
                         for the same account.
                       </p>
                       <Link
-                        href={`/forgot-password?next=${encodeURIComponent(nextPath)}&reason=create-password`}
+                        href={`/forgot-password?next=${encodeURIComponent(resolvedNextPath)}&reason=create-password`}
                         onClick={() => {
                           rememberAuthPrefillEmail(passwordSetupEmail);
                           clearPreAuthReturnUrl();
@@ -331,7 +353,7 @@ function SignInPageContent() {
                 <p className="mt-5 text-center text-sm text-muted-foreground">
                   Don&apos;t have an account?{" "}
                   <Link
-                    href={`/sign-up?next=${encodeURIComponent(nextPath)}`}
+                    href={`/sign-up?next=${encodeURIComponent(resolvedNextPath)}`}
                     onClick={() => clearPreAuthReturnUrl()}
                     className="font-medium text-foreground underline underline-offset-4"
                   >

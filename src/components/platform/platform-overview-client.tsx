@@ -45,6 +45,12 @@ import { HoldingRankWithChange } from '@/components/platform/holding-rank-with-c
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
 import { PortfolioOnboardingDialog } from '@/components/platform/portfolio-onboarding-dialog';
 import { USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT } from '@/components/platform/portfolio-unfollow-toast';
+import {
+  PLATFORM_POST_ONBOARDING_TOUR_PRIMED_EVENT,
+  PLATFORM_POST_ONBOARDING_TOUR_REQUEST_READINESS_EVENT,
+  PLATFORM_POST_ONBOARDING_TOUR_SHELL_READY_EVENT,
+  PLATFORM_TOUR_SHELL_READY_ATTR,
+} from '@/lib/platform-post-onboarding-tour';
 import { UserPortfolioEntrySettingsDialog } from '@/components/platform/user-portfolio-entry-settings-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
@@ -149,6 +155,9 @@ const OVERVIEW_TILE_ROW_HEIGHT = '26rem';
 
 /** Matches `INITIAL_CAPITAL` in config performance / model track rows before user-specific rebase. */
 const OVERVIEW_MODEL_INITIAL = 10_000;
+
+/** Abort bootstrap GET if it hangs so the overview skeleton cannot stay forever. */
+const OVERVIEW_PROFILE_FETCH_TIMEOUT_MS = 25_000;
 
 const OVERVIEW_PAGE_QUICK_LINKS: {
   href: string;
@@ -1024,6 +1033,8 @@ function RebalanceActionsTable({
                   <div className="min-w-0">
                     <Link
                       href={`/stocks/${r.symbol.toLowerCase()}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
                       className="font-semibold text-foreground hover:underline"
                     >
                       {r.symbol}
@@ -1486,6 +1497,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
               const tier = j.subscriptionTier;
               if (tier === 'supporter' || tier === 'outperformer') {
                 await refreshAuthProfile();
+                router.refresh();
                 resetOnboarding();
                 setOnboardingDevKey((k) => k + 1);
                 stripCheckoutQueryParams();
@@ -1500,6 +1512,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
 
         if (cancelled) return;
         await refreshAuthProfile();
+        router.refresh();
         stripCheckoutQueryParams();
       } finally {
         postCheckoutReconcileInFlight.current = false;
@@ -1520,6 +1533,8 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     searchParams,
   ]);
   const [loading, setLoading] = useState(true);
+  const [profileLoadError, setProfileLoadError] = useState<string | null>(null);
+  const [profileFetchNonce, setProfileFetchNonce] = useState(0);
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
   const [overviewSlotAssignments, setOverviewSlotAssignments] = useState<Map<number, string>>(
     () => new Map()
@@ -1594,62 +1609,42 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
 
   useEffect(() => {
     let mounted = true;
-    if (!authState.isLoaded) return;
+    if (!authState.isLoaded || authState.isAuthenticated) return;
 
-    if (!authState.isAuthenticated) {
-      if (!portfolioConfigHydrated || !isOnboardingDone) {
+    setProfileLoadError(null);
+    if (!portfolioConfigHydrated || !isOnboardingDone) {
+      setProfiles([]);
+      setOverviewSlotAssignments(new Map());
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    const strategy =
+      strategies.find((s) => s.slug === portfolioConfigCtx.strategySlug) ?? strategies[0] ?? null;
+    let entryYmd = portfolioEntryDate?.trim() ?? '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(entryYmd)) {
+      try {
+        const fromStore = localStorage.getItem(ENTRY_DATE_KEY);
+        if (fromStore && /^\d{4}-\d{2}-\d{2}$/.test(fromStore)) entryYmd = fromStore;
+      } catch {
+        // ignore
+      }
+    }
+    void buildGuestLocalProfileRows(
+      portfolioConfigCtx,
+      entryYmd || null,
+      strategy
+    ).then((rows) => {
+      if (!mounted) return;
+      if (rows) {
+        setProfiles([normalizeOverviewProfile(rows.overview as ProfileRow)]);
+        setOverviewSlotAssignments(new Map([[1, rows.overview.id]]));
+      } else {
         setProfiles([]);
         setOverviewSlotAssignments(new Map());
-        setLoading(false);
-        return;
       }
-      setLoading(true);
-      const strategy =
-        strategies.find((s) => s.slug === portfolioConfigCtx.strategySlug) ?? strategies[0] ?? null;
-      let entryYmd = portfolioEntryDate?.trim() ?? '';
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(entryYmd)) {
-        try {
-          const fromStore = localStorage.getItem(ENTRY_DATE_KEY);
-          if (fromStore && /^\d{4}-\d{2}-\d{2}$/.test(fromStore)) entryYmd = fromStore;
-        } catch {
-          // ignore
-        }
-      }
-      void buildGuestLocalProfileRows(
-        portfolioConfigCtx,
-        entryYmd || null,
-        strategy
-      ).then((rows) => {
-        if (!mounted) return;
-        if (rows) {
-          setProfiles([normalizeOverviewProfile(rows.overview as ProfileRow)]);
-          setOverviewSlotAssignments(new Map([[1, rows.overview.id]]));
-        } else {
-          setProfiles([]);
-          setOverviewSlotAssignments(new Map());
-        }
-        setLoading(false);
-      });
-      return () => {
-        mounted = false;
-      };
-    }
-
-    setLoading(true);
-    void fetch('/api/platform/user-portfolio-profile', { cache: 'no-store' })
-      .then((r) => r.json())
-      .then((d: { profiles?: ProfileRow[]; overviewSlotAssignments?: Record<string, string> }) => {
-        if (!mounted) return;
-        const raw = d.profiles ?? [];
-        setProfiles(raw.map((p) => normalizeOverviewProfile({ ...p } as ProfileRow)));
-        setOverviewSlotAssignments(parseOverviewSlotAssignments(d.overviewSlotAssignments));
-      })
-      .catch(() => {
-        if (mounted) setProfiles([]);
-      })
-      .finally(() => {
-        if (mounted) setLoading(false);
-      });
+      setLoading(false);
+    });
     return () => {
       mounted = false;
     };
@@ -1661,6 +1656,68 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     portfolioConfigCtx,
     portfolioEntryDate,
     strategies,
+  ]);
+
+  useEffect(() => {
+    let mounted = true;
+    if (!authState.isLoaded || !authState.isAuthenticated) return;
+
+    setProfileLoadError(null);
+    setLoading(true);
+    const ac = new AbortController();
+    const timeoutId = window.setTimeout(() => ac.abort(), OVERVIEW_PROFILE_FETCH_TIMEOUT_MS);
+
+    void fetch('/api/platform/user-portfolio-profile', { cache: 'no-store', signal: ac.signal })
+      .then(async (r) => {
+        if (!mounted) return;
+        if (!r.ok) {
+          const body = (await r.json().catch(() => ({}))) as { error?: string };
+          const msg =
+            typeof body.error === 'string'
+              ? body.error
+              : `Could not load portfolios (${r.status}).`;
+          setProfileLoadError(msg);
+          setProfiles([]);
+          setOverviewSlotAssignments(new Map());
+          return;
+        }
+        const d = (await r.json()) as {
+          profiles?: ProfileRow[];
+          overviewSlotAssignments?: Record<string, string>;
+        };
+        const raw = d.profiles ?? [];
+        setProfiles(raw.map((p) => normalizeOverviewProfile({ ...p } as ProfileRow)));
+        setOverviewSlotAssignments(parseOverviewSlotAssignments(d.overviewSlotAssignments));
+        setProfileLoadError(null);
+      })
+      .catch((e: unknown) => {
+        if (!mounted) return;
+        setProfiles([]);
+        setOverviewSlotAssignments(new Map());
+        const isAbort =
+          e instanceof DOMException
+            ? e.name === 'AbortError'
+            : e instanceof Error && e.name === 'AbortError';
+        if (isAbort) {
+          setProfileLoadError('Loading took too long. Check your connection and try again.');
+        } else {
+          setProfileLoadError('Could not load your portfolios.');
+        }
+      })
+      .finally(() => {
+        window.clearTimeout(timeoutId);
+        if (mounted) setLoading(false);
+      });
+
+    return () => {
+      mounted = false;
+      window.clearTimeout(timeoutId);
+      ac.abort();
+    };
+  }, [
+    authState.isAuthenticated,
+    authState.isLoaded,
+    profileFetchNonce,
   ]);
 
   const { slotDisplay, overviewTrackedProfiles, visibleSlotCount } = useMemo(() => {
@@ -1756,6 +1813,69 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   }, [profiles, cardState, overviewUserCompositeByProfileId]);
 
   const spotlightSectionLoading = overviewPerfDataLoading;
+
+  /** Post-onboarding tour: emit when overview content + shell account chrome are ready (no time-based fallback). */
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const shellSelector = `[${PLATFORM_TOUR_SHELL_READY_ATTR}="1"]`;
+    let cancelled = false;
+    let raf1 = 0;
+    let raf2 = 0;
+
+    const tryEmitPrimed = () => {
+      if (cancelled) return;
+      if (!authState.isLoaded || !portfolioConfigHydrated || loading) return;
+      if (authState.isAuthenticated && profileLoadError) return;
+      if (profiles.length === 0) return;
+      if (spotlightSectionLoading) return;
+      if (topSpotlightOverview && topSpotlightHoldingsLoading) return;
+
+      const panel = document.querySelector(
+        '[data-platform-tour="overview-top-portfolio-panel"][data-platform-tour-overview-ready="1"]'
+      );
+      if (!panel || !document.querySelector(shellSelector)) return;
+      const r = panel.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) return;
+
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+      raf1 = window.requestAnimationFrame(() => {
+        raf2 = window.requestAnimationFrame(() => {
+          if (!cancelled) {
+            window.dispatchEvent(new Event(PLATFORM_POST_ONBOARDING_TOUR_PRIMED_EVENT));
+          }
+        });
+      });
+    };
+
+    const onTourSignal = () => {
+      tryEmitPrimed();
+    };
+
+    window.addEventListener(PLATFORM_POST_ONBOARDING_TOUR_REQUEST_READINESS_EVENT, onTourSignal);
+    window.addEventListener(PLATFORM_POST_ONBOARDING_TOUR_SHELL_READY_EVENT, onTourSignal);
+    tryEmitPrimed();
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+      window.removeEventListener(PLATFORM_POST_ONBOARDING_TOUR_REQUEST_READINESS_EVENT, onTourSignal);
+      window.removeEventListener(PLATFORM_POST_ONBOARDING_TOUR_SHELL_READY_EVENT, onTourSignal);
+    };
+  }, [
+    authState.isAuthenticated,
+    authState.isLoaded,
+    portfolioConfigHydrated,
+    loading,
+    profileLoadError,
+    profiles.length,
+    pathname,
+    spotlightSectionLoading,
+    topSpotlightOverview,
+    topSpotlightHoldingsLoading,
+  ]);
 
   const [slotPickerOpen, setSlotPickerOpen] = useState(false);
   const [pickerTargetSlot, setPickerTargetSlot] = useState<number | null>(null);
@@ -1894,7 +2014,9 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
       portfolioMovementInflight.clear();
       overviewMovementWarmStartedRef.current.clear();
       setMovementRefreshEpoch((e) => e + 1);
-      void refreshOverviewProfiles();
+      // Re-run the authenticated profile effect (abort + loading) so POST-follow data isn’t missed
+      // when the prior fetch returned [] or the tree remounted.
+      setProfileFetchNonce((n) => n + 1);
     };
     window.addEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, handler);
     return () => window.removeEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, handler);
@@ -2092,6 +2214,8 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
       overviewUserEntryFetchStartedRef.current.set(key, fp);
       toStart.push(p);
     }
+
+    if (toStart.length === 0) return;
 
     const runId = ++overviewUserEntryRunIdRef.current;
     let cancelled = false;
@@ -2657,7 +2781,44 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                 <OverviewTopPortfolioSpotlightSkeleton />
               </div>
             </div>
-          ) : !authState.isAuthenticated && !isOnboardingDone ? null : !authState.isAuthenticated &&
+          ) : profileLoadError && authState.isAuthenticated ? (
+            <Card className="border-destructive/40">
+              <CardHeader>
+                <CardTitle className="text-base">Could not load overview</CardTitle>
+                <CardDescription>{profileLoadError}</CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => {
+                    setProfileLoadError(null);
+                    setProfileFetchNonce((n) => n + 1);
+                  }}
+                >
+                  Try again
+                </Button>
+                <Button type="button" size="sm" variant="outline" onClick={() => router.refresh()}>
+                  Refresh page
+                </Button>
+              </CardContent>
+            </Card>
+          ) : !authState.isAuthenticated && !isOnboardingDone ? (
+            <Card className="border-dashed">
+              <CardHeader>
+                <CardTitle className="text-base">Set up your overview</CardTitle>
+                <CardDescription>
+                  Complete the short setup, or browse Explore portfolios and follow one to populate this
+                  page.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button asChild size="sm">
+                  <Link href="/platform/explore-portfolios">Explore portfolios</Link>
+                </Button>
+              </CardContent>
+            </Card>
+          ) : !authState.isAuthenticated &&
             isOnboardingDone &&
             profiles.length === 0 ? (
             <Card>
@@ -2683,12 +2844,16 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                 <CardHeader>
                   <CardTitle className="text-base">No portfolios yet</CardTitle>
                   <CardDescription>
-                    Choose a starting portfolio configuration. You can follow more from Explore
-                    Portfolios later.
+                    {isOnboardingDone
+                      ? 'Follow a portfolio from Explore portfolios to see your top performer and rebalance guidance here.'
+                      : 'Finish the setup dialog, or follow a portfolio from Explore portfolios when you’re ready.'}
                   </CardDescription>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="flex flex-wrap gap-2">
                   <Button asChild size="sm">
+                    <Link href="/platform/explore-portfolios">Explore portfolios</Link>
+                  </Button>
+                  <Button asChild size="sm" variant="outline">
                     <Link href="/platform/your-portfolios">Your portfolios</Link>
                   </Button>
                 </CardContent>
@@ -2728,6 +2893,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                 <TabsTrigger
                                   value="rebalance-actions"
                                   disabled
+                                  data-platform-tour="overview-rebalance-tab"
                                   className="w-full rounded-md px-3 py-2 text-xs font-medium data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm sm:py-1.5 sm:text-sm"
                                 >
                                   <span className="inline-flex items-center gap-1.5">
@@ -2751,6 +2917,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                         ) : (
                           <TabsTrigger
                             value="rebalance-actions"
+                            data-platform-tour="overview-rebalance-tab"
                             className="rounded-md px-3 py-2 text-xs font-medium data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm sm:py-1.5 sm:text-sm"
                           >
                             <span className="inline-flex items-center gap-1.5">Rebalance Actions</span>
@@ -2777,6 +2944,9 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                 value="top-portfolio"
                 forceMount
                 data-platform-tour="overview-top-portfolio-panel"
+                {...(!spotlightSectionLoading && !(topSpotlightOverview && topSpotlightHoldingsLoading)
+                  ? { 'data-platform-tour-overview-ready': '1' }
+                  : {})}
                 className="mt-0 space-y-2 ring-offset-0 focus-visible:outline-none focus-visible:ring-0 data-[state=inactive]:hidden"
               >
                 <div className="space-y-2">

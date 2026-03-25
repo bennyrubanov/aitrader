@@ -4,7 +4,9 @@ import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import {
+  PLATFORM_POST_ONBOARDING_TOUR_PRIMED_EVENT,
   PLATFORM_POST_ONBOARDING_TOUR_QUEUED_EVENT,
+  PLATFORM_POST_ONBOARDING_TOUR_REQUEST_READINESS_EVENT,
   PLATFORM_POST_ONBOARDING_TOUR_STEPS,
   consumePlatformPostOnboardingTourQueue,
   getPlatformPostOnboardingTourNavigationPath,
@@ -38,6 +40,8 @@ export function PostOnboardingPlatformTour() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [active, setActive] = useState(false);
+  /** True only after step 0 targets exist in the DOM so the page loads visibly before the overlay. */
+  const [tourReady, setTourReady] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
   const [targetRects, setTargetRects] = useState<DOMRect[]>([]);
   const [viewport, setViewport] = useState({ w: 0, h: 0 });
@@ -49,6 +53,7 @@ export function PostOnboardingPlatformTour() {
   const tryStartTour = () => {
     if (isPlatformPostOnboardingTourDone()) return;
     if (!consumePlatformPostOnboardingTourQueue()) return;
+    setTourReady(false);
     setActive(true);
     setStepIndex(0);
   };
@@ -79,8 +84,39 @@ export function PostOnboardingPlatformTour() {
     didScrollForStepRef.current = -1;
   }, [stepIndex]);
 
+  /** Navigate to step 0 as soon as the tour is armed; overlay waits for overview readiness event. */
   useEffect(() => {
-    if (!active) return;
+    if (!active || tourReady) return;
+
+    const nextPath = getPlatformPostOnboardingTourNavigationPath(0, pathname);
+    const qs = searchParams.toString();
+    const currentUrl = qs ? `${pathname}?${qs}` : pathname;
+
+    if (nextPath !== currentUrl) {
+      if (lastReplacedPathRef.current !== nextPath) {
+        lastReplacedPathRef.current = nextPath;
+        router.replace(nextPath);
+      }
+    } else {
+      lastReplacedPathRef.current = nextPath;
+    }
+  }, [active, tourReady, pathname, searchParams, router]);
+
+  /** Show the tour only after the overview + shell readiness handshake (no timeout fallback). */
+  useEffect(() => {
+    if (!active || tourReady) return;
+
+    const onPrimed = () => {
+      setTourReady(true);
+    };
+    window.addEventListener(PLATFORM_POST_ONBOARDING_TOUR_PRIMED_EVENT, onPrimed);
+    window.dispatchEvent(new Event(PLATFORM_POST_ONBOARDING_TOUR_REQUEST_READINESS_EVENT));
+
+    return () => window.removeEventListener(PLATFORM_POST_ONBOARDING_TOUR_PRIMED_EVENT, onPrimed);
+  }, [active, tourReady, pathname]);
+
+  useEffect(() => {
+    if (!active || !tourReady) return;
 
     const selectors = PLATFORM_POST_ONBOARDING_TOUR_STEPS[stepIndex].anchors;
     const nextPath = getPlatformPostOnboardingTourNavigationPath(stepIndex, pathname);
@@ -178,11 +214,12 @@ export function PostOnboardingPlatformTour() {
       window.removeEventListener('scroll', onResizeOrScroll, true);
       ro.disconnect();
     };
-  }, [active, stepIndex, pathname, searchParams, router]);
+  }, [active, tourReady, stepIndex, pathname, searchParams, router]);
 
   const finishTour = () => {
     markPlatformPostOnboardingTourDone();
     lastReplacedPathRef.current = null;
+    setTourReady(false);
     setActive(false);
     setTargetRects([]);
   };
@@ -204,7 +241,7 @@ export function PostOnboardingPlatformTour() {
     setStepIndex((i) => i + 1);
   };
 
-  if (!active) return null;
+  if (!active || !tourReady) return null;
 
   const step = PLATFORM_POST_ONBOARDING_TOUR_STEPS[stepIndex];
   const isLast = stepIndex === STEP_COUNT - 1;

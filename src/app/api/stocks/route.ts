@@ -13,22 +13,6 @@ type RatingBucket = 'buy' | 'hold' | 'sell' | null;
 export async function GET() {
   try {
     const stocks = await getAllStocks();
-    const admin = createAdminClient();
-    const { data: ratingsRows, error: ratingsError } = await admin
-      .from('nasdaq100_recommendations_current_public')
-      .select('bucket, stocks(symbol)');
-
-    if (ratingsError) {
-      throw new Error(`Unable to load current ratings: ${ratingsError.message}`);
-    }
-
-    const ratingBySymbol = new Map<string, RatingBucket>();
-    (ratingsRows ?? []).forEach((row) => {
-      const stock = Array.isArray(row.stocks) ? row.stocks[0] : row.stocks;
-      const symbol = stock?.symbol?.toUpperCase?.();
-      if (!symbol) return;
-      ratingBySymbol.set(symbol, (row.bucket as RatingBucket) ?? null);
-    });
 
     const supabase = await createClient();
     const {
@@ -43,6 +27,32 @@ export async function GET() {
         .eq('id', user.id)
         .maybeSingle();
       access = getAppAccessState(buildAuthStateFromUserAndProfile(user, profile, Boolean(profileError)));
+    }
+
+    const ratingBySymbol = new Map<string, RatingBucket>();
+
+    if (access !== 'guest') {
+      const admin = createAdminClient();
+      const ratingsQuery =
+        access === 'free'
+          ? admin
+              .from('nasdaq100_recommendations_current_public')
+              .select('bucket, stocks!inner(symbol, is_premium_stock)')
+              .eq('stocks.is_premium_stock', false)
+          : admin.from('nasdaq100_recommendations_current_public').select('bucket, stocks(symbol)');
+
+      const { data: ratingsRows, error: ratingsError } = await ratingsQuery;
+
+      if (ratingsError) {
+        throw new Error(`Unable to load current ratings: ${ratingsError.message}`);
+      }
+
+      (ratingsRows ?? []).forEach((row) => {
+        const stock = Array.isArray(row.stocks) ? row.stocks[0] : row.stocks;
+        const symbol = stock?.symbol?.toUpperCase?.();
+        if (!symbol) return;
+        ratingBySymbol.set(symbol, (row.bucket as RatingBucket) ?? null);
+      });
     }
 
     const payload = stocks.map((stock) => {

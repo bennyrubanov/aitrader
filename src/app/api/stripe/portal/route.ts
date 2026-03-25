@@ -26,6 +26,8 @@ const getSiteUrl = (request: Request) => {
   throw new Error("Missing NEXT_PUBLIC_SITE_URL");
 };
 
+type StripePortalFlow = "default" | "subscription_update" | "subscription_cancel";
+
 export async function POST(req: Request) {
   try {
     const supabase = await createServerClient();
@@ -37,9 +39,19 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    let flow: StripePortalFlow = "default";
+    try {
+      const body = (await req.json().catch(() => ({}))) as { flow?: string };
+      if (body.flow === "subscription_update" || body.flow === "subscription_cancel") {
+        flow = body.flow;
+      }
+    } catch {
+      // ignore invalid JSON
+    }
+
     const { data: profile } = await supabase
       .from("user_profiles")
-      .select("email")
+      .select("email, stripe_customer_id, stripe_subscription_id")
       .eq("id", user.id)
       .single();
 
@@ -49,13 +61,17 @@ export async function POST(req: Request) {
     }
 
     const stripe = getStripeClient();
-    const customers = await stripe.customers.list({
-      email: userEmail,
-      limit: 1,
-    });
+    let customerId = profile?.stripe_customer_id ?? null;
 
-    const customer = customers.data[0];
-    if (!customer?.id) {
+    if (!customerId) {
+      const customers = await stripe.customers.list({
+        email: userEmail,
+        limit: 1,
+      });
+      customerId = customers.data[0]?.id ?? null;
+    }
+
+    if (!customerId) {
       return NextResponse.json(
         { error: "No Stripe customer found for this account" },
         { status: 404 }
@@ -63,10 +79,65 @@ export async function POST(req: Request) {
     }
 
     const siteUrl = getSiteUrl(req);
-    const session = await stripe.billingPortal.sessions.create({
-      customer: customer.id,
-      return_url: `${siteUrl}/platform/settings`,
-    });
+    const returnUrl = new URL("/platform/settings", siteUrl);
+    returnUrl.searchParams.set("billing", "1");
+    const returnUrlString = returnUrl.toString();
+
+    let subscriptionId = profile?.stripe_subscription_id ?? null;
+    if (
+      (flow === "subscription_update" || flow === "subscription_cancel") &&
+      !subscriptionId
+    ) {
+      const subs = await stripe.subscriptions.list({
+        customer: customerId,
+        status: "all",
+        limit: 20,
+      });
+      const premium = subs.data.find(
+        (s) => s.status === "active" || s.status === "trialing" || s.status === "past_due"
+      );
+      subscriptionId = premium?.id ?? subs.data[0]?.id ?? null;
+    }
+
+    if (flow === "subscription_update" || flow === "subscription_cancel") {
+      if (!subscriptionId) {
+        return NextResponse.json(
+          { error: "No subscription found to manage. Start checkout from Pricing if you are on the free plan." },
+          { status: 400 }
+        );
+      }
+    }
+
+    const baseParams: Stripe.BillingPortal.SessionCreateParams = {
+      customer: customerId,
+      return_url: returnUrlString,
+    };
+
+    let session: Stripe.Response<Stripe.BillingPortal.Session>;
+
+    if (flow === "subscription_update") {
+      session = await stripe.billingPortal.sessions.create({
+        ...baseParams,
+        flow_data: {
+          type: "subscription_update",
+          subscription_update: {
+            subscription: subscriptionId!,
+          },
+        },
+      });
+    } else if (flow === "subscription_cancel") {
+      session = await stripe.billingPortal.sessions.create({
+        ...baseParams,
+        flow_data: {
+          type: "subscription_cancel",
+          subscription_cancel: {
+            subscription: subscriptionId!,
+          },
+        },
+      });
+    } else {
+      session = await stripe.billingPortal.sessions.create(baseParams);
+    }
 
     return NextResponse.json({ url: session.url });
   } catch (error) {

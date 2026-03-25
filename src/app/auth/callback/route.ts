@@ -18,6 +18,10 @@ export async function GET(request: Request) {
   /** OAuth 2.0 error from provider (e.g. access_denied) — not a stale PKCE duplicate. */
   const oauthError = searchParams.get('error');
   const requestedNextPath = parseSafeAuthRedirectPath(searchParams.get('next'));
+  const preAuthFromCookie = parsePreAuthReturnUrlFromCookies(request.headers.get('cookie'));
+  /** Prefer callback `next`, then return cookie (e.g. if provider strips query on error redirect). */
+  const resolvedNextHint =
+    requestedNextPath ?? preAuthFromCookie ?? DEFAULT_POST_AUTH_PATH;
   const supabase = await createClient();
   const base = resolveBaseUrl(request, origin);
 
@@ -38,12 +42,12 @@ export async function GET(request: Request) {
   };
 
   const redirectToAuthError = (reason: 'oauth' | 'missing_callback') =>
-    NextResponse.redirect(`${base}/auth/auth-code-error?reason=${reason}`);
+    NextResponse.redirect(
+      `${base}/auth/auth-code-error?reason=${reason}&next=${encodeURIComponent(resolvedNextHint)}`,
+    );
 
-  const redirectToSignInRecovery = () => {
-    const fallbackNext = requestedNextPath ?? DEFAULT_POST_AUTH_PATH;
-    return NextResponse.redirect(`${base}/sign-in?next=${encodeURIComponent(fallbackNext)}`);
-  };
+  const redirectToSignInRecovery = () =>
+    NextResponse.redirect(`${base}/sign-in?next=${encodeURIComponent(resolvedNextHint)}`);
 
   // Provider explicitly returned an error — show a real error path after session recovery.
   if (oauthError) {

@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { createClient as createServerClient } from "@/utils/supabase/server";
+import { createAdminClient } from "@/utils/supabase/admin";
 import type { SubscriptionTier } from "@/lib/auth-state";
+import {
+  buildSubscriptionBillingExtras,
+  resolveTierFromSubscription,
+} from "@/lib/stripe-tier";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,35 +20,7 @@ const getStripeClient = () => {
 };
 
 const isPremiumStatus = (status: Stripe.Subscription.Status) =>
-  status === "active" || status === "trialing";
-
-const resolveTierFromSubscription = async (
-  stripe: Stripe,
-  subscription: Stripe.Subscription
-): Promise<SubscriptionTier> => {
-  const metaTier = subscription.metadata?.tier as SubscriptionTier | undefined;
-  if (metaTier === "supporter" || metaTier === "outperformer") {
-    return metaTier;
-  }
-
-  try {
-    const priceId = subscription.items.data[0]?.price?.id;
-    if (!priceId) return "outperformer";
-
-    const price = await stripe.prices.retrieve(priceId, { expand: ["product"] });
-    const product = price.product as Stripe.Product | null;
-    if (!product || "deleted" in product) return "outperformer";
-
-    const productTier = product.metadata?.tier as SubscriptionTier | undefined;
-    if (productTier === "supporter" || productTier === "outperformer") {
-      return productTier;
-    }
-  } catch {
-    // ignore
-  }
-
-  return "outperformer";
-};
+  status === "active" || status === "trialing" || status === "past_due";
 
 export async function POST() {
   try {
@@ -58,7 +35,9 @@ export async function POST() {
 
     const { data: existingProfile } = await supabase
       .from("user_profiles")
-      .select("email, subscription_tier, stripe_subscription_status")
+      .select(
+        "email, subscription_tier, stripe_subscription_status, stripe_current_period_end, stripe_cancel_at_period_end, stripe_pending_tier"
+      )
       .eq("id", user.id)
       .maybeSingle();
 
@@ -73,34 +52,70 @@ export async function POST() {
       limit: 10,
     });
 
-    let matchedTier: SubscriptionTier = "free";
-    let matchedStatus: Stripe.Subscription.Status | null = null;
+    let matchedSub: Stripe.Subscription | null = null;
 
-    for (const customer of customers.data) {
+    outer: for (const customer of customers.data) {
       const subscriptions = await stripe.subscriptions.list({
         customer: customer.id,
         status: "all",
         limit: 100,
       });
 
-      const activeSub = subscriptions.data.find((sub) => isPremiumStatus(sub.status));
-      if (activeSub) {
-        matchedStatus = activeSub.status;
-        matchedTier = await resolveTierFromSubscription(stripe, activeSub);
-        break;
+      for (const sub of subscriptions.data) {
+        if (isPremiumStatus(sub.status)) {
+          matchedSub = sub;
+          break outer;
+        }
       }
     }
 
-    const reconciledTier: SubscriptionTier =
-      matchedStatus ? matchedTier : ((existingProfile?.subscription_tier as SubscriptionTier) ?? "free");
-    const subscriptionStatus = matchedStatus ?? existingProfile?.stripe_subscription_status ?? null;
+    const admin = createAdminClient();
 
-    const { error: upsertError } = await supabase.from("user_profiles").upsert(
+    if (!matchedSub) {
+      const reconciledTier: SubscriptionTier =
+        (existingProfile?.subscription_tier as SubscriptionTier) ?? "free";
+      const subscriptionStatus =
+        (existingProfile?.stripe_subscription_status as Stripe.Subscription.Status | null) ?? null;
+
+      const { error: upsertError } = await admin.from("user_profiles").upsert(
+        {
+          id: user.id,
+          email: userEmail,
+          subscription_tier: reconciledTier,
+          stripe_subscription_status: subscriptionStatus,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "id" }
+      );
+
+      if (upsertError) {
+        return NextResponse.json({ error: upsertError.message }, { status: 500 });
+      }
+
+      return NextResponse.json({
+        subscriptionTier: reconciledTier,
+        isPremium: reconciledTier !== "free",
+        stripeSubscriptionStatus: subscriptionStatus,
+        stripeCurrentPeriodEnd: existingProfile?.stripe_current_period_end ?? null,
+        stripeCancelAtPeriodEnd: Boolean(existingProfile?.stripe_cancel_at_period_end),
+        stripePendingTier: (existingProfile?.stripe_pending_tier as SubscriptionTier | null) ?? null,
+      });
+    }
+
+    const matchedTier = await resolveTierFromSubscription(stripe, matchedSub);
+    const extras = await buildSubscriptionBillingExtras(stripe, matchedSub);
+
+    const { error: upsertError } = await admin.from("user_profiles").upsert(
       {
         id: user.id,
         email: userEmail,
-        subscription_tier: reconciledTier,
-        stripe_subscription_status: subscriptionStatus,
+        subscription_tier: matchedTier,
+        stripe_subscription_status: matchedSub.status,
+        stripe_customer_id: extras.stripe_customer_id,
+        stripe_subscription_id: extras.stripe_subscription_id,
+        stripe_current_period_end: extras.stripe_current_period_end,
+        stripe_cancel_at_period_end: extras.stripe_cancel_at_period_end,
+        stripe_pending_tier: extras.stripe_pending_tier,
         updated_at: new Date().toISOString(),
       },
       { onConflict: "id" }
@@ -111,9 +126,12 @@ export async function POST() {
     }
 
     return NextResponse.json({
-      subscriptionTier: reconciledTier,
-      isPremium: reconciledTier !== "free",
-      stripeSubscriptionStatus: subscriptionStatus,
+      subscriptionTier: matchedTier,
+      isPremium: matchedTier !== "free",
+      stripeSubscriptionStatus: matchedSub.status,
+      stripeCurrentPeriodEnd: extras.stripe_current_period_end,
+      stripeCancelAtPeriodEnd: extras.stripe_cancel_at_period_end,
+      stripePendingTier: extras.stripe_pending_tier,
     });
   } catch (error) {
     return NextResponse.json(

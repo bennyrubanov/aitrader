@@ -20,7 +20,9 @@ export const getInitialAuthState = async (): Promise<AuthState> => {
 
     const { data, error } = await supabase
       .from("user_profiles")
-      .select("subscription_tier, full_name, email, portfolio_onboarding_done")
+      .select(
+        "subscription_tier, full_name, email, portfolio_onboarding_done, stripe_current_period_end, stripe_cancel_at_period_end, stripe_pending_tier"
+      )
       .eq("id", user.id)
       .maybeSingle();
 

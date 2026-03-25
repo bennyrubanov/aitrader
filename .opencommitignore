@@ -1,0 +1,3 @@
+# Build cache — huge, useless for commit messages
+tsconfig.tsbuildinfo
+*.tsbuildinfo

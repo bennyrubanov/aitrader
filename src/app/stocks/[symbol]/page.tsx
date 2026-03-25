@@ -1,7 +1,15 @@
 import type { Metadata } from 'next';
 import StockDetailClient from '@/components/StockDetailClient';
-import { getAppAccessState, type AppAccessState } from '@/lib/app-access';
+import type { SubscriptionTier } from '@/lib/auth-state';
+import {
+  canQueryStockCurrentRecommendation,
+  getAppAccessState,
+  type AppAccessState,
+} from '@/lib/app-access';
 import { buildAuthStateFromUserAndProfile } from '@/lib/build-auth-state';
+import { getStrategiesList, type StrategyListItem } from '@/lib/platform-performance-payload';
+import { allowedStrategyIdsForSubscriptionTier } from '@/lib/strategy-plan-access';
+import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import { getAllStocks } from '@/lib/stocks-cache';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { createClient } from '@/utils/supabase/server';
@@ -20,6 +28,35 @@ type StockDetailPageProps = {
 export const dynamicParams = true;
 /** Per-session tier affects which rating fields are sent; do not statically cache HTML. */
 export const dynamic = 'force-dynamic';
+
+/** Stable locale so server HTML matches client hydration for timestamps. */
+const STOCK_DETAIL_LOCALE = 'en-US';
+
+function formatDetailDateTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) {
+    return iso;
+  }
+  return d.toLocaleString(STOCK_DETAIL_LOCALE, {
+    weekday: 'short',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZoneName: 'short',
+  });
+}
+
+function formatSessionDayUtc(runDate: string): string {
+  return new Date(`${runDate}T12:00:00Z`).toLocaleDateString(STOCK_DETAIL_LOCALE, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
+}
 
 const decodeXmlEntities = (value: string) =>
   value
@@ -132,13 +169,7 @@ function latestForAccess(
     updated_at: string | null;
   } | null
 ) {
-  if (!row) {
-    return emptyLatest();
-  }
-  if (access === 'guest') {
-    return emptyLatest();
-  }
-  if (access === 'free' && isPremiumStock) {
+  if (!row || !canQueryStockCurrentRecommendation(access, isPremiumStock)) {
     return emptyLatest();
   }
   return {
@@ -173,6 +204,7 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
     percentage_change: string | null;
     delta_indicator: string | null;
     run_date: string | null;
+    created_at: string | null;
   } | null = null;
   let currentRow: {
     score: number | null;
@@ -181,7 +213,6 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
     bucket: 'buy' | 'hold' | 'sell' | null;
     updated_at: string | null;
   } | null = null;
-
   let access: AppAccessState = 'guest';
   const sessionSupabase = await createClient();
   const {
@@ -208,14 +239,19 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
 
     const { data: fetchedPriceRow } = await admin
       .from('nasdaq_100_daily_raw')
-      .select('last_sale_price, net_change, percentage_change, delta_indicator, run_date')
+      .select(
+        'last_sale_price, net_change, percentage_change, delta_indicator, run_date, created_at'
+      )
       .eq('symbol', symbol)
       .order('run_date', { ascending: false })
       .limit(1)
       .maybeSingle();
     priceRow = fetchedPriceRow;
 
-    if (stockRow?.id) {
+    if (
+      stockRow?.id &&
+      canQueryStockCurrentRecommendation(access, stockRow.is_premium_stock)
+    ) {
       const { data: fetchedCurrentRow } = await admin
         .from('nasdaq100_recommendations_current_public')
         .select('score, score_delta, confidence, bucket, updated_at')
@@ -223,6 +259,7 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
         .maybeSingle();
       currentRow = fetchedCurrentRow;
     }
+
   }
 
   const stocks = await getAllStocks();
@@ -233,13 +270,74 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
 
   const latest = latestForAccess(access, isPremiumStock, currentRow);
 
+  const pageServedIso = new Date().toISOString();
   const price = {
     price: priceRow?.last_sale_price ?? null,
     change: priceRow?.net_change ?? null,
     changePercent: priceRow?.percentage_change ?? null,
     deltaIndicator: priceRow?.delta_indicator ?? null,
     runDate: priceRow?.run_date ?? null,
+    sessionDateLabel: priceRow?.run_date ? formatSessionDayUtc(priceRow.run_date) : null,
+    quoteIngestedAtLabel: priceRow?.created_at
+      ? formatDetailDateTime(priceRow.created_at)
+      : null,
+    pageServedAtLabel: formatDetailDateTime(pageServedIso),
   };
+
+  const hasSignedInUser = Boolean(user);
+  const serverCanLoadPremiumHistory =
+    hasSignedInUser &&
+    (access === 'supporter' ||
+      access === 'outperformer' ||
+      (access === 'free' && !isPremiumStock));
+
+  const serverCanShowChartAi =
+    hasSignedInUser && canQueryStockCurrentRecommendation(access, isPremiumStock);
+
+  const rankedStrategies = await getStrategiesList();
+
+  let strategyPickerStrategies: StrategyListItem[] = [];
+  if (user && hasAdminEnv) {
+    const admin = createAdminClient();
+    const { data: stratMeta } = await admin
+      .from('strategy_models')
+      .select('id, minimum_plan_tier, slug, is_default')
+      .eq('status', 'active');
+
+    const subscriptionTier: SubscriptionTier =
+      access === 'supporter' ? 'supporter' : access === 'outperformer' ? 'outperformer' : 'free';
+
+    let allowedIds: string[] = [];
+    if (subscriptionTier === 'free') {
+      if (serverCanLoadPremiumHistory) {
+        const list = stratMeta ?? [];
+        const bySlug = list.find((s) => s.slug === STRATEGY_CONFIG.slug);
+        const byDefault = list.find((s) => s.is_default === true);
+        const defaultId = bySlug?.id ?? byDefault?.id;
+        allowedIds = defaultId ? [defaultId] : [];
+      }
+    } else {
+      allowedIds = allowedStrategyIdsForSubscriptionTier(stratMeta ?? [], subscriptionTier);
+    }
+
+    if (allowedIds.length > 0) {
+      strategyPickerStrategies = rankedStrategies.filter((s) => allowedIds.includes(s.id));
+    } else {
+      const fallback =
+        rankedStrategies.find((s) => s.slug === STRATEGY_CONFIG.slug) ??
+        rankedStrategies.find((s) => s.isDefault) ??
+        rankedStrategies[0];
+      strategyPickerStrategies = fallback ? [fallback] : [];
+    }
+  } else {
+    strategyPickerStrategies = rankedStrategies;
+  }
+
+  const initialStrategySlug =
+    strategyPickerStrategies.find((s) => s.slug === STRATEGY_CONFIG.slug)?.slug ??
+    strategyPickerStrategies.find((s) => s.isDefault)?.slug ??
+    strategyPickerStrategies[0]?.slug ??
+    null;
 
   return (
     <StockDetailClient
@@ -249,6 +347,10 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
       price={price}
       latest={latest}
       news={news}
+      serverCanLoadPremiumHistory={serverCanLoadPremiumHistory}
+      serverCanShowChartAi={serverCanShowChartAi}
+      strategyPickerStrategies={strategyPickerStrategies}
+      initialStrategySlug={initialStrategySlug}
     />
   );
 };

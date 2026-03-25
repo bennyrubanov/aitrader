@@ -6,6 +6,9 @@ export type UserProfileAuthRow = {
   full_name?: string | null;
   email?: string | null;
   portfolio_onboarding_done?: boolean | null;
+  stripe_current_period_end?: string | null;
+  stripe_cancel_at_period_end?: boolean | null;
+  stripe_pending_tier?: string | null;
 } | null;
 
 export function buildAuthStateGuestLoaded(): AuthState {
@@ -24,6 +27,12 @@ export function buildAuthStateFromUserAndProfile(
   const onboardingDone =
     !profileReadFailed && profile?.portfolio_onboarding_done === true;
 
+  const rawPending = !profileReadFailed ? profile?.stripe_pending_tier : null;
+  const stripePendingTier: SubscriptionTier | null =
+    rawPending === 'supporter' || rawPending === 'outperformer' || rawPending === 'free'
+      ? rawPending
+      : null;
+
   return {
     isLoaded: true,
     isAuthenticated: true,
@@ -41,5 +50,12 @@ export function buildAuthStateFromUserAndProfile(
     subscriptionTier: tier,
     hasPremiumAccess: tier === 'supporter' || tier === 'outperformer',
     portfolioOnboardingDone: onboardingDone,
+    stripeCurrentPeriodEnd:
+      !profileReadFailed && profile?.stripe_current_period_end
+        ? profile.stripe_current_period_end
+        : null,
+    stripeCancelAtPeriodEnd:
+      !profileReadFailed && profile?.stripe_cancel_at_period_end === true,
+    stripePendingTier: !profileReadFailed ? stripePendingTier : null,
   };
 }

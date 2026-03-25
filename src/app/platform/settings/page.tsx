@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -21,7 +21,9 @@ import { Switch } from '@/components/ui/switch';
 import { toast } from '@/hooks/use-toast';
 import { getSupabaseBrowserClient } from '@/utils/supabase/browser';
 import { PlanLabel } from '@/components/account/plan-label';
-import { useAuthState } from '@/components/auth/auth-state-context';
+import { SubscriptionUpgradeDialog } from '@/components/account/subscription-upgrade-dialog';
+import { DowngradeToSupporterDialog } from '@/components/account/downgrade-to-supporter-dialog';
+import { useAuthState, useRefreshAuthProfile } from '@/components/auth/auth-state-context';
 import { cn } from '@/lib/utils';
 
 type ProfileState = {
@@ -31,9 +33,22 @@ type ProfileState = {
 
 type NewsletterStatus = 'subscribed' | 'unsubscribed' | null;
 
+function formatBillingDate(iso: string | null) {
+  if (!iso) return '';
+  try {
+    return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeZone: 'UTC' }).format(
+      new Date(iso)
+    );
+  } catch {
+    return iso;
+  }
+}
+
 const SettingsPageContent = () => {
   const router = useRouter();
   const authState = useAuthState();
+  const refreshProfile = useRefreshAuthProfile();
+  const billingReturnHandled = useRef(false);
   const [authUser, setAuthUser] = useState<{ id: string; email: string | null } | null>(null);
   const [profile, setProfile] = useState<ProfileState>({
     email: null,
@@ -44,6 +59,8 @@ const SettingsPageContent = () => {
   const [isSavingNewsletter, setIsSavingNewsletter] = useState(false);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [isOpeningPortal, setIsOpeningPortal] = useState(false);
+  const [upgradeDialogOpen, setUpgradeDialogOpen] = useState(false);
+  const [downgradeDialogOpen, setDowngradeDialogOpen] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isSendingReset, setIsSendingReset] = useState(false);
   const [followedStocks, setFollowedStocks] = useState<
@@ -114,6 +131,31 @@ const SettingsPageContent = () => {
   }, [authState.isAuthenticated, authState.isLoaded, authState.userId]);
 
   useEffect(() => {
+    if (!authState.isLoaded || !authState.isAuthenticated || billingReturnHandled.current) {
+      return;
+    }
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('billing') !== '1') {
+      return;
+    }
+    billingReturnHandled.current = true;
+    void (async () => {
+      try {
+        await fetch('/api/user/reconcile-premium', { method: 'POST' });
+      } catch {
+        // ignore
+      } finally {
+        await refreshProfile();
+        router.refresh();
+        router.replace('/platform/settings');
+      }
+    })();
+  }, [authState.isLoaded, authState.isAuthenticated, refreshProfile, router]);
+
+  useEffect(() => {
     if (!authState.isLoaded || !authState.isAuthenticated) return;
     let mounted = true;
     fetch('/api/platform/user-portfolio')
@@ -134,11 +176,15 @@ const SettingsPageContent = () => {
     router.push('/sign-in?next=/platform/settings');
   };
 
-  const handleOpenPortal = async () => {
+  const handleOpenPortal = async (flow: 'default' | 'subscription_cancel' = 'default') => {
     setIsOpeningPortal(true);
 
     try {
-      const response = await fetch('/api/stripe/portal', { method: 'POST' });
+      const response = await fetch('/api/stripe/portal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ flow }),
+      });
       const payload = (await response.json()) as { url?: string; error?: string };
 
       if (!response.ok || !payload.url) {
@@ -357,6 +403,31 @@ const SettingsPageContent = () => {
                   )}
                 </div>
               </div>
+              {authState.hasPremiumAccess &&
+                authState.stripeCurrentPeriodEnd &&
+                (authState.stripeCancelAtPeriodEnd || authState.stripePendingTier) && (
+                  <div className="grid grid-cols-[100px_1fr] items-start gap-x-4 px-5 py-3 text-sm sm:grid-cols-[120px_1fr]">
+                    <span className="text-muted-foreground">Scheduled</span>
+                    <p className="text-xs text-muted-foreground">
+                      {authState.stripeCancelAtPeriodEnd ? (
+                        <>
+                          Subscription ends on {formatBillingDate(authState.stripeCurrentPeriodEnd)}.
+                          Paid access until then.
+                        </>
+                      ) : authState.stripePendingTier ? (
+                        <>
+                          Plan change on {formatBillingDate(authState.stripeCurrentPeriodEnd)} toward{' '}
+                          <PlanLabel
+                            isPremium={authState.stripePendingTier !== 'free'}
+                            subscriptionTier={authState.stripePendingTier}
+                            showIcon={false}
+                          />
+                          .
+                        </>
+                      ) : null}
+                    </p>
+                  </div>
+                )}
             </div>
           </section>
 
@@ -400,31 +471,74 @@ const SettingsPageContent = () => {
               <CreditCard className="size-4 text-muted-foreground" />
               <h2 className="text-sm font-semibold">Billing</h2>
             </div>
-            <div className="flex items-center justify-between gap-4 px-5 py-4">
+            <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
                 <p className="text-sm font-medium">Subscription & payments</p>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  Manage your plan, invoices, and payment method on Stripe.
-                </p>
-              </div>
-              <Button
-                size="sm"
-                onClick={handleOpenPortal}
-                disabled={isOpeningPortal}
-                className="shrink-0 bg-trader-blue text-white hover:bg-trader-blue-dark"
-              >
-                {isOpeningPortal ? (
-                  <>
-                    <Loader2 className="mr-1.5 size-3.5 animate-spin" />
-                    Opening...
-                  </>
-                ) : (
-                  <>
-                    Manage
-                    <ExternalLink className="ml-1.5 size-3.5" />
-                  </>
+                {authState.hasPremiumAccess && authState.stripeCurrentPeriodEnd && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Current period renews or changes on{' '}
+                    <span className="font-medium text-foreground">
+                      {formatBillingDate(authState.stripeCurrentPeriodEnd)}
+                    </span>
+                    .
+                  </p>
                 )}
-              </Button>
+              </div>
+              <div className="flex flex-col gap-2 sm:shrink-0 sm:items-end">
+                <Button
+                  size="sm"
+                  onClick={() => void handleOpenPortal('default')}
+                  disabled={isOpeningPortal}
+                  className="w-full bg-trader-blue text-white hover:bg-trader-blue-dark sm:w-auto"
+                >
+                  {isOpeningPortal ? (
+                    <>
+                      <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                      Opening...
+                    </>
+                  ) : (
+                    <>
+                      Billing & invoices
+                      <ExternalLink className="ml-1.5 size-3.5" />
+                    </>
+                  )}
+                </Button>
+                {authState.hasPremiumAccess && (
+                  <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:justify-end">
+                    {authState.subscriptionTier === 'supporter' && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full sm:w-auto"
+                        disabled={isOpeningPortal}
+                        onClick={() => setUpgradeDialogOpen(true)}
+                      >
+                        Upgrade to Outperformer
+                      </Button>
+                    )}
+                    {authState.subscriptionTier === 'outperformer' && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full sm:w-auto"
+                        disabled={isOpeningPortal}
+                        onClick={() => setDowngradeDialogOpen(true)}
+                      >
+                        Downgrade to Supporter
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-full sm:w-auto"
+                      disabled={isOpeningPortal}
+                      onClick={() => void handleOpenPortal('subscription_cancel')}
+                    >
+                      Cancel subscription
+                    </Button>
+                  </div>
+                )}
+              </div>
             </div>
           </section>
 
@@ -530,6 +644,23 @@ const SettingsPageContent = () => {
           </Button>
         </section>
       )}
+      <SubscriptionUpgradeDialog
+        open={upgradeDialogOpen}
+        onOpenChange={setUpgradeDialogOpen}
+        onAfterSuccess={async () => {
+          await refreshProfile();
+          router.refresh();
+        }}
+      />
+      <DowngradeToSupporterDialog
+        open={downgradeDialogOpen}
+        onOpenChange={setDowngradeDialogOpen}
+        currentPeriodEndIso={authState.stripeCurrentPeriodEnd}
+        onAfterSuccess={async () => {
+          await refreshProfile();
+          router.refresh();
+        }}
+      />
     </div>
   );
 };

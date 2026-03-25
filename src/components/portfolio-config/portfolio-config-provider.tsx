@@ -255,6 +255,8 @@ export function PortfolioConfigProvider({ children }: { children: ReactNode }) {
     [config]
   );
 
+  const portfolioOnboardingNeedsAttention = onboardingResolved && !isOnboardingDone;
+
   const value: PortfolioConfigContextValue = {
     config,
     setConfig,
@@ -266,7 +268,10 @@ export function PortfolioConfigProvider({ children }: { children: ReactNode }) {
     frequencyLabel: FREQUENCY_LABELS[config.rebalanceFrequency],
     dataNote: FREQUENCY_DATA_NOTES[config.rebalanceFrequency],
     portfolioConfigHydrated,
-    isOnboardingDone: !portfolioConfigHydrated ? true : isOnboardingDone,
+    onboardingResolved,
+    portfolioOnboardingNeedsAttention,
+    /** Until auth + onboarding status resolve, treat as done so we do not flash the wizard. */
+    isOnboardingDone: !onboardingResolved ? true : isOnboardingDone,
     markOnboardingDone,
     resetOnboarding,
     entryDate,

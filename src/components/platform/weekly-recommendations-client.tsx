@@ -17,6 +17,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
+import { ArrowUpRight } from 'lucide-react';
 import { ExitActionRow, WeeklyRecommendationRow } from '@/lib/platform-server-data';
 import { Disclaimer } from '@/components/Disclaimer';
 
@@ -172,7 +173,10 @@ export function WeeklyRecommendationsClient({
                             router.prefetch(`/stocks/${row.symbol.toLowerCase()}`)
                           }
                         >
-                          View
+                          <span className="inline-flex items-center gap-1">
+                            View
+                            <ArrowUpRight className="size-3 shrink-0" aria-hidden />
+                          </span>
                         </Link>
                       </Button>
                     </TableCell>

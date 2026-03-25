@@ -13,6 +13,13 @@ export type PortfolioConfigContextValue = {
   dataNote: string | null;
   /** After first client read of localStorage onboarding + config; false until then. */
   portfolioConfigHydrated: boolean;
+  /**
+   * True once onboarding status is known from auth + storage (same moment as {@link portfolioConfigHydrated}
+   * in practice). Use for redirect/dialog only; keep using {@link portfolioConfigHydrated} for storage-backed config.
+   */
+  onboardingResolved: boolean;
+  /** User still needs the portfolio onboarding wizard (auth resolved and DB/local says not done). */
+  portfolioOnboardingNeedsAttention: boolean;
   isOnboardingDone: boolean;
   markOnboardingDone: () => Promise<void>;
   resetOnboarding: () => void;

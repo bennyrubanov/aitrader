@@ -8,7 +8,9 @@ import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
 import { Button } from '@/components/ui/button';
 import { PlanLabel } from '@/components/account/plan-label';
-import { useAuthState } from '@/components/auth/auth-state-context';
+import { useAuthState, useRefreshAuthProfile } from '@/components/auth/auth-state-context';
+import { SubscriptionUpgradeDialog } from '@/components/account/subscription-upgrade-dialog';
+import { DowngradeToSupporterDialog } from '@/components/account/downgrade-to-supporter-dialog';
 import { cn } from '@/lib/utils';
 
 type Plan = 'supporter' | 'outperformer';
@@ -79,47 +81,45 @@ const compareFeatures: CompareFeature[] = [
     outperformer: 'Any stock',
   },
   {
-    label: 'Weekly buy-potential rankings',
+    label: 'Stock news & detailed stock pages',
+    free: '40+ free stocks',
+    supporter: 'Premium Nasdaq 100 stocks',
+    outperformer: 'Any stock',
+  },
+  {
+    label: 'Weekly stock rankings',
     free: false,
-    supporter: true,
+    supporter: 'Active model only',
     outperformer: true,
   },
   {
-    label: 'AI ratings with full explanations',
+    label: 'Portfolio holdings tracking',
     free: false,
-    supporter: true,
+    supporter: 'Active model only',
     outperformer: true,
   },
-  { label: 'Full recommendation history', free: false, supporter: true, outperformer: true },
-  { label: 'Stock news & detailed stock pages', free: false, supporter: true, outperformer: true },
-  {
-    label: 'Customizable rating change notifications',
-    free: false,
-    supporter: true,
+  { 
+    label: 'Full stock recommendation history', 
+    free: false, 
+    supporter: 'Active model only',
     outperformer: true,
   },
   {
     label: 'Follow & compare portfolios (Explore / Your portfolios)',
     free: false,
-    supporter: true,
+    supporter: 'Active model only',
     outperformer: true,
   },
   {
-    label: 'Holdings, weights & rebalance breakdowns',
+    label: 'Portfolio rebalance actions to invest alongside the AI',
     free: false,
-    supporter: true,
+    supporter: 'Active model only',
     outperformer: true,
   },
   {
-    label: 'Strategy models on Ratings & Performance',
+    label: 'Customizable rating change notifications',
     free: false,
-    supporter: 'Active model',
-    outperformer: 'All models',
-  },
-  {
-    label: 'Switch strategy model in Ratings (all models)',
-    free: false,
-    supporter: false,
+    supporter: true,
     outperformer: true,
   },
   {
@@ -179,16 +179,48 @@ function OutperformerCompareCell({
   return <FeatureCell value={value} />;
 }
 
+function formatBillingDate(iso: string | null) {
+  if (!iso) return '';
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: 'medium',
+      timeZone: 'UTC',
+    }).format(new Date(iso));
+  } catch {
+    return iso;
+  }
+}
+
 function PricingPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { email, isAuthenticated, isLoaded, subscriptionTier } = useAuthState();
+  const refreshProfile = useRefreshAuthProfile();
+  const {
+    email,
+    isAuthenticated,
+    isLoaded,
+    subscriptionTier,
+    hasPremiumAccess,
+    stripePendingTier,
+    stripeCurrentPeriodEnd,
+    stripeCancelAtPeriodEnd,
+  } = useAuthState();
   const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>('monthly');
   const [isProcessingCheckout, setIsProcessingCheckout] = useState(false);
   const [checkoutPlan, setCheckoutPlan] = useState<Plan | null>(null);
+  const [upgradeDialogOpen, setUpgradeDialogOpen] = useState(false);
+  const [downgradeDialogOpen, setDowngradeDialogOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const postAuthCheckoutHandled = useRef(false);
+
+  /** No further plan switches while a downgrade/upgrade is pending or cancel-at-period-end is set. */
+  const planChangeActionsLocked = useMemo(
+    () =>
+      hasPremiumAccess &&
+      (Boolean(stripePendingTier) || Boolean(stripeCancelAtPeriodEnd)),
+    [hasPremiumAccess, stripePendingTier, stripeCancelAtPeriodEnd]
+  );
 
   const startStripeCheckout = useCallback(
     async (plan: Plan, period: BillingPeriod) => {
@@ -215,7 +247,20 @@ function PricingPageContent() {
           }),
         });
 
-        const payload = (await response.json()) as { url?: string; error?: string };
+        const payload = (await response.json()) as {
+          url?: string;
+          error?: string;
+          code?: string;
+        };
+        if (response.status === 409 && payload.code === 'ALREADY_SUBSCRIBED') {
+          setErrorMessage(
+            payload.error ??
+              'You already have a subscription. Use this page or Settings to change plans.'
+          );
+          setIsProcessingCheckout(false);
+          setCheckoutPlan(null);
+          return;
+        }
         if (!response.ok || !payload.url) {
           throw new Error(payload.error ?? 'Failed to create checkout session');
         }
@@ -248,7 +293,7 @@ function PricingPageContent() {
 
     router.replace('/pricing');
 
-    if (subscriptionTier === plan) {
+    if (subscriptionTier === 'supporter' || subscriptionTier === 'outperformer') {
       return;
     }
 
@@ -259,6 +304,9 @@ function PricingPageContent() {
     if (!isAuthenticated) {
       const returnTo = `/pricing?checkout=${plan}&billing=${billingPeriod}`;
       router.push(`/sign-up?next=${encodeURIComponent(returnTo)}`);
+      return;
+    }
+    if (subscriptionTier === 'supporter' || subscriptionTier === 'outperformer') {
       return;
     }
     await startStripeCheckout(plan, billingPeriod);
@@ -363,6 +411,33 @@ function PricingPageContent() {
                 </div>
               )}
 
+              {isAuthenticated &&
+                hasPremiumAccess &&
+                stripeCurrentPeriodEnd &&
+                (stripeCancelAtPeriodEnd || stripePendingTier) && (
+                  <div className="max-w-xl mx-auto mb-8 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-center text-sm text-amber-950 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-100">
+                    {stripeCancelAtPeriodEnd ? (
+                      <>
+                        Your subscription is set to end on{' '}
+                        <span className="font-semibold">
+                          {formatBillingDate(stripeCurrentPeriodEnd)}
+                        </span>
+                        . You&apos;ll keep paid access until then.
+                      </>
+                    ) : stripePendingTier ? (
+                      <>
+                        A plan change is scheduled for{' '}
+                        <span className="font-semibold">
+                          {formatBillingDate(stripeCurrentPeriodEnd)}
+                        </span>
+                        {stripePendingTier === 'supporter' ? ' (Supporter)' : null}
+                        {stripePendingTier === 'outperformer' ? ' (Outperformer)' : null}
+                        {stripePendingTier === 'free' ? ' (Free)' : null}.
+                      </>
+                    ) : null}
+                  </div>
+                )}
+
               {/* Plan cards */}
               <div className="grid gap-6 md:grid-cols-3 mb-16">
                 {/* Free */}
@@ -390,7 +465,18 @@ function PricingPageContent() {
                       </li>
                     ))}
                   </ul>
-                  {isCurrentFreePlan ? (
+                  {isAuthenticated && hasPremiumAccess ? (
+                    <p className="mt-auto text-center text-sm text-muted-foreground">
+                      Billing and cancellation are in{' '}
+                      <Link
+                        href="/platform/settings"
+                        className="font-medium text-trader-blue underline-offset-4 hover:underline"
+                      >
+                        Settings
+                      </Link>
+                      .
+                    </p>
+                  ) : isCurrentFreePlan ? (
                     <Button disabled variant="secondary" className="w-full mt-auto">
                       Current plan
                     </Button>
@@ -445,9 +531,44 @@ function PricingPageContent() {
                     ))}
                   </ul>
                   {isCurrentPlan('supporter') ? (
-                    <Button disabled variant="secondary" className="w-full mt-auto">
-                      Current plan
-                    </Button>
+                    <div className="mt-auto flex w-full flex-col gap-2">
+                      <Button disabled variant="secondary" className="w-full">
+                        Current plan
+                      </Button>
+                      {!planChangeActionsLocked && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="w-full"
+                          onClick={() => setUpgradeDialogOpen(true)}
+                        >
+                          Upgrade to Outperformer
+                        </Button>
+                      )}
+                    </div>
+                  ) : subscriptionTier === 'outperformer' ? (
+                    planChangeActionsLocked ? (
+                      <p className="mt-auto text-center text-sm text-muted-foreground">
+                        A subscription change is already scheduled. Use{' '}
+                        <Link
+                          href="/platform/settings"
+                          className="font-medium text-trader-blue underline-offset-4 hover:underline"
+                        >
+                          Settings
+                        </Link>{' '}
+                        if you need help.
+                      </p>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full mt-auto"
+                        onClick={() => setDowngradeDialogOpen(true)}
+                      >
+                        Switch to Supporter
+                      </Button>
+                    )
                   ) : (
                     <Button
                       onClick={() => handleSubscribe('supporter')}
@@ -534,9 +655,44 @@ function PricingPageContent() {
                     ))}
                   </ul>
                   {isCurrentPlan('outperformer') ? (
-                    <Button disabled variant="secondary" className="w-full mt-auto">
-                      Current plan
-                    </Button>
+                    <div className="mt-auto flex w-full flex-col gap-2">
+                      <Button disabled variant="secondary" className="w-full">
+                        Current plan
+                      </Button>
+                      {!planChangeActionsLocked && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="w-full"
+                          onClick={() => setDowngradeDialogOpen(true)}
+                        >
+                          Downgrade to Supporter
+                        </Button>
+                      )}
+                    </div>
+                  ) : subscriptionTier === 'supporter' ? (
+                    planChangeActionsLocked ? (
+                      <p className="mt-auto text-center text-sm text-muted-foreground">
+                        A subscription change is already scheduled. Use{' '}
+                        <Link
+                          href="/platform/settings"
+                          className="font-medium text-trader-blue underline-offset-4 hover:underline"
+                        >
+                          Settings
+                        </Link>{' '}
+                        if you need help.
+                      </p>
+                    ) : (
+                      <Button
+                        type="button"
+                        className="w-full mt-auto bg-trader-blue hover:bg-trader-blue-dark text-white"
+                        onClick={() => setUpgradeDialogOpen(true)}
+                      >
+                        Upgrade to Outperformer
+                        <ArrowRight className="ml-2 size-4" />
+                      </Button>
+                    )
                   ) : (
                     <Button
                       onClick={() => handleSubscribe('outperformer')}
@@ -634,6 +790,23 @@ function PricingPageContent() {
         </section>
       </main>
       <Footer />
+      <SubscriptionUpgradeDialog
+        open={upgradeDialogOpen}
+        onOpenChange={setUpgradeDialogOpen}
+        onAfterSuccess={async () => {
+          await refreshProfile();
+          router.refresh();
+        }}
+      />
+      <DowngradeToSupporterDialog
+        open={downgradeDialogOpen}
+        onOpenChange={setDowngradeDialogOpen}
+        currentPeriodEndIso={stripeCurrentPeriodEnd}
+        onAfterSuccess={async () => {
+          await refreshProfile();
+          router.refresh();
+        }}
+      />
     </div>
   );
 }

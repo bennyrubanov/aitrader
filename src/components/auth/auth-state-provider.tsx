@@ -6,7 +6,7 @@ import { DEFAULT_AUTH_STATE, type AuthState, type SubscriptionTier } from "@/lib
 import { buildAuthStateFromUserAndProfile } from "@/lib/build-auth-state";
 import { AuthStateContext } from "@/components/auth/auth-state-context";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/utils/supabase/browser";
-const AUTH_SNAPSHOT_KEY = "aitrader.auth.snapshot.v2";
+const AUTH_SNAPSHOT_KEY = "aitrader.auth.snapshot.v3";
 
 const tierFromAuthSnapshot = (
   raw: unknown,
@@ -37,7 +37,9 @@ const hydrateUserState = async (user: User): Promise<AuthState> => {
 
   const { data, error } = await supabase
     .from("user_profiles")
-    .select("subscription_tier, full_name, email, portfolio_onboarding_done")
+    .select(
+      "subscription_tier, full_name, email, portfolio_onboarding_done, stripe_current_period_end, stripe_cancel_at_period_end, stripe_pending_tier"
+    )
     .eq("id", user.id)
     .maybeSingle();
 
@@ -72,6 +74,11 @@ export function AuthStateProvider({ children, initialState }: AuthStateProviderP
         if (parsed?.isAuthenticated) {
           const hasPremiumFlag = Boolean(parsed.hasPremiumAccess);
           const tier = tierFromAuthSnapshot(parsed.subscriptionTier, hasPremiumFlag);
+          const pendingRaw = parsed.stripePendingTier;
+          const stripePendingTier: SubscriptionTier | null =
+            pendingRaw === "supporter" || pendingRaw === "outperformer" || pendingRaw === "free"
+              ? pendingRaw
+              : null;
           setAuthState((previous) => ({
             ...previous,
             isLoaded: true,
@@ -86,6 +93,20 @@ export function AuthStateProvider({ children, initialState }: AuthStateProviderP
               typeof parsed.portfolioOnboardingDone === "boolean"
                 ? parsed.portfolioOnboardingDone
                 : previous.portfolioOnboardingDone,
+            stripeCurrentPeriodEnd:
+              typeof parsed.stripeCurrentPeriodEnd === "string"
+                ? parsed.stripeCurrentPeriodEnd
+                : previous.stripeCurrentPeriodEnd,
+            stripeCancelAtPeriodEnd:
+              typeof parsed.stripeCancelAtPeriodEnd === "boolean"
+                ? parsed.stripeCancelAtPeriodEnd
+                : previous.stripeCancelAtPeriodEnd,
+            stripePendingTier:
+              pendingRaw === "supporter" ||
+              pendingRaw === "outperformer" ||
+              pendingRaw === "free"
+                ? stripePendingTier
+                : previous.stripePendingTier,
           }));
         }
       } catch {

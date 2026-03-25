@@ -64,10 +64,19 @@ create table if not exists public.user_profiles (
   stripe_last_event_id text,
   stripe_last_event_created timestamptz,
   stripe_subscription_status text,
+  stripe_customer_id text,
+  stripe_subscription_id text,
+  stripe_current_period_end timestamptz,
+  stripe_cancel_at_period_end boolean not null default false,
+  stripe_pending_tier text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint user_profiles_subscription_tier_valid check (
     subscription_tier in ('free', 'supporter', 'outperformer')
+  ),
+  constraint user_profiles_stripe_pending_tier_valid check (
+    stripe_pending_tier is null
+    or stripe_pending_tier in ('free', 'supporter', 'outperformer')
   ),
   constraint user_profiles_stripe_subscription_status_valid check (
     stripe_subscription_status is null
@@ -194,6 +203,45 @@ set user_id = u.id
 from auth.users u
 where n.user_id is null
   and lower(n.email) = lower(u.email);
+
+-- Billing columns on user_profiles are written by service role (Stripe webhooks / admin API) only.
+create or replace function public.user_profiles_protect_billing_columns()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  jwt_role text;
+begin
+  jwt_role := auth.role();
+  if jwt_role = 'service_role' or jwt_role is null then
+    return new;
+  end if;
+
+  if old.subscription_tier is distinct from new.subscription_tier
+    or old.stripe_last_event_id is distinct from new.stripe_last_event_id
+    or old.stripe_last_event_created is distinct from new.stripe_last_event_created
+    or old.stripe_subscription_status is distinct from new.stripe_subscription_status
+    or old.stripe_customer_id is distinct from new.stripe_customer_id
+    or old.stripe_subscription_id is distinct from new.stripe_subscription_id
+    or old.stripe_current_period_end is distinct from new.stripe_current_period_end
+    or old.stripe_cancel_at_period_end is distinct from new.stripe_cancel_at_period_end
+    or old.stripe_pending_tier is distinct from new.stripe_pending_tier
+  then
+    raise exception 'Billing and subscription fields cannot be updated from the client'
+      using errcode = '42501';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists on_user_profiles_protect_billing on public.user_profiles;
+create trigger on_user_profiles_protect_billing
+  before update on public.user_profiles
+  for each row
+  execute procedure public.user_profiles_protect_billing_columns();
 
 -- =========================
 -- 3) Canonical stocks table

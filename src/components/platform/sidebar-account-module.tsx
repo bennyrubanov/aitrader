@@ -23,10 +23,14 @@ export function SidebarAccountModule({ onNavigateStart }: SidebarAccountModulePr
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
 
-  const handleOpenPortal = async () => {
+  const handleOpenPortal = async (flow: "default" | "subscription_cancel" = "default") => {
     setIsOpeningPortal(true);
     try {
-      const response = await fetch("/api/stripe/portal", { method: "POST" });
+      const response = await fetch("/api/stripe/portal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ flow }),
+      });
       const payload = (await response.json()) as { url?: string; error?: string };
       if (!response.ok || !payload.url) {
         throw new Error(payload.error ?? "Unable to open billing portal.");
@@ -100,25 +104,50 @@ export function SidebarAccountModule({ onNavigateStart }: SidebarAccountModulePr
       <div className="space-y-2">
         {isAuthenticated ? (
           <>
-            <Button
-              type="button"
-              size="sm"
-              className="w-full justify-start bg-trader-blue hover:bg-trader-blue-dark"
-              onClick={handleOpenPortal}
-              disabled={isOpeningPortal}
-            >
-              {isOpeningPortal ? (
-                <>
-                  <Loader2 className="mr-2 size-3 animate-spin" />
-                  Opening billing...
-                </>
-              ) : (
-                <>
+            {hasPremiumAccess ? (
+              <Button type="button" size="sm" className="w-full justify-start bg-trader-blue hover:bg-trader-blue-dark" asChild>
+                <Link
+                  href="/pricing"
+                  prefetch
+                  onClick={() => onNavigateStart?.("/pricing")}
+                >
                   <CreditCard className="mr-2 size-3" />
-                  Update subscription
-                </>
-              )}
-            </Button>
+                  Plans & pricing
+                </Link>
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                className="w-full justify-start bg-trader-blue hover:bg-trader-blue-dark"
+                onClick={() => void handleOpenPortal("default")}
+                disabled={isOpeningPortal}
+              >
+                {isOpeningPortal ? (
+                  <>
+                    <Loader2 className="mr-2 size-3 animate-spin" />
+                    Opening billing...
+                  </>
+                ) : (
+                  <>
+                    <CreditCard className="mr-2 size-3" />
+                    Billing portal
+                  </>
+                )}
+              </Button>
+            )}
+            {hasPremiumAccess && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="w-full justify-start"
+                disabled={isOpeningPortal}
+                onClick={() => void handleOpenPortal("default")}
+              >
+                Invoices & payment
+              </Button>
+            )}
             <Button asChild type="button" size="sm" variant="outline" className="w-full justify-start">
               <Link href="/platform/settings" prefetch onClick={openSettings}>
                 <Settings className="mr-2 size-3" />

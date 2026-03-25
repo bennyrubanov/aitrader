@@ -114,7 +114,6 @@ export function GuestPendingPortfolioFollowResume() {
 
         clearPendingGuestPortfolioFollow();
         invalidateUserPortfolioProfiles();
-        queuePlatformPostOnboardingTour();
         requestAnimationFrame(() => {
           void fireHeartConfettiBurst();
         });
@@ -136,6 +135,9 @@ export function GuestPendingPortfolioFollowResume() {
           // profile row may still be saved; refresh loads server state
         }
         router.refresh();
+        window.setTimeout(() => {
+          queuePlatformPostOnboardingTour();
+        }, 150);
       } finally {
         guestPortfolioResumeInFlight = null;
       }

@@ -117,13 +117,29 @@ export async function POST(req: Request) {
     } = await supabase.auth.getUser();
 
     let profileEmail: string | null = null;
+    let existingTier: string | null = null;
     if (user) {
       const { data: profile } = await supabase
         .from('user_profiles')
-        .select('email')
+        .select('email, subscription_tier')
         .eq('id', user.id)
         .maybeSingle();
       profileEmail = profile?.email ?? null;
+      existingTier = profile?.subscription_tier ?? null;
+    }
+
+    if (
+      user &&
+      (existingTier === 'supporter' || existingTier === 'outperformer')
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            'You already have a paid subscription. Use Pricing or Settings to upgrade or downgrade; use Billing for invoices and cancellation.',
+          code: 'ALREADY_SUBSCRIBED',
+        },
+        { status: 409 }
+      );
     }
 
     const checkoutEmail = requestedEmail || profileEmail || user?.email || null;

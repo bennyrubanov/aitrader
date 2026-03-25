@@ -390,6 +390,8 @@ const Hero: React.FC = () => {
                   <div className="mt-3 flex justify-end">
                     <Link
                       href={`/stocks/${selectedResult.symbol.toLowerCase()}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
                       className="inline-flex items-center text-trader-blue hover:text-trader-blue-dark font-medium transition-colors text-sm"
                     >
                       See ranking and detailed analysis

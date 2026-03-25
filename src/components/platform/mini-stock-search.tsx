@@ -150,6 +150,8 @@ export function MiniStockSearch() {
               </button>
               <Link
                 href={`/stocks/${stock.symbol.toLowerCase()}`}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="group shrink-0 cursor-pointer rounded-md px-2 py-1.5 text-xs font-semibold text-trader-blue underline-offset-2 ring-offset-background transition-colors hover:bg-trader-blue/15 hover:text-trader-blue hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => setIsFocused(false)}

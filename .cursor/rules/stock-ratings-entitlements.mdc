@@ -1,0 +1,35 @@
+---
+description: Server-side plan gating for stock ratings and anti-scraping data patterns
+alwaysApply: true
+---
+
+# Stock ratings & plan-tier data
+
+## Principles
+
+- **Never ship premium AI fields in a tier’s JSON and rely on the UI to hide them.** Free/guest payloads must omit sensitive fields at serialization time (server loaders and API routes).
+- **Entitlement checks run on the server** (Next.js routes, RSC loaders) using the session + `user_profiles.subscription_tier` (via `getAppAccessState` / `buildAuthStateFromUserAndProfile`). The browser Supabase client must not be the path for gated rating history or premium tables.
+- **`createAdminClient()` (service role)** is for server-only reads after you have decided what the viewer may see. It does not replace plan checks.
+
+## Database / views (reference)
+
+- **`nasdaq100_recommendations_current`**: full current rows (includes `latent_rank`). Not for free-tier browser payloads.
+- **`nasdaq100_recommendations_current_public`**: same without `latent_rank`; still fetched only from **server** code with service role where applicable — not exposed to anon/authenticated SQL clients for scraping.
+- **Per-stock analysis history**: RPC `stock_ai_analysis_history_for_strategies` is **service_role execute only**; resolve allowed `strategy_models` from tier (see `src/lib/strategy-plan-access.ts`, `src/app/api/stocks/[symbol]/premium/route.ts`).
+- **Stock list + current bucket for free users**: `/api/stocks` loads ratings with **`stocks.is_premium_stock = false`** and merges onto the full catalog so free users never receive premium current AI fields (`src/app/api/stocks/route.ts`).
+
+## Ratings page pattern (free tier)
+
+- Free signed-in ratings use **`getRatingsPageDataFreeTier()`** → composes **all `stocks` rows (alphabetical)** + **latest prices** + **non-premium-only** rows from `nasdaq100_recommendations_current_public` (inner join + `eq('stocks.is_premium_stock', false)`). Premium names appear with **`premiumFieldsLocked: true`** and no recommendation columns in the payload (`src/lib/platform-server-data.ts`). The **Rank** column header stays sharp; row values use blurred chrome only—real ranks stay out of the free JSON.
+- Paid ratings use **`getRatingsPageData()`** (separate cache key) and the full current view / run history as today.
+- API: **`/api/platform/ratings`** branches on tier and must stay aligned with the loaders (`src/app/api/platform/ratings/route.ts`).
+
+## Helpers to reuse
+
+- **`canQueryStockCurrentRecommendation(access, isPremiumStock)`** — whether to load current AI row / chart ratings for a ticker (`src/lib/app-access.ts`).
+- **`/api/platform/stock-history`** — strips rating series when `canQueryStockCurrentRecommendation` is false (`src/app/api/platform/stock-history/route.ts`).
+
+## When adding features
+
+- If a screen mixes unlocked and locked rows, add **explicit row flags** (e.g. `premiumFieldsLocked`) in the server-built payload; do not infer “locked” only from null fields.
+- Keep **separate cache keys** per tier for the same page when payloads differ (`unstable_cache` tags in `platform-server-data.ts`).

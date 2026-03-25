@@ -45,6 +45,7 @@ import { useAuthState } from "@/components/auth/auth-state-context";
 import { PlanLabel } from "@/components/account/plan-label";
 import { navigateWithFallback } from "@/lib/client-navigation";
 import { STRATEGY_CONFIG } from "@/lib/strategyConfig";
+import { shouldPersistSignInReturnPath } from "@/lib/auth-redirect";
 
 const platformNavItems: PlatformNavItem[] = [
   { label: "Performance", href: `/performance/${STRATEGY_CONFIG.slug}`, icon: Gauge },
@@ -205,10 +206,10 @@ const Navbar: React.FC = () => {
     const currentPath = typeof window !== "undefined"
       ? window.location.pathname + window.location.search
       : "/";
-    navigateWithFallback(
-      (href) => router.push(href),
-      `/sign-in?next=${encodeURIComponent(currentPath)}`,
-    );
+    const signInHref = shouldPersistSignInReturnPath(currentPath)
+      ? `/sign-in?next=${encodeURIComponent(currentPath)}`
+      : "/sign-in";
+    navigateWithFallback((href) => router.push(href), signInHref);
   };
 
   const handleSignOut = async () => {
