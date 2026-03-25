@@ -109,7 +109,10 @@ const RoadmapChangelogPage = () => {
               </div>
 
               <div className="grid md:grid-cols-2 gap-6">
-                <div className="rounded-xl border border-border bg-card p-6 shadow-soft">
+                <div
+                  id="roadmap"
+                  className="scroll-mt-24 rounded-xl border border-border bg-card p-6 shadow-soft"
+                >
                   <h2 className="text-2xl font-semibold mb-4">Roadmap</h2>
                   <div className="space-y-4">
                     {roadmapItems.map((item) => (
@@ -141,7 +144,10 @@ const RoadmapChangelogPage = () => {
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-border bg-card p-6 shadow-soft">
+                <div
+                  id="changelog"
+                  className="scroll-mt-24 rounded-xl border border-border bg-card p-6 shadow-soft"
+                >
                   <h2 className="text-2xl font-semibold mb-4">Changelog</h2>
                   <div className="space-y-4">
                     {changelogItems.map((item) => (

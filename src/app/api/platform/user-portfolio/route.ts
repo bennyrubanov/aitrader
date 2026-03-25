@@ -1,4 +1,7 @@
 import { NextResponse } from 'next/server';
+import { getAppAccessState } from '@/lib/app-access';
+import { buildAuthStateFromUserAndProfile } from '@/lib/build-auth-state';
+import { createAdminClient } from '@/utils/supabase/admin';
 import { createClient } from '@/utils/supabase/server';
 
 export const runtime = 'nodejs';
@@ -17,7 +20,7 @@ type RecommendationRow = {
   stock_id: string;
   score: number | null;
   bucket: string | null;
-  latent_rank: number | null;
+  latent_rank?: number | null;
 };
 
 type PriceRow = {
@@ -54,17 +57,33 @@ export async function GET() {
   const stockIds = items.map((i) => i.stock_id);
   const symbols = items.map((i) => i.symbol.toUpperCase());
 
+  const { data: profile, error: profileError } = await supabase
+    .from('user_profiles')
+    .select('subscription_tier, full_name, email')
+    .eq('id', user.id)
+    .maybeSingle();
+  const access = getAppAccessState(
+    buildAuthStateFromUserAndProfile(user, profile, Boolean(profileError))
+  );
+  const showLatentRank = access === 'supporter' || access === 'outperformer';
+
+  const admin = createAdminClient();
   const [recResult, priceResult] = await Promise.all([
-    supabase
-      .from('nasdaq100_recommendations_current')
-      .select('stock_id, score, bucket, latent_rank')
-      .in('stock_id', stockIds),
-    supabase
+    showLatentRank
+      ? admin
+          .from('nasdaq100_recommendations_current')
+          .select('stock_id, score, bucket, latent_rank')
+          .in('stock_id', stockIds)
+      : admin
+          .from('nasdaq100_recommendations_current_public')
+          .select('stock_id, score, bucket')
+          .in('stock_id', stockIds),
+    admin
       .from('nasdaq_100_daily_raw')
       .select('symbol, last_sale_price, run_date')
       .in('symbol', symbols)
       .order('run_date', { ascending: false })
-      .limit(symbols.length),
+      .limit(Math.max(symbols.length, 1) * 4),
   ]);
 
   const recMap = new Map(
@@ -80,13 +99,19 @@ export async function GET() {
   const enriched = items.map((item) => {
     const rec = recMap.get(item.stock_id);
     const price = priceMap.get(item.symbol.toUpperCase());
-    return {
+    const base = {
       ...item,
       score: rec?.score ?? null,
       bucket: rec?.bucket ?? null,
-      latentRank: rec?.latent_rank ?? null,
       lastPrice: price?.last_sale_price ?? null,
       priceDate: price?.run_date ?? null,
+    };
+    if (!showLatentRank) {
+      return base;
+    }
+    return {
+      ...base,
+      latentRank: rec?.latent_rank ?? null,
     };
   });
 

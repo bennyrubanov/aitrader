@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
+import { useAuthState } from '@/components/auth/auth-state-context';
 import { HoldingRankWithChange } from '@/components/platform/holding-rank-with-change';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -68,9 +69,15 @@ import {
   ChevronDown,
   ExternalLink,
   Loader2,
+  Lock,
   Plus,
   UserMinus,
 } from 'lucide-react';
+import {
+  canAccessPaidPortfolioHoldings,
+  canAccessStrategySlugPaidData,
+  getAppAccessState,
+} from '@/lib/app-access';
 import { cn } from '@/lib/utils';
 
 const INITIAL_CAPITAL = 10_000;
@@ -295,12 +302,32 @@ export function ExplorePortfolioDetailDialog({
   const [prevExploreError, setPrevExploreError] = useState(false);
   const [stockChartSymbol, setStockChartSymbol] = useState<string | null>(null);
 
+  const authState = useAuthState();
+  const appAccess = useMemo(() => getAppAccessState(authState), [authState]);
+  const exploreHoldingsPaidTier = canAccessPaidPortfolioHoldings(appAccess);
+  const exploreHoldingsUnlocked = useMemo(
+    () =>
+      exploreHoldingsPaidTier &&
+      canAccessStrategySlugPaidData(appAccess, strategySlug?.trim() ?? ''),
+    [exploreHoldingsPaidTier, appAccess, strategySlug]
+  );
+
   const fetchExploreHoldings = useCallback(
     async (asOf: string | null) => {
       if (!config) return;
       const slug = strategySlug?.trim();
       if (!slug) return;
       const reqId = ++exploreHoldingsRequestIdRef.current;
+
+      if (!exploreHoldingsUnlocked) {
+        setHoldings([]);
+        setRebalanceDates([]);
+        setSelectedAsOf(null);
+        setHoldingsLoading(false);
+        setHoldingsRefreshing(false);
+        return;
+      }
+
       const hadTableData = exploreHoldingsLenRef.current > 0;
       const isDatePick = asOf != null;
       const useRefreshChrome = isDatePick && hadTableData;
@@ -351,7 +378,7 @@ export function ExplorePortfolioDetailDialog({
         }
       }
     },
-    [config, strategySlug]
+    [config, strategySlug, exploreHoldingsUnlocked]
   );
 
   useEffect(() => {
@@ -387,6 +414,7 @@ export function ExplorePortfolioDetailDialog({
 
   useEffect(() => {
     if (
+      !exploreHoldingsUnlocked ||
       !holdingsMovementView ||
       !exploreHoldingsPrevRebalanceDate ||
       !config ||
@@ -417,6 +445,7 @@ export function ExplorePortfolioDetailDialog({
       cancelled = true;
     };
   }, [
+    exploreHoldingsUnlocked,
     holdingsMovementView,
     exploreHoldingsPrevRebalanceDate,
     config?.id,
@@ -658,7 +687,7 @@ export function ExplorePortfolioDetailDialog({
               <h4 className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Portfolio holdings
               </h4>
-              {rebalanceDates.length > 0 ? (
+              {exploreHoldingsUnlocked && rebalanceDates.length > 0 ? (
                 <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-2 sm:gap-x-3">
                   <Select
                     value={
@@ -707,14 +736,47 @@ export function ExplorePortfolioDetailDialog({
                     </div>
                   ) : null}
                 </div>
-              ) : holdingsLoading ? (
+              ) : exploreHoldingsUnlocked && holdingsLoading ? (
                 <span className="shrink-0 text-[11px] text-muted-foreground">Loading…</span>
-              ) : (
+              ) : exploreHoldingsUnlocked ? (
                 <p className="shrink-0 text-right text-[11px] text-muted-foreground">
                   No rebalance history yet.
                 </p>
-              )}
+              ) : null}
             </div>
+            {!exploreHoldingsPaidTier ? (
+              <div className="flex min-h-[10rem] flex-col items-center justify-center gap-3 rounded-lg border border-dashed bg-muted/15 px-4 py-6 text-center">
+                <Lock className="size-7 shrink-0 text-muted-foreground" aria-hidden />
+                <p className="max-w-sm text-sm text-muted-foreground">
+                  {authState.isAuthenticated
+                    ? 'Holdings tables unlock on Supporter or Outperformer. Rankings and performance stats stay visible above.'
+                    : 'Sign in to follow portfolios. Full holdings unlock on a paid plan.'}
+                </p>
+                {authState.isAuthenticated ? (
+                  <Button size="sm" asChild>
+                    <Link href="/pricing">View plans</Link>
+                  </Button>
+                ) : (
+                  <Button size="sm" asChild>
+                    <Link href="/sign-up">Sign up</Link>
+                  </Button>
+                )}
+              </div>
+            ) : !exploreHoldingsUnlocked ? (
+              <div className="flex min-h-[10rem] flex-col items-center justify-center gap-3 rounded-lg border border-dashed bg-muted/15 px-4 py-6 text-center">
+                <Lock className="size-7 shrink-0 text-muted-foreground" aria-hidden />
+                <p className="text-sm font-medium text-foreground">Premium strategy model</p>
+                <p className="max-w-sm text-sm text-muted-foreground">
+                  Full holdings tables for this model are included with Outperformer. On Supporter,
+                  holdings unlock for the default strategy model only. Rankings and performance
+                  above stay visible.
+                </p>
+                <Button size="sm" asChild>
+                  <Link href="/pricing">Upgrade to Outperformer</Link>
+                </Button>
+              </div>
+            ) : (
+              <>
             {holdingsMovementView && prevExploreError ? (
               <p className="text-[11px] text-destructive">
                 Could not load the prior rebalance to compare.
@@ -1000,6 +1062,8 @@ export function ExplorePortfolioDetailDialog({
                   </div>
                 </div>
               </TooltipProvider>
+            )}
+              </>
             )}
           </section>
         </div>

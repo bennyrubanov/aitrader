@@ -28,10 +28,14 @@ function resolveTier(
   subscriptionTier: SubscriptionTier | undefined,
   isPremium: boolean
 ): SubscriptionTier {
-  if (subscriptionTier) {
+  if (subscriptionTier === "supporter" || subscriptionTier === "outperformer") {
     return subscriptionTier;
   }
-  return isPremium ? "outperformer" : "free";
+  if (subscriptionTier === "free") {
+    return "free";
+  }
+  // Missing tier (e.g. stale localStorage): never assume Outperformer — prefer Supporter for paid.
+  return isPremium ? "supporter" : "free";
 }
 
 export function PlanLabel({

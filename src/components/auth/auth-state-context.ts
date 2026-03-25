@@ -3,8 +3,18 @@
 import { createContext, useContext } from "react";
 import { DEFAULT_AUTH_STATE, type AuthState } from "@/lib/auth-state";
 
-type AuthStateContextValue = AuthState;
+export type AuthStateContextValue = {
+  auth: AuthState;
+  refreshProfile: () => Promise<void>;
+};
 
-export const AuthStateContext = createContext<AuthStateContextValue>(DEFAULT_AUTH_STATE);
+const defaultAuthContextValue: AuthStateContextValue = {
+  auth: DEFAULT_AUTH_STATE,
+  refreshProfile: async () => {},
+};
 
-export const useAuthState = () => useContext(AuthStateContext);
+export const AuthStateContext = createContext<AuthStateContextValue>(defaultAuthContextValue);
+
+export const useAuthState = () => useContext(AuthStateContext).auth;
+
+export const useRefreshAuthProfile = () => useContext(AuthStateContext).refreshProfile;

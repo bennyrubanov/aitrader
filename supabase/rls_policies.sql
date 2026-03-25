@@ -151,25 +151,23 @@ create policy "Public read batches"
   using (true);
 
 -- -------------------------------------------------------
--- 11) ai_analysis_runs – public read
---     (required for the 7-day rolling view and stock detail pages)
+-- 11) ai_analysis_runs – no anon/authenticated SELECT
+--     Raw AI outputs are served only via server routes with plan checks (service role).
 -- -------------------------------------------------------
 alter table public.ai_analysis_runs enable row level security;
 
 drop policy if exists "Public read analysis runs" on public.ai_analysis_runs;
-create policy "Public read analysis runs"
-  on public.ai_analysis_runs for select
-  using (true);
 
 -- -------------------------------------------------------
--- 12) nasdaq100_recommendations_current – public read
+-- 12) nasdaq100_recommendations_current – no direct anon/authenticated SELECT
+--     View nasdaq100_recommendations_current_public (no latent_rank) is also not granted
+--     to API roles; server routes use service role. See migrations
+--     20260324180000_nasdaq100_recommendations_public_view.sql and
+--     20260328120000_revoke_public_view_grants.sql.
 -- -------------------------------------------------------
 alter table public.nasdaq100_recommendations_current enable row level security;
 
 drop policy if exists "Public read current recommendations" on public.nasdaq100_recommendations_current;
-create policy "Public read current recommendations"
-  on public.nasdaq100_recommendations_current for select
-  using (true);
 
 -- -------------------------------------------------------
 -- 13) strategy tables – public read (frontend performance tab)
@@ -185,16 +183,10 @@ create policy "Public read strategy models"
 alter table public.strategy_portfolio_holdings enable row level security;
 
 drop policy if exists "Public read strategy portfolio holdings" on public.strategy_portfolio_holdings;
-create policy "Public read strategy portfolio holdings"
-  on public.strategy_portfolio_holdings for select
-  using (true);
 
 alter table public.strategy_rebalance_actions enable row level security;
 
 drop policy if exists "Public read strategy rebalance actions" on public.strategy_rebalance_actions;
-create policy "Public read strategy rebalance actions"
-  on public.strategy_rebalance_actions for select
-  using (true);
 
 alter table public.strategy_performance_weekly enable row level security;
 
@@ -364,6 +356,8 @@ grant select on public.nasdaq100_latest_snapshot to anon, authenticated;
 --   meaning it is locked to service role only. This is intentional
 --   — raw API data doesn't need frontend exposure.
 --
--- * Strategy/performance/research tables are intentionally read-only
---   to the public client; writes happen only via service-role cron.
+-- * Strategy performance/research aggregates (weekly performance, quintiles,
+--   cross-sectional regressions) remain public read for marketing pages.
+-- * strategy_portfolio_holdings, strategy_rebalance_actions, and ai_analysis_runs
+--   have no public SELECT; reads go through server routes using the service role.
 -- ============================================================

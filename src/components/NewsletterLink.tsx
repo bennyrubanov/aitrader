@@ -20,7 +20,7 @@ const NewsletterLink = ({ onClick }: NewsletterLinkProps) => {
             </h2>
             <p className="text-muted-foreground max-w-2xl mx-auto">
               Get weekly updates on the AI&apos;s latest decisions, how the portfolio is performing,
-              and what the data is showing — delivered straight to your inbox.
+              and what the data is showing. Follow along for free.
             </p>
           </div>
 
@@ -42,8 +42,7 @@ const NewsletterLink = ({ onClick }: NewsletterLinkProps) => {
               </div>
               <h3 className="text-lg font-semibold mb-2">Live performance results</h3>
               <p className="text-muted-foreground">
-                Track how the AI-constructed portfolio is performing against the benchmark — in
-                real time, no spin.
+                Track how the AI-constructed portfolio is performing against the benchmark in real time.
               </p>
             </div>
 
@@ -53,8 +52,7 @@ const NewsletterLink = ({ onClick }: NewsletterLinkProps) => {
               </div>
               <h3 className="text-lg font-semibold mb-2">Rating change alerts</h3>
               <p className="text-muted-foreground">
-                Get notified when the AI meaningfully changes its view on a stock you&apos;re
-                watching.
+                Get notified when the AI meaningfully changes its view on popular stocks.
               </p>
             </div>
           </div>
@@ -66,7 +64,7 @@ const NewsletterLink = ({ onClick }: NewsletterLinkProps) => {
               className="h-auto px-5 py-3 text-base sm:px-6 sm:py-4 sm:text-lg"
             >
               <Mail className="mr-2 h-4 w-4" />
-              Subscribe — It&apos;s Free
+              Subscribe (It&apos;s Free)
             </Button>
             <p className="text-sm text-muted-foreground mt-4">
               No spam, unsubscribe anytime. Weekly updates on the experiment.

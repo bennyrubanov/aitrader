@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import {
   Dialog,
   DialogContent,
@@ -12,7 +13,9 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ToastAction } from '@/components/ui/toast';
 import { useToast } from '@/hooks/use-toast';
+import { cn } from '@/lib/utils';
 import { PortfolioEntryDatePicker } from '@/components/platform/portfolio-entry-date-picker';
 import { portfolioEntryDateBounds } from '@/components/platform/portfolio-entry-date-utils';
 import { PortfolioIdentitySummaryRow } from '@/components/platform/portfolio-identity-summary-row';
@@ -38,6 +41,9 @@ type Props = {
   onOpenChange: (open: boolean) => void;
   profile: UserPortfolioEntrySettingsProfile | null;
   onSaved?: () => void;
+  /** Guests: persist to localStorage via `onLocalPersist` instead of the authenticated API. */
+  persistMode?: 'api' | 'local';
+  onLocalPersist?: (args: { investmentSize: number; userStartDate: string }) => void;
 };
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
@@ -52,6 +58,8 @@ export function UserPortfolioEntrySettingsDialog({
   onOpenChange,
   profile,
   onSaved,
+  persistMode = 'api',
+  onLocalPersist,
 }: Props) {
   const { toast } = useToast();
   const [investment, setInvestment] = useState('');
@@ -146,6 +154,45 @@ export function UserPortfolioEntrySettingsDialog({
 
     setBusy(true);
     try {
+      if (persistMode === 'local') {
+        if (!onLocalPersist) {
+          toast({
+            title: 'Could not save',
+            description: 'Local save is not available.',
+            variant: 'destructive',
+          });
+          return;
+        }
+        onLocalPersist({ investmentSize: inv, userStartDate: sd });
+        const signUpNext =
+          typeof window !== 'undefined'
+            ? `${window.location.pathname}${window.location.search}`
+            : '/platform/overview';
+        toast({
+          title: 'Portfolio settings updated',
+          description:
+            'Saved locally to your guest profile. Sign up for a free account to keep your portfolio saved across devices.',
+          action: (
+            <div className="flex w-full shrink-0 justify-center">
+              <ToastAction
+                asChild
+                altText="Sign up for a free account"
+                className={cn(
+                  'h-9 border-transparent bg-trader-blue px-4 text-primary-foreground shadow-sm',
+                  'hover:bg-trader-blue-dark hover:text-primary-foreground',
+                  'focus-visible:ring-trader-blue'
+                )}
+              >
+                <Link href={`/sign-up?next=${encodeURIComponent(signUpNext)}`}>Sign up free</Link>
+              </ToastAction>
+            </div>
+          ),
+        });
+        onOpenChange(false);
+        onSaved?.();
+        return;
+      }
+
       const res = await fetch('/api/platform/user-portfolio-profile', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -167,7 +214,7 @@ export function UserPortfolioEntrySettingsDialog({
       toast({
         title: 'Portfolio settings updated',
         description:
-          'Performance now reflects your entry, holdings, and investment amount.',
+          'Performance now reflects your updated entry date and investment amount.',
       });
       onOpenChange(false);
       onSaved?.();

@@ -61,6 +61,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
 import { useAuthState } from '@/components/auth/auth-state-context';
+import { useAccountSignupPrompt } from '@/components/platform/account-prompt-dialog';
 import { PORTFOLIO_EXPLORE_QUICK_PICKS } from '@/lib/portfolio-explore-quick-picks';
 import { PortfolioIdentitySummaryRow } from '@/components/platform/portfolio-identity-summary-row';
 import { sharpeRatioValueClass } from '@/lib/sharpe-value-class';
@@ -115,6 +116,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
   const router = useRouter();
   const { toast } = useToast();
   const authState = useAuthState();
+  const { openSignupPrompt } = useAccountSignupPrompt();
   const { config, updateConfig } = usePortfolioConfig();
   const strategySlug = config.strategySlug;
 
@@ -432,7 +434,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
 
   const openAddDialog = (c: RankedConfig) => {
     if (!authState.isAuthenticated) {
-      router.push('/sign-in?next=/platform/explore-portfolios');
+      openSignupPrompt({ fromFollow: true });
       return;
     }
     if (followedConfigIdSet.has(c.id)) {
@@ -506,7 +508,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
         description: 'Added to Your portfolios.',
         onAfterUndo: () => void loadFollowedProfiles(),
         viewAction: {
-          label: 'See portfolios',
+          label: 'See portfolio',
           onClick: () =>
             router.push(
               `/platform/your-portfolios?profile=${encodeURIComponent(newProfileId)}`

@@ -20,12 +20,13 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { toast } from '@/hooks/use-toast';
 import { getSupabaseBrowserClient } from '@/utils/supabase/browser';
+import { PlanLabel } from '@/components/account/plan-label';
 import { useAuthState } from '@/components/auth/auth-state-context';
+import { cn } from '@/lib/utils';
 
 type ProfileState = {
   email: string | null;
   fullName: string | null;
-  isPremium: boolean;
 };
 
 type NewsletterStatus = 'subscribed' | 'unsubscribed' | null;
@@ -37,7 +38,6 @@ const SettingsPageContent = () => {
   const [profile, setProfile] = useState<ProfileState>({
     email: null,
     fullName: null,
-    isPremium: false,
   });
   const [newsletterStatus, setNewsletterStatus] = useState<NewsletterStatus>(null);
   const [isLoadingNewsletter, setIsLoadingNewsletter] = useState(false);
@@ -60,7 +60,6 @@ const SettingsPageContent = () => {
       setProfile({
         email: null,
         fullName: null,
-        isPremium: false,
       });
       setNewsletterStatus(null);
       setIsLoadingNewsletter(false);
@@ -74,7 +73,6 @@ const SettingsPageContent = () => {
     setProfile({
       email: authState.email.includes('@') ? authState.email : null,
       fullName: authState.name && authState.name !== 'Guest' ? authState.name : null,
-      isPremium: authState.hasPremiumAccess,
     });
   }, [authState]);
 
@@ -334,15 +332,22 @@ const SettingsPageContent = () => {
                 <div>
                   <Badge
                     variant="outline"
-                    className={
-                      profile.isPremium
-                        ? 'border-trader-blue/40 bg-trader-blue/10 text-trader-blue'
-                        : 'border-amber-200 bg-amber-50 text-amber-700'
-                    }
+                    className={cn(
+                      authState.subscriptionTier === 'outperformer' &&
+                        'border-trader-blue/40 bg-trader-blue/10 text-trader-blue',
+                      authState.subscriptionTier === 'supporter' &&
+                        'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-700/50 dark:bg-amber-950/40 dark:text-amber-200',
+                      authState.subscriptionTier === 'free' &&
+                        'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200'
+                    )}
                   >
-                    {profile.isPremium ? 'Outperformer' : 'Free plan'}
+                    <PlanLabel
+                      isPremium={authState.hasPremiumAccess}
+                      subscriptionTier={authState.subscriptionTier}
+                      showIcon={false}
+                    />
                   </Badge>
-                  {!profile.isPremium && (
+                  {authState.subscriptionTier === 'free' && (
                     <Link
                       href="/pricing"
                       className="ml-2 text-xs text-trader-blue underline-offset-4 hover:underline"
@@ -455,6 +460,10 @@ const SettingsPageContent = () => {
                 </div>
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   You&apos;ll be notified when these stocks&apos; weekly ratings change.
+                </p>
+                <p className="mt-1.5 text-[11px] text-muted-foreground">
+                  Portfolio- and plan-based alert rules are still rolling out; preferences you set here
+                  stay saved for when delivery goes live.
                 </p>
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {followedStocks.map((s) => (

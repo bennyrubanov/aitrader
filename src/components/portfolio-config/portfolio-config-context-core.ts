@@ -11,8 +11,10 @@ export type PortfolioConfigContextValue = {
   riskLabel: string;
   frequencyLabel: string;
   dataNote: string | null;
+  /** After first client read of localStorage onboarding + config; false until then. */
+  portfolioConfigHydrated: boolean;
   isOnboardingDone: boolean;
-  markOnboardingDone: () => void;
+  markOnboardingDone: () => Promise<void>;
   resetOnboarding: () => void;
   entryDate: string | null;
   setEntryDate: (date: string | null) => void;

@@ -121,6 +121,8 @@ export function PortfolioListSortDialog({
                               {' '}
                               <Link
                                 href={opt.inlineDetailsLink.href}
+                                target="_blank"
+                                rel="noopener noreferrer"
                                 className="inline-flex items-center gap-0.5 font-medium text-primary underline-offset-2 hover:underline"
                                 onClick={(e) => e.stopPropagation()}
                               >

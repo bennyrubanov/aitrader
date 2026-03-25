@@ -4,7 +4,6 @@ import React, { useRef } from 'react';
 import Navbar from '@/components/Navbar';
 import Hero from '@/components/Hero';
 import ExperimentSection from '@/components/ExperimentSection';
-import Features from '@/components/Features';
 import ResearchSection from '@/components/ResearchSection';
 import CTA from '@/components/CTA';
 import Footer from '@/components/Footer';
@@ -28,7 +27,6 @@ const HomePageClient = () => {
         <Hero />
         <ExperimentSection />
         <ResearchSection parentDivRef={parentDivRef} />
-        <Features />
         <NewsletterLink onClick={handleOpenNewsletterPopup} />
         <CTA />
       </main>

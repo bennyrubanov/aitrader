@@ -41,6 +41,7 @@ type NavItem = {
   icon: ComponentType<{ className?: string }>;
   disabled?: boolean;
   badge?: string;
+  badgeHref?: string;
   dataPlatformTour?: string;
 };
 
@@ -76,16 +77,18 @@ const platformItems: NavItem[] = [
 
 const advancedItems: NavItem[] = [
   {
-    title: 'Create Custom Strategy',
+    title: 'Custom Strategies',
     icon: FlaskConical,
     disabled: true,
     badge: 'Soon',
+    badgeHref: '/roadmap-changelog',
   },
   {
     title: 'Chat',
     icon: MessageSquare,
     disabled: true,
     badge: 'Soon',
+    badgeHref: '/roadmap-changelog',
   },
 ];
 
@@ -200,8 +203,8 @@ export function AppSidebar() {
     navigateWithFallback((targetHref) => router.push(targetHref), href);
   };
 
-  const handleSignIn = () => {
-    openPath('/sign-in?next=/platform/settings');
+  const handleSignUp = () => {
+    openPath('/sign-up?next=/platform/overview');
   };
 
   const handleSignOut = async () => {
@@ -246,6 +249,7 @@ export function AppSidebar() {
             onPrefetch: handlePrefetchIntent,
             disabled: item.disabled,
             badge: item.badge,
+            badgeHref: item.badgeHref,
           }))}
           label="Advanced Features"
         />
@@ -310,7 +314,7 @@ export function AppSidebar() {
           onOpenNotifications={() => openPath('/platform/settings')}
           onUpgrade={() => openPath('/pricing')}
           onSignOut={handleSignOut}
-          onSignIn={handleSignIn}
+          onSignUp={handleSignUp}
         />
       </SidebarFooter>
     </Sidebar>

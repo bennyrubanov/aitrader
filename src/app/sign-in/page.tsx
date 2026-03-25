@@ -20,13 +20,10 @@ import {
   clearPreAuthReturnUrl,
 } from "@/lib/auth-storage";
 import { useAuthState } from "@/components/auth/auth-state-context";
-
-const sanitizeNextPath = (value: string | null, fallback: string) => {
-  if (!value || !value.startsWith("/")) {
-    return fallback;
-  }
-  return value;
-};
+import {
+  DEFAULT_POST_AUTH_PATH,
+  sanitizeAuthRedirectPath,
+} from "@/lib/auth-redirect";
 
 const methodBadge = (lastMethod: string | null, method: string) =>
   lastMethod === method ? (
@@ -51,7 +48,7 @@ function SignInPageContent() {
   const oauthInFlightRef = useRef(false);
 
   const nextPath = useMemo(
-    () => sanitizeNextPath(searchParams.get("next"), "/platform/overview"),
+    () => sanitizeAuthRedirectPath(searchParams.get("next"), DEFAULT_POST_AUTH_PATH),
     [searchParams],
   );
 
@@ -68,17 +65,10 @@ function SignInPageContent() {
 
   useEffect(() => {
     const explicit = searchParams.get("next");
-    if (explicit && explicit !== "/platform/overview" && explicit.startsWith("/")) {
+    if (explicit && explicit !== DEFAULT_POST_AUTH_PATH && explicit.startsWith("/")) {
       savePreAuthReturnUrl(explicit);
-    } else if (typeof document !== "undefined" && document.referrer) {
-      try {
-        const ref = new URL(document.referrer);
-        if (ref.origin === window.location.origin) {
-          savePreAuthReturnUrl(ref.pathname + ref.search);
-        }
-      } catch {
-        /* ignore invalid referrer */
-      }
+    } else {
+      clearPreAuthReturnUrl();
     }
   }, [searchParams]);
 
@@ -180,11 +170,11 @@ function SignInPageContent() {
     const returnUrl = getPreAuthReturnUrl();
     clearPreAuthReturnUrl();
     if (returnUrl) {
-      router.push(returnUrl);
+      router.push(sanitizeAuthRedirectPath(returnUrl, DEFAULT_POST_AUTH_PATH));
     } else {
       const redirectRes = await fetch("/api/auth/post-login-redirect");
       const { redirectTo } = (await redirectRes.json()) as { redirectTo: string };
-      router.push(redirectTo ?? "/platform/overview");
+      router.push(redirectTo ?? DEFAULT_POST_AUTH_PATH);
     }
     router.refresh();
   };

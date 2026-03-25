@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { createClient } from '@/utils/supabase/server';
 import { getPortfolioConfigHoldings } from '@/lib/portfolio-config-holdings';
+import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import {
   getHoldingsForStrategy,
   getPerformancePayloadBySlug,
@@ -34,6 +35,13 @@ export async function GET(req: Request) {
 
   const { searchParams } = new URL(req.url);
   const slug = searchParams.get('slug');
+
+  if (tier === 'supporter' && slug?.trim() && slug.trim() !== STRATEGY_CONFIG.slug) {
+    return NextResponse.json(
+      { error: 'Outperformer plan required for this strategy model.' },
+      { status: 403 }
+    );
+  }
   const riskParam = searchParams.get('risk');
   const frequency = searchParams.get('frequency');
   const weighting = searchParams.get('weighting');

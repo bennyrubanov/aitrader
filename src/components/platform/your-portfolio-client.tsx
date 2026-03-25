@@ -19,7 +19,7 @@ import {
   Layers,
   LayoutTemplate,
   ListFilter,
-  LogIn,
+  Lock,
   Percent,
   Plus,
   Scale,
@@ -78,6 +78,7 @@ import {
   USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT,
 } from '@/components/platform/portfolio-unfollow-toast';
 import { UserPortfolioEntrySettingsDialog } from '@/components/platform/user-portfolio-entry-settings-dialog';
+import { YourPortfoliosGuestPreview } from '@/components/platform/your-portfolios-guest-preview';
 import {
   usePortfolioConfig,
   RISK_LABELS,
@@ -85,12 +86,14 @@ import {
   type RiskLevel,
   type RebalanceFrequency,
 } from '@/components/portfolio-config';
+import { ENTRY_DATE_KEY } from '@/components/portfolio-config/portfolio-config-storage';
 import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
 import type {
   HoldingItem,
   PerformanceSeriesPoint,
   StrategyListItem,
 } from '@/lib/platform-performance-payload';
+import { canAccessPaidPortfolioHoldings, getAppAccessState } from '@/lib/app-access';
 import {
   getCachedExploreHoldings,
   HOLDINGS_DATE_SWITCH_MIN_SKELETON_MS,
@@ -117,6 +120,12 @@ import {
 import { PORTFOLIO_EXPLORE_QUICK_PICKS } from '@/lib/portfolio-explore-quick-picks';
 import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import { formatYmdDisplay } from '@/lib/format-ymd-display';
+import {
+  buildGuestLocalProfileRows,
+  buildGuestUserEntryPerformancePayload,
+  fetchGuestPortfolioConfigPerformanceJson,
+  isGuestLocalProfileId,
+} from '@/lib/guest-local-profile';
 import { cn } from '@/lib/utils';
 import type { ConfigPerfRow } from '@/lib/portfolio-config-utils';
 import { buildConfigPerformanceChart } from '@/lib/config-performance-chart';
@@ -640,7 +649,16 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     pathname.startsWith('/platform/your-portfolios/');
   const { toast } = useToast();
   const authState = useAuthState();
-  const { config } = usePortfolioConfig();
+  const appAccess = useMemo(() => getAppAccessState(authState), [authState]);
+  const yourPortfoliosHoldingsPaid = canAccessPaidPortfolioHoldings(appAccess);
+  const {
+    config: portfolioConfigCtx,
+    entryDate: portfolioEntryDate,
+    portfolioConfigHydrated,
+    isOnboardingDone,
+    setEntryDate,
+    updateConfig,
+  } = usePortfolioConfig();
 
   const [profiles, setProfiles] = useState<UserPortfolioProfileRow[]>([]);
   const [isLoadingProfiles, setIsLoadingProfiles] = useState(true);
@@ -712,6 +730,59 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     if (!authState.isLoaded || !authState.isAuthenticated) return;
     void loadProfiles();
   }, [authState.isLoaded, authState.isAuthenticated, loadProfiles]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!authState.isLoaded) return;
+    if (authState.isAuthenticated) return;
+
+    if (!portfolioConfigHydrated || !isOnboardingDone) {
+      setProfiles([]);
+      setIsLoadingProfiles(false);
+      return;
+    }
+
+    setIsLoadingProfiles(true);
+    const strategy =
+      strategies.find((s) => s.slug === portfolioConfigCtx.strategySlug) ?? strategies[0] ?? null;
+
+    let entryYmd = portfolioEntryDate?.trim() ?? '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(entryYmd)) {
+      try {
+        const fromStore = localStorage.getItem(ENTRY_DATE_KEY);
+        if (fromStore && /^\d{4}-\d{2}-\d{2}$/.test(fromStore)) entryYmd = fromStore;
+      } catch {
+        // ignore
+      }
+    }
+
+    void buildGuestLocalProfileRows(portfolioConfigCtx, entryYmd || null, strategy).then((rows) => {
+      if (cancelled) return;
+      if (rows) {
+        setProfiles([
+          {
+            ...rows.yourPortfolios,
+            is_starting_portfolio: Boolean(rows.yourPortfolios.is_starting_portfolio),
+          },
+        ]);
+      } else {
+        setProfiles([]);
+      }
+      setIsLoadingProfiles(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    authState.isLoaded,
+    authState.isAuthenticated,
+    portfolioConfigHydrated,
+    isOnboardingDone,
+    portfolioConfigCtx,
+    portfolioEntryDate,
+    strategies,
+  ]);
 
   useEffect(() => {
     if (!authState.isAuthenticated) return;
@@ -907,22 +978,17 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   // Sync ?profile= only on this route — workspace keeps this tree mounted while other platform tabs are open.
   useEffect(() => {
     if (!isYourPortfoliosRoute) return;
-    if (!authState.isAuthenticated || isLoadingProfiles) return;
+    if (isLoadingProfiles) return;
     if (profiles.length === 0) return;
     const valid = profileParam && profiles.some((p) => p.id === profileParam);
     if (!valid) {
-      router.replace(`/platform/your-portfolios?profile=${profiles[0]!.id}`, { scroll: false });
+      router.replace(`/platform/your-portfolios?profile=${encodeURIComponent(profiles[0]!.id)}`, {
+        scroll: false,
+      });
     }
-  }, [
-    authState.isAuthenticated,
-    isLoadingProfiles,
-    isYourPortfoliosRoute,
-    profiles,
-    profileParam,
-    router,
-  ]);
+  }, [isLoadingProfiles, isYourPortfoliosRoute, profiles, profileParam, router]);
 
-  const strategySlug = selectedProfile?.strategy_models?.slug ?? config.strategySlug;
+  const strategySlug = selectedProfile?.strategy_models?.slug ?? portfolioConfigCtx.strategySlug;
 
   const rankedConfigsForFilters = rankedBySlug[strategySlug] ?? [];
   const latestBenchmarkAsOf = latestPerfDateBySlug[strategySlug] ?? null;
@@ -1042,6 +1108,61 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       return;
     }
     const profileId = selectedProfile.id;
+
+    if (isGuestLocalProfileId(profileId)) {
+      const slug = selectedProfile.strategy_models?.slug?.trim();
+      const cfg = selectedProfile.portfolio_config;
+      const userStart = selectedProfile.user_start_date.trim();
+      if (!slug || !cfg) {
+        userEntryRequestIdRef.current += 1;
+        setUserEntryPayload(null);
+        setIsLoadingUserEntry(false);
+        return;
+      }
+      const reqId = ++userEntryRequestIdRef.current;
+      if (!opts?.bypassCache) {
+        setIsLoadingUserEntry(true);
+      }
+      try {
+        const pc = {
+          strategySlug: slug,
+          riskLevel: cfg.risk_level as RiskLevel,
+          rebalanceFrequency: cfg.rebalance_frequency as RebalanceFrequency,
+          weightingMethod: cfg.weighting_method as 'equal' | 'cap',
+          investmentSize: num(selectedProfile.investment_size),
+        };
+        const raw = await fetchGuestPortfolioConfigPerformanceJson(slug, pc);
+        if (userEntryRequestIdRef.current !== reqId) return;
+        if (!raw) {
+          setUserEntryPayload({ computeStatus: 'failed', series: [], metrics: null });
+          return;
+        }
+        const built = buildGuestUserEntryPerformancePayload(
+          raw.rows,
+          raw.computeStatus,
+          userStart,
+          num(selectedProfile.investment_size)
+        );
+        setUserEntryPayload({
+          computeStatus: built.computeStatus,
+          configComputeStatus: built.configComputeStatus,
+          hasMultipleObservations: built.hasMultipleObservations,
+          series: built.series,
+          metrics: built.metrics,
+          userStartDate: built.userStartDate,
+        } as UserEntryPerfApiResponse);
+      } catch {
+        if (userEntryRequestIdRef.current === reqId) {
+          setUserEntryPayload({ computeStatus: 'failed', series: [], metrics: null });
+        }
+      } finally {
+        if (userEntryRequestIdRef.current === reqId) {
+          setIsLoadingUserEntry(false);
+        }
+      }
+      return;
+    }
+
     const reqId = ++userEntryRequestIdRef.current;
 
     if (!opts?.bypassCache) {
@@ -1070,7 +1191,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         setIsLoadingUserEntry(false);
       }
     }
-  }, [selectedProfile?.id, selectedProfile?.user_start_date]);
+  }, [selectedProfile]);
 
   useEffect(() => {
     void loadUserEntry();
@@ -1108,6 +1229,16 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       const configId = selectedProfileConfigId;
       if (!selectedProfile?.id || !configId || !slug) return;
       const reqId = ++yourPortfolioHoldingsRequestIdRef.current;
+
+      if (!yourPortfoliosHoldingsPaid) {
+        setConfigHoldings([]);
+        setConfigHoldingsAsOf(null);
+        setConfigHoldingsRebalanceDates([]);
+        setConfigHoldingsLoading(false);
+        setConfigHoldingsRefreshing(false);
+        setPendingHoldingsAsOf(null);
+        return;
+      }
 
       const hadTableData = configHoldingsLenRef.current > 0;
       const isDatePick = asOf != null;
@@ -1168,7 +1299,13 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         }
       }
     },
-    [selectedProfile?.id, selectedProfileConfigId, strategySlug, holdingsMovementView]
+    [
+      selectedProfile?.id,
+      selectedProfileConfigId,
+      strategySlug,
+      holdingsMovementView,
+      yourPortfoliosHoldingsPaid,
+    ]
   );
 
   useEffect(() => {
@@ -1285,6 +1422,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
 
   useEffect(() => {
     if (
+      !yourPortfoliosHoldingsPaid ||
       !holdingsMovementView ||
       !holdingsPrevRebalanceDate ||
       !strategySlug?.trim() ||
@@ -1316,6 +1454,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       cancelled = true;
     };
   }, [
+    yourPortfoliosHoldingsPaid,
     holdingsMovementView,
     holdingsPrevRebalanceDate,
     configHoldingsAsOf,
@@ -1346,7 +1485,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
 
   const handleCreatePreset = async (preset: PresetConfig) => {
     setPresetBusyKey(preset.key);
-    const slug = config.strategySlug;
+    const slug = portfolioConfigCtx.strategySlug;
     const ymd = localTodayYmd();
     try {
       const res = await fetch('/api/platform/user-portfolio-profile', {
@@ -1597,18 +1736,15 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   }
 
   if (!authState.isAuthenticated) {
+    const nextParam = encodeURIComponent(
+      `${pathname}${searchParams.toString() ? `?${searchParams.toString()}` : ''}` ||
+        '/platform/your-portfolios'
+    );
     return (
-      <div className="flex h-full min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto rounded-lg border border-dashed p-12 text-center">
-        <FolderHeart className="mb-3 size-10 text-muted-foreground/40" />
-        <p className="text-sm font-medium">Sign in to save portfolios</p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Follow portfolios with different risk, cadence, and weighting — synced to your account.
-        </p>
-        <Button className="mt-5" onClick={() => router.push('/sign-in?next=/platform/your-portfolios')}>
-          <LogIn className="mr-2 size-4" />
-          Sign in
-        </Button>
-      </div>
+      <YourPortfoliosGuestPreview
+        signInHref={`/sign-in?next=${nextParam}`}
+        signUpHref={`/sign-up?next=${nextParam}`}
+      />
     );
   }
 
@@ -2125,7 +2261,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                     <h4 className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       Portfolio holdings
                     </h4>
-                    {configHoldingsRebalanceDates.length > 0 ? (
+                    {yourPortfoliosHoldingsPaid && configHoldingsRebalanceDates.length > 0 ? (
                       <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-2 sm:gap-x-3">
                         <Select
                           value={
@@ -2180,13 +2316,13 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                           </div>
                         ) : null}
                       </div>
-                    ) : configHoldingsLoading ? (
+                    ) : yourPortfoliosHoldingsPaid && configHoldingsLoading ? (
                       <span className="shrink-0 text-[11px] text-muted-foreground">Loading…</span>
-                    ) : (
+                    ) : yourPortfoliosHoldingsPaid ? (
                       <p className="shrink-0 text-right text-[11px] text-muted-foreground">
                         No rebalance history yet.
                       </p>
-                    )}
+                    ) : null}
                     {holdingsMovementView && prevMovementError ? (
                       <p className="w-full text-[11px] text-destructive">
                         Could not load the prior rebalance to compare.
@@ -2198,6 +2334,18 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                       ref={yourPortfolioHoldingsScrollRef}
                       className="h-full min-h-0 overflow-y-auto"
                     >
+                  {!yourPortfoliosHoldingsPaid ? (
+                    <div className="flex min-h-[12rem] flex-col items-center justify-center gap-3 px-4 py-8 text-center">
+                      <Lock className="size-8 shrink-0 text-muted-foreground" aria-hidden />
+                      <p className="max-w-sm text-sm text-muted-foreground">
+                        Portfolio holdings and allocations are available on the Supporter or Outperformer plans.
+                      </p>
+                      <Button size="sm" asChild>
+                        <Link href="/pricing">View plans</Link>
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
                   {configHoldingsLoading && configHoldings.length === 0 ? (
                     <div ref={yourPortfolioHoldingsInnerRef}>
                       <Skeleton className="h-48 w-full rounded-md" />
@@ -2500,6 +2648,8 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                       </div>
                     </TooltipProvider>
                   )}
+                    </>
+                  )}
                     </div>
                     {showYourPortfolioHoldingsScrollFade ? (
                       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] flex h-10 items-end justify-center bg-gradient-to-t from-background/90 via-background/45 to-transparent pb-1 pt-5">
@@ -2718,11 +2868,20 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
               }
             : null
         }
+        persistMode={
+          selectedProfile?.id && isGuestLocalProfileId(selectedProfile.id) ? 'local' : 'api'
+        }
+        onLocalPersist={({ investmentSize, userStartDate }) => {
+          setEntryDate(userStartDate);
+          updateConfig({ investmentSize });
+        }}
         onSaved={() => {
           if (selectedProfile?.id) {
             invalidateUserEntryPerformanceCache(selectedProfile.id);
           }
-          void loadProfiles();
+          if (authState.isAuthenticated) {
+            void loadProfiles();
+          }
           void loadUserEntry();
         }}
       />

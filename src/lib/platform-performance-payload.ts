@@ -1,4 +1,5 @@
 import { unstable_cache } from 'next/cache';
+import { createAdminClient } from '@/utils/supabase/admin';
 import { createPublicClient } from '@/utils/supabase/public';
 
 const INITIAL_CAPITAL = 10_000;
@@ -171,6 +172,7 @@ export type PlatformPerformancePayload = {
     maxDrawdown: number | null;
     sharpeRatio: number | null;
     pctWeeksBeatingNasdaq100: number | null;
+    pctWeeksBeatingSp500: number | null;
     pctMonthsBeatingNasdaq100: number | null;
     benchmarks: {
       nasdaq100CapWeight: {
@@ -536,6 +538,9 @@ const buildPayloadForStrategy = async (
           pctWeeksBeatingNasdaq100: computePctWeeksBeatingNasdaq100(
             series.map((p) => ({ aiValue: p.aiTop20, benchmarkValue: p.nasdaq100CapWeight }))
           ),
+          pctWeeksBeatingSp500: computePctWeeksBeatingNasdaq100(
+            series.map((p) => ({ aiValue: p.aiTop20, benchmarkValue: p.sp500 }))
+          ),
           pctMonthsBeatingNasdaq100: computePctMonthsBeating(
             series.map((p) => ({ date: p.date, aiValue: p.aiTop20, benchmarkValue: p.nasdaq100CapWeight }))
           ),
@@ -748,7 +753,7 @@ export const getHoldingsForStrategy = async (
   runDate: string
 ): Promise<HoldingItem[]> => {
   try {
-    const supabase = createPublicClient();
+    const supabase = createAdminClient();
     const { data, error } = await supabase
       .from('strategy_portfolio_holdings')
       .select(
@@ -801,7 +806,7 @@ export const getHoldingsForStrategy = async (
 
 export const getPortfolioRunDates = async (strategyId: string): Promise<string[]> => {
   try {
-    const supabase = createPublicClient();
+    const supabase = createAdminClient();
     const { data, error } = await supabase
       .from('strategy_portfolio_holdings')
       .select('run_date')

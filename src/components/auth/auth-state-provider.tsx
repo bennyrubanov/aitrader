@@ -1,11 +1,25 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { DEFAULT_AUTH_STATE, type AuthState, type SubscriptionTier } from "@/lib/auth-state";
+import { buildAuthStateFromUserAndProfile } from "@/lib/build-auth-state";
 import { AuthStateContext } from "@/components/auth/auth-state-context";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/utils/supabase/browser";
 const AUTH_SNAPSHOT_KEY = "aitrader.auth.snapshot.v2";
+
+const tierFromAuthSnapshot = (
+  raw: unknown,
+  hasPremiumFlag: boolean
+): SubscriptionTier => {
+  if (raw === "supporter" || raw === "outperformer") {
+    return raw;
+  }
+  if (raw === "free") {
+    return "free";
+  }
+  return hasPremiumFlag ? "supporter" : "free";
+};
 
 type AuthStateProviderProps = {
   children: React.ReactNode;
@@ -23,21 +37,11 @@ const hydrateUserState = async (user: User): Promise<AuthState> => {
 
   const { data, error } = await supabase
     .from("user_profiles")
-    .select("subscription_tier, full_name, email")
+    .select("subscription_tier, full_name, email, portfolio_onboarding_done")
     .eq("id", user.id)
     .maybeSingle();
 
-  const tier = (!error && (data?.subscription_tier as SubscriptionTier | undefined)) || 'free';
-  return {
-    isLoaded: true,
-    isAuthenticated: true,
-    userId: user.id,
-    email: data?.email ?? user.email ?? "Signed in",
-    name: data?.full_name ?? user.user_metadata?.full_name ?? user.user_metadata?.name ?? "Account",
-    avatar: user.user_metadata?.avatar_url ?? user.user_metadata?.picture ?? "",
-    subscriptionTier: tier,
-    hasPremiumAccess: tier === 'supporter' || tier === 'outperformer',
-  };
+  return buildAuthStateFromUserAndProfile(user, data, Boolean(error));
 };
 
 export function AuthStateProvider({ children, initialState }: AuthStateProviderProps) {
@@ -66,7 +70,8 @@ export function AuthStateProvider({ children, initialState }: AuthStateProviderP
       try {
         const parsed = JSON.parse(rawSnapshot) as Partial<AuthState>;
         if (parsed?.isAuthenticated) {
-          const tier = (parsed.subscriptionTier ?? 'free') as SubscriptionTier;
+          const hasPremiumFlag = Boolean(parsed.hasPremiumAccess);
+          const tier = tierFromAuthSnapshot(parsed.subscriptionTier, hasPremiumFlag);
           setAuthState((previous) => ({
             ...previous,
             isLoaded: true,
@@ -76,7 +81,11 @@ export function AuthStateProvider({ children, initialState }: AuthStateProviderP
             name: parsed.name ?? previous.name,
             avatar: parsed.avatar ?? previous.avatar,
             subscriptionTier: tier,
-            hasPremiumAccess: Boolean(parsed.hasPremiumAccess),
+            hasPremiumAccess: tier === "supporter" || tier === "outperformer",
+            portfolioOnboardingDone:
+              typeof parsed.portfolioOnboardingDone === "boolean"
+                ? parsed.portfolioOnboardingDone
+                : previous.portfolioOnboardingDone,
           }));
         }
       } catch {
@@ -155,7 +164,28 @@ export function AuthStateProvider({ children, initialState }: AuthStateProviderP
     window.localStorage.setItem(AUTH_SNAPSHOT_KEY, JSON.stringify(authState));
   }, [authState]);
 
-  const value = useMemo(() => authState, [authState]);
+  const refreshProfile = useCallback(async () => {
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase) {
+      return;
+    }
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      return;
+    }
+    const nextState = await hydrateUserState(user);
+    setAuthState(nextState);
+  }, []);
+
+  const value = useMemo(
+    () => ({
+      auth: authState,
+      refreshProfile,
+    }),
+    [authState, refreshProfile]
+  );
 
   return <AuthStateContext.Provider value={value}>{children}</AuthStateContext.Provider>;
 }

@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { sendEmailByGmail } from "@/lib/sendEmailByGmail";
+import {
+  DEFAULT_POST_AUTH_PATH,
+  sanitizeAuthRedirectPath,
+} from "@/lib/auth-redirect";
 
 export const runtime = "nodejs";
 
@@ -11,18 +15,11 @@ type PasswordResetRequest = {
 
 const isValidEmail = (value: string) => /\S+@\S+\.\S+/.test(value.trim());
 
-const sanitizeNextPath = (value: string | undefined, fallback: string) => {
-  if (!value || !value.startsWith("/")) {
-    return fallback;
-  }
-  return value;
-};
-
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as PasswordResetRequest;
     const email = body.email?.trim().toLowerCase() ?? "";
-    const nextPath = sanitizeNextPath(body.nextPath, "/platform/overview");
+    const nextPath = sanitizeAuthRedirectPath(body.nextPath, DEFAULT_POST_AUTH_PATH);
 
     if (!isValidEmail(email)) {
       return NextResponse.json({ error: "Invalid email." }, { status: 400 });

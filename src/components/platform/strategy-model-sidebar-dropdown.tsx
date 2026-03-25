@@ -40,7 +40,7 @@ export function StrategyModelSidebarDropdown({
   const isBestSelected = !bestStrategy || bestStrategy.id === effective.id;
 
   return (
-    <div className="space-y-4 pb-4 border-b border-border">
+    <div className="space-y-4 border-b border-border pt-5 pb-4">
       <div className="space-y-1.5">
         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Strategy model

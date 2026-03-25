@@ -10,6 +10,9 @@ Schema files live in `supabase/`:
 - `supabase/reset.sql` – selective wipe script (run first when resetting experiment data; preserves user tables)
 - `supabase/schema.sql` – table/view definitions (run first)
 - `supabase/rls_policies.sql` – Row Level Security policies (run second)
+- `supabase/migrations/` – ordered SQL migrations applied by Supabase CLI / hosted projects
+
+**Migrations filenames:** Always-applied `.cursor/rules/supabase-migrations.mdc` — prefix = real creation `YYYYMMDDHHMMSS` (user-stated date/time or `date +%Y%m%d%H%M%S`); never invented future dates.
 
 The daily cron job is at `src/app/api/cron/daily/route.ts` (runs every weekday; AI ratings + portfolio only execute on rebalance day, prices saved daily). On rebalance days it emails `CRON_ERROR_EMAIL` a run digest (timings, universe, model, counts); on price-only days it emails only when errors were recorded.
 The AI prompt template and JSON schema are at `src/lib/aiPrompt.ts`.
@@ -45,17 +48,17 @@ You must also keep this file up to date.
 
 **NASDAQ-100 membership**: `nasdaq100_snapshots`, `nasdaq100_snapshot_stocks`, `nasdaq_100_daily_raw`.
 
-**Strategy/version control (Layer A)**: `strategy_models` (canonical slug + AIT identity fields `ait_code` + `robot_name`; structural params define the rating engine; no `unique(name, version)` — slug is the sole identity), `ai_run_batches`, `ai_analysis_runs`.
+**Strategy/version control (Layer A)**: `strategy_models` (canonical slug + AIT identity fields `ait_code` + `robot_name`; structural params define the rating engine; no `unique(name, version)` — slug is the sole identity; **`minimum_plan_tier`** `supporter` | `outperformer` = minimum subscription required for that strategy’s premium-scoped data such as per-stock `ai_analysis_runs` history — default **`outperformer`** for new rows; the default model (`is_default`) should be **`supporter`** so Supporter plans stay on one model only), `ai_run_batches`, `ai_analysis_runs`.
 
-**Model-layer performance + research**: `strategy_portfolio_holdings`, `strategy_rebalance_actions`, `strategy_performance_weekly`, `strategy_quintile_returns`, `strategy_cross_sectional_regressions`.
+**Model-layer performance + research**: `strategy_portfolio_holdings`, `strategy_rebalance_actions`, `strategy_performance_weekly`, `strategy_quintile_returns`, `strategy_cross_sectional_regressions`. **RLS**: `strategy_performance_weekly`, quintile/regression tables remain publicly readable for marketing performance pages; `strategy_portfolio_holdings`, `strategy_rebalance_actions`, and `ai_analysis_runs` have **no** `anon`/`authenticated` SELECT (reads go through server routes using the service role after plan checks).
 
 **Portfolio configs (Layer B)**: `portfolio_configs` (risk 1-5 × 4 freq × 2 weighting + risk 6 × 4 freq × equal only = 44 configs; risk 6 has top_n=1 so cap/equal are identical, only equal kept). Display names: `label` = `Top {n} · Weekly|Monthly|Quarterly|Yearly · Equal|Cap`; `risk_label` = tier badge (Conservative, Balanced, …). Canonical formatter: `src/lib/portfolio-config-display.ts` + migrations `20260320140000_portfolio_config_display_labels.sql`, `20260326100000_portfolio_config_label_frequency_then_weight.sql`. `strategy_portfolio_config_performance` (config-scoped performance rows keyed by strategy_id + config_id + run_date; includes `strategy_status` (in_progress/active), `compute_status` (pending/ready/failed), `next_rebalance_date`), `portfolio_config_compute_queue` (compute queue; service role only).
 
 **User portfolio tables**: `user_portfolio_profiles` (active profiles per user; stores `config_id`, `investment_size`, `user_start_date`, `notifications_enabled`, `is_starting_portfolio` — set on onboarding follow for the “Starting portfolio” badge — separate from model-level performance), `user_overview_slot_assignments` (`user_id`, `slot_number` ≥ 1, `profile_id`; unique `(user_id, slot_number)` — platform overview grid; the same `profile_id` may appear in multiple slots), `user_portfolio_positions` (holdings snapshot per profile), plus existing `user_portfolio_stocks` (watchlist/saved holdings).
 
-**Frontend-facing**: `nasdaq100_recommendations_current`, views `nasdaq100_scores_7d_view`, `nasdaq100_current_members`, `nasdaq100_latest_snapshot`.
+**Frontend-facing**: `nasdaq100_recommendations_current` (service role / cron only for full rows), **`nasdaq100_recommendations_current_public`** (service role only: same columns except **`latent_rank`**; no anon/authenticated SELECT), views `nasdaq100_scores_7d_view`, `nasdaq100_current_members`, `nasdaq100_latest_snapshot`.
 
-**User account tables**: `user_profiles`, `newsletter_subscribers`.
+**User account tables**: `user_profiles` (includes `portfolio_onboarding_done` boolean default false — portfolio wizard completion, RLS-updatable by owner), `newsletter_subscribers`.
 
 ## Key conventions
 
@@ -66,4 +69,4 @@ You must also keep this file up to date.
 - **Model performance vs. user performance are always separate**: `strategy_performance_weekly` and `strategy_portfolio_config_performance` track the strategy since inception; `user_portfolio_profiles.user_start_date` tracks the user's entry point.
 - When modifying the schema, update `supabase/schema.sql`, `supabase/rls_policies.sql`, the cron job, and this rule file.
 - When modifying strategy parameters, prompt, model, or portfolio rules, bump `appVersion` in the active `AI_STRATEGIES` entry in `src/lib/ai-strategy-registry.ts`.
-- SQL helper functions: `public.backfill_portfolio_config_mappings()` (backfills default config performance from weekly data), `public.verify_strategy_model_migration()` (validates FK integrity and slug uniqueness).
+- SQL helper functions: `public.backfill_portfolio_config_mappings()` (backfills default config performance from weekly data), `public.verify_strategy_model_migration()` (validates FK integrity and slug uniqueness), `public.stock_ai_analysis_history_for_strategies(p_stock_id, p_strategy_ids, p_limit)` (latest analysis rows for a stock joined to batches; **service_role execute only** — API resolves `p_strategy_ids` from `strategy_models.minimum_plan_tier` + user tier).

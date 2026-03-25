@@ -1,7 +1,10 @@
 import type { Metadata } from 'next';
 import StockDetailClient from '@/components/StockDetailClient';
+import { getAppAccessState, type AppAccessState } from '@/lib/app-access';
+import { buildAuthStateFromUserAndProfile } from '@/lib/build-auth-state';
 import { getAllStocks } from '@/lib/stocks-cache';
-import { createPublicClient } from '@/utils/supabase/public';
+import { createAdminClient } from '@/utils/supabase/admin';
+import { createClient } from '@/utils/supabase/server';
 
 type NewsItem = {
   title: string;
@@ -15,7 +18,8 @@ type StockDetailPageProps = {
 };
 
 export const dynamicParams = true;
-export const revalidate = 86400;
+/** Per-session tier affects which rating fields are sent; do not statically cache HTML. */
+export const dynamic = 'force-dynamic';
 
 const decodeXmlEntities = (value: string) =>
   value
@@ -107,16 +111,62 @@ export const generateMetadata = async ({ params }: StockDetailPageProps): Promis
   };
 };
 
+const emptyLatest = () => ({
+  score: null as number | null,
+  scoreDelta: null as number | null,
+  bucket: null as 'buy' | 'hold' | 'sell' | null,
+  confidence: null as number | null,
+  summary: null as string | null,
+  risks: [] as string[],
+  updatedAt: null as string | null,
+});
+
+function latestForAccess(
+  access: AppAccessState,
+  isPremiumStock: boolean,
+  row: {
+    score: number | null;
+    score_delta: number | null;
+    confidence: number | null;
+    bucket: 'buy' | 'hold' | 'sell' | null;
+    updated_at: string | null;
+  } | null
+) {
+  if (!row) {
+    return emptyLatest();
+  }
+  if (access === 'guest') {
+    return emptyLatest();
+  }
+  if (access === 'free' && isPremiumStock) {
+    return emptyLatest();
+  }
+  return {
+    score: row.score ?? null,
+    scoreDelta: row.score_delta ?? null,
+    bucket: row.bucket ?? null,
+    confidence:
+      row.confidence === null || row.confidence === undefined ? null : Number(row.confidence),
+    summary: null,
+    risks: [],
+    updatedAt: row.updated_at ?? null,
+  };
+}
+
 const StockDetailPage = async ({ params }: StockDetailPageProps) => {
   const resolvedParams = await params;
   const symbol = resolvedParams.symbol.toUpperCase();
 
-  const hasSupabasePublicEnv = Boolean(
-    process.env.NEXT_PUBLIC_SUPABASE_URL &&
-      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY
+  const hasAdminEnv = Boolean(
+    process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SECRET_KEY
   );
 
-  let stockRow: { id: string; symbol: string; company_name: string | null; is_premium_stock: boolean } | null = null;
+  let stockRow: {
+    id: string;
+    symbol: string;
+    company_name: string | null;
+    is_premium_stock: boolean;
+  } | null = null;
   let priceRow: {
     last_sale_price: string | null;
     net_change: string | null;
@@ -128,34 +178,48 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
     score: number | null;
     score_delta: number | null;
     confidence: number | null;
-    bucket: "buy" | "hold" | "sell" | null;
+    bucket: 'buy' | 'hold' | 'sell' | null;
     updated_at: string | null;
   } | null = null;
 
-  if (hasSupabasePublicEnv) {
-    const supabase = createPublicClient();
+  let access: AppAccessState = 'guest';
+  const sessionSupabase = await createClient();
+  const {
+    data: { user },
+  } = await sessionSupabase.auth.getUser();
+  if (user) {
+    const { data: profile, error: profileError } = await sessionSupabase
+      .from('user_profiles')
+      .select('subscription_tier, full_name, email')
+      .eq('id', user.id)
+      .maybeSingle();
+    access = getAppAccessState(buildAuthStateFromUserAndProfile(user, profile, Boolean(profileError)));
+  }
 
-    const { data: fetchedStockRow } = await supabase
-      .from("stocks")
-      .select("id, symbol, company_name, is_premium_stock")
-      .eq("symbol", symbol)
+  if (hasAdminEnv) {
+    const admin = createAdminClient();
+
+    const { data: fetchedStockRow } = await admin
+      .from('stocks')
+      .select('id, symbol, company_name, is_premium_stock')
+      .eq('symbol', symbol)
       .maybeSingle();
     stockRow = fetchedStockRow;
 
-    const { data: fetchedPriceRow } = await supabase
-      .from("nasdaq_100_daily_raw")
-      .select("last_sale_price, net_change, percentage_change, delta_indicator, run_date")
-      .eq("symbol", symbol)
-      .order("run_date", { ascending: false })
+    const { data: fetchedPriceRow } = await admin
+      .from('nasdaq_100_daily_raw')
+      .select('last_sale_price, net_change, percentage_change, delta_indicator, run_date')
+      .eq('symbol', symbol)
+      .order('run_date', { ascending: false })
       .limit(1)
       .maybeSingle();
     priceRow = fetchedPriceRow;
 
     if (stockRow?.id) {
-      const { data: fetchedCurrentRow } = await supabase
-        .from("nasdaq100_recommendations_current")
-        .select("score, score_delta, confidence, bucket, updated_at")
-        .eq("stock_id", stockRow.id)
+      const { data: fetchedCurrentRow } = await admin
+        .from('nasdaq100_recommendations_current_public')
+        .select('score, score_delta, confidence, bucket, updated_at')
+        .eq('stock_id', stockRow.id)
         .maybeSingle();
       currentRow = fetchedCurrentRow;
     }
@@ -167,18 +231,7 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
   const isPremiumStock = stockRow?.is_premium_stock ?? fallbackStock?.isPremium ?? true;
   const news = await fetchStockNews(symbol, stockName);
 
-  const latest = {
-    score: currentRow?.score ?? null,
-    scoreDelta: currentRow?.score_delta ?? null,
-    bucket: currentRow?.bucket ?? null,
-    confidence:
-      currentRow?.confidence === null || currentRow?.confidence === undefined
-        ? null
-        : Number(currentRow?.confidence),
-    summary: null,
-    risks: [],
-    updatedAt: currentRow?.updated_at ?? null,
-  };
+  const latest = latestForAccess(access, isPremiumStock, currentRow);
 
   const price = {
     price: priceRow?.last_sale_price ?? null,

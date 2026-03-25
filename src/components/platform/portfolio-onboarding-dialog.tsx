@@ -19,6 +19,14 @@ import { format, parseISO } from 'date-fns';
 import { enUS } from 'date-fns/locale';
 import { Button } from '@/components/ui/button';
 import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -48,6 +56,9 @@ import {
   type RiskLevel,
   type WeightingMethod,
 } from '@/components/portfolio-config';
+import {
+  syncPendingGuestPortfolioFollowForGuestLocal,
+} from '@/components/portfolio-config/portfolio-config-storage';
 import type { OnboardingRebalanceCounts } from '@/lib/onboarding-meta';
 import { formatYmdDisplay } from '@/lib/format-ymd-display';
 import { strategyModelDropdownSubtitle } from '@/lib/strategy-list-meta';
@@ -60,6 +71,7 @@ import {
 import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
 import type { FullConfigPerformanceMetrics } from '@/lib/config-performance-chart';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
+import { setGuestDeclinedAccountNudgeThisSession } from '@/lib/guest-account-nudge-session';
 import { queuePlatformPostOnboardingTour } from '@/lib/platform-post-onboarding-tour';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
 
@@ -75,6 +87,7 @@ function pickTopRankedConfig(configs: RankedConfig[]): RankedConfig | null {
 }
 const INVESTMENT_QUICK_PICKS = [5_000, 10_000, 25_000, 50_000];
 const PERFORMANCE_INITIAL_USD = 10_000;
+const PLATFORM_OVERVIEW_NEXT_PATH = '/platform/overview';
 
 const ONBOARDING_EQUAL_WEIGHTING_EXPLANATION =
   'Every stock gets the same allocation. Simple and avoids over-concentration in stocks with large market values.';
@@ -408,6 +421,7 @@ export function PortfolioOnboardingDialog({
   } | null>(null);
   const [finaleLoading, setFinaleLoading] = useState(false);
   const [followPhase, setFollowPhase] = useState<'idle' | 'posting' | 'syncing'>('idle');
+  const [guestAccountDialogOpen, setGuestAccountDialogOpen] = useState(false);
   const [celebratePerf, setCelebratePerf] = useState<{
     computeStatus: 'ready' | 'in_progress' | 'failed' | 'empty' | 'unsupported';
     series: PerformanceSeriesPoint[];
@@ -680,11 +694,25 @@ export function PortfolioOnboardingDialog({
     setDraftBeforeTopRankedSelection(null);
   };
 
+  const openGuestAccountSaveDialog = () => {
+    const entryYmd = draftEntryDate || localTodayYmd();
+    setConfig(draft);
+    setEntryDate(entryYmd);
+    syncPendingGuestPortfolioFollowForGuestLocal(draft, entryYmd);
+    setGuestAccountDialogOpen(true);
+  };
+
+  const handleContinueAsGuestLocalOnly = () => {
+    const entryYmd = draftEntryDate || localTodayYmd();
+    syncPendingGuestPortfolioFollowForGuestLocal(draft, entryYmd);
+    setGuestDeclinedAccountNudgeThisSession();
+    setGuestAccountDialogOpen(false);
+    void markOnboardingDone();
+  };
+
   const handleFollowThisPortfolio = async () => {
     if (!authState.isAuthenticated) {
-      queuePlatformPostOnboardingTour();
-      markOnboardingDone();
-      router.push(`/sign-in?next=${encodeURIComponent('/platform/overview')}`);
+      openGuestAccountSaveDialog();
       return;
     }
     setFollowPhase('posting');
@@ -739,7 +767,7 @@ export function PortfolioOnboardingDialog({
         },
       });
       queuePlatformPostOnboardingTour();
-      markOnboardingDone();
+      void markOnboardingDone();
       router.refresh();
     } finally {
       setFollowPhase('idle');
@@ -825,6 +853,7 @@ export function PortfolioOnboardingDialog({
   );
 
   return (
+    <>
     <Dialog open={!isOnboardingDone}>
       <DialogContent
         className={cn(
@@ -842,7 +871,7 @@ export function PortfolioOnboardingDialog({
             size="icon"
             className="absolute right-2 top-2 z-10 size-8 text-muted-foreground hover:text-foreground sm:right-3 sm:top-3"
             aria-label="Close onboarding (local dev)"
-            onClick={() => markOnboardingDone()}
+            onClick={() => void markOnboardingDone()}
           >
             <X className="size-4" />
           </Button>
@@ -903,7 +932,7 @@ export function PortfolioOnboardingDialog({
                     onClick={handleUseDefaults}
                     className="text-muted-foreground"
                   >
-                    Use defaults
+                    Skip portfolio setup
                   </Button>
                   <Button
                     type="button"
@@ -1339,10 +1368,10 @@ export function PortfolioOnboardingDialog({
               <DialogHeader className="shrink-0">
                 <DialogTitle className="flex items-center gap-2">
                   <CalendarIcon className="size-4 text-trader-blue" />
-                  When do you want to start tracking this portfolio?
+                  When to start tracking this portfolio?
                 </DialogTitle>
-                <DialogDescription>
-                  This is the hypothetical date that you'll invest in this portfolio. It is used to track your portfolio performance, and can be
+                <DialogDescription className="pt-1.5">
+                  This is the date that you'll invest in this portfolio. It is used to track your portfolio performance, and can be
                   changed anytime.
                 </DialogDescription>
               </DialogHeader>
@@ -1630,7 +1659,10 @@ export function PortfolioOnboardingDialog({
                             hideFootnote
                             initialNotional={celebrateNotional}
                             omitSeriesKeys={['nasdaq100EqualWeight']}
-                            seriesLabelOverrides={{ nasdaq100CapWeight: 'Nasdaq-100' }}
+                            seriesLabelOverrides={{
+                              nasdaq100CapWeight: 'Nasdaq-100',
+                              sp500: 'S&P 500',
+                            }}
                             chartContainerClassName={CELEBRATE_CHART_HEIGHT_CLASS}
                           />
                         ) : celebratePerf?.computeStatus === 'ready' &&
@@ -1647,7 +1679,10 @@ export function PortfolioOnboardingDialog({
                               hideFootnote
                               initialNotional={celebrateNotional}
                               omitSeriesKeys={['nasdaq100EqualWeight']}
-                              seriesLabelOverrides={{ nasdaq100CapWeight: 'Nasdaq-100' }}
+                              seriesLabelOverrides={{
+                                nasdaq100CapWeight: 'Nasdaq-100',
+                                sp500: 'S&P 500',
+                              }}
                               chartContainerClassName={CELEBRATE_CHART_HEIGHT_CLASS}
                             />
                           </div>
@@ -1698,6 +1733,44 @@ export function PortfolioOnboardingDialog({
         </div>
       </DialogContent>
     </Dialog>
+
+    <AlertDialog open={guestAccountDialogOpen} onOpenChange={setGuestAccountDialogOpen}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Create a free account to save</AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <div className="space-y-3 text-sm text-muted-foreground">
+              <p>
+                Sign up for an account to save your portfolio.
+              </p>
+              <p>
+                <span className="font-medium text-foreground">Continue as guest</span> keeps everything
+                on this device only. If you leave this page, your portfolio won&apos;t be here.
+              </p>
+            </div>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter className="flex w-full flex-row flex-wrap gap-2 sm:gap-3">
+          <Button
+            type="button"
+            variant="outline"
+            className="min-w-0 flex-1 border-dashed"
+            onClick={() => handleContinueAsGuestLocalOnly()}
+          >
+            Continue as guest
+          </Button>
+          <Button className="min-w-0 flex-1" asChild>
+            <Link
+              href={`/sign-up?next=${encodeURIComponent(PLATFORM_OVERVIEW_NEXT_PATH)}`}
+              onClick={() => setGuestAccountDialogOpen(false)}
+            >
+              Sign up for free
+            </Link>
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }
 

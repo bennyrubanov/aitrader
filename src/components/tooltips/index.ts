@@ -2,6 +2,7 @@ export * from './benchmark-outperformance';
 export * from './holdings-allocation-column-tooltip';
 export * from './holdings-movement-tooltip';
 export * from './info-icon-tooltip';
+export * from './portfolio-ending-value-rank-tooltip-body';
 export * from './portfolio-ranking-tooltip-body';
 export * from './spotlight-stat-tooltips';
 export * from './spotlight-overview-tooltips';

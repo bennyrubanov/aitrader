@@ -47,7 +47,7 @@ export const PLATFORM_POST_ONBOARDING_TOUR_STEPS: PlatformPostOnboardingTourStep
     path: '',
     anchors: [
       '[data-platform-tour="nav-overview"]',
-      '[data-platform-tour="overview-rebalance-actions-panel"]',
+      '[data-platform-tour="overview-rebalance-actions-first-portfolio"]',
     ],
   },
   {

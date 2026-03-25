@@ -295,47 +295,79 @@ const StockDetailClient = ({ symbol, stockName, isPremiumStock, price, latest, n
 
                 <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
                   <h2 className="text-xl font-semibold mb-2">Latest rating</h2>
-                  <div className="flex items-center gap-2 mb-3">
-                    <Badge variant="outline" className="capitalize">
-                      {formatBucket(latestBucket)}
-                    </Badge>
-                    <span className="text-sm text-muted-foreground">
-                      Confidence{' '}
-                      {latestConfidence === null
-                        ? 'N/A'
-                        : `${(latestConfidence * 100).toFixed(0)}%`}
-                    </span>
-                    {latest.score !== null ? (
-                      <span className="text-sm text-muted-foreground">
-                        Score {latest.score}
-                        {latest.scoreDelta !== null && latest.scoreDelta !== undefined
-                          ? ` (${latest.scoreDelta >= 0 ? '+' : ''}${latest.scoreDelta})`
-                          : ''}
-                      </span>
-                    ) : null}
-                  </div>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    {latestSummary ?? 'Recommendation summary unavailable.'}
-                  </p>
-                  <div className="space-y-3">
-                    <div>
-                      <p className="text-xs font-semibold text-muted-foreground mb-1">Key risks</p>
-                      {showPremium ? (
-                        <ul className="text-sm text-foreground/90 list-disc pl-5">
-                          {(latestRisks || []).map((risk) => (
-                            <li key={risk}>{risk}</li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <div className="text-sm text-muted-foreground">
-                          <Link href={upgradeHref} className="text-trader-blue hover:underline font-medium">
-                            Supporter plan
-                          </Link>{' '}
-                          required to view detailed risks.
-                        </div>
-                      )}
+                  {!isAuthenticated ? (
+                    <div className="rounded-lg border border-dashed border-border bg-muted/40 p-4 text-sm text-muted-foreground">
+                      <p className="font-medium text-foreground">Sign up to view</p>
+                      <p className="mt-2">
+                        Create a free account to see this week&apos;s AI bucket, score, and summary
+                        for non-premium Nasdaq-100 names.
+                      </p>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <Link href="/sign-up">
+                          <Button size="sm">Sign up</Button>
+                        </Link>
+                        <Link href="/sign-in">
+                          <Button size="sm" variant="outline">
+                            Log in
+                          </Button>
+                        </Link>
+                      </div>
                     </div>
-                  </div>
+                  ) : isPremiumStock && !hasPremiumAccess ? (
+                    <div className="rounded-lg border border-dashed border-border bg-muted/40 p-4 text-sm text-muted-foreground">
+                      <p className="font-medium text-foreground">Premium stock</p>
+                      <p className="mt-2">{premiumGateMessage}</p>
+                      <div className="mt-4">
+                        <Link href="/pricing">
+                          <Button size="sm">Upgrade to view</Button>
+                        </Link>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-2 mb-3">
+                        <Badge variant="outline" className="capitalize">
+                          {formatBucket(latestBucket)}
+                        </Badge>
+                        <span className="text-sm text-muted-foreground">
+                          Confidence{' '}
+                          {latestConfidence === null
+                            ? 'N/A'
+                            : `${(latestConfidence * 100).toFixed(0)}%`}
+                        </span>
+                        {latest.score !== null ? (
+                          <span className="text-sm text-muted-foreground">
+                            Score {latest.score}
+                            {latest.scoreDelta !== null && latest.scoreDelta !== undefined
+                              ? ` (${latest.scoreDelta >= 0 ? '+' : ''}${latest.scoreDelta})`
+                              : ''}
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="text-sm text-muted-foreground mb-4">
+                        {latestSummary ?? 'Recommendation summary unavailable.'}
+                      </p>
+                      <div className="space-y-3">
+                        <div>
+                          <p className="text-xs font-semibold text-muted-foreground mb-1">Key risks</p>
+                          {showPremium ? (
+                            <ul className="text-sm text-foreground/90 list-disc pl-5">
+                              {(latestRisks || []).map((risk) => (
+                                <li key={risk}>{risk}</li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <div className="text-sm text-muted-foreground">
+                              <Link href={upgradeHref} className="text-trader-blue hover:underline font-medium">
+                                Supporter plan
+                              </Link>{' '}
+                              required to view detailed risks.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
 

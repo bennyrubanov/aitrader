@@ -59,6 +59,7 @@ create table if not exists public.user_profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   email text,
   full_name text,
+  portfolio_onboarding_done boolean not null default false,
   subscription_tier text not null default 'free',
   stripe_last_event_id text,
   stripe_last_event_created timestamptz,
@@ -311,6 +312,8 @@ create table if not exists public.strategy_models (
   prompt_id uuid not null references public.ai_prompts(id) on delete restrict,
   model_id uuid not null references public.ai_models(id) on delete restrict,
   is_default boolean not null default false,
+  -- Minimum plan for premium strategy-scoped data (e.g. per-stock analysis history): supporter = Supporter+; outperformer = Outperformer only.
+  minimum_plan_tier text not null default 'outperformer' constraint strategy_models_minimum_plan_tier_valid check (minimum_plan_tier in ('supporter', 'outperformer')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint strategy_models_index_valid check (index_name in ('nasdaq100', 'sp500')),
@@ -420,6 +423,28 @@ create table if not exists public.nasdaq100_recommendations_current (
 
 create index if not exists idx_nasdaq100_recs_current_latest_run_id
   on public.nasdaq100_recommendations_current(latest_run_id);
+
+-- Service-role reads only (no anon/authenticated SELECT; see migration 20260328120000_revoke_public_view_grants.sql).
+-- Same columns as base table except latent_rank.
+create or replace view public.nasdaq100_recommendations_current_public
+with (security_invoker = false)
+as
+select
+  stock_id,
+  latest_run_id,
+  score,
+  score_delta,
+  confidence,
+  bucket,
+  reason_1s,
+  risks,
+  citations,
+  sources,
+  updated_at
+from public.nasdaq100_recommendations_current;
+
+comment on view public.nasdaq100_recommendations_current_public is
+  'Current recommendations without latent_rank. Not granted to anon/authenticated; use service role from server routes.';
 
 -- =========================
 -- 10) Weekly strategy holdings, actions, and equity curve
@@ -732,3 +757,45 @@ create table if not exists public.portfolio_config_compute_queue (
 
 create index if not exists idx_pcq_status_created_at
   on public.portfolio_config_compute_queue(status, created_at asc);
+
+-- Latest N analysis rows for a stock, scoped to strategy IDs (caller supplies IDs after plan checks; service_role only).
+create or replace function public.stock_ai_analysis_history_for_strategies(
+  p_stock_id uuid,
+  p_strategy_ids uuid[],
+  p_limit int default 30
+)
+returns table (
+  score int,
+  confidence numeric,
+  bucket text,
+  reason_1s text,
+  risks jsonb,
+  bucket_change_explanation text,
+  created_at timestamptz,
+  run_date date
+)
+language sql
+stable
+security invoker
+set search_path = public
+as $$
+  select
+    r.score,
+    r.confidence,
+    r.bucket,
+    r.reason_1s,
+    r.risks,
+    r.bucket_change_explanation,
+    r.created_at,
+    b.run_date
+  from public.ai_analysis_runs r
+  inner join public.ai_run_batches b on b.id = r.batch_id
+  where r.stock_id = p_stock_id
+    and cardinality(p_strategy_ids) > 0
+    and b.strategy_id = any(p_strategy_ids)
+  order by r.created_at desc
+  limit least(greatest(coalesce(p_limit, 30), 1), 200);
+$$;
+
+revoke all on function public.stock_ai_analysis_history_for_strategies(uuid, uuid[], int) from public;
+grant execute on function public.stock_ai_analysis_history_for_strategies(uuid, uuid[], int) to service_role;

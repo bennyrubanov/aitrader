@@ -706,7 +706,7 @@ SidebarMenuItem.displayName = 'SidebarMenuItem';
 export const SIDEBAR_MENU_TRAILING_CLASSNAME =
   'sidebar-menu-trailing flex min-w-0 min-h-0 flex-1 items-center gap-2 overflow-hidden transition-[max-width] duration-300 ease-in-out max-w-[min(100%,48rem)] group-data-[collapsible=icon]:max-w-0';
 
-const sidebarMenuButtonVariants = cva(
+export const sidebarMenuButtonVariants = cva(
   'peer/menu-button flex w-full items-center justify-start gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-none ring-sidebar-ring transition-[width,height,padding,gap] duration-300 ease-in-out hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 group-has-[[data-sidebar=menu-action]]/menu-item:pr-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-sidebar-accent data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground group-data-[collapsible=icon]:gap-0 [&>*:first-child]:shrink-0 [&_.sidebar-menu-trailing]:min-w-0',
   {
     variants: {
