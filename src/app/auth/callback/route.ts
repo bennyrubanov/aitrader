@@ -15,8 +15,11 @@ const resolveBaseUrl = (request: Request, origin: string) => {
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get('code');
+  /** OAuth 2.0 error from provider (e.g. access_denied) — not a stale PKCE duplicate. */
+  const oauthError = searchParams.get('error');
   const requestedNextPath = parseSafeAuthRedirectPath(searchParams.get('next'));
   const supabase = await createClient();
+  const base = resolveBaseUrl(request, origin);
 
   const redirectAuthenticatedUser = async () => {
     const {
@@ -29,20 +32,36 @@ export async function GET(request: Request) {
 
     const preAuthReturn = parsePreAuthReturnUrlFromCookies(request.headers.get('cookie'));
     const redirectPath = preAuthReturn ?? requestedNextPath ?? DEFAULT_POST_AUTH_PATH;
-    const response = NextResponse.redirect(`${resolveBaseUrl(request, origin)}${redirectPath}`);
+    const response = NextResponse.redirect(`${base}${redirectPath}`);
     response.cookies.set('aitrader_return_to', '', { path: '/', maxAge: 0 });
     return response;
   };
+
+  const redirectToAuthError = (reason: 'oauth' | 'missing_callback') =>
+    NextResponse.redirect(`${base}/auth/auth-code-error?reason=${reason}`);
+
+  const redirectToSignInRecovery = () => {
+    const fallbackNext = requestedNextPath ?? DEFAULT_POST_AUTH_PATH;
+    return NextResponse.redirect(`${base}/sign-in?next=${encodeURIComponent(fallbackNext)}`);
+  };
+
+  // Provider explicitly returned an error — show a real error path after session recovery.
+  if (oauthError) {
+    return (await redirectAuthenticatedUser()) ?? redirectToAuthError('oauth');
+  }
 
   if (code) {
     const { data: sessionData, error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error && sessionData?.user) {
       return (
         (await redirectAuthenticatedUser()) ??
-        NextResponse.redirect(`${resolveBaseUrl(request, origin)}${DEFAULT_POST_AUTH_PATH}`)
+        NextResponse.redirect(`${base}${DEFAULT_POST_AUTH_PATH}`)
       );
     }
+    // Code present but exchange failed: typical stale/duplicate OAuth — recover via sign-in.
+    return (await redirectAuthenticatedUser()) ?? redirectToSignInRecovery();
   }
 
-  return (await redirectAuthenticatedUser()) ?? NextResponse.redirect(`${origin}/auth/auth-code-error`);
+  // No code and no OAuth error: broken or bookmarked callback URL.
+  return (await redirectAuthenticatedUser()) ?? redirectToAuthError('missing_callback');
 }

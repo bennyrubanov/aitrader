@@ -77,6 +77,7 @@ import type { ConfigHoldingsSummary } from '@/lib/portfolio-config-holdings';
 import { formatStrategyDescriptionForDisplay } from '@/lib/format-strategy-description';
 import { formatPortfolioHoldingsSubtitle } from '@/lib/portfolio-config-display';
 import { cn } from '@/lib/utils';
+import { SectionHeadingAnchor } from '@/components/section-heading-anchor';
 import { useAuthState } from '@/components/auth/auth-state-context';
 import { getAppAccessState, canViewPerformanceHoldingsForStrategy } from '@/lib/app-access';
 import {
@@ -373,6 +374,8 @@ function PerformancePagePublicClientInner({
     if (!slug) return null;
     return parsePerformancePortfolioConfigParam(new URLSearchParams(searchParamsString));
   }, [slug, searchParamsString]);
+
+  const sectionHrefBase = `${pathname}${searchParamsString ? `?${searchParamsString}` : ''}`;
 
   const navigateToSelectedPortfolioSection = useCallback(() => {
     if (!slug) return;
@@ -902,7 +905,11 @@ function PerformancePagePublicClientInner({
     >
       {effectiveStrategy ? (
         <section id="strategy-model" className="mb-10 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]">
-          <h2 className="text-2xl font-bold tracking-tight text-foreground mb-4">Strategy model</h2>
+          <h2 className="group text-2xl font-bold tracking-tight text-foreground mb-4 flex flex-wrap items-center gap-x-1">
+            Strategy model
+            <SectionHeadingAnchor fragmentId="strategy-model" hrefBase={sectionHrefBase}
+            copyAbsoluteUrlOnClick />
+          </h2>
           <ModelHeaderCard
             name={effectiveStrategy.name}
             slug={effectiveStrategy.slug}
@@ -925,8 +932,10 @@ function PerformancePagePublicClientInner({
 
       {slug ? (
         <section id="selected-portfolio" className="mb-10 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]">
-          <h2 className="text-2xl font-bold tracking-tight text-foreground mb-4">
+          <h2 className="group text-2xl font-bold tracking-tight text-foreground mb-4 flex flex-wrap items-center gap-x-1">
             Selected portfolio
+            <SectionHeadingAnchor fragmentId="selected-portfolio" hrefBase={sectionHrefBase}
+            copyAbsoluteUrlOnClick />
           </h2>
           <PortfolioAtAGlanceCard
             portfolioConfig={portfolioPerf.portfolioConfig}
@@ -943,12 +952,16 @@ function PerformancePagePublicClientInner({
 
       {/* ── A: Overview ─────────────────────────────────────────────────── */}
       <section id="overview" className="space-y-5 mb-10">
-        <div className="mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-1">
-          <h2 className="text-2xl font-bold">Performance Overview</h2>
+        <div className="mb-2 space-y-1.5">
+          <div className="group inline-flex flex-wrap items-baseline gap-x-1">
+            <h2 className="text-2xl font-bold">Performance Overview</h2>
+            <SectionHeadingAnchor fragmentId="overview" hrefBase={sectionHrefBase}
+            copyAbsoluteUrlOnClick />
+          </div>
           {overviewPortfolioDataLoading ? (
-            <Skeleton className="h-5 w-64 max-w-full shrink-0" aria-hidden />
+            <Skeleton className="h-5 w-64 max-w-full" aria-hidden />
           ) : performanceOverviewSubtitle ? (
-            <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-normal tracking-normal text-muted-foreground">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-normal tracking-normal text-muted-foreground">
               {performanceOverviewSubtitle.showDiscontinued ? (
                 <>
                   <span className="font-medium text-foreground/90">Discontinued</span>
@@ -978,7 +991,7 @@ function PerformancePagePublicClientInner({
                 </>
               ) : null}
               <span>{performanceOverviewSubtitle.configLine}</span>
-            </span>
+            </div>
           ) : null}
         </div>
 
@@ -1101,8 +1114,10 @@ function PerformancePagePublicClientInner({
             id="overview-metrics"
             className="scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
           >
-            <h3 className="text-lg font-semibold tracking-tight text-foreground mb-3">
+            <h3 className="group text-lg font-semibold tracking-tight text-foreground mb-3 flex flex-wrap items-center gap-x-1">
               Metrics at-a-glance
+              <SectionHeadingAnchor fragmentId="overview-metrics" hrefBase={sectionHrefBase}
+            copyAbsoluteUrlOnClick />
             </h3>
             {overviewPortfolioDataLoading ? (
               <div
@@ -1165,7 +1180,11 @@ function PerformancePagePublicClientInner({
 
       {/* ── B: What you are looking at ──────────────────────────────────── */}
       <section id="what-you-see" className="mb-10">
-        <h2 className="text-2xl font-bold mb-4">What you are looking at</h2>
+        <h2 className="group text-2xl font-bold mb-4 flex flex-wrap items-center gap-x-1">
+          What you are looking at
+          <SectionHeadingAnchor fragmentId="what-you-see" hrefBase={sectionHrefBase}
+            copyAbsoluteUrlOnClick />
+        </h2>
         {effectiveStrategy && (
           <div className="rounded-lg border bg-muted/30 p-5 space-y-3">
             {overviewPortfolioDataLoading ? (
@@ -1245,19 +1264,31 @@ function PerformancePagePublicClientInner({
       <section id="holdings" className="mb-10">
         {!slug || !holdingsPortfolioConfig ? (
           <>
-            <h2 className="text-2xl font-bold mb-2">{holdingsSectionLabel}</h2>
+            <h2 className="group text-2xl font-bold mb-2 flex flex-wrap items-center gap-x-1">
+              {holdingsSectionLabel}
+              <SectionHeadingAnchor fragmentId="holdings" hrefBase={sectionHrefBase}
+            copyAbsoluteUrlOnClick />
+            </h2>
             <Skeleton className="h-[200px] w-full rounded-xl" />
           </>
         ) : holdingsLoading ? (
           <>
-            <h2 className="text-2xl font-bold mb-2">{holdingsSectionLabel}</h2>
+            <h2 className="group text-2xl font-bold mb-2 flex flex-wrap items-center gap-x-1">
+              {holdingsSectionLabel}
+              <SectionHeadingAnchor fragmentId="holdings" hrefBase={sectionHrefBase}
+            copyAbsoluteUrlOnClick />
+            </h2>
             <Skeleton className="h-[200px] w-full rounded-xl" />
           </>
         ) : entitledToHoldings ? (
           <>
             <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
               <div className="min-w-0 flex-1">
-                <h2 className="text-2xl font-bold mb-1">{holdingsSectionLabel}</h2>
+                <h2 className="group text-2xl font-bold mb-1 flex flex-wrap items-center gap-x-1">
+                  {holdingsSectionLabel}
+                  <SectionHeadingAnchor fragmentId="holdings" hrefBase={sectionHrefBase}
+            copyAbsoluteUrlOnClick />
+                </h2>
                 <p className="text-sm text-muted-foreground">
                   Positions for the selected portfolio ({portfolioHoldingsSubtitle}).
                 </p>
@@ -1356,7 +1387,11 @@ function PerformancePagePublicClientInner({
           </>
         ) : (
           <>
-            <h2 className="text-2xl font-bold mb-2">{holdingsSectionLabel}</h2>
+            <h2 className="group text-2xl font-bold mb-2 flex flex-wrap items-center gap-x-1">
+              {holdingsSectionLabel}
+              <SectionHeadingAnchor fragmentId="holdings" hrefBase={sectionHrefBase}
+            copyAbsoluteUrlOnClick />
+            </h2>
             <div className="relative rounded-xl border bg-card overflow-hidden">
             <div className="select-none pointer-events-none" aria-hidden>
               <Table>
@@ -1404,7 +1439,11 @@ function PerformancePagePublicClientInner({
 
       {/* ── C: Returns ──────────────────────────────────────────────────── */}
       <section id="returns" className="mb-10">
-        <h2 className="text-2xl font-bold mb-4">Returns</h2>
+        <h2 className="group text-2xl font-bold mb-4 flex flex-wrap items-center gap-x-1">
+          Returns
+          <SectionHeadingAnchor fragmentId="returns" hrefBase={sectionHrefBase}
+            copyAbsoluteUrlOnClick />
+        </h2>
         {overviewPortfolioDataLoading ? (
           <div
             className="space-y-4"
@@ -1571,7 +1610,11 @@ function PerformancePagePublicClientInner({
 
       {/* ── D: Risk ──────────────────────────────────────────────────────── */}
       <section id="risk" className="mb-10">
-        <h2 className="text-2xl font-bold mb-4">Risk</h2>
+        <h2 className="group text-2xl font-bold mb-4 flex flex-wrap items-center gap-x-1">
+          Risk
+          <SectionHeadingAnchor fragmentId="risk" hrefBase={sectionHrefBase}
+            copyAbsoluteUrlOnClick />
+        </h2>
         {overviewPortfolioDataLoading ? (
           <div
             className="space-y-4"
@@ -1612,7 +1655,11 @@ function PerformancePagePublicClientInner({
 
       {/* ── E: Consistency ───────────────────────────────────────────────── */}
       <section id="consistency" className="mb-10">
-        <h2 className="text-2xl font-bold mb-4">Consistency</h2>
+        <h2 className="group text-2xl font-bold mb-4 flex flex-wrap items-center gap-x-1">
+          Consistency
+          <SectionHeadingAnchor fragmentId="consistency" hrefBase={sectionHrefBase}
+            copyAbsoluteUrlOnClick />
+        </h2>
         {overviewPortfolioDataLoading ? (
           <div
             className="space-y-4"
@@ -1663,7 +1710,11 @@ function PerformancePagePublicClientInner({
 
       {/* ── F: Research validation ──────────────────────────────────────── */}
       <section id="research-validation" className="mb-10">
-        <h2 className="text-2xl font-bold mb-2">Research validation</h2>
+        <h2 className="group text-2xl font-bold mb-2 flex flex-wrap items-center gap-x-1">
+          Research validation
+          <SectionHeadingAnchor fragmentId="research-validation" hrefBase={sectionHrefBase}
+            copyAbsoluteUrlOnClick />
+        </h2>
         <p className="text-sm text-muted-foreground mb-5">
           Beyond portfolio returns, we track whether the AI scores actually predict which stocks
           will outperform across <em>all 100</em> Nasdaq-100 stocks, not just our top picks. This
@@ -1828,7 +1879,14 @@ function PerformancePagePublicClientInner({
                 <CardHeader className="pb-2">
                   <div className="space-y-3">
                     <div>
-                      <CardTitle className="text-base">Signal strength</CardTitle>
+                      <div className="group flex flex-wrap items-baseline gap-x-1">
+                        <CardTitle className="text-base">Signal strength</CardTitle>
+                        <SectionHeadingAnchor
+                          fragmentId="research-signal-strength"
+                          hrefBase={sectionHrefBase}
+                          copyAbsoluteUrlOnClick
+                        />
+                      </div>
                       <CardDescription className="mt-1">
                         Does the AI score actually predict which stocks will do better next week?
                       </CardDescription>
@@ -2068,7 +2126,11 @@ function PerformancePagePublicClientInner({
 
       {/* ── H: Reality checks ───────────────────────────────────────────── */}
       <section id="reality-checks" className="mb-10">
-        <h2 className="text-2xl font-bold mb-4">Reality checks</h2>
+        <h2 className="group text-2xl font-bold mb-4 flex flex-wrap items-center gap-x-1">
+          Reality checks
+          <SectionHeadingAnchor fragmentId="reality-checks" hrefBase={sectionHrefBase}
+            copyAbsoluteUrlOnClick />
+        </h2>
         <div className="grid sm:grid-cols-3 gap-4">
           {[
             {
