@@ -53,6 +53,12 @@ export async function POST(req: Request) {
         currency: preview.currency,
         total: preview.total,
         subscriptionId: preview.subscriptionId,
+        billingInterval: preview.billingInterval,
+        currentRecurringUnitAmount: preview.currentRecurringUnitAmount,
+        currentRecurringCurrency: preview.currentRecurringCurrency,
+        targetRecurringUnitAmount: preview.targetRecurringUnitAmount,
+        targetRecurringCurrency: preview.targetRecurringCurrency,
+        currentSubscriptionPeriodEndIso: preview.currentSubscriptionPeriodEndIso,
       });
     }
 
@@ -69,6 +75,10 @@ export async function POST(req: Request) {
         currency: preview.currency,
         total: preview.total,
         subscriptionId: preview.subscriptionId,
+        targetRecurringUnitAmount: preview.targetRecurringUnitAmount,
+        targetRecurringCurrency: preview.targetRecurringCurrency,
+        targetRecurringInterval: preview.targetRecurringInterval,
+        currentSubscriptionPeriodEndIso: preview.currentSubscriptionPeriodEndIso,
       });
     }
 

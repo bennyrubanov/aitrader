@@ -10,6 +10,43 @@ export const dynamic = 'force-dynamic';
 
 type RatingBucket = 'buy' | 'hold' | 'sell' | null;
 
+type NasdaqQuoteRow = {
+  symbol: string;
+  company_name: string | null;
+  last_sale_price: string | null;
+  net_change: string | null;
+  percentage_change: string | null;
+  run_date: string;
+};
+
+/** Latest `run_date` + full row set that day (~N100); map by symbol for merging onto the catalog. */
+async function loadLatestNasdaqQuotesBySymbol(
+  admin: ReturnType<typeof createAdminClient>
+): Promise<Map<string, NasdaqQuoteRow>> {
+  const map = new Map<string, NasdaqQuoteRow>();
+
+  const { data: dateRow, error: dateErr } = await admin
+    .from('nasdaq_100_daily_raw')
+    .select('run_date')
+    .order('run_date', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (dateErr || !dateRow?.run_date) return map;
+
+  const { data: rows, error: rowsErr } = await admin
+    .from('nasdaq_100_daily_raw')
+    .select('symbol, company_name, last_sale_price, net_change, percentage_change, run_date')
+    .eq('run_date', dateRow.run_date);
+
+  if (rowsErr || !rows?.length) return map;
+
+  for (const row of rows) {
+    map.set(row.symbol.toUpperCase(), row as NasdaqQuoteRow);
+  }
+  return map;
+}
+
 export async function GET() {
   try {
     const stocks = await getAllStocks();
@@ -29,10 +66,12 @@ export async function GET() {
       access = getAppAccessState(buildAuthStateFromUserAndProfile(user, profile, Boolean(profileError)));
     }
 
+    const admin = createAdminClient();
+    const quoteBySymbol = await loadLatestNasdaqQuotesBySymbol(admin);
+
     const ratingBySymbol = new Map<string, RatingBucket>();
 
     if (access !== 'guest') {
-      const admin = createAdminClient();
       const ratingsQuery =
         access === 'free'
           ? admin
@@ -63,9 +102,18 @@ export async function GET() {
       } else if (access === 'free' && stock.isPremium) {
         currentRating = null;
       }
+      const q = quoteBySymbol.get(stock.symbol.toUpperCase());
       return {
         ...stock,
         currentRating,
+        ...(q
+          ? {
+              lastSalePrice: q.last_sale_price ?? undefined,
+              netChange: q.net_change ?? undefined,
+              percentageChange: q.percentage_change ?? undefined,
+              asOf: q.run_date,
+            }
+          : {}),
       };
     });
 

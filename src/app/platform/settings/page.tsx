@@ -822,11 +822,11 @@ const SettingsPageContent = () => {
                     </p>
                   ) : signInMethods.google ? (
                     <p className="mt-0.5 text-xs text-muted-foreground">
-                      Your Google account is linked. That&apos;s how you sign in.
+                      You have linked your Google account to this account.
                     </p>
                   ) : signInMethods.email ? (
                     <p className="mt-0.5 text-xs text-muted-foreground">
-                      You sign in with email and password. Google is not linked.
+                      You have signed in with email and password.
                     </p>
                   ) : (
                     <p className="mt-0.5 text-xs text-muted-foreground">
@@ -912,7 +912,11 @@ const SettingsPageContent = () => {
                 <div className="min-w-0">
                   <p className="text-sm font-medium">Customer portal</p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    Update payment method, view invoices, or cancel your subscription.
+                    Payment method, receipts, and subscription lifecycle live in Stripe&apos;s portal. You can
+                    cancel auto-renew or end the subscription there—whether access runs through the end of the
+                    paid period or stops sooner depends on the option you pick in Stripe. Upgrades,
+                    downgrades, and monthly↔yearly switches stay in this page so you see timing and amounts
+                    before confirming.
                   </p>
                 </div>
                 <Button
@@ -939,7 +943,9 @@ const SettingsPageContent = () => {
                   <div className="min-w-0">
                     <p className="text-sm font-medium">Upgrade plan</p>
                     <p className="mt-0.5 text-xs text-muted-foreground">
-                      Unlock Outperformer features and full AI ratings access.
+                      Immediate move to Outperformer on your current monthly or yearly cadence. The dialog
+                      shows Stripe&apos;s proration charge (or credit), your new renewal price, and when access
+                      flips—after payment if Stripe requires it.
                     </p>
                   </div>
                   <Button
@@ -958,7 +964,9 @@ const SettingsPageContent = () => {
                   <div className="min-w-0">
                     <p className="text-sm font-medium">Downgrade to Supporter</p>
                     <p className="mt-0.5 text-xs text-muted-foreground">
-                      Switch at the next renewal; keep Outperformer until then.
+                      Schedules Supporter for your next renewal—no extra charge for scheduling. Outperformer
+                      stays until that date; cancel the schedule here if you change your mind. Full cancellation
+                      is only in Billing &amp; invoices.
                     </p>
                   </div>
                   <Button
@@ -978,8 +986,8 @@ const SettingsPageContent = () => {
                     <p className="text-sm font-medium">Billing interval</p>
                     <p className="mt-0.5 text-xs text-muted-foreground">
                       {authState.stripeRecurringInterval === 'month'
-                        ? 'Get 3 months off when you are subscribed yearly!'
-                        : 'Switch to monthly if you prefer smaller, more frequent charges.'}
+                        ? 'Move to yearly: Stripe charges a one-time proration now, then yearly renewals at the rate shown in the dialog.'
+                        : 'Move to monthly: proration now, then monthly renewals. Does not change Supporter vs Outperformer—only how often you are billed.'}
                     </p>
                   </div>
                   <Button

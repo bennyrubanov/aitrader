@@ -172,6 +172,12 @@ export async function previewChangeBillingInterval(
   total: number | null;
   subscriptionId: string;
   currentInterval: 'month' | 'year';
+  /** Stripe Price.unit_amount for the target recurring price (minor units); null if missing. */
+  targetRecurringUnitAmount: number | null;
+  targetRecurringCurrency: string;
+  targetRecurringInterval: 'month' | 'year';
+  /** End of current subscription item period before this change (ISO). */
+  currentSubscriptionPeriodEndIso: string | null;
 }> {
   assertSubscriptionAllowsBillingIntervalChange(ctx.subscription);
   const paidTier = paidPlanTierOrThrow(ctx.tier);
@@ -202,6 +208,17 @@ export async function previewChangeBillingInterval(
     },
   });
 
+  const targetPrice = await ctx.stripe.prices.retrieve(targetPriceId);
+  const recurring = targetPrice.recurring;
+  const ri =
+    recurring?.interval === 'month' || recurring?.interval === 'year'
+      ? recurring.interval
+      : targetInterval;
+  const targetRecurringUnitAmount =
+    typeof targetPrice.unit_amount === 'number' ? targetPrice.unit_amount : null;
+  const targetRecurringCurrency = targetPrice.currency || preview.currency;
+  const periodEndUnix = subscriptionCurrentPeriodEndUnix(ctx.subscription);
+
   return {
     prorationDate,
     targetPriceId,
@@ -210,6 +227,11 @@ export async function previewChangeBillingInterval(
     total: preview.total,
     subscriptionId: ctx.subscription.id,
     currentInterval: ctx.interval,
+    targetRecurringUnitAmount,
+    targetRecurringCurrency,
+    targetRecurringInterval: ri,
+    currentSubscriptionPeriodEndIso:
+      periodEndUnix !== null ? new Date(periodEndUnix * 1000).toISOString() : null,
   };
 }
 
@@ -347,6 +369,12 @@ export async function previewUpgradeToOutperformer(ctx: LoadedSubscriptionContex
   currency: string;
   total: number | null;
   subscriptionId: string;
+  billingInterval: 'month' | 'year';
+  currentRecurringUnitAmount: number | null;
+  currentRecurringCurrency: string;
+  targetRecurringUnitAmount: number | null;
+  targetRecurringCurrency: string;
+  currentSubscriptionPeriodEndIso: string | null;
 }> {
   if (ctx.tier !== 'supporter') {
     throw new Error('Upgrade is only available from the Supporter plan.');
@@ -375,6 +403,13 @@ export async function previewUpgradeToOutperformer(ctx: LoadedSubscriptionContex
     },
   });
 
+  const [currentPrice, targetPrice] = await Promise.all([
+    ctx.stripe.prices.retrieve(ctx.currentPriceId),
+    ctx.stripe.prices.retrieve(targetPriceId),
+  ]);
+
+  const periodEndUnix = subscriptionCurrentPeriodEndUnix(ctx.subscription);
+
   return {
     prorationDate,
     targetPriceId,
@@ -382,6 +417,15 @@ export async function previewUpgradeToOutperformer(ctx: LoadedSubscriptionContex
     currency: preview.currency,
     total: preview.total,
     subscriptionId: ctx.subscription.id,
+    billingInterval: ctx.interval,
+    currentRecurringUnitAmount:
+      typeof currentPrice.unit_amount === 'number' ? currentPrice.unit_amount : null,
+    currentRecurringCurrency: currentPrice.currency || preview.currency,
+    targetRecurringUnitAmount:
+      typeof targetPrice.unit_amount === 'number' ? targetPrice.unit_amount : null,
+    targetRecurringCurrency: targetPrice.currency || preview.currency,
+    currentSubscriptionPeriodEndIso:
+      periodEndUnix !== null ? new Date(periodEndUnix * 1000).toISOString() : null,
   };
 }
 

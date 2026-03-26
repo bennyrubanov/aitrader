@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { PlanChangeDetailBox, PlanChangeDetailSection } from '@/components/account/plan-change-detail';
 
 type PreviewPayload = {
   prorationDate: number;
@@ -18,6 +19,12 @@ type PreviewPayload = {
   amountDue: number | null;
   currency: string;
   total: number | null;
+  billingInterval: 'month' | 'year';
+  currentRecurringUnitAmount: number | null;
+  currentRecurringCurrency: string;
+  targetRecurringUnitAmount: number | null;
+  targetRecurringCurrency: string;
+  currentSubscriptionPeriodEndIso: string | null;
 };
 
 function formatMoney(amount: number | null, currency: string) {
@@ -32,6 +39,18 @@ function formatMoney(amount: number | null, currency: string) {
   }
 }
 
+function formatPeriodEndUtc(iso: string | null) {
+  if (!iso) return null;
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: 'medium',
+      timeZone: 'UTC',
+    }).format(new Date(iso));
+  } catch {
+    return null;
+  }
+}
+
 type SubscriptionUpgradeDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -43,7 +62,9 @@ export function SubscriptionUpgradeDialog({
   onOpenChange,
   onAfterSuccess,
 }: SubscriptionUpgradeDialogProps) {
-  const [phase, setPhase] = useState<'idle' | 'loading' | 'ready' | 'error' | 'confirming'>('idle');
+  const [phase, setPhase] = useState<
+    'idle' | 'loading' | 'ready' | 'affirm' | 'error' | 'confirming'
+  >('idle');
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<PreviewPayload | null>(null);
   const [paymentPendingNotice, setPaymentPendingNotice] = useState<string | null>(null);
@@ -86,6 +107,27 @@ export function SubscriptionUpgradeDialog({
           amountDue: data.amountDue,
           currency: data.currency,
           total: data.total,
+          billingInterval: data.billingInterval === 'year' ? 'year' : 'month',
+          currentRecurringUnitAmount:
+            typeof data.currentRecurringUnitAmount === 'number'
+              ? data.currentRecurringUnitAmount
+              : null,
+          currentRecurringCurrency:
+            typeof data.currentRecurringCurrency === 'string'
+              ? data.currentRecurringCurrency
+              : data.currency,
+          targetRecurringUnitAmount:
+            typeof data.targetRecurringUnitAmount === 'number'
+              ? data.targetRecurringUnitAmount
+              : null,
+          targetRecurringCurrency:
+            typeof data.targetRecurringCurrency === 'string'
+              ? data.targetRecurringCurrency
+              : data.currency,
+          currentSubscriptionPeriodEndIso:
+            typeof data.currentSubscriptionPeriodEndIso === 'string'
+              ? data.currentSubscriptionPeriodEndIso
+              : null,
         });
         setPhase('ready');
       } catch (e) {
@@ -122,7 +164,7 @@ export function SubscriptionUpgradeDialog({
     }
   };
 
-  const handleConfirm = async () => {
+  const handleConfirmCharge = async () => {
     if (!preview) return;
     setPhase('confirming');
     setError(null);
@@ -170,9 +212,29 @@ export function SubscriptionUpgradeDialog({
       reset();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Upgrade failed.');
-      setPhase('ready');
+      setPhase('affirm');
     }
   };
+
+  const chargeLabel = preview ? formatMoney(preview.amountDue, preview.currency) : '—';
+  const chargeIsCredit =
+    preview !== null && preview.amountDue !== null && preview.amountDue < 0;
+  const creditLabel =
+    preview && chargeIsCredit
+      ? formatMoney(
+          preview.amountDue !== null ? Math.abs(preview.amountDue) : null,
+          preview.currency
+        )
+      : null;
+  const periodEndLabel = preview ? formatPeriodEndUtc(preview.currentSubscriptionPeriodEndIso) : null;
+  const cadenceWord = preview?.billingInterval === 'year' ? 'yearly' : 'monthly';
+  const recurringSuffix = preview?.billingInterval === 'year' ? '/year' : '/month';
+  const supporterRecurring =
+    preview &&
+    formatMoney(preview.currentRecurringUnitAmount, preview.currentRecurringCurrency);
+  const outperformerRecurring =
+    preview &&
+    formatMoney(preview.targetRecurringUnitAmount, preview.targetRecurringCurrency);
 
   return (
     <Dialog
@@ -184,17 +246,42 @@ export function SubscriptionUpgradeDialog({
     >
       <DialogContent showCloseButton={phase !== 'confirming'}>
         <DialogHeader>
-          <DialogTitle>Upgrade to Outperformer</DialogTitle>
+          <DialogTitle>
+            {phase === 'affirm' || phase === 'confirming'
+              ? 'Confirm upgrade to Outperformer'
+              : 'Upgrade to Outperformer'}
+          </DialogTitle>
           <DialogDescription>
-            We&apos;ll invoice a prorated amount for the rest of your current billing period. If payment fails, you&apos;ll stay on
-            Supporter until the invoice is paid.
+            {phase === 'affirm' || phase === 'confirming' ? (
+              chargeIsCredit ? (
+                <>
+                  You are about to confirm an upgrade. Stripe shows{' '}
+                  <span className="font-semibold text-foreground">no payment due now</span> (a proration
+                  credit of <span className="font-semibold text-foreground">{creditLabel}</span> may apply).
+                  Outperformer still starts when Stripe finishes the update. If anything blocks the update,
+                  you stay on Supporter until it succeeds.
+                </>
+              ) : (
+                <>
+                  You are about to confirm an upgrade. Stripe will charge{' '}
+                  <span className="font-semibold text-foreground">{chargeLabel}</span> now for the prorated
+                  difference for the rest of this billing period. If payment fails, you stay on Supporter until
+                  the invoice is paid.
+                </>
+              )
+            ) : (
+              <>
+                Stripe will create a proration invoice for the rest of your current billing period. Review the
+                charge and renewals below, then confirm in the next step.
+              </>
+            )}
           </DialogDescription>
         </DialogHeader>
 
         {phase === 'loading' && (
           <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" />
-            Calculating proration…
+            Loading charge from Stripe…
           </div>
         )}
 
@@ -202,14 +289,70 @@ export function SubscriptionUpgradeDialog({
           <p className="text-sm text-destructive">{error}</p>
         )}
 
-        {(phase === 'ready' || phase === 'confirming') && preview && (
+        {(phase === 'ready' || phase === 'affirm' || phase === 'confirming') && preview && (
           <div className="space-y-3 text-sm">
             <p>
-              <span className="text-muted-foreground">Due now (estimate): </span>
-              <span className="font-semibold">
-                {formatMoney(preview.amountDue, preview.currency)}
+              <span className="text-muted-foreground">
+                {chargeIsCredit ? 'Stripe preview (due now): ' : 'Charge amount (due now): '}
+              </span>
+              <span className="font-semibold tabular-nums">
+                {chargeIsCredit
+                  ? `No charge — ${creditLabel} credit`
+                  : formatMoney(preview.amountDue, preview.currency)}
               </span>
             </p>
+            {phase === 'ready' && !paymentPendingNotice && (
+              <p className="text-xs text-muted-foreground">
+                Same line items and total as Stripe&apos;s invoice preview for this change—not an estimate.
+              </p>
+            )}
+            <PlanChangeDetailBox>
+              <PlanChangeDetailSection title="When Outperformer starts">
+                <p className="text-sm">
+                  As soon as Stripe applies the subscription update (usually within a minute after you
+                  confirm). Full Outperformer access follows that update. If Stripe needs a payment and it
+                  fails, you remain on Supporter until the invoice is paid—use{' '}
+                  <strong>Billing &amp; invoices</strong> if needed.
+                </p>
+              </PlanChangeDetailSection>
+              {periodEndLabel && (
+                <PlanChangeDetailSection title="Current billing period">
+                  <p className="text-sm">
+                    Your current term ends{' '}
+                    <strong>
+                      {periodEndLabel} (UTC)
+                    </strong>
+                    . Upgrading does not shorten that window; proration only covers the upgrade price for the
+                    time left in this period.
+                  </p>
+                </PlanChangeDetailSection>
+              )}
+              <PlanChangeDetailSection title="Recurring price after upgrade">
+                <p className="text-sm">
+                  You stay on <strong>{cadenceWord}</strong> billing. Supporter was{' '}
+                  <strong className="tabular-nums">
+                    {supporterRecurring}
+                    {supporterRecurring && supporterRecurring !== '—' ? recurringSuffix : ''}
+                  </strong>
+                  {supporterRecurring === '—' ? ' (see Billing & invoices). ' : ' before tax. '}
+                  Outperformer renews at{' '}
+                  <strong className="tabular-nums">
+                    {outperformerRecurring}
+                    {outperformerRecurring && outperformerRecurring !== '—' ? recurringSuffix : ''}
+                  </strong>
+                  {outperformerRecurring === '—'
+                    ? ' (see Billing & invoices for the exact amount).'
+                    : ' before tax on each renewal, unless you change plans again.'}
+                </p>
+              </PlanChangeDetailSection>
+              <PlanChangeDetailSection title="Cancel entirely">
+                <p className="text-sm">
+                  This flow only upgrades in place. To <strong>cancel</strong> the subscription or turn off
+                  auto-renew, open <strong>Billing &amp; invoices</strong> and use Stripe&apos;s customer
+                  portal—timing there follows what you choose in Stripe (e.g. end of period vs. immediate).
+                </p>
+              </PlanChangeDetailSection>
+            </PlanChangeDetailBox>
             {paymentPendingNotice && (
               <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-100">
                 <p>{paymentPendingNotice}</p>
@@ -231,46 +374,72 @@ export function SubscriptionUpgradeDialog({
         )}
 
         <DialogFooter className="gap-2 sm:gap-0">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={phase === 'confirming'}
-          >
-            Cancel
-          </Button>
           {paymentPendingNotice ? (
-            <Button
-              type="button"
-              onClick={() => void handleRefreshStatus()}
-              disabled={phase !== 'ready'}
-              className="bg-trader-blue text-white hover:bg-trader-blue-dark"
-            >
-              {phase === 'confirming' ? (
-                <>
-                  <Loader2 className="mr-2 size-4 animate-spin" />
-                  Checking…
-                </>
-              ) : (
-                'Refresh status'
-              )}
-            </Button>
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+                disabled={phase === 'confirming'}
+              >
+                Close
+              </Button>
+              <Button
+                type="button"
+                onClick={() => void handleRefreshStatus()}
+                disabled={phase !== 'ready'}
+                className="bg-trader-blue text-white hover:bg-trader-blue-dark"
+              >
+                {phase === 'confirming' ? (
+                  <>
+                    <Loader2 className="mr-2 size-4 animate-spin" />
+                    Checking…
+                  </>
+                ) : (
+                  'Refresh status'
+                )}
+              </Button>
+            </>
+          ) : phase === 'affirm' || phase === 'confirming' ? (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setPhase('ready')}
+                disabled={phase === 'confirming'}
+              >
+                Back
+              </Button>
+              <Button
+                type="button"
+                onClick={() => void handleConfirmCharge()}
+                disabled={phase !== 'affirm' || !preview}
+                className="bg-trader-blue text-white hover:bg-trader-blue-dark"
+              >
+                {phase === 'confirming' ? (
+                  <>
+                    <Loader2 className="mr-2 size-4 animate-spin" />
+                    Processing…
+                  </>
+                ) : (
+                  'Confirm and charge'
+                )}
+              </Button>
+            </>
           ) : (
-            <Button
-              type="button"
-              onClick={() => void handleConfirm()}
-              disabled={phase !== 'ready' || !preview}
-              className="bg-trader-blue text-white hover:bg-trader-blue-dark"
-            >
-              {phase === 'confirming' ? (
-                <>
-                  <Loader2 className="mr-2 size-4 animate-spin" />
-                  Processing…
-                </>
-              ) : (
-                'Confirm upgrade'
-              )}
-            </Button>
+            <>
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={() => setPhase('affirm')}
+                disabled={phase !== 'ready' || !preview}
+                className="bg-trader-blue text-white hover:bg-trader-blue-dark"
+              >
+                Review and confirm
+              </Button>
+            </>
           )}
         </DialogFooter>
       </DialogContent>
