@@ -9,21 +9,21 @@ import { useAuthState } from "@/components/auth/auth-state-context";
 
 const BillingPage = () => {
   const [loadingFlow, setLoadingFlow] = useState<string | null>(null);
-  const { isAuthenticated, hasPremiumAccess, subscriptionTier } = useAuthState();
+  const { isAuthenticated, hasPremiumAccess } = useAuthState();
 
-  const openPortal = async (flow: "default" | "subscription_cancel") => {
+  const openPortal = async () => {
     if (!isAuthenticated) {
       setLoadingFlow("auth");
       window.location.href = "/sign-in?next=/billing";
       return;
     }
 
-    setLoadingFlow(flow);
+    setLoadingFlow("default");
     try {
       const response = await fetch("/api/stripe/portal", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ flow }),
+        body: JSON.stringify({ flow: "default" }),
       });
       const payload = await response.json();
       if (!response.ok) {
@@ -47,8 +47,8 @@ const BillingPage = () => {
             <div className="max-w-2xl mx-auto text-center">
               <h1 className="text-3xl md:text-5xl font-bold mb-4">Billing & Subscription</h1>
               <p className="text-lg text-muted-foreground mb-8">
-                Use Stripe&apos;s billing portal for payment methods and invoice history. Upgrade,
-                downgrade between paid plans, or start a subscription from{" "}
+                Open the billing portal for payment methods, invoices, and canceling your subscription.
+                Change paid plans or start a subscription from{" "}
                 <Link href="/pricing" className="font-medium text-trader-blue underline-offset-4 hover:underline">
                   Pricing
                 </Link>
@@ -56,7 +56,7 @@ const BillingPage = () => {
               </p>
               <div className="flex flex-col gap-3 sm:flex-row sm:justify-center sm:flex-wrap">
                 <Button
-                  onClick={() => void openPortal("default")}
+                  onClick={() => void openPortal()}
                   disabled={loadingFlow !== null}
                   className="bg-trader-blue text-white hover:bg-trader-blue-dark"
                 >
@@ -80,15 +80,6 @@ const BillingPage = () => {
                       </Link>
                     </Button>
                   ))}
-                {isAuthenticated && hasPremiumAccess && subscriptionTier !== "free" && (
-                  <Button
-                    variant="outline"
-                    onClick={() => void openPortal("subscription_cancel")}
-                    disabled={loadingFlow !== null}
-                  >
-                    {loadingFlow === "subscription_cancel" ? "Opening..." : "Cancel subscription"}
-                  </Button>
-                )}
               </div>
             </div>
           </div>

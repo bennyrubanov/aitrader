@@ -9,6 +9,7 @@ export type UserProfileAuthRow = {
   stripe_current_period_end?: string | null;
   stripe_cancel_at_period_end?: boolean | null;
   stripe_pending_tier?: string | null;
+  stripe_recurring_interval?: string | null;
 } | null;
 
 export function buildAuthStateGuestLoaded(): AuthState {
@@ -32,6 +33,10 @@ export function buildAuthStateFromUserAndProfile(
     rawPending === 'supporter' || rawPending === 'outperformer' || rawPending === 'free'
       ? rawPending
       : null;
+
+  const rawInterval = !profileReadFailed ? profile?.stripe_recurring_interval : null;
+  const stripeRecurringInterval: 'month' | 'year' | null =
+    rawInterval === 'month' || rawInterval === 'year' ? rawInterval : null;
 
   return {
     isLoaded: true,
@@ -57,5 +62,6 @@ export function buildAuthStateFromUserAndProfile(
     stripeCancelAtPeriodEnd:
       !profileReadFailed && profile?.stripe_cancel_at_period_end === true,
     stripePendingTier: !profileReadFailed ? stripePendingTier : null,
+    stripeRecurringInterval: !profileReadFailed ? stripeRecurringInterval : null,
   };
 }

@@ -26,7 +26,7 @@ const getSiteUrl = (request: Request) => {
   throw new Error("Missing NEXT_PUBLIC_SITE_URL");
 };
 
-type StripePortalFlow = "default" | "subscription_update" | "subscription_cancel";
+type StripePortalFlow = "default" | "subscription_update";
 
 export async function POST(req: Request) {
   try {
@@ -42,7 +42,7 @@ export async function POST(req: Request) {
     let flow: StripePortalFlow = "default";
     try {
       const body = (await req.json().catch(() => ({}))) as { flow?: string };
-      if (body.flow === "subscription_update" || body.flow === "subscription_cancel") {
+      if (body.flow === "subscription_update") {
         flow = body.flow;
       }
     } catch {
@@ -84,10 +84,7 @@ export async function POST(req: Request) {
     const returnUrlString = returnUrl.toString();
 
     let subscriptionId = profile?.stripe_subscription_id ?? null;
-    if (
-      (flow === "subscription_update" || flow === "subscription_cancel") &&
-      !subscriptionId
-    ) {
+    if (flow === "subscription_update" && !subscriptionId) {
       const subs = await stripe.subscriptions.list({
         customer: customerId,
         status: "all",
@@ -99,7 +96,7 @@ export async function POST(req: Request) {
       subscriptionId = premium?.id ?? subs.data[0]?.id ?? null;
     }
 
-    if (flow === "subscription_update" || flow === "subscription_cancel") {
+    if (flow === "subscription_update") {
       if (!subscriptionId) {
         return NextResponse.json(
           { error: "No subscription found to manage. Start checkout from Pricing if you are on the free plan." },
@@ -121,16 +118,6 @@ export async function POST(req: Request) {
         flow_data: {
           type: "subscription_update",
           subscription_update: {
-            subscription: subscriptionId!,
-          },
-        },
-      });
-    } else if (flow === "subscription_cancel") {
-      session = await stripe.billingPortal.sessions.create({
-        ...baseParams,
-        flow_data: {
-          type: "subscription_cancel",
-          subscription_cancel: {
             subscription: subscriptionId!,
           },
         },

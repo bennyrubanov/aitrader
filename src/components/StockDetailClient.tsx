@@ -23,6 +23,8 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import type { StockNewsItem } from '@/lib/stock-news';
+import { formatDistanceToNow } from 'date-fns';
 
 /** Higher share of preset portfolios = broader model footprint (good); very low = weak footprint. */
 function portfolioBreadthSentiment(percent: number): 'good' | 'bad' | 'neutral' {
@@ -72,12 +74,7 @@ type StockDetailClientProps = {
     risks: string[];
     updatedAt: string | null;
   };
-  news: {
-    title: string;
-    link: string;
-    source: string | null;
-    publishedAt: string | null;
-  }[];
+  news: StockNewsItem[];
 };
 
 type PremiumState = 'idle' | 'loading' | 'ready' | 'locked' | 'error';
@@ -881,28 +878,64 @@ const StockDetailClient = ({
                   <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
                     <h2 className="text-xl font-semibold mb-4">Latest news</h2>
                     {news.length ? (
-                      <div className="space-y-4">
-                        {news.map((item) => (
-                          <article
-                            key={`${item.link}-${item.publishedAt ?? 'unknown'}`}
-                            className="border-b border-border pb-4 last:border-b-0 last:pb-0"
-                          >
-                            <a
-                              href={item.link}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="font-medium text-foreground hover:underline"
+                      <div className="space-y-5">
+                        {news.map((item) => {
+                          const pub = item.publishedAt ? new Date(item.publishedAt) : null;
+                          const pubValid = pub !== null && !Number.isNaN(pub.getTime());
+                          const relative = pubValid
+                            ? formatDistanceToNow(pub, { addSuffix: true })
+                            : null;
+                          const absoluteLabel = pubValid
+                            ? pub.toLocaleString()
+                            : (item.publishedAt ?? null);
+                          return (
+                            <article
+                              key={`${item.link}-${item.publishedAt ?? 'unknown'}`}
+                              className="border-b border-border pb-5 last:border-b-0 last:pb-0"
                             >
-                              {item.title}
-                            </a>
-                            <p className="text-xs text-muted-foreground mt-1">
-                              {item.source ?? 'Unknown source'}
-                              {item.publishedAt
-                                ? ` · ${new Date(item.publishedAt).toLocaleString()}`
-                                : ''}
-                            </p>
-                          </article>
-                        ))}
+                              <a
+                                href={item.link}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="group flex items-start gap-2 font-medium text-foreground hover:underline"
+                              >
+                                <span className="min-w-0 flex-1">{item.title}</span>
+                                <ExternalLink
+                                  className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-60 transition-opacity group-hover:opacity-100"
+                                  aria-hidden
+                                />
+                              </a>
+                              {item.snippet ? (
+                                <p className="mt-1.5 text-sm leading-snug text-muted-foreground line-clamp-2">
+                                  {item.snippet}
+                                </p>
+                              ) : null}
+                              <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                                {item.source ? (
+                                  <Badge variant="secondary" className="max-w-[200px] truncate font-normal">
+                                    {item.source}
+                                  </Badge>
+                                ) : (
+                                  <span>Unknown source</span>
+                                )}
+                                {pubValid && relative ? (
+                                  <>
+                                    <span className="text-muted-foreground/70" aria-hidden>
+                                      ·
+                                    </span>
+                                    <time
+                                      dateTime={pub.toISOString()}
+                                      title={absoluteLabel ?? undefined}
+                                      className="cursor-default border-b border-dotted border-muted-foreground/40"
+                                    >
+                                      {relative}
+                                    </time>
+                                  </>
+                                ) : null}
+                              </div>
+                            </article>
+                          );
+                        })}
                       </div>
                     ) : (
                       <p className="text-sm text-muted-foreground">
