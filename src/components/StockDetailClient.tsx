@@ -26,6 +26,13 @@ import { cn } from '@/lib/utils';
 import type { StockNewsItem } from '@/lib/stock-news';
 import { formatDistanceToNow } from 'date-fns';
 
+/** Stable across SSR and browser (avoid `toLocaleString()` default TZ mismatch). */
+const newsPublishedAbsoluteFormatter = new Intl.DateTimeFormat('en-US', {
+  dateStyle: 'short',
+  timeStyle: 'medium',
+  timeZone: 'UTC',
+});
+
 /** Higher share of preset portfolios = broader model footprint (good); very low = weak footprint. */
 function portfolioBreadthSentiment(percent: number): 'good' | 'bad' | 'neutral' {
   if (percent > 12) return 'good';
@@ -180,6 +187,9 @@ const StockDetailClient = ({
   const guestLatestRatingCopy = isPremiumStock
     ? 'You can use price and news without an account. This is a premium Nasdaq-100 name: AI ratings, analysis, and weekly history require Supporter or Outperformer after you sign in.'
     : "Create a free account or sign in to see this week's AI buy/hold/sell call, summary, key risks, and weekly history for non-premium stocks.";
+  /** Guest-visible stocks: server may include current bucket for marketing preview. */
+  const guestSeesLiveLatestBucket =
+    !isAuthenticated && !isPremiumStock && latest.bucket != null;
   const aiHistoryGateMessage = !isAuthenticated
     ? 'Sign up for free to unlock AI score history and change explanations for non-premium stocks. Premium names need a paid plan.'
     : isPremiumStock
@@ -633,20 +643,48 @@ const StockDetailClient = ({
                       <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
                         <h2 className="text-xl font-semibold mb-4">Latest recommendation</h2>
                         {!isAuthenticated ? (
-                          <div className="rounded-lg border border-dashed border-border bg-muted/40 p-4 text-sm text-muted-foreground">
-                            <p className="font-medium text-foreground">Sign up to view</p>
-                            <p className="mt-2">{guestLatestRatingCopy}</p>
-                            <div className="mt-4 flex flex-wrap gap-2">
-                              <Link href="/sign-up">
-                                <Button size="sm">Sign up</Button>
-                              </Link>
-                              <Link href="/sign-in">
-                                <Button size="sm" variant="outline">
-                                  Log in
-                                </Button>
-                              </Link>
+                          guestSeesLiveLatestBucket ? (
+                            <div className="space-y-3">
+                              <div
+                                className={`rounded-lg border px-3 py-3 text-center ${bucketHeroSurfaceClass(latestBucket)}`}
+                              >
+                                <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/90 mb-0.5">
+                                  Recommendation
+                                </p>
+                                <p className="text-xl sm:text-2xl font-extrabold tracking-tight uppercase">
+                                  {formatBucket(latestBucket)}
+                                </p>
+                              </div>
+                              <p className="text-xs text-muted-foreground leading-snug">
+                                Sign in for full analysis, history, and chart overlays.
+                              </p>
+                              <div className="flex flex-wrap gap-2">
+                                <Link href="/sign-up">
+                                  <Button size="sm">Sign up</Button>
+                                </Link>
+                                <Link href="/sign-in">
+                                  <Button size="sm" variant="outline">
+                                    Log in
+                                  </Button>
+                                </Link>
+                              </div>
                             </div>
-                          </div>
+                          ) : (
+                            <div className="rounded-lg border border-dashed border-border bg-muted/40 p-4 text-sm text-muted-foreground">
+                              <p className="font-medium text-foreground">Sign up to view</p>
+                              <p className="mt-2">{guestLatestRatingCopy}</p>
+                              <div className="mt-4 flex flex-wrap gap-2">
+                                <Link href="/sign-up">
+                                  <Button size="sm">Sign up</Button>
+                                </Link>
+                                <Link href="/sign-in">
+                                  <Button size="sm" variant="outline">
+                                    Log in
+                                  </Button>
+                                </Link>
+                              </div>
+                            </div>
+                          )
                         ) : isPremiumStock && !hasPremiumAccess ? (
                           <div className="rounded-lg border border-dashed border-border bg-muted/40 p-4 text-sm text-muted-foreground">
                             <p className="font-medium text-foreground">Premium stock</p>
@@ -886,7 +924,7 @@ const StockDetailClient = ({
                             ? formatDistanceToNow(pub, { addSuffix: true })
                             : null;
                           const absoluteLabel = pubValid
-                            ? pub.toLocaleString()
+                            ? newsPublishedAbsoluteFormatter.format(pub)
                             : (item.publishedAt ?? null);
                           return (
                             <article
@@ -927,6 +965,7 @@ const StockDetailClient = ({
                                       dateTime={pub.toISOString()}
                                       title={absoluteLabel ?? undefined}
                                       className="cursor-default border-b border-dotted border-muted-foreground/40"
+                                      suppressHydrationWarning
                                     >
                                       {relative}
                                     </time>

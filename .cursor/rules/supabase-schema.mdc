@@ -44,7 +44,7 @@ You must also keep this file up to date.
 
 ## Tables (6 layers)
 
-**Reference data**: `stocks`, `ai_prompts`, `ai_models`.
+**Reference data**: `stocks` (includes `is_premium_stock` and **`is_guest_visible`** — subset of non-premium names for signed-out marketing surfaces; must satisfy `not is_guest_visible or not is_premium_stock`), `ai_prompts`, `ai_models`.
 
 **NASDAQ-100 membership**: `nasdaq100_snapshots`, `nasdaq100_snapshot_stocks`, `nasdaq_100_daily_raw`.
 

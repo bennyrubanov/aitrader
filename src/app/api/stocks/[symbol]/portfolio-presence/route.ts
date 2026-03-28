@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import { createAdminClient } from '@/utils/supabase/admin';
+import { createClient } from '@/utils/supabase/server';
 
 type RouteContext = {
   params: Promise<{ symbol: string }>;
@@ -24,10 +25,22 @@ export async function GET(req: Request, { params }: RouteContext) {
   const symbol = resolvedParams.symbol.trim().toUpperCase();
 
   const admin = createAdminClient();
+  const session = await createClient();
+  const {
+    data: { user },
+  } = await session.auth.getUser();
 
-  const { data: stockRow } = await admin.from('stocks').select('id').eq('symbol', symbol).maybeSingle();
+  const { data: stockRow } = await admin
+    .from('stocks')
+    .select('id, is_guest_visible')
+    .eq('symbol', symbol)
+    .maybeSingle();
 
   if (!stockRow?.id) {
+    return NextResponse.json({ error: 'Stock not found' }, { status: 404 });
+  }
+
+  if (!user && stockRow.is_guest_visible !== true) {
     return NextResponse.json({ error: 'Stock not found' }, { status: 404 });
   }
 

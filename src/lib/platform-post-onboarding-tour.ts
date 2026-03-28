@@ -84,7 +84,7 @@ export const PLATFORM_POST_ONBOARDING_TOUR_STEPS: PlatformPostOnboardingTourStep
   {
     id: 'your-portfolios',
     title: 'Your portfolios',
-    body: 'View every portfolio you follow, compare performance, and open settings to adjust entry date, size, and more.',
+    body: 'View every portfolio you follow, compare performance, and open settings to adjust entry date and investment size.',
     path: '/platform/your-portfolios',
     anchors: [
       '[data-platform-tour="nav-your-portfolios"]',

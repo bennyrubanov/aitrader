@@ -6,10 +6,23 @@ import {
   parseSafeAuthRedirectPath,
 } from '@/lib/auth-redirect';
 
-const resolveBaseUrl = (request: Request, origin: string) => {
-  const forwardedHost = request.headers.get('x-forwarded-host');
+/**
+ * Trusted redirect origin for post-OAuth redirects. Do not use `x-forwarded-host`
+ * (spoofable on misconfigured proxies). Aligns with `perfApiBase()` etc.
+ */
+const resolveBaseUrl = (origin: string) => {
   const isLocalEnv = process.env.NODE_ENV === 'development';
-  return isLocalEnv ? origin : forwardedHost ? `https://${forwardedHost}` : origin;
+  if (isLocalEnv) {
+    return origin;
+  }
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '').trim();
+  if (siteUrl) {
+    return siteUrl;
+  }
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}`;
+  }
+  return origin;
 };
 
 export async function GET(request: Request) {
@@ -23,7 +36,7 @@ export async function GET(request: Request) {
   const resolvedNextHint =
     requestedNextPath ?? preAuthFromCookie ?? DEFAULT_POST_AUTH_PATH;
   const supabase = await createClient();
-  const base = resolveBaseUrl(request, origin);
+  const base = resolveBaseUrl(origin);
 
   const redirectAuthenticatedUser = async () => {
     const {

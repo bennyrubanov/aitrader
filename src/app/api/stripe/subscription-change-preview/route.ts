@@ -5,6 +5,7 @@ import { resolveStripeCustomerForUser } from '@/lib/stripe-resolve-user-customer
 import {
   buildSubscriptionChangeContext,
   previewChangeBillingInterval,
+  previewDowngradeToSupporter,
   previewUpgradeToOutperformer,
 } from '@/lib/stripe-subscription-change';
 
@@ -68,7 +69,10 @@ export async function POST(req: Request) {
       return NextResponse.json({
         action: 'change_billing_interval',
         targetInterval,
+        planTier: preview.planTier,
         currentInterval: preview.currentInterval,
+        currentRecurringUnitAmount: preview.currentRecurringUnitAmount,
+        currentRecurringCurrency: preview.currentRecurringCurrency,
         prorationDate: preview.prorationDate,
         targetPriceId: preview.targetPriceId,
         amountDue: preview.amountDue,
@@ -78,6 +82,19 @@ export async function POST(req: Request) {
         targetRecurringUnitAmount: preview.targetRecurringUnitAmount,
         targetRecurringCurrency: preview.targetRecurringCurrency,
         targetRecurringInterval: preview.targetRecurringInterval,
+        currentSubscriptionPeriodEndIso: preview.currentSubscriptionPeriodEndIso,
+      });
+    }
+
+    if (body.action === 'preview_downgrade_to_supporter') {
+      const preview = await previewDowngradeToSupporter(ctx);
+      return NextResponse.json({
+        action: 'preview_downgrade_to_supporter',
+        billingInterval: preview.billingInterval,
+        currentRecurringUnitAmount: preview.currentRecurringUnitAmount,
+        currentRecurringCurrency: preview.currentRecurringCurrency,
+        targetRecurringUnitAmount: preview.targetRecurringUnitAmount,
+        targetRecurringCurrency: preview.targetRecurringCurrency,
         currentSubscriptionPeriodEndIso: preview.currentSubscriptionPeriodEndIso,
       });
     }

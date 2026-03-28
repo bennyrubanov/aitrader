@@ -11,7 +11,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { PlanChangeDetailBox, PlanChangeDetailSection } from '@/components/account/plan-change-detail';
+import {
+  PlanChangeCompareLayout,
+  formatBillingCadenceLabel,
+  formatPaidTierLabel,
+} from '@/components/account/plan-change-detail';
 
 type PreviewPayload = {
   prorationDate: number;
@@ -99,7 +103,7 @@ export function SubscriptionUpgradeDialog({
         const data = (await res.json()) as PreviewPayload & { error?: string };
         if (cancelled) return;
         if (!res.ok) {
-          throw new Error(data.error ?? 'Could not load upgrade preview.');
+          throw new Error(data.error ?? 'Could not load pricing for this upgrade.');
         }
         setPreview({
           prorationDate: data.prorationDate,
@@ -200,7 +204,7 @@ export function SubscriptionUpgradeDialog({
       if (data.status === 'awaiting_payment') {
         setPaymentPendingNotice(
           data.hostedInvoiceUrl
-            ? 'Pay the invoice below to finish. Outperformer applies when Stripe confirms (usually ~1 min).'
+            ? 'Pay the invoice below to finish. Outperformer access starts after payment succeeds.'
             : 'Pay or fix the card in Billing & invoices. Supporter until then.'
         );
         setPaymentPendingUrl(data.hostedInvoiceUrl ?? null);
@@ -227,14 +231,16 @@ export function SubscriptionUpgradeDialog({
         )
       : null;
   const periodEndLabel = preview ? formatPeriodEndUtc(preview.currentSubscriptionPeriodEndIso) : null;
-  const cadenceWord = preview?.billingInterval === 'year' ? 'yearly' : 'monthly';
-  const recurringSuffix = preview?.billingInterval === 'year' ? '/year' : '/month';
-  const supporterRecurring =
-    preview &&
-    formatMoney(preview.currentRecurringUnitAmount, preview.currentRecurringCurrency);
-  const outperformerRecurring =
-    preview &&
-    formatMoney(preview.targetRecurringUnitAmount, preview.targetRecurringCurrency);
+  const renewalOnLabel = periodEndLabel ? `${periodEndLabel} (UTC)` : 'See Billing & invoices';
+
+  const renewalDisplay = (
+    amount: number | null,
+    currency: string,
+    interval: 'month' | 'year'
+  ) =>
+    amount === null
+      ? 'See Billing & invoices'
+      : `${formatMoney(amount, currency)}${interval === 'year' ? '/year' : '/month'} before tax`;
 
   return (
     <Dialog
@@ -257,7 +263,7 @@ export function SubscriptionUpgradeDialog({
                 <>
                   Confirming applies the upgrade.{' '}
                   <span className="font-semibold text-foreground">No charge now</span> (~{creditLabel}{' '}
-                  credit). Stay on Supporter if Stripe can&apos;t complete the update.
+                  credit). You stay on Supporter if the update doesn&apos;t complete.
                 </>
               ) : (
                 <>
@@ -267,7 +273,7 @@ export function SubscriptionUpgradeDialog({
                 </>
               )
             ) : (
-              <>Proration from Stripe for the rest of this period—details below, then confirm.</>
+              <>Review the switch, then continue.</>
             )}
           </DialogDescription>
         </DialogHeader>
@@ -275,7 +281,7 @@ export function SubscriptionUpgradeDialog({
         {phase === 'loading' && (
           <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" />
-            Loading charge from Stripe…
+            Loading…
           </div>
         )}
 
@@ -285,65 +291,74 @@ export function SubscriptionUpgradeDialog({
 
         {(phase === 'ready' || phase === 'affirm' || phase === 'confirming') && preview && (
           <div className="space-y-3 text-sm">
-            <p>
-              <span className="text-muted-foreground">
-                {chargeIsCredit ? 'Stripe preview (due now): ' : 'Charge amount (due now): '}
-              </span>
-              <span className="font-semibold tabular-nums">
-                {chargeIsCredit
-                  ? `No charge — ${creditLabel} credit`
-                  : formatMoney(preview.amountDue, preview.currency)}
-              </span>
-            </p>
-            {phase === 'ready' && !paymentPendingNotice && (
-              <p className="text-xs text-muted-foreground">Matches Stripe&apos;s invoice preview.</p>
-            )}
-            <PlanChangeDetailBox>
-              <PlanChangeDetailSection title="Timing & access">
-                <p className="text-sm">
-                  Outperformer when Stripe applies the update (~1 min). Required payment that fails → Supporter
-                  until paid (<strong>Billing &amp; invoices</strong>).
+            <PlanChangeCompareLayout
+              beforeRows={[
+                { label: 'Plan', value: formatPaidTierLabel('supporter') },
+                {
+                  label: 'Billing',
+                  value: `${formatBillingCadenceLabel(preview.billingInterval)} (unchanged)`,
+                },
+                {
+                  label: 'Recurring price',
+                  value: renewalDisplay(
+                    preview.currentRecurringUnitAmount,
+                    preview.currentRecurringCurrency,
+                    preview.billingInterval
+                  ),
+                },
+              ]}
+              afterRows={[
+                { label: 'Plan', value: formatPaidTierLabel('outperformer') },
+                {
+                  label: 'Billing',
+                  value: formatBillingCadenceLabel(preview.billingInterval),
+                },
+                {
+                  label: 'Recurring price',
+                  value: renewalDisplay(
+                    preview.targetRecurringUnitAmount,
+                    preview.targetRecurringCurrency,
+                    preview.billingInterval
+                  ),
+                },
+              ]}
+              dueNowLabel="Due now"
+              dueNowValue={
+                chargeIsCredit
+                  ? `No charge (${creditLabel} credit)`
+                  : formatMoney(preview.amountDue, preview.currency)
+              }
+              dueAtRenewal={{
+                amount: renewalDisplay(
+                  preview.targetRecurringUnitAmount,
+                  preview.targetRecurringCurrency,
+                  preview.billingInterval
+                ),
+                renewalDate: renewalOnLabel,
+              }}
+              footnote={
+                <>
+                  <p>
+                    <strong>When it changes:</strong> Outperformer after this completes (and after any
+                    required payment succeeds).
+                  </p>
                   {periodEndLabel ? (
-                    <>
-                      {' '}
-                      This period ends <strong>{periodEndLabel} (UTC)</strong>; proration is only for the time
-                      left in it.
-                    </>
+                    <p>
+                      <strong>Current period ends</strong> {periodEndLabel} (UTC). Due now covers only the
+                      rest of this period.
+                    </p>
                   ) : null}
-                </p>
-              </PlanChangeDetailSection>
-              <PlanChangeDetailSection title="Renewals">
-                <p className="text-sm">
-                  Same <strong>{cadenceWord}</strong> cadence: Supporter{' '}
-                  {supporterRecurring && supporterRecurring !== '—' ? (
-                    <strong className="tabular-nums">
-                      {supporterRecurring}
-                      {recurringSuffix}
-                    </strong>
-                  ) : (
-                    <span>rate in portal</span>
-                  )}{' '}
-                  → Outperformer{' '}
-                  {outperformerRecurring && outperformerRecurring !== '—' ? (
-                    <>
-                      <strong className="tabular-nums">
-                        {outperformerRecurring}
-                        {recurringSuffix}
-                      </strong>{' '}
-                      before tax.
-                    </>
-                  ) : (
-                    <span>rate in portal.</span>
-                  )}
-                </p>
-              </PlanChangeDetailSection>
-              <PlanChangeDetailSection title="Unsubscribe">
-                <p className="text-sm">
-                  Cancel or turn off renewals in <strong>Billing &amp; invoices</strong> (Stripe sets
-                  end-of-period vs immediate).
-                </p>
-              </PlanChangeDetailSection>
-            </PlanChangeDetailBox>
+                  <p>
+                    <strong>If payment fails:</strong> You stay on Supporter until it&apos;s resolved—{' '}
+                    <strong>Billing &amp; invoices</strong>.
+                  </p>
+                  <p>
+                    <strong>Unsubscribe:</strong> <strong>Billing &amp; invoices</strong> (end of period or
+                    immediate—your choice there).
+                  </p>
+                </>
+              }
+            />
             {paymentPendingNotice && (
               <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-100">
                 <p>{paymentPendingNotice}</p>

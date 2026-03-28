@@ -11,7 +11,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { PlanChangeDetailBox, PlanChangeDetailSection } from '@/components/account/plan-change-detail';
+import {
+  PlanChangeCompareLayout,
+  formatBillingCadenceLabel,
+  formatPaidTierLabel,
+} from '@/components/account/plan-change-detail';
 
 type PreviewPayload = {
   prorationDate: number;
@@ -19,6 +23,10 @@ type PreviewPayload = {
   amountDue: number | null;
   currency: string;
   total: number | null;
+  planTier: 'supporter' | 'outperformer';
+  currentInterval: 'month' | 'year';
+  currentRecurringUnitAmount: number | null;
+  currentRecurringCurrency: string;
   targetInterval: 'month' | 'year';
   targetRecurringUnitAmount: number | null;
   targetRecurringCurrency: string;
@@ -104,7 +112,7 @@ export function BillingIntervalSwitchDialog({
         const data = (await res.json()) as PreviewPayload & { error?: string };
         if (cancelled) return;
         if (!res.ok) {
-          throw new Error(data.error ?? 'Could not load billing preview.');
+          throw new Error(data.error ?? 'Could not load pricing for this change.');
         }
         setPreview({
           prorationDate: data.prorationDate,
@@ -112,6 +120,16 @@ export function BillingIntervalSwitchDialog({
           amountDue: data.amountDue,
           currency: data.currency,
           total: data.total,
+          planTier: data.planTier === 'outperformer' ? 'outperformer' : 'supporter',
+          currentInterval: data.currentInterval === 'year' ? 'year' : 'month',
+          currentRecurringUnitAmount:
+            typeof data.currentRecurringUnitAmount === 'number'
+              ? data.currentRecurringUnitAmount
+              : null,
+          currentRecurringCurrency:
+            typeof data.currentRecurringCurrency === 'string'
+              ? data.currentRecurringCurrency
+              : data.currency,
           targetInterval,
           targetRecurringUnitAmount:
             typeof data.targetRecurringUnitAmount === 'number' ? data.targetRecurringUnitAmount : null,
@@ -199,7 +217,7 @@ export function BillingIntervalSwitchDialog({
       if (data.status === 'awaiting_payment') {
         setPaymentPendingNotice(
           data.hostedInvoiceUrl
-            ? 'Pay the invoice below to finish. Billing updates when Stripe confirms.'
+            ? 'Pay the invoice below to finish. Your new billing cadence applies after payment succeeds.'
             : 'Pay or fix the card in Billing & invoices, then Refresh status.'
         );
         setPaymentPendingUrl(data.hostedInvoiceUrl ?? null);
@@ -231,26 +249,17 @@ export function BillingIntervalSwitchDialog({
           preview.currency
         )
       : null;
-  const recurringLabel = preview
-    ? formatMoney(preview.targetRecurringUnitAmount, preview.targetRecurringCurrency)
-    : '—';
   const periodEndLabel = preview ? formatPeriodEndUtc(preview.currentSubscriptionPeriodEndIso) : null;
-  const isSwitchingToMonthly = preview?.targetInterval === 'month';
-  const isSwitchingToYearly = preview?.targetInterval === 'year';
-  const renewAfter = (
-    <>
-      Renewals:{' '}
-      {recurringLabel !== '—' ? (
-        <>
-          <span className="font-semibold text-foreground">{recurringLabel}</span>
-          {isSwitchingToMonthly ? '/month' : '/year'}
-        </>
-      ) : (
-        <span className="font-semibold text-foreground">rate in Billing &amp; invoices</span>
-      )}{' '}
-      before tax.
-    </>
-  );
+  const renewalOnLabel = periodEndLabel ? `${periodEndLabel} (UTC)` : 'See Billing & invoices';
+
+  const renewalDisplay = (
+    amount: number | null,
+    currency: string,
+    interval: 'month' | 'year'
+  ) =>
+    amount === null
+      ? 'See Billing & invoices'
+      : `${formatMoney(amount, currency)}${interval === 'year' ? '/year' : '/month'} before tax`;
 
   return (
     <Dialog
@@ -268,16 +277,16 @@ export function BillingIntervalSwitchDialog({
               chargeIsCredit ? (
                 <>
                   <span className="font-semibold text-foreground">No charge now</span> (~{creditLabel}{' '}
-                  credit). New cadence when Stripe finishes; blocked update → keep current billing. {renewAfter}
+                  credit). If this doesn&apos;t complete, billing stays as today.
                 </>
               ) : (
                 <>
-                  Charges <span className="font-semibold text-foreground">{chargeLabel}</span> now (proration).
-                  Failed payment → cadence unchanged until paid. {renewAfter}
+                  Charges <span className="font-semibold text-foreground">{chargeLabel}</span> now
+                  (proration). Failed payment → billing cadence unchanged until paid.
                 </>
               )
             ) : (
-              <>Proration for the rest of this period—review below, then confirm.</>
+              <>Review the switch, then continue.</>
             )}
           </DialogDescription>
         </DialogHeader>
@@ -285,7 +294,7 @@ export function BillingIntervalSwitchDialog({
         {phase === 'loading' && (
           <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" />
-            Loading charge from Stripe…
+            Loading…
           </div>
         )}
 
@@ -293,53 +302,58 @@ export function BillingIntervalSwitchDialog({
 
         {(phase === 'ready' || phase === 'affirm' || phase === 'confirming') && preview && (
           <div className="space-y-3 text-sm">
-            <p>
-              <span className="text-muted-foreground">
-                {chargeIsCredit ? 'Stripe preview (due now): ' : 'Charge amount (due now): '}
-              </span>
-              <span className="font-semibold tabular-nums">
-                {chargeIsCredit
-                  ? `No charge — ${creditLabel} credit`
-                  : formatMoney(preview.amountDue, preview.currency)}
-              </span>
-            </p>
-            {phase === 'ready' && !paymentPendingNotice && (
-              <p className="text-xs text-muted-foreground">Matches Stripe&apos;s invoice preview.</p>
-            )}
-            {preview && (isSwitchingToMonthly || isSwitchingToYearly) && (
-              <PlanChangeDetailBox>
-                <PlanChangeDetailSection title="Effect">
-                  <p className="text-sm">
-                    New cadence when Stripe applies (~1 min). <strong>Due now</strong> is proration for this
-                    term only—not the full recurring bill.
-                    {periodEndLabel ? (
-                      <>
-                        {' '}
-                        Period boundary <strong>{periodEndLabel} UTC</strong>; next charge date after confirm →{' '}
-                        <strong>Billing &amp; invoices</strong>.
-                      </>
-                    ) : null}
-                  </p>
-                </PlanChangeDetailSection>
-                <PlanChangeDetailSection title="Renewals">
-                  <p className="text-sm">
-                    <strong className="tabular-nums">
-                      {recurringLabel}
-                      {recurringLabel !== '—' ? (isSwitchingToMonthly ? '/month' : '/year') : ''}
-                    </strong>
-                    {recurringLabel === '—'
-                      ? ' — see Billing & invoices.'
-                      : " before tax per Stripe's schedule."}
-                  </p>
-                </PlanChangeDetailSection>
-                <PlanChangeDetailSection title="Tier & cancel">
-                  <p className="text-sm">
-                    Does not change Supporter vs Outperformer. Full cancel:{' '}
-                    <strong>Billing &amp; invoices</strong>.
-                  </p>
-                </PlanChangeDetailSection>
-              </PlanChangeDetailBox>
-            )}
+            <PlanChangeCompareLayout
+              beforeRows={[
+                { label: 'Plan', value: formatPaidTierLabel(preview.planTier) },
+                {
+                  label: 'Billing',
+                  value: formatBillingCadenceLabel(preview.currentInterval),
+                },
+                {
+                  label: 'Recurring price',
+                  value: renewalDisplay(
+                    preview.currentRecurringUnitAmount,
+                    preview.currentRecurringCurrency,
+                    preview.currentInterval
+                  ),
+                },
+              ]}
+              afterRows={[
+                { label: 'Plan', value: formatPaidTierLabel(preview.planTier) },
+                {
+                  label: 'Billing',
+                  value: formatBillingCadenceLabel(preview.targetInterval),
+                },
+                {
+                  label: 'Recurring price',
+                  value: renewalDisplay(
+                    preview.targetRecurringUnitAmount,
+                    preview.targetRecurringCurrency,
+                    preview.targetInterval
+                  ),
+                },
+              ]}
+              dueNowLabel="Due now"
+              dueNowValue={
+                chargeIsCredit
+                  ? `No charge (${creditLabel} credit)`
+                  : formatMoney(preview.amountDue, preview.currency)
+              }
+              dueAtRenewal={{
+                amount: renewalDisplay(
+                  preview.targetRecurringUnitAmount,
+                  preview.targetRecurringCurrency,
+                  preview.targetInterval
+                ),
+                renewalDate: renewalOnLabel,
+              }}
+              footnote={
+                <p>
+                  Plan tier does not change. You will remain on the{' '}
+                  <strong>{formatPaidTierLabel(preview.planTier)}</strong> plan.
+                </p>
+              }
+            />
             {paymentPendingNotice && (
               <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-100">
                 <p>{paymentPendingNotice}</p>

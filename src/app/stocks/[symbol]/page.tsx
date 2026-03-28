@@ -85,6 +85,7 @@ const emptyLatest = () => ({
 function latestForAccess(
   access: AppAccessState,
   isPremiumStock: boolean,
+  isGuestVisible: boolean,
   row: {
     score: number | null;
     score_delta: number | null;
@@ -93,7 +94,10 @@ function latestForAccess(
     updated_at: string | null;
   } | null
 ) {
-  if (!row || !canQueryStockCurrentRecommendation(access, isPremiumStock)) {
+  if (
+    !row ||
+    !canQueryStockCurrentRecommendation(access, isPremiumStock, { isGuestVisible })
+  ) {
     return emptyLatest();
   }
   return {
@@ -121,6 +125,7 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
     symbol: string;
     company_name: string | null;
     is_premium_stock: boolean;
+    is_guest_visible: boolean;
   } | null = null;
   let priceRow: {
     last_sale_price: string | null;
@@ -156,7 +161,7 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
 
     const { data: fetchedStockRow } = await admin
       .from('stocks')
-      .select('id, symbol, company_name, is_premium_stock')
+      .select('id, symbol, company_name, is_premium_stock, is_guest_visible')
       .eq('symbol', symbol)
       .maybeSingle();
     stockRow = fetchedStockRow;
@@ -174,7 +179,9 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
 
     if (
       stockRow?.id &&
-      canQueryStockCurrentRecommendation(access, stockRow.is_premium_stock)
+      canQueryStockCurrentRecommendation(access, stockRow.is_premium_stock, {
+        isGuestVisible: Boolean(stockRow.is_guest_visible),
+      })
     ) {
       const { data: fetchedCurrentRow } = await admin
         .from('nasdaq100_recommendations_current_public')
@@ -190,9 +197,12 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
   const fallbackStock = stocks.find((s) => s.symbol === symbol);
   const stockName = stockRow?.company_name ?? fallbackStock?.name ?? null;
   const isPremiumStock = stockRow?.is_premium_stock ?? fallbackStock?.isPremium ?? true;
+  const isGuestVisible =
+    stockRow?.is_guest_visible ?? fallbackStock?.isGuestVisible ?? false;
+
   const news = await getCachedStockNews(symbol, stockName);
 
-  const latest = latestForAccess(access, isPremiumStock, currentRow);
+  const latest = latestForAccess(access, isPremiumStock, isGuestVisible, currentRow);
 
   const pageServedIso = new Date().toISOString();
   const price = {
@@ -216,7 +226,10 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
       (access === 'free' && !isPremiumStock));
 
   const serverCanShowChartAi =
-    hasSignedInUser && canQueryStockCurrentRecommendation(access, isPremiumStock);
+    hasSignedInUser &&
+    canQueryStockCurrentRecommendation(access, isPremiumStock, {
+      isGuestVisible,
+    });
 
   const rankedStrategies = await getStrategiesList();
 

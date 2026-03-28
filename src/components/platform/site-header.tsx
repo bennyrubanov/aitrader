@@ -101,6 +101,8 @@ export function SiteHeader() {
       ? 'Guest'
       : authName?.trim() || email?.split('@')[0] || 'Account';
 
+  const guestSignUpHref = `/sign-up?next=${encodeURIComponent(pathname || '/platform')}`;
+
   return (
     <header className="sticky top-0 z-50 border-b bg-background">
       <div className="flex h-[var(--header-height)] items-center gap-3 px-4">
@@ -126,13 +128,21 @@ export function SiteHeader() {
           {isLoaded ? (
             <>
               <Link
-                href="/platform/settings"
+                href={isAuthenticated ? '/platform/settings' : guestSignUpHref}
                 prefetch
-                onMouseEnter={() => router.prefetch('/platform/settings')}
-                onFocus={() => router.prefetch('/platform/settings')}
-                onPointerDown={() => router.prefetch('/platform/settings')}
+                onMouseEnter={() =>
+                  router.prefetch(isAuthenticated ? '/platform/settings' : '/sign-up')
+                }
+                onFocus={() =>
+                  router.prefetch(isAuthenticated ? '/platform/settings' : '/sign-up')
+                }
+                onPointerDown={() =>
+                  router.prefetch(isAuthenticated ? '/platform/settings' : '/sign-up')
+                }
                 className="flex min-w-0 shrink-0 items-center gap-3 rounded-md outline-none ring-offset-background transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring"
-                aria-label="Account and plan settings"
+                aria-label={
+                  isAuthenticated ? 'Account and plan settings' : 'Sign up to save your account'
+                }
               >
                 <span className="max-w-[6.5rem] truncate text-sm font-medium sm:max-w-[11rem]">
                   {displayName}

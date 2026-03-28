@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
-import { getAppAccessState, type AppAccessState } from '@/lib/app-access';
+import {
+  getAppAccessState,
+  stockRowAllowedForAccessList,
+  type AppAccessState,
+} from '@/lib/app-access';
 import { buildAuthStateFromUserAndProfile } from '@/lib/build-auth-state';
 import { getAllStocks } from '@/lib/stocks-cache';
 import { createAdminClient } from '@/utils/supabase/admin';
@@ -66,21 +70,50 @@ export async function GET() {
       access = getAppAccessState(buildAuthStateFromUserAndProfile(user, profile, Boolean(profileError)));
     }
 
+    const visibleStocks = stocks.filter((s) => stockRowAllowedForAccessList(access, s));
+
     const admin = createAdminClient();
     const quoteBySymbol = await loadLatestNasdaqQuotesBySymbol(admin);
 
     const ratingBySymbol = new Map<string, RatingBucket>();
 
-    if (access !== 'guest') {
-      const ratingsQuery =
-        access === 'free'
-          ? admin
-              .from('nasdaq100_recommendations_current_public')
-              .select('bucket, stocks!inner(symbol, is_premium_stock)')
-              .eq('stocks.is_premium_stock', false)
-          : admin.from('nasdaq100_recommendations_current_public').select('bucket, stocks(symbol)');
+    if (access === 'guest') {
+      const { data: ratingsRows, error: ratingsError } = await admin
+        .from('nasdaq100_recommendations_current_public')
+        .select('bucket, stocks!inner(symbol, is_premium_stock, is_guest_visible)')
+        .eq('stocks.is_guest_visible', true)
+        .eq('stocks.is_premium_stock', false);
 
-      const { data: ratingsRows, error: ratingsError } = await ratingsQuery;
+      if (ratingsError) {
+        throw new Error(`Unable to load current ratings: ${ratingsError.message}`);
+      }
+
+      (ratingsRows ?? []).forEach((row) => {
+        const stock = Array.isArray(row.stocks) ? row.stocks[0] : row.stocks;
+        const symbol = stock?.symbol?.toUpperCase?.();
+        if (!symbol) return;
+        ratingBySymbol.set(symbol, (row.bucket as RatingBucket) ?? null);
+      });
+    } else if (access === 'free') {
+      const { data: ratingsRows, error: ratingsError } = await admin
+        .from('nasdaq100_recommendations_current_public')
+        .select('bucket, stocks!inner(symbol, is_premium_stock)')
+        .eq('stocks.is_premium_stock', false);
+
+      if (ratingsError) {
+        throw new Error(`Unable to load current ratings: ${ratingsError.message}`);
+      }
+
+      (ratingsRows ?? []).forEach((row) => {
+        const stock = Array.isArray(row.stocks) ? row.stocks[0] : row.stocks;
+        const symbol = stock?.symbol?.toUpperCase?.();
+        if (!symbol) return;
+        ratingBySymbol.set(symbol, (row.bucket as RatingBucket) ?? null);
+      });
+    } else {
+      const { data: ratingsRows, error: ratingsError } = await admin
+        .from('nasdaq100_recommendations_current_public')
+        .select('bucket, stocks(symbol)');
 
       if (ratingsError) {
         throw new Error(`Unable to load current ratings: ${ratingsError.message}`);
@@ -94,17 +127,16 @@ export async function GET() {
       });
     }
 
-    const payload = stocks.map((stock) => {
+    const payload = visibleStocks.map((stock) => {
+      const { isGuestVisible: _g, ...rest } = stock;
       const raw = ratingBySymbol.get(stock.symbol.toUpperCase()) ?? null;
       let currentRating: RatingBucket = raw;
-      if (access === 'guest') {
-        currentRating = null;
-      } else if (access === 'free' && stock.isPremium) {
+      if (access === 'free' && stock.isPremium) {
         currentRating = null;
       }
       const q = quoteBySymbol.get(stock.symbol.toUpperCase());
       return {
-        ...stock,
+        ...rest,
         currentRating,
         ...(q
           ? {

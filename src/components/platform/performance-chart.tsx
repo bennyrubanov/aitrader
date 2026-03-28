@@ -146,8 +146,12 @@ type PerformanceChartProps = {
   strategyName?: string;
   /** When true, hides the drawdown toggle (drawdown lives in the Risk section) */
   hideDrawdown?: boolean;
+  /** When true, hides 1M/3M/6M/YTD/All and always uses full history */
+  hideTimeRangeControls?: boolean;
   /** When true, omits the methodology line under the chart (e.g. onboarding celebrate step) */
   hideFootnote?: boolean;
+  /** When true, no extra vertical padding around the starting-investment hint row */
+  tightStartingInvestmentLabel?: boolean;
   /**
    * Starting dollar level for the growth view (rebased window start + reference line).
    * Defaults to $10,000 to match model performance data.
@@ -159,17 +163,22 @@ type PerformanceChartProps = {
   seriesLabelOverrides?: Partial<Record<PerformanceChartSeriesKey, string>>;
   /** Plot area height (default 340px). Pass shorter classes in tight layouts (e.g. dialogs). */
   chartContainerClassName?: string;
+  /** When true, lines draw without enter animation (reduces flicker on remount / tight embeds). */
+  disableLineAnimation?: boolean;
 };
 
 export function PerformanceChart({
   series,
   strategyName,
   hideDrawdown = false,
+  hideTimeRangeControls = false,
   hideFootnote = false,
+  tightStartingInvestmentLabel = false,
   initialNotional = DEFAULT_INITIAL_NOTIONAL,
   omitSeriesKeys = [],
   seriesLabelOverrides,
   chartContainerClassName,
+  disableLineAnimation = false,
 }: PerformanceChartProps) {
   const [range, setRange] = useState<TimeRange>('All');
   const [view, setView] = useState<'equity' | 'drawdown'>('equity');
@@ -213,11 +222,11 @@ export function PerformanceChart({
     Number.isFinite(initialNotional) && initialNotional > 0 ? initialNotional : DEFAULT_INITIAL_NOTIONAL;
 
   const chartData = useMemo(() => {
-    const filtered = filterByRange(series, range);
+    const filtered = filterByRange(series, hideTimeRangeControls ? 'All' : range);
     const rebased = rebaseSeries(filtered, notional);
     const data = view === 'drawdown' ? toDrawdownPercentSeries(filtered) : rebased;
     return data.map((p) => ({ ...p, shortDate: formatDisplayDate(p.date as string) }));
-  }, [series, range, view, notional]);
+  }, [series, range, view, notional, hideTimeRangeControls]);
 
   const yDomain = useMemo<[number, number] | ['auto', 'auto']>(() => {
     if (!chartData.length) return ['auto', 'auto'];
@@ -275,49 +284,56 @@ export function PerformanceChart({
   /** Lines need 2+ points to draw; show dots for sparse history so single-period portfolios are visible. */
   const usePointMarkers = chartData.length > 0 && chartData.length < 3;
 
+  const showTopControlsRow = !hideTimeRangeControls || !hideDrawdown;
+
   return (
     <div className="space-y-3">
       {/* Controls row */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        {/* Time range */}
-        <div className="flex items-center gap-1">
-          {TIME_RANGES.map((r) => (
-            <button
-              key={r}
-              onClick={() => setRange(r)}
-              className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                range === r
-                  ? 'bg-trader-blue text-white'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-              }`}
-            >
-              {r}
-            </button>
-          ))}
-        </div>
+      {showTopControlsRow ? (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          {!hideTimeRangeControls ? (
+            <div className="flex items-center gap-1">
+              {TIME_RANGES.map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setRange(r)}
+                  className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                    range === r
+                      ? 'bg-trader-blue text-white'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                  }`}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+          ) : !hideDrawdown ? (
+            <span className="min-w-0 shrink" aria-hidden />
+          ) : null}
 
-        {/* View toggle */}
-        {!hideDrawdown && (
-          <div className="flex items-center gap-1 rounded-md border p-0.5">
-            <Button
-              variant={view === 'equity' ? 'default' : 'ghost'}
-              size="sm"
-              className="h-7 text-xs px-2.5"
-              onClick={() => setView('equity')}
-            >
-              Growth
-            </Button>
-            <Button
-              variant={view === 'drawdown' ? 'default' : 'ghost'}
-              size="sm"
-              className="h-7 text-xs px-2.5"
-              onClick={() => setView('drawdown')}
-            >
-              Drawdown
-            </Button>
-          </div>
-        )}
-      </div>
+          {!hideDrawdown && (
+            <div className="flex items-center gap-1 rounded-md border p-0.5">
+              <Button
+                variant={view === 'equity' ? 'default' : 'ghost'}
+                size="sm"
+                className="h-7 text-xs px-2.5"
+                onClick={() => setView('equity')}
+              >
+                Growth
+              </Button>
+              <Button
+                variant={view === 'drawdown' ? 'default' : 'ghost'}
+                size="sm"
+                className="h-7 text-xs px-2.5"
+                onClick={() => setView('drawdown')}
+              >
+                Drawdown
+              </Button>
+            </div>
+          )}
+        </div>
+      ) : null}
 
       <div
         className="space-y-3"
@@ -426,6 +442,7 @@ export function PerformanceChart({
                 dot={usePointMarkers ? { r: key === 'aiTop20' ? 5 : 3.5, strokeWidth: 1 } : false}
                 hide={hidden.has(key)}
                 connectNulls
+                isAnimationActive={!disableLineAnimation}
               />
             );
           })}
@@ -435,9 +452,17 @@ export function PerformanceChart({
 
       {/* Was Recharts legend (series names); chips above still toggle series. */}
       {view === 'equity' && (
-        <div className="flex items-center justify-center pt-3">
+        <div
+          className={cn(
+            'flex items-center justify-center',
+            tightStartingInvestmentLabel ? 'pt-1' : 'pt-3'
+          )}
+        >
           <div
-            className="flex cursor-default items-center gap-1.5 rounded-md px-1 py-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+            className={cn(
+              'flex cursor-default items-center gap-1.5 rounded-md px-1 text-xs text-muted-foreground transition-colors hover:text-foreground',
+              tightStartingInvestmentLabel ? 'py-0' : 'py-0.5'
+            )}
             onMouseEnter={() => setStartingRefHovered(true)}
             onMouseLeave={() => setStartingRefHovered(false)}
           >

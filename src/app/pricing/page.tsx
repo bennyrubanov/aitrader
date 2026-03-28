@@ -801,7 +801,6 @@ function PricingPageContent() {
       <DowngradeToSupporterDialog
         open={downgradeDialogOpen}
         onOpenChange={setDowngradeDialogOpen}
-        currentPeriodEndIso={stripeCurrentPeriodEnd}
         onAfterSuccess={async () => {
           await refreshProfile();
           router.refresh();

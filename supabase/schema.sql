@@ -259,12 +259,17 @@ create table if not exists public.stocks (
   company_name text,
   exchange text,
   is_premium_stock boolean not null default true,
+  -- Subset of non-premium names for guest/signed-out stock surfaces (auth preview, landing search).
+  is_guest_visible boolean not null default false,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  constraint stocks_guest_visible_implies_non_premium
+    check (not is_guest_visible or not is_premium_stock)
 );
 
 create index if not exists idx_stocks_symbol on public.stocks(symbol);
 create index if not exists idx_stocks_is_premium_stock on public.stocks(is_premium_stock);
+create index if not exists idx_stocks_is_guest_visible on public.stocks(is_guest_visible) where is_guest_visible = true;
 create index if not exists idx_stocks_updated_at on public.stocks(updated_at);
 create index if not exists idx_stocks_created_at on public.stocks(created_at);
 

@@ -171,7 +171,10 @@ export async function previewChangeBillingInterval(
   currency: string;
   total: number | null;
   subscriptionId: string;
+  planTier: 'supporter' | 'outperformer';
   currentInterval: 'month' | 'year';
+  currentRecurringUnitAmount: number | null;
+  currentRecurringCurrency: string;
   /** Stripe Price.unit_amount for the target recurring price (minor units); null if missing. */
   targetRecurringUnitAmount: number | null;
   targetRecurringCurrency: string;
@@ -208,7 +211,10 @@ export async function previewChangeBillingInterval(
     },
   });
 
-  const targetPrice = await ctx.stripe.prices.retrieve(targetPriceId);
+  const [currentPrice, targetPrice] = await Promise.all([
+    ctx.stripe.prices.retrieve(ctx.currentPriceId),
+    ctx.stripe.prices.retrieve(targetPriceId),
+  ]);
   const recurring = targetPrice.recurring;
   const ri =
     recurring?.interval === 'month' || recurring?.interval === 'year'
@@ -217,6 +223,9 @@ export async function previewChangeBillingInterval(
   const targetRecurringUnitAmount =
     typeof targetPrice.unit_amount === 'number' ? targetPrice.unit_amount : null;
   const targetRecurringCurrency = targetPrice.currency || preview.currency;
+  const currentRecurringUnitAmount =
+    typeof currentPrice.unit_amount === 'number' ? currentPrice.unit_amount : null;
+  const currentRecurringCurrency = currentPrice.currency || preview.currency;
   const periodEndUnix = subscriptionCurrentPeriodEndUnix(ctx.subscription);
 
   return {
@@ -226,7 +235,10 @@ export async function previewChangeBillingInterval(
     currency: preview.currency,
     total: preview.total,
     subscriptionId: ctx.subscription.id,
+    planTier: paidTier,
     currentInterval: ctx.interval,
+    currentRecurringUnitAmount,
+    currentRecurringCurrency,
     targetRecurringUnitAmount,
     targetRecurringCurrency,
     targetRecurringInterval: ri,
@@ -360,6 +372,50 @@ export async function resumeSubscriptionIfCancelAtPeriodEnd(
   await ctx.stripe.subscriptions.update(ctx.subscription.id, {
     cancel_at_period_end: false,
   });
+}
+
+/**
+ * Lightweight preview for scheduling a downgrade to Supporter.
+ * No proration — just returns the current & target recurring prices, billing interval, and period end.
+ */
+export async function previewDowngradeToSupporter(ctx: LoadedSubscriptionContext): Promise<{
+  billingInterval: 'month' | 'year';
+  currentRecurringUnitAmount: number | null;
+  currentRecurringCurrency: string;
+  targetRecurringUnitAmount: number | null;
+  targetRecurringCurrency: string;
+  currentSubscriptionPeriodEndIso: string | null;
+}> {
+  if (ctx.tier !== 'outperformer') {
+    throw new Error('Downgrade is only available from the Outperformer plan.');
+  }
+  if (!ctx.interval) {
+    throw new Error('Could not detect monthly vs yearly billing on your subscription.');
+  }
+
+  const targetPriceId = envPriceIdForPlanInterval('supporter', ctx.interval);
+  if (!targetPriceId) {
+    throw new Error('Server is missing Supporter price ID for your billing interval.');
+  }
+
+  const [currentPrice, targetPrice] = await Promise.all([
+    ctx.stripe.prices.retrieve(ctx.currentPriceId),
+    ctx.stripe.prices.retrieve(targetPriceId),
+  ]);
+
+  const periodEndUnix = subscriptionCurrentPeriodEndUnix(ctx.subscription);
+
+  return {
+    billingInterval: ctx.interval,
+    currentRecurringUnitAmount:
+      typeof currentPrice.unit_amount === 'number' ? currentPrice.unit_amount : null,
+    currentRecurringCurrency: currentPrice.currency,
+    targetRecurringUnitAmount:
+      typeof targetPrice.unit_amount === 'number' ? targetPrice.unit_amount : null,
+    targetRecurringCurrency: targetPrice.currency,
+    currentSubscriptionPeriodEndIso:
+      periodEndUnix !== null ? new Date(periodEndUnix * 1000).toISOString() : null,
+  };
 }
 
 export async function previewUpgradeToOutperformer(ctx: LoadedSubscriptionContext): Promise<{

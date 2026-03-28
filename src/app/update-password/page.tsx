@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getSupabaseBrowserClient } from "@/utils/supabase/browser";
 import { EMAIL_PASSWORD_SIGN_IN_METHOD, rememberSignInMethod } from "@/lib/auth-storage";
-import { AuthPreviewPlaceholder } from "@/components/auth/auth-preview-placeholder";
 import {
   DEFAULT_POST_AUTH_PATH,
   sanitizeAuthRedirectPath,
@@ -231,9 +230,7 @@ function UpdatePasswordPageContent() {
           </div>
         </section>
 
-        <section className="hidden items-center justify-center px-10 py-12 lg:flex">
-          <AuthPreviewPlaceholder />
-        </section>
+        <section className="hidden items-center justify-center px-10 py-12 lg:flex" aria-hidden />
       </div>
     </main>
   );

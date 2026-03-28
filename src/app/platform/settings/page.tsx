@@ -6,11 +6,11 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   Loader2,
-  LogIn,
   LogOut,
   CreditCard,
   Bell,
   UserRound,
+  UserPlus,
   KeyRound,
   Mail,
   ExternalLink,
@@ -66,7 +66,7 @@ const SETTINGS_TOC_AUTHENTICATED = [
   { id: 'settings-notifications', label: 'Notifications' },
 ] as const;
 
-const SETTINGS_TOC_GUEST = [{ id: 'settings-sign-in', label: 'Sign in' }] as const;
+const SETTINGS_TOC_GUEST = [{ id: 'settings-sign-up', label: 'Sign up' }] as const;
 
 function SettingsOnThisPageNav({
   items,
@@ -120,6 +120,7 @@ const SettingsPageContent = () => {
   const [isLoadingNewsletter, setIsLoadingNewsletter] = useState(false);
   const [isSavingNewsletter, setIsSavingNewsletter] = useState(false);
   const [isSigningIn, setIsSigningIn] = useState(false);
+  const [isSigningUp, setIsSigningUp] = useState(false);
   const [isOpeningPortal, setIsOpeningPortal] = useState(false);
   const [upgradeDialogOpen, setUpgradeDialogOpen] = useState(false);
   const [downgradeDialogOpen, setDowngradeDialogOpen] = useState(false);
@@ -294,6 +295,11 @@ const SettingsPageContent = () => {
   const handleSignIn = async () => {
     setIsSigningIn(true);
     router.push('/sign-in?next=/platform/settings');
+  };
+
+  const handleSignUp = async () => {
+    setIsSigningUp(true);
+    router.push('/sign-up?next=/platform/settings');
   };
 
   const handleSaveName = async () => {
@@ -1089,27 +1095,38 @@ const SettingsPageContent = () => {
         </>
       ) : (
         <section
-          id="settings-sign-in"
+          id="settings-sign-up"
           className="scroll-mt-4 flex flex-col items-center justify-center rounded-xl border bg-card px-6 py-16 text-center md:scroll-mt-6"
         >
           <UserRound className="mb-3 size-10 text-muted-foreground/40" />
-          <p className="text-sm font-medium">Sign in to manage your settings</p>
+          <p className="text-sm font-medium">Sign up to manage your settings</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Account, billing, and notification preferences require authentication.
+            Create a free account to manage account, billing, and notification preferences.
           </p>
-          <Button className="mt-5" onClick={handleSignIn} disabled={isSigningIn}>
-            {isSigningIn ? (
+          <Button className="mt-5" onClick={handleSignUp} disabled={isSigningUp || isSigningIn}>
+            {isSigningUp ? (
               <>
                 <Loader2 className="mr-2 size-4 animate-spin" />
                 Redirecting...
               </>
             ) : (
               <>
-                <LogIn className="mr-2 size-4" />
-                Sign in
+                <UserPlus className="mr-2 size-4" />
+                Sign up
               </>
             )}
           </Button>
+          <p className="mt-4 text-xs text-muted-foreground">
+            Already have an account?{' '}
+            <button
+              type="button"
+              className="font-medium text-trader-blue underline-offset-4 hover:underline"
+              onClick={handleSignIn}
+              disabled={isSigningIn || isSigningUp}
+            >
+              {isSigningIn ? 'Redirecting…' : 'Sign in'}
+            </button>
+          </p>
         </section>
       )}
       </div>
@@ -1133,7 +1150,6 @@ const SettingsPageContent = () => {
       <DowngradeToSupporterDialog
         open={downgradeDialogOpen}
         onOpenChange={setDowngradeDialogOpen}
-        currentPeriodEndIso={authState.stripeCurrentPeriodEnd}
         onAfterSuccess={async () => {
           await refreshProfile();
           router.refresh();

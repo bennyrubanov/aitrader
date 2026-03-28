@@ -10,7 +10,8 @@ import StockCard from '@/components/ui/stock-card';
 import Link from 'next/link';
 import { useAuthState } from '@/components/auth/auth-state-context';
 
-const LANDING_PAGE_SYMBOLS = ['NVDA', 'AAPL', 'META', 'TSLA', 'MSFT', 'AMZN'] as const;
+/** Guest-visible marketing tickers (subset of non-premium `stocks.is_guest_visible`). */
+const LANDING_PAGE_SYMBOLS = ['NVDA', 'AAPL', 'META', 'GOOG', 'SHOP', 'FTNT'] as const;
 
 type RatingBucket = 'buy' | 'hold' | 'sell' | null;
 type HeroStock = Stock & { currentRating: RatingBucket };
@@ -223,11 +224,18 @@ const Hero: React.FC = () => {
     ? stockMap.get(selectedResult.symbol.toUpperCase()) ?? null
     : null;
   const selectedRating = selectedStock?.currentRating ?? null;
-  const canViewSelectedRating =
-    selectedStock && selectedStock.isPremium ? hasPremiumAccess : isAuthenticated;
+  const canViewSelectedRating = Boolean(
+    selectedStock &&
+      (selectedStock.isPremium ? hasPremiumAccess : isAuthenticated || selectedRating != null)
+  );
   const shouldBlurSelectedResult = Boolean(selectedStock && !canViewSelectedRating);
   const selectedPremiumNoAccess = Boolean(selectedStock?.isPremium && !hasPremiumAccess);
-  const selectedFreeNeedsLogin = Boolean(selectedStock && !selectedStock.isPremium && !isAuthenticated);
+  const selectedFreeNeedsLogin = Boolean(
+    selectedStock &&
+      !selectedStock.isPremium &&
+      !isAuthenticated &&
+      selectedRating == null
+  );
 
   const formatRating = (rating: RatingBucket) => {
     if (!rating) return 'No rating yet';
@@ -237,6 +245,9 @@ const Hero: React.FC = () => {
   const getDropdownRatingLabel = (stock: HeroStock) => {
     if (stock.isPremium && !hasPremiumAccess) return 'Premium';
     if (!isAuthenticated) {
+      if (stock.currentRating != null && !stock.isPremium) {
+        return `AI Rating: ${formatRating(stock.currentRating)}`;
+      }
       return stock.isPremium ? 'Premium' : 'Sign up to view';
     }
     return `AI Rating: ${formatRating(stock.currentRating)}`;
