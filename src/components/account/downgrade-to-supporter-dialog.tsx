@@ -83,59 +83,40 @@ export function DowngradeToSupporterDialog({
           </DialogTitle>
           <DialogDescription>
             {step === 'confirm' ? (
-              <>
-                You are scheduling a move to Supporter at your next renewal. Until then, nothing is charged
-                for this change. Confirm only if you intend to keep this schedule.
-              </>
+              <>Schedules Supporter at next renewal—no fee for this step alone.</>
             ) : endLabel ? (
               <>
-                Your Outperformer access stays through{' '}
-                <span className="font-semibold text-foreground">{endLabel}</span>, the end of your current
-                billing period. After that, your subscription continues on Supporter at the matching monthly
-                or yearly price.
+                Outperformer through{' '}
+                <span className="font-semibold text-foreground">{endLabel}</span> (period end), then Supporter
+                at the same monthly/yearly cadence.
               </>
             ) : (
-              <>
-                Your Outperformer access stays through the end of your current billing period. After that,
-                your subscription continues on Supporter at the matching monthly or yearly price.
-              </>
+              <>Outperformer through period end, then Supporter—same billing cadence.</>
             )}
           </DialogDescription>
         </DialogHeader>
         <PlanChangeDetailBox>
-          <PlanChangeDetailSection title="Charge for this action">
+          <PlanChangeDetailSection title="Schedule">
             <p className="text-sm">
-              <strong>No invoice from us for scheduling.</strong> Stripe applies the lower Supporter price at
-              the renewal below—no separate proration charge for clicking schedule (unless Stripe shows
-              something unusual in your account; check <strong>Billing &amp; invoices</strong> if unsure).
+              <strong>$0</strong> to schedule. Supporter price applies at renewal (no proration for clicking
+              here). Rate for your cadence → <strong>Billing &amp; invoices</strong>.
             </p>
           </PlanChangeDetailSection>
-          <PlanChangeDetailSection title="When Supporter starts">
+          <PlanChangeDetailSection title="Timeline">
             <p className="text-sm">
-              You keep <strong>Outperformer</strong> through the end of your current billing period
+              <strong>Outperformer</strong> until
               {endLabel ? (
-                <>
-                  : <strong>{endLabel} (UTC)</strong>
-                </>
+                <> {endLabel} (UTC)</>
               ) : (
-                <> (date shown above in Account settings)</>
+                <> period end (see Billing above)</>
               )}
-              . At that renewal, the subscription continues on <strong>Supporter</strong> at the{' '}
-              <strong>same monthly or yearly cadence</strong> you have today—the Supporter rate for that
-              cadence appears in Billing &amp; invoices.
+              . Then <strong>Supporter</strong>, same monthly/yearly rhythm.
             </p>
           </PlanChangeDetailSection>
-          <PlanChangeDetailSection title="Undo">
+          <PlanChangeDetailSection title="Undo & full cancel">
             <p className="text-sm">
-              Before that renewal, you can <strong>cancel the scheduled downgrade</strong> in Account settings
-              if we show that option—your Outperformer term then continues on the next renewal as today.
-            </p>
-          </PlanChangeDetailSection>
-          <PlanChangeDetailSection title="Cancel subscription entirely">
-            <p className="text-sm">
-              Scheduling Supporter is not cancellation. To <strong>stop renewing</strong> or end access on
-              Stripe’s terms, open <strong>Billing &amp; invoices</strong> and use the customer portal (end of
-              period vs. immediate depends on what you choose there).
+              Cancel the scheduled downgrade in settings before renewal if shown. To stop the subscription
+              entirely, <strong>Billing &amp; invoices</strong> (Stripe sets end-of-period vs immediate).
             </p>
           </PlanChangeDetailSection>
         </PlanChangeDetailBox>

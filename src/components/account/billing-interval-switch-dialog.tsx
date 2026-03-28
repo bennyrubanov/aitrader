@@ -199,8 +199,8 @@ export function BillingIntervalSwitchDialog({
       if (data.status === 'awaiting_payment') {
         setPaymentPendingNotice(
           data.hostedInvoiceUrl
-            ? 'Payment is required to finish this change. Pay the invoice linked below. Stripe will update your billing when payment succeeds.'
-            : 'Payment is required to finish this change. Open Billing & invoices to pay or update your card, then use Refresh status.'
+            ? 'Pay the invoice below to finish. Billing updates when Stripe confirms.'
+            : 'Pay or fix the card in Billing & invoices, then Refresh status.'
         );
         setPaymentPendingUrl(data.hostedInvoiceUrl ?? null);
         setPhase('ready');
@@ -237,6 +237,20 @@ export function BillingIntervalSwitchDialog({
   const periodEndLabel = preview ? formatPeriodEndUtc(preview.currentSubscriptionPeriodEndIso) : null;
   const isSwitchingToMonthly = preview?.targetInterval === 'month';
   const isSwitchingToYearly = preview?.targetInterval === 'year';
+  const renewAfter = (
+    <>
+      Renewals:{' '}
+      {recurringLabel !== '—' ? (
+        <>
+          <span className="font-semibold text-foreground">{recurringLabel}</span>
+          {isSwitchingToMonthly ? '/month' : '/year'}
+        </>
+      ) : (
+        <span className="font-semibold text-foreground">rate in Billing &amp; invoices</span>
+      )}{' '}
+      before tax.
+    </>
+  );
 
   return (
     <Dialog
@@ -252,89 +266,18 @@ export function BillingIntervalSwitchDialog({
           <DialogDescription>
             {phase === 'affirm' || phase === 'confirming' ? (
               chargeIsCredit ? (
-              <>
-                You are about to change how often you are billed. Stripe shows{' '}
-                <span className="font-semibold text-foreground">no payment due now</span> (a proration credit
-                of <span className="font-semibold text-foreground">{creditLabel}</span> may apply). The new
-                cadence still applies when Stripe finishes the update. If something blocks the update, your
-                current billing stays until it succeeds.
-                {isSwitchingToMonthly && (
-                  <>
-                    {' '}
-                    After that, each renewal bills monthly at{' '}
-                    {recurringLabel !== '—' ? (
-                      <>
-                        <span className="font-semibold text-foreground">{recurringLabel}</span>/month
-                      </>
-                    ) : (
-                      <span className="font-semibold text-foreground">
-                        the monthly rate in Billing &amp; invoices
-                      </span>
-                    )}{' '}
-                    (before tax).
-                  </>
-                )}
-                {isSwitchingToYearly && (
-                  <>
-                    {' '}
-                    After that, each renewal bills yearly at{' '}
-                    {recurringLabel !== '—' ? (
-                      <>
-                        <span className="font-semibold text-foreground">{recurringLabel}</span>/year
-                      </>
-                    ) : (
-                      <span className="font-semibold text-foreground">
-                        the yearly rate in Billing &amp; invoices
-                      </span>
-                    )}{' '}
-                    (before tax).
-                  </>
-                )}
-              </>
+                <>
+                  <span className="font-semibold text-foreground">No charge now</span> (~{creditLabel}{' '}
+                  credit). New cadence when Stripe finishes; blocked update → keep current billing. {renewAfter}
+                </>
               ) : (
-              <>
-                You are about to change how often you are billed. Stripe will charge{' '}
-                <span className="font-semibold text-foreground">{chargeLabel}</span> now for the prorated
-                difference. If payment fails, your billing cadence stays the same until the invoice is paid.
-                {isSwitchingToMonthly && (
-                  <>
-                    {' '}
-                    After that, each renewal bills monthly at{' '}
-                    {recurringLabel !== '—' ? (
-                      <>
-                        <span className="font-semibold text-foreground">{recurringLabel}</span>/month
-                      </>
-                    ) : (
-                      <span className="font-semibold text-foreground">
-                        the monthly rate in Billing &amp; invoices
-                      </span>
-                    )}{' '}
-                    (before tax).
-                  </>
-                )}
-                {isSwitchingToYearly && (
-                  <>
-                    {' '}
-                    After that, each renewal bills yearly at{' '}
-                    {recurringLabel !== '—' ? (
-                      <>
-                        <span className="font-semibold text-foreground">{recurringLabel}</span>/year
-                      </>
-                    ) : (
-                      <span className="font-semibold text-foreground">
-                        the yearly rate in Billing &amp; invoices
-                      </span>
-                    )}{' '}
-                    (before tax).
-                  </>
-                )}
-              </>
+                <>
+                  Charges <span className="font-semibold text-foreground">{chargeLabel}</span> now (proration).
+                  Failed payment → cadence unchanged until paid. {renewAfter}
+                </>
               )
             ) : (
-              <>
-                Stripe will create a proration invoice for the rest of your current billing period. Review the
-                charge and what happens next, then confirm in the next step.
-              </>
+              <>Proration for the rest of this period—review below, then confirm.</>
             )}
           </DialogDescription>
         </DialogHeader>
@@ -361,85 +304,37 @@ export function BillingIntervalSwitchDialog({
               </span>
             </p>
             {phase === 'ready' && !paymentPendingNotice && (
-              <p className="text-xs text-muted-foreground">
-                {chargeIsCredit
-                  ? 'Same totals and line items as Stripe’s invoice preview for this change.'
-                  : 'Same amount as Stripe’s invoice preview when you confirm—not an estimate.'}
-              </p>
+              <p className="text-xs text-muted-foreground">Matches Stripe&apos;s invoice preview.</p>
             )}
-            {preview && isSwitchingToMonthly && (
+            {preview && (isSwitchingToMonthly || isSwitchingToYearly) && (
               <PlanChangeDetailBox>
-                <PlanChangeDetailSection title="When the switch happens">
+                <PlanChangeDetailSection title="Effect">
                   <p className="text-sm">
-                    Monthly billing starts <strong>as soon as</strong> Stripe finishes this update (usually
-                    within a minute after you confirm). The charge above is the one-time proration for moving
-                    from yearly to monthly within your current term—not the full recurring monthly bill by
-                    itself.
+                    New cadence when Stripe applies (~1 min). <strong>Due now</strong> is proration for this
+                    term only—not the full recurring bill.
+                    {periodEndLabel ? (
+                      <>
+                        {' '}
+                        Period boundary <strong>{periodEndLabel} UTC</strong>; next charge date after confirm →{' '}
+                        <strong>Billing &amp; invoices</strong>.
+                      </>
+                    ) : null}
                   </p>
                 </PlanChangeDetailSection>
-                {periodEndLabel && (
-                  <PlanChangeDetailSection title="Current yearly period">
-                    <p className="text-sm">
-                      This billing period ends <strong>{periodEndLabel} (UTC)</strong>. After you switch, Stripe
-                      sets new renewal dates on the monthly price—open <strong>Billing &amp; invoices</strong>{' '}
-                      after confirming to see your exact next charge date.
-                    </p>
-                  </PlanChangeDetailSection>
-                )}
-                <PlanChangeDetailSection title="Renewals after the switch">
+                <PlanChangeDetailSection title="Renewals">
                   <p className="text-sm">
-                    Each monthly renewal is{' '}
                     <strong className="tabular-nums">
                       {recurringLabel}
-                      {recurringLabel !== '—' ? '/month' : ''}
+                      {recurringLabel !== '—' ? (isSwitchingToMonthly ? '/month' : '/year') : ''}
                     </strong>
                     {recurringLabel === '—'
-                      ? ' (see Billing & invoices for your monthly price).'
-                      : ' before tax on Stripe’s schedule—unless you change plans again.'}
+                      ? ' — see Billing & invoices.'
+                      : " before tax per Stripe's schedule."}
                   </p>
                 </PlanChangeDetailSection>
-                <PlanChangeDetailSection title="Downgrades or full cancel">
+                <PlanChangeDetailSection title="Tier & cancel">
                   <p className="text-sm">
-                    Plan tier changes (e.g. Outperformer → Supporter) use separate actions in Account settings.
-                    To <strong>cancel</strong> the subscription entirely, use <strong>Billing &amp; invoices</strong>{' '}
-                    and Stripe’s portal options.
-                  </p>
-                </PlanChangeDetailSection>
-              </PlanChangeDetailBox>
-            )}
-            {preview && isSwitchingToYearly && (
-              <PlanChangeDetailBox>
-                <PlanChangeDetailSection title="When the switch happens">
-                  <p className="text-sm">
-                    Yearly billing applies <strong>as soon as</strong> Stripe finishes this update (usually
-                    within a minute). The charge above is proration for moving from monthly to yearly in the
-                    current window.
-                  </p>
-                </PlanChangeDetailSection>
-                {periodEndLabel && (
-                  <PlanChangeDetailSection title="Current monthly period">
-                    <p className="text-sm">
-                      Your monthly period was set to end <strong>{periodEndLabel} (UTC)</strong>. After the
-                      switch, yearly renewal dates follow Stripe’s new cycle—check{' '}
-                      <strong>Billing &amp; invoices</strong> for the next charge date.
-                    </p>
-                  </PlanChangeDetailSection>
-                )}
-                <PlanChangeDetailSection title="Renewals after the switch">
-                  <p className="text-sm">
-                    Each yearly renewal is{' '}
-                    <strong className="tabular-nums">
-                      {recurringLabel}
-                      {recurringLabel !== '—' ? '/year' : ''}
-                    </strong>
-                    {recurringLabel === '—'
-                      ? ' (see Billing & invoices for your yearly price).'
-                      : ' before tax—unless you change plans again.'}
-                  </p>
-                </PlanChangeDetailSection>
-                <PlanChangeDetailSection title="Downgrades or full cancel">
-                  <p className="text-sm">
-                    Tier changes are separate from this cadence switch. To <strong>cancel</strong> entirely, use{' '}
+                    Does not change Supporter vs Outperformer. Full cancel:{' '}
                     <strong>Billing &amp; invoices</strong>.
                   </p>
                 </PlanChangeDetailSection>

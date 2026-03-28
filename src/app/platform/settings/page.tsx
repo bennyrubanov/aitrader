@@ -912,11 +912,7 @@ const SettingsPageContent = () => {
                 <div className="min-w-0">
                   <p className="text-sm font-medium">Customer portal</p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    Payment method, receipts, and subscription lifecycle live in Stripe&apos;s portal. You can
-                    cancel auto-renew or end the subscription there—whether access runs through the end of the
-                    paid period or stops sooner depends on the option you pick in Stripe. Upgrades,
-                    downgrades, and monthly↔yearly switches stay in this page so you see timing and amounts
-                    before confirming.
+                    Review & change payment details, your past payment invoices, or cancel your subscription.
                   </p>
                 </div>
                 <Button
@@ -943,9 +939,8 @@ const SettingsPageContent = () => {
                   <div className="min-w-0">
                     <p className="text-sm font-medium">Upgrade plan</p>
                     <p className="mt-0.5 text-xs text-muted-foreground">
-                      Immediate move to Outperformer on your current monthly or yearly cadence. The dialog
-                      shows Stripe&apos;s proration charge (or credit), your new renewal price, and when access
-                      flips—after payment if Stripe requires it.
+                      Proration (or credit), new renewal price, and when access updates—same monthly/yearly
+                      cadence.
                     </p>
                   </div>
                   <Button
@@ -964,9 +959,7 @@ const SettingsPageContent = () => {
                   <div className="min-w-0">
                     <p className="text-sm font-medium">Downgrade to Supporter</p>
                     <p className="mt-0.5 text-xs text-muted-foreground">
-                      Schedules Supporter for your next renewal—no extra charge for scheduling. Outperformer
-                      stays until that date; cancel the schedule here if you change your mind. Full cancellation
-                      is only in Billing &amp; invoices.
+                      Your current subscription will remain until your renewal date, after which you will be downgraded.
                     </p>
                   </div>
                   <Button
@@ -986,8 +979,8 @@ const SettingsPageContent = () => {
                     <p className="text-sm font-medium">Billing interval</p>
                     <p className="mt-0.5 text-xs text-muted-foreground">
                       {authState.stripeRecurringInterval === 'month'
-                        ? 'Move to yearly: Stripe charges a one-time proration now, then yearly renewals at the rate shown in the dialog.'
-                        : 'Move to monthly: proration now, then monthly renewals. Does not change Supporter vs Outperformer—only how often you are billed.'}
+                        ? 'Earn 3 months off when you are subscribed yearly!'
+                        : 'Your switch will take effect at your next renewal.'}
                     </p>
                   </div>
                   <Button

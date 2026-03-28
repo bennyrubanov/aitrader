@@ -200,8 +200,8 @@ export function SubscriptionUpgradeDialog({
       if (data.status === 'awaiting_payment') {
         setPaymentPendingNotice(
           data.hostedInvoiceUrl
-            ? 'Payment is required to finish upgrading. Pay the invoice linked below. Your plan moves to Outperformer when Stripe confirms payment (usually within a minute).'
-            : 'Payment is required to finish upgrading. Open Billing & invoices to pay or update your card, then check back — you will stay on Supporter until payment succeeds.'
+            ? 'Pay the invoice below to finish. Outperformer applies when Stripe confirms (usually ~1 min).'
+            : 'Pay or fix the card in Billing & invoices. Supporter until then.'
         );
         setPaymentPendingUrl(data.hostedInvoiceUrl ?? null);
         setPhase('ready');
@@ -255,25 +255,19 @@ export function SubscriptionUpgradeDialog({
             {phase === 'affirm' || phase === 'confirming' ? (
               chargeIsCredit ? (
                 <>
-                  You are about to confirm an upgrade. Stripe shows{' '}
-                  <span className="font-semibold text-foreground">no payment due now</span> (a proration
-                  credit of <span className="font-semibold text-foreground">{creditLabel}</span> may apply).
-                  Outperformer still starts when Stripe finishes the update. If anything blocks the update,
-                  you stay on Supporter until it succeeds.
+                  Confirming applies the upgrade.{' '}
+                  <span className="font-semibold text-foreground">No charge now</span> (~{creditLabel}{' '}
+                  credit). Stay on Supporter if Stripe can&apos;t complete the update.
                 </>
               ) : (
                 <>
-                  You are about to confirm an upgrade. Stripe will charge{' '}
-                  <span className="font-semibold text-foreground">{chargeLabel}</span> now for the prorated
-                  difference for the rest of this billing period. If payment fails, you stay on Supporter until
-                  the invoice is paid.
+                  Confirming charges{' '}
+                  <span className="font-semibold text-foreground">{chargeLabel}</span> now (proration for the
+                  rest of this period). Failed payment → Supporter until the invoice is paid.
                 </>
               )
             ) : (
-              <>
-                Stripe will create a proration invoice for the rest of your current billing period. Review the
-                charge and renewals below, then confirm in the next step.
-              </>
+              <>Proration from Stripe for the rest of this period—details below, then confirm.</>
             )}
           </DialogDescription>
         </DialogHeader>
@@ -302,54 +296,51 @@ export function SubscriptionUpgradeDialog({
               </span>
             </p>
             {phase === 'ready' && !paymentPendingNotice && (
-              <p className="text-xs text-muted-foreground">
-                Same line items and total as Stripe&apos;s invoice preview for this change—not an estimate.
-              </p>
+              <p className="text-xs text-muted-foreground">Matches Stripe&apos;s invoice preview.</p>
             )}
             <PlanChangeDetailBox>
-              <PlanChangeDetailSection title="When Outperformer starts">
+              <PlanChangeDetailSection title="Timing & access">
                 <p className="text-sm">
-                  As soon as Stripe applies the subscription update (usually within a minute after you
-                  confirm). Full Outperformer access follows that update. If Stripe needs a payment and it
-                  fails, you remain on Supporter until the invoice is paid—use{' '}
-                  <strong>Billing &amp; invoices</strong> if needed.
+                  Outperformer when Stripe applies the update (~1 min). Required payment that fails → Supporter
+                  until paid (<strong>Billing &amp; invoices</strong>).
+                  {periodEndLabel ? (
+                    <>
+                      {' '}
+                      This period ends <strong>{periodEndLabel} (UTC)</strong>; proration is only for the time
+                      left in it.
+                    </>
+                  ) : null}
                 </p>
               </PlanChangeDetailSection>
-              {periodEndLabel && (
-                <PlanChangeDetailSection title="Current billing period">
-                  <p className="text-sm">
-                    Your current term ends{' '}
-                    <strong>
-                      {periodEndLabel} (UTC)
+              <PlanChangeDetailSection title="Renewals">
+                <p className="text-sm">
+                  Same <strong>{cadenceWord}</strong> cadence: Supporter{' '}
+                  {supporterRecurring && supporterRecurring !== '—' ? (
+                    <strong className="tabular-nums">
+                      {supporterRecurring}
+                      {recurringSuffix}
                     </strong>
-                    . Upgrading does not shorten that window; proration only covers the upgrade price for the
-                    time left in this period.
-                  </p>
-                </PlanChangeDetailSection>
-              )}
-              <PlanChangeDetailSection title="Recurring price after upgrade">
-                <p className="text-sm">
-                  You stay on <strong>{cadenceWord}</strong> billing. Supporter was{' '}
-                  <strong className="tabular-nums">
-                    {supporterRecurring}
-                    {supporterRecurring && supporterRecurring !== '—' ? recurringSuffix : ''}
-                  </strong>
-                  {supporterRecurring === '—' ? ' (see Billing & invoices). ' : ' before tax. '}
-                  Outperformer renews at{' '}
-                  <strong className="tabular-nums">
-                    {outperformerRecurring}
-                    {outperformerRecurring && outperformerRecurring !== '—' ? recurringSuffix : ''}
-                  </strong>
-                  {outperformerRecurring === '—'
-                    ? ' (see Billing & invoices for the exact amount).'
-                    : ' before tax on each renewal, unless you change plans again.'}
+                  ) : (
+                    <span>rate in portal</span>
+                  )}{' '}
+                  → Outperformer{' '}
+                  {outperformerRecurring && outperformerRecurring !== '—' ? (
+                    <>
+                      <strong className="tabular-nums">
+                        {outperformerRecurring}
+                        {recurringSuffix}
+                      </strong>{' '}
+                      before tax.
+                    </>
+                  ) : (
+                    <span>rate in portal.</span>
+                  )}
                 </p>
               </PlanChangeDetailSection>
-              <PlanChangeDetailSection title="Cancel entirely">
+              <PlanChangeDetailSection title="Unsubscribe">
                 <p className="text-sm">
-                  This flow only upgrades in place. To <strong>cancel</strong> the subscription or turn off
-                  auto-renew, open <strong>Billing &amp; invoices</strong> and use Stripe&apos;s customer
-                  portal—timing there follows what you choose in Stripe (e.g. end of period vs. immediate).
+                  Cancel or turn off renewals in <strong>Billing &amp; invoices</strong> (Stripe sets
+                  end-of-period vs immediate).
                 </p>
               </PlanChangeDetailSection>
             </PlanChangeDetailBox>
