@@ -44,6 +44,12 @@ type Props = {
   /** Guests: persist to localStorage via `onLocalPersist` instead of the authenticated API. */
   persistMode?: 'api' | 'local';
   onLocalPersist?: (args: { investmentSize: number; userStartDate: string }) => void;
+  /**
+   * When set (including `null` after a ranked payload load), skips the duplicate
+   * `portfolio-configs-ranked` fetch — use the same inception as overview / your portfolios.
+   * Omit when not yet loaded so the dialog can fetch on demand.
+   */
+  prefetchedModelInceptionYmd?: string | null;
 };
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
@@ -60,6 +66,7 @@ export function UserPortfolioEntrySettingsDialog({
   onSaved,
   persistMode = 'api',
   onLocalPersist,
+  prefetchedModelInceptionYmd,
 }: Props) {
   const { toast } = useToast();
   const [investment, setInvestment] = useState('');
@@ -76,7 +83,15 @@ export function UserPortfolioEntrySettingsDialog({
   const slug = profile?.strategySlug?.trim() ?? '';
 
   useEffect(() => {
-    if (!open || !slug) {
+    if (!slug) {
+      setModelInceptionYmd(null);
+      return;
+    }
+    if (prefetchedModelInceptionYmd !== undefined) {
+      setModelInceptionYmd(prefetchedModelInceptionYmd);
+      return;
+    }
+    if (!open) {
       setModelInceptionYmd(null);
       return;
     }
@@ -93,7 +108,7 @@ export function UserPortfolioEntrySettingsDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, slug]);
+  }, [open, slug, prefetchedModelInceptionYmd]);
 
   const { minYmd, maxYmd } = useMemo(
     () => portfolioEntryDateBounds(modelInceptionYmd),

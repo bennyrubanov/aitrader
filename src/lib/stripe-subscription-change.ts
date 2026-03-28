@@ -200,14 +200,17 @@ export async function previewChangeBillingInterval(
   }
 
   const prorationDate = Math.floor(Date.now() / 1000);
+  const anchorReset = targetInterval !== ctx.interval;
 
   const preview = await ctx.stripe.invoices.createPreview({
     customer: ctx.customerId,
     subscription: ctx.subscription.id,
     subscription_details: {
       items: [{ id: ctx.subscriptionItemId, price: targetPriceId }],
-      proration_date: prorationDate,
       proration_behavior: 'always_invoice',
+      ...(anchorReset
+        ? { billing_cycle_anchor: 'now' as const }
+        : { proration_date: prorationDate }),
     },
   });
 
@@ -284,11 +287,14 @@ export async function confirmChangeBillingInterval(
     throw new Error('Proration timestamp is outside the current period. Please preview again.');
   }
 
+  const anchorReset = targetInterval !== ctx.interval;
   const updated = await ctx.stripe.subscriptions.update(ctx.subscription.id, {
     items: [{ id: ctx.subscriptionItemId, price: targetPriceId }],
     proration_behavior: 'always_invoice',
-    proration_date: prorationDate,
     payment_behavior: 'pending_if_incomplete',
+    ...(anchorReset
+      ? { billing_cycle_anchor: 'now' }
+      : { proration_date: prorationDate }),
   });
 
   const priceAfter = subscriptionItemPriceId(updated);
@@ -382,9 +388,13 @@ export async function previewDowngradeToSupporter(ctx: LoadedSubscriptionContext
   billingInterval: 'month' | 'year';
   currentRecurringUnitAmount: number | null;
   currentRecurringCurrency: string;
-  targetRecurringUnitAmount: number | null;
-  targetRecurringCurrency: string;
+  supporterMonthlyUnitAmount: number | null;
+  supporterMonthlyCurrency: string;
+  supporterYearlyUnitAmount: number | null;
+  supporterYearlyCurrency: string;
   currentSubscriptionPeriodEndIso: string | null;
+  /** Billing interval of the Supporter phase on an active downgrade schedule, if any. */
+  scheduledTargetInterval: 'month' | 'year' | null;
 }> {
   if (ctx.tier !== 'outperformer') {
     throw new Error('Downgrade is only available from the Outperformer plan.');
@@ -393,43 +403,93 @@ export async function previewDowngradeToSupporter(ctx: LoadedSubscriptionContext
     throw new Error('Could not detect monthly vs yearly billing on your subscription.');
   }
 
-  const targetPriceId = envPriceIdForPlanInterval('supporter', ctx.interval);
-  if (!targetPriceId) {
-    throw new Error('Server is missing Supporter price ID for your billing interval.');
+  const monthlyPriceId = envPriceIdForPlanInterval('supporter', 'month');
+  const yearlyPriceId = envPriceIdForPlanInterval('supporter', 'year');
+  if (!monthlyPriceId || !yearlyPriceId) {
+    throw new Error('Server is missing Supporter price IDs.');
   }
 
-  const [currentPrice, targetPrice] = await Promise.all([
+  const periodEndUnix = subscriptionCurrentPeriodEndUnix(ctx.subscription);
+
+  const [currentPrice, monthlyPrice, yearlyPrice] = await Promise.all([
     ctx.stripe.prices.retrieve(ctx.currentPriceId),
-    ctx.stripe.prices.retrieve(targetPriceId),
+    ctx.stripe.prices.retrieve(monthlyPriceId),
+    ctx.stripe.prices.retrieve(yearlyPriceId),
   ]);
 
-  const periodEndUnix = subscriptionCurrentPeriodEndUnix(ctx.subscription);
+  let scheduledTargetInterval: 'month' | 'year' | null = null;
+  const scheduleRef = ctx.subscription.schedule;
+  const scheduleId =
+    typeof scheduleRef === 'string'
+      ? scheduleRef
+      : scheduleRef && 'id' in scheduleRef
+        ? scheduleRef.id
+        : null;
+  if (scheduleId && periodEndUnix !== null) {
+    try {
+      const schedule = await ctx.stripe.subscriptionSchedules.retrieve(scheduleId);
+      const currentPriceId = ctx.currentPriceId;
+      for (const phase of schedule.phases ?? []) {
+        if (!phase.start_date || phase.start_date < periodEndUnix) {
+          continue;
+        }
+        const item = phase.items?.[0];
+        const plannedPrice =
+          typeof item?.price === 'string' ? item.price : (item?.price as Stripe.Price | undefined)?.id;
+        if (!plannedPrice || plannedPrice === currentPriceId) {
+          continue;
+        }
+        const nextTier = await resolveTierFromPriceId(ctx.stripe, plannedPrice);
+        if (nextTier === 'supporter') {
+          const p = await ctx.stripe.prices.retrieve(plannedPrice);
+          const interval = p.recurring?.interval;
+          scheduledTargetInterval =
+            interval === 'year' ? 'year' : interval === 'month' ? 'month' : null;
+          break;
+        }
+      }
+    } catch {
+      scheduledTargetInterval = null;
+    }
+  }
 
   return {
     billingInterval: ctx.interval,
     currentRecurringUnitAmount:
       typeof currentPrice.unit_amount === 'number' ? currentPrice.unit_amount : null,
     currentRecurringCurrency: currentPrice.currency,
-    targetRecurringUnitAmount:
-      typeof targetPrice.unit_amount === 'number' ? targetPrice.unit_amount : null,
-    targetRecurringCurrency: targetPrice.currency,
+    supporterMonthlyUnitAmount:
+      typeof monthlyPrice.unit_amount === 'number' ? monthlyPrice.unit_amount : null,
+    supporterMonthlyCurrency: monthlyPrice.currency,
+    supporterYearlyUnitAmount:
+      typeof yearlyPrice.unit_amount === 'number' ? yearlyPrice.unit_amount : null,
+    supporterYearlyCurrency: yearlyPrice.currency,
     currentSubscriptionPeriodEndIso:
       periodEndUnix !== null ? new Date(periodEndUnix * 1000).toISOString() : null,
+    scheduledTargetInterval,
   };
 }
 
-export async function previewUpgradeToOutperformer(ctx: LoadedSubscriptionContext): Promise<{
+export async function previewUpgradeToOutperformer(
+  ctx: LoadedSubscriptionContext,
+  targetInterval?: 'month' | 'year'
+): Promise<{
   prorationDate: number;
   targetPriceId: string;
   amountDue: number | null;
   currency: string;
   total: number | null;
   subscriptionId: string;
-  billingInterval: 'month' | 'year';
+  currentInterval: 'month' | 'year';
+  targetInterval: 'month' | 'year';
   currentRecurringUnitAmount: number | null;
   currentRecurringCurrency: string;
   targetRecurringUnitAmount: number | null;
   targetRecurringCurrency: string;
+  outperformerMonthlyUnitAmount: number | null;
+  outperformerMonthlyCurrency: string;
+  outperformerYearlyUnitAmount: number | null;
+  outperformerYearlyCurrency: string;
   currentSubscriptionPeriodEndIso: string | null;
 }> {
   if (ctx.tier !== 'supporter') {
@@ -439,29 +499,41 @@ export async function previewUpgradeToOutperformer(ctx: LoadedSubscriptionContex
     throw new Error('Could not detect monthly vs yearly billing on your subscription.');
   }
 
-  const targetPriceId = envPriceIdForPlanInterval('outperformer', ctx.interval);
+  const resolvedInterval = targetInterval ?? ctx.interval;
+  const targetPriceId = envPriceIdForPlanInterval('outperformer', resolvedInterval);
   if (!targetPriceId) {
-    throw new Error('Server is missing Outperformer price ID for your billing interval.');
+    throw new Error('Server is missing Outperformer price ID for this billing interval.');
   }
   if (targetPriceId === ctx.currentPriceId) {
     throw new Error('You are already on this price.');
   }
 
+  const monthlyOutId = envPriceIdForPlanInterval('outperformer', 'month');
+  const yearlyOutId = envPriceIdForPlanInterval('outperformer', 'year');
+  if (!monthlyOutId || !yearlyOutId) {
+    throw new Error('Server is missing Outperformer price IDs.');
+  }
+
   const prorationDate = Math.floor(Date.now() / 1000);
+  const anchorReset = resolvedInterval !== ctx.interval;
 
   const preview = await ctx.stripe.invoices.createPreview({
     customer: ctx.customerId,
     subscription: ctx.subscription.id,
     subscription_details: {
       items: [{ id: ctx.subscriptionItemId, price: targetPriceId }],
-      proration_date: prorationDate,
       proration_behavior: 'always_invoice',
+      ...(anchorReset
+        ? { billing_cycle_anchor: 'now' as const }
+        : { proration_date: prorationDate }),
     },
   });
 
-  const [currentPrice, targetPrice] = await Promise.all([
+  const [currentPrice, targetPrice, monthlyOutPrice, yearlyOutPrice] = await Promise.all([
     ctx.stripe.prices.retrieve(ctx.currentPriceId),
     ctx.stripe.prices.retrieve(targetPriceId),
+    ctx.stripe.prices.retrieve(monthlyOutId),
+    ctx.stripe.prices.retrieve(yearlyOutId),
   ]);
 
   const periodEndUnix = subscriptionCurrentPeriodEndUnix(ctx.subscription);
@@ -473,13 +545,20 @@ export async function previewUpgradeToOutperformer(ctx: LoadedSubscriptionContex
     currency: preview.currency,
     total: preview.total,
     subscriptionId: ctx.subscription.id,
-    billingInterval: ctx.interval,
+    currentInterval: ctx.interval,
+    targetInterval: resolvedInterval,
     currentRecurringUnitAmount:
       typeof currentPrice.unit_amount === 'number' ? currentPrice.unit_amount : null,
     currentRecurringCurrency: currentPrice.currency || preview.currency,
     targetRecurringUnitAmount:
       typeof targetPrice.unit_amount === 'number' ? targetPrice.unit_amount : null,
     targetRecurringCurrency: targetPrice.currency || preview.currency,
+    outperformerMonthlyUnitAmount:
+      typeof monthlyOutPrice.unit_amount === 'number' ? monthlyOutPrice.unit_amount : null,
+    outperformerMonthlyCurrency: monthlyOutPrice.currency || preview.currency,
+    outperformerYearlyUnitAmount:
+      typeof yearlyOutPrice.unit_amount === 'number' ? yearlyOutPrice.unit_amount : null,
+    outperformerYearlyCurrency: yearlyOutPrice.currency || preview.currency,
     currentSubscriptionPeriodEndIso:
       periodEndUnix !== null ? new Date(periodEndUnix * 1000).toISOString() : null,
   };
@@ -488,7 +567,8 @@ export async function previewUpgradeToOutperformer(ctx: LoadedSubscriptionContex
 export async function confirmUpgradeToOutperformer(
   ctx: LoadedSubscriptionContext,
   prorationDate: number,
-  expectedTargetPriceId: string
+  expectedTargetPriceId: string,
+  targetInterval?: 'month' | 'year'
 ): Promise<ConfirmUpgradeToOutperformerResult> {
   if (ctx.tier !== 'supporter') {
     throw new Error('Upgrade is only available from the Supporter plan.');
@@ -497,7 +577,8 @@ export async function confirmUpgradeToOutperformer(
     throw new Error('Could not detect monthly vs yearly billing on your subscription.');
   }
 
-  const targetPriceId = envPriceIdForPlanInterval('outperformer', ctx.interval);
+  const resolvedInterval = targetInterval ?? ctx.interval;
+  const targetPriceId = envPriceIdForPlanInterval('outperformer', resolvedInterval);
   if (!targetPriceId || targetPriceId !== expectedTargetPriceId) {
     throw new Error('Price changed or is invalid. Please preview again.');
   }
@@ -519,11 +600,14 @@ export async function confirmUpgradeToOutperformer(
     throw new Error('Proration timestamp is outside the current period. Please preview again.');
   }
 
+  const anchorReset = resolvedInterval !== ctx.interval;
   const updated = await ctx.stripe.subscriptions.update(ctx.subscription.id, {
     items: [{ id: ctx.subscriptionItemId, price: targetPriceId }],
     proration_behavior: 'always_invoice',
-    proration_date: prorationDate,
     payment_behavior: 'pending_if_incomplete',
+    ...(anchorReset
+      ? { billing_cycle_anchor: 'now' }
+      : { proration_date: prorationDate }),
   });
 
   const priceAfter = subscriptionItemPriceId(updated);
@@ -555,7 +639,8 @@ export async function confirmUpgradeToOutperformer(
  * Outperformer → Supporter at current period end via Subscription Schedule (no immediate price swap on the subscription item).
  */
 export async function scheduleDowngradeToSupporter(
-  ctx: LoadedSubscriptionContext
+  ctx: LoadedSubscriptionContext,
+  targetInterval?: 'month' | 'year'
 ): Promise<{ effectiveAtIso: string; scheduleId: string }> {
   if (ctx.tier !== 'outperformer') {
     throw new Error('This downgrade is only available on the Outperformer plan.');
@@ -564,7 +649,8 @@ export async function scheduleDowngradeToSupporter(
     throw new Error('Could not detect monthly vs yearly billing on your subscription.');
   }
 
-  const supporterPriceId = envPriceIdForPlanInterval('supporter', ctx.interval);
+  const resolvedInterval = targetInterval ?? ctx.interval;
+  const supporterPriceId = envPriceIdForPlanInterval('supporter', resolvedInterval);
   if (!supporterPriceId) {
     throw new Error('Server is missing Supporter price ID for your billing interval.');
   }

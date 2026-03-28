@@ -37,6 +37,7 @@ import {
   PortfolioConfigContext,
   type PortfolioConfigContextValue,
 } from './portfolio-config-context-core';
+import { prefetchOnboardingMeta } from '@/lib/onboarding-meta-client-cache';
 
 export function PortfolioConfigProvider({ children }: { children: ReactNode }) {
   const auth = useAuthState();
@@ -256,6 +257,13 @@ export function PortfolioConfigProvider({ children }: { children: ReactNode }) {
   );
 
   const portfolioOnboardingNeedsAttention = onboardingResolved && !isOnboardingDone;
+
+  useEffect(() => {
+    if (!portfolioConfigHydrated || !portfolioOnboardingNeedsAttention) return;
+    const slug = config.strategySlug?.trim();
+    if (!slug) return;
+    prefetchOnboardingMeta(slug);
+  }, [portfolioConfigHydrated, portfolioOnboardingNeedsAttention, config.strategySlug]);
 
   const value: PortfolioConfigContextValue = {
     config,

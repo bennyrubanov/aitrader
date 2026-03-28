@@ -27,7 +27,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const body = (await req.json().catch(() => ({}))) as { action?: string };
+    const body = (await req.json().catch(() => ({}))) as {
+      action?: string;
+      targetInterval?: string;
+    };
     if (body.action !== 'schedule_downgrade_to_supporter') {
       return NextResponse.json({ error: 'Unsupported action' }, { status: 400 });
     }
@@ -40,8 +43,13 @@ export async function POST(req: Request) {
       user.email ?? undefined
     );
 
+    const targetInterval =
+      body.targetInterval === 'month' || body.targetInterval === 'year'
+        ? body.targetInterval
+        : undefined;
+
     const ctx = await buildSubscriptionChangeContext(customerId, subscriptionId);
-    const result = await scheduleDowngradeToSupporter(ctx);
+    const result = await scheduleDowngradeToSupporter(ctx, targetInterval);
 
     return NextResponse.json({
       ok: true,

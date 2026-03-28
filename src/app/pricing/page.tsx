@@ -10,7 +10,10 @@ import { Button } from '@/components/ui/button';
 import { PlanLabel } from '@/components/account/plan-label';
 import { useAuthState, useRefreshAuthProfile } from '@/components/auth/auth-state-context';
 import { SubscriptionUpgradeDialog } from '@/components/account/subscription-upgrade-dialog';
-import { DowngradeToSupporterDialog } from '@/components/account/downgrade-to-supporter-dialog';
+import {
+  DowngradeToSupporterDialog,
+  ScheduledDowngradeDetailDialog,
+} from '@/components/account/downgrade-to-supporter-dialog';
 import { cn } from '@/lib/utils';
 
 type Plan = 'supporter' | 'outperformer';
@@ -210,9 +213,27 @@ function PricingPageContent() {
   const [checkoutPlan, setCheckoutPlan] = useState<Plan | null>(null);
   const [upgradeDialogOpen, setUpgradeDialogOpen] = useState(false);
   const [downgradeDialogOpen, setDowngradeDialogOpen] = useState(false);
+  const [scheduledDowngradeDetailOpen, setScheduledDowngradeDetailOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const postAuthCheckoutHandled = useRef(false);
+
+  const cancelScheduledDowngradeRaw = useCallback(async () => {
+    const res = await fetch('/api/stripe/subscription-scheduled-change/cancel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ intent: 'cancel_scheduled_downgrade' }),
+    });
+    const payload = (await res.json()) as { ok?: boolean; error?: string };
+    if (!res.ok || !payload.ok) throw new Error(payload.error ?? 'Unable to cancel downgrade.');
+  }, []);
+
+  const handleCancelScheduledDowngrade = useCallback(async () => {
+    await cancelScheduledDowngradeRaw();
+    await fetch('/api/user/reconcile-premium', { method: 'POST' });
+    await refreshProfile();
+    router.refresh();
+  }, [cancelScheduledDowngradeRaw, refreshProfile, router]);
 
   /** No further plan switches while a downgrade/upgrade is pending or cancel-at-period-end is set. */
   const planChangeActionsLocked = useMemo(
@@ -548,16 +569,25 @@ function PricingPageContent() {
                       )}
                     </div>
                   ) : subscriptionTier === 'outperformer' ? (
-                    planChangeActionsLocked ? (
+                    stripePendingTier === 'supporter' ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full mt-auto"
+                        onClick={() => setScheduledDowngradeDetailOpen(true)}
+                      >
+                        Downgrade scheduled {formatBillingDate(stripeCurrentPeriodEnd)}
+                      </Button>
+                    ) : planChangeActionsLocked ? (
                       <p className="mt-auto text-center text-sm text-muted-foreground">
-                        A subscription change is already scheduled. Use{' '}
+                        A subscription change is already scheduled. See{' '}
                         <Link
                           href="/platform/settings"
                           className="font-medium text-trader-blue underline-offset-4 hover:underline"
                         >
                           Settings
-                        </Link>{' '}
-                        if you need help.
+                        </Link>
+                        .
                       </p>
                     ) : (
                       <Button
@@ -659,7 +689,17 @@ function PricingPageContent() {
                       <Button disabled variant="secondary" className="w-full">
                         Current plan
                       </Button>
-                      {!planChangeActionsLocked && (
+                      {stripePendingTier === 'supporter' ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="w-full"
+                          onClick={() => setScheduledDowngradeDetailOpen(true)}
+                        >
+                          Downgrade scheduled {formatBillingDate(stripeCurrentPeriodEnd)}
+                        </Button>
+                      ) : !planChangeActionsLocked ? (
                         <Button
                           type="button"
                           variant="outline"
@@ -669,7 +709,7 @@ function PricingPageContent() {
                         >
                           Downgrade to Supporter
                         </Button>
-                      )}
+                      ) : null}
                     </div>
                   ) : subscriptionTier === 'supporter' ? (
                     planChangeActionsLocked ? (
@@ -802,6 +842,27 @@ function PricingPageContent() {
         open={downgradeDialogOpen}
         onOpenChange={setDowngradeDialogOpen}
         onAfterSuccess={async () => {
+          await refreshProfile();
+          router.refresh();
+        }}
+      />
+      <ScheduledDowngradeDetailDialog
+        open={scheduledDowngradeDetailOpen}
+        onOpenChange={setScheduledDowngradeDetailOpen}
+        onCancelDowngrade={handleCancelScheduledDowngrade}
+        onRescheduleWithInterval={async (interval) => {
+          await cancelScheduledDowngradeRaw();
+          const res = await fetch('/api/stripe/subscription-downgrade-schedule', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'schedule_downgrade_to_supporter',
+              targetInterval: interval,
+            }),
+          });
+          const data = (await res.json()) as { error?: string };
+          if (!res.ok) throw new Error(data.error ?? 'Reschedule failed.');
+          await fetch('/api/user/reconcile-premium', { method: 'POST' });
           await refreshProfile();
           router.refresh();
         }}

@@ -679,6 +679,9 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   configHoldingsLenRef.current = configHoldings.length;
 
   const [rankedBySlug, setRankedBySlug] = useState<Record<string, RankedConfig[]>>({});
+  const [modelInceptionBySlug, setModelInceptionBySlug] = useState<Record<string, string | null>>(
+    {}
+  );
   const [latestPerfDateBySlug, setLatestPerfDateBySlug] = useState<
     Record<string, string | null>
   >({});
@@ -995,6 +998,13 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const rankedConfigsForFilters = rankedBySlug[strategySlug] ?? [];
   const latestBenchmarkAsOf = latestPerfDateBySlug[strategySlug] ?? null;
 
+  const entrySettingsPrefetchedModelInceptionYmd = useMemo(() => {
+    const s = selectedProfile?.strategy_models?.slug?.trim() ?? '';
+    if (!s) return undefined;
+    if (!Object.prototype.hasOwnProperty.call(modelInceptionBySlug, s)) return undefined;
+    return modelInceptionBySlug[s] ?? null;
+  }, [selectedProfile?.strategy_models?.slug, modelInceptionBySlug]);
+
   useEffect(() => {
     if (riskFilter === 6 && weightFilter === 'cap') {
       setWeightFilter(null);
@@ -1017,31 +1027,46 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
             `/api/platform/portfolio-configs-ranked?slug=${encodeURIComponent(slug)}`
           );
           if (!res.ok) {
-            return [slug, [] as RankedConfig[], null as string | null] as const;
+            return {
+              slug,
+              configs: [] as RankedConfig[],
+              latest: null as string | null,
+              inception: null as string | null,
+            };
           }
           const data = (await res.json()) as {
             configs?: RankedConfig[];
             latestPerformanceDate?: string | null;
+            modelInceptionDate?: string | null;
           };
-          return [
+          return {
             slug,
-            data.configs ?? [],
-            data.latestPerformanceDate ?? null,
-          ] as const;
+            configs: data.configs ?? [],
+            latest: data.latestPerformanceDate ?? null,
+            inception: data.modelInceptionDate ?? null,
+          };
         } catch {
-          return [slug, [] as RankedConfig[], null] as const;
+          return {
+            slug,
+            configs: [] as RankedConfig[],
+            latest: null as string | null,
+            inception: null as string | null,
+          };
         }
       })
     ).then((entries) => {
       if (cancelled) return;
       const ranked: Record<string, RankedConfig[]> = {};
       const dates: Record<string, string | null> = {};
-      for (const [slug, configs, latest] of entries) {
+      const inceptions: Record<string, string | null> = {};
+      for (const { slug, configs, latest, inception } of entries) {
         ranked[slug] = configs;
         dates[slug] = latest;
+        inceptions[slug] = inception;
       }
       setRankedBySlug(ranked);
       setLatestPerfDateBySlug(dates);
+      setModelInceptionBySlug(inceptions);
     });
     return () => {
       cancelled = true;
@@ -2880,6 +2905,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
           }
           void loadUserEntry();
         }}
+        prefetchedModelInceptionYmd={entrySettingsPrefetchedModelInceptionYmd}
       />
     </div>
   );

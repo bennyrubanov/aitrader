@@ -58,7 +58,7 @@ You must also keep this file up to date.
 
 **Frontend-facing**: `nasdaq100_recommendations_current` (service role / cron only for full rows), **`nasdaq100_recommendations_current_public`** (service role only: same columns except **`latent_rank`**; no anon/authenticated SELECT), views `nasdaq100_scores_7d_view`, `nasdaq100_current_members`, `nasdaq100_latest_snapshot`.
 
-**User account tables**: `user_profiles` (includes `portfolio_onboarding_done` boolean default false — portfolio wizard completion, RLS-updatable by owner; Stripe snapshot `stripe_customer_id`, `stripe_subscription_id`, `stripe_current_period_end`, `stripe_cancel_at_period_end`, `stripe_pending_tier`, `stripe_recurring_interval` (`month` \| `year`) plus existing `subscription_tier` / event idempotency fields — **billing columns are not client-updatable**; trigger `user_profiles_protect_billing_columns` allows only `service_role` / privileged sessions to change them), `newsletter_subscribers`.
+**User account tables**: `user_profiles` (includes `portfolio_onboarding_done` boolean default false — portfolio wizard completion, RLS-updatable by owner; Stripe snapshot `stripe_customer_id`, `stripe_subscription_id`, `stripe_current_period_end`, `stripe_cancel_at_period_end`, `stripe_pending_tier`, `stripe_recurring_interval` (`month` \| `year`) plus existing `subscription_tier` / event idempotency fields — **billing columns are not client-updatable**; trigger `user_profiles_protect_billing_columns` allows only `service_role` / privileged sessions to change them), `newsletter_subscribers` (`user_id -> auth.users(id)` now uses **`on delete cascade`** so deleting an auth user also removes the linked newsletter row).
 
 ## Key conventions
 

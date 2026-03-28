@@ -73,6 +73,35 @@ function AuthPreviewChartBlockSkeleton() {
   );
 }
 
+/** Matches recommendation row height/spacing; no copy — used while preview payload is loading. */
+function AuthPreviewRecsSkeleton() {
+  return (
+    <div className="space-y-2 rounded-md border border-border px-2 py-2">
+      {Array.from({ length: RECS_VISIBLE }, (_, i) => (
+        <div
+          key={i}
+          className="flex items-center justify-between gap-2 rounded-md border border-border/60 bg-muted/15 px-3 py-2"
+        >
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <Skeleton className="h-4 w-14" />
+            <Skeleton className="h-3 w-full max-w-[12rem]" />
+          </div>
+          <Skeleton className="h-4 w-10 shrink-0" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AuthPreviewPortfolioHeaderSkeleton() {
+  return (
+    <div className="mb-3 flex items-center gap-2 min-w-0">
+      <Skeleton className="h-6 w-24 shrink-0 rounded-full" />
+      <Skeleton className="h-4 min-w-0 flex-1 max-w-[min(100%,18rem)]" />
+    </div>
+  );
+}
+
 const PerformanceChart = dynamic(
   () =>
     import("@/components/platform/performance-chart").then((m) => m.PerformanceChart),
@@ -372,6 +401,12 @@ export function AuthPreviewPlaceholder() {
     };
   }, [chartByConfigId, data, loadError, portfolioIdx, recPage]);
 
+  /** Guest preview JSON not loaded yet — avoid error copy in the two panels. */
+  const guestPreviewPending = !data;
+  const chartAwaitingSeries =
+    topPortfolios.length > 0 &&
+    (chartStatus === "loading" || chartStatus === "in_progress");
+
   return (
     <div className="w-full max-w-xl rounded-2xl border border-border bg-card p-6 shadow-elevated">
       <p className="text-xs font-semibold uppercase tracking-wider text-trader-blue">Live results</p>
@@ -388,7 +423,9 @@ export function AuthPreviewPlaceholder() {
               Live
             </span>
           </div>
-          {visibleRecs.length > 0 ? (
+          {guestPreviewPending ? (
+            <AuthPreviewRecsSkeleton />
+          ) : visibleRecs.length > 0 ? (
             <div
               className={cn(
                 "space-y-2 rounded-md border border-border px-2 py-2 transition-opacity duration-500",
@@ -414,22 +451,27 @@ export function AuthPreviewPlaceholder() {
               ))}
             </div>
           ) : (
-            <div className="rounded-md border border-dashed border-border px-3 py-8 text-center text-sm text-muted-foreground">
-              Loading recommendations…
-            </div>
+            <div
+              className="min-h-[140px] rounded-md border border-dashed border-border/80 bg-muted/5"
+              aria-hidden
+            />
           )}
         </div>
 
         <div className="rounded-xl border border-border bg-background p-4">
           <div className="mb-2 flex items-center justify-between gap-2">
             <p className="text-sm font-medium">Top portfolios</p>
-            {topPortfolios.length > 0 && portfolioRankTotal > 0 ? (
+            {guestPreviewPending ? (
+              <Skeleton className="h-5 w-20 shrink-0 rounded-full" />
+            ) : topPortfolios.length > 0 && portfolioRankTotal > 0 ? (
               <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-700 dark:text-emerald-400">
                 #{activePortfolio?.rank ?? portfolioIdx + 1} of {portfolioRankTotal}
               </span>
             ) : null}
           </div>
-          {activePortfolio ? (
+          {guestPreviewPending ? (
+            <AuthPreviewPortfolioHeaderSkeleton />
+          ) : activePortfolio ? (
             <div className="mb-3 flex items-center gap-2 min-w-0 overflow-hidden">
               <span
                 className="inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-muted/50 px-2 py-0.5 text-[11px] font-semibold text-foreground shrink-0"
@@ -461,7 +503,7 @@ export function AuthPreviewPlaceholder() {
             </p>
           ) : null}
 
-          {chartStatus === "loading" ? (
+          {guestPreviewPending || chartAwaitingSeries ? (
             <AuthPreviewChartBlockSkeleton />
           ) : chartStatus === "ready" && chartSeries.length > 1 ? (
             <div className={AUTH_PREVIEW_CHART_BLOCK_MIN}>
@@ -504,16 +546,31 @@ export function AuthPreviewPlaceholder() {
                 chartContainerClassName={AUTH_CHART_PLOT_HEIGHT}
               />
             </div>
-          ) : chartStatus === "in_progress" && chartSeries.length < 2 ? (
+          ) : topPortfolios.length === 0 ? (
             <AuthPreviewChartBlockFrame
               plot={
                 <div
                   className={cn(
-                    "flex items-center justify-center rounded-lg border border-dashed border-border text-sm text-muted-foreground",
+                    "flex items-center justify-center rounded-lg border border-dashed border-border px-2 text-center text-sm text-muted-foreground",
                     AUTH_CHART_PLOT_HEIGHT,
                   )}
                 >
-                  Loading performance…
+                  Portfolio data unavailable.
+                </div>
+              }
+            />
+          ) : chartStatus === "failed" ||
+            chartStatus === "empty" ||
+            chartStatus === "unsupported" ? (
+            <AuthPreviewChartBlockFrame
+              plot={
+                <div
+                  className={cn(
+                    "flex items-center justify-center rounded-lg border border-dashed border-border px-2 text-center text-sm text-muted-foreground",
+                    AUTH_CHART_PLOT_HEIGHT,
+                  )}
+                >
+                  Chart data unavailable.
                 </div>
               }
             />
@@ -526,9 +583,7 @@ export function AuthPreviewPlaceholder() {
                     AUTH_CHART_PLOT_HEIGHT,
                   )}
                 >
-                  {topPortfolios.length === 0
-                    ? "Portfolio data unavailable."
-                    : "Chart data not ready yet."}
+                  Chart data not ready yet.
                 </div>
               }
             />

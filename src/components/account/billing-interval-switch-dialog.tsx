@@ -62,7 +62,6 @@ type BillingIntervalSwitchDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onAfterSuccess: () => void | Promise<void>;
-  /** Billing cadence to switch *to* (opposite of current). */
   targetInterval: 'month' | 'year';
 };
 
@@ -72,9 +71,9 @@ export function BillingIntervalSwitchDialog({
   onAfterSuccess,
   targetInterval,
 }: BillingIntervalSwitchDialogProps) {
-  const [phase, setPhase] = useState<
-    'idle' | 'loading' | 'ready' | 'affirm' | 'error' | 'confirming'
-  >('idle');
+  const [phase, setPhase] = useState<'idle' | 'loading' | 'ready' | 'error' | 'confirming'>(
+    'idle'
+  );
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<PreviewPayload | null>(null);
   const [paymentPendingNotice, setPaymentPendingNotice] = useState<string | null>(null);
@@ -132,9 +131,13 @@ export function BillingIntervalSwitchDialog({
               : data.currency,
           targetInterval,
           targetRecurringUnitAmount:
-            typeof data.targetRecurringUnitAmount === 'number' ? data.targetRecurringUnitAmount : null,
+            typeof data.targetRecurringUnitAmount === 'number'
+              ? data.targetRecurringUnitAmount
+              : null,
           targetRecurringCurrency:
-            typeof data.targetRecurringCurrency === 'string' ? data.targetRecurringCurrency : data.currency,
+            typeof data.targetRecurringCurrency === 'string'
+              ? data.targetRecurringCurrency
+              : data.currency,
           targetRecurringInterval:
             data.targetRecurringInterval === 'year' ? 'year' : 'month',
           currentSubscriptionPeriodEndIso:
@@ -229,16 +232,12 @@ export function BillingIntervalSwitchDialog({
       reset();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Update failed.');
-      setPhase('affirm');
+      setPhase('ready');
     }
   };
 
   const title =
     targetInterval === 'year' ? 'Switch to yearly billing' : 'Switch to monthly billing';
-  const titleAffirm =
-    targetInterval === 'year'
-      ? 'Confirm switch to yearly billing'
-      : 'Confirm switch to monthly billing';
   const chargeLabel = preview ? formatMoney(preview.amountDue, preview.currency) : '—';
   const chargeIsCredit =
     preview !== null && preview.amountDue !== null && preview.amountDue < 0;
@@ -249,7 +248,9 @@ export function BillingIntervalSwitchDialog({
           preview.currency
         )
       : null;
-  const periodEndLabel = preview ? formatPeriodEndUtc(preview.currentSubscriptionPeriodEndIso) : null;
+  const periodEndLabel = preview
+    ? formatPeriodEndUtc(preview.currentSubscriptionPeriodEndIso)
+    : null;
   const renewalOnLabel = periodEndLabel ? `${periodEndLabel} (UTC)` : 'See Billing & invoices';
 
   const renewalDisplay = (
@@ -271,22 +272,16 @@ export function BillingIntervalSwitchDialog({
     >
       <DialogContent showCloseButton={phase !== 'confirming'}>
         <DialogHeader>
-          <DialogTitle>{phase === 'affirm' || phase === 'confirming' ? titleAffirm : title}</DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
-            {phase === 'affirm' || phase === 'confirming' ? (
-              chargeIsCredit ? (
-                <>
-                  <span className="font-semibold text-foreground">No charge now</span> (~{creditLabel}{' '}
-                  credit). If this doesn&apos;t complete, billing stays as today.
-                </>
-              ) : (
-                <>
-                  Charges <span className="font-semibold text-foreground">{chargeLabel}</span> now
-                  (proration). Failed payment → billing cadence unchanged until paid.
-                </>
-              )
+            {chargeIsCredit ? (
+              <>
+                <span className="font-semibold text-foreground">No charge now</span> (~
+                {creditLabel} credit applied). Billing cadence unchanged if this doesn&apos;t
+                complete.
+              </>
             ) : (
-              <>Review the switch, then continue.</>
+              <>Review the billing change below.</>
             )}
           </DialogDescription>
         </DialogHeader>
@@ -300,7 +295,7 @@ export function BillingIntervalSwitchDialog({
 
         {phase === 'error' && error && <p className="text-sm text-destructive">{error}</p>}
 
-        {(phase === 'ready' || phase === 'affirm' || phase === 'confirming') && preview && (
+        {(phase === 'ready' || phase === 'confirming') && preview && (
           <div className="space-y-3 text-sm">
             <PlanChangeCompareLayout
               beforeRows={[
@@ -401,20 +396,20 @@ export function BillingIntervalSwitchDialog({
                 )}
               </Button>
             </>
-          ) : phase === 'affirm' || phase === 'confirming' ? (
+          ) : (
             <>
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setPhase('ready')}
+                onClick={() => onOpenChange(false)}
                 disabled={phase === 'confirming'}
               >
-                Back
+                Cancel
               </Button>
               <Button
                 type="button"
                 onClick={() => void handleConfirmCharge()}
-                disabled={phase !== 'affirm' || !preview}
+                disabled={phase !== 'ready' || !preview}
                 className="bg-trader-blue text-white hover:bg-trader-blue-dark"
               >
                 {phase === 'confirming' ? (
@@ -425,20 +420,6 @@ export function BillingIntervalSwitchDialog({
                 ) : (
                   'Confirm and charge'
                 )}
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                onClick={() => setPhase('affirm')}
-                disabled={phase !== 'ready' || !preview}
-                className="bg-trader-blue text-white hover:bg-trader-blue-dark"
-              >
-                Review and confirm
               </Button>
             </>
           )}

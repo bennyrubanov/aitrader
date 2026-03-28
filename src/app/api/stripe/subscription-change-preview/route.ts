@@ -45,7 +45,11 @@ export async function POST(req: Request) {
     const ctx = await buildSubscriptionChangeContext(customerId, subscriptionId);
 
     if (body.action === 'upgrade_to_outperformer') {
-      const preview = await previewUpgradeToOutperformer(ctx);
+      const targetInterval =
+        body.targetInterval === 'year' || body.targetInterval === 'month'
+          ? body.targetInterval
+          : undefined;
+      const preview = await previewUpgradeToOutperformer(ctx, targetInterval);
       return NextResponse.json({
         action: 'upgrade_to_outperformer',
         prorationDate: preview.prorationDate,
@@ -54,11 +58,16 @@ export async function POST(req: Request) {
         currency: preview.currency,
         total: preview.total,
         subscriptionId: preview.subscriptionId,
-        billingInterval: preview.billingInterval,
+        currentInterval: preview.currentInterval,
+        targetInterval: preview.targetInterval,
         currentRecurringUnitAmount: preview.currentRecurringUnitAmount,
         currentRecurringCurrency: preview.currentRecurringCurrency,
         targetRecurringUnitAmount: preview.targetRecurringUnitAmount,
         targetRecurringCurrency: preview.targetRecurringCurrency,
+        outperformerMonthlyUnitAmount: preview.outperformerMonthlyUnitAmount,
+        outperformerMonthlyCurrency: preview.outperformerMonthlyCurrency,
+        outperformerYearlyUnitAmount: preview.outperformerYearlyUnitAmount,
+        outperformerYearlyCurrency: preview.outperformerYearlyCurrency,
         currentSubscriptionPeriodEndIso: preview.currentSubscriptionPeriodEndIso,
       });
     }
@@ -93,9 +102,12 @@ export async function POST(req: Request) {
         billingInterval: preview.billingInterval,
         currentRecurringUnitAmount: preview.currentRecurringUnitAmount,
         currentRecurringCurrency: preview.currentRecurringCurrency,
-        targetRecurringUnitAmount: preview.targetRecurringUnitAmount,
-        targetRecurringCurrency: preview.targetRecurringCurrency,
+        supporterMonthlyUnitAmount: preview.supporterMonthlyUnitAmount,
+        supporterMonthlyCurrency: preview.supporterMonthlyCurrency,
+        supporterYearlyUnitAmount: preview.supporterYearlyUnitAmount,
+        supporterYearlyCurrency: preview.supporterYearlyCurrency,
         currentSubscriptionPeriodEndIso: preview.currentSubscriptionPeriodEndIso,
+        scheduledTargetInterval: preview.scheduledTargetInterval,
       });
     }
 

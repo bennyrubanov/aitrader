@@ -14,17 +14,22 @@ import {
   KeyRound,
   Mail,
   ExternalLink,
+  Pencil,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { toast } from '@/hooks/use-toast';
 import { getSupabaseBrowserClient } from '@/utils/supabase/browser';
 import { PlanLabel } from '@/components/account/plan-label';
 import { SubscriptionUpgradeDialog } from '@/components/account/subscription-upgrade-dialog';
 import { BillingIntervalSwitchDialog } from '@/components/account/billing-interval-switch-dialog';
-import { DowngradeToSupporterDialog } from '@/components/account/downgrade-to-supporter-dialog';
+import {
+  DowngradeToSupporterDialog,
+  ScheduledDowngradeDetailDialog,
+} from '@/components/account/downgrade-to-supporter-dialog';
 import { useAuthState, useRefreshAuthProfile } from '@/components/auth/auth-state-context';
 import { cn } from '@/lib/utils';
 
@@ -110,6 +115,7 @@ const SettingsPageContent = () => {
   const authState = useAuthState();
   const refreshProfile = useRefreshAuthProfile();
   const billingReturnHandled = useRef(false);
+  const billingCadenceReconcileAttemptedRef = useRef(false);
   const settingsMainScrollRef = useRef<HTMLDivElement>(null);
   const [authUser, setAuthUser] = useState<{ id: string; email: string | null } | null>(null);
   const [profile, setProfile] = useState<ProfileState>({
@@ -127,6 +133,7 @@ const SettingsPageContent = () => {
   const [billingIntervalDialogOpen, setBillingIntervalDialogOpen] = useState(false);
   const [billingSwitchTarget, setBillingSwitchTarget] = useState<'month' | 'year'>('year');
   const [isCancellingSchedule, setIsCancellingSchedule] = useState(false);
+  const [scheduledDowngradeDetailOpen, setScheduledDowngradeDetailOpen] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isSendingReset, setIsSendingReset] = useState(false);
   const [nameDraft, setNameDraft] = useState('');
@@ -277,6 +284,43 @@ const SettingsPageContent = () => {
   }, [authState.isLoaded, authState.isAuthenticated, refreshProfile, router]);
 
   useEffect(() => {
+    billingCadenceReconcileAttemptedRef.current = false;
+  }, [authState.userId]);
+
+  useEffect(() => {
+    if (!authState.isLoaded || !authState.isAuthenticated || !authState.hasPremiumAccess) {
+      return;
+    }
+    if (
+      authState.stripeRecurringInterval === 'month' ||
+      authState.stripeRecurringInterval === 'year'
+    ) {
+      return;
+    }
+    if (billingCadenceReconcileAttemptedRef.current) {
+      return;
+    }
+    billingCadenceReconcileAttemptedRef.current = true;
+    void (async () => {
+      try {
+        await fetch('/api/user/reconcile-premium', { method: 'POST' });
+      } catch {
+        // ignore
+      } finally {
+        await refreshProfile();
+        router.refresh();
+      }
+    })();
+  }, [
+    authState.isLoaded,
+    authState.isAuthenticated,
+    authState.hasPremiumAccess,
+    authState.stripeRecurringInterval,
+    refreshProfile,
+    router,
+  ]);
+
+  useEffect(() => {
     if (!authState.isLoaded || !authState.isAuthenticated) return;
     let mounted = true;
     fetch('/api/platform/user-portfolio')
@@ -370,19 +414,35 @@ const SettingsPageContent = () => {
     }
   };
 
+  const cancelScheduledDowngradeRaw = useCallback(async () => {
+    const response = await fetch('/api/stripe/subscription-scheduled-change/cancel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ intent: 'cancel_scheduled_downgrade' }),
+    });
+    const payload = (await response.json()) as { ok?: boolean; error?: string };
+    if (!response.ok || !payload.ok) {
+      throw new Error(payload.error ?? 'Unable to cancel scheduled downgrade.');
+    }
+  }, []);
+
   const handleCancelScheduledBilling = async (
     intent: 'resume_subscription' | 'cancel_scheduled_downgrade'
   ) => {
     setIsCancellingSchedule(true);
     try {
-      const response = await fetch('/api/stripe/subscription-scheduled-change/cancel', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ intent }),
-      });
-      const payload = (await response.json()) as { ok?: boolean; error?: string };
-      if (!response.ok || !payload.ok) {
-        throw new Error(payload.error ?? 'Unable to update subscription.');
+      if (intent === 'cancel_scheduled_downgrade') {
+        await cancelScheduledDowngradeRaw();
+      } else {
+        const response = await fetch('/api/stripe/subscription-scheduled-change/cancel', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ intent: 'resume_subscription' }),
+        });
+        const payload = (await response.json()) as { ok?: boolean; error?: string };
+        if (!response.ok || !payload.ok) {
+          throw new Error(payload.error ?? 'Unable to update subscription.');
+        }
       }
       await fetch('/api/user/reconcile-premium', { method: 'POST' });
       await refreshProfile();
@@ -686,117 +746,98 @@ const SettingsPageContent = () => {
                   <button
                     type="button"
                     className={cn(
-                      'truncate text-left font-medium underline-offset-4 transition-colors hover:underline',
+                      'group inline-flex min-w-0 max-w-full items-center gap-1.5 text-left font-medium underline-offset-4 transition-colors hover:underline',
                       savedNameNormalized
                         ? 'text-foreground'
                         : 'text-muted-foreground'
                     )}
                     onClick={() => setIsEditingName(true)}
                   >
-                    {savedNameNormalized || 'Not set'}
+                    <span className="min-w-0 truncate">
+                      {savedNameNormalized || 'Not set'}
+                    </span>
+                    <Pencil
+                      className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+                      aria-hidden
+                    />
                   </button>
                 )}
               </div>
               <div className="grid grid-cols-[100px_1fr] items-center gap-x-4 px-5 py-3 text-sm sm:grid-cols-[120px_1fr]">
                 <span className="text-muted-foreground">Email</span>
-                <span className="truncate font-medium">{profile.email ?? 'Unavailable'}</span>
+                <div className="min-w-0" role="status" aria-live="polite">
+                  {authState.email.includes('@') ? (
+                    <span className="truncate font-medium">{authState.email.trim()}</span>
+                  ) : authState.email === 'Signed in' ? (
+                    <span className="text-muted-foreground">Unavailable</span>
+                  ) : (
+                    <>
+                      <span className="sr-only">Loading email</span>
+                      <Skeleton
+                        className="h-4 w-full max-w-[min(100%,14rem)]"
+                        aria-hidden
+                      />
+                    </>
+                  )}
+                </div>
               </div>
               <div className="grid grid-cols-[100px_1fr] items-center gap-x-4 px-5 py-3 text-sm sm:grid-cols-[120px_1fr]">
                 <span className="text-muted-foreground">Plan</span>
-                <div>
-                  <Badge
-                    variant="outline"
-                    className={cn(
-                      authState.subscriptionTier === 'outperformer' &&
-                        'border-trader-blue/40 bg-trader-blue/10 text-trader-blue',
-                      authState.subscriptionTier === 'supporter' &&
-                        'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-700/50 dark:bg-amber-950/40 dark:text-amber-200',
-                      authState.subscriptionTier === 'free' &&
-                        'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200'
-                    )}
-                  >
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <span className="inline-flex max-w-[min(12rem,45vw)] min-w-0 shrink items-center rounded-full border border-border px-2.5 py-0.5">
                     <PlanLabel
                       isPremium={authState.hasPremiumAccess}
                       subscriptionTier={authState.subscriptionTier}
-                      showIcon={false}
+                      className="min-w-0 truncate text-xs normal-case tracking-normal"
+                      iconClassName="size-3.5"
                     />
-                  </Badge>
+                  </span>
+                  {authState.hasPremiumAccess &&
+                    (authState.stripeRecurringInterval === 'month' ||
+                      authState.stripeRecurringInterval === 'year') && (
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {authState.stripeRecurringInterval === 'month'
+                          ? 'Billed monthly.'
+                          : 'Billed yearly.'}
+                      </span>
+                    )}
                   {authState.subscriptionTier === 'free' && (
-                    <Link
-                      href="/pricing"
-                      className="ml-2 text-xs text-trader-blue underline-offset-4 hover:underline"
+                    <Button
+                      size="sm"
+                      asChild
+                      className="bg-trader-blue text-white hover:bg-trader-blue-dark"
                     >
-                      Upgrade
-                    </Link>
+                      <Link href="/pricing">Upgrade</Link>
+                    </Button>
                   )}
                 </div>
               </div>
               {authState.hasPremiumAccess &&
                 authState.stripeCurrentPeriodEnd &&
-                (authState.stripeCancelAtPeriodEnd || authState.stripePendingTier) && (
+                authState.stripeCancelAtPeriodEnd && (
                   <div className="grid grid-cols-[100px_1fr] items-start gap-x-4 px-5 py-3 text-sm sm:grid-cols-[120px_1fr]">
                     <span className="text-muted-foreground">Scheduled</span>
                     <div className="min-w-0 space-y-2">
                       <p className="text-xs text-muted-foreground">
-                        {authState.stripeCancelAtPeriodEnd ? (
-                          <>
-                            Subscription ends on {formatBillingDate(authState.stripeCurrentPeriodEnd)}.
-                            Paid access until then.
-                          </>
-                        ) : authState.stripePendingTier ? (
-                          <>
-                            Plan change on {formatBillingDate(authState.stripeCurrentPeriodEnd)} toward{' '}
-                            <PlanLabel
-                              isPremium={authState.stripePendingTier !== 'free'}
-                              subscriptionTier={authState.stripePendingTier}
-                              showIcon={false}
-                            />
-                            .
-                          </>
-                        ) : null}
+                        Subscription ends on {formatBillingDate(authState.stripeCurrentPeriodEnd)}.
+                        Paid access until then.
                       </p>
-                      <div className="flex flex-wrap gap-2">
-                        {authState.stripeCancelAtPeriodEnd && (
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            disabled={isCancellingSchedule || isOpeningPortal}
-                            onClick={() => void handleCancelScheduledBilling('resume_subscription')}
-                          >
-                            {isCancellingSchedule ? (
-                              <>
-                                <Loader2 className="mr-1.5 size-3.5 animate-spin" />
-                                Updating…
-                              </>
-                            ) : (
-                              'Keep subscription'
-                            )}
-                          </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={isCancellingSchedule || isOpeningPortal}
+                        onClick={() => void handleCancelScheduledBilling('resume_subscription')}
+                      >
+                        {isCancellingSchedule ? (
+                          <>
+                            <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                            Updating…
+                          </>
+                        ) : (
+                          'Keep subscription'
                         )}
-                        {!authState.stripeCancelAtPeriodEnd &&
-                          authState.subscriptionTier === 'outperformer' &&
-                          authState.stripePendingTier === 'supporter' && (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              disabled={isCancellingSchedule || isOpeningPortal}
-                              onClick={() =>
-                                void handleCancelScheduledBilling('cancel_scheduled_downgrade')
-                              }
-                            >
-                              {isCancellingSchedule ? (
-                                <>
-                                  <Loader2 className="mr-1.5 size-3.5 animate-spin" />
-                                  Updating…
-                                </>
-                              ) : (
-                                'Cancel scheduled downgrade'
-                              )}
-                            </Button>
-                          )}
-                      </div>
+                      </Button>
                     </div>
                   </div>
                 )}
@@ -914,6 +955,49 @@ const SettingsPageContent = () => {
               )}
             </div>
             <div className="divide-y">
+              {authState.subscriptionTier === 'free' && (
+                <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">Upgrade to a paid plan</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Choose Supporter or Outperformer on the pricing page to unlock premium features.
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    asChild
+                    className="w-full shrink-0 bg-trader-blue text-white hover:bg-trader-blue-dark sm:w-auto"
+                  >
+                    <Link href="/pricing">Upgrade</Link>
+                  </Button>
+                </div>
+              )}
+              {authState.hasPremiumAccess && authState.subscriptionTier === 'supporter' && (
+                <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">Upgrade plan</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Unlock features like chatting with models, creating your own strategy models, and full live AI ratings access any model.
+                    </p>
+                    <a
+                      href="/pricing"
+                      className="text-trader-blue hover:underline transition-colors mt-1 block text-xs font-medium"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Explore features & pricing
+                    </a>
+                  </div>
+                  <Button
+                    size="sm"
+                    className="w-full shrink-0 bg-trader-blue text-white hover:bg-trader-blue-dark sm:w-auto"
+                    disabled={isOpeningPortal}
+                    onClick={() => setUpgradeDialogOpen(true)}
+                  >
+                    Upgrade to Outperformer
+                  </Button>
+                </div>
+              )}
               <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
                   <p className="text-sm font-medium">Customer portal</p>
@@ -923,9 +1007,10 @@ const SettingsPageContent = () => {
                 </div>
                 <Button
                   size="sm"
+                  variant="outline"
                   onClick={() => void handleOpenPortal()}
                   disabled={isOpeningPortal}
-                  className="w-full shrink-0 bg-trader-blue text-white hover:bg-trader-blue-dark sm:w-auto"
+                  className="w-full shrink-0 sm:w-auto"
                 >
                   {isOpeningPortal ? (
                     <>
@@ -940,43 +1025,41 @@ const SettingsPageContent = () => {
                   )}
                 </Button>
               </div>
-              {authState.hasPremiumAccess && authState.subscriptionTier === 'supporter' && (
-                <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium">Upgrade plan</p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      Proration (or credit), new renewal price, and when access updates—same monthly/yearly
-                      cadence.
-                    </p>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="w-full shrink-0 sm:w-auto"
-                    disabled={isOpeningPortal}
-                    onClick={() => setUpgradeDialogOpen(true)}
-                  >
-                    Upgrade to Outperformer
-                  </Button>
-                </div>
-              )}
               {authState.hasPremiumAccess && authState.subscriptionTier === 'outperformer' && (
                 <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0">
-                    <p className="text-sm font-medium">Downgrade to Supporter</p>
+                    <p className="text-sm font-medium">
+                      {authState.stripePendingTier === 'supporter'
+                        ? 'Downgrade scheduled'
+                        : 'Downgrade to Supporter'}
+                    </p>
                     <p className="mt-0.5 text-xs text-muted-foreground">
-                      Your current subscription will remain until your renewal date, after which you will be downgraded.
+                      {authState.stripePendingTier === 'supporter'
+                        ? `Switches to Supporter on ${formatBillingDate(authState.stripeCurrentPeriodEnd)}. Outperformer until then.`
+                        : 'Schedule a switch to Supporter at your next renewal.'}
                     </p>
                   </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="w-full shrink-0 sm:w-auto"
-                    disabled={isOpeningPortal}
-                    onClick={() => setDowngradeDialogOpen(true)}
-                  >
-                    Downgrade to Supporter
-                  </Button>
+                  {authState.stripePendingTier === 'supporter' ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-full shrink-0 sm:w-auto"
+                      disabled={isOpeningPortal}
+                      onClick={() => setScheduledDowngradeDetailOpen(true)}
+                    >
+                      Scheduled {formatBillingDate(authState.stripeCurrentPeriodEnd)}
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-full shrink-0 sm:w-auto"
+                      disabled={isOpeningPortal}
+                      onClick={() => setDowngradeDialogOpen(true)}
+                    >
+                      Downgrade to Supporter
+                    </Button>
+                  )}
                 </div>
               )}
               {authState.hasPremiumAccess && canSwitchBillingInterval && (
@@ -985,8 +1068,8 @@ const SettingsPageContent = () => {
                     <p className="text-sm font-medium">Billing interval</p>
                     <p className="mt-0.5 text-xs text-muted-foreground">
                       {authState.stripeRecurringInterval === 'month'
-                        ? 'Earn 3 months off when you are subscribed yearly!'
-                        : 'Your switch will take effect at your next renewal.'}
+                        ? 'Switch applies now with proration; yearly renewals start on a new cycle.'
+                        : 'Switch applies now with proration; monthly renewals start on a new cycle.'}
                     </p>
                   </div>
                   <Button
@@ -1153,6 +1236,40 @@ const SettingsPageContent = () => {
         onAfterSuccess={async () => {
           await refreshProfile();
           router.refresh();
+        }}
+      />
+      <ScheduledDowngradeDetailDialog
+        open={scheduledDowngradeDetailOpen}
+        onOpenChange={setScheduledDowngradeDetailOpen}
+        onCancelDowngrade={async () => {
+          await cancelScheduledDowngradeRaw();
+          await fetch('/api/user/reconcile-premium', { method: 'POST' });
+          await refreshProfile();
+          router.refresh();
+          toast({
+            title: 'Scheduled change canceled',
+            description: 'You will stay on your current plan after the next renewal.',
+          });
+        }}
+        onRescheduleWithInterval={async (interval) => {
+          await cancelScheduledDowngradeRaw();
+          const res = await fetch('/api/stripe/subscription-downgrade-schedule', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'schedule_downgrade_to_supporter',
+              targetInterval: interval,
+            }),
+          });
+          const data = (await res.json()) as { error?: string };
+          if (!res.ok) throw new Error(data.error ?? 'Reschedule failed.');
+          await fetch('/api/user/reconcile-premium', { method: 'POST' });
+          await refreshProfile();
+          router.refresh();
+          toast({
+            title: 'Billing updated',
+            description: 'Your scheduled Supporter plan uses the new billing cadence.',
+          });
         }}
       />
     </div>

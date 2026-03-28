@@ -23,11 +23,16 @@ type PreviewPayload = {
   amountDue: number | null;
   currency: string;
   total: number | null;
-  billingInterval: 'month' | 'year';
+  currentInterval: 'month' | 'year';
+  targetInterval: 'month' | 'year';
   currentRecurringUnitAmount: number | null;
   currentRecurringCurrency: string;
   targetRecurringUnitAmount: number | null;
   targetRecurringCurrency: string;
+  outperformerMonthlyUnitAmount: number | null;
+  outperformerMonthlyCurrency: string;
+  outperformerYearlyUnitAmount: number | null;
+  outperformerYearlyCurrency: string;
   currentSubscriptionPeriodEndIso: string | null;
 };
 
@@ -55,6 +60,71 @@ function formatPeriodEndUtc(iso: string | null) {
   }
 }
 
+function targetAmountForInterval(preview: PreviewPayload, interval: 'month' | 'year') {
+  return interval === 'year'
+    ? { amount: preview.outperformerYearlyUnitAmount, currency: preview.outperformerYearlyCurrency }
+    : { amount: preview.outperformerMonthlyUnitAmount, currency: preview.outperformerMonthlyCurrency };
+}
+
+function parsePreviewPayload(
+  data: Record<string, unknown>,
+  fallbackCurrency: string
+): PreviewPayload {
+  const cur =
+    data.currentInterval === 'year' || data.currentInterval === 'month'
+      ? data.currentInterval
+      : 'month';
+  const tgt =
+    data.targetInterval === 'year' || data.targetInterval === 'month'
+      ? data.targetInterval
+      : cur;
+  return {
+    prorationDate: typeof data.prorationDate === 'number' ? data.prorationDate : 0,
+    targetPriceId: typeof data.targetPriceId === 'string' ? data.targetPriceId : '',
+    amountDue: typeof data.amountDue === 'number' ? data.amountDue : null,
+    currency: typeof data.currency === 'string' ? data.currency : fallbackCurrency,
+    total: typeof data.total === 'number' ? data.total : null,
+    currentInterval: cur,
+    targetInterval: tgt,
+    currentRecurringUnitAmount:
+      typeof data.currentRecurringUnitAmount === 'number'
+        ? data.currentRecurringUnitAmount
+        : null,
+    currentRecurringCurrency:
+      typeof data.currentRecurringCurrency === 'string'
+        ? data.currentRecurringCurrency
+        : fallbackCurrency,
+    targetRecurringUnitAmount:
+      typeof data.targetRecurringUnitAmount === 'number'
+        ? data.targetRecurringUnitAmount
+        : null,
+    targetRecurringCurrency:
+      typeof data.targetRecurringCurrency === 'string'
+        ? data.targetRecurringCurrency
+        : fallbackCurrency,
+    outperformerMonthlyUnitAmount:
+      typeof data.outperformerMonthlyUnitAmount === 'number'
+        ? data.outperformerMonthlyUnitAmount
+        : null,
+    outperformerMonthlyCurrency:
+      typeof data.outperformerMonthlyCurrency === 'string'
+        ? data.outperformerMonthlyCurrency
+        : fallbackCurrency,
+    outperformerYearlyUnitAmount:
+      typeof data.outperformerYearlyUnitAmount === 'number'
+        ? data.outperformerYearlyUnitAmount
+        : null,
+    outperformerYearlyCurrency:
+      typeof data.outperformerYearlyCurrency === 'string'
+        ? data.outperformerYearlyCurrency
+        : fallbackCurrency,
+    currentSubscriptionPeriodEndIso:
+      typeof data.currentSubscriptionPeriodEndIso === 'string'
+        ? data.currentSubscriptionPeriodEndIso
+        : null,
+  };
+}
+
 type SubscriptionUpgradeDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -66,11 +136,12 @@ export function SubscriptionUpgradeDialog({
   onOpenChange,
   onAfterSuccess,
 }: SubscriptionUpgradeDialogProps) {
-  const [phase, setPhase] = useState<
-    'idle' | 'loading' | 'ready' | 'affirm' | 'error' | 'confirming'
-  >('idle');
+  const [phase, setPhase] = useState<'idle' | 'loading' | 'ready' | 'error' | 'confirming'>(
+    'idle'
+  );
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<PreviewPayload | null>(null);
+  const [chosenInterval, setChosenInterval] = useState<'month' | 'year' | null>(null);
   const [paymentPendingNotice, setPaymentPendingNotice] = useState<string | null>(null);
   const [paymentPendingUrl, setPaymentPendingUrl] = useState<string | null>(null);
 
@@ -78,9 +149,44 @@ export function SubscriptionUpgradeDialog({
     setPhase('idle');
     setError(null);
     setPreview(null);
+    setChosenInterval(null);
     setPaymentPendingNotice(null);
     setPaymentPendingUrl(null);
   }, []);
+
+  const loadPreview = useCallback(
+    async (targetInterval?: 'month' | 'year', shouldAbort?: () => boolean) => {
+      setPhase('loading');
+      setError(null);
+      try {
+        const res = await fetch('/api/stripe/subscription-change-preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'upgrade_to_outperformer',
+            ...(targetInterval !== undefined ? { targetInterval } : {}),
+          }),
+        });
+        const data = (await res.json()) as Record<string, unknown> & { error?: string };
+        if (shouldAbort?.()) return;
+        if (!res.ok) {
+          throw new Error(
+            typeof data.error === 'string' ? data.error : 'Could not load pricing for this upgrade.'
+          );
+        }
+        const p = parsePreviewPayload(data, 'usd');
+        if (shouldAbort?.()) return;
+        setPreview(p);
+        setChosenInterval(p.targetInterval);
+        setPhase('ready');
+      } catch (e) {
+        if (shouldAbort?.()) return;
+        setError(e instanceof Error ? e.message : 'Preview failed.');
+        setPhase('error');
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     if (!open) {
@@ -89,62 +195,23 @@ export function SubscriptionUpgradeDialog({
     }
 
     let cancelled = false;
-    setPhase('loading');
-    setError(null);
     setPreview(null);
-
-    void (async () => {
-      try {
-        const res = await fetch('/api/stripe/subscription-change-preview', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'upgrade_to_outperformer' }),
-        });
-        const data = (await res.json()) as PreviewPayload & { error?: string };
-        if (cancelled) return;
-        if (!res.ok) {
-          throw new Error(data.error ?? 'Could not load pricing for this upgrade.');
-        }
-        setPreview({
-          prorationDate: data.prorationDate,
-          targetPriceId: data.targetPriceId,
-          amountDue: data.amountDue,
-          currency: data.currency,
-          total: data.total,
-          billingInterval: data.billingInterval === 'year' ? 'year' : 'month',
-          currentRecurringUnitAmount:
-            typeof data.currentRecurringUnitAmount === 'number'
-              ? data.currentRecurringUnitAmount
-              : null,
-          currentRecurringCurrency:
-            typeof data.currentRecurringCurrency === 'string'
-              ? data.currentRecurringCurrency
-              : data.currency,
-          targetRecurringUnitAmount:
-            typeof data.targetRecurringUnitAmount === 'number'
-              ? data.targetRecurringUnitAmount
-              : null,
-          targetRecurringCurrency:
-            typeof data.targetRecurringCurrency === 'string'
-              ? data.targetRecurringCurrency
-              : data.currency,
-          currentSubscriptionPeriodEndIso:
-            typeof data.currentSubscriptionPeriodEndIso === 'string'
-              ? data.currentSubscriptionPeriodEndIso
-              : null,
-        });
-        setPhase('ready');
-      } catch (e) {
-        if (cancelled) return;
-        setError(e instanceof Error ? e.message : 'Preview failed.');
-        setPhase('error');
-      }
-    })();
+    setChosenInterval(null);
+    setError(null);
+    void loadPreview(undefined, () => cancelled);
 
     return () => {
       cancelled = true;
     };
-  }, [open, reset]);
+  }, [open, reset, loadPreview]);
+
+  const handleIntervalToggle = () => {
+    if (!preview || chosenInterval === null || phase === 'loading' || phase === 'confirming') {
+      return;
+    }
+    const otherInterval = chosenInterval === 'year' ? 'month' : 'year';
+    void loadPreview(otherInterval);
+  };
 
   const handleRefreshStatus = async () => {
     setPhase('confirming');
@@ -169,7 +236,7 @@ export function SubscriptionUpgradeDialog({
   };
 
   const handleConfirmCharge = async () => {
-    if (!preview) return;
+    if (!preview || chosenInterval === null) return;
     setPhase('confirming');
     setError(null);
     try {
@@ -180,6 +247,7 @@ export function SubscriptionUpgradeDialog({
           action: 'upgrade_to_outperformer',
           prorationDate: preview.prorationDate,
           targetPriceId: preview.targetPriceId,
+          targetInterval: chosenInterval,
         }),
       });
       const data = (await res.json()) as {
@@ -216,7 +284,7 @@ export function SubscriptionUpgradeDialog({
       reset();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Upgrade failed.');
-      setPhase('affirm');
+      setPhase('ready');
     }
   };
 
@@ -230,7 +298,9 @@ export function SubscriptionUpgradeDialog({
           preview.currency
         )
       : null;
-  const periodEndLabel = preview ? formatPeriodEndUtc(preview.currentSubscriptionPeriodEndIso) : null;
+  const periodEndLabel = preview
+    ? formatPeriodEndUtc(preview.currentSubscriptionPeriodEndIso)
+    : null;
   const renewalOnLabel = periodEndLabel ? `${periodEndLabel} (UTC)` : 'See Billing & invoices';
 
   const renewalDisplay = (
@@ -242,6 +312,39 @@ export function SubscriptionUpgradeDialog({
       ? 'See Billing & invoices'
       : `${formatMoney(amount, currency)}${interval === 'year' ? '/year' : '/month'} before tax`;
 
+  const intervalChanged =
+    preview !== null && chosenInterval !== null && chosenInterval !== preview.currentInterval;
+  const otherInterval = chosenInterval === 'year' ? 'month' : 'year';
+  const afterRecurring =
+    preview && chosenInterval !== null
+      ? targetAmountForInterval(preview, chosenInterval)
+      : { amount: null as number | null, currency: 'usd' };
+  const dueNowExplanation = chargeIsCredit
+    ? `Your remaining Supporter ${formatBillingCadenceLabel(
+        preview?.currentInterval ?? 'month'
+      ).toLowerCase()} time is credited toward Outperformer.`
+    : intervalChanged
+      ? `Your remaining Supporter ${formatBillingCadenceLabel(
+          preview?.currentInterval ?? 'month'
+        ).toLowerCase()} time is credited first, then this charge starts Outperformer on ${formatBillingCadenceLabel(
+          chosenInterval ?? 'month'
+        ).toLowerCase()} billing today.`
+      : 'This charge covers the price difference for the rest of your current billing period.';
+
+  const crossIntervalDueNowDisplay =
+    afterRecurring.amount !== null
+      ? renewalDisplay(afterRecurring.amount, afterRecurring.currency, chosenInterval ?? 'month')
+      : formatMoney(preview?.amountDue ?? null, preview?.currency ?? 'usd');
+
+  const dueNowLayoutValue =
+    intervalChanged && preview
+      ? crossIntervalDueNowDisplay
+      : chargeIsCredit
+        ? `No charge (${creditLabel} credit)`
+        : formatMoney(preview?.amountDue ?? null, preview?.currency ?? 'usd');
+
+  const showPricingDescription = (phase === 'ready' || phase === 'confirming') && preview;
+
   return (
     <Dialog
       open={open}
@@ -252,28 +355,31 @@ export function SubscriptionUpgradeDialog({
     >
       <DialogContent showCloseButton={phase !== 'confirming'}>
         <DialogHeader>
-          <DialogTitle>
-            {phase === 'affirm' || phase === 'confirming'
-              ? 'Confirm upgrade to Outperformer'
-              : 'Upgrade to Outperformer'}
-          </DialogTitle>
+          <DialogTitle>Upgrade to Outperformer</DialogTitle>
           <DialogDescription>
-            {phase === 'affirm' || phase === 'confirming' ? (
+            {showPricingDescription ? (
               chargeIsCredit ? (
                 <>
-                  Confirming applies the upgrade.{' '}
-                  <span className="font-semibold text-foreground">No charge now</span> (~{creditLabel}{' '}
-                  credit). You stay on Supporter if the update doesn&apos;t complete.
+                  <span className="font-semibold text-foreground">No charge now</span> (~
+                  {creditLabel} credit applied).
+                  {periodEndLabel
+                    ? ` ${dueNowExplanation} Current period ends ${periodEndLabel} (UTC).`
+                    : ''}
                 </>
               ) : (
                 <>
-                  Confirming charges{' '}
-                  <span className="font-semibold text-foreground">{chargeLabel}</span> now (proration for the
-                  rest of this period). Failed payment → Supporter until the invoice is paid.
+                  Charges{' '}
+                  <span className="font-semibold text-foreground">{chargeLabel}</span> now (proration
+                  and immediate plan change).
+                  {' '}
+                  {dueNowExplanation}
+                  {periodEndLabel
+                    ? ` Current period ends ${periodEndLabel} (UTC).`
+                    : ''}
                 </>
               )
             ) : (
-              <>Review the switch, then continue.</>
+              <>Review the upgrade details below.</>
             )}
           </DialogDescription>
         </DialogHeader>
@@ -289,21 +395,21 @@ export function SubscriptionUpgradeDialog({
           <p className="text-sm text-destructive">{error}</p>
         )}
 
-        {(phase === 'ready' || phase === 'affirm' || phase === 'confirming') && preview && (
+        {(phase === 'ready' || phase === 'confirming') && preview && chosenInterval !== null && (
           <div className="space-y-3 text-sm">
             <PlanChangeCompareLayout
               beforeRows={[
                 { label: 'Plan', value: formatPaidTierLabel('supporter') },
                 {
                   label: 'Billing',
-                  value: `${formatBillingCadenceLabel(preview.billingInterval)} (unchanged)`,
+                  value: formatBillingCadenceLabel(preview.currentInterval),
                 },
                 {
                   label: 'Recurring price',
                   value: renewalDisplay(
                     preview.currentRecurringUnitAmount,
                     preview.currentRecurringCurrency,
-                    preview.billingInterval
+                    preview.currentInterval
                   ),
                 },
               ]}
@@ -311,54 +417,61 @@ export function SubscriptionUpgradeDialog({
                 { label: 'Plan', value: formatPaidTierLabel('outperformer') },
                 {
                   label: 'Billing',
-                  value: formatBillingCadenceLabel(preview.billingInterval),
+                  value: intervalChanged
+                    ? `${formatBillingCadenceLabel(chosenInterval)}`
+                    : `${formatBillingCadenceLabel(chosenInterval)} (unchanged)`,
                 },
                 {
                   label: 'Recurring price',
                   value: renewalDisplay(
-                    preview.targetRecurringUnitAmount,
-                    preview.targetRecurringCurrency,
-                    preview.billingInterval
+                    afterRecurring.amount,
+                    afterRecurring.currency,
+                    chosenInterval
                   ),
                 },
               ]}
               dueNowLabel="Due now"
-              dueNowValue={
-                chargeIsCredit
-                  ? `No charge (${creditLabel} credit)`
-                  : formatMoney(preview.amountDue, preview.currency)
-              }
+              dueNowValue={dueNowLayoutValue}
               dueAtRenewal={{
                 amount: renewalDisplay(
-                  preview.targetRecurringUnitAmount,
-                  preview.targetRecurringCurrency,
-                  preview.billingInterval
+                  afterRecurring.amount,
+                  afterRecurring.currency,
+                  chosenInterval
                 ),
                 renewalDate: renewalOnLabel,
               }}
               footnote={
-                <>
-                  <p>
-                    <strong>When it changes:</strong> Outperformer after this completes (and after any
-                    required payment succeeds).
-                  </p>
-                  {periodEndLabel ? (
+                intervalChanged ? (
+                  <div className="space-y-2">
                     <p>
-                      <strong>Current period ends</strong> {periodEndLabel} (UTC). Due now covers only the
-                      rest of this period.
+                      {preview.amountDue !== null && preview.amountDue <= 0
+                        ? 'Unused Supporter time fully covers this charge — no payment due now.'
+                        : 'Unused Supporter time is credited and reduces your first charge.'}
+                      {preview.amountDue !== null &&
+                        preview.amountDue > 0 &&
+                        ` Invoice total after credit: ${formatMoney(preview.amountDue, preview.currency)}.`}
                     </p>
-                  ) : null}
-                  <p>
-                    <strong>If payment fails:</strong> You stay on Supporter until it&apos;s resolved—{' '}
-                    <strong>Billing &amp; invoices</strong>.
-                  </p>
-                  <p>
-                    <strong>Unsubscribe:</strong> <strong>Billing &amp; invoices</strong> (end of period or
-                    immediate—your choice there).
-                  </p>
-                </>
+                    <p>
+                      Outperformer starts immediately. Your{' '}
+                      {formatBillingCadenceLabel(chosenInterval).toLowerCase()} renewal cycle starts
+                      today.
+                    </p>
+                  </div>
+                ) : (
+                  <p>Outperformer access starts immediately.</p>
+                )
               }
             />
+            <button
+              type="button"
+              className="text-left text-xs text-muted-foreground underline-offset-4 hover:underline disabled:opacity-50"
+              onClick={() => handleIntervalToggle()}
+              disabled={phase === 'confirming'}
+            >
+              {intervalChanged
+                ? `Keep ${formatBillingCadenceLabel(preview.currentInterval).toLowerCase()} billing instead`
+                : `Also switch to ${formatBillingCadenceLabel(otherInterval).toLowerCase()} billing`}
+            </button>
             {paymentPendingNotice && (
               <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-100">
                 <p>{paymentPendingNotice}</p>
@@ -406,20 +519,20 @@ export function SubscriptionUpgradeDialog({
                 )}
               </Button>
             </>
-          ) : phase === 'affirm' || phase === 'confirming' ? (
+          ) : (
             <>
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setPhase('ready')}
+                onClick={() => onOpenChange(false)}
                 disabled={phase === 'confirming'}
               >
-                Back
+                Cancel
               </Button>
               <Button
                 type="button"
                 onClick={() => void handleConfirmCharge()}
-                disabled={phase !== 'affirm' || !preview}
+                disabled={phase !== 'ready' || !preview || chosenInterval === null}
                 className="bg-trader-blue text-white hover:bg-trader-blue-dark"
               >
                 {phase === 'confirming' ? (
@@ -430,20 +543,6 @@ export function SubscriptionUpgradeDialog({
                 ) : (
                   'Confirm and charge'
                 )}
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                onClick={() => setPhase('affirm')}
-                disabled={phase !== 'ready' || !preview}
-                className="bg-trader-blue text-white hover:bg-trader-blue-dark"
-              >
-                Review and confirm
               </Button>
             </>
           )}

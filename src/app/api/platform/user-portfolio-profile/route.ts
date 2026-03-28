@@ -191,6 +191,28 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'No holdings snapshot available yet.' }, { status: 400 });
   }
 
+  if (markStartingPortfolio) {
+    const since = new Date(Date.now() - 60_000).toISOString();
+    const { data: recentDupe } = await supabase
+      .from('user_portfolio_profiles')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('strategy_id', strategyId)
+      .eq('config_id', configId)
+      .eq('is_starting_portfolio', true)
+      .gte('created_at', since)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (recentDupe) {
+      return NextResponse.json({
+        profileId: (recentDupe as { id: string }).id,
+        deduplicated: true,
+      });
+    }
+  }
+
   const now = new Date().toISOString();
   const admin = createAdminClient();
 

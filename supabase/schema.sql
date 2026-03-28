@@ -101,7 +101,7 @@ create table if not exists public.user_profiles (
 create table if not exists public.newsletter_subscribers (
   id uuid primary key default gen_random_uuid(),
   email text not null unique,
-  user_id uuid references auth.users(id) on delete set null,
+  user_id uuid references auth.users(id) on delete cascade,
   source text not null default 'popup',
   status text not null default 'subscribed',
   created_at timestamptz not null default now(),

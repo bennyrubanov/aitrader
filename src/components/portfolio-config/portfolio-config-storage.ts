@@ -6,6 +6,12 @@ const ONBOARDING_KEY = 'aitrader:portfolio_onboarding_done';
 const ENTRY_DATE_KEY = 'aitrader:portfolio_entry_date';
 /** Guest completes onboarding picks; after sign-up we POST this to `/api/platform/user-portfolio-profile`. */
 const PENDING_GUEST_PORTFOLLOW_KEY = 'aitrader:pending_guest_portfollow_v1';
+/** Set while guest→signed-in resume runs so onboarding dialog stays closed after pending is cleared from localStorage. */
+const GUEST_RESUME_UI_LOCK_KEY = 'aitrader:guest_resume_ui_lock_v1';
+
+/** Fired on `window` when guest follow resume starts / ends (same-tab; keeps onboarding dialog suppressed). */
+export const GUEST_PORTFOLIO_RESUME_STARTED_EVENT = 'aitrader:guest-portfolio-resume-started';
+export const GUEST_PORTFOLIO_RESUME_ENDED_EVENT = 'aitrader:guest-portfolio-resume-ended';
 
 const YMD_PENDING_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -84,6 +90,30 @@ export function clearPendingGuestPortfolioFollow(): void {
     localStorage.removeItem(PENDING_GUEST_PORTFOLLOW_KEY);
   } catch {
     // ignore
+  }
+}
+
+export function setGuestPortfolioResumeUILock(): void {
+  try {
+    sessionStorage.setItem(GUEST_RESUME_UI_LOCK_KEY, '1');
+  } catch {
+    // ignore
+  }
+}
+
+export function clearGuestPortfolioResumeUILock(): void {
+  try {
+    sessionStorage.removeItem(GUEST_RESUME_UI_LOCK_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+export function isGuestPortfolioResumeUILocked(): boolean {
+  try {
+    return sessionStorage.getItem(GUEST_RESUME_UI_LOCK_KEY) === '1';
+  } catch {
+    return false;
   }
 }
 /** Signed-in users: mirrors `user_profiles.portfolio_onboarding_done` (validated when auth hydrates). */
