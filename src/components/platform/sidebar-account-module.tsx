@@ -23,13 +23,13 @@ export function SidebarAccountModule({ onNavigateStart }: SidebarAccountModulePr
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
 
-  const handleOpenPortal = async (flow: "default" | "subscription_cancel" = "default") => {
+  const handleOpenPortal = async () => {
     setIsOpeningPortal(true);
     try {
       const response = await fetch("/api/stripe/portal", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ flow }),
+        body: JSON.stringify({ flow: "default" }),
       });
       const payload = (await response.json()) as { url?: string; error?: string };
       if (!response.ok || !payload.url) {
@@ -120,7 +120,7 @@ export function SidebarAccountModule({ onNavigateStart }: SidebarAccountModulePr
                 type="button"
                 size="sm"
                 className="w-full justify-start bg-trader-blue hover:bg-trader-blue-dark"
-                onClick={() => void handleOpenPortal("default")}
+                onClick={() => void handleOpenPortal()}
                 disabled={isOpeningPortal}
               >
                 {isOpeningPortal ? (
@@ -143,7 +143,7 @@ export function SidebarAccountModule({ onNavigateStart }: SidebarAccountModulePr
                 variant="outline"
                 className="w-full justify-start"
                 disabled={isOpeningPortal}
-                onClick={() => void handleOpenPortal("default")}
+                onClick={() => void handleOpenPortal()}
               >
                 Invoices & payment
               </Button>

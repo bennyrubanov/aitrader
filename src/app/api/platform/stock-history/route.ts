@@ -134,7 +134,11 @@ export async function GET(req: Request) {
   }
 
   const [{ data: stock, error: stockError }, strategyResult] = await Promise.all([
-    supabase.from('stocks').select('id, symbol, company_name, is_premium_stock').eq('symbol', symbol).maybeSingle(),
+    supabase
+      .from('stocks')
+      .select('id, symbol, company_name, is_premium_stock, is_guest_visible')
+      .eq('symbol', symbol)
+      .maybeSingle(),
     (async () => {
       let strategyQuery = supabase
         .from('strategy_models')
@@ -174,7 +178,10 @@ export async function GET(req: Request) {
   const batchIds = batchRows.map((batch) => batch.id);
 
   const isPremiumStock = stock.is_premium_stock ?? true;
-  const includeRatings = canQueryStockCurrentRecommendation(access, isPremiumStock);
+  const isGuestVisible = Boolean(stock.is_guest_visible);
+  const includeRatings = canQueryStockCurrentRecommendation(access, isPremiumStock, {
+    isGuestVisible,
+  });
 
   const [priceHistoryResponse, ratingHistoryResponse] = await Promise.all([
     supabase

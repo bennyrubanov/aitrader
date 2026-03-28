@@ -17,6 +17,7 @@ import {
   ListOrdered,
   MessageSquare,
   Sparkles,
+  UserPlus,
 } from 'lucide-react';
 import {
   SIDEBAR_MENU_TRAILING_CLASSNAME,
@@ -36,6 +37,7 @@ import { NavUser } from '@/components/platform/nav-user';
 import { getSupabaseBrowserClient } from '@/utils/supabase/browser';
 import { useAuthState } from '@/components/auth/auth-state-context';
 import { navigateWithFallback } from '@/lib/client-navigation';
+import { cn } from '@/lib/utils';
 import { Disclaimer } from '@/components/Disclaimer';
 import {
   PLATFORM_POST_ONBOARDING_TOUR_SHELL_READY_EVENT,
@@ -274,22 +276,41 @@ export function AppSidebar() {
             <SidebarMenu>
               {authState.isLoaded && !account.isPremium ? (
                 <SidebarMenuItem>
-                  <SidebarMenuButton asChild size="sm" tooltip="Upgrade to a paid plan">
-                    <Link href="/pricing">
-                      <span
-                        className="flex shrink-0 items-center gap-1"
-                        aria-hidden
-                      >
-                        <HeartHandshake className="size-4 shrink-0 text-amber-600 dark:text-amber-500" />
-                        <Sparkles className="size-4 shrink-0 text-trader-blue" />
+                  {account.isAuthenticated ? (
+                    <SidebarMenuButton asChild size="sm" tooltip="Upgrade to a paid plan">
+                      <Link href="/pricing">
+                        <span
+                          className="flex shrink-0 items-center gap-1"
+                          aria-hidden
+                        >
+                          <HeartHandshake className="size-4 shrink-0 text-amber-600 dark:text-amber-500" />
+                          <Sparkles className="size-4 shrink-0 text-trader-blue" />
+                        </span>
+                        <span className={SIDEBAR_MENU_TRAILING_CLASSNAME}>
+                          <span className="min-w-0 flex-1 truncate font-medium text-trader-blue">
+                            Upgrade to a paid plan
+                          </span>
+                        </span>
+                      </Link>
+                    </SidebarMenuButton>
+                  ) : (
+                    <SidebarMenuButton
+                      type="button"
+                      size="sm"
+                      tooltip="Sign up for an account"
+                      onClick={handleSignUp}
+                      className="justify-center bg-trader-blue text-white shadow-none hover:bg-trader-blue-dark hover:text-white active:bg-trader-blue-dark active:text-white data-[active=true]:bg-trader-blue data-[active=true]:text-white focus-visible:ring-trader-blue/40"
+                    >
+                      <span className="flex shrink-0 items-center" aria-hidden>
+                        <UserPlus className="size-4 shrink-0 text-white" />
                       </span>
-                      <span className={SIDEBAR_MENU_TRAILING_CLASSNAME}>
-                        <span className="min-w-0 flex-1 truncate font-medium text-trader-blue">
-                          Upgrade to a paid plan
+                      <span className={cn(SIDEBAR_MENU_TRAILING_CLASSNAME, 'flex-none')}>
+                        <span className="min-w-0 truncate font-medium text-white">
+                          Sign up
                         </span>
                       </span>
-                    </Link>
-                  </SidebarMenuButton>
+                    </SidebarMenuButton>
+                  )}
                 </SidebarMenuItem>
               ) : null}
               <SidebarMenuItem>

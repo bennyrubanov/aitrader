@@ -9,12 +9,12 @@ import Link from 'next/link';
 
 import { useAuthState } from '@/components/auth/auth-state-context';
 
-const LANDING_SYMBOLS = ['NVDA', 'AAPL', 'META', 'TSLA'] as const;
+const LANDING_SYMBOLS = ['NVDA', 'AAPL', 'META', 'GOOG'] as const;
 const FALLBACK_NAMES: Record<(typeof LANDING_SYMBOLS)[number], string> = {
   NVDA: 'NVIDIA Corporation',
   AAPL: 'Apple Inc.',
   META: 'Meta Platforms, Inc.',
-  TSLA: 'Tesla, Inc.',
+  GOOG: 'Alphabet Inc. Class C',
 };
 
 const CTA: React.FC = () => {

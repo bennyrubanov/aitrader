@@ -1515,7 +1515,7 @@ export function PortfolioOnboardingDialog({
                 <DialogDescription className="text-sm">
                   Your picks are saved. This is what{' '}
                   <strong className="text-foreground">{formatUsdWhole(celebrateNotional)}</strong>{' '}
-                  would have turned into if you followed this portfolio since inception
+                  would have turned into if you followed this portfolio since model inception
                   {celebrateModelInceptionDisplay ? (
                     <>
                       {' '}

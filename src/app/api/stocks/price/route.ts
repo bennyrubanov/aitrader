@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/utils/supabase/admin';
+import { createClient } from '@/utils/supabase/server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -12,7 +13,23 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Missing symbol parameter' }, { status: 400 });
   }
 
+  const session = await createClient();
+  const {
+    data: { user },
+  } = await session.auth.getUser();
+
   const supabase = createAdminClient();
+
+  if (!user) {
+    const { data: vis } = await supabase
+      .from('stocks')
+      .select('is_guest_visible')
+      .eq('symbol', symbol)
+      .maybeSingle();
+    if (!vis?.is_guest_visible) {
+      return NextResponse.json({ found: false, symbol });
+    }
+  }
 
   const { data, error } = await supabase
     .from('nasdaq_100_daily_raw')

@@ -2823,17 +2823,18 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
             profiles.length === 0 ? (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Sign in to view Overview</CardTitle>
+                <CardTitle className="text-base">Sign up to view overview</CardTitle>
                 <CardDescription>
                   Follow portfolios, see your top performer, and get rebalance guidance after you
                   create a free account.
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex flex-wrap gap-2">
-                <Button size="sm" asChild>
-                  <Link href="/sign-in?next=/platform/overview">Log in</Link>
-                </Button>
-                <Button size="sm" variant="outline" asChild>
+                <Button
+                  size="sm"
+                  className="bg-trader-blue text-white hover:bg-trader-blue-dark hover:text-white"
+                  asChild
+                >
                   <Link href="/sign-up?next=/platform/overview">Sign up</Link>
                 </Button>
               </CardContent>

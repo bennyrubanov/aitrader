@@ -699,6 +699,8 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const [entrySettingsOpen, setEntrySettingsOpen] = useState(false);
   const [holdingsRowChartSymbol, setHoldingsRowChartSymbol] = useState<string | null>(null);
   const [holdingsMovementView, setHoldingsMovementView] = useState(false);
+  const holdingsMovementViewRef = useRef(false);
+  holdingsMovementViewRef.current = holdingsMovementView;
   const [prevMovementHoldings, setPrevMovementHoldings] = useState<HoldingItem[] | null>(null);
   const [prevMovementLoading, setPrevMovementLoading] = useState(false);
   const [prevMovementError, setPrevMovementError] = useState(false);
@@ -1244,7 +1246,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       const isDatePick = asOf != null;
       const useRefreshChrome = isDatePick && hadTableData;
 
-      if (asOf != null && holdingsMovementView) {
+      if (asOf != null && holdingsMovementViewRef.current) {
         setPrevMovementLoading(true);
         setPrevMovementHoldings(null);
         setPrevMovementError(false);
@@ -1299,13 +1301,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         }
       }
     },
-    [
-      selectedProfile?.id,
-      selectedProfileConfigId,
-      strategySlug,
-      holdingsMovementView,
-      yourPortfoliosHoldingsPaid,
-    ]
+    [selectedProfile?.id, selectedProfileConfigId, strategySlug, yourPortfoliosHoldingsPaid]
   );
 
   useEffect(() => {

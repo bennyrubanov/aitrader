@@ -26,7 +26,7 @@ alwaysApply: true
 
 ## Helpers to reuse
 
-- **`canQueryStockCurrentRecommendation(access, isPremiumStock)`** — whether to load current AI row / chart ratings for a ticker (`src/lib/app-access.ts`).
+- **`canQueryStockCurrentRecommendation(access, isPremiumStock, { isGuestVisible })`** — whether to load current AI row / chart ratings for a ticker (`src/lib/app-access.ts`). Guests only when `isGuestVisible` and non-premium.
 - **`/api/platform/stock-history`** — strips rating series when `canQueryStockCurrentRecommendation` is false (`src/app/api/platform/stock-history/route.ts`).
 
 ## When adding features

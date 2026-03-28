@@ -42,6 +42,16 @@ export async function recurringIntervalFromPriceId(
   return null;
 }
 
+/** Billing cadence from the subscription’s primary line item. */
+export async function inferRecurringBillingInterval(
+  stripe: Stripe,
+  subscription: Stripe.Subscription
+): Promise<'month' | 'year' | null> {
+  const priceId = subscription.items.data[0]?.price?.id;
+  if (!priceId) return null;
+  return recurringIntervalFromPriceId(stripe, priceId);
+}
+
 export async function resolveTierFromPriceId(
   stripe: Stripe,
   priceId: string
@@ -163,6 +173,7 @@ export type SubscriptionBillingExtras = {
   stripe_current_period_end: string | null;
   stripe_cancel_at_period_end: boolean;
   stripe_pending_tier: SubscriptionTier | null;
+  stripe_recurring_interval: 'month' | 'year' | null;
 };
 
 export function getStripeCustomerIdFromField(
@@ -196,6 +207,11 @@ export async function buildSubscriptionBillingExtras(
     }
   }
 
+  let recurringInterval: 'month' | 'year' | null = null;
+  if (subscriptionStatusSyncsBillingSnapshot(subscription.status)) {
+    recurringInterval = await inferRecurringBillingInterval(stripe, subscription);
+  }
+
   const periodEnd = subscriptionCurrentPeriodEndUnix(subscription);
   return {
     stripe_customer_id: getStripeCustomerIdFromField(subscription.customer),
@@ -204,5 +220,6 @@ export async function buildSubscriptionBillingExtras(
       periodEnd !== null ? new Date(periodEnd * 1000).toISOString() : null,
     stripe_cancel_at_period_end: subscription.cancel_at_period_end,
     stripe_pending_tier: pending,
+    stripe_recurring_interval: recurringInterval,
   };
 }

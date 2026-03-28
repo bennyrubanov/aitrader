@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { Analytics } from '@vercel/analytics/next';
+import { AuthPreviewPersistentHost } from '@/components/auth/auth-preview-persistent-host';
 import Providers from './providers';
 import './globals.css';
 import { getInitialAuthState } from '@/lib/get-initial-auth-state';
@@ -27,7 +28,10 @@ const RootLayout = async ({ children }: { children: React.ReactNode }) => {
   return (
     <html lang="en" suppressHydrationWarning>
       <body>
-        <Providers initialAuthState={initialAuthState}>{children}</Providers>
+        <Providers initialAuthState={initialAuthState}>
+          {children}
+          <AuthPreviewPersistentHost />
+        </Providers>
         <Analytics />
       </body>
     </html>

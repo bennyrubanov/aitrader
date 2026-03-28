@@ -69,6 +69,7 @@ create table if not exists public.user_profiles (
   stripe_current_period_end timestamptz,
   stripe_cancel_at_period_end boolean not null default false,
   stripe_pending_tier text,
+  stripe_recurring_interval text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint user_profiles_subscription_tier_valid check (
@@ -77,6 +78,10 @@ create table if not exists public.user_profiles (
   constraint user_profiles_stripe_pending_tier_valid check (
     stripe_pending_tier is null
     or stripe_pending_tier in ('free', 'supporter', 'outperformer')
+  ),
+  constraint user_profiles_stripe_recurring_interval_valid check (
+    stripe_recurring_interval is null
+    or stripe_recurring_interval in ('month', 'year')
   ),
   constraint user_profiles_stripe_subscription_status_valid check (
     stripe_subscription_status is null
@@ -228,6 +233,7 @@ begin
     or old.stripe_current_period_end is distinct from new.stripe_current_period_end
     or old.stripe_cancel_at_period_end is distinct from new.stripe_cancel_at_period_end
     or old.stripe_pending_tier is distinct from new.stripe_pending_tier
+    or old.stripe_recurring_interval is distinct from new.stripe_recurring_interval
   then
     raise exception 'Billing and subscription fields cannot be updated from the client'
       using errcode = '42501';
@@ -253,12 +259,17 @@ create table if not exists public.stocks (
   company_name text,
   exchange text,
   is_premium_stock boolean not null default true,
+  -- Subset of non-premium names for guest/signed-out stock surfaces (auth preview, landing search).
+  is_guest_visible boolean not null default false,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  constraint stocks_guest_visible_implies_non_premium
+    check (not is_guest_visible or not is_premium_stock)
 );
 
 create index if not exists idx_stocks_symbol on public.stocks(symbol);
 create index if not exists idx_stocks_is_premium_stock on public.stocks(is_premium_stock);
+create index if not exists idx_stocks_is_guest_visible on public.stocks(is_guest_visible) where is_guest_visible = true;
 create index if not exists idx_stocks_updated_at on public.stocks(updated_at);
 create index if not exists idx_stocks_created_at on public.stocks(created_at);
 

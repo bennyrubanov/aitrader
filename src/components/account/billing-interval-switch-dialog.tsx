@@ -23,11 +23,14 @@ type PreviewPayload = {
   amountDue: number | null;
   currency: string;
   total: number | null;
-  billingInterval: 'month' | 'year';
+  planTier: 'supporter' | 'outperformer';
+  currentInterval: 'month' | 'year';
   currentRecurringUnitAmount: number | null;
   currentRecurringCurrency: string;
+  targetInterval: 'month' | 'year';
   targetRecurringUnitAmount: number | null;
   targetRecurringCurrency: string;
+  targetRecurringInterval: 'month' | 'year';
   currentSubscriptionPeriodEndIso: string | null;
 };
 
@@ -55,17 +58,20 @@ function formatPeriodEndUtc(iso: string | null) {
   }
 }
 
-type SubscriptionUpgradeDialogProps = {
+type BillingIntervalSwitchDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onAfterSuccess: () => void | Promise<void>;
+  /** Billing cadence to switch *to* (opposite of current). */
+  targetInterval: 'month' | 'year';
 };
 
-export function SubscriptionUpgradeDialog({
+export function BillingIntervalSwitchDialog({
   open,
   onOpenChange,
   onAfterSuccess,
-}: SubscriptionUpgradeDialogProps) {
+  targetInterval,
+}: BillingIntervalSwitchDialogProps) {
   const [phase, setPhase] = useState<
     'idle' | 'loading' | 'ready' | 'affirm' | 'error' | 'confirming'
   >('idle');
@@ -98,12 +104,15 @@ export function SubscriptionUpgradeDialog({
         const res = await fetch('/api/stripe/subscription-change-preview', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'upgrade_to_outperformer' }),
+          body: JSON.stringify({
+            action: 'change_billing_interval',
+            targetInterval,
+          }),
         });
         const data = (await res.json()) as PreviewPayload & { error?: string };
         if (cancelled) return;
         if (!res.ok) {
-          throw new Error(data.error ?? 'Could not load pricing for this upgrade.');
+          throw new Error(data.error ?? 'Could not load pricing for this change.');
         }
         setPreview({
           prorationDate: data.prorationDate,
@@ -111,7 +120,8 @@ export function SubscriptionUpgradeDialog({
           amountDue: data.amountDue,
           currency: data.currency,
           total: data.total,
-          billingInterval: data.billingInterval === 'year' ? 'year' : 'month',
+          planTier: data.planTier === 'outperformer' ? 'outperformer' : 'supporter',
+          currentInterval: data.currentInterval === 'year' ? 'year' : 'month',
           currentRecurringUnitAmount:
             typeof data.currentRecurringUnitAmount === 'number'
               ? data.currentRecurringUnitAmount
@@ -120,14 +130,13 @@ export function SubscriptionUpgradeDialog({
             typeof data.currentRecurringCurrency === 'string'
               ? data.currentRecurringCurrency
               : data.currency,
+          targetInterval,
           targetRecurringUnitAmount:
-            typeof data.targetRecurringUnitAmount === 'number'
-              ? data.targetRecurringUnitAmount
-              : null,
+            typeof data.targetRecurringUnitAmount === 'number' ? data.targetRecurringUnitAmount : null,
           targetRecurringCurrency:
-            typeof data.targetRecurringCurrency === 'string'
-              ? data.targetRecurringCurrency
-              : data.currency,
+            typeof data.targetRecurringCurrency === 'string' ? data.targetRecurringCurrency : data.currency,
+          targetRecurringInterval:
+            data.targetRecurringInterval === 'year' ? 'year' : 'month',
           currentSubscriptionPeriodEndIso:
             typeof data.currentSubscriptionPeriodEndIso === 'string'
               ? data.currentSubscriptionPeriodEndIso
@@ -144,19 +153,22 @@ export function SubscriptionUpgradeDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, reset]);
+  }, [open, reset, targetInterval]);
 
   const handleRefreshStatus = async () => {
     setPhase('confirming');
     setError(null);
     try {
       const res = await fetch('/api/user/reconcile-premium', { method: 'POST' });
-      const data = (await res.json()) as { subscriptionTier?: string; error?: string };
+      const data = (await res.json()) as {
+        stripeRecurringInterval?: string | null;
+        error?: string;
+      };
       if (!res.ok) {
         throw new Error(data.error ?? 'Could not refresh subscription.');
       }
       await onAfterSuccess();
-      if (data.subscriptionTier === 'outperformer') {
+      if (data.stripeRecurringInterval === targetInterval) {
         onOpenChange(false);
         reset();
         return;
@@ -177,7 +189,8 @@ export function SubscriptionUpgradeDialog({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'upgrade_to_outperformer',
+          action: 'change_billing_interval',
+          targetInterval: preview.targetInterval,
           prorationDate: preview.prorationDate,
           targetPriceId: preview.targetPriceId,
         }),
@@ -189,7 +202,7 @@ export function SubscriptionUpgradeDialog({
         hostedInvoiceUrl?: string | null;
       };
       if (!res.ok) {
-        throw new Error(data.error ?? 'Upgrade failed.');
+        throw new Error(data.error ?? 'Update failed.');
       }
 
       await fetch('/api/user/reconcile-premium', { method: 'POST' });
@@ -204,8 +217,8 @@ export function SubscriptionUpgradeDialog({
       if (data.status === 'awaiting_payment') {
         setPaymentPendingNotice(
           data.hostedInvoiceUrl
-            ? 'Pay the invoice below to finish. Outperformer access starts after payment succeeds.'
-            : 'Pay or fix the card in Billing & invoices. Supporter until then.'
+            ? 'Pay the invoice below to finish. Your new billing cadence applies after payment succeeds.'
+            : 'Pay or fix the card in Billing & invoices, then Refresh status.'
         );
         setPaymentPendingUrl(data.hostedInvoiceUrl ?? null);
         setPhase('ready');
@@ -215,11 +228,17 @@ export function SubscriptionUpgradeDialog({
       onOpenChange(false);
       reset();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Upgrade failed.');
+      setError(e instanceof Error ? e.message : 'Update failed.');
       setPhase('affirm');
     }
   };
 
+  const title =
+    targetInterval === 'year' ? 'Switch to yearly billing' : 'Switch to monthly billing';
+  const titleAffirm =
+    targetInterval === 'year'
+      ? 'Confirm switch to yearly billing'
+      : 'Confirm switch to monthly billing';
   const chargeLabel = preview ? formatMoney(preview.amountDue, preview.currency) : '—';
   const chargeIsCredit =
     preview !== null && preview.amountDue !== null && preview.amountDue < 0;
@@ -252,24 +271,18 @@ export function SubscriptionUpgradeDialog({
     >
       <DialogContent showCloseButton={phase !== 'confirming'}>
         <DialogHeader>
-          <DialogTitle>
-            {phase === 'affirm' || phase === 'confirming'
-              ? 'Confirm upgrade to Outperformer'
-              : 'Upgrade to Outperformer'}
-          </DialogTitle>
+          <DialogTitle>{phase === 'affirm' || phase === 'confirming' ? titleAffirm : title}</DialogTitle>
           <DialogDescription>
             {phase === 'affirm' || phase === 'confirming' ? (
               chargeIsCredit ? (
                 <>
-                  Confirming applies the upgrade.{' '}
                   <span className="font-semibold text-foreground">No charge now</span> (~{creditLabel}{' '}
-                  credit). You stay on Supporter if the update doesn&apos;t complete.
+                  credit). If this doesn&apos;t complete, billing stays as today.
                 </>
               ) : (
                 <>
-                  Confirming charges{' '}
-                  <span className="font-semibold text-foreground">{chargeLabel}</span> now (proration for the
-                  rest of this period). Failed payment → Supporter until the invoice is paid.
+                  Charges <span className="font-semibold text-foreground">{chargeLabel}</span> now
+                  (proration). Failed payment → billing cadence unchanged until paid.
                 </>
               )
             ) : (
@@ -285,40 +298,38 @@ export function SubscriptionUpgradeDialog({
           </div>
         )}
 
-        {phase === 'error' && error && (
-          <p className="text-sm text-destructive">{error}</p>
-        )}
+        {phase === 'error' && error && <p className="text-sm text-destructive">{error}</p>}
 
         {(phase === 'ready' || phase === 'affirm' || phase === 'confirming') && preview && (
           <div className="space-y-3 text-sm">
             <PlanChangeCompareLayout
               beforeRows={[
-                { label: 'Plan', value: formatPaidTierLabel('supporter') },
+                { label: 'Plan', value: formatPaidTierLabel(preview.planTier) },
                 {
                   label: 'Billing',
-                  value: `${formatBillingCadenceLabel(preview.billingInterval)} (unchanged)`,
+                  value: formatBillingCadenceLabel(preview.currentInterval),
                 },
                 {
                   label: 'Recurring price',
                   value: renewalDisplay(
                     preview.currentRecurringUnitAmount,
                     preview.currentRecurringCurrency,
-                    preview.billingInterval
+                    preview.currentInterval
                   ),
                 },
               ]}
               afterRows={[
-                { label: 'Plan', value: formatPaidTierLabel('outperformer') },
+                { label: 'Plan', value: formatPaidTierLabel(preview.planTier) },
                 {
                   label: 'Billing',
-                  value: formatBillingCadenceLabel(preview.billingInterval),
+                  value: formatBillingCadenceLabel(preview.targetInterval),
                 },
                 {
                   label: 'Recurring price',
                   value: renewalDisplay(
                     preview.targetRecurringUnitAmount,
                     preview.targetRecurringCurrency,
-                    preview.billingInterval
+                    preview.targetInterval
                   ),
                 },
               ]}
@@ -332,31 +343,15 @@ export function SubscriptionUpgradeDialog({
                 amount: renewalDisplay(
                   preview.targetRecurringUnitAmount,
                   preview.targetRecurringCurrency,
-                  preview.billingInterval
+                  preview.targetInterval
                 ),
                 renewalDate: renewalOnLabel,
               }}
               footnote={
-                <>
-                  <p>
-                    <strong>When it changes:</strong> Outperformer after this completes (and after any
-                    required payment succeeds).
-                  </p>
-                  {periodEndLabel ? (
-                    <p>
-                      <strong>Current period ends</strong> {periodEndLabel} (UTC). Due now covers only the
-                      rest of this period.
-                    </p>
-                  ) : null}
-                  <p>
-                    <strong>If payment fails:</strong> You stay on Supporter until it&apos;s resolved—{' '}
-                    <strong>Billing &amp; invoices</strong>.
-                  </p>
-                  <p>
-                    <strong>Unsubscribe:</strong> <strong>Billing &amp; invoices</strong> (end of period or
-                    immediate—your choice there).
-                  </p>
-                </>
+                <p>
+                  Plan tier does not change. You will remain on the{' '}
+                  <strong>{formatPaidTierLabel(preview.planTier)}</strong> plan.
+                </p>
               }
             />
             {paymentPendingNotice && (

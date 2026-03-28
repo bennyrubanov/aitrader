@@ -7,7 +7,6 @@ import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getSupabaseBrowserClient } from "@/utils/supabase/browser";
-import { AuthPreviewPlaceholder } from "@/components/auth/auth-preview-placeholder";
 import { useToast } from "@/hooks/use-toast";
 import {
   EMAIL_PASSWORD_SIGN_IN_METHOD,
@@ -384,9 +383,7 @@ function SignUpPageContent() {
           </div>
         </section>
 
-        <section className="hidden items-center justify-center px-10 py-12 lg:flex">
-          <AuthPreviewPlaceholder />
-        </section>
+        <section className="hidden items-center justify-center px-10 py-12 lg:flex" aria-hidden />
       </div>
     </main>
   );

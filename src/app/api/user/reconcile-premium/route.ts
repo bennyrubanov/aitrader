@@ -36,7 +36,7 @@ export async function POST() {
     const { data: existingProfile } = await supabase
       .from("user_profiles")
       .select(
-        "email, subscription_tier, stripe_subscription_status, stripe_current_period_end, stripe_cancel_at_period_end, stripe_pending_tier"
+        "email, subscription_tier, stripe_subscription_status, stripe_current_period_end, stripe_cancel_at_period_end, stripe_pending_tier, stripe_recurring_interval"
       )
       .eq("id", user.id)
       .maybeSingle();
@@ -99,6 +99,11 @@ export async function POST() {
         stripeCurrentPeriodEnd: existingProfile?.stripe_current_period_end ?? null,
         stripeCancelAtPeriodEnd: Boolean(existingProfile?.stripe_cancel_at_period_end),
         stripePendingTier: (existingProfile?.stripe_pending_tier as SubscriptionTier | null) ?? null,
+        stripeRecurringInterval:
+          existingProfile?.stripe_recurring_interval === "month" ||
+          existingProfile?.stripe_recurring_interval === "year"
+            ? existingProfile.stripe_recurring_interval
+            : null,
       });
     }
 
@@ -116,6 +121,7 @@ export async function POST() {
         stripe_current_period_end: extras.stripe_current_period_end,
         stripe_cancel_at_period_end: extras.stripe_cancel_at_period_end,
         stripe_pending_tier: extras.stripe_pending_tier,
+        stripe_recurring_interval: extras.stripe_recurring_interval,
         updated_at: new Date().toISOString(),
       },
       { onConflict: "id" }
@@ -132,6 +138,7 @@ export async function POST() {
       stripeCurrentPeriodEnd: extras.stripe_current_period_end,
       stripeCancelAtPeriodEnd: extras.stripe_cancel_at_period_end,
       stripePendingTier: extras.stripe_pending_tier,
+      stripeRecurringInterval: extras.stripe_recurring_interval,
     });
   } catch (error) {
     return NextResponse.json(

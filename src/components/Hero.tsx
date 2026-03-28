@@ -3,14 +3,15 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Search, ArrowRight, TrendingUp, TrendingDown, Loader2, Lock } from 'lucide-react';
+import { Search, ArrowRight, TrendingUp, TrendingDown, Lock } from 'lucide-react';
 import { useAnimatedCounter } from '@/lib/animations';
 import type { Stock } from '@/types/stock';
 import StockCard from '@/components/ui/stock-card';
 import Link from 'next/link';
 import { useAuthState } from '@/components/auth/auth-state-context';
 
-const LANDING_PAGE_SYMBOLS = ['NVDA', 'AAPL', 'META', 'TSLA', 'MSFT', 'AMZN'] as const;
+/** Guest-visible marketing tickers (subset of non-premium `stocks.is_guest_visible`). */
+const LANDING_PAGE_SYMBOLS = ['NVDA', 'AAPL', 'META', 'GOOG', 'SHOP', 'FTNT'] as const;
 
 type RatingBucket = 'buy' | 'hold' | 'sell' | null;
 type HeroStock = Stock & { currentRating: RatingBucket };
@@ -31,8 +32,8 @@ const Hero: React.FC = () => {
   const [stocks, setStocks] = useState<HeroStock[]>([]);
   const [filteredMembers, setFilteredMembers] = useState<HeroStock[]>([]);
   const [selectedResult, setSelectedResult] = useState<PriceResult | null>(null);
-  const [isLoadingPrice, setIsLoadingPrice] = useState(false);
   const [isTracked, setIsTracked] = useState<boolean | null>(null);
+  const priceFetchAbortRef = useRef<AbortController | null>(null);
   const authState = useAuthState();
   const { hasPremiumAccess, isAuthenticated, isLoaded: authLoaded } = authState;
   const ctaHref = isAuthenticated ? '/platform/overview' : '/sign-up';
@@ -70,11 +71,19 @@ const Hero: React.FC = () => {
     };
   }, [authLoaded, authState.isAuthenticated, authState.subscriptionTier]);
 
+  useEffect(() => {
+    return () => {
+      priceFetchAbortRef.current?.abort();
+    };
+  }, []);
+
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     const query = e.target.value;
     setSearchQuery(query);
     setSelectedResult(null);
     setIsTracked(null);
+    priceFetchAbortRef.current?.abort();
+    priceFetchAbortRef.current = null;
 
     if (query.trim().length > 0) {
       const q = query.toLowerCase().trim();
@@ -88,38 +97,77 @@ const Hero: React.FC = () => {
     }
   };
 
-  const fetchPrice = useCallback(
-    async (symbol: string) => {
-      setIsLoadingPrice(true);
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000);
-      try {
-        const res = await fetch(`/api/stocks/price?symbol=${encodeURIComponent(symbol)}`, {
-          signal: controller.signal,
-        });
-        if (!res.ok) {
-          throw new Error('Price lookup failed');
-        }
-        const data = (await res.json()) as PriceResult;
-        setSelectedResult(data);
-        const tracked = stockMap.has(symbol.toUpperCase());
-        setIsTracked(tracked);
-      } catch {
-        setSelectedResult({ found: false, symbol });
-        setIsTracked(false);
-      } finally {
-        clearTimeout(timeoutId);
-        setIsLoadingPrice(false);
+  /**
+   * Rating/name/quote come from `/api/stocks` when that payload includes daily fields (batched on the server).
+   * Only falls back to `/api/stocks/price` when the list row has no quote yet.
+   */
+  const fetchPriceQuote = useCallback(async (symbol: string, fromStock: HeroStock) => {
+    priceFetchAbortRef.current?.abort();
+    const symUpper = symbol.toUpperCase();
+
+    const hasInlineQuote =
+      fromStock.lastSalePrice != null && String(fromStock.lastSalePrice).trim() !== '';
+
+    setSelectedResult({
+      found: true,
+      symbol: fromStock.symbol,
+      companyName: fromStock.name,
+      ...(hasInlineQuote
+        ? {
+            lastSalePrice: fromStock.lastSalePrice,
+            netChange: fromStock.netChange,
+            percentageChange: fromStock.percentageChange,
+            asOf: fromStock.asOf,
+          }
+        : {}),
+    });
+    setIsTracked(stockMap.has(symUpper));
+
+    if (hasInlineQuote) {
+      priceFetchAbortRef.current = null;
+      return;
+    }
+
+    const controller = new AbortController();
+    priceFetchAbortRef.current = controller;
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+    try {
+      const res = await fetch(`/api/stocks/price?symbol=${encodeURIComponent(symbol)}`, {
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        throw new Error('Price lookup failed');
       }
-    },
-    [stockMap]
-  );
+      const data = (await res.json()) as PriceResult;
+      setSelectedResult((prev) => {
+        if (!prev || prev.symbol.toUpperCase() !== symUpper) return prev;
+        if (!data.found) return prev;
+        return {
+          ...prev,
+          companyName: data.companyName ?? prev.companyName,
+          lastSalePrice: data.lastSalePrice,
+          netChange: data.netChange,
+          percentageChange: data.percentageChange,
+          asOf: data.asOf,
+        };
+      });
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') return;
+      /* Keep card; quote stays empty. */
+    } finally {
+      clearTimeout(timeoutId);
+      if (priceFetchAbortRef.current === controller) {
+        priceFetchAbortRef.current = null;
+      }
+    }
+  }, [stockMap]);
 
   const handleSelectMember = (member: HeroStock) => {
     setSearchQuery(member.symbol);
     setFilteredMembers([]);
     setIsSearchFocused(false);
-    fetchPrice(member.symbol);
+    void fetchPriceQuote(member.symbol, member);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -131,13 +179,12 @@ const Hero: React.FC = () => {
       const trackedMember = stockMap.get(query.toUpperCase());
 
       if (!trackedMember) {
-        setIsLoadingPrice(false);
         setIsTracked(false);
         setSelectedResult({ found: false, symbol: query.toUpperCase() });
         return;
       }
 
-      fetchPrice(trackedMember.symbol);
+      void fetchPriceQuote(trackedMember.symbol, trackedMember);
     }
   };
 
@@ -177,11 +224,18 @@ const Hero: React.FC = () => {
     ? stockMap.get(selectedResult.symbol.toUpperCase()) ?? null
     : null;
   const selectedRating = selectedStock?.currentRating ?? null;
-  const canViewSelectedRating =
-    selectedStock && selectedStock.isPremium ? hasPremiumAccess : isAuthenticated;
+  const canViewSelectedRating = Boolean(
+    selectedStock &&
+      (selectedStock.isPremium ? hasPremiumAccess : isAuthenticated || selectedRating != null)
+  );
   const shouldBlurSelectedResult = Boolean(selectedStock && !canViewSelectedRating);
   const selectedPremiumNoAccess = Boolean(selectedStock?.isPremium && !hasPremiumAccess);
-  const selectedFreeNeedsLogin = Boolean(selectedStock && !selectedStock.isPremium && !isAuthenticated);
+  const selectedFreeNeedsLogin = Boolean(
+    selectedStock &&
+      !selectedStock.isPremium &&
+      !isAuthenticated &&
+      selectedRating == null
+  );
 
   const formatRating = (rating: RatingBucket) => {
     if (!rating) return 'No rating yet';
@@ -191,6 +245,9 @@ const Hero: React.FC = () => {
   const getDropdownRatingLabel = (stock: HeroStock) => {
     if (stock.isPremium && !hasPremiumAccess) return 'Premium';
     if (!isAuthenticated) {
+      if (stock.currentRating != null && !stock.isPremium) {
+        return `AI Rating: ${formatRating(stock.currentRating)}`;
+      }
       return stock.isPremium ? 'Premium' : 'Sign up to view';
     }
     return `AI Rating: ${formatRating(stock.currentRating)}`;
@@ -294,14 +351,7 @@ const Hero: React.FC = () => {
             </form>
           </div>
 
-          {isLoadingPrice && (
-            <div className="mt-8 max-w-2xl mx-auto animate-fade-in flex items-center justify-center gap-2 text-muted-foreground">
-              <Loader2 size={18} className="animate-spin" />
-              <span>Looking up price...</span>
-            </div>
-          )}
-
-          {!isLoadingPrice && selectedResult && selectedResult.found && (
+          {selectedResult && selectedResult.found && (
             <div className="relative mt-8 max-w-2xl mx-auto animate-fade-in rounded-xl border border-blue-200/40 bg-blue-50/60 dark:bg-blue-950/20 p-5">
               <div className={shouldBlurSelectedResult ? 'blur-sm pointer-events-none select-none' : ''}>
                 <div className="mb-2">
@@ -403,7 +453,7 @@ const Hero: React.FC = () => {
             </div>
           )}
 
-          {!isLoadingPrice && selectedResult && !selectedResult.found && (
+          {selectedResult && !selectedResult.found && (
             <div className="mt-8 max-w-2xl mx-auto animate-fade-in rounded-xl border border-amber-200/40 bg-amber-50/60 dark:bg-amber-950/20 p-4">
               <p className="text-sm text-foreground/90">
                 <span className="font-semibold">{selectedResult.symbol}</span> isn&apos;t currently

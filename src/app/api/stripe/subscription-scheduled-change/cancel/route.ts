@@ -4,7 +4,8 @@ import { createClient as createServerClient } from '@/utils/supabase/server';
 import { resolveStripeCustomerForUser } from '@/lib/stripe-resolve-user-customer';
 import {
   buildSubscriptionChangeContext,
-  scheduleDowngradeToSupporter,
+  releaseScheduledDowngradeIfApplicable,
+  resumeSubscriptionIfCancelAtPeriodEnd,
 } from '@/lib/stripe-subscription-change';
 
 export const runtime = 'nodejs';
@@ -15,6 +16,8 @@ const getStripe = () => {
   if (!key) throw new Error('Missing STRIPE_SECRET_KEY');
   return new Stripe(key);
 };
+
+type CancelIntent = 'resume_subscription' | 'cancel_scheduled_downgrade';
 
 export async function POST(req: Request) {
   try {
@@ -27,9 +30,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const body = (await req.json().catch(() => ({}))) as { action?: string };
-    if (body.action !== 'schedule_downgrade_to_supporter') {
-      return NextResponse.json({ error: 'Unsupported action' }, { status: 400 });
+    const body = (await req.json().catch(() => ({}))) as { intent?: string };
+    const intent = body.intent as CancelIntent | undefined;
+    if (intent !== 'resume_subscription' && intent !== 'cancel_scheduled_downgrade') {
+      return NextResponse.json({ error: 'Unsupported intent' }, { status: 400 });
     }
 
     const stripe = getStripe();
@@ -41,16 +45,17 @@ export async function POST(req: Request) {
     );
 
     const ctx = await buildSubscriptionChangeContext(customerId, subscriptionId);
-    const result = await scheduleDowngradeToSupporter(ctx);
 
-    return NextResponse.json({
-      ok: true,
-      effectiveAtIso: result.effectiveAtIso,
-      scheduleId: result.scheduleId,
-    });
+    if (intent === 'resume_subscription') {
+      await resumeSubscriptionIfCancelAtPeriodEnd(ctx);
+      return NextResponse.json({ ok: true, intent: 'resume_subscription' });
+    }
+
+    const { scheduleId } = await releaseScheduledDowngradeIfApplicable(ctx);
+    return NextResponse.json({ ok: true, intent: 'cancel_scheduled_downgrade', scheduleId });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Schedule failed' },
+      { error: error instanceof Error ? error.message : 'Request failed' },
       { status: 400 }
     );
   }

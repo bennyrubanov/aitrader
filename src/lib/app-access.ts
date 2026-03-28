@@ -60,18 +60,30 @@ export function canUseRatingsStrategyFilter(access: AppAccessState): boolean {
 
 /**
  * Whether server code should read `nasdaq100_recommendations_current_public` (or equivalent)
- * for this viewer and stock. Matches stock-page / list masking: no current AI row for guests
- * or free users on premium tickers — avoids querying data the tier must not receive.
+ * for this viewer and stock. Guests only receive current AI for `stocks.is_guest_visible` rows.
+ * Free users omit premium tickers; signed-in paid users get full catalog rules elsewhere.
  */
 export function canQueryStockCurrentRecommendation(
   access: AppAccessState,
-  isPremiumStock: boolean
+  isPremiumStock: boolean,
+  options?: { isGuestVisible?: boolean }
 ): boolean {
   if (access === 'guest') {
-    return false;
+    if (isPremiumStock) return false;
+    return options?.isGuestVisible === true;
   }
   if (access === 'free' && isPremiumStock) {
     return false;
   }
+  return true;
+}
+
+/** Whether a stock row may appear in tier-scoped list APIs (e.g. `/api/stocks`). */
+export function stockRowAllowedForAccessList(
+  _access: AppAccessState,
+  _row: { isPremium: boolean; isGuestVisible?: boolean }
+): boolean {
+  // All tiers (including guest) see the full stock catalog in list APIs.
+  // AI rating data is gated separately by canQueryStockCurrentRecommendation.
   return true;
 }

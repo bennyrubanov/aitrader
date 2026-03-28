@@ -16,6 +16,8 @@ export type AuthState = {
   stripeCancelAtPeriodEnd: boolean;
   /** Scheduled target tier (e.g. cancel at period end → free); null if none. */
   stripePendingTier: SubscriptionTier | null;
+  /** Monthly vs yearly from Stripe snapshot; null if unknown / free. */
+  stripeRecurringInterval: 'month' | 'year' | null;
 };
 
 export const DEFAULT_AUTH_STATE: AuthState = {
@@ -31,5 +33,6 @@ export const DEFAULT_AUTH_STATE: AuthState = {
   stripeCurrentPeriodEnd: null,
   stripeCancelAtPeriodEnd: false,
   stripePendingTier: null,
+  stripeRecurringInterval: null,
 };
 

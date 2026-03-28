@@ -10,16 +10,10 @@ import { buildAuthStateFromUserAndProfile } from '@/lib/build-auth-state';
 import { getStrategiesList, type StrategyListItem } from '@/lib/platform-performance-payload';
 import { allowedStrategyIdsForSubscriptionTier } from '@/lib/strategy-plan-access';
 import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
+import { getCachedStockNews } from '@/lib/stock-news';
 import { getAllStocks } from '@/lib/stocks-cache';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { createClient } from '@/utils/supabase/server';
-
-type NewsItem = {
-  title: string;
-  link: string;
-  source: string | null;
-  publishedAt: string | null;
-};
 
 type StockDetailPageProps = {
   params: Promise<{ symbol: string }>;
@@ -58,76 +52,6 @@ function formatSessionDayUtc(runDate: string): string {
   });
 }
 
-const decodeXmlEntities = (value: string) =>
-  value
-    .replaceAll('&amp;', '&')
-    .replaceAll('&lt;', '<')
-    .replaceAll('&gt;', '>')
-    .replaceAll('&quot;', '"')
-    .replaceAll('&#39;', "'");
-
-const extractTag = (xmlBlock: string, tagName: string) => {
-  const match = xmlBlock.match(new RegExp(`<${tagName}>([\\s\\S]*?)</${tagName}>`, 'i'));
-  return match?.[1]?.trim() ?? null;
-};
-
-const parseNewsSource = (title: string) => {
-  const parts = title.split(' - ');
-  if (parts.length < 2) {
-    return null;
-  }
-
-  return parts[parts.length - 1]?.trim() ?? null;
-};
-
-const fetchStockNews = async (symbol: string, stockName: string | null): Promise<NewsItem[]> => {
-  try {
-    const query = encodeURIComponent(`${symbol} stock ${stockName ?? ''}`.trim());
-    const url = `https://news.google.com/rss/search?q=${query}&hl=en-US&gl=US&ceid=US:en`;
-    const response = await fetch(url, {
-      next: { revalidate: 3600 },
-      headers: { 'User-Agent': 'Mozilla/5.0 AITrader/1.0' },
-    });
-
-    if (!response.ok) {
-      return [];
-    }
-
-    const rss = await response.text();
-    const itemMatches = [...rss.matchAll(/<item>([\s\S]*?)<\/item>/gi)];
-
-    return itemMatches.slice(0, 6).flatMap((match) => {
-      const itemXml = match[1];
-      if (!itemXml) {
-        return [];
-      }
-
-      const rawTitle = extractTag(itemXml, 'title');
-      const link = extractTag(itemXml, 'link');
-      const pubDate = extractTag(itemXml, 'pubDate');
-
-      if (!rawTitle || !link) {
-        return [];
-      }
-
-      const decodedTitle = decodeXmlEntities(rawTitle);
-      const source = parseNewsSource(decodedTitle);
-      const title = source ? decodedTitle.replace(new RegExp(`\\s-\\s${source}$`), '') : decodedTitle;
-
-      return [
-        {
-          title,
-          link: decodeXmlEntities(link),
-          source,
-          publishedAt: pubDate,
-        },
-      ];
-    });
-  } catch {
-    return [];
-  }
-};
-
 export const generateStaticParams = async () => {
   const stocks = await getAllStocks();
   return stocks.map((stock) => ({ symbol: stock.symbol.toLowerCase() }));
@@ -161,6 +85,7 @@ const emptyLatest = () => ({
 function latestForAccess(
   access: AppAccessState,
   isPremiumStock: boolean,
+  isGuestVisible: boolean,
   row: {
     score: number | null;
     score_delta: number | null;
@@ -169,7 +94,10 @@ function latestForAccess(
     updated_at: string | null;
   } | null
 ) {
-  if (!row || !canQueryStockCurrentRecommendation(access, isPremiumStock)) {
+  if (
+    !row ||
+    !canQueryStockCurrentRecommendation(access, isPremiumStock, { isGuestVisible })
+  ) {
     return emptyLatest();
   }
   return {
@@ -197,6 +125,7 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
     symbol: string;
     company_name: string | null;
     is_premium_stock: boolean;
+    is_guest_visible: boolean;
   } | null = null;
   let priceRow: {
     last_sale_price: string | null;
@@ -232,7 +161,7 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
 
     const { data: fetchedStockRow } = await admin
       .from('stocks')
-      .select('id, symbol, company_name, is_premium_stock')
+      .select('id, symbol, company_name, is_premium_stock, is_guest_visible')
       .eq('symbol', symbol)
       .maybeSingle();
     stockRow = fetchedStockRow;
@@ -250,7 +179,9 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
 
     if (
       stockRow?.id &&
-      canQueryStockCurrentRecommendation(access, stockRow.is_premium_stock)
+      canQueryStockCurrentRecommendation(access, stockRow.is_premium_stock, {
+        isGuestVisible: Boolean(stockRow.is_guest_visible),
+      })
     ) {
       const { data: fetchedCurrentRow } = await admin
         .from('nasdaq100_recommendations_current_public')
@@ -266,9 +197,12 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
   const fallbackStock = stocks.find((s) => s.symbol === symbol);
   const stockName = stockRow?.company_name ?? fallbackStock?.name ?? null;
   const isPremiumStock = stockRow?.is_premium_stock ?? fallbackStock?.isPremium ?? true;
-  const news = await fetchStockNews(symbol, stockName);
+  const isGuestVisible =
+    stockRow?.is_guest_visible ?? fallbackStock?.isGuestVisible ?? false;
 
-  const latest = latestForAccess(access, isPremiumStock, currentRow);
+  const news = await getCachedStockNews(symbol, stockName);
+
+  const latest = latestForAccess(access, isPremiumStock, isGuestVisible, currentRow);
 
   const pageServedIso = new Date().toISOString();
   const price = {
@@ -292,7 +226,10 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
       (access === 'free' && !isPremiumStock));
 
   const serverCanShowChartAi =
-    hasSignedInUser && canQueryStockCurrentRecommendation(access, isPremiumStock);
+    hasSignedInUser &&
+    canQueryStockCurrentRecommendation(access, isPremiumStock, {
+      isGuestVisible,
+    });
 
   const rankedStrategies = await getStrategiesList();
 
