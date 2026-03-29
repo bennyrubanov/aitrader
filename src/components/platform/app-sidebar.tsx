@@ -315,24 +315,24 @@ export function AppSidebar() {
               ) : null}
               <SidebarMenuItem>
                 <SidebarMenuButton asChild size="sm" tooltip="Performance (public)">
-                  <button type="button" onClick={() => openPath('/performance')}>
+                  <Link href="/performance" target="_blank" rel="noopener noreferrer">
                     <BarChart3 className="size-4 shrink-0" />
                     <span className={SIDEBAR_MENU_TRAILING_CLASSNAME}>
                       <span className="min-w-0 flex-1 truncate">Performance</span>
                       <ArrowUpRight className="ml-auto size-3.5 shrink-0 text-muted-foreground" />
                     </span>
-                  </button>
+                  </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton asChild size="sm" tooltip="Strategy models & methodology (public)">
-                  <button type="button" onClick={() => openPath('/strategy-models')}>
+                  <Link href="/strategy-models" target="_blank" rel="noopener noreferrer">
                     <Cpu className="size-4 shrink-0" />
                     <span className={SIDEBAR_MENU_TRAILING_CLASSNAME}>
                       <span className="min-w-0 flex-1 truncate">Strategy models</span>
                       <ArrowUpRight className="ml-auto size-3.5 shrink-0 text-muted-foreground" />
                     </span>
-                  </button>
+                  </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>

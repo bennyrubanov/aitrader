@@ -174,6 +174,9 @@ export type SubscriptionBillingExtras = {
   stripe_cancel_at_period_end: boolean;
   stripe_pending_tier: SubscriptionTier | null;
   stripe_recurring_interval: 'month' | 'year' | null;
+  /** Primary subscription item price; Stripe smallest currency unit (e.g. cents). */
+  stripe_recurring_unit_amount: number | null;
+  stripe_recurring_currency: string | null;
 };
 
 export function getStripeCustomerIdFromField(
@@ -194,6 +197,22 @@ export function getStripeCustomerIdFromField(
 const subscriptionStatusSyncsBillingSnapshot = (status: Stripe.Subscription.Status) =>
   status === 'active' || status === 'trialing' || status === 'past_due';
 
+function recurringUnitAmountAndCurrency(subscription: Stripe.Subscription): {
+  unitAmount: number | null;
+  currency: string | null;
+} {
+  const price = subscription.items?.data?.[0]?.price;
+  if (!price || typeof price === 'string') {
+    return { unitAmount: null, currency: null };
+  }
+  const u = price.unit_amount;
+  const c = price.currency;
+  return {
+    unitAmount: typeof u === 'number' ? u : null,
+    currency: typeof c === 'string' && c.length > 0 ? c.toLowerCase() : null,
+  };
+}
+
 export async function buildSubscriptionBillingExtras(
   stripe: Stripe,
   subscription: Stripe.Subscription
@@ -208,8 +227,13 @@ export async function buildSubscriptionBillingExtras(
   }
 
   let recurringInterval: 'month' | 'year' | null = null;
+  let recurringUnitAmount: number | null = null;
+  let recurringCurrency: string | null = null;
   if (subscriptionStatusSyncsBillingSnapshot(subscription.status)) {
     recurringInterval = await inferRecurringBillingInterval(stripe, subscription);
+    const recurring = recurringUnitAmountAndCurrency(subscription);
+    recurringUnitAmount = recurring.unitAmount;
+    recurringCurrency = recurring.currency;
   }
 
   const periodEnd = subscriptionCurrentPeriodEndUnix(subscription);
@@ -221,5 +245,7 @@ export async function buildSubscriptionBillingExtras(
     stripe_cancel_at_period_end: subscription.cancel_at_period_end,
     stripe_pending_tier: pending,
     stripe_recurring_interval: recurringInterval,
+    stripe_recurring_unit_amount: recurringUnitAmount,
+    stripe_recurring_currency: recurringCurrency,
   };
 }

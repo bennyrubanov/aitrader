@@ -366,20 +366,20 @@ const Hero: React.FC = () => {
                   </span>
                 </div>
 
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-lg">{selectedResult.symbol}</span>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <div className="flex min-w-0 flex-1 items-center gap-2">
+                    <span className="shrink-0 font-bold text-lg">{selectedResult.symbol}</span>
                     {selectedIsPremium && (
-                      <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold uppercase tracking-wide text-trader-blue bg-trader-blue/10 px-1.5 py-0.5 rounded">
+                      <span className="inline-flex shrink-0 items-center gap-0.5 text-[10px] font-semibold uppercase tracking-wide text-trader-blue bg-trader-blue/10 px-1.5 py-0.5 rounded">
                         <Lock size={9} />
                         Premium
                       </span>
                     )}
                     {selectedResult.companyName && (
-                      <span className="text-muted-foreground text-sm">{selectedResult.companyName}</span>
+                      <span className="truncate text-muted-foreground text-sm">{selectedResult.companyName}</span>
                     )}
                   </div>
-                  <div className="text-right">
+                  <div className="shrink-0 text-right">
                     {parsePrice(selectedResult.lastSalePrice) !== null && (
                       <span className="font-bold text-xl">
                         ${parsePrice(selectedResult.lastSalePrice)!.toFixed(2)}
@@ -501,12 +501,12 @@ const Hero: React.FC = () => {
           <h3 className="text-xl font-semibold text-center mb-6">
             See <span className="text-trader-blue">AI ratings</span> and <span className="text-trader-blue">comprehensive analyses</span> on your favorite stocks
           </h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+          <div className="grid w-full min-w-0 grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4 lg:grid-cols-6">
             {landingPageStocks.slice(0, 6).map((stock) =>
               stock.isPremium ? (
                 <div
                   key={stock.symbol}
-                  className="block transition-transform duration-200 hover:-translate-y-0.5"
+                  className="block min-w-0 transition-transform duration-200 hover:-translate-y-0.5"
                 >
                   <StockCard stock={stock} showDetails={false} />
                 </div>
@@ -516,7 +516,7 @@ const Hero: React.FC = () => {
                   href={`/stocks/${stock.symbol.toLowerCase()}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="block transition-transform duration-200 hover:-translate-y-0.5"
+                  className="block min-w-0 transition-transform duration-200 hover:-translate-y-0.5"
                 >
                   <StockCard stock={stock} showDetails={false} />
                 </Link>

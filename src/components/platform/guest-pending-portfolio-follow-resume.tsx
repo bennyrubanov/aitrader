@@ -5,8 +5,12 @@ import { useRouter } from 'next/navigation';
 import { useAuthState } from '@/components/auth/auth-state-context';
 import { usePortfolioConfig } from '@/components/portfolio-config';
 import {
+  clearGuestPortfolioResumeUILock,
   clearPendingGuestPortfolioFollow,
+  GUEST_PORTFOLIO_RESUME_ENDED_EVENT,
+  GUEST_PORTFOLIO_RESUME_STARTED_EVENT,
   readPendingGuestPortfolioFollow,
+  setGuestPortfolioResumeUILock,
 } from '@/components/portfolio-config/portfolio-config-storage';
 import {
   invalidateUserPortfolioProfiles,
@@ -26,27 +30,6 @@ function formatUsdWhole(n: number): string {
   }).format(n);
 }
 
-async function fireHeartConfettiBurst() {
-  const { default: confetti } = await import('canvas-confetti');
-  const scalar = 1.12;
-  const heart = confetti.shapeFromText({ text: '❤️', scalar });
-  const burst = (originX: number) =>
-    confetti({
-      particleCount: 55,
-      spread: 68,
-      startVelocity: 26,
-      gravity: 0.92,
-      origin: { x: originX, y: 0.7 },
-      shapes: [heart],
-      scalar,
-      colors: ['#e11d48', '#f43f5e', '#fb7185', '#fda4af', '#db2777'],
-      disableForReducedMotion: true,
-    });
-  void burst(0.5);
-  void burst(0.28);
-  void burst(0.72);
-}
-
 /**
  * After a guest saves portfolio picks and signs up or signs in, POST the pending follow payload once.
  */
@@ -63,6 +46,12 @@ export function GuestPendingPortfolioFollowResume() {
     if (!pending) return;
 
     if (guestPortfolioResumeInFlight) return;
+
+    setGuestPortfolioResumeUILock();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event(GUEST_PORTFOLIO_RESUME_STARTED_EVENT));
+    }
+    clearPendingGuestPortfolioFollow();
 
     guestPortfolioResumeInFlight = (async () => {
       try {
@@ -94,7 +83,6 @@ export function GuestPendingPortfolioFollowResume() {
 
         if (!res.ok) {
           console.error('[GuestPendingPortfolioFollowResume]', j?.error ?? res.status);
-          clearPendingGuestPortfolioFollow();
           toast({
             title: 'Could not save your portfolio',
             description:
@@ -108,15 +96,10 @@ export function GuestPendingPortfolioFollowResume() {
 
         const profileId = typeof j.profileId === 'string' ? j.profileId : '';
         if (!profileId) {
-          clearPendingGuestPortfolioFollow();
           return;
         }
 
-        clearPendingGuestPortfolioFollow();
         invalidateUserPortfolioProfiles();
-        requestAnimationFrame(() => {
-          void fireHeartConfettiBurst();
-        });
 
         const entryLabel = formatYmdDisplay(pending.userStartDate);
 
@@ -139,6 +122,10 @@ export function GuestPendingPortfolioFollowResume() {
           queuePlatformPostOnboardingTour();
         }, 150);
       } finally {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new Event(GUEST_PORTFOLIO_RESUME_ENDED_EVENT));
+        }
+        clearGuestPortfolioResumeUILock();
         guestPortfolioResumeInFlight = null;
       }
     })();

@@ -86,6 +86,8 @@ const applyBillingToUserId = async (
       "stripe_cancel_at_period_end",
       "stripe_pending_tier",
       "stripe_recurring_interval",
+      "stripe_recurring_unit_amount",
+      "stripe_recurring_currency",
     ];
     for (const key of keys) {
       if (extras[key] !== undefined) {
@@ -233,6 +235,8 @@ const inactiveSubscriptionExtras = (
     stripe_cancel_at_period_end: subscription.cancel_at_period_end,
     stripe_pending_tier: null,
     stripe_recurring_interval: null,
+    stripe_recurring_unit_amount: null,
+    stripe_recurring_currency: null,
   };
 };
 
@@ -245,6 +249,8 @@ const clearedSubscriptionExtras = (
   stripe_cancel_at_period_end: false,
   stripe_pending_tier: null,
   stripe_recurring_interval: null,
+  stripe_recurring_unit_amount: null,
+  stripe_recurring_currency: null,
 });
 
 export async function POST(req: Request) {

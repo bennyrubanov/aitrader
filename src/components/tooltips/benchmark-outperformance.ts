@@ -1,4 +1,4 @@
-/** Formats ISO `YYYY-MM-DD` (UTC) for benchmark-outperformance tooltip copy. */
+/** Formats ISO `YYYY-MM-DD` for benchmark-outperformance tooltip copy. */
 export function formatBenchmarkValuationDate(isoYmd: string): string {
   const d = new Date(`${isoYmd}T00:00:00Z`);
   if (Number.isNaN(d.getTime())) return isoYmd;

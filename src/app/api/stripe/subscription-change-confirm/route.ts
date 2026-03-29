@@ -53,7 +53,16 @@ export async function POST(req: Request) {
     const ctx = await buildSubscriptionChangeContext(customerId, subscriptionId);
 
     if (body.action === 'upgrade_to_outperformer') {
-      const result = await confirmUpgradeToOutperformer(ctx, body.prorationDate, body.targetPriceId);
+      const targetInterval =
+        body.targetInterval === 'year' || body.targetInterval === 'month'
+          ? body.targetInterval
+          : undefined;
+      const result = await confirmUpgradeToOutperformer(
+        ctx,
+        body.prorationDate,
+        body.targetPriceId,
+        targetInterval
+      );
       if (result.outcome === 'applied') {
         return NextResponse.json({
           ok: true,

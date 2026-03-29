@@ -143,23 +143,46 @@ function SignUpPageContent() {
     }
 
     setIsSubmitting(true);
-    const { data, error } = await supabase.auth.signUp({
-      email: email.trim().toLowerCase(),
-      password,
-      options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`,
-      },
-    });
+    const normalizedEmail = email.trim().toLowerCase();
 
-    if (error) {
-      setErrorMessage(error.message);
+    let response: Response;
+    try {
+      response = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: normalizedEmail,
+          password,
+          nextPath,
+        }),
+      });
+    } catch {
+      setErrorMessage("Network error. Please try again.");
       setIsSubmitting(false);
       return;
     }
 
-    const accountAlreadyExists = !data.session && (data.user?.identities?.length ?? 0) === 0;
-    if (accountAlreadyExists) {
-      const normalizedEmail = email.trim().toLowerCase();
+    let payload: {
+      ok?: boolean;
+      exists?: boolean;
+      canSignIn?: boolean;
+      error?: string;
+    };
+    try {
+      payload = (await response.json()) as typeof payload;
+    } catch {
+      setErrorMessage("Something went wrong. Please try again.");
+      setIsSubmitting(false);
+      return;
+    }
+
+    if (!response.ok && payload.error) {
+      setErrorMessage(payload.error);
+      setIsSubmitting(false);
+      return;
+    }
+
+    if (payload.exists) {
       toast({
         title: "Account already exists",
         description: (
@@ -203,13 +226,28 @@ function SignUpPageContent() {
 
     rememberSignInMethod(EMAIL_PASSWORD_SIGN_IN_METHOD);
 
-    if (data.session) {
+    if (payload.canSignIn) {
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: normalizedEmail,
+        password,
+      });
+      if (signInError) {
+        setErrorMessage(signInError.message);
+        setIsSubmitting(false);
+        return;
+      }
       router.push(nextPath);
       router.refresh();
       return;
     }
 
-    setStatusMessage("Check your email to confirm your account, then continue to the platform.");
+    if (payload.ok) {
+      setStatusMessage("Check your email to confirm your account, then continue to the platform.");
+      setIsSubmitting(false);
+      return;
+    }
+
+    setErrorMessage("Something went wrong. Please try again.");
     setIsSubmitting(false);
   };
 

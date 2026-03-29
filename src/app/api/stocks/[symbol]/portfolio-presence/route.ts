@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server';
+import { canQueryStockCurrentRecommendation, getAppAccessState } from '@/lib/app-access';
+import { buildAuthStateFromUserAndProfile } from '@/lib/build-auth-state';
 import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { createClient } from '@/utils/supabase/server';
@@ -32,7 +34,7 @@ export async function GET(req: Request, { params }: RouteContext) {
 
   const { data: stockRow } = await admin
     .from('stocks')
-    .select('id, is_guest_visible')
+    .select('id, is_premium_stock, is_guest_visible')
     .eq('symbol', symbol)
     .maybeSingle();
 
@@ -40,8 +42,27 @@ export async function GET(req: Request, { params }: RouteContext) {
     return NextResponse.json({ error: 'Stock not found' }, { status: 404 });
   }
 
-  if (!user && stockRow.is_guest_visible !== true) {
-    return NextResponse.json({ error: 'Stock not found' }, { status: 404 });
+  const isPremiumStock = stockRow.is_premium_stock === true;
+  const isGuestVisible = stockRow.is_guest_visible === true;
+
+  let access = getAppAccessState({ isAuthenticated: false, subscriptionTier: 'free' });
+  if (user) {
+    const { data: profile, error: profileError } = await session
+      .from('user_profiles')
+      .select('subscription_tier, full_name, email')
+      .eq('id', user.id)
+      .maybeSingle();
+    access = getAppAccessState(buildAuthStateFromUserAndProfile(user, profile, Boolean(profileError)));
+  }
+
+  if (!canQueryStockCurrentRecommendation(access, isPremiumStock, { isGuestVisible })) {
+    return NextResponse.json(
+      {
+        error:
+          'Portfolio footprint for this stock is available with the same access as AI ratings. Sign in or upgrade to view.',
+      },
+      { status: 403 },
+    );
   }
 
   const strategyResult = strategySlug

@@ -23,6 +23,9 @@ type PreviewPayload = {
   amountDue: number | null;
   currency: string;
   total: number | null;
+  startingBalance: number;
+  endingBalance: number | null;
+  lineItems: Array<{ description: string; amount: number }>;
   planTier: 'supporter' | 'outperformer';
   currentInterval: 'month' | 'year';
   currentRecurringUnitAmount: number | null;
@@ -58,11 +61,26 @@ function formatPeriodEndUtc(iso: string | null) {
   }
 }
 
+function computeNewRenewalDateLabel(interval: 'month' | 'year'): string {
+  const d = new Date();
+  if (interval === 'year') d.setFullYear(d.getFullYear() + 1);
+  else d.setMonth(d.getMonth() + 1);
+  try {
+    return (
+      new Intl.DateTimeFormat(undefined, {
+        dateStyle: 'medium',
+        timeZone: 'UTC',
+      }).format(d)
+    );
+  } catch {
+    return d.toISOString().slice(0, 10);
+  }
+}
+
 type BillingIntervalSwitchDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onAfterSuccess: () => void | Promise<void>;
-  /** Billing cadence to switch *to* (opposite of current). */
   targetInterval: 'month' | 'year';
 };
 
@@ -72,13 +90,14 @@ export function BillingIntervalSwitchDialog({
   onAfterSuccess,
   targetInterval,
 }: BillingIntervalSwitchDialogProps) {
-  const [phase, setPhase] = useState<
-    'idle' | 'loading' | 'ready' | 'affirm' | 'error' | 'confirming'
-  >('idle');
+  const [phase, setPhase] = useState<'idle' | 'loading' | 'ready' | 'error' | 'confirming'>(
+    'idle'
+  );
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<PreviewPayload | null>(null);
   const [paymentPendingNotice, setPaymentPendingNotice] = useState<string | null>(null);
   const [paymentPendingUrl, setPaymentPendingUrl] = useState<string | null>(null);
+  const [scheduled, setScheduled] = useState(false);
 
   const reset = useCallback(() => {
     setPhase('idle');
@@ -86,6 +105,7 @@ export function BillingIntervalSwitchDialog({
     setPreview(null);
     setPaymentPendingNotice(null);
     setPaymentPendingUrl(null);
+    setScheduled(false);
   }, []);
 
   useEffect(() => {
@@ -101,48 +121,124 @@ export function BillingIntervalSwitchDialog({
 
     void (async () => {
       try {
-        const res = await fetch('/api/stripe/subscription-change-preview', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'change_billing_interval',
+        if (targetInterval === 'month') {
+          const res = await fetch('/api/stripe/subscription-change-preview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'preview_scheduled_interval_switch_to_monthly',
+            }),
+          });
+          const data = (await res.json()) as Record<string, unknown> & {
+            error?: string;
+            planTier?: string;
+            currentInterval?: string;
+            currentRecurringUnitAmount?: number;
+            currentRecurringCurrency?: string;
+            targetRecurringUnitAmount?: number;
+            targetRecurringCurrency?: string;
+            currentSubscriptionPeriodEndIso?: string | null;
+          };
+          if (cancelled) return;
+          if (!res.ok) {
+            throw new Error(
+              typeof data.error === 'string' ? data.error : 'Could not load pricing.'
+            );
+          }
+          const targetCur =
+            typeof data.targetRecurringCurrency === 'string'
+              ? data.targetRecurringCurrency
+              : 'usd';
+          setPreview({
+            prorationDate: 0,
+            targetPriceId: '',
+            amountDue: 0,
+            currency: targetCur,
+            total: 0,
+            startingBalance: 0,
+            endingBalance: null,
+            lineItems: [],
+            planTier: data.planTier === 'outperformer' ? 'outperformer' : 'supporter',
+            currentInterval: data.currentInterval === 'year' ? 'year' : 'month',
+            currentRecurringUnitAmount:
+              typeof data.currentRecurringUnitAmount === 'number'
+                ? data.currentRecurringUnitAmount
+                : null,
+            currentRecurringCurrency:
+              typeof data.currentRecurringCurrency === 'string'
+                ? data.currentRecurringCurrency
+                : targetCur,
+            targetInterval: 'month',
+            targetRecurringUnitAmount:
+              typeof data.targetRecurringUnitAmount === 'number'
+                ? data.targetRecurringUnitAmount
+                : null,
+            targetRecurringCurrency:
+              typeof data.targetRecurringCurrency === 'string'
+                ? data.targetRecurringCurrency
+                : targetCur,
+            targetRecurringInterval: 'month',
+            currentSubscriptionPeriodEndIso:
+              typeof data.currentSubscriptionPeriodEndIso === 'string'
+                ? data.currentSubscriptionPeriodEndIso
+                : null,
+          });
+          setScheduled(true);
+          setPhase('ready');
+        } else {
+          const res = await fetch('/api/stripe/subscription-change-preview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'change_billing_interval',
+              targetInterval,
+            }),
+          });
+          const data = (await res.json()) as PreviewPayload & { error?: string };
+          if (cancelled) return;
+          if (!res.ok) {
+            throw new Error(data.error ?? 'Could not load pricing for this change.');
+          }
+          setPreview({
+            prorationDate: data.prorationDate,
+            targetPriceId: data.targetPriceId,
+            amountDue: data.amountDue,
+            currency: data.currency,
+            total: data.total,
+            startingBalance: typeof data.startingBalance === 'number' ? data.startingBalance : 0,
+            endingBalance: typeof data.endingBalance === 'number' ? data.endingBalance : null,
+            lineItems: Array.isArray(data.lineItems)
+              ? (data.lineItems as Array<{ description: string; amount: number }>)
+              : [],
+            planTier: data.planTier === 'outperformer' ? 'outperformer' : 'supporter',
+            currentInterval: data.currentInterval === 'year' ? 'year' : 'month',
+            currentRecurringUnitAmount:
+              typeof data.currentRecurringUnitAmount === 'number'
+                ? data.currentRecurringUnitAmount
+                : null,
+            currentRecurringCurrency:
+              typeof data.currentRecurringCurrency === 'string'
+                ? data.currentRecurringCurrency
+                : data.currency,
             targetInterval,
-          }),
-        });
-        const data = (await res.json()) as PreviewPayload & { error?: string };
-        if (cancelled) return;
-        if (!res.ok) {
-          throw new Error(data.error ?? 'Could not load pricing for this change.');
+            targetRecurringUnitAmount:
+              typeof data.targetRecurringUnitAmount === 'number'
+                ? data.targetRecurringUnitAmount
+                : null,
+            targetRecurringCurrency:
+              typeof data.targetRecurringCurrency === 'string'
+                ? data.targetRecurringCurrency
+                : data.currency,
+            targetRecurringInterval:
+              data.targetRecurringInterval === 'year' ? 'year' : 'month',
+            currentSubscriptionPeriodEndIso:
+              typeof data.currentSubscriptionPeriodEndIso === 'string'
+                ? data.currentSubscriptionPeriodEndIso
+                : null,
+          });
+          setScheduled(false);
+          setPhase('ready');
         }
-        setPreview({
-          prorationDate: data.prorationDate,
-          targetPriceId: data.targetPriceId,
-          amountDue: data.amountDue,
-          currency: data.currency,
-          total: data.total,
-          planTier: data.planTier === 'outperformer' ? 'outperformer' : 'supporter',
-          currentInterval: data.currentInterval === 'year' ? 'year' : 'month',
-          currentRecurringUnitAmount:
-            typeof data.currentRecurringUnitAmount === 'number'
-              ? data.currentRecurringUnitAmount
-              : null,
-          currentRecurringCurrency:
-            typeof data.currentRecurringCurrency === 'string'
-              ? data.currentRecurringCurrency
-              : data.currency,
-          targetInterval,
-          targetRecurringUnitAmount:
-            typeof data.targetRecurringUnitAmount === 'number' ? data.targetRecurringUnitAmount : null,
-          targetRecurringCurrency:
-            typeof data.targetRecurringCurrency === 'string' ? data.targetRecurringCurrency : data.currency,
-          targetRecurringInterval:
-            data.targetRecurringInterval === 'year' ? 'year' : 'month',
-          currentSubscriptionPeriodEndIso:
-            typeof data.currentSubscriptionPeriodEndIso === 'string'
-              ? data.currentSubscriptionPeriodEndIso
-              : null,
-        });
-        setPhase('ready');
       } catch (e) {
         if (cancelled) return;
         setError(e instanceof Error ? e.message : 'Preview failed.');
@@ -229,17 +325,35 @@ export function BillingIntervalSwitchDialog({
       reset();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Update failed.');
-      setPhase('affirm');
+      setPhase('ready');
+    }
+  };
+
+  const handleScheduleSwitch = async () => {
+    setPhase('confirming');
+    setError(null);
+    try {
+      const res = await fetch('/api/stripe/subscription-downgrade-schedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'schedule_interval_switch_to_monthly',
+        }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'Could not schedule switch.');
+      await fetch('/api/user/reconcile-premium', { method: 'POST' });
+      await onAfterSuccess();
+      onOpenChange(false);
+      reset();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Schedule failed.');
+      setPhase('ready');
     }
   };
 
   const title =
     targetInterval === 'year' ? 'Switch to yearly billing' : 'Switch to monthly billing';
-  const titleAffirm =
-    targetInterval === 'year'
-      ? 'Confirm switch to yearly billing'
-      : 'Confirm switch to monthly billing';
-  const chargeLabel = preview ? formatMoney(preview.amountDue, preview.currency) : '—';
   const chargeIsCredit =
     preview !== null && preview.amountDue !== null && preview.amountDue < 0;
   const creditLabel =
@@ -249,8 +363,10 @@ export function BillingIntervalSwitchDialog({
           preview.currency
         )
       : null;
-  const periodEndLabel = preview ? formatPeriodEndUtc(preview.currentSubscriptionPeriodEndIso) : null;
-  const renewalOnLabel = periodEndLabel ? `${periodEndLabel} (UTC)` : 'See Billing & invoices';
+  const periodEndLabel = preview
+    ? formatPeriodEndUtc(preview.currentSubscriptionPeriodEndIso)
+    : null;
+  const renewalOnLabel = periodEndLabel ? periodEndLabel : 'See Billing & invoices';
 
   const renewalDisplay = (
     amount: number | null,
@@ -269,24 +385,25 @@ export function BillingIntervalSwitchDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent showCloseButton={phase !== 'confirming'}>
+      <DialogContent
+        showCloseButton={phase !== 'confirming'}
+        className="min-w-0 max-w-[calc(100vw-2rem)] overflow-x-hidden sm:max-w-lg"
+      >
         <DialogHeader>
-          <DialogTitle>{phase === 'affirm' || phase === 'confirming' ? titleAffirm : title}</DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
-            {phase === 'affirm' || phase === 'confirming' ? (
-              chargeIsCredit ? (
-                <>
-                  <span className="font-semibold text-foreground">No charge now</span> (~{creditLabel}{' '}
-                  credit). If this doesn&apos;t complete, billing stays as today.
-                </>
-              ) : (
-                <>
-                  Charges <span className="font-semibold text-foreground">{chargeLabel}</span> now
-                  (proration). Failed payment → billing cadence unchanged until paid.
-                </>
-              )
+            {scheduled ? (
+              'Your yearly plan continues until renewal, then switches to monthly billing.'
+            ) : chargeIsCredit ? (
+              <>
+                <span className="font-semibold text-foreground">
+                  {formatMoney(0, preview.currency)}
+                </span>{' '}
+                due now (~{creditLabel} credit applied). Billing cadence unchanged if this
+                doesn&apos;t complete.
+              </>
             ) : (
-              <>Review the switch, then continue.</>
+              <>Review the billing change below.</>
             )}
           </DialogDescription>
         </DialogHeader>
@@ -300,9 +417,24 @@ export function BillingIntervalSwitchDialog({
 
         {phase === 'error' && error && <p className="text-sm text-destructive">{error}</p>}
 
-        {(phase === 'ready' || phase === 'affirm' || phase === 'confirming') && preview && (
-          <div className="space-y-3 text-sm">
+        {(phase === 'ready' || phase === 'confirming') && preview && (
+          <div className="min-w-0 space-y-3 text-sm">
             <PlanChangeCompareLayout
+              dueNowBreakdown={
+                !scheduled && preview.lineItems.length > 0
+                  ? {
+                      lineItems: preview.lineItems,
+                      currency: preview.currency,
+                      startingBalance: preview.startingBalance,
+                      endingBalance: preview.endingBalance,
+                      total: preview.total,
+                      dueNowAmountCents: preview.amountDue,
+                    }
+                  : null
+              }
+              effectiveLabel={
+                scheduled ? `Takes effect ${renewalOnLabel}` : 'Takes effect immediately'
+              }
               beforeRows={[
                 { label: 'Plan', value: formatPaidTierLabel(preview.planTier) },
                 {
@@ -317,6 +449,7 @@ export function BillingIntervalSwitchDialog({
                     preview.currentInterval
                   ),
                 },
+                { label: 'Renewal date', value: renewalOnLabel },
               ]}
               afterRows={[
                 { label: 'Plan', value: formatPaidTierLabel(preview.planTier) },
@@ -332,12 +465,18 @@ export function BillingIntervalSwitchDialog({
                     preview.targetInterval
                   ),
                 },
+                {
+                  label: 'Renewal date',
+                  value: scheduled ? renewalOnLabel : computeNewRenewalDateLabel(preview.targetInterval),
+                },
               ]}
               dueNowLabel="Due now"
               dueNowValue={
-                chargeIsCredit
-                  ? `No charge (${creditLabel} credit)`
-                  : formatMoney(preview.amountDue, preview.currency)
+                scheduled
+                  ? formatMoney(0, preview.currency)
+                  : chargeIsCredit
+                    ? formatMoney(0, preview.currency)
+                    : formatMoney(preview.amountDue, preview.currency)
               }
               dueAtRenewal={{
                 amount: renewalDisplay(
@@ -345,13 +484,28 @@ export function BillingIntervalSwitchDialog({
                   preview.targetRecurringCurrency,
                   preview.targetInterval
                 ),
-                renewalDate: renewalOnLabel,
+                renewalDate: scheduled
+                  ? renewalOnLabel
+                  : computeNewRenewalDateLabel(preview.targetInterval),
               }}
               footnote={
-                <p>
-                  Plan tier does not change. You will remain on the{' '}
-                  <strong>{formatPaidTierLabel(preview.planTier)}</strong> plan.
-                </p>
+                scheduled ? (
+                  <p>
+                    Your yearly plan continues until <strong>{renewalOnLabel}</strong>. Monthly
+                    billing at{' '}
+                    {renewalDisplay(
+                      preview.targetRecurringUnitAmount,
+                      preview.targetRecurringCurrency,
+                      'month'
+                    )}{' '}
+                    starts then. {formatMoney(0, preview.currency)} due now.
+                  </p>
+                ) : (
+                  <p>
+                    Plan tier does not change. You will remain on the{' '}
+                    <strong>{formatPaidTierLabel(preview.planTier)}</strong> plan.
+                  </p>
+                )
               }
             />
             {paymentPendingNotice && (
@@ -401,44 +555,40 @@ export function BillingIntervalSwitchDialog({
                 )}
               </Button>
             </>
-          ) : phase === 'affirm' || phase === 'confirming' ? (
+          ) : (
             <>
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setPhase('ready')}
+                onClick={() => onOpenChange(false)}
                 disabled={phase === 'confirming'}
               >
-                Back
+                Cancel
               </Button>
               <Button
                 type="button"
-                onClick={() => void handleConfirmCharge()}
-                disabled={phase !== 'affirm' || !preview}
+                onClick={() =>
+                  void (scheduled ? handleScheduleSwitch() : handleConfirmCharge())
+                }
+                disabled={phase !== 'ready' || !preview}
                 className="bg-trader-blue text-white hover:bg-trader-blue-dark"
               >
                 {phase === 'confirming' ? (
                   <>
                     <Loader2 className="mr-2 size-4 animate-spin" />
-                    Processing…
+                    {scheduled ? 'Scheduling…' : 'Processing…'}
                   </>
+                ) : scheduled ? (
+                  'Schedule switch to monthly'
+                ) : preview != null &&
+                  preview.amountDue !== null &&
+                  preview.amountDue > 0 ? (
+                  `Confirm and charge ${formatMoney(preview.amountDue, preview.currency)}`
+                ) : preview != null && preview.amountDue !== null ? (
+                  `Confirm (${formatMoney(0, preview.currency)})`
                 ) : (
-                  'Confirm and charge'
+                  'Confirm'
                 )}
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                onClick={() => setPhase('affirm')}
-                disabled={phase !== 'ready' || !preview}
-                className="bg-trader-blue text-white hover:bg-trader-blue-dark"
-              >
-                Review and confirm
               </Button>
             </>
           )}

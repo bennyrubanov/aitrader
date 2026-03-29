@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useAuthState } from '@/components/auth/auth-state-context';
 import { Button } from '@/components/ui/button';
 import {
   PLATFORM_POST_ONBOARDING_TOUR_PRIMED_EVENT,
@@ -12,14 +13,13 @@ import {
   getPlatformPostOnboardingTourNavigationPath,
   isPlatformPostOnboardingTourDone,
   markPlatformPostOnboardingTourDone,
+  type PlatformPostOnboardingTourStep,
 } from '@/lib/platform-post-onboarding-tour';
 import { cn } from '@/lib/utils';
-
-const STEP_COUNT = PLATFORM_POST_ONBOARDING_TOUR_STEPS.length;
 const HIGHLIGHT_PAD = 6;
 const POLL_INTERVAL_MS = 100;
-const POLL_MAX_ATTEMPTS = 15;
-const ROUTE_SETTLE_MS = 50;
+const POLL_MAX_ATTEMPTS = 30;
+const ROUTE_SETTLE_MS = 250;
 
 /** Full-viewport outer (CW) + inner rects (CCW) for SVG `fill-rule="evenodd"` holes. */
 function svgSpotlightPath(viewW: number, viewH: number, rects: DOMRect[], pad: number): string {
@@ -35,14 +35,24 @@ function svgSpotlightPath(viewW: number, viewH: number, rects: DOMRect[], pad: n
   return [outer, ...holes].join(' ');
 }
 
+function buildTourStepsForUser(hasPremiumAccess: boolean): PlatformPostOnboardingTourStep[] {
+  if (hasPremiumAccess) return PLATFORM_POST_ONBOARDING_TOUR_STEPS;
+  return PLATFORM_POST_ONBOARDING_TOUR_STEPS.filter((s) => s.id !== 'overview-rebalance-actions');
+}
+
 export function PostOnboardingPlatformTour() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const authState = useAuthState();
   const [active, setActive] = useState(false);
   /** True only after step 0 targets exist in the DOM so the page loads visibly before the overlay. */
   const [tourReady, setTourReady] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
+  /** Snapshot at queue consumption so step list does not change mid-tour if auth updates. */
+  const [tourSteps, setTourSteps] = useState<PlatformPostOnboardingTourStep[]>(
+    PLATFORM_POST_ONBOARDING_TOUR_STEPS
+  );
   const [targetRects, setTargetRects] = useState<DOMRect[]>([]);
   const [viewport, setViewport] = useState({ w: 0, h: 0 });
   const lastReplacedPathRef = useRef<string | null>(null);
@@ -50,20 +60,23 @@ export function PostOnboardingPlatformTour() {
   /** Prefetch all tour routes once per active session (avoid churn on every pathname change). */
   const tourPrefetchRanForSessionRef = useRef(false);
 
-  const tryStartTour = () => {
+  const stepCount = tourSteps.length;
+
+  const tryStartTour = useCallback(() => {
     if (isPlatformPostOnboardingTourDone()) return;
     if (!consumePlatformPostOnboardingTourQueue()) return;
+    setTourSteps(buildTourStepsForUser(authState.hasPremiumAccess));
     setTourReady(false);
     setActive(true);
     setStepIndex(0);
-  };
+  }, [authState.hasPremiumAccess]);
 
   useEffect(() => {
     tryStartTour();
     const onQueued = () => tryStartTour();
     window.addEventListener(PLATFORM_POST_ONBOARDING_TOUR_QUEUED_EVENT, onQueued);
     return () => window.removeEventListener(PLATFORM_POST_ONBOARDING_TOUR_QUEUED_EVENT, onQueued);
-  }, []);
+  }, [tryStartTour]);
 
   useEffect(() => {
     if (!active) {
@@ -73,12 +86,12 @@ export function PostOnboardingPlatformTour() {
     if (tourPrefetchRanForSessionRef.current) return;
     tourPrefetchRanForSessionRef.current = true;
     const paths = new Set<string>();
-    for (let i = 0; i < STEP_COUNT; i++) {
-      const p = getPlatformPostOnboardingTourNavigationPath(i, pathname);
+    for (const step of tourSteps) {
+      const p = getPlatformPostOnboardingTourNavigationPath(step, pathname);
       if (p) paths.add(p);
     }
     paths.forEach((p) => router.prefetch(p));
-  }, [active, pathname, router]);
+  }, [active, pathname, router, tourSteps]);
 
   useEffect(() => {
     didScrollForStepRef.current = -1;
@@ -88,7 +101,9 @@ export function PostOnboardingPlatformTour() {
   useEffect(() => {
     if (!active || tourReady) return;
 
-    const nextPath = getPlatformPostOnboardingTourNavigationPath(0, pathname);
+    const firstStep = tourSteps[0];
+    if (!firstStep) return;
+    const nextPath = getPlatformPostOnboardingTourNavigationPath(firstStep, pathname);
     const qs = searchParams.toString();
     const currentUrl = qs ? `${pathname}?${qs}` : pathname;
 
@@ -100,7 +115,7 @@ export function PostOnboardingPlatformTour() {
     } else {
       lastReplacedPathRef.current = nextPath;
     }
-  }, [active, tourReady, pathname, searchParams, router]);
+  }, [active, tourReady, pathname, searchParams, router, tourSteps]);
 
   /** Show the tour only after the overview + shell readiness handshake (no timeout fallback). */
   useEffect(() => {
@@ -118,8 +133,10 @@ export function PostOnboardingPlatformTour() {
   useEffect(() => {
     if (!active || !tourReady) return;
 
-    const selectors = PLATFORM_POST_ONBOARDING_TOUR_STEPS[stepIndex].anchors;
-    const nextPath = getPlatformPostOnboardingTourNavigationPath(stepIndex, pathname);
+    const step = tourSteps[stepIndex];
+    if (!step) return;
+    const selectors = step.anchors;
+    const nextPath = getPlatformPostOnboardingTourNavigationPath(step, pathname);
     const qs = searchParams.toString();
     const currentUrl = qs ? `${pathname}?${qs}` : pathname;
 
@@ -214,7 +231,7 @@ export function PostOnboardingPlatformTour() {
       window.removeEventListener('scroll', onResizeOrScroll, true);
       ro.disconnect();
     };
-  }, [active, tourReady, stepIndex, pathname, searchParams, router]);
+  }, [active, tourReady, stepIndex, pathname, searchParams, router, tourSteps]);
 
   const finishTour = () => {
     markPlatformPostOnboardingTourDone();
@@ -234,7 +251,7 @@ export function PostOnboardingPlatformTour() {
   };
 
   const handleNext = () => {
-    if (stepIndex >= STEP_COUNT - 1) {
+    if (stepIndex >= stepCount - 1) {
       finishTour();
       return;
     }
@@ -243,8 +260,9 @@ export function PostOnboardingPlatformTour() {
 
   if (!active || !tourReady) return null;
 
-  const step = PLATFORM_POST_ONBOARDING_TOUR_STEPS[stepIndex];
-  const isLast = stepIndex === STEP_COUNT - 1;
+  const step = tourSteps[stepIndex];
+  if (!step) return null;
+  const isLast = stepIndex === stepCount - 1;
 
   const ringClassName =
     'pointer-events-none fixed z-[201] rounded-xl border-2 border-primary shadow-[0_0_0_4px_rgba(0,0,0,0.15)] ring-2 ring-primary/30 transition-[top,left,width,height] duration-150 ease-out';
@@ -301,7 +319,7 @@ export function PostOnboardingPlatformTour() {
         aria-describedby="platform-tour-desc"
       >
         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Step {stepIndex + 1} of {STEP_COUNT}
+          Step {stepIndex + 1} of {stepCount}
         </p>
         <h2 id="platform-tour-title" className="mt-1 text-base font-semibold leading-snug">
           {step.title}

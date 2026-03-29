@@ -44,29 +44,29 @@ const StockCard: React.FC<StockCardProps> = ({
 
   return (
     <div
-      className={`stock-card relative ${
+      className={`stock-card relative min-w-0 w-full max-w-full overflow-hidden ${
         isPremium ? "stock-card-premium" : "stock-card-free"
       } ${className}`}
     >
-      <div className="flex justify-between items-center">
-        <div className="flex flex-col">
-          <div className="flex items-center space-x-2">
-            <span className="font-bold">{symbol}</span>
+      <div className="flex min-w-0 items-center justify-between gap-2">
+        <div className="min-w-0 flex-1 overflow-hidden">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="shrink-0 font-bold">{symbol}</span>
             {isPremium && (
               <Lock
                 size={14}
-                className="text-trader-blue"
+                className="shrink-0 text-trader-blue"
                 aria-label="Premium stock"
               />
             )}
           </div>
-          <span className="text-sm text-muted-foreground truncate max-w-[180px]">
+          <span className="block truncate text-sm text-muted-foreground">
             {name}
           </span>
         </div>
 
         {showDetails && !isPremium && price ? (
-          <div className="text-right">
+          <div className="shrink-0 text-right">
             <div className="font-medium">${price.toFixed(2)}</div>
             <div
               className={`text-xs ${

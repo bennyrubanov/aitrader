@@ -1014,7 +1014,7 @@ function RebalanceActionsTable({
                   </th>
                   <th
                     scope="col"
-                    className="whitespace-nowrap py-1.5 pl-3 pr-14 text-right font-semibold text-muted-foreground"
+                    className="whitespace-nowrap py-1.5 pl-3 pr-3 text-right font-semibold text-muted-foreground sm:pr-14"
                   >
                     Target value
                   </th>
@@ -1055,7 +1055,7 @@ function RebalanceActionsTable({
                     <td className="whitespace-nowrap py-1 pl-2 pr-3 text-right align-middle tabular-nums">
                       {tradeCell(kind, r)}
                     </td>
-                    <td className="whitespace-nowrap py-1 pl-3 pr-14 text-right align-middle font-medium tabular-nums text-foreground">
+                    <td className="whitespace-nowrap py-1 pl-3 pr-3 text-right align-middle font-medium tabular-nums text-foreground sm:pr-14">
                       {formatOverviewCurrency(r.targetDollars)}
                     </td>
                   </>
@@ -2543,6 +2543,14 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     [entrySettingsProfileId, profiles]
   );
 
+  const entrySettingsPrefetchedModelInceptionYmd = useMemo(() => {
+    const slug = entrySettingsProfile?.strategy_models?.slug?.trim() ?? '';
+    if (!slug || rankedLoading) return undefined;
+    const bundle = rankedBySlug[slug];
+    if (bundle === undefined) return undefined;
+    return bundle.modelInceptionDate;
+  }, [entrySettingsProfile, rankedBySlug, rankedLoading]);
+
   return (
     <>
       {spotlightStockChartSymbol ? (
@@ -2631,6 +2639,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
             void refreshOverviewProfiles();
           }
         }}
+        prefetchedModelInceptionYmd={entrySettingsPrefetchedModelInceptionYmd}
       />
       <PortfolioListSortDialog
         open={rebalanceSortDialogOpen}
@@ -3950,7 +3959,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                 )}
               </TabsContent>
 
-              <div className="!mt-1 flex justify-end">
+              <div className="!mt-3 flex justify-end">
                 <div className="inline-flex max-w-full flex-wrap justify-end gap-1.5 rounded-2xl border border-border/80 bg-card/95 p-1.5 shadow-lg shadow-black/[0.06] ring-1 ring-black/[0.04] backdrop-blur-sm dark:bg-card/90 dark:shadow-black/20 dark:ring-white/[0.06]">
                   {OVERVIEW_PAGE_QUICK_LINKS.map(({ href, label, icon: Icon }) => (
                     <Link

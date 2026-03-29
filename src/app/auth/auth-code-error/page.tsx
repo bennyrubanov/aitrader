@@ -19,6 +19,9 @@ const ERROR_REASON_MESSAGES: Record<string, string> = {
     'This sign-in link is incomplete or expired. Please start sign-in again.',
 };
 
+const OTP_EXPIRED_MESSAGE =
+  'This confirmation link has expired or was already used. If you already verified your email, try signing in. Otherwise, sign up again to receive a new confirmation email.';
+
 function AuthCodeErrorContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -26,14 +29,25 @@ function AuthCodeErrorContent() {
   const doneRef = useRef(false);
 
   const reason = searchParams.get('reason');
+  const errorCode = searchParams.get('error_code');
+  const errorDescription = searchParams.get('error_description');
   const postAuthPath = sanitizeAuthRedirectPath(
     searchParams.get('next'),
     DEFAULT_POST_AUTH_PATH,
   );
-  const resolvedMessage =
-    reason && ERROR_REASON_MESSAGES[reason]
-      ? ERROR_REASON_MESSAGES[reason]
-      : "Sorry, we couldn't complete your sign-in automatically. Please try again.";
+
+  const resolvedMessage = (() => {
+    if (errorCode === 'otp_expired') {
+      return OTP_EXPIRED_MESSAGE;
+    }
+    if (errorDescription?.trim()) {
+      return errorDescription.trim();
+    }
+    if (reason && ERROR_REASON_MESSAGES[reason]) {
+      return ERROR_REASON_MESSAGES[reason];
+    }
+    return "Sorry, we couldn't complete your sign-in automatically. Please try again.";
+  })();
 
   useEffect(() => {
     let cancelled = false;
@@ -120,6 +134,13 @@ function AuthCodeErrorContent() {
           <Link href={`/sign-in?next=${encodeURIComponent(postAuthPath)}`}>
             <Button className="w-full">Try signing in again</Button>
           </Link>
+          {errorCode === "otp_expired" ? (
+            <Link href={`/sign-up?next=${encodeURIComponent(postAuthPath)}`}>
+              <Button variant="secondary" className="w-full">
+                Sign up again for a new email
+              </Button>
+            </Link>
+          ) : null}
           <Link href="/">
             <Button variant="outline" className="w-full">
               Return home

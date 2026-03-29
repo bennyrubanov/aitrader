@@ -6,6 +6,7 @@ import {
   buildSubscriptionChangeContext,
   previewChangeBillingInterval,
   previewDowngradeToSupporter,
+  previewScheduledIntervalSwitchToMonthly,
   previewUpgradeToOutperformer,
 } from '@/lib/stripe-subscription-change';
 
@@ -45,7 +46,11 @@ export async function POST(req: Request) {
     const ctx = await buildSubscriptionChangeContext(customerId, subscriptionId);
 
     if (body.action === 'upgrade_to_outperformer') {
-      const preview = await previewUpgradeToOutperformer(ctx);
+      const targetInterval =
+        body.targetInterval === 'year' || body.targetInterval === 'month'
+          ? body.targetInterval
+          : undefined;
+      const preview = await previewUpgradeToOutperformer(ctx, targetInterval);
       return NextResponse.json({
         action: 'upgrade_to_outperformer',
         prorationDate: preview.prorationDate,
@@ -53,12 +58,20 @@ export async function POST(req: Request) {
         amountDue: preview.amountDue,
         currency: preview.currency,
         total: preview.total,
+        startingBalance: preview.startingBalance,
+        endingBalance: preview.endingBalance,
+        lineItems: preview.lineItems,
         subscriptionId: preview.subscriptionId,
-        billingInterval: preview.billingInterval,
+        currentInterval: preview.currentInterval,
+        targetInterval: preview.targetInterval,
         currentRecurringUnitAmount: preview.currentRecurringUnitAmount,
         currentRecurringCurrency: preview.currentRecurringCurrency,
         targetRecurringUnitAmount: preview.targetRecurringUnitAmount,
         targetRecurringCurrency: preview.targetRecurringCurrency,
+        outperformerMonthlyUnitAmount: preview.outperformerMonthlyUnitAmount,
+        outperformerMonthlyCurrency: preview.outperformerMonthlyCurrency,
+        outperformerYearlyUnitAmount: preview.outperformerYearlyUnitAmount,
+        outperformerYearlyCurrency: preview.outperformerYearlyCurrency,
         currentSubscriptionPeriodEndIso: preview.currentSubscriptionPeriodEndIso,
       });
     }
@@ -78,6 +91,9 @@ export async function POST(req: Request) {
         amountDue: preview.amountDue,
         currency: preview.currency,
         total: preview.total,
+        startingBalance: preview.startingBalance,
+        endingBalance: preview.endingBalance,
+        lineItems: preview.lineItems,
         subscriptionId: preview.subscriptionId,
         targetRecurringUnitAmount: preview.targetRecurringUnitAmount,
         targetRecurringCurrency: preview.targetRecurringCurrency,
@@ -91,6 +107,23 @@ export async function POST(req: Request) {
       return NextResponse.json({
         action: 'preview_downgrade_to_supporter',
         billingInterval: preview.billingInterval,
+        currentRecurringUnitAmount: preview.currentRecurringUnitAmount,
+        currentRecurringCurrency: preview.currentRecurringCurrency,
+        supporterMonthlyUnitAmount: preview.supporterMonthlyUnitAmount,
+        supporterMonthlyCurrency: preview.supporterMonthlyCurrency,
+        supporterYearlyUnitAmount: preview.supporterYearlyUnitAmount,
+        supporterYearlyCurrency: preview.supporterYearlyCurrency,
+        currentSubscriptionPeriodEndIso: preview.currentSubscriptionPeriodEndIso,
+        scheduledTargetInterval: preview.scheduledTargetInterval,
+      });
+    }
+
+    if (body.action === 'preview_scheduled_interval_switch_to_monthly') {
+      const preview = await previewScheduledIntervalSwitchToMonthly(ctx);
+      return NextResponse.json({
+        action: 'preview_scheduled_interval_switch_to_monthly',
+        planTier: preview.planTier,
+        currentInterval: preview.currentInterval,
         currentRecurringUnitAmount: preview.currentRecurringUnitAmount,
         currentRecurringCurrency: preview.currentRecurringCurrency,
         targetRecurringUnitAmount: preview.targetRecurringUnitAmount,

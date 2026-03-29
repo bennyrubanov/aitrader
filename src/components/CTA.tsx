@@ -70,7 +70,7 @@ const CTA: React.FC = () => {
             <h2 className="text-3xl md:text-4xl font-bold mb-4">
               Let&apos;s outperform the market with AI
             </h2>
-            <p className="text-xl text-muted-foreground max-w-3xl mx-auto">
+            <p className="text-lg text-muted-foreground max-w-3xl mx-auto sm:text-xl">
               Every decision, every trade, and every result are tracked in public. Follow along, or
               support the experiment by accessing full data and insights.
             </p>
@@ -110,11 +110,11 @@ const CTA: React.FC = () => {
             </div>
 
             <div className="order-1 md:order-2">
-              <div className="grid grid-cols-2 gap-4 max-w-lg mx-auto">
+              <div className="mx-auto grid w-full min-w-0 max-w-lg grid-cols-2 gap-3 sm:gap-4">
                 {landingStocks.map((stock, index) => (
                   <div
                     key={stock.symbol}
-                    className="animate-float"
+                    className="min-w-0 animate-float"
                     style={{ animationDelay: `${index * 0.2}s` }}
                   >
                     <StockCard

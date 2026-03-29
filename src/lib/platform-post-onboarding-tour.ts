@@ -43,7 +43,7 @@ export type PlatformPostOnboardingTourStep = {
   id: PlatformPostOnboardingTourStepId;
   title: string;
   body: string;
-  /** Used for steps 2–4 (indices 2–4). Overview steps 0–1 use {@link getPlatformPostOnboardingTourNavigationPath}. */
+  /** Used for non-overview steps; overview tabs use {@link getPlatformPostOnboardingTourNavigationPath}. */
   path: string;
   /** CSS selectors for [data-platform-tour="…"] — e.g. main sidebar nav link + main content panel. */
   anchors: string[];
@@ -104,12 +104,12 @@ export const PLATFORM_POST_ONBOARDING_TOUR_STEPS: PlatformPostOnboardingTourStep
 ];
 
 export function getPlatformPostOnboardingTourNavigationPath(
-  stepIndex: number,
+  step: PlatformPostOnboardingTourStep,
   pathname: string | null
 ): string {
-  if (stepIndex === 0) return platformOverviewPath('top-portfolio', pathname);
-  if (stepIndex === 1) return platformOverviewPath('rebalance-actions', pathname);
-  return PLATFORM_POST_ONBOARDING_TOUR_STEPS[stepIndex].path;
+  if (step.id === 'overview-top-portfolio') return platformOverviewPath('top-portfolio', pathname);
+  if (step.id === 'overview-rebalance-actions') return platformOverviewPath('rebalance-actions', pathname);
+  return step.path;
 }
 
 export function queuePlatformPostOnboardingTour(): void {

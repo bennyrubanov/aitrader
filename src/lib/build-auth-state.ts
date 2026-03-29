@@ -10,6 +10,8 @@ export type UserProfileAuthRow = {
   stripe_cancel_at_period_end?: boolean | null;
   stripe_pending_tier?: string | null;
   stripe_recurring_interval?: string | null;
+  stripe_recurring_unit_amount?: number | null;
+  stripe_recurring_currency?: string | null;
 } | null;
 
 export function buildAuthStateGuestLoaded(): AuthState {
@@ -38,6 +40,13 @@ export function buildAuthStateFromUserAndProfile(
   const stripeRecurringInterval: 'month' | 'year' | null =
     rawInterval === 'month' || rawInterval === 'year' ? rawInterval : null;
 
+  const rawUnit = !profileReadFailed ? profile?.stripe_recurring_unit_amount : null;
+  const stripeRecurringUnitAmount =
+    typeof rawUnit === 'number' && Number.isFinite(rawUnit) ? rawUnit : null;
+  const rawCur = !profileReadFailed ? profile?.stripe_recurring_currency : null;
+  const stripeRecurringCurrency =
+    typeof rawCur === 'string' && rawCur.length > 0 ? rawCur.toLowerCase() : null;
+
   return {
     isLoaded: true,
     isAuthenticated: true,
@@ -63,5 +72,7 @@ export function buildAuthStateFromUserAndProfile(
       !profileReadFailed && profile?.stripe_cancel_at_period_end === true,
     stripePendingTier: !profileReadFailed ? stripePendingTier : null,
     stripeRecurringInterval: !profileReadFailed ? stripeRecurringInterval : null,
+    stripeRecurringUnitAmount: !profileReadFailed ? stripeRecurringUnitAmount : null,
+    stripeRecurringCurrency: !profileReadFailed ? stripeRecurringCurrency : null,
   };
 }

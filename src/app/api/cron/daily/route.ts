@@ -1346,7 +1346,7 @@ const handleRequest = async (req: Request) => {
       <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 720px;">
         <h2 style="color: ${hadFatal ? '#b91c1c' : '#0f172a'};">AITrader — Rating day cron digest</h2>
         <p><strong>Status:</strong> ${escapeHtml(statusLabel)}</p>
-        <p><strong>Run date (UTC):</strong> ${escapeHtml(runDate)}</p>
+        <p><strong>Run date:</strong> ${escapeHtml(runDate)}</p>
         <p><strong>Started:</strong> ${escapeHtml(runStartedAt)}</p>
         <p><strong>Total wall time:</strong> ${escapeHtml(`${totalSec}s`)}</p>
         <p><strong>Force run:</strong> ${escapeHtml(formatMeta(digestMeta.forceRun))}</p>

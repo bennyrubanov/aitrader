@@ -57,9 +57,17 @@ import {
   type WeightingMethod,
 } from '@/components/portfolio-config';
 import {
+  GUEST_PORTFOLIO_RESUME_ENDED_EVENT,
+  GUEST_PORTFOLIO_RESUME_STARTED_EVENT,
+  isGuestPortfolioResumeUILocked,
+  readPendingGuestPortfolioFollow,
   syncPendingGuestPortfolioFollowForGuestLocal,
 } from '@/components/portfolio-config/portfolio-config-storage';
 import type { OnboardingRebalanceCounts } from '@/lib/onboarding-meta';
+import {
+  loadOnboardingMeta,
+  peekOnboardingMetaCache,
+} from '@/lib/onboarding-meta-client-cache';
 import { formatYmdDisplay } from '@/lib/format-ymd-display';
 import { strategyModelDropdownSubtitle } from '@/lib/strategy-list-meta';
 import { cn } from '@/lib/utils';
@@ -134,27 +142,6 @@ function deltaToneClass(d: number | null) {
   if (d > 0) return 'text-emerald-600 dark:text-emerald-400';
   if (d < 0) return 'text-rose-600 dark:text-rose-400';
   return 'text-foreground';
-}
-
-async function fireHeartConfettiBurst() {
-  const { default: confetti } = await import('canvas-confetti');
-  const scalar = 1.12;
-  const heart = confetti.shapeFromText({ text: '❤️', scalar });
-  const burst = (originX: number) =>
-    confetti({
-      particleCount: 55,
-      spread: 68,
-      startVelocity: 26,
-      gravity: 0.92,
-      origin: { x: originX, y: 0.7 },
-      shapes: [heart],
-      scalar,
-      colors: ['#e11d48', '#f43f5e', '#fb7185', '#fda4af', '#db2777'],
-      disableForReducedMotion: true,
-    });
-  void burst(0.5);
-  void burst(0.28);
-  void burst(0.72);
 }
 
 function CelebrateMetricBlock({
@@ -430,6 +417,38 @@ export function PortfolioOnboardingDialog({
   } | null>(null);
   const [celebratePerfLoading, setCelebratePerfLoading] = useState(false);
 
+  /** True while guest→signed-in follow resume runs (`GuestPendingPortfolioFollowResume`). */
+  const [guestResumeEventsActive, setGuestResumeEventsActive] = useState(false);
+
+  const pendingGuestFollowOrResumeLock =
+    typeof window !== 'undefined' &&
+    authState.isAuthenticated &&
+    (readPendingGuestPortfolioFollow() != null || isGuestPortfolioResumeUILocked());
+
+  const suppressForGuestResume = guestResumeEventsActive || pendingGuestFollowOrResumeLock;
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onStarted = () => setGuestResumeEventsActive(true);
+    const onEnded = () => setGuestResumeEventsActive(false);
+    window.addEventListener(GUEST_PORTFOLIO_RESUME_STARTED_EVENT, onStarted);
+    window.addEventListener(GUEST_PORTFOLIO_RESUME_ENDED_EVENT, onEnded);
+    return () => {
+      window.removeEventListener(GUEST_PORTFOLIO_RESUME_STARTED_EVENT, onStarted);
+      window.removeEventListener(GUEST_PORTFOLIO_RESUME_ENDED_EVENT, onEnded);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!guestResumeEventsActive) return;
+    const t = window.setTimeout(() => setGuestResumeEventsActive(false), 10_000);
+    return () => window.clearTimeout(t);
+  }, [guestResumeEventsActive]);
+
+  useEffect(() => {
+    if (isOnboardingDone) setGuestResumeEventsActive(false);
+  }, [isOnboardingDone]);
+
   const [strategies, setStrategies] = useState<OnboardingStrategyRow[]>([]);
   const [modelInceptionDate, setModelInceptionDate] = useState<string | null>(null);
   const [rebalanceCounts, setRebalanceCounts] = useState<OnboardingRebalanceCounts | null>(null);
@@ -439,32 +458,23 @@ export function PortfolioOnboardingDialog({
 
   useEffect(() => {
     let cancelled = false;
-    setMetaLoading(true);
     const slug = draft.strategySlug;
-    void fetch(`/api/platform/onboarding-meta?slug=${encodeURIComponent(slug)}`)
-      .then((r) => r.json())
-      .then(
-        (d: {
-          strategies?: OnboardingStrategyRow[];
-          modelInceptionDate?: string | null;
-          rebalanceCounts?: OnboardingRebalanceCounts;
-        }) => {
-          if (cancelled) return;
-          setStrategies(d.strategies ?? []);
-          setModelInceptionDate(d.modelInceptionDate ?? null);
-          setRebalanceCounts(d.rebalanceCounts ?? null);
-        }
-      )
-      .catch(() => {
-        if (!cancelled) {
-          setStrategies([]);
-          setModelInceptionDate(null);
-          setRebalanceCounts(null);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setMetaLoading(false);
-      });
+    const cached = peekOnboardingMetaCache(slug);
+    if (cached !== undefined) {
+      setStrategies((cached.strategies as OnboardingStrategyRow[]) ?? []);
+      setModelInceptionDate(cached.modelInceptionDate ?? null);
+      setRebalanceCounts(cached.rebalanceCounts ?? null);
+      setMetaLoading(false);
+    } else {
+      setMetaLoading(true);
+    }
+    void loadOnboardingMeta(slug).then((d) => {
+      if (cancelled) return;
+      setStrategies((d.strategies as OnboardingStrategyRow[]) ?? []);
+      setModelInceptionDate(d.modelInceptionDate ?? null);
+      setRebalanceCounts(d.rebalanceCounts ?? null);
+      setMetaLoading(false);
+    });
     return () => {
       cancelled = true;
     };
@@ -707,14 +717,7 @@ export function PortfolioOnboardingDialog({
     syncPendingGuestPortfolioFollowForGuestLocal(draft, entryYmd);
     setGuestDeclinedAccountNudgeThisSession();
     setGuestAccountDialogOpen(false);
-    void (async () => {
-      await markOnboardingDone();
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          void fireHeartConfettiBurst();
-        });
-      });
-    })();
+    void markOnboardingDone();
   };
 
   const handleFollowThisPortfolio = async () => {
@@ -771,11 +774,6 @@ export function PortfolioOnboardingDialog({
         },
       });
       await markOnboardingDone();
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          void fireHeartConfettiBurst();
-        });
-      });
       router.refresh();
       window.setTimeout(() => {
         queuePlatformPostOnboardingTour();
@@ -865,7 +863,7 @@ export function PortfolioOnboardingDialog({
 
   return (
     <>
-    <Dialog open={!isOnboardingDone}>
+    <Dialog open={!isOnboardingDone && !suppressForGuestResume}>
       <DialogContent
         className={cn(
           'flex max-h-[calc(100dvh-1.5rem)] w-full flex-col gap-0 overflow-hidden p-6',
@@ -1025,11 +1023,11 @@ export function PortfolioOnboardingDialog({
               <div className="min-h-0 flex-1 overflow-hidden py-2">
                 <div className="flex gap-2.5">
                   <div className="flex flex-col items-center gap-1 shrink-0 py-0.5">
-                    <span className="text-[8px] font-medium uppercase tracking-wide text-muted-foreground text-center leading-tight max-w-[4.5rem]">
+                    <span className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground text-center leading-tight max-w-[4.5rem]">
                       Safer / more diversified
                     </span>
                     <div className="w-2 flex-1 min-h-[168px] rounded-full bg-gradient-to-b from-emerald-400 via-amber-400 to-rose-500" />
-                    <span className="text-[8px] font-medium uppercase tracking-wide text-muted-foreground text-center leading-tight max-w-[4.5rem]">
+                    <span className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground text-center leading-tight max-w-[4.5rem]">
                       Higher risk / concentrated
                     </span>
                   </div>
@@ -1191,7 +1189,7 @@ export function PortfolioOnboardingDialog({
                 </DialogDescription>
               </DialogHeader>
               <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain py-2">
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                   {INVESTMENT_QUICK_PICKS.map((size) => {
                     const isSelected =
                       draft.investmentSize === size && Number(customInvestment) === size;

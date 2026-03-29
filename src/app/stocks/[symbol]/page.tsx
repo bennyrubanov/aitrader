@@ -231,6 +231,12 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
       isGuestVisible,
     });
 
+  const serverCanLoadPortfolioPresence = canQueryStockCurrentRecommendation(
+    access,
+    isPremiumStock,
+    { isGuestVisible },
+  );
+
   const rankedStrategies = await getStrategiesList();
 
   let strategyPickerStrategies: StrategyListItem[] = [];
@@ -281,11 +287,13 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
       symbol={symbol}
       stockName={stockName}
       isPremiumStock={isPremiumStock}
+      isGuestVisible={isGuestVisible}
       price={price}
       latest={latest}
       news={news}
       serverCanLoadPremiumHistory={serverCanLoadPremiumHistory}
       serverCanShowChartAi={serverCanShowChartAi}
+      serverCanLoadPortfolioPresence={serverCanLoadPortfolioPresence}
       strategyPickerStrategies={strategyPickerStrategies}
       initialStrategySlug={initialStrategySlug}
     />
