@@ -149,7 +149,7 @@ export function SidebarAccountModule({ onNavigateStart }: SidebarAccountModulePr
               </Button>
             )}
             <Button asChild type="button" size="sm" variant="outline" className="w-full justify-start">
-              <Link href="/platform/settings" prefetch onClick={openSettings}>
+              <Link href="/platform/settings#account" prefetch onClick={openSettings}>
                 <Settings className="mr-2 size-3" />
                 Profile settings
               </Link>

@@ -541,7 +541,7 @@ export function ScheduledDowngradeDetailDialog({
                   {intervalChangedVsCurrent
                     ? ` on ${formatBillingCadenceLabel(chosenInterval).toLowerCase()} billing`
                     : ''}
-                  . If you change Supporter billing below, tap <strong>Update billing</strong> to save.
+                  .
                 </p>
               }
             />

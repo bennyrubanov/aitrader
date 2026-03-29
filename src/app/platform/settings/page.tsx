@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   Loader2,
@@ -106,13 +106,33 @@ function nameFromAuthState(displayName: string): string {
 }
 
 const SETTINGS_TOC_AUTHENTICATED = [
-  { id: 'settings-account', label: 'Account' },
-  { id: 'settings-security', label: 'Security' },
-  { id: 'settings-billing', label: 'Billing' },
-  { id: 'settings-notifications', label: 'Notifications' },
+  { id: 'account', label: 'Account' },
+  { id: 'security', label: 'Security' },
+  { id: 'billing', label: 'Billing' },
+  { id: 'notifications', label: 'Notifications' },
 ] as const;
 
-const SETTINGS_TOC_GUEST = [{ id: 'settings-sign-up', label: 'Sign up' }] as const;
+const SETTINGS_TOC_GUEST = [{ id: 'sign-up', label: 'Sign up' }] as const;
+
+const SETTINGS_SECTION_IDS = new Set<string>(
+  [...SETTINGS_TOC_AUTHENTICATED, ...SETTINGS_TOC_GUEST].map((i) => i.id)
+);
+
+/** Old fragment IDs → canonical (bookmark compatibility). */
+const LEGACY_SETTINGS_HASH: Record<string, string> = {
+  'settings-account': 'account',
+  'settings-security': 'security',
+  'settings-billing': 'billing',
+  'settings-notifications': 'notifications',
+  'settings-sign-up': 'sign-up',
+};
+
+function resolveSettingsSectionId(hash: string): string | null {
+  const key = hash.replace(/^#/, '');
+  if (!key) return null;
+  if (SETTINGS_SECTION_IDS.has(key)) return key;
+  return LEGACY_SETTINGS_HASH[key] ?? null;
+}
 
 function SettingsOnThisPageNav({
   items,
@@ -153,6 +173,7 @@ function SettingsOnThisPageNav({
 
 const SettingsPageContent = () => {
   const router = useRouter();
+  const pathname = usePathname();
   const authState = useAuthState();
   const refreshProfile = useRefreshAuthProfile();
   const billingReturnHandled = useRef(false);
@@ -697,24 +718,74 @@ const SettingsPageContent = () => {
     ? SETTINGS_TOC_AUTHENTICATED
     : SETTINGS_TOC_GUEST;
 
-  const handleSettingsInPageNav = useCallback((sectionId: string, e: MouseEvent<HTMLAnchorElement>) => {
-    e.preventDefault();
-    const target = document.getElementById(sectionId);
-    if (!target) {
+  const scrollToSettingsSection = useCallback(
+    (sectionId: string, behavior: ScrollBehavior = 'smooth') => {
+      const target = document.getElementById(sectionId);
+      if (!target) {
+        return;
+      }
+      const isMdUp =
+        typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches;
+      const main = settingsMainScrollRef.current;
+      if (isMdUp && main) {
+        const cRect = main.getBoundingClientRect();
+        const eRect = target.getBoundingClientRect();
+        const nextTop = main.scrollTop + (eRect.top - cRect.top) - 8;
+        main.scrollTo({ top: Math.max(0, nextTop), behavior });
+      } else {
+        target.scrollIntoView({ behavior, block: 'start' });
+      }
+    },
+    []
+  );
+
+  const handleSettingsInPageNav = useCallback(
+    (sectionId: string, e: MouseEvent<HTMLAnchorElement>) => {
+      e.preventDefault();
+      scrollToSettingsSection(sectionId, 'smooth');
+      window.history.replaceState(null, '', `#${sectionId}`);
+    },
+    [scrollToSettingsSection]
+  );
+
+  useEffect(() => {
+    if (!authState.isLoaded || pathname !== '/platform/settings') {
       return;
     }
-    const isMdUp = typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches;
-    const main = settingsMainScrollRef.current;
-    if (isMdUp && main) {
-      const cRect = main.getBoundingClientRect();
-      const eRect = target.getBoundingClientRect();
-      const nextTop = main.scrollTop + (eRect.top - cRect.top) - 8;
-      main.scrollTo({ top: Math.max(0, nextTop), behavior: 'smooth' });
-    } else {
-      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-    window.history.replaceState(null, '', `#${sectionId}`);
-  }, []);
+
+    const applyHashScroll = () => {
+      const raw = typeof window !== 'undefined' ? window.location.hash : '';
+      const sectionId = resolveSettingsSectionId(raw);
+      if (!sectionId) {
+        return;
+      }
+      const guest = !authState.isAuthenticated;
+      if (guest && sectionId !== 'sign-up') {
+        return;
+      }
+      if (!guest && sectionId === 'sign-up') {
+        return;
+      }
+      if (!document.getElementById(sectionId)) {
+        return;
+      }
+
+      const legacyKey = raw.replace(/^#/, '');
+      if (legacyKey && LEGACY_SETTINGS_HASH[legacyKey]) {
+        window.history.replaceState(null, '', `#${sectionId}`);
+      }
+
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          scrollToSettingsSection(sectionId, 'auto');
+        });
+      });
+    };
+
+    applyHashScroll();
+    window.addEventListener('hashchange', applyHashScroll);
+    return () => window.removeEventListener('hashchange', applyHashScroll);
+  }, [authState.isLoaded, authState.isAuthenticated, pathname, scrollToSettingsSection]);
 
   return (
     <div
@@ -773,7 +844,7 @@ const SettingsPageContent = () => {
           <>
             {/* ── Account ── */}
             <section
-              id="settings-account"
+              id="account"
               className="scroll-mt-4 rounded-xl border bg-card md:scroll-mt-6"
             >
             <div className="flex items-center gap-2 border-b px-5 py-3">
@@ -786,7 +857,7 @@ const SettingsPageContent = () => {
                 {isEditingName ? (
                   <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
                     <Input
-                      id="settings-display-name"
+                      id="display-name"
                       name="displayName"
                       autoComplete="name"
                       value={nameDraft}
@@ -935,7 +1006,7 @@ const SettingsPageContent = () => {
 
           {/* ── Security ── */}
           <section
-            id="settings-security"
+            id="security"
             className="scroll-mt-4 rounded-xl border bg-card md:scroll-mt-6"
           >
             <div className="flex items-center gap-2 border-b px-5 py-3">
@@ -1019,7 +1090,7 @@ const SettingsPageContent = () => {
 
           {/* ── Billing ── */}
           <section
-            id="settings-billing"
+            id="billing"
             className="scroll-mt-4 rounded-xl border bg-card md:scroll-mt-6"
           >
             <div className="border-b px-5 py-3">
@@ -1182,7 +1253,7 @@ const SettingsPageContent = () => {
                     <p className="text-sm font-medium">Billing interval</p>
                     <p className="mt-0.5 text-xs text-muted-foreground">
                       {authState.stripeRecurringInterval === 'month'
-                        ? 'Switch applies now with proration; yearly renewals start on a new cycle.'
+                        ? 'Switch to yearly for 3 months off your subscription!'
                         : 'Switch applies now with proration; monthly renewals start on a new cycle.'}
                     </p>
                   </div>
@@ -1209,7 +1280,7 @@ const SettingsPageContent = () => {
 
           {/* ── Notifications ── */}
           <section
-            id="settings-notifications"
+            id="notifications"
             className="scroll-mt-4 rounded-xl border bg-card md:scroll-mt-6"
           >
             <div className="flex items-center gap-2 border-b px-5 py-3">
@@ -1292,7 +1363,7 @@ const SettingsPageContent = () => {
         </>
       ) : (
         <section
-          id="settings-sign-up"
+          id="sign-up"
           className="scroll-mt-4 flex flex-col items-center justify-center rounded-xl border bg-card px-6 py-16 text-center md:scroll-mt-6"
         >
           <UserRound className="mb-3 size-10 text-muted-foreground/40" />

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import Link from "next/link";
 import {
   BadgeCheck,
   Bell,
@@ -42,9 +43,6 @@ type NavUserProps = {
     subscriptionTier?: SubscriptionTier;
     isAuthenticated: boolean;
   };
-  onOpenAccount: () => void;
-  onOpenBilling: () => void;
-  onOpenNotifications: () => void;
   onUpgrade: () => void;
   onSignOut: () => void;
   onSignUp: () => void;
@@ -52,9 +50,6 @@ type NavUserProps = {
 
 export function NavUser({
   user,
-  onOpenAccount,
-  onOpenBilling,
-  onOpenNotifications,
   onUpgrade,
   onSignOut,
   onSignUp,
@@ -153,17 +148,35 @@ export function NavUser({
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem onSelect={onOpenAccount} className="gap-2">
-                <BadgeCheck className="size-4 text-muted-foreground" />
-                Account
+              <DropdownMenuItem asChild>
+                <Link
+                  href="/platform/settings#account"
+                  prefetch
+                  className="cursor-pointer gap-2"
+                >
+                  <BadgeCheck className="size-4 text-muted-foreground" />
+                  Account
+                </Link>
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={onOpenBilling} className="gap-2">
-                <CreditCard className="size-4 text-muted-foreground" />
-                Billing
+              <DropdownMenuItem asChild>
+                <Link
+                  href="/platform/settings#billing"
+                  prefetch
+                  className="cursor-pointer gap-2"
+                >
+                  <CreditCard className="size-4 text-muted-foreground" />
+                  Billing
+                </Link>
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={onOpenNotifications} className="gap-2">
-                <Bell className="size-4 text-muted-foreground" />
-                Notifications
+              <DropdownMenuItem asChild>
+                <Link
+                  href="/platform/settings#notifications"
+                  prefetch
+                  className="cursor-pointer gap-2"
+                >
+                  <Bell className="size-4 text-muted-foreground" />
+                  Notifications
+                </Link>
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
