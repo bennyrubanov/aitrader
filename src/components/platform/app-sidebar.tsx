@@ -364,9 +364,6 @@ export function AppSidebar() {
         <div {...(authState.isLoaded ? { [PLATFORM_TOUR_SHELL_READY_ATTR]: '1' } : {})}>
           <NavUser
             user={account}
-            onOpenAccount={() => openPath('/platform/settings')}
-            onOpenBilling={() => openPath('/platform/settings')}
-            onOpenNotifications={() => openPath('/platform/settings')}
             onUpgrade={() => openPath('/pricing')}
             onSignOut={handleSignOut}
             onSignUp={handleSignUp}
