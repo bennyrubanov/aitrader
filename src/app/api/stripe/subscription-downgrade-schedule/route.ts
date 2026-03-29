@@ -5,6 +5,7 @@ import { resolveStripeCustomerForUser } from '@/lib/stripe-resolve-user-customer
 import {
   buildSubscriptionChangeContext,
   scheduleDowngradeToSupporter,
+  scheduleIntervalSwitchToMonthly,
 } from '@/lib/stripe-subscription-change';
 
 export const runtime = 'nodejs';
@@ -31,9 +32,6 @@ export async function POST(req: Request) {
       action?: string;
       targetInterval?: string;
     };
-    if (body.action !== 'schedule_downgrade_to_supporter') {
-      return NextResponse.json({ error: 'Unsupported action' }, { status: 400 });
-    }
 
     const stripe = getStripe();
     const { customerId, subscriptionId } = await resolveStripeCustomerForUser(
@@ -43,12 +41,26 @@ export async function POST(req: Request) {
       user.email ?? undefined
     );
 
+    const ctx = await buildSubscriptionChangeContext(customerId, subscriptionId);
+
+    if (body.action === 'schedule_interval_switch_to_monthly') {
+      const result = await scheduleIntervalSwitchToMonthly(ctx);
+      return NextResponse.json({
+        ok: true,
+        effectiveAtIso: result.effectiveAtIso,
+        scheduleId: result.scheduleId,
+      });
+    }
+
+    if (body.action !== 'schedule_downgrade_to_supporter') {
+      return NextResponse.json({ error: 'Unsupported action' }, { status: 400 });
+    }
+
     const targetInterval =
       body.targetInterval === 'month' || body.targetInterval === 'year'
         ? body.targetInterval
         : undefined;
 
-    const ctx = await buildSubscriptionChangeContext(customerId, subscriptionId);
     const result = await scheduleDowngradeToSupporter(ctx, targetInterval);
 
     return NextResponse.json({

@@ -187,17 +187,19 @@ export function RecommendedPortfolioClient() {
                 })}
               </div>
 
-              <Select value={selectedDate ?? undefined} onValueChange={handleDateChange} disabled={isSwitching}>
-                <SelectTrigger className="h-9 w-[180px] text-sm">
-                  <Calendar className="mr-1.5 size-3.5 text-muted-foreground" />
-                  <SelectValue placeholder="Select date" />
-                </SelectTrigger>
-                <SelectContent>
-                  {filteredDates.map((d) => (
-                    <SelectItem key={d} value={d}>{formatDate(d)}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="w-full min-w-0 basis-full sm:basis-auto sm:w-[180px]">
+                <Select value={selectedDate ?? undefined} onValueChange={handleDateChange} disabled={isSwitching}>
+                  <SelectTrigger className="h-9 w-full text-sm">
+                    <Calendar className="mr-1.5 size-3.5 text-muted-foreground" />
+                    <SelectValue placeholder="Select date" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {filteredDates.map((d) => (
+                      <SelectItem key={d} value={d}>{formatDate(d)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </div>
         </div>

@@ -18,6 +18,10 @@ export type AuthState = {
   stripePendingTier: SubscriptionTier | null;
   /** Monthly vs yearly from Stripe snapshot; null if unknown / free. */
   stripeRecurringInterval: 'month' | 'year' | null;
+  /** Primary line item recurring amount (Stripe smallest currency unit); null if unknown. */
+  stripeRecurringUnitAmount: number | null;
+  /** ISO 4217 lowercase, e.g. usd; pairs with stripeRecurringUnitAmount. */
+  stripeRecurringCurrency: string | null;
 };
 
 export const DEFAULT_AUTH_STATE: AuthState = {
@@ -34,5 +38,7 @@ export const DEFAULT_AUTH_STATE: AuthState = {
   stripeCancelAtPeriodEnd: false,
   stripePendingTier: null,
   stripeRecurringInterval: null,
+  stripeRecurringUnitAmount: null,
+  stripeRecurringCurrency: null,
 };
 

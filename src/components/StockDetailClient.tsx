@@ -15,6 +15,10 @@ import type { StrategyListItem } from '@/lib/platform-performance-payload';
 import { getPlatformCachedValue, setPlatformCachedValue } from '@/lib/platformClientCache';
 import { Disclaimer } from '@/components/Disclaimer';
 import { useAuthState } from '@/components/auth/auth-state-context';
+import {
+  canQueryStockCurrentRecommendation,
+  getAppAccessState,
+} from '@/lib/app-access';
 import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import {
   Tooltip,
@@ -65,6 +69,10 @@ type StockDetailClientProps = {
   serverCanLoadPremiumHistory: boolean;
   /** Server knows if combined chart may include AI series (signed-in + tier/stock rules). */
   serverCanShowChartAi: boolean;
+  /** Same gate as current AI recommendation + portfolio footprint (`canQueryStockCurrentRecommendation`). */
+  serverCanLoadPortfolioPresence: boolean;
+  /** Needed to recompute portfolio-presence eligibility after auth loads (guest-visible marketing names). */
+  isGuestVisible: boolean;
   /**
    * Ranked strategies for the sidebar picker. Guests get the full public list; signed-in users get
    * plan-filtered models (with a single-model fallback when none are allowed).
@@ -116,7 +124,7 @@ const PREMIUM_CACHE_TTL_MS = 10 * 60 * 1000;
 const formatBucket = (bucket: string | null) =>
   bucket ? bucket.charAt(0).toUpperCase() + bucket.slice(1) : 'N/A';
 
-/** `YYYY-MM-DD` from API → compact label for “latest rating on” pill (UTC session). */
+/** `YYYY-MM-DD` from API → compact label for “latest rating on” pill. */
 function formatLatestRatingOnDate(ymd: string): string {
   const d = new Date(`${ymd}T12:00:00Z`);
   if (Number.isNaN(d.getTime())) {
@@ -169,6 +177,8 @@ const StockDetailClient = ({
   news,
   serverCanLoadPremiumHistory,
   serverCanShowChartAi,
+  serverCanLoadPortfolioPresence,
+  isGuestVisible,
   strategyPickerStrategies,
   initialStrategySlug,
 }: StockDetailClientProps) => {
@@ -187,6 +197,9 @@ const StockDetailClient = ({
   const guestLatestRatingCopy = isPremiumStock
     ? 'You can use price and news without an account. This is a premium Nasdaq-100 name: AI ratings, analysis, and weekly history require Supporter or Outperformer after you sign in.'
     : "Create a free account or sign in to see this week's AI buy/hold/sell call, summary, key risks, and weekly history for non-premium stocks.";
+  const guestPortfolioPresenceCopy = isPremiumStock
+    ? 'Portfolio footprint uses the same AI ranking access as ratings. Premium Nasdaq-100 names require Supporter or Outperformer after you sign in.'
+    : 'Sign in to see how many preset portfolios include this stock for the selected model (non-premium names on a free plan).';
   /** Guest-visible stocks: server may include current bucket for marketing preview. */
   const guestSeesLiveLatestBucket =
     !isAuthenticated && !isPremiumStock && latest.bucket != null;
@@ -207,6 +220,21 @@ const StockDetailClient = ({
   const [portfolioPresence, setPortfolioPresence] = useState<PortfolioPresencePayload | null>(null);
   const [portfolioPresenceLoading, setPortfolioPresenceLoading] = useState(false);
   const [portfolioPresenceError, setPortfolioPresenceError] = useState<string | null>(null);
+
+  const canLoadPortfolioPresence = useMemo(() => {
+    if (!isLoaded) {
+      return serverCanLoadPortfolioPresence;
+    }
+    const access = getAppAccessState({ isAuthenticated, subscriptionTier });
+    return canQueryStockCurrentRecommendation(access, isPremiumStock, { isGuestVisible });
+  }, [
+    isAuthenticated,
+    isGuestVisible,
+    isLoaded,
+    isPremiumStock,
+    serverCanLoadPortfolioPresence,
+    subscriptionTier,
+  ]);
 
   const effectivePickerStrategy = useMemo(() => {
     if (strategyPickerStrategies.length === 0) {
@@ -360,7 +388,7 @@ const StockDetailClient = ({
 
   useEffect(() => {
     const slug = selectedStrategySlug ?? initialStrategySlug;
-    if (!slug) {
+    if (!slug || !canLoadPortfolioPresence) {
       setPortfolioPresence(null);
       setPortfolioPresenceLoading(false);
       setPortfolioPresenceError(null);
@@ -374,13 +402,20 @@ const StockDetailClient = ({
       { signal: controller.signal },
     )
       .then(async (r) => {
+        if (r.status === 403) {
+          setPortfolioPresence(null);
+          setPortfolioPresenceError(null);
+          return;
+        }
         if (!r.ok) {
           const body = (await r.json().catch(() => null)) as { error?: string } | null;
           throw new Error(body?.error ?? 'Unable to load portfolio stats.');
         }
         return r.json() as Promise<PortfolioPresencePayload>;
       })
-      .then(setPortfolioPresence)
+      .then((payload) => {
+        if (payload) setPortfolioPresence(payload);
+      })
       .catch((err: unknown) => {
         if ((err as { name?: string })?.name === 'AbortError') return;
         setPortfolioPresenceError(
@@ -394,7 +429,12 @@ const StockDetailClient = ({
         }
       });
     return () => controller.abort();
-  }, [normalizedSymbol, selectedStrategySlug, initialStrategySlug]);
+  }, [
+    canLoadPortfolioPresence,
+    normalizedSymbol,
+    selectedStrategySlug,
+    initialStrategySlug,
+  ]);
 
   const showPremium = premiumState === 'ready';
   const historyLoading =
@@ -467,7 +507,7 @@ const StockDetailClient = ({
               <div className="mb-6">
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
-                    <h1 className="text-3xl md:text-5xl font-bold">
+                    <h1 className="text-3xl md:text-5xl font-bold break-words">
                       {normalizedSymbol} {stockName ? `· ${stockName}` : ''}
                     </h1>
                   </div>
@@ -512,7 +552,7 @@ const StockDetailClient = ({
                           {portfolioPresence?.runDate ? (
                             <span
                               className="inline-flex max-w-full truncate rounded-full border border-border bg-muted/35 px-3 py-1.5 text-xs font-medium text-muted-foreground"
-                              title="Trading week for the latest AI ratings run used on this page (UTC)."
+                              title="Trading week for the latest AI ratings run used on this page."
                             >
                               <span className="font-semibold text-muted-foreground/90">
                                 Latest rating on{' '}
@@ -710,7 +750,34 @@ const StockDetailClient = ({
                       </div>
 
                       <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
-                        {portfolioPresenceLoading ? (
+                        {!canLoadPortfolioPresence ? (
+                          !isAuthenticated ? (
+                            <div className="rounded-lg border border-dashed border-border bg-muted/40 p-4 text-sm text-muted-foreground">
+                              <p className="font-medium text-foreground">Sign up to view</p>
+                              <p className="mt-2">{guestPortfolioPresenceCopy}</p>
+                              <div className="mt-4 flex flex-wrap gap-2">
+                                <Link href="/sign-up">
+                                  <Button size="sm">Sign up</Button>
+                                </Link>
+                                <Link href="/sign-in">
+                                  <Button size="sm" variant="outline">
+                                    Log in
+                                  </Button>
+                                </Link>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="rounded-lg border border-dashed border-border bg-muted/40 p-4 text-sm text-muted-foreground">
+                              <p className="font-medium text-foreground">Premium stock</p>
+                              <p className="mt-2">{freeUserPremiumStockRatingCopy}</p>
+                              <div className="mt-4">
+                                <Link href="/pricing">
+                                  <Button size="sm">Upgrade to view</Button>
+                                </Link>
+                              </div>
+                            </div>
+                          )
+                        ) : portfolioPresenceLoading ? (
                           <p className="text-sm text-muted-foreground">Loading…</p>
                         ) : portfolioPresenceError ? (
                           <p className="text-sm text-destructive">{portfolioPresenceError}</p>

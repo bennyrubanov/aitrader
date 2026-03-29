@@ -6,7 +6,7 @@ import { DEFAULT_AUTH_STATE, type AuthState, type SubscriptionTier } from "@/lib
 import { buildAuthStateFromUserAndProfile } from "@/lib/build-auth-state";
 import { AuthStateContext } from "@/components/auth/auth-state-context";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/utils/supabase/browser";
-const AUTH_SNAPSHOT_KEY = "aitrader.auth.snapshot.v4";
+const AUTH_SNAPSHOT_KEY = "aitrader.auth.snapshot.v5";
 
 const tierFromAuthSnapshot = (
   raw: unknown,
@@ -38,7 +38,7 @@ const hydrateUserState = async (user: User): Promise<AuthState> => {
   const { data, error } = await supabase
     .from("user_profiles")
     .select(
-      "subscription_tier, full_name, email, portfolio_onboarding_done, stripe_current_period_end, stripe_cancel_at_period_end, stripe_pending_tier, stripe_recurring_interval"
+      "subscription_tier, full_name, email, portfolio_onboarding_done, stripe_current_period_end, stripe_cancel_at_period_end, stripe_pending_tier, stripe_recurring_interval, stripe_recurring_unit_amount, stripe_recurring_currency"
     )
     .eq("id", user.id)
     .maybeSingle();
@@ -112,6 +112,14 @@ export function AuthStateProvider({ children, initialState }: AuthStateProviderP
               parsed.stripeRecurringInterval === "year"
                 ? parsed.stripeRecurringInterval
                 : previous.stripeRecurringInterval,
+            stripeRecurringUnitAmount:
+              typeof parsed.stripeRecurringUnitAmount === "number"
+                ? parsed.stripeRecurringUnitAmount
+                : previous.stripeRecurringUnitAmount,
+            stripeRecurringCurrency:
+              typeof parsed.stripeRecurringCurrency === "string"
+                ? parsed.stripeRecurringCurrency
+                : previous.stripeRecurringCurrency,
           }));
         }
       } catch {

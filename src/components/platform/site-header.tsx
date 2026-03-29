@@ -4,9 +4,10 @@ import { Suspense } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Home } from 'lucide-react';
+import { Home, Menu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SidebarControlDialog } from '@/components/platform/sidebar-control-dialog';
+import { useSidebar } from '@/components/ui/sidebar';
 import { Separator } from '@/components/ui/separator';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { MiniStockSearch } from '@/components/platform/mini-stock-search';
@@ -93,6 +94,7 @@ export function SiteHeader() {
     name: authName,
     email,
   } = useAuthState();
+  const { toggleSidebar } = useSidebar();
   const viewMeta = getMetaFromPath(pathname);
 
   const displayName = !isLoaded
@@ -118,9 +120,22 @@ export function SiteHeader() {
           <Image src="/favicon.ico" alt="AITrader home" width={24} height={24} />
         </Link>
 
-        <Separator orientation="vertical" className="h-5 shrink-0" />
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 md:hidden"
+          onClick={toggleSidebar}
+          aria-label="Toggle navigation"
+        >
+          <Menu className="size-4" />
+        </Button>
 
-        <SidebarControlDialog />
+        <Separator orientation="vertical" className="hidden h-5 shrink-0 md:block" />
+
+        <div className="hidden md:block">
+          <SidebarControlDialog />
+        </div>
 
         <Separator orientation="vertical" className="hidden h-5 shrink-0 md:block" />
 
@@ -148,7 +163,7 @@ export function SiteHeader() {
                   {displayName}
                 </span>
                 {isAuthenticated ? (
-                  <span className="inline-flex max-w-[min(12rem,45vw)] items-center rounded-full border border-border px-2.5 py-0.5">
+                  <span className="hidden sm:inline-flex max-w-[min(12rem,45vw)] items-center rounded-full border border-border px-2.5 py-0.5">
                     <PlanLabel
                       isPremium={hasPremiumAccess}
                       subscriptionTier={subscriptionTier}
@@ -170,7 +185,7 @@ export function SiteHeader() {
         <Suspense
           fallback={
             <div
-              className="hidden min-h-8 min-w-[260px] max-w-[340px] flex-1 rounded-md border border-transparent bg-transparent lg:block"
+              className="hidden min-h-8 min-w-0 max-w-[340px] flex-1 rounded-md border border-transparent bg-transparent sm:block sm:min-w-[180px] lg:min-w-[260px]"
               aria-hidden
             />
           }

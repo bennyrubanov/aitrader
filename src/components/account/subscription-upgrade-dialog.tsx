@@ -1,7 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { ExternalLink, Loader2 } from 'lucide-react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { ChevronDown, ExternalLink, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -23,6 +23,9 @@ type PreviewPayload = {
   amountDue: number | null;
   currency: string;
   total: number | null;
+  startingBalance: number;
+  endingBalance: number | null;
+  lineItems: Array<{ description: string; amount: number }>;
   currentInterval: 'month' | 'year';
   targetInterval: 'month' | 'year';
   currentRecurringUnitAmount: number | null;
@@ -60,6 +63,22 @@ function formatPeriodEndUtc(iso: string | null) {
   }
 }
 
+function computeNewRenewalDateLabel(interval: 'month' | 'year'): string {
+  const d = new Date();
+  if (interval === 'year') d.setFullYear(d.getFullYear() + 1);
+  else d.setMonth(d.getMonth() + 1);
+  try {
+    return (
+      new Intl.DateTimeFormat(undefined, {
+        dateStyle: 'medium',
+        timeZone: 'UTC',
+      }).format(d)
+    );
+  } catch {
+    return d.toISOString().slice(0, 10);
+  }
+}
+
 function targetAmountForInterval(preview: PreviewPayload, interval: 'month' | 'year') {
   return interval === 'year'
     ? { amount: preview.outperformerYearlyUnitAmount, currency: preview.outperformerYearlyCurrency }
@@ -84,6 +103,11 @@ function parsePreviewPayload(
     amountDue: typeof data.amountDue === 'number' ? data.amountDue : null,
     currency: typeof data.currency === 'string' ? data.currency : fallbackCurrency,
     total: typeof data.total === 'number' ? data.total : null,
+    startingBalance: typeof data.startingBalance === 'number' ? data.startingBalance : 0,
+    endingBalance: typeof data.endingBalance === 'number' ? data.endingBalance : null,
+    lineItems: Array.isArray(data.lineItems)
+      ? (data.lineItems as Array<{ description: string; amount: number }>)
+      : [],
     currentInterval: cur,
     targetInterval: tgt,
     currentRecurringUnitAmount:
@@ -144,6 +168,62 @@ export function SubscriptionUpgradeDialog({
   const [chosenInterval, setChosenInterval] = useState<'month' | 'year' | null>(null);
   const [paymentPendingNotice, setPaymentPendingNotice] = useState<string | null>(null);
   const [paymentPendingUrl, setPaymentPendingUrl] = useState<string | null>(null);
+  const bodyScrollRef = useRef<HTMLDivElement>(null);
+  const [showBottomScrollFade, setShowBottomScrollFade] = useState(false);
+  const [bodyScrollChevronDismissed, setBodyScrollChevronDismissed] = useState(false);
+  const prevShowBottomScrollFadeRef = useRef(false);
+
+  const nudgeUpgradeBodyScroll = useCallback(() => {
+    const el = bodyScrollRef.current;
+    if (!el) return;
+    setBodyScrollChevronDismissed(true);
+    const delta = Math.min(220, Math.max(96, Math.round(el.clientHeight * 0.38)));
+    el.scrollBy({ top: delta, behavior: 'smooth' });
+  }, []);
+
+  const updateBodyScrollFade = useCallback(() => {
+    const el = bodyScrollRef.current;
+    if (!el) {
+      setShowBottomScrollFade(false);
+      return;
+    }
+    const { scrollTop, scrollHeight, clientHeight } = el;
+    const overflow = scrollHeight > clientHeight + 2;
+    const notAtBottom = scrollTop + clientHeight < scrollHeight - 6;
+    setShowBottomScrollFade(overflow && notAtBottom);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    updateBodyScrollFade();
+    const id = requestAnimationFrame(() => updateBodyScrollFade());
+    return () => cancelAnimationFrame(id);
+  }, [
+    open,
+    phase,
+    preview,
+    chosenInterval,
+    paymentPendingNotice,
+    paymentPendingUrl,
+    error,
+    updateBodyScrollFade,
+  ]);
+
+  useEffect(() => {
+    if (!open) return;
+    const el = bodyScrollRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => updateBodyScrollFade());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [open, updateBodyScrollFade]);
+
+  useLayoutEffect(() => {
+    if (showBottomScrollFade && !prevShowBottomScrollFadeRef.current) {
+      setBodyScrollChevronDismissed(false);
+    }
+    prevShowBottomScrollFadeRef.current = showBottomScrollFade;
+  }, [showBottomScrollFade]);
 
   const reset = useCallback(() => {
     setPhase('idle');
@@ -152,6 +232,9 @@ export function SubscriptionUpgradeDialog({
     setChosenInterval(null);
     setPaymentPendingNotice(null);
     setPaymentPendingUrl(null);
+    setShowBottomScrollFade(false);
+    setBodyScrollChevronDismissed(false);
+    prevShowBottomScrollFadeRef.current = false;
   }, []);
 
   const loadPreview = useCallback(
@@ -288,20 +371,10 @@ export function SubscriptionUpgradeDialog({
     }
   };
 
-  const chargeLabel = preview ? formatMoney(preview.amountDue, preview.currency) : '—';
-  const chargeIsCredit =
-    preview !== null && preview.amountDue !== null && preview.amountDue < 0;
-  const creditLabel =
-    preview && chargeIsCredit
-      ? formatMoney(
-          preview.amountDue !== null ? Math.abs(preview.amountDue) : null,
-          preview.currency
-        )
-      : null;
   const periodEndLabel = preview
     ? formatPeriodEndUtc(preview.currentSubscriptionPeriodEndIso)
     : null;
-  const renewalOnLabel = periodEndLabel ? `${periodEndLabel} (UTC)` : 'See Billing & invoices';
+  const renewalOnLabel = periodEndLabel ? periodEndLabel : 'See Billing & invoices';
 
   const renewalDisplay = (
     amount: number | null,
@@ -319,31 +392,24 @@ export function SubscriptionUpgradeDialog({
     preview && chosenInterval !== null
       ? targetAmountForInterval(preview, chosenInterval)
       : { amount: null as number | null, currency: 'usd' };
-  const dueNowExplanation = chargeIsCredit
-    ? `Your remaining Supporter ${formatBillingCadenceLabel(
-        preview?.currentInterval ?? 'month'
-      ).toLowerCase()} time is credited toward Outperformer.`
-    : intervalChanged
-      ? `Your remaining Supporter ${formatBillingCadenceLabel(
-          preview?.currentInterval ?? 'month'
-        ).toLowerCase()} time is credited first, then this charge starts Outperformer on ${formatBillingCadenceLabel(
-          chosenInterval ?? 'month'
-        ).toLowerCase()} billing today.`
-      : 'This charge covers the price difference for the rest of your current billing period.';
-
-  const crossIntervalDueNowDisplay =
-    afterRecurring.amount !== null
-      ? renewalDisplay(afterRecurring.amount, afterRecurring.currency, chosenInterval ?? 'month')
+  const dueNowLayoutValue =
+    preview !== null && preview.amountDue !== null && preview.amountDue <= 0
+      ? formatMoney(0, preview.currency)
       : formatMoney(preview?.amountDue ?? null, preview?.currency ?? 'usd');
 
-  const dueNowLayoutValue =
-    intervalChanged && preview
-      ? crossIntervalDueNowDisplay
-      : chargeIsCredit
-        ? `No charge (${creditLabel} credit)`
-        : formatMoney(preview?.amountDue ?? null, preview?.currency ?? 'usd');
-
   const showPricingDescription = (phase === 'ready' || phase === 'confirming') && preview;
+  const showIntervalToggleInFooter =
+    (phase === 'ready' || phase === 'confirming') &&
+    preview !== null &&
+    chosenInterval !== null &&
+    !paymentPendingNotice;
+
+  const upgradeTitle =
+    chosenInterval === 'year'
+      ? 'Upgrade to Outperformer (yearly)'
+      : chosenInterval === 'month'
+        ? 'Upgrade to Outperformer (monthly)'
+        : 'Upgrade to Outperformer';
 
   return (
     <Dialog
@@ -353,199 +419,276 @@ export function SubscriptionUpgradeDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent showCloseButton={phase !== 'confirming'}>
-        <DialogHeader>
-          <DialogTitle>Upgrade to Outperformer</DialogTitle>
-          <DialogDescription>
-            {showPricingDescription ? (
-              chargeIsCredit ? (
-                <>
-                  <span className="font-semibold text-foreground">No charge now</span> (~
-                  {creditLabel} credit applied).
-                  {periodEndLabel
-                    ? ` ${dueNowExplanation} Current period ends ${periodEndLabel} (UTC).`
-                    : ''}
-                </>
-              ) : (
-                <>
-                  Charges{' '}
-                  <span className="font-semibold text-foreground">{chargeLabel}</span> now (proration
-                  and immediate plan change).
-                  {' '}
-                  {dueNowExplanation}
-                  {periodEndLabel
-                    ? ` Current period ends ${periodEndLabel} (UTC).`
-                    : ''}
-                </>
-              )
-            ) : (
-              <>Review the upgrade details below.</>
-            )}
-          </DialogDescription>
-        </DialogHeader>
-
-        {phase === 'loading' && (
-          <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" />
-            Loading…
-          </div>
-        )}
-
-        {phase === 'error' && error && (
-          <p className="text-sm text-destructive">{error}</p>
-        )}
-
-        {(phase === 'ready' || phase === 'confirming') && preview && chosenInterval !== null && (
-          <div className="space-y-3 text-sm">
-            <PlanChangeCompareLayout
-              beforeRows={[
-                { label: 'Plan', value: formatPaidTierLabel('supporter') },
-                {
-                  label: 'Billing',
-                  value: formatBillingCadenceLabel(preview.currentInterval),
-                },
-                {
-                  label: 'Recurring price',
-                  value: renewalDisplay(
-                    preview.currentRecurringUnitAmount,
-                    preview.currentRecurringCurrency,
-                    preview.currentInterval
-                  ),
-                },
-              ]}
-              afterRows={[
-                { label: 'Plan', value: formatPaidTierLabel('outperformer') },
-                {
-                  label: 'Billing',
-                  value: intervalChanged
-                    ? `${formatBillingCadenceLabel(chosenInterval)}`
-                    : `${formatBillingCadenceLabel(chosenInterval)} (unchanged)`,
-                },
-                {
-                  label: 'Recurring price',
-                  value: renewalDisplay(
-                    afterRecurring.amount,
-                    afterRecurring.currency,
-                    chosenInterval
-                  ),
-                },
-              ]}
-              dueNowLabel="Due now"
-              dueNowValue={dueNowLayoutValue}
-              dueAtRenewal={{
-                amount: renewalDisplay(
-                  afterRecurring.amount,
-                  afterRecurring.currency,
-                  chosenInterval
-                ),
-                renewalDate: renewalOnLabel,
-              }}
-              footnote={
+      <DialogContent
+        showCloseButton={phase !== 'confirming'}
+        className="grid h-[min(calc(93vh*0.86),calc((100dvh-1rem)*0.86))] max-h-[min(calc(93vh*0.86),calc((100dvh-1rem)*0.86))] min-h-0 min-w-0 w-full max-w-[min(calc(100vw-2rem),calc(32rem*1.1))] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-[calc(32rem*1.1)]"
+      >
+        <div className="min-w-0 shrink-0 px-6 pb-2 pt-6 pr-12">
+          <DialogHeader className="p-0">
+            <DialogTitle>{upgradeTitle}</DialogTitle>
+            <DialogDescription>
+              {showPricingDescription ? (
                 intervalChanged ? (
-                  <div className="space-y-2">
-                    <p>
-                      {preview.amountDue !== null && preview.amountDue <= 0
-                        ? 'Unused Supporter time fully covers this charge — no payment due now.'
-                        : 'Unused Supporter time is credited and reduces your first charge.'}
-                      {preview.amountDue !== null &&
-                        preview.amountDue > 0 &&
-                        ` Invoice total after credit: ${formatMoney(preview.amountDue, preview.currency)}.`}
-                    </p>
-                    <p>
-                      Outperformer starts immediately. Your{' '}
-                      {formatBillingCadenceLabel(chosenInterval).toLowerCase()} renewal cycle starts
-                      today.
-                    </p>
-                  </div>
+                  <>
+                    Outperformer starts immediately on{' '}
+                    {formatBillingCadenceLabel(chosenInterval ?? 'month').toLowerCase()} billing.
+                    Unused Supporter credit applied to your account.
+                  </>
                 ) : (
-                  <p>Outperformer access starts immediately.</p>
+                  <>
+                    Charges{' '}
+                    <span className="font-semibold text-foreground">
+                      {preview.amountDue !== null && preview.amountDue <= 0
+                        ? formatMoney(0, preview.currency)
+                        : formatMoney(preview.amountDue, preview.currency)}
+                    </span>{' '}
+                    now. Outperformer starts immediately.
+                    {periodEndLabel ? ` Current period ends ${periodEndLabel}.` : ''}
+                  </>
                 )
-              }
-            />
+              ) : (
+                <>Review the upgrade details below.</>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+        </div>
+
+        <div className="relative min-h-0 min-w-0">
+          <div
+            ref={bodyScrollRef}
+            onScroll={updateBodyScrollFade}
+            className="absolute inset-0 overflow-y-auto overflow-x-hidden overscroll-y-contain px-6 pb-4"
+          >
+            {phase === 'loading' && (
+              <div className="absolute inset-0 z-[2] flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
+                Loading…
+              </div>
+            )}
+
+            {phase === 'error' && error && (
+              <p className="text-sm text-destructive">{error}</p>
+            )}
+
+            {(phase === 'ready' || phase === 'confirming') && preview && chosenInterval !== null && (
+              <div className="min-w-0 space-y-3 pb-2 text-sm">
+                <PlanChangeCompareLayout
+                  dueNowBreakdown={
+                    preview.lineItems.length > 0
+                      ? {
+                          lineItems: preview.lineItems,
+                          currency: preview.currency,
+                          startingBalance: preview.startingBalance,
+                          endingBalance: preview.endingBalance,
+                          total: preview.total,
+                          dueNowAmountCents: preview.amountDue,
+                        }
+                      : null
+                  }
+                  effectiveLabel="Takes effect immediately"
+                  beforeRows={[
+                    { label: 'Plan', value: formatPaidTierLabel('supporter') },
+                    {
+                      label: 'Billing',
+                      value: formatBillingCadenceLabel(preview.currentInterval),
+                    },
+                    {
+                      label: 'Recurring price',
+                      value: renewalDisplay(
+                        preview.currentRecurringUnitAmount,
+                        preview.currentRecurringCurrency,
+                        preview.currentInterval
+                      ),
+                    },
+                    { label: 'Renewal date', value: renewalOnLabel },
+                  ]}
+                  afterRows={[
+                    { label: 'Plan', value: formatPaidTierLabel('outperformer') },
+                    {
+                      label: 'Billing',
+                      value: intervalChanged
+                        ? `${formatBillingCadenceLabel(chosenInterval)}`
+                        : `${formatBillingCadenceLabel(chosenInterval)} (unchanged)`,
+                    },
+                    {
+                      label: 'Recurring price',
+                      value: renewalDisplay(
+                        afterRecurring.amount,
+                        afterRecurring.currency,
+                        chosenInterval
+                      ),
+                    },
+                    {
+                      label: 'Renewal date',
+                      value: intervalChanged
+                        ? computeNewRenewalDateLabel(chosenInterval)
+                        : renewalOnLabel,
+                    },
+                  ]}
+                  dueNowLabel="Due now"
+                  dueNowValue={dueNowLayoutValue}
+                  dueAtRenewal={{
+                    amount: renewalDisplay(
+                      afterRecurring.amount,
+                      afterRecurring.currency,
+                      chosenInterval
+                    ),
+                    renewalDate: intervalChanged
+                      ? computeNewRenewalDateLabel(chosenInterval)
+                      : renewalOnLabel,
+                  }}
+                  footnote={
+                    intervalChanged ? (
+                      <div className="space-y-1.5">
+                        <p>
+                          Unused Supporter time is credited to your account and applied to upcoming{' '}
+                          {formatBillingCadenceLabel(chosenInterval).toLowerCase()} charges until
+                          depleted.
+                        </p>
+                        {preview.amountDue !== null && preview.amountDue <= 0 && (
+                          <p>
+                            Credit fully covers this charge — <strong>no payment due now</strong>.
+                            Remaining credit applies to future invoices.
+                          </p>
+                        )}
+                        <p>
+                          Your new {formatBillingCadenceLabel(chosenInterval).toLowerCase()}{' '}
+                          billing cycle starts today.
+                        </p>
+                      </div>
+                    ) : (
+                      <p>Outperformer access starts immediately.</p>
+                    )
+                  }
+                />
+                {paymentPendingNotice && (
+                  <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-100">
+                    <p>{paymentPendingNotice}</p>
+                    {paymentPendingUrl && (
+                      <a
+                        href={paymentPendingUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-2 inline-flex items-center gap-1 font-medium text-trader-blue underline-offset-4 hover:underline"
+                      >
+                        Pay invoice
+                        <ExternalLink className="size-3.5" aria-hidden />
+                      </a>
+                    )}
+                  </div>
+                )}
+                {error && <p className="text-sm text-destructive">{error}</p>}
+              </div>
+            )}
+          </div>
+          {showBottomScrollFade ? (
+            <div
+              className="pointer-events-none absolute inset-x-6 bottom-0 z-[1] flex h-20 flex-col items-center justify-end bg-gradient-to-t from-background via-background/90 to-transparent pb-2"
+              role="presentation"
+            >
+              {!bodyScrollChevronDismissed ? (
+                <button
+                  type="button"
+                  className="pointer-events-auto inline-flex size-8 items-center justify-center rounded-full border border-trader-blue/35 bg-background/90 shadow-sm ring-offset-background transition-colors hover:border-trader-blue/55 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-trader-blue/40 focus-visible:ring-offset-2"
+                  onClick={nudgeUpgradeBodyScroll}
+                  aria-label="Scroll down to see more"
+                >
+                  <ChevronDown
+                    className="size-5 translate-y-2 animate-bounce text-trader-blue"
+                    aria-hidden
+                  />
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
+        <DialogFooter
+          className={
+            showIntervalToggleInFooter
+              ? 'flex flex-col gap-3 border-t border-border/60 bg-background px-6 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4'
+              : 'flex flex-col-reverse gap-2 border-t border-border/60 bg-background px-6 py-4 sm:flex-row sm:justify-end sm:gap-2'
+          }
+        >
+          {showIntervalToggleInFooter ? (
             <button
               type="button"
-              className="text-left text-xs text-muted-foreground underline-offset-4 hover:underline disabled:opacity-50"
+              className="min-w-0 max-w-full text-left text-xs text-muted-foreground underline-offset-4 hover:underline disabled:opacity-50 sm:shrink sm:pr-2"
               onClick={() => handleIntervalToggle()}
               disabled={phase === 'confirming'}
             >
               {intervalChanged
-                ? `Keep ${formatBillingCadenceLabel(preview.currentInterval).toLowerCase()} billing instead`
+                ? `Keep ${formatBillingCadenceLabel(preview!.currentInterval).toLowerCase()} billing instead`
                 : `Also switch to ${formatBillingCadenceLabel(otherInterval).toLowerCase()} billing`}
             </button>
-            {paymentPendingNotice && (
-              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-100">
-                <p>{paymentPendingNotice}</p>
-                {paymentPendingUrl && (
-                  <a
-                    href={paymentPendingUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-2 inline-flex items-center gap-1 font-medium text-trader-blue underline-offset-4 hover:underline"
-                  >
-                    Pay invoice
-                    <ExternalLink className="size-3.5" aria-hidden />
-                  </a>
-                )}
-              </div>
+          ) : null}
+          <div
+            className={
+              showIntervalToggleInFooter
+                ? 'flex w-full min-w-0 flex-row flex-wrap items-center justify-end gap-2 sm:w-auto sm:flex-nowrap sm:gap-2'
+                : 'flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row sm:justify-end sm:gap-2'
+            }
+          >
+            {paymentPendingNotice ? (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => onOpenChange(false)}
+                  disabled={phase === 'confirming'}
+                >
+                  Close
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => void handleRefreshStatus()}
+                  disabled={phase !== 'ready'}
+                  className="bg-trader-blue text-white hover:bg-trader-blue-dark"
+                >
+                  {phase === 'confirming' ? (
+                    <>
+                      <Loader2 className="mr-2 size-4 animate-spin" />
+                      Checking…
+                    </>
+                  ) : (
+                    'Refresh status'
+                  )}
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => onOpenChange(false)}
+                  disabled={phase === 'confirming'}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => void handleConfirmCharge()}
+                  disabled={phase !== 'ready' || !preview || chosenInterval === null}
+                  className="bg-trader-blue text-white hover:bg-trader-blue-dark"
+                >
+                  {phase === 'confirming' ? (
+                    <>
+                      <Loader2 className="mr-2 size-4 animate-spin" />
+                      Processing…
+                    </>
+                  ) : preview != null &&
+                    preview.amountDue !== null &&
+                    preview.amountDue > 0 ? (
+                    `Confirm and charge ${formatMoney(preview.amountDue, preview.currency)}`
+                  ) : preview != null && preview.amountDue !== null ? (
+                    `Confirm (${formatMoney(0, preview.currency)})`
+                  ) : (
+                    'Confirm'
+                  )}
+                </Button>
+              </>
             )}
-            {error && <p className="text-sm text-destructive">{error}</p>}
           </div>
-        )}
-
-        <DialogFooter className="gap-2 sm:gap-0">
-          {paymentPendingNotice ? (
-            <>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => onOpenChange(false)}
-                disabled={phase === 'confirming'}
-              >
-                Close
-              </Button>
-              <Button
-                type="button"
-                onClick={() => void handleRefreshStatus()}
-                disabled={phase !== 'ready'}
-                className="bg-trader-blue text-white hover:bg-trader-blue-dark"
-              >
-                {phase === 'confirming' ? (
-                  <>
-                    <Loader2 className="mr-2 size-4 animate-spin" />
-                    Checking…
-                  </>
-                ) : (
-                  'Refresh status'
-                )}
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => onOpenChange(false)}
-                disabled={phase === 'confirming'}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                onClick={() => void handleConfirmCharge()}
-                disabled={phase !== 'ready' || !preview || chosenInterval === null}
-                className="bg-trader-blue text-white hover:bg-trader-blue-dark"
-              >
-                {phase === 'confirming' ? (
-                  <>
-                    <Loader2 className="mr-2 size-4 animate-spin" />
-                    Processing…
-                  </>
-                ) : (
-                  'Confirm and charge'
-                )}
-              </Button>
-            </>
-          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

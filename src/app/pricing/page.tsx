@@ -32,7 +32,7 @@ const plans = {
     features: [
       'All AI ratings + detailed explanations',
       'Full recommendation history for all stocks',
-      'Track performance for any portfolio',
+      'Full portfolio holdings & performance tracking',
       'Customizable AI rating change notifications',
       'Compare portfolios and select the best for you',
       'Public methodology & transparency',
@@ -46,6 +46,7 @@ const plans = {
     yearlyTotal: 528,
     features: [
       'Everything in Supporter',
+      'Create custom portfolios',
       'Compare across multiple strategy models',
       {
         text: 'Chat with strategy models for any stock analysis',
@@ -70,6 +71,8 @@ type CompareFeature = {
   outperformerSoonHref?: string;
 };
 
+const DEFAULT_MODEL_ONLY_LABEL = 'Default model only';
+
 /**
  * Order follows plan cards (Supporter → Outperformer extras) plus platform entitlements
  * (`canAccessPaidPortfolioHoldings`, `canAccessStrategySlugPaidData`, ratings model filter).
@@ -92,31 +95,37 @@ const compareFeatures: CompareFeature[] = [
   {
     label: 'Weekly stock rankings',
     free: false,
-    supporter: 'Active model only',
+    supporter: DEFAULT_MODEL_ONLY_LABEL,
     outperformer: true,
   },
   {
-    label: 'Portfolio holdings tracking',
+    label: 'Full portfolio holdings for any portfolio',
     free: false,
-    supporter: 'Active model only',
+    supporter: DEFAULT_MODEL_ONLY_LABEL,
     outperformer: true,
   },
   { 
     label: 'Full stock recommendation history', 
     free: false, 
-    supporter: 'Active model only',
+    supporter: DEFAULT_MODEL_ONLY_LABEL,
     outperformer: true,
   },
   {
     label: 'Follow & compare portfolios (Explore / Your portfolios)',
     free: false,
-    supporter: 'Active model only',
+    supporter: DEFAULT_MODEL_ONLY_LABEL,
+    outperformer: true,
+  },
+{
+    label: 'Portfolio rebalance actions to invest alongside the AI',
+    free: false,
+    supporter: DEFAULT_MODEL_ONLY_LABEL,
     outperformer: true,
   },
   {
-    label: 'Portfolio rebalance actions to invest alongside the AI',
+    label: 'Create custom portfolios',
     free: false,
-    supporter: 'Active model only',
+    supporter: false,
     outperformer: true,
   },
   {
@@ -148,19 +157,29 @@ const soonTableLinkClass =
 function FeatureCell({ value }: { value: boolean | string }) {
   if (value === true) {
     return (
-      <td className="px-6 py-3 text-center">
+      <td className="px-3 py-3 text-center sm:px-6">
         <Check size={18} className="text-trader-green mx-auto" />
       </td>
     );
   }
   if (value === false) {
     return (
-      <td className="px-6 py-3 text-center">
+      <td className="px-3 py-3 text-center sm:px-6">
         <Minus size={18} className="text-muted-foreground/40 mx-auto" />
       </td>
     );
   }
-  return <td className="px-6 py-3 text-center text-sm text-muted-foreground">{value}</td>;
+  if (value === DEFAULT_MODEL_ONLY_LABEL) {
+    return (
+      <td className="px-3 py-3 text-center sm:px-6">
+        <div className="flex flex-wrap items-center justify-center gap-1.5 text-sm text-muted-foreground">
+          <Check size={18} className="text-trader-green shrink-0" aria-hidden />
+          <span>{value}</span>
+        </div>
+      </td>
+    );
+  }
+  return <td className="px-3 py-3 text-center text-sm text-muted-foreground sm:px-6">{value}</td>;
 }
 
 function OutperformerCompareCell({
@@ -172,7 +191,7 @@ function OutperformerCompareCell({
 }) {
   if (value === true && soonHref) {
     return (
-      <td className="px-6 py-3 text-center">
+      <td className="px-3 py-3 text-center sm:px-6">
         <Link href={soonHref} prefetch className={soonTableLinkClass}>
           Soon
         </Link>
@@ -180,6 +199,37 @@ function OutperformerCompareCell({
     );
   }
   return <FeatureCell value={value} />;
+}
+
+function CompareFeatureValue({
+  value,
+  soonHref,
+}: {
+  value: boolean | string;
+  soonHref?: string;
+}) {
+  if (value === true && soonHref) {
+    return (
+      <Link href={soonHref} prefetch className={soonTableLinkClass}>
+        Soon
+      </Link>
+    );
+  }
+  if (value === true) {
+    return <Check size={18} className="text-trader-green shrink-0" aria-hidden />;
+  }
+  if (value === false) {
+    return <Minus size={18} className="text-muted-foreground/40 shrink-0" aria-hidden />;
+  }
+  if (value === DEFAULT_MODEL_ONLY_LABEL) {
+    return (
+      <div className="flex flex-wrap items-end justify-end gap-1.5 text-sm text-muted-foreground">
+        <Check size={18} className="text-trader-green shrink-0" aria-hidden />
+        <span>{value}</span>
+      </div>
+    );
+  }
+  return <span className="text-right text-sm text-muted-foreground">{value}</span>;
 }
 
 function formatBillingDate(iso: string | null) {
@@ -525,7 +575,7 @@ function PricingPageContent() {
                         iconClassName="size-5"
                       />
                     </div>
-                    <div className="flex items-baseline gap-1 mb-1">
+                    <div className="flex flex-wrap items-baseline gap-1 mb-1">
                       {billingPeriod === 'yearly' && (
                         <span className="text-xl text-muted-foreground line-through mr-1">
                           ${plans.supporter.monthlyPrice}
@@ -640,7 +690,7 @@ function PricingPageContent() {
                       <Sparkles className="size-5 shrink-0 text-trader-blue" aria-hidden />
                       Outperformer
                     </p>
-                    <div className="flex items-baseline gap-1 mb-1">
+                    <div className="flex flex-wrap items-baseline gap-1 mb-1">
                       {billingPeriod === 'yearly' && (
                         <span className="text-xl text-muted-foreground line-through mr-1">
                           ${plans.outperformer.monthlyPrice}
@@ -761,19 +811,55 @@ function PricingPageContent() {
                 <p className="text-muted-foreground text-center mb-8 text-sm">
                   See what&apos;s included in each plan to find the right fit.
                 </p>
-                <div className="overflow-x-auto rounded-xl border border-border">
+                <div className="space-y-3 sm:hidden">
+                  {compareFeatures.map((feature) => (
+                    <div
+                      key={feature.label}
+                      className="rounded-xl border border-border bg-card p-4 text-sm shadow-sm"
+                    >
+                      <h3 className="mb-3 font-semibold text-foreground">{feature.label}</h3>
+                      <dl className="space-y-2.5">
+                        <div className="flex items-start justify-between gap-3">
+                          <dt className="shrink-0 text-muted-foreground">Free</dt>
+                          <dd className="flex min-w-0 justify-end">
+                            <CompareFeatureValue value={feature.free} />
+                          </dd>
+                        </div>
+                        <div className="flex items-start justify-between gap-3">
+                          <dt className="shrink-0 text-muted-foreground">Supporter</dt>
+                          <dd className="flex min-w-0 justify-end">
+                            <CompareFeatureValue value={feature.supporter} />
+                          </dd>
+                        </div>
+                        <div className="flex items-start justify-between gap-3">
+                          <dt className="inline-flex shrink-0 items-center gap-1 font-medium text-trader-blue">
+                            <Sparkles className="size-3.5 shrink-0" aria-hidden />
+                            Outperformer
+                          </dt>
+                          <dd className="flex min-w-0 justify-end">
+                            <CompareFeatureValue
+                              value={feature.outperformer}
+                              soonHref={feature.outperformerSoonHref}
+                            />
+                          </dd>
+                        </div>
+                      </dl>
+                    </div>
+                  ))}
+                </div>
+                <div className="hidden overflow-x-auto rounded-xl border border-border sm:block">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-border bg-muted/40">
-                        <th className="px-6 py-4 text-left font-semibold text-foreground">
+                        <th className="px-3 py-4 text-left font-semibold text-foreground sm:px-6">
                           Feature
                         </th>
-                        <th className="px-6 py-4 text-center align-middle">
+                        <th className="px-3 py-4 text-center align-middle sm:px-6">
                           <span className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
                             Free
                           </span>
                         </th>
-                        <th className="px-6 py-4 text-center align-middle">
+                        <th className="px-3 py-4 text-center align-middle sm:px-6">
                           <div className="flex justify-center text-sm">
                             <PlanLabel
                               isPremium
@@ -782,7 +868,7 @@ function PricingPageContent() {
                             />
                           </div>
                         </th>
-                        <th className="px-6 py-4 text-center align-middle">
+                        <th className="px-3 py-4 text-center align-middle sm:px-6">
                           <span className="inline-flex items-center justify-center gap-1 text-sm font-semibold uppercase tracking-wide text-trader-blue">
                             <Sparkles className="size-4 shrink-0 text-trader-blue" aria-hidden />
                             Outperformer
@@ -798,7 +884,7 @@ function PricingPageContent() {
                             index % 2 === 0 ? 'bg-background' : 'bg-muted/20'
                           }`}
                         >
-                          <td className="px-6 py-3 font-medium text-foreground/90">
+                          <td className="px-3 py-3 font-medium text-foreground/90 sm:px-6">
                             {feature.label}
                           </td>
                           <FeatureCell value={feature.free} />

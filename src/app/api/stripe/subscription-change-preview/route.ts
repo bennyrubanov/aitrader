@@ -6,6 +6,7 @@ import {
   buildSubscriptionChangeContext,
   previewChangeBillingInterval,
   previewDowngradeToSupporter,
+  previewScheduledIntervalSwitchToMonthly,
   previewUpgradeToOutperformer,
 } from '@/lib/stripe-subscription-change';
 
@@ -57,6 +58,9 @@ export async function POST(req: Request) {
         amountDue: preview.amountDue,
         currency: preview.currency,
         total: preview.total,
+        startingBalance: preview.startingBalance,
+        endingBalance: preview.endingBalance,
+        lineItems: preview.lineItems,
         subscriptionId: preview.subscriptionId,
         currentInterval: preview.currentInterval,
         targetInterval: preview.targetInterval,
@@ -87,6 +91,9 @@ export async function POST(req: Request) {
         amountDue: preview.amountDue,
         currency: preview.currency,
         total: preview.total,
+        startingBalance: preview.startingBalance,
+        endingBalance: preview.endingBalance,
+        lineItems: preview.lineItems,
         subscriptionId: preview.subscriptionId,
         targetRecurringUnitAmount: preview.targetRecurringUnitAmount,
         targetRecurringCurrency: preview.targetRecurringCurrency,
@@ -108,6 +115,20 @@ export async function POST(req: Request) {
         supporterYearlyCurrency: preview.supporterYearlyCurrency,
         currentSubscriptionPeriodEndIso: preview.currentSubscriptionPeriodEndIso,
         scheduledTargetInterval: preview.scheduledTargetInterval,
+      });
+    }
+
+    if (body.action === 'preview_scheduled_interval_switch_to_monthly') {
+      const preview = await previewScheduledIntervalSwitchToMonthly(ctx);
+      return NextResponse.json({
+        action: 'preview_scheduled_interval_switch_to_monthly',
+        planTier: preview.planTier,
+        currentInterval: preview.currentInterval,
+        currentRecurringUnitAmount: preview.currentRecurringUnitAmount,
+        currentRecurringCurrency: preview.currentRecurringCurrency,
+        targetRecurringUnitAmount: preview.targetRecurringUnitAmount,
+        targetRecurringCurrency: preview.targetRecurringCurrency,
+        currentSubscriptionPeriodEndIso: preview.currentSubscriptionPeriodEndIso,
       });
     }
 

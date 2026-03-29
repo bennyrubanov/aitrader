@@ -183,7 +183,7 @@ export function DowngradeToSupporterDialog({
   const periodEndLabel = preview
     ? formatDateUtc(preview.currentSubscriptionPeriodEndIso)
     : null;
-  const renewalOnLabel = periodEndLabel ? `${periodEndLabel} (UTC)` : '—';
+  const renewalOnLabel = periodEndLabel ? periodEndLabel : '—';
 
   const intervalChanged = preview ? chosenInterval !== preview.billingInterval : false;
   const target = preview ? targetAmountForInterval(preview, chosenInterval) : null;
@@ -191,7 +191,10 @@ export function DowngradeToSupporterDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent showCloseButton={phase !== 'submitting'}>
+      <DialogContent
+        showCloseButton={phase !== 'submitting'}
+        className="min-w-0 max-w-[calc(100vw-2rem)] overflow-x-hidden sm:max-w-lg"
+      >
         <DialogHeader>
           <DialogTitle>Downgrade to Supporter</DialogTitle>
           <DialogDescription>
@@ -210,7 +213,7 @@ export function DowngradeToSupporterDialog({
         {phase === 'error' && error && <p className="text-sm text-destructive">{error}</p>}
 
         {(phase === 'ready' || phase === 'submitting') && preview && target && (
-          <>
+          <div className="min-w-0 space-y-3">
             <PlanChangeCompareLayout
               beforeRows={[
                 { label: 'Plan', value: 'Outperformer' },
@@ -226,6 +229,7 @@ export function DowngradeToSupporterDialog({
                     preview.billingInterval
                   ),
                 },
+                { label: 'Renewal date', value: renewalOnLabel },
               ]}
               afterRows={[
                 { label: 'Plan', value: 'Supporter' },
@@ -239,6 +243,7 @@ export function DowngradeToSupporterDialog({
                   label: 'Recurring price',
                   value: renewalDisplay(target.amount, target.currency, chosenInterval),
                 },
+                { label: 'Renewal date', value: renewalOnLabel },
               ]}
               dueNowLabel="Due now"
               dueNowValue="$0"
@@ -252,7 +257,7 @@ export function DowngradeToSupporterDialog({
                   {periodEndLabel ? (
                     <>
                       {' '}
-                      on <strong>{periodEndLabel}</strong> (UTC)
+                      on <strong>{periodEndLabel}</strong>
                     </>
                   ) : null}
                   , then Supporter
@@ -272,7 +277,7 @@ export function DowngradeToSupporterDialog({
                 ? `Keep ${formatBillingCadenceLabel(preview.billingInterval).toLowerCase()} billing instead`
                 : `Also switch to ${formatBillingCadenceLabel(otherInterval).toLowerCase()} billing`}
             </button>
-          </>
+          </div>
         )}
 
         {error && phase !== 'error' && <p className="text-sm text-destructive">{error}</p>}
@@ -427,7 +432,7 @@ export function ScheduledDowngradeDetailDialog({
   const periodEndLabel = preview
     ? formatDateUtc(preview.currentSubscriptionPeriodEndIso)
     : null;
-  const renewalOnLabel = periodEndLabel ? `${periodEndLabel} (UTC)` : '—';
+  const renewalOnLabel = periodEndLabel ? periodEndLabel : '—';
   const target = preview ? targetAmountForInterval(preview, chosenInterval) : null;
   const otherInterval = chosenInterval === 'year' ? 'month' : 'year';
   const intervalChangedVsCurrent = preview ? chosenInterval !== preview.billingInterval : false;
@@ -460,7 +465,10 @@ export function ScheduledDowngradeDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent showCloseButton={!busy}>
+      <DialogContent
+        showCloseButton={!busy}
+        className="min-w-0 max-w-[calc(100vw-2rem)] overflow-x-hidden sm:max-w-lg"
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <CalendarClock className="size-4 text-muted-foreground" />
@@ -482,7 +490,7 @@ export function ScheduledDowngradeDetailDialog({
         {phase === 'error' && error && <p className="text-sm text-destructive">{error}</p>}
 
         {phase === 'ready' && preview && target && (
-          <>
+          <div className="min-w-0 space-y-3">
             <PlanChangeCompareLayout
               beforeRows={[
                 { label: 'Plan', value: 'Outperformer' },
@@ -498,6 +506,7 @@ export function ScheduledDowngradeDetailDialog({
                     preview.billingInterval
                   ),
                 },
+                { label: 'Renewal date', value: renewalOnLabel },
               ]}
               afterRows={[
                 { label: 'Plan', value: 'Supporter' },
@@ -511,6 +520,7 @@ export function ScheduledDowngradeDetailDialog({
                   label: 'Recurring price',
                   value: renewalDisplay(target.amount, target.currency, chosenInterval),
                 },
+                { label: 'Renewal date', value: renewalOnLabel },
               ]}
               dueNowLabel="Due now"
               dueNowValue="$0"
@@ -524,7 +534,7 @@ export function ScheduledDowngradeDetailDialog({
                   {periodEndLabel ? (
                     <>
                       {' '}
-                      on <strong>{periodEndLabel}</strong> (UTC)
+                      on <strong>{periodEndLabel}</strong>
                     </>
                   ) : null}
                   , then Supporter
@@ -544,7 +554,7 @@ export function ScheduledDowngradeDetailDialog({
               Use {formatBillingCadenceLabel(otherInterval).toLowerCase()} Supporter billing at
               renewal instead
             </button>
-          </>
+          </div>
         )}
 
         {error && phase === 'ready' && <p className="text-sm text-destructive">{error}</p>}

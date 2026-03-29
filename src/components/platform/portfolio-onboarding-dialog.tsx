@@ -1023,11 +1023,11 @@ export function PortfolioOnboardingDialog({
               <div className="min-h-0 flex-1 overflow-hidden py-2">
                 <div className="flex gap-2.5">
                   <div className="flex flex-col items-center gap-1 shrink-0 py-0.5">
-                    <span className="text-[8px] font-medium uppercase tracking-wide text-muted-foreground text-center leading-tight max-w-[4.5rem]">
+                    <span className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground text-center leading-tight max-w-[4.5rem]">
                       Safer / more diversified
                     </span>
                     <div className="w-2 flex-1 min-h-[168px] rounded-full bg-gradient-to-b from-emerald-400 via-amber-400 to-rose-500" />
-                    <span className="text-[8px] font-medium uppercase tracking-wide text-muted-foreground text-center leading-tight max-w-[4.5rem]">
+                    <span className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground text-center leading-tight max-w-[4.5rem]">
                       Higher risk / concentrated
                     </span>
                   </div>
@@ -1189,7 +1189,7 @@ export function PortfolioOnboardingDialog({
                 </DialogDescription>
               </DialogHeader>
               <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain py-2">
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                   {INVESTMENT_QUICK_PICKS.map((size) => {
                     const isSelected =
                       draft.investmentSize === size && Number(customInvestment) === size;

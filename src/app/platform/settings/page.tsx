@@ -25,6 +25,7 @@ import { toast } from '@/hooks/use-toast';
 import { getSupabaseBrowserClient } from '@/utils/supabase/browser';
 import { PlanLabel } from '@/components/account/plan-label';
 import { SubscriptionUpgradeDialog } from '@/components/account/subscription-upgrade-dialog';
+import { CreditHistoryDialog } from '@/components/account/credit-history-dialog';
 import { BillingIntervalSwitchDialog } from '@/components/account/billing-interval-switch-dialog';
 import {
   DowngradeToSupporterDialog,
@@ -54,6 +55,46 @@ function formatBillingDate(iso: string | null) {
   } catch {
     return iso;
   }
+}
+
+function formatBillingCharge(amount: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency: currency.toUpperCase(),
+    }).format(amount / 100);
+  } catch {
+    return `${(amount / 100).toFixed(2)} ${currency.toUpperCase()}`;
+  }
+}
+
+/** Billing section subtitle: renewal or plan-change date, next charge when known, cadence. */
+function billingSectionSummary(
+  cancelAtPeriodEnd: boolean,
+  pendingTier: 'free' | 'supporter' | 'outperformer' | null,
+  dateLabel: string,
+  interval: 'month' | 'year' | null,
+  unitAmount: number | null,
+  currency: string | null
+) {
+  const planChangesAtPeriodEnd = cancelAtPeriodEnd || pendingTier != null;
+  const cadence =
+    interval === 'month'
+      ? 'You are billed monthly.'
+      : interval === 'year'
+        ? 'You are billed yearly.'
+        : '';
+  const showNextCharge =
+    !planChangesAtPeriodEnd && unitAmount !== null && currency !== null;
+
+  return (
+    <>
+      {planChangesAtPeriodEnd ? 'Your plan changes on ' : 'Your subscription renews on '}
+      <span className="font-medium text-foreground">{dateLabel}</span>
+      {showNextCharge ? <> for {formatBillingCharge(unitAmount, currency)}</> : null}.
+      {cadence ? <> {cadence}</> : null}
+    </>
+  );
 }
 
 /** Auth fallback labels — treat as empty for the name field. */
@@ -143,6 +184,39 @@ const SettingsPageContent = () => {
     Array<{ symbol: string; notify_on_change: boolean }>
   >([]);
   const [signInMethods, setSignInMethods] = useState<SignInMethods | null>(null);
+  const [accountCreditRow, setAccountCreditRow] = useState<{
+    creditCents: number;
+    currency: string;
+  } | null>(null);
+  const [creditHistoryOpen, setCreditHistoryOpen] = useState(false);
+
+  const refreshAccountCredit = useCallback(() => {
+    if (!authState.isLoaded || !authState.isAuthenticated || !authState.hasPremiumAccess) {
+      setAccountCreditRow(null);
+      return;
+    }
+    void (async () => {
+      try {
+        const res = await fetch('/api/stripe/customer-balance');
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          showAccountCreditRow?: boolean;
+          creditCents?: number;
+          currency?: string;
+        };
+        if (data.showAccountCreditRow === true) {
+          setAccountCreditRow({
+            creditCents: typeof data.creditCents === 'number' ? data.creditCents : 0,
+            currency: typeof data.currency === 'string' ? data.currency : 'usd',
+          });
+        } else {
+          setAccountCreditRow(null);
+        }
+      } catch {
+        // informational
+      }
+    })();
+  }, [authState.isLoaded, authState.isAuthenticated, authState.hasPremiumAccess]);
 
   useEffect(() => {
     if (!authState.isLoaded) {
@@ -218,6 +292,10 @@ const SettingsPageContent = () => {
     };
   }, [authState.isLoaded, authState.isAuthenticated, authState.userId]);
 
+  useEffect(() => {
+    refreshAccountCredit();
+  }, [refreshAccountCredit]);
+
   const savedNameNormalized = nameFromAuthState(authState.name).trim();
   const nameUnchanged = nameDraft.trim() === savedNameNormalized;
 
@@ -278,10 +356,11 @@ const SettingsPageContent = () => {
       } finally {
         await refreshProfile();
         router.refresh();
+        refreshAccountCredit();
         router.replace('/platform/settings');
       }
     })();
-  }, [authState.isLoaded, authState.isAuthenticated, refreshProfile, router]);
+  }, [authState.isLoaded, authState.isAuthenticated, refreshAccountCredit, refreshProfile, router]);
 
   useEffect(() => {
     billingCadenceReconcileAttemptedRef.current = false;
@@ -309,6 +388,7 @@ const SettingsPageContent = () => {
       } finally {
         await refreshProfile();
         router.refresh();
+        refreshAccountCredit();
       }
     })();
   }, [
@@ -316,6 +396,7 @@ const SettingsPageContent = () => {
     authState.isAuthenticated,
     authState.hasPremiumAccess,
     authState.stripeRecurringInterval,
+    refreshAccountCredit,
     refreshProfile,
     router,
   ]);
@@ -447,6 +528,7 @@ const SettingsPageContent = () => {
       await fetch('/api/user/reconcile-premium', { method: 'POST' });
       await refreshProfile();
       router.refresh();
+      refreshAccountCredit();
       toast({
         title: intent === 'resume_subscription' ? 'Subscription kept' : 'Scheduled change canceled',
         description:
@@ -799,6 +881,13 @@ const SettingsPageContent = () => {
                         {authState.stripeRecurringInterval === 'month'
                           ? 'Billed monthly.'
                           : 'Billed yearly.'}
+                        {authState.stripeCurrentPeriodEnd &&
+                        !authState.stripeCancelAtPeriodEnd ? (
+                          <>
+                            {' '}
+                            Next billing on {formatBillingDate(authState.stripeCurrentPeriodEnd)}.
+                          </>
+                        ) : null}
                       </span>
                     )}
                   {authState.subscriptionTier === 'free' && (
@@ -940,16 +1029,13 @@ const SettingsPageContent = () => {
               </div>
               {authState.hasPremiumAccess && authState.stripeCurrentPeriodEnd && (
                 <p className="mt-2 text-xs text-muted-foreground">
-                  Current period renews or changes on{' '}
-                  <span className="font-medium text-foreground">
-                    {formatBillingDate(authState.stripeCurrentPeriodEnd)}
-                  </span>
-                  .
-                  {authState.stripeRecurringInterval === 'month' && (
-                    <span className="mt-1 block">You are billed monthly.</span>
-                  )}
-                  {authState.stripeRecurringInterval === 'year' && (
-                    <span className="mt-1 block">You are billed yearly.</span>
+                  {billingSectionSummary(
+                    authState.stripeCancelAtPeriodEnd,
+                    authState.stripePendingTier,
+                    formatBillingDate(authState.stripeCurrentPeriodEnd),
+                    authState.stripeRecurringInterval,
+                    authState.stripeRecurringUnitAmount,
+                    authState.stripeRecurringCurrency
                   )}
                 </p>
               )}
@@ -996,6 +1082,34 @@ const SettingsPageContent = () => {
                   >
                     Upgrade to Outperformer
                   </Button>
+                </div>
+              )}
+              {accountCreditRow && (
+                <div className="flex flex-col gap-2 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">Account credit</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Applied automatically to upcoming invoices until depleted.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="link"
+                      className="h-auto p-0 text-xs text-trader-blue"
+                      onClick={() => setCreditHistoryOpen(true)}
+                    >
+                      View credit history
+                    </Button>
+                  </div>
+                  <p
+                    className={cn(
+                      'text-sm font-semibold sm:shrink-0 tabular-nums',
+                      accountCreditRow.creditCents > 0
+                        ? 'text-green-600 dark:text-green-400'
+                        : 'text-muted-foreground'
+                    )}
+                  >
+                    {formatBillingCharge(accountCreditRow.creditCents, accountCreditRow.currency)}
+                  </p>
                 </div>
               )}
               <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -1213,12 +1327,22 @@ const SettingsPageContent = () => {
         </section>
       )}
       </div>
+      <CreditHistoryDialog
+        open={creditHistoryOpen}
+        onOpenChange={(open) => {
+          setCreditHistoryOpen(open);
+          if (!open) {
+            refreshAccountCredit();
+          }
+        }}
+      />
       <SubscriptionUpgradeDialog
         open={upgradeDialogOpen}
         onOpenChange={setUpgradeDialogOpen}
         onAfterSuccess={async () => {
           await refreshProfile();
           router.refresh();
+          refreshAccountCredit();
         }}
       />
       <BillingIntervalSwitchDialog
@@ -1228,6 +1352,7 @@ const SettingsPageContent = () => {
         onAfterSuccess={async () => {
           await refreshProfile();
           router.refresh();
+          refreshAccountCredit();
         }}
       />
       <DowngradeToSupporterDialog
@@ -1236,6 +1361,7 @@ const SettingsPageContent = () => {
         onAfterSuccess={async () => {
           await refreshProfile();
           router.refresh();
+          refreshAccountCredit();
         }}
       />
       <ScheduledDowngradeDetailDialog
@@ -1246,6 +1372,7 @@ const SettingsPageContent = () => {
           await fetch('/api/user/reconcile-premium', { method: 'POST' });
           await refreshProfile();
           router.refresh();
+          refreshAccountCredit();
           toast({
             title: 'Scheduled change canceled',
             description: 'You will stay on your current plan after the next renewal.',
@@ -1266,6 +1393,7 @@ const SettingsPageContent = () => {
           await fetch('/api/user/reconcile-premium', { method: 'POST' });
           await refreshProfile();
           router.refresh();
+          refreshAccountCredit();
           toast({
             title: 'Billing updated',
             description: 'Your scheduled Supporter plan uses the new billing cadence.',

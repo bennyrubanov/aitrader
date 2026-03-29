@@ -1014,7 +1014,7 @@ function RebalanceActionsTable({
                   </th>
                   <th
                     scope="col"
-                    className="whitespace-nowrap py-1.5 pl-3 pr-14 text-right font-semibold text-muted-foreground"
+                    className="whitespace-nowrap py-1.5 pl-3 pr-3 text-right font-semibold text-muted-foreground sm:pr-14"
                   >
                     Target value
                   </th>
@@ -1055,7 +1055,7 @@ function RebalanceActionsTable({
                     <td className="whitespace-nowrap py-1 pl-2 pr-3 text-right align-middle tabular-nums">
                       {tradeCell(kind, r)}
                     </td>
-                    <td className="whitespace-nowrap py-1 pl-3 pr-14 text-right align-middle font-medium tabular-nums text-foreground">
+                    <td className="whitespace-nowrap py-1 pl-3 pr-3 text-right align-middle font-medium tabular-nums text-foreground sm:pr-14">
                       {formatOverviewCurrency(r.targetDollars)}
                     </td>
                   </>

@@ -70,6 +70,8 @@ create table if not exists public.user_profiles (
   stripe_cancel_at_period_end boolean not null default false,
   stripe_pending_tier text,
   stripe_recurring_interval text,
+  stripe_recurring_unit_amount integer,
+  stripe_recurring_currency text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint user_profiles_subscription_tier_valid check (
@@ -234,6 +236,8 @@ begin
     or old.stripe_cancel_at_period_end is distinct from new.stripe_cancel_at_period_end
     or old.stripe_pending_tier is distinct from new.stripe_pending_tier
     or old.stripe_recurring_interval is distinct from new.stripe_recurring_interval
+    or old.stripe_recurring_unit_amount is distinct from new.stripe_recurring_unit_amount
+    or old.stripe_recurring_currency is distinct from new.stripe_recurring_currency
   then
     raise exception 'Billing and subscription fields cannot be updated from the client'
       using errcode = '42501';

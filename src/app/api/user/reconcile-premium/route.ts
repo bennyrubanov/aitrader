@@ -36,7 +36,7 @@ export async function POST() {
     const { data: existingProfile } = await supabase
       .from("user_profiles")
       .select(
-        "email, subscription_tier, stripe_subscription_status, stripe_current_period_end, stripe_cancel_at_period_end, stripe_pending_tier, stripe_recurring_interval"
+        "email, subscription_tier, stripe_subscription_status, stripe_current_period_end, stripe_cancel_at_period_end, stripe_pending_tier, stripe_recurring_interval, stripe_recurring_unit_amount, stripe_recurring_currency"
       )
       .eq("id", user.id)
       .maybeSingle();
@@ -104,6 +104,14 @@ export async function POST() {
           existingProfile?.stripe_recurring_interval === "year"
             ? existingProfile.stripe_recurring_interval
             : null,
+        stripeRecurringUnitAmount:
+          typeof existingProfile?.stripe_recurring_unit_amount === "number"
+            ? existingProfile.stripe_recurring_unit_amount
+            : null,
+        stripeRecurringCurrency:
+          typeof existingProfile?.stripe_recurring_currency === "string"
+            ? existingProfile.stripe_recurring_currency
+            : null,
       });
     }
 
@@ -122,6 +130,8 @@ export async function POST() {
         stripe_cancel_at_period_end: extras.stripe_cancel_at_period_end,
         stripe_pending_tier: extras.stripe_pending_tier,
         stripe_recurring_interval: extras.stripe_recurring_interval,
+        stripe_recurring_unit_amount: extras.stripe_recurring_unit_amount,
+        stripe_recurring_currency: extras.stripe_recurring_currency,
         updated_at: new Date().toISOString(),
       },
       { onConflict: "id" }
@@ -139,6 +149,8 @@ export async function POST() {
       stripeCancelAtPeriodEnd: extras.stripe_cancel_at_period_end,
       stripePendingTier: extras.stripe_pending_tier,
       stripeRecurringInterval: extras.stripe_recurring_interval,
+      stripeRecurringUnitAmount: extras.stripe_recurring_unit_amount,
+      stripeRecurringCurrency: extras.stripe_recurring_currency,
     });
   } catch (error) {
     return NextResponse.json(
