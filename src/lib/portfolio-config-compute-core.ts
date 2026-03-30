@@ -94,6 +94,29 @@ export function computeWeightedReturn(
   return gross;
 }
 
+/**
+ * After a buy-and-hold week with no rebalance, update weights so they match
+ * post-move portfolio shares: w'_i = w_i * (1 + r_i) / (1 + R), where R is the
+ * portfolio gross return for the period (same as {@link computeWeightedReturn}).
+ */
+function driftHoldingsWeights(
+  holdings: HoldingWithWeight[],
+  prevPrices: Map<string, number>,
+  currPrices: Map<string, number>,
+  portfolioGrossReturn: number
+): HoldingWithWeight[] {
+  const denom = 1 + portfolioGrossReturn;
+  if (!Number.isFinite(denom) || Math.abs(denom) < 1e-12) {
+    const n = holdings.length;
+    const w = n > 0 ? 1 / n : 0;
+    return holdings.map((h) => ({ ...h, weight: w }));
+  }
+  return holdings.map((h) => {
+    const r = simpleReturn(prevPrices.get(h.symbol) ?? null, currPrices.get(h.symbol) ?? null);
+    return { ...h, weight: (h.weight * (1 + r)) / denom };
+  });
+}
+
 export function periodKey(dateStr: string, frequency: string): string {
   const [year, month] = dateStr.split('-');
   if (frequency === 'monthly') return `${year!}-${month!}`;
@@ -290,6 +313,13 @@ export function computeEquityUpsertRows(params: {
           ? buildCapWeightHoldings(scores, top_n, capMap)
           : buildEqualWeightHoldings(scores, top_n);
 
+      // Match cron: first entry is treated as full rebalance (turnover 1) with zero gross return.
+      const entryTurnover = 1;
+      const entryTransactionCost = entryTurnover * (transactionCostBps / 10_000);
+      const entryGrossReturn = 0;
+      const entryNetReturn = entryGrossReturn - entryTransactionCost;
+      equity = Math.max(0.01, INITIAL_CAPITAL * (1 + entryNetReturn));
+
       upsertRows.push({
         strategy_id,
         config_id,
@@ -297,13 +327,13 @@ export function computeEquityUpsertRows(params: {
         strategy_status: 'in_progress',
         compute_status: 'ready',
         holdings_count: holdings.length,
-        turnover: 0,
+        turnover: entryTurnover,
         transaction_cost_bps: transactionCostBps,
-        transaction_cost: 0,
-        gross_return: 0,
-        net_return: 0,
+        transaction_cost: entryTransactionCost,
+        gross_return: entryGrossReturn,
+        net_return: entryNetReturn,
         starting_equity: INITIAL_CAPITAL,
-        ending_equity: INITIAL_CAPITAL,
+        ending_equity: equity,
         nasdaq100_cap_weight_equity: null,
         nasdaq100_equal_weight_equity: null,
         sp500_equity: null,
@@ -323,6 +353,7 @@ export function computeEquityUpsertRows(params: {
     let turnover = 0;
     let transactionCost = 0;
     let newHoldings = holdings;
+    let rebalanced = false;
 
     if (isRebalance) {
       const rebalBatch = rebalanceBatchByDate.get(batch.run_date);
@@ -335,6 +366,7 @@ export function computeEquityUpsertRows(params: {
             : buildEqualWeightHoldings(scores, top_n);
         turnover = holdings.length ? computeTurnover(holdings, newHoldings) : 1;
         transactionCost = turnover * (transactionCostBps / 10_000);
+        rebalanced = true;
       }
     }
 
@@ -367,7 +399,9 @@ export function computeEquityUpsertRows(params: {
       updated_at: new Date().toISOString(),
     });
 
-    holdings = newHoldings;
+    holdings = rebalanced
+      ? newHoldings
+      : driftHoldingsWeights(holdings, prevPrices, currPrices, grossReturn);
   }
 
   return upsertRows;

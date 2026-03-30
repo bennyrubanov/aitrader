@@ -98,6 +98,18 @@ function fmtQuickPickReturn(n: number | null | undefined): string {
   return `${n >= 0 ? '+' : ''}${(n * 100).toFixed(1)}%`;
 }
 
+const MODEL_INCEPTION_DISPLAY_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+  timeZone: 'UTC',
+});
+
+function formatModelInceptionForCopy(ymd: string | null): string | null {
+  if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return null;
+  return MODEL_INCEPTION_DISPLAY_FORMATTER.format(new Date(`${ymd}T00:00:00Z`));
+}
+
 const CONFIG_CARD_RISK_DOT: Record<RiskLevel, string> = {
   1: 'bg-emerald-500',
   2: 'bg-lime-500',
@@ -393,6 +405,7 @@ export function SidebarPortfolioConfigPicker({
   className,
 }: Props) {
   const [rankedConfigs, setRankedConfigs] = useState<RankedConfig[]>([]);
+  const [modelInceptionDate, setModelInceptionDate] = useState<string | null>(null);
   const [latestPerformanceDate, setLatestPerformanceDate] = useState<string | null>(null);
   const [benchmarkEndingValues, setBenchmarkEndingValues] = useState<BenchmarkEndingValues | null>(
     null
@@ -419,6 +432,7 @@ export function SidebarPortfolioConfigPicker({
     setLoading(true);
     setRankedConfigs([]);
     setBenchmarkEndingValues(null);
+    setModelInceptionDate(null);
     setLatestPerformanceDate(null);
     try {
       const res = await fetch(
@@ -429,9 +443,11 @@ export function SidebarPortfolioConfigPicker({
           configs?: RankedConfig[];
           benchmarkEndingValues?: BenchmarkEndingValues | null;
           latestPerformanceDate?: string | null;
+          modelInceptionDate?: string | null;
         };
         setRankedConfigs(data.configs ?? []);
         setBenchmarkEndingValues(data.benchmarkEndingValues ?? null);
+        setModelInceptionDate(data.modelInceptionDate ?? null);
         setLatestPerformanceDate(data.latestPerformanceDate ?? null);
       } else {
         setRankedConfigs([]);
@@ -524,6 +540,11 @@ export function SidebarPortfolioConfigPicker({
     if (weightFilter != null) out = out.filter((c) => c.weightingMethod === weightFilter);
     return out;
   }, [rankedConfigs, filterBeatNasdaq, filterBeatSp500, riskFilter, freqFilter, weightFilter]);
+
+  const modelInceptionDisplay = useMemo(
+    () => formatModelInceptionForCopy(modelInceptionDate),
+    [modelInceptionDate]
+  );
 
   const activeFilterCount = useMemo(() => {
     let n = 0;
@@ -708,7 +729,15 @@ export function SidebarPortfolioConfigPicker({
                           <DialogTitle>Choose portfolio</DialogTitle>
                           <DialogDescription>
                             See how much <strong>$10000</strong> would have turned into if you
-                            followed each portfolio.
+                            followed each portfolio
+                            {modelInceptionDisplay ? (
+                              <>
+                                {' '}
+                                since the strategy model started rating stocks ({modelInceptionDisplay}).
+                              </>
+                            ) : (
+                              <> since the strategy model started rating stocks.</>
+                            )}
                           </DialogDescription>
                         </DialogHeader>
 

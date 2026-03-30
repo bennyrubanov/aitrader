@@ -517,14 +517,14 @@ const buildPayloadForStrategy = async (
   // Use INITIAL_CAPITAL as the start value for all return calculations.
   // The first row's ending_equity already includes the first week's return,
   // so measuring from it would skip that week.
-  const totalReturnAi =
-    lastPoint ? computeTotalReturn(INITIAL_CAPITAL, lastPoint.aiTop20) : null;
-  const totalReturnCap =
-    lastPoint ? computeTotalReturn(INITIAL_CAPITAL, lastPoint.nasdaq100CapWeight) : null;
-  const totalReturnEqual =
-    lastPoint ? computeTotalReturn(INITIAL_CAPITAL, lastPoint.nasdaq100EqualWeight) : null;
-  const totalReturnSp =
-    lastPoint ? computeTotalReturn(INITIAL_CAPITAL, lastPoint.sp500) : null;
+  const totalReturnAi = lastPoint ? computeTotalReturn(INITIAL_CAPITAL, lastPoint.aiTop20) : null;
+  const totalReturnCap = lastPoint
+    ? computeTotalReturn(INITIAL_CAPITAL, lastPoint.nasdaq100CapWeight)
+    : null;
+  const totalReturnEqual = lastPoint
+    ? computeTotalReturn(INITIAL_CAPITAL, lastPoint.nasdaq100EqualWeight)
+    : null;
+  const totalReturnSp = lastPoint ? computeTotalReturn(INITIAL_CAPITAL, lastPoint.sp500) : null;
 
   const metrics =
     firstPoint && lastPoint
@@ -542,18 +542,17 @@ const buildPayloadForStrategy = async (
             series.map((p) => ({ aiValue: p.aiTop20, benchmarkValue: p.sp500 }))
           ),
           pctMonthsBeatingNasdaq100: computePctMonthsBeating(
-            series.map((p) => ({ date: p.date, aiValue: p.aiTop20, benchmarkValue: p.nasdaq100CapWeight }))
+            series.map((p) => ({
+              date: p.date,
+              aiValue: p.aiTop20,
+              benchmarkValue: p.nasdaq100CapWeight,
+            }))
           ),
           benchmarks: {
             nasdaq100CapWeight: {
               endingValue: lastPoint.nasdaq100CapWeight,
               totalReturn: totalReturnCap,
-              cagr: computeCagr(
-                INITIAL_CAPITAL,
-                lastPoint.nasdaq100CapWeight,
-                firstDate,
-                lastDate
-              ),
+              cagr: computeCagr(INITIAL_CAPITAL, lastPoint.nasdaq100CapWeight, firstDate, lastDate),
               maxDrawdown: computeMaxDrawdown(series.map((p) => p.nasdaq100CapWeight)),
             },
             nasdaq100EqualWeight: {
@@ -726,10 +725,10 @@ const getPerformancePayloadBySlugCached = (slug: string) =>
         const supabase = createPublicClient();
         const { data: strategyData, error: strategyError } = await supabase
           .from('strategy_models')
-        .select(
-          'id, slug, name, version, description, status, is_default, rebalance_frequency, rebalance_day_of_week, portfolio_size, transaction_cost_bps, ai_models(provider, name, version)'
-        )
-        .eq('slug', slug)
+          .select(
+            'id, slug, name, version, description, status, is_default, rebalance_frequency, rebalance_day_of_week, portfolio_size, transaction_cost_bps, ai_models(provider, name, version)'
+          )
+          .eq('slug', slug)
           .eq('status', 'active')
           .maybeSingle();
 
@@ -814,7 +813,9 @@ export const getPortfolioRunDates = async (strategyId: string): Promise<string[]
       .order('run_date', { ascending: false });
 
     if (error || !data) return [];
-    const unique = Array.from(new Set((data as Array<{ run_date: string }>).map((r) => r.run_date)));
+    const unique = Array.from(
+      new Set((data as Array<{ run_date: string }>).map((r) => r.run_date))
+    );
     return unique.sort((a, b) => b.localeCompare(a));
   } catch {
     return [];
@@ -869,7 +870,9 @@ const getStrategiesListCached = unstable_cache(
           const netReturns = rows.map((r) => toNumber(r.net_return, 0));
           const firstRow = rows[0];
           const lastRow = rows[rows.length - 1];
-          const endEquity = lastRow ? toNumber(lastRow.ending_equity, INITIAL_CAPITAL) : INITIAL_CAPITAL;
+          const endEquity = lastRow
+            ? toNumber(lastRow.ending_equity, INITIAL_CAPITAL)
+            : INITIAL_CAPITAL;
 
           return {
             id: strategy.id,
@@ -1005,9 +1008,7 @@ const getStrategyDetailCached = (slug: string) =>
         const [perfResponse, quintileResponse, regressionResponse] = await Promise.all([
           supabase
             .from('strategy_performance_weekly')
-            .select(
-              'run_date, net_return, ending_equity, nasdaq100_cap_weight_equity'
-            )
+            .select('run_date, net_return, ending_equity, nasdaq100_cap_weight_equity')
             .eq('strategy_id', row.id)
             .order('run_date', { ascending: true }),
           supabase
@@ -1036,7 +1037,9 @@ const getStrategyDetailCached = (slug: string) =>
         const netReturns = perfRows.map((r) => toNumber(r.net_return, 0));
         const firstRow = perfRows[0];
         const lastRow = perfRows[perfRows.length - 1];
-        const endEquity = lastRow ? toNumber(lastRow.ending_equity, INITIAL_CAPITAL) : INITIAL_CAPITAL;
+        const endEquity = lastRow
+          ? toNumber(lastRow.ending_equity, INITIAL_CAPITAL)
+          : INITIAL_CAPITAL;
         const benchCapEnd = lastRow
           ? toNumber(lastRow.nasdaq100_cap_weight_equity, INITIAL_CAPITAL)
           : INITIAL_CAPITAL;

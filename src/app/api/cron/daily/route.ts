@@ -102,6 +102,8 @@ type CronRatingDigestMeta = {
   rebalanceActionsCount?: number;
   sequenceNumber?: number;
   portfolioConfigBatchTriggered?: boolean;
+  portfolioConfigsComputed?: number;
+  portfolioConfigsFailed?: number;
   benchmarkNasdaqCap?: number;
   benchmarkNasdaqEqual?: number;
   benchmarkSp500?: number;
@@ -1392,7 +1394,7 @@ const handleRequest = async (req: Request) => {
           <li><strong>Net return (week, after costs):</strong> ${escapeHtml(formatPct(digestMeta.netReturn))}</li>
           <li><strong>Benchmark week (approx):</strong> NDX cap ${escapeHtml(formatPct(digestMeta.benchmarkNasdaqCap))}, QQQEW / equal proxy ${escapeHtml(formatPct(digestMeta.benchmarkNasdaqEqual))}, S&amp;P 500 ${escapeHtml(formatPct(digestMeta.benchmarkSp500))}</li>
           <li><strong>Rebalance actions logged:</strong> ${escapeHtml(formatMeta(digestMeta.rebalanceActionsCount))}</li>
-          <li><strong>48-config precompute triggered:</strong> ${escapeHtml(formatMeta(digestMeta.portfolioConfigBatchTriggered))}</li>
+          <li><strong>Portfolio configs precompute:</strong> ran ${escapeHtml(formatMeta(digestMeta.portfolioConfigBatchTriggered))} · non-default OK ${escapeHtml(formatMeta(digestMeta.portfolioConfigsComputed))} · failed ${escapeHtml(formatMeta(digestMeta.portfolioConfigsFailed))}</li>
         </ul>
         <h3>Time by section</h3>
         ${digestNote}
@@ -2209,14 +2211,26 @@ const handleRequest = async (req: Request) => {
     digestMeta.benchmarkNasdaqEqual = nasdaqEqualWeightReturn;
     digestMeta.benchmarkSp500 = sp500Return;
 
-    // ----- Step 15b: Precompute all portfolio configs (fan-out, fire-and-forget) -----
+    // ----- Step 15b: Precompute all portfolio configs (inline — reliable on Vercel Hobby) -----
     try {
-      const { triggerPortfolioConfigsBatch } = await import('@/lib/trigger-config-compute');
-      triggerPortfolioConfigsBatch(strategy.id);
+      const { computeAllPortfolioConfigs } = await import('@/lib/compute-all-portfolio-configs');
+      const configResult = await computeAllPortfolioConfigs(supabase, strategy.id);
       digestMeta.portfolioConfigBatchTriggered = true;
+      digestMeta.portfolioConfigsComputed = configResult.computedNonDefault;
+      digestMeta.portfolioConfigsFailed = configResult.failedNonDefault;
+      if (configResult.failedNonDefault > 0) {
+        recordCronError(
+          'Portfolio config compute had failures',
+          new Error(
+            `${configResult.failedNonDefault} config(s) failed; check portfolio_config_compute_queue`
+          )
+        );
+      }
     } catch (batchTriggerError) {
       digestMeta.portfolioConfigBatchTriggered = false;
-      recordCronError('Portfolio config batch trigger failed', batchTriggerError);
+      digestMeta.portfolioConfigsComputed = undefined;
+      digestMeta.portfolioConfigsFailed = undefined;
+      recordCronError('Portfolio config inline compute failed', batchTriggerError);
     }
 
     // ----- Step 16: Persist deterministic rebalance actions -----

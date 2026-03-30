@@ -1,10 +1,16 @@
-import "server-only";
-import { DEFAULT_AUTH_STATE, type AuthState } from "@/lib/auth-state";
-import { buildAuthStateFromUserAndProfile, buildAuthStateGuestLoaded } from "@/lib/build-auth-state";
-import { createClient } from "@/utils/supabase/server";
+import 'server-only';
+import { DEFAULT_AUTH_STATE, type AuthState } from '@/lib/auth-state';
+import {
+  buildAuthStateFromUserAndProfile,
+  buildAuthStateGuestLoaded,
+} from '@/lib/build-auth-state';
+import { createClient } from '@/utils/supabase/server';
 
 export const getInitialAuthState = async (): Promise<AuthState> => {
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY) {
+  if (
+    !process.env.NEXT_PUBLIC_SUPABASE_URL ||
+    !process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY
+  ) {
     return buildAuthStateGuestLoaded();
   }
 
@@ -19,11 +25,11 @@ export const getInitialAuthState = async (): Promise<AuthState> => {
     }
 
     const { data, error } = await supabase
-      .from("user_profiles")
+      .from('user_profiles')
       .select(
-        "subscription_tier, full_name, email, portfolio_onboarding_done, stripe_current_period_end, stripe_cancel_at_period_end, stripe_pending_tier, stripe_recurring_interval, stripe_recurring_unit_amount, stripe_recurring_currency"
+        'subscription_tier, full_name, email, portfolio_onboarding_done, stripe_current_period_end, stripe_cancel_at_period_end, stripe_pending_tier, stripe_recurring_interval, stripe_recurring_unit_amount, stripe_recurring_currency'
       )
-      .eq("id", user.id)
+      .eq('id', user.id)
       .maybeSingle();
 
     return buildAuthStateFromUserAndProfile(user, data, Boolean(error));
@@ -31,4 +37,3 @@ export const getInitialAuthState = async (): Promise<AuthState> => {
     return buildAuthStateGuestLoaded();
   }
 };
-
