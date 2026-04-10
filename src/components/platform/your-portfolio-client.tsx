@@ -2349,11 +2349,11 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
               ) : null}
 
               <div className="grid w-full min-w-0 grid-cols-1 gap-4 rounded-lg border border-border/70 bg-muted/20 p-3 sm:gap-5 sm:p-4 lg:p-5">
-                <div className="flex max-h-[min(52vh,360px)] min-h-0 w-full max-w-full flex-col gap-4 overflow-hidden lg:max-h-[min(48vh,340px)] lg:flex-row lg:items-stretch lg:gap-5">
-                  <div className="relative flex min-h-0 w-full min-w-0 flex-1 basis-0 flex-col lg:w-[16rem] lg:max-w-[16rem] lg:flex-none lg:shrink-0 lg:basis-auto">
+                <div className="flex w-full max-w-full min-w-0 flex-col gap-4 lg:max-h-[min(48vh,340px)] lg:min-h-0 lg:flex-row lg:items-stretch lg:gap-5 lg:overflow-hidden">
+                  <div className="relative flex w-full min-w-0 shrink-0 flex-col lg:min-h-0 lg:w-[16rem] lg:max-w-[16rem] lg:shrink-0 lg:basis-auto lg:flex-none">
                     <div
                       ref={yourPortfolioMetricsScrollRef}
-                      className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto"
+                      className="flex max-h-[min(42vh,300px)] min-h-0 flex-col gap-2 overflow-y-auto lg:max-h-none lg:flex-1"
                     >
                       <div ref={yourPortfolioMetricsInnerRef} className="flex flex-col gap-2">
                     <SpotlightStatCard
@@ -2484,7 +2484,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                     ) : null}
                   </div>
 
-                  <div className="relative flex min-h-0 min-w-0 w-full max-w-full flex-1 basis-0 flex-col gap-1.5 overflow-hidden rounded-xl border border-border/80 bg-background/80 p-3 shadow-sm sm:p-4 sm:gap-2">
+                  <div className="relative flex min-h-0 w-full max-w-full min-w-0 flex-col gap-1.5 overflow-hidden rounded-xl border border-border/80 bg-background/80 p-3 shadow-sm sm:gap-2 sm:p-4 lg:flex-1 lg:basis-0">
                   <div className="flex shrink-0 min-w-0 w-full flex-wrap items-end justify-between gap-x-3 gap-y-2">
                     <h4 className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       Portfolio holdings
@@ -2557,10 +2557,10 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                       </p>
                     ) : null}
                   </div>
-                  <div className="relative min-h-0 flex-1 overflow-hidden">
+                  <div className="relative min-h-0 w-full flex-1 overflow-hidden lg:min-h-0">
                     <div
                       ref={yourPortfolioHoldingsScrollRef}
-                      className="h-full min-h-0 overflow-y-auto"
+                      className="max-h-[min(56vh,400px)] w-full min-h-0 overflow-auto rounded-md border lg:max-h-none lg:h-full lg:flex-1"
                     >
                   {!yourPortfoliosHoldingsPaid ? (
                     <div className="flex min-h-[12rem] flex-col items-center justify-center gap-3 px-4 py-8 text-center">
@@ -2601,8 +2601,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                             'w-full min-w-0'
                           )}
                         >
-                      <div className="w-full min-w-0 overflow-x-auto rounded-md border">
-                        <Table className="w-full min-w-0">
+                        <Table>
                           <TableHeader>
                             <TableRow className="hover:bg-transparent">
                               <TableHead className="h-9 min-w-[4.25rem] py-1.5 pl-2 pr-0.5 text-left align-middle tabular-nums">
@@ -2866,9 +2865,8 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                 })}
                           </TableBody>
                         </Table>
-                      </div>
                       {configHoldings.length > topN ? (
-                        <p className="text-center text-xs text-muted-foreground">
+                        <p className="px-2 py-2 text-center text-xs text-muted-foreground">
                           Showing top {topN} of {configHoldings.length} positions.
                         </p>
                       ) : null}
