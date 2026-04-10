@@ -11,6 +11,9 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { formatYmdDisplay } from '@/lib/format-ymd-display';
 import { cn } from '@/lib/utils';
 
+/** Popover + portaled content breaks on touch inside nested dialogs; inline calendar below `lg`. */
+const ENTRY_PICKER_INLINE_MAX = '(max-width: 1023px)';
+
 export type PortfolioEntryDatePickerProps = {
   valueYmd: string;
   onChangeYmd: (ymd: string) => void;
@@ -38,6 +41,19 @@ export function PortfolioEntryDatePicker({
   showPastDateNote = true,
 }: PortfolioEntryDatePickerProps) {
   const [popoverOpen, setPopoverOpen] = useState(false);
+  /** `null` until mounted — SSR + first paint match Popover branch to avoid hydration mismatch. */
+  const [inlineCalendarLgDown, setInlineCalendarLgDown] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    const mql = window.matchMedia(ENTRY_PICKER_INLINE_MAX);
+    const sync = () => setInlineCalendarLgDown(mql.matches);
+    sync();
+    mql.addEventListener('change', sync);
+    return () => mql.removeEventListener('change', sync);
+  }, []);
+
+  const useInlineCalendar = inlineCalendarLgDown === true;
+
   const inceptionForLegend = modelInceptionYmd?.trim()
     ? parseISO(`${modelInceptionYmd.trim()}T12:00:00Z`)
     : parseISO('2020-01-01T12:00:00Z');
@@ -53,6 +69,71 @@ export function PortfolioEntryDatePicker({
       setCalendarMonth(selectedEntryDate);
     }
   }, [popoverOpen, selectedEntryDate]);
+
+  const calendarPanel = (
+    <div>
+      <Calendar
+        mode="single"
+        month={calendarMonth}
+        onMonthChange={setCalendarMonth}
+        selected={selectedEntryDate}
+        onSelect={(d) => {
+          if (!d) return;
+          onChangeYmd(format(d, 'yyyy-MM-dd'));
+          setPopoverOpen(false);
+        }}
+        disabled={(d) => {
+          const cellYmd = format(d, 'yyyy-MM-dd');
+          return cellYmd < minYmd || cellYmd > maxYmd;
+        }}
+        initialFocus
+        modifiers={
+          modelInceptionYmd?.trim()
+            ? { modelInception: parseISO(`${modelInceptionYmd.trim()}T12:00:00Z`) }
+            : undefined
+        }
+        modifiersClassNames={
+          modelInceptionYmd?.trim()
+            ? {
+                modelInception: cn(
+                  'relative z-[1] font-semibold text-trader-blue dark:text-sky-400',
+                  'ring-2 ring-trader-blue/70 ring-offset-2 ring-offset-background rounded-md'
+                ),
+              }
+            : undefined
+        }
+      />
+      {modelInceptionYmd?.trim() ? (
+        <button
+          type="button"
+          disabled={disabled}
+          className={cn(
+            'flex w-full items-center gap-2 border-t px-3 py-2 text-left text-[11px] text-muted-foreground transition-colors',
+            'hover:bg-muted/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-trader-blue/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+            disabled && 'pointer-events-none opacity-50'
+          )}
+          aria-label={`Jump to model inception ${format(inceptionForLegend, 'MMM d, yyyy', { locale: enUS })}`}
+          onClick={() => {
+            const y = modelInceptionYmd?.trim();
+            if (!y) return;
+            onChangeYmd(y);
+            setCalendarMonth(inceptionForLegend);
+            setPopoverOpen(false);
+          }}
+        >
+          <span
+            className="inline-block size-2 shrink-0 rounded-full bg-trader-blue ring-2 ring-trader-blue/40"
+            aria-hidden
+          />
+          <span>
+            <span className="font-medium text-foreground">Model inception</span>
+            {': '}
+            {format(inceptionForLegend, 'MMM d, yyyy', { locale: enUS })}
+          </span>
+        </button>
+      ) : null}
+    </div>
+  );
 
   return (
     <div className="space-y-3">
@@ -83,14 +164,15 @@ export function PortfolioEntryDatePicker({
 
       <div className="space-y-1.5">
         <p className="px-0.5 text-xs text-muted-foreground">{calendarPrompt}</p>
-        {/* modal={false}: required when used inside Dialog so the calendar opens on mobile (no focus-trap conflict). */}
-        <Popover modal={false} open={popoverOpen} onOpenChange={setPopoverOpen}>
-          <PopoverTrigger asChild>
+        {useInlineCalendar ? (
+          <>
             <Button
               id={triggerId}
               type="button"
               variant="outline"
               disabled={disabled}
+              aria-expanded={popoverOpen}
+              onClick={() => setPopoverOpen((o) => !o)}
               className={cn(
                 'w-full justify-start gap-2 text-left font-normal',
                 valueYmd !== maxYmd && 'border-primary ring-1 ring-primary'
@@ -103,71 +185,38 @@ export function PortfolioEntryDatePicker({
                 format(selectedEntryDate, 'MMM d, yyyy', { locale: enUS })
               )}
             </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-auto p-0" align="start">
-            <div>
-              <Calendar
-                mode="single"
-                month={calendarMonth}
-                onMonthChange={setCalendarMonth}
-                selected={selectedEntryDate}
-                onSelect={(d) => {
-                  if (!d) return;
-                  onChangeYmd(format(d, 'yyyy-MM-dd'));
-                  setPopoverOpen(false);
-                }}
-                disabled={(d) => {
-                  const cellYmd = format(d, 'yyyy-MM-dd');
-                  return cellYmd < minYmd || cellYmd > maxYmd;
-                }}
-                initialFocus
-                modifiers={
-                  modelInceptionYmd?.trim()
-                    ? { modelInception: parseISO(`${modelInceptionYmd.trim()}T12:00:00Z`) }
-                    : undefined
-                }
-                modifiersClassNames={
-                  modelInceptionYmd?.trim()
-                    ? {
-                        modelInception: cn(
-                          'relative z-[1] font-semibold text-trader-blue dark:text-sky-400',
-                          'ring-2 ring-trader-blue/70 ring-offset-2 ring-offset-background rounded-md'
-                        ),
-                      }
-                    : undefined
-                }
-              />
-              {modelInceptionYmd?.trim() ? (
-                <button
-                  type="button"
-                  disabled={disabled}
-                  className={cn(
-                    'flex w-full items-center gap-2 border-t px-3 py-2 text-left text-[11px] text-muted-foreground transition-colors',
-                    'hover:bg-muted/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-trader-blue/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-                    disabled && 'pointer-events-none opacity-50'
-                  )}
-                  aria-label={`Jump to model inception ${format(inceptionForLegend, 'MMM d, yyyy', { locale: enUS })}`}
-                  onClick={() => {
-                    const y = modelInceptionYmd.trim();
-                    onChangeYmd(y);
-                    setCalendarMonth(inceptionForLegend);
-                    setPopoverOpen(false);
-                  }}
-                >
-                  <span
-                    className="inline-block size-2 shrink-0 rounded-full bg-trader-blue ring-2 ring-trader-blue/40"
-                    aria-hidden
-                  />
-                  <span>
-                    <span className="font-medium text-foreground">Model inception</span>
-                    {': '}
-                    {format(inceptionForLegend, 'MMM d, yyyy', { locale: enUS })}
-                  </span>
-                </button>
-              ) : null}
-            </div>
-          </PopoverContent>
-        </Popover>
+            {popoverOpen ? (
+              <div className="overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md">
+                {calendarPanel}
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <Popover modal={false} open={popoverOpen} onOpenChange={setPopoverOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                id={triggerId}
+                type="button"
+                variant="outline"
+                disabled={disabled}
+                className={cn(
+                  'w-full justify-start gap-2 text-left font-normal',
+                  valueYmd !== maxYmd && 'border-primary ring-1 ring-primary'
+                )}
+              >
+                <CalendarIcon className="size-4 shrink-0 opacity-60" aria-hidden />
+                {valueYmd === maxYmd ? (
+                  <span className="text-muted-foreground">Choose date…</span>
+                ) : (
+                  format(selectedEntryDate, 'MMM d, yyyy', { locale: enUS })
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              {calendarPanel}
+            </PopoverContent>
+          </Popover>
+        )}
       </div>
     </div>
   );
