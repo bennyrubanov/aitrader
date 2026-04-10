@@ -508,6 +508,11 @@ export async function previewChangeBillingInterval(
       'Yearly to monthly switches are scheduled at period end. Use the schedule_interval_switch_to_monthly action instead.'
     );
   }
+  if (ctx.interval === 'month' && targetInterval === 'year') {
+    throw new Error(
+      'Monthly to yearly switches are scheduled at period end. Use preview_scheduled_interval_switch_to_yearly / schedule_interval_switch_to_yearly instead.'
+    );
+  }
 
   const targetPriceId = envPriceIdForPlanInterval(paidTier, targetInterval);
   if (!targetPriceId) {
@@ -599,6 +604,11 @@ export async function confirmChangeBillingInterval(
   if (ctx.interval === 'year' && targetInterval === 'month') {
     throw new Error(
       'Yearly to monthly switches are scheduled at period end. Use the schedule_interval_switch_to_monthly action instead.'
+    );
+  }
+  if (ctx.interval === 'month' && targetInterval === 'year') {
+    throw new Error(
+      'Monthly to yearly switches are scheduled at period end. Use preview_scheduled_interval_switch_to_yearly / schedule_interval_switch_to_yearly instead.'
     );
   }
 
@@ -1106,6 +1116,52 @@ export async function previewScheduledIntervalSwitchToMonthly(
 }
 
 /**
+ * Lightweight preview for scheduling a monthly → yearly billing switch (same paid tier).
+ * No proration — period end + recurring amounts only.
+ */
+export async function previewScheduledIntervalSwitchToYearly(
+  ctx: LoadedSubscriptionContext
+): Promise<{
+  planTier: 'supporter' | 'outperformer';
+  currentInterval: 'month' | 'year';
+  currentRecurringUnitAmount: number | null;
+  currentRecurringCurrency: string;
+  targetRecurringUnitAmount: number | null;
+  targetRecurringCurrency: string;
+  currentSubscriptionPeriodEndIso: string | null;
+}> {
+  const paidTier = paidPlanTierOrThrow(ctx.tier);
+  if (ctx.interval !== 'month') {
+    throw new Error('You are already on yearly billing.');
+  }
+
+  const yearlyPriceId = envPriceIdForPlanInterval(paidTier, 'year');
+  if (!yearlyPriceId) {
+    throw new Error('Server is missing yearly price ID for your plan.');
+  }
+
+  const [currentPrice, yearlyPrice] = await Promise.all([
+    ctx.stripe.prices.retrieve(ctx.currentPriceId),
+    ctx.stripe.prices.retrieve(yearlyPriceId),
+  ]);
+
+  const periodEndUnix = subscriptionCurrentPeriodEndUnix(ctx.subscription);
+
+  return {
+    planTier: paidTier,
+    currentInterval: ctx.interval,
+    currentRecurringUnitAmount:
+      typeof currentPrice.unit_amount === 'number' ? currentPrice.unit_amount : null,
+    currentRecurringCurrency: currentPrice.currency,
+    targetRecurringUnitAmount:
+      typeof yearlyPrice.unit_amount === 'number' ? yearlyPrice.unit_amount : null,
+    targetRecurringCurrency: yearlyPrice.currency,
+    currentSubscriptionPeriodEndIso:
+      periodEndUnix !== null ? new Date(periodEndUnix * 1000).toISOString() : null,
+  };
+}
+
+/**
  * Schedule a yearly → monthly billing switch at the current period end.
  * Same tier, just a different billing cadence starting at renewal.
  */
@@ -1157,6 +1213,70 @@ export async function scheduleIntervalSwitchToMonthly(
       },
       {
         items: [{ price: monthlyPriceId, quantity: 1 }],
+        start_date: periodEnd,
+      },
+    ],
+    end_behavior: 'release',
+  });
+
+  return {
+    effectiveAtIso: new Date(periodEnd * 1000).toISOString(),
+    scheduleId,
+  };
+}
+
+/**
+ * Schedule a monthly → yearly billing switch at the current monthly period end.
+ * Same tier only (Supporter or Outperformer).
+ */
+export async function scheduleIntervalSwitchToYearly(
+  ctx: LoadedSubscriptionContext
+): Promise<{ effectiveAtIso: string; scheduleId: string }> {
+  const paidTier = paidPlanTierOrThrow(ctx.tier);
+  if (ctx.interval !== 'month') {
+    throw new Error('You are already on yearly billing.');
+  }
+
+  const yearlyPriceId = envPriceIdForPlanInterval(paidTier, 'year');
+  if (!yearlyPriceId) {
+    throw new Error('Server is missing yearly price ID for your plan.');
+  }
+
+  const periodEnd = subscriptionCurrentPeriodEndUnix(ctx.subscription);
+  if (periodEnd === null) {
+    throw new Error('Could not read subscription period end.');
+  }
+
+  let scheduleId =
+    typeof ctx.subscription.schedule === 'string'
+      ? ctx.subscription.schedule
+      : ctx.subscription.schedule?.id ?? null;
+
+  if (!scheduleId) {
+    const created = await ctx.stripe.subscriptionSchedules.create({
+      from_subscription: ctx.subscription.id,
+    });
+    scheduleId = created.id;
+  }
+
+  const schedule = await ctx.stripe.subscriptionSchedules.retrieve(scheduleId);
+  const phase0 = schedule.phases[0];
+  if (!phase0?.start_date) {
+    throw new Error('Could not read subscription schedule phase.');
+  }
+
+  const startPhase0 = phase0.start_date;
+  const currentPriceId = ctx.currentPriceId;
+
+  await ctx.stripe.subscriptionSchedules.update(scheduleId, {
+    phases: [
+      {
+        items: [{ price: currentPriceId, quantity: 1 }],
+        start_date: startPhase0,
+        end_date: periodEnd,
+      },
+      {
+        items: [{ price: yearlyPriceId, quantity: 1 }],
         start_date: periodEnd,
       },
     ],

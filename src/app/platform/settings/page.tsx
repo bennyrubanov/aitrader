@@ -956,7 +956,7 @@ const SettingsPageContent = () => {
                         !authState.stripeCancelAtPeriodEnd ? (
                           <>
                             {' '}
-                            Next billing on {formatBillingDate(authState.stripeCurrentPeriodEnd)}.
+                            Next payment on {formatBillingDate(authState.stripeCurrentPeriodEnd)}.
                           </>
                         ) : null}
                       </span>
@@ -1253,8 +1253,8 @@ const SettingsPageContent = () => {
                     <p className="text-sm font-medium">Billing interval</p>
                     <p className="mt-0.5 text-xs text-muted-foreground">
                       {authState.stripeRecurringInterval === 'month'
-                        ? 'Switch to yearly for 3 months off your subscription!'
-                        : 'Switch applies now with proration; monthly renewals start on a new cycle.'}
+                        ? 'Switch to yearly for 3 months off.'
+                        : 'Monthly billing starts when your current yearly period ends.'}
                     </p>
                   </div>
                   <Button

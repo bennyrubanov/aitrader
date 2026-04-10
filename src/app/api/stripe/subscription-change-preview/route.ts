@@ -7,6 +7,7 @@ import {
   previewChangeBillingInterval,
   previewDowngradeToSupporter,
   previewScheduledIntervalSwitchToMonthly,
+  previewScheduledIntervalSwitchToYearly,
   previewUpgradeToOutperformer,
 } from '@/lib/stripe-subscription-change';
 
@@ -126,6 +127,20 @@ export async function POST(req: Request) {
       const preview = await previewScheduledIntervalSwitchToMonthly(ctx);
       return NextResponse.json({
         action: 'preview_scheduled_interval_switch_to_monthly',
+        planTier: preview.planTier,
+        currentInterval: preview.currentInterval,
+        currentRecurringUnitAmount: preview.currentRecurringUnitAmount,
+        currentRecurringCurrency: preview.currentRecurringCurrency,
+        targetRecurringUnitAmount: preview.targetRecurringUnitAmount,
+        targetRecurringCurrency: preview.targetRecurringCurrency,
+        currentSubscriptionPeriodEndIso: preview.currentSubscriptionPeriodEndIso,
+      });
+    }
+
+    if (body.action === 'preview_scheduled_interval_switch_to_yearly') {
+      const preview = await previewScheduledIntervalSwitchToYearly(ctx);
+      return NextResponse.json({
+        action: 'preview_scheduled_interval_switch_to_yearly',
         planTier: preview.planTier,
         currentInterval: preview.currentInterval,
         currentRecurringUnitAmount: preview.currentRecurringUnitAmount,

@@ -6,6 +6,7 @@ import {
   buildSubscriptionChangeContext,
   scheduleDowngradeToSupporter,
   scheduleIntervalSwitchToMonthly,
+  scheduleIntervalSwitchToYearly,
 } from '@/lib/stripe-subscription-change';
 
 export const runtime = 'nodejs';
@@ -45,6 +46,15 @@ export async function POST(req: Request) {
 
     if (body.action === 'schedule_interval_switch_to_monthly') {
       const result = await scheduleIntervalSwitchToMonthly(ctx);
+      return NextResponse.json({
+        ok: true,
+        effectiveAtIso: result.effectiveAtIso,
+        scheduleId: result.scheduleId,
+      });
+    }
+
+    if (body.action === 'schedule_interval_switch_to_yearly') {
+      const result = await scheduleIntervalSwitchToYearly(ctx);
       return NextResponse.json({
         ok: true,
         effectiveAtIso: result.effectiveAtIso,

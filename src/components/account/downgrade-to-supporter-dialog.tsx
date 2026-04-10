@@ -249,9 +249,7 @@ export function DowngradeToSupporterDialog({
                 { label: 'Plan', value: 'Supporter' },
                 {
                   label: 'Billing',
-                  value: intervalChanged
-                    ? `${formatBillingCadenceLabel(chosenInterval)}`
-                    : `${formatBillingCadenceLabel(chosenInterval)} (unchanged)`,
+                  value: formatBillingCadenceLabel(chosenInterval),
                 },
                 {
                   label: 'Recurring price',
@@ -268,14 +266,8 @@ export function DowngradeToSupporterDialog({
               }}
               footnote={
                 <p>
-                  Outperformer until renewal
-                  {periodEndLabel ? (
-                    <>
-                      {' '}
-                      on <strong>{periodEndLabel}</strong>
-                    </>
-                  ) : null}
-                  , then Supporter
+                  Outperformer until{' '}
+                  {periodEndLabel ? <strong>{periodEndLabel}</strong> : 'the scheduled date'}, then Supporter
                   {intervalChanged
                     ? ` on ${formatBillingCadenceLabel(chosenInterval).toLowerCase()} billing`
                     : ''}
@@ -545,7 +537,7 @@ export function ScheduledDowngradeDetailDialog({
                   label: 'Billing',
                   value: intervalChangedVsCurrent
                     ? `${formatBillingCadenceLabel(preview.billingInterval)} → ${formatBillingCadenceLabel(chosenInterval)} at renewal`
-                    : `${formatBillingCadenceLabel(chosenInterval)} (unchanged)`,
+                    : formatBillingCadenceLabel(chosenInterval),
                 },
                 {
                   label: 'Recurring price',
@@ -562,14 +554,8 @@ export function ScheduledDowngradeDetailDialog({
               }}
               footnote={
                 <p>
-                  Outperformer until renewal
-                  {periodEndLabel ? (
-                    <>
-                      {' '}
-                      on <strong>{periodEndLabel}</strong>
-                    </>
-                  ) : null}
-                  , then Supporter
+                  Outperformer until{' '}
+                  {periodEndLabel ? <strong>{periodEndLabel}</strong> : 'the scheduled date'}, then Supporter
                   {intervalChangedVsCurrent
                     ? ` on ${formatBillingCadenceLabel(chosenInterval).toLowerCase()} billing`
                     : ''}

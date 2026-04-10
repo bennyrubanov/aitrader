@@ -531,9 +531,7 @@ export function SubscriptionUpgradeDialog({
                     { label: 'Plan', value: formatPaidTierLabel('outperformer') },
                     {
                       label: 'Billing',
-                      value: intervalChanged
-                        ? `${formatBillingCadenceLabel(chosenInterval)}`
-                        : `${formatBillingCadenceLabel(chosenInterval)} (unchanged)`,
+                      value: formatBillingCadenceLabel(chosenInterval),
                     },
                     {
                       label: 'Recurring price',
