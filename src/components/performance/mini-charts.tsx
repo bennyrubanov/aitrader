@@ -25,7 +25,16 @@ import {
   CHART_RELATIVE_OUTPERF_COLORS,
 } from '@/lib/chart-index-series-colors';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
+import {
+  computePerformanceCagr,
+  MIN_YEARS_FOR_CAGR_OVER_TIME_POINT,
+  seriesHasMinimumPointsForCagrOverTimeChart,
+  yearsBetweenUtcDates,
+} from '@/lib/performance-cagr';
 import { toDrawdownPercentSeries } from '@/lib/performance-series-drawdown';
+
+/** Full-history span below this (years) shows a short “preliminary track” note on CAGR over time. */
+const CAGR_PRELIMINARY_NOTE_MAX_YEARS = 0.5;
 
 /** Same shape as `PlatformPerformancePayload.series` elements */
 export type SeriesPoint = PerformanceSeriesPoint;
@@ -118,31 +127,45 @@ export function WeeklyReturnsChart({
 export function CagrOverTimeChart({
   series,
   strategyName,
-  startingCapital = 10_000,
 }: {
   series: SeriesPoint[];
   /** Model name, or full overview-style track title (`model · Top n · weight · frequency`). */
   strategyName?: string;
-  startingCapital?: number;
 }) {
   const cagrData = useMemo(() => {
-    if (series.length < 4) return [];
-    const startDate = new Date(series[0].date);
-    return series.slice(1).map((point) => {
-      const currentDate = new Date(point.date);
-      const yearsElapsed = (currentDate.getTime() - startDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
-      if (yearsElapsed <= 0) return null;
+    if (series.length < 2) return [];
+    const s0 = series[0]!;
+    return series
+      .slice(1)
+      .map((point) => {
+        const years = yearsBetweenUtcDates(s0.date, point.date);
+        if (years == null || years < MIN_YEARS_FOR_CAGR_OVER_TIME_POINT) {
+          return null;
+        }
+        const aiPct = computePerformanceCagr(s0.aiTop20, point.aiTop20, s0.date, point.date);
+        const ndxPct = computePerformanceCagr(
+          s0.nasdaq100CapWeight,
+          point.nasdaq100CapWeight,
+          s0.date,
+          point.date
+        );
+        return {
+          date: shortDate(point.date),
+          aiCagr: aiPct != null ? aiPct * 100 : null,
+          ndxCapCagr: ndxPct != null ? ndxPct * 100 : null,
+        };
+      })
+      .filter(
+        (row): row is NonNullable<typeof row> =>
+          row != null && (row.aiCagr != null || row.ndxCapCagr != null)
+      );
+  }, [series]);
 
-      const aiRatio = point.aiTop20 / startingCapital;
-      const ndxCapRatio = point.nasdaq100CapWeight / startingCapital;
-
-      return {
-        date: shortDate(point.date),
-        aiCagr: (Math.pow(aiRatio, 1 / yearsElapsed) - 1) * 100,
-        ndxCapCagr: (Math.pow(ndxCapRatio, 1 / yearsElapsed) - 1) * 100,
-      };
-    }).filter(Boolean);
-  }, [series, startingCapital]);
+  const showPreliminaryNote = useMemo(() => {
+    if (series.length < 2) return false;
+    const y = yearsBetweenUtcDates(series[0]!.date, series[series.length - 1]!.date);
+    return y != null && y < CAGR_PRELIMINARY_NOTE_MAX_YEARS;
+  }, [series]);
 
   if (cagrData.length < 2) return null;
   const aiLabel = strategyName ?? 'AI Strategy';
@@ -151,8 +174,14 @@ export function CagrOverTimeChart({
     <div className="rounded-lg border bg-card p-4">
       <p className="text-sm font-semibold mb-1">CAGR over time</p>
       <p className="text-xs text-muted-foreground mb-3">
-        Annualized growth from inception using a ${startingCapital.toLocaleString()} starting value.
+        Annualized growth since the first week shown (same window for each line). The line starts after
+        about three months of history so short spans are not annualized (those numbers swing wildly).
       </p>
+      {showPreliminaryNote ? (
+        <p className="text-xs text-muted-foreground mb-3 rounded-md border border-dashed border-border/80 bg-muted/30 px-2.5 py-2">
+          Preliminary: still a short track—annualized figures can move a lot as more weeks roll in.
+        </p>
+      ) : null}
       <ChartContainer
         className="h-[180px] w-full"
         config={{
@@ -172,7 +201,7 @@ export function CagrOverTimeChart({
             content={
               <ChartTooltipContent
                 formatter={(v, name) => [
-                  `${Number(v).toFixed(1)}% `,
+                  v != null && Number.isFinite(Number(v)) ? `${Number(v).toFixed(1)}% ` : '—',
                   ` ${name === 'aiCagr' ? aiLabel : 'Nasdaq-100 (cap-weighted)'}`,
                 ]}
               />
@@ -184,6 +213,7 @@ export function CagrOverTimeChart({
             stroke={CHART_PORTFOLIO_SERIES_COLOR}
             strokeWidth={2}
             dot={false}
+            connectNulls
           />
           <Line
             type="monotone"
@@ -192,6 +222,7 @@ export function CagrOverTimeChart({
             strokeWidth={1.5}
             dot={false}
             strokeDasharray="4 2"
+            connectNulls
           />
         </LineChart>
       </ChartContainer>
@@ -877,10 +908,11 @@ export function RelativeOutperformanceChart({
 
 export function MiniCharts({ series, strategyName }: MiniChartsProps) {
   if (series.length < 3) return null;
+  const showCagr = seriesHasMinimumPointsForCagrOverTimeChart(series.map((p) => p.date));
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       <WeeklyReturnsChart series={series} strategyName={strategyName} />
-      <CagrOverTimeChart series={series} strategyName={strategyName} />
+      {showCagr ? <CagrOverTimeChart series={series} strategyName={strategyName} /> : null}
     </div>
   );
 }

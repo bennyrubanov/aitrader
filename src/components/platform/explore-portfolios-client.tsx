@@ -1222,52 +1222,61 @@ function ConfigCard({
       id={listDomId}
       className="group min-w-0 overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-foreground/20 scroll-mt-24"
     >
-      {/* Mobile: stacked layout — name, awards (one line each), stats, actions */}
-      <div className="flex flex-col gap-2 p-3 min-w-0 lg:hidden">
-        <p className="text-sm font-semibold leading-snug text-foreground">{config.label}</p>
-        {config.badges.length > 0 ? (
-          <div className="flex min-w-0 flex-col gap-1 overflow-x-auto">
-            {config.badges.map((b) => (
-              <div key={b} className="min-w-0 w-max max-w-full whitespace-nowrap">
-                <PortfolioConfigBadgePill name={b} strategySlug={strategySlug} />
-              </div>
-            ))}
-          </div>
-        ) : null}
-        <div className="flex flex-wrap items-center gap-2 text-[11px]">
-          <span
-            className="inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-muted/50 px-2 py-0.5 font-semibold text-foreground"
-            title={riskTitle}
-          >
-            <span className={cn('size-1.5 shrink-0 rounded-full', riskColor)} aria-hidden />
-            {riskTitle}
-          </span>
-          {config.rank != null ? (
-            config.rank === 1 ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    className="cursor-help rounded-md border border-transparent px-1.5 py-0.5 text-xs font-semibold tabular-nums text-foreground hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    aria-label={`Rank ${config.rank}, more info`}
-                  >
-                    Rank {config.rank}
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="max-w-xs text-xs">
-                  <PortfolioRankingTooltipBody rank={config.rank} strategySlug={strategySlug} />
-                </TooltipContent>
-              </Tooltip>
+      {/* Mobile: rank rail (centered) + stacked body — row 1 = risk pill + title */}
+      <div className="flex min-w-0 lg:hidden">
+        <div className="flex w-11 shrink-0 self-stretch border-r border-border/70 bg-muted/25 sm:w-12">
+          <div className="flex w-full flex-1 flex-col items-center justify-center px-1 py-3">
+            {config.rank != null ? (
+              config.rank === 1 ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className="cursor-help border-0 bg-transparent p-0 text-xl font-bold tabular-nums leading-none text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      aria-label={`Rank ${config.rank}, more info`}
+                    >
+                      {config.rank}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-xs text-xs">
+                    <PortfolioRankingTooltipBody rank={config.rank} strategySlug={strategySlug} />
+                  </TooltipContent>
+                </Tooltip>
+              ) : (
+                <span
+                  className="text-xl font-bold tabular-nums leading-none text-foreground"
+                  aria-label={`Rank ${config.rank}`}
+                >
+                  {config.rank}
+                </span>
+              )
             ) : (
-              <span
-                className="px-1.5 text-xs font-semibold tabular-nums text-muted-foreground"
-                aria-label={`Rank ${config.rank}`}
-              >
-                Rank {config.rank}
-              </span>
-            )
-          ) : null}
+              <span className="text-sm font-semibold tabular-nums text-muted-foreground/50">—</span>
+            )}
+          </div>
         </div>
+        <div className="flex min-w-0 flex-1 flex-col gap-2 p-3 pl-2.5 sm:pl-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5">
+            <span
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border/80 bg-muted/50 px-2 py-0.5 text-[11px] font-semibold text-foreground"
+              title={riskTitle}
+            >
+              <span className={cn('size-1.5 shrink-0 rounded-full', riskColor)} aria-hidden />
+              {riskTitle}
+            </span>
+            <span className="min-w-0 flex-1 text-sm font-semibold leading-snug text-foreground">
+              {config.label}
+            </span>
+          </div>
+          {config.badges.length > 0 ? (
+            <div className="flex min-w-0 flex-col gap-1 overflow-x-auto">
+              {config.badges.map((b) => (
+                <div key={b} className="min-w-0 w-max max-w-full whitespace-nowrap">
+                  <PortfolioConfigBadgePill name={b} strategySlug={strategySlug} />
+                </div>
+              ))}
+            </div>
+          ) : null}
         {hasMetrics ? (
           <div className="flex min-w-0 flex-col gap-2 border-t border-border/60 pt-2">
             <Tooltip>
@@ -1335,6 +1344,7 @@ function ConfigCard({
         )}
         <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-2">
           {followUnfollowButtons}
+        </div>
         </div>
       </div>
 

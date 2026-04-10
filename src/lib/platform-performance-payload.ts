@@ -1,4 +1,5 @@
 import { unstable_cache } from 'next/cache';
+import { computePerformanceCagr as computeCagr } from '@/lib/performance-cagr';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { createPublicClient } from '@/utils/supabase/public';
 
@@ -250,17 +251,6 @@ const toNullableNumber = (value: unknown) => {
 const computeTotalReturn = (startValue: number, endValue: number) => {
   if (startValue <= 0) return null;
   return endValue / startValue - 1;
-};
-
-const computeCagr = (startValue: number, endValue: number, startDate: string, endDate: string) => {
-  if (startValue <= 0 || endValue <= 0 || startDate === endDate) return null;
-  const start = new Date(`${startDate}T00:00:00Z`);
-  const end = new Date(`${endDate}T00:00:00Z`);
-  const diffMs = end.getTime() - start.getTime();
-  if (!Number.isFinite(diffMs) || diffMs <= 0) return null;
-  const years = diffMs / (1000 * 60 * 60 * 24 * 365.25);
-  if (years <= 0) return null;
-  return Math.pow(endValue / startValue, 1 / years) - 1;
 };
 
 const computeMaxDrawdown = (values: number[]) => {

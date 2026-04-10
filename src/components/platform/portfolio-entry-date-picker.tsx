@@ -83,7 +83,8 @@ export function PortfolioEntryDatePicker({
 
       <div className="space-y-1.5">
         <p className="px-0.5 text-xs text-muted-foreground">{calendarPrompt}</p>
-        <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
+        {/* modal={false}: required when used inside Dialog so the calendar opens on mobile (no focus-trap conflict). */}
+        <Popover modal={false} open={popoverOpen} onOpenChange={setPopoverOpen}>
           <PopoverTrigger asChild>
             <Button
               id={triggerId}

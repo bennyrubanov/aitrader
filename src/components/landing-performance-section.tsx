@@ -14,6 +14,7 @@ import {
   WeeklyReturnsChart,
 } from '@/components/performance/mini-charts';
 import { Button } from '@/components/ui/button';
+import { seriesHasMinimumPointsForCagrOverTimeChart } from '@/lib/performance-cagr';
 import type { LandingTopPortfolioPerformance } from '@/lib/landing-top-portfolio-performance';
 import { portfolioSliceToConfigSlug } from '@/lib/performance-portfolio-url';
 import type { PortfolioConfigSlice } from '@/components/platform/portfolio-config-controls';
@@ -44,11 +45,12 @@ function buildSlides(series: LandingTopPortfolioPerformance['series'], chartTitl
     });
   }
 
-  if (series.length >= 4) {
+  if (seriesHasMinimumPointsForCagrOverTimeChart(series.map((p) => p.date))) {
     slides.push({
       key: 'cagr',
       title: 'CAGR over time',
-      description: 'Annualized growth from inception on a $10,000 starting value.',
+      description:
+        'Annualized growth since the first week in the chart; the line begins after enough history that annualized figures are meaningful.',
       render: () => <CagrOverTimeChart series={series} strategyName={chartTitle} />,
     });
   }

@@ -692,6 +692,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const [mobilePortfoliosSheetOpen, setMobilePortfoliosSheetOpen] = useState(false);
   const [sidebarSortDialogOpen, setSidebarSortDialogOpen] = useState(false);
   const filterDialogBenchmarkNasdaqRef = useRef<HTMLButtonElement>(null);
+  const filterDialogTitleRef = useRef<HTMLHeadingElement>(null);
   const [sidebarSortMetric, setSidebarSortMetric] =
     useState<PortfolioListSortMetric>('follow_order');
   const [filterBeatNasdaq, setFilterBeatNasdaq] = useState(false);
@@ -2950,19 +2951,25 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       />
       <Dialog open={filtersDialogOpen} onOpenChange={setFiltersDialogOpen}>
         <DialogContent
-          className="flex max-h-[min(90vh,720px)] w-[calc(100vw-1.5rem)] max-w-lg flex-col gap-0 overflow-hidden p-0 sm:w-full"
+          className="flex max-h-[min(90dvh,560px)] w-[calc(100vw-1.5rem)] max-w-lg flex-col gap-0 overflow-hidden p-0 sm:w-full"
           onOpenAutoFocus={(e) => {
             e.preventDefault();
-            filterDialogBenchmarkNasdaqRef.current?.focus();
+            filterDialogTitleRef.current?.focus();
           }}
         >
-          <DialogHeader className="shrink-0 space-y-1 border-b px-6 py-5 text-left">
-            <DialogTitle>Filter portfolios</DialogTitle>
+          <DialogHeader className="shrink-0 space-y-1 border-b px-6 py-4 text-left">
+            <DialogTitle
+              ref={filterDialogTitleRef}
+              tabIndex={-1}
+              className="outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              Filter portfolios
+            </DialogTitle>
             <DialogDescription>
               Narrow the sidebar list the same way as the performance page portfolio picker.
             </DialogDescription>
           </DialogHeader>
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-6 py-4">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-6 py-3">
             <ExplorePortfolioFilterControls
               filterBeatNasdaq={filterBeatNasdaq}
               filterBeatSp500={filterBeatSp500}
@@ -3060,7 +3067,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
               }
             />
           </div>
-          <DialogFooter className="shrink-0 flex-col gap-2 border-t px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <DialogFooter className="shrink-0 flex-col gap-2 border-t px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-xs text-muted-foreground">
               {activeSidebarFilterCount > 0
                 ? `${filteredSidebarProfiles.length} of ${sidebarProfiles.length} match filters`

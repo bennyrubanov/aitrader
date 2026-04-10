@@ -450,9 +450,13 @@ export function ExplorePortfoliosEquityChart({
 
   const handleChartClick = useCallback(
     (state: CategoricalChartState) => {
-      if (isNarrowLayout) return;
       const i = state.activeTooltipIndex;
-      if (typeof i === 'number' && i >= 0 && i < chartData.length) setPinnedIndex(i);
+      if (typeof i !== 'number' || i < 0 || i >= chartData.length) return;
+      if (isNarrowLayout) {
+        setHoverIndex(i);
+        return;
+      }
+      setPinnedIndex(i);
     },
     [chartData.length, isNarrowLayout]
   );
@@ -738,8 +742,10 @@ export function ExplorePortfoliosEquityChart({
                       setHoveredLineKey((cur) => (cur === k ? null : cur));
                       hoverSourceRef.current = null;
                     }}
-                    onClick={() => pickPortfolioFromLine(cfgId)}
-                    style={{ cursor: 'pointer' }}
+                    onClick={
+                      isNarrowLayout || !cfgId ? undefined : () => pickPortfolioFromLine(cfgId)
+                    }
+                    style={{ cursor: isNarrowLayout ? 'default' : 'pointer' }}
                   />
                 );
               })}
@@ -772,31 +778,6 @@ export function ExplorePortfoliosEquityChart({
                   />
                 );
               })}
-              {!isPicker &&
-                isNarrowLayout &&
-                dataKeys.map((k) => {
-                  const cfgId =
-                    visibleSeries.find((s) => dataKeyForExploreConfig(s.configId) === k)?.configId ??
-                    '';
-                  return (
-                    <Line
-                      key={`hit-${k}`}
-                      type="monotone"
-                      dataKey={k}
-                      name=""
-                      stroke="transparent"
-                      strokeOpacity={0}
-                      strokeWidth={16}
-                      dot={false}
-                      activeDot={false}
-                      isAnimationActive={false}
-                      connectNulls
-                      tooltipType="none"
-                      onClick={() => pickPortfolioFromLine(cfgId)}
-                      style={{ cursor: 'pointer' }}
-                    />
-                  );
-                })}
             </LineChart>
           </ChartContainer>
           <div
@@ -866,11 +847,7 @@ export function ExplorePortfoliosEquityChart({
                 {isPicker ? (
                   'No portfolio lines in view.'
                 ) : isNarrowLayout ? (
-                  <>
-                    <strong className="font-semibold text-foreground">Tap</strong> a colored line
-                    (or a row below) to open portfolio details. Values shown use the latest date in
-                    view.
-                  </>
+                  'Tap the chart to see portfolio values.'
                 ) : (
                   <>
                     <strong className="font-semibold text-foreground">Hover</strong> over the chart

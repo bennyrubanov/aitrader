@@ -301,6 +301,7 @@ export function ExplorePortfolioDetailDialog({
   const [prevExploreLoading, setPrevExploreLoading] = useState(false);
   const [prevExploreError, setPrevExploreError] = useState(false);
   const [stockChartSymbol, setStockChartSymbol] = useState<string | null>(null);
+  const [mobileDetailTab, setMobileDetailTab] = useState<'metrics' | 'holdings'>('metrics');
 
   const authState = useAuthState();
   const appAccess = useMemo(() => getAppAccessState(authState), [authState]);
@@ -402,6 +403,10 @@ export function ExplorePortfolioDetailDialog({
   useEffect(() => {
     setStockChartSymbol(null);
   }, [open, config?.id, strategySlug]);
+
+  useEffect(() => {
+    if (open) setMobileDetailTab('metrics');
+  }, [open, config?.id]);
 
   const stockHistoryStrategySlug = strategyIsTop ? null : strategySlug;
 
@@ -552,53 +557,135 @@ export function ExplorePortfolioDetailDialog({
 
         {/* pr-14 clears default Dialog close (absolute right-4 top-4) */}
         {config ? (
-          <div className="shrink-0 border-b pl-6 pr-14 pt-4 pb-4 space-y-2">
-            <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
-              <div className="min-w-0 flex-1 flex flex-wrap items-center gap-1.5 gap-y-1">
+          <>
+            <div className="hidden shrink-0 border-b pl-6 pr-14 pt-4 pb-4 space-y-2 lg:block">
+              <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
+                <div className="min-w-0 flex-1 flex flex-wrap items-center gap-1.5 gap-y-1">
+                  <span
+                    className="inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-muted/50 px-2 py-0.5 text-[11px] font-semibold text-foreground shrink-0"
+                    title={riskTitle}
+                  >
+                    <span className={cn('size-1.5 shrink-0 rounded-full', riskColor)} aria-hidden />
+                    {riskTitle}
+                  </span>
+                  <span className="min-w-0 text-sm font-semibold text-foreground">
+                    {config.label}
+                  </span>
+                </div>
+                <div className="inline-flex max-w-[min(100%,16rem)] shrink-0 items-center justify-end">
+                  <span
+                    className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-border/80 bg-muted/50 py-0.5 pl-2.5 pr-1.5 text-sm font-medium text-foreground"
+                    title={strategyName}
+                  >
+                    <span className="min-w-0 truncate">{strategyName}</span>
+                    {strategyIsTop ? (
+                      <Badge className="shrink-0 border-0 bg-trader-blue px-1.5 py-0 text-xs text-white">
+                        Top
+                      </Badge>
+                    ) : null}
+                  </span>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {inceptionLabel
+                  ? `Data tracked since ${inceptionLabel} (inception)`
+                  : 'Data tracked from inception'}
+              </p>
+              {config.badges.length > 0 ? (
+                <div className="flex flex-wrap gap-1 pt-0.5">
+                  {config.badges.map((b) => (
+                    <PortfolioConfigBadgePill key={b} name={b} strategySlug={strategySlug} />
+                  ))}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="shrink-0 space-y-2 border-b pl-6 pr-14 pt-4 pb-3 lg:hidden">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 break-words text-sm">
                 <span
-                  className="inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-muted/50 px-2 py-0.5 text-[11px] font-semibold text-foreground shrink-0"
+                  className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-border/80 bg-muted/50 py-0.5 pl-2.5 pr-1.5 font-medium text-foreground"
+                  title={strategyName}
+                >
+                  <span className="min-w-0">{strategyName}</span>
+                  {strategyIsTop ? (
+                    <Badge className="shrink-0 border-0 bg-trader-blue px-1.5 py-0 text-[10px] text-white">
+                      Top
+                    </Badge>
+                  ) : null}
+                </span>
+                <span
+                  className="inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-muted/50 px-2 py-0.5 text-[11px] font-semibold text-foreground"
                   title={riskTitle}
                 >
                   <span className={cn('size-1.5 shrink-0 rounded-full', riskColor)} aria-hidden />
                   {riskTitle}
                 </span>
-                <span className="text-sm font-semibold text-foreground min-w-0">
+                <span className="min-w-0 font-semibold leading-snug text-foreground">
                   {config.label}
                 </span>
               </div>
-              <div className="inline-flex max-w-[min(100%,16rem)] shrink-0 items-center justify-end">
-                <span
-                  className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-border/80 bg-muted/50 py-0.5 pl-2.5 pr-1.5 text-sm font-medium text-foreground"
-                  title={strategyName}
-                >
-                  <span className="min-w-0 truncate">{strategyName}</span>
-                  {strategyIsTop ? (
-                    <Badge className="shrink-0 border-0 bg-trader-blue px-1.5 py-0 text-xs text-white">
-                      Top
-                    </Badge>
-                  ) : null}
-                </span>
-              </div>
+              {config.badges.length > 0 ? (
+                <div className="flex flex-wrap gap-1">
+                  {config.badges.map((b) => (
+                    <PortfolioConfigBadgePill key={b} name={b} strategySlug={strategySlug} />
+                  ))}
+                </div>
+              ) : null}
+              <p className="text-xs text-muted-foreground">
+                {inceptionLabel
+                  ? `Data tracked since ${inceptionLabel} (inception)`
+                  : 'Data tracked from inception'}
+              </p>
             </div>
-            <p className="text-xs text-muted-foreground">
-              {inceptionLabel
-                ? `Data tracked since ${inceptionLabel} (inception)`
-                : 'Data tracked from inception'}
-            </p>
-            {config.badges.length > 0 ? (
-              <div className="flex flex-wrap gap-1 pt-0.5">
-                {config.badges.map((b) => (
-                  <PortfolioConfigBadgePill key={b} name={b} strategySlug={strategySlug} />
-                ))}
-              </div>
-            ) : null}
-          </div>
+
+            <div
+              className="grid shrink-0 grid-cols-2 gap-0 border-b border-border lg:hidden"
+              role="tablist"
+              aria-label="Portfolio details sections"
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mobileDetailTab === 'metrics'}
+                className={cn(
+                  'border-b-2 py-2.5 text-center text-xs font-semibold transition-colors',
+                  mobileDetailTab === 'metrics'
+                    ? 'border-trader-blue text-foreground'
+                    : 'border-transparent text-muted-foreground'
+                )}
+                onClick={() => setMobileDetailTab('metrics')}
+              >
+                Performance metrics
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mobileDetailTab === 'holdings'}
+                className={cn(
+                  'border-b-2 py-2.5 text-center text-xs font-semibold transition-colors',
+                  mobileDetailTab === 'holdings'
+                    ? 'border-trader-blue text-foreground'
+                    : 'border-transparent text-muted-foreground'
+                )}
+                onClick={() => setMobileDetailTab('holdings')}
+              >
+                Portfolio holdings
+              </button>
+            </div>
+          </>
         ) : null}
 
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4 space-y-6">
+          <div
+            className={cn(
+              'space-y-6',
+              mobileDetailTab !== 'metrics' && 'max-lg:hidden',
+              'lg:contents'
+            )}
+          >
           {config && hasMetrics && m ? (
             <section className="space-y-2">
-              <div className="flex flex-row flex-wrap items-center gap-x-2 gap-y-0.5">
+              <div className="hidden flex-row flex-wrap items-center gap-x-2 gap-y-0.5 lg:flex">
                 <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground shrink-0">
                   Performance metrics
                 </h4>
@@ -681,10 +768,16 @@ export function ExplorePortfolioDetailDialog({
           ) : config ? (
             <p className="text-sm text-muted-foreground">Performance computing…</p>
           ) : null}
+          </div>
 
-          <section className="space-y-2">
+          <section
+            className={cn(
+              'space-y-2',
+              mobileDetailTab !== 'holdings' && 'max-lg:hidden'
+            )}
+          >
             <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between sm:gap-x-3 sm:gap-y-2">
-              <h4 className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <h4 className="hidden shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground lg:block">
                 Portfolio holdings
               </h4>
               {exploreHoldingsUnlocked && rebalanceDates.length > 0 ? (

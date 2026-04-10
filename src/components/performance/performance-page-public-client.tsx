@@ -1592,11 +1592,7 @@ function PerformancePagePublicClientInner({
                     series={displaySeries}
                     strategyName={portfolioPerf.chartTitle}
                   />
-                  <CagrOverTimeChart
-                    series={displaySeries}
-                    strategyName={portfolioPerf.chartTitle}
-                    startingCapital={displayMetrics.startingCapital}
-                  />
+                  <CagrOverTimeChart series={displaySeries} strategyName={portfolioPerf.chartTitle} />
                 </div>
               </>
             )}

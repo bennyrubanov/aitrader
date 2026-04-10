@@ -240,49 +240,53 @@ export function UserPortfolioEntrySettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Entry settings</DialogTitle>
-          {portfolioIdentity ? (
-            <PortfolioIdentitySummaryRow
-              variant="boxed"
-              riskLevel={portfolioIdentity.riskLevel}
-              riskLabel={portfolioIdentity.riskLabel}
-              topN={portfolioIdentity.topN}
-              weightingMethod={portfolioIdentity.weightingMethod}
-              rebalanceFrequency={portfolioIdentity.rebalanceFrequency}
-              strategyModelName={portfolioIdentity.strategyModelName}
-            />
-          ) : null}
-          <DialogDescription>
-            Starting investment and your entry date set how your personal performance is calculated.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-4 py-2">
-          <div className="grid gap-2">
-            <Label htmlFor="upp-investment">Starting investment (USD)</Label>
-            <Input
-              id="upp-investment"
-              inputMode="decimal"
-              value={investment}
-              onChange={(e) => setInvestment(e.target.value)}
-              disabled={busy}
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="upp-start">Your entry</Label>
-            <PortfolioEntryDatePicker
-              triggerId="upp-start"
-              valueYmd={pickerValueYmd}
-              onChangeYmd={setStartDate}
-              minYmd={minYmd}
-              maxYmd={maxYmd}
-              modelInceptionYmd={modelInceptionYmd}
-              disabled={busy}
-            />
+      <DialogContent className="grid max-h-[min(90dvh,calc(100dvh-2rem))] min-h-0 w-[calc(100vw-1.5rem)] max-w-md grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-md">
+        <div className="min-w-0 shrink-0 px-6 pb-2 pt-6 pr-12">
+          <DialogHeader className="space-y-1.5 p-0">
+            <DialogTitle>Entry settings</DialogTitle>
+            {portfolioIdentity ? (
+              <PortfolioIdentitySummaryRow
+                variant="boxed"
+                riskLevel={portfolioIdentity.riskLevel}
+                riskLabel={portfolioIdentity.riskLabel}
+                topN={portfolioIdentity.topN}
+                weightingMethod={portfolioIdentity.weightingMethod}
+                rebalanceFrequency={portfolioIdentity.rebalanceFrequency}
+                strategyModelName={portfolioIdentity.strategyModelName}
+              />
+            ) : null}
+            <DialogDescription>
+              Starting investment and your entry date set how your personal performance is calculated.
+            </DialogDescription>
+          </DialogHeader>
+        </div>
+        <div className="min-h-0 min-w-0 overflow-y-auto overscroll-y-contain px-6 py-2">
+          <div className="grid gap-4">
+            <div className="grid gap-2">
+              <Label htmlFor="upp-investment">Starting investment (USD)</Label>
+              <Input
+                id="upp-investment"
+                inputMode="decimal"
+                value={investment}
+                onChange={(e) => setInvestment(e.target.value)}
+                disabled={busy}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="upp-start">Your entry</Label>
+              <PortfolioEntryDatePicker
+                triggerId="upp-start"
+                valueYmd={pickerValueYmd}
+                onChangeYmd={setStartDate}
+                minYmd={minYmd}
+                maxYmd={maxYmd}
+                modelInceptionYmd={modelInceptionYmd}
+                disabled={busy}
+              />
+            </div>
           </div>
         </div>
-        <DialogFooter className="gap-2 sm:gap-0">
+        <DialogFooter className="shrink-0 gap-2 border-t border-border px-6 py-4 sm:gap-0">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
             Cancel
           </Button>

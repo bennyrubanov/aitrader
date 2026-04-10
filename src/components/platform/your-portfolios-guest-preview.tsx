@@ -386,6 +386,7 @@ export function YourPortfoliosGuestPreview({ signInHref, signUpHref }: Props) {
   const [freqFilter, setFreqFilter] = useState<RebalanceFrequency | null>(null);
   const [weightFilter, setWeightFilter] = useState<'equal' | 'cap' | null>(null);
   const filterDialogBenchmarkNasdaqRef = useRef<HTMLButtonElement>(null);
+  const filterDialogTitleRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
     if (riskFilter === 6 && weightFilter === 'cap') {
@@ -863,20 +864,26 @@ export function YourPortfoliosGuestPreview({ signInHref, signUpHref }: Props) {
       />
       <Dialog open={filtersDialogOpen} onOpenChange={setFiltersDialogOpen}>
         <DialogContent
-          className="flex max-h-[min(90vh,720px)] w-[calc(100vw-1.5rem)] max-w-lg flex-col gap-0 overflow-hidden p-0 sm:w-full"
+          className="flex max-h-[min(90dvh,560px)] w-[calc(100vw-1.5rem)] max-w-lg flex-col gap-0 overflow-hidden p-0 sm:w-full"
           onOpenAutoFocus={(e) => {
             e.preventDefault();
-            filterDialogBenchmarkNasdaqRef.current?.focus();
+            filterDialogTitleRef.current?.focus();
           }}
         >
-          <DialogHeader className="shrink-0 space-y-1 border-b px-6 py-5 text-left">
-            <DialogTitle>Filter portfolios</DialogTitle>
+          <DialogHeader className="shrink-0 space-y-1 border-b px-6 py-4 text-left">
+            <DialogTitle
+              ref={filterDialogTitleRef}
+              tabIndex={-1}
+              className="outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              Filter portfolios
+            </DialogTitle>
             <DialogDescription>
               Same controls as when you are signed in. This preview does not apply filters to the demo
               list; sign in to filter real portfolios.
             </DialogDescription>
           </DialogHeader>
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-6 py-4">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-6 py-3">
             <ExplorePortfolioFilterControls
               filterBeatNasdaq={filterBeatNasdaq}
               filterBeatSp500={filterBeatSp500}
@@ -906,7 +913,7 @@ export function YourPortfoliosGuestPreview({ signInHref, signUpHref }: Props) {
               }
             />
           </div>
-          <DialogFooter className="shrink-0 flex-col gap-2 border-t px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <DialogFooter className="shrink-0 flex-col gap-2 border-t px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-xs text-muted-foreground">
               {activeSidebarFilterCount > 0
                 ? `${activeSidebarFilterCount} filter${activeSidebarFilterCount === 1 ? '' : 's'} active (preview)`

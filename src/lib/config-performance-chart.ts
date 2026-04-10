@@ -4,6 +4,7 @@
  */
 
 import type { ConfigPerfRow } from '@/lib/portfolio-config-utils';
+import { computePerformanceCagr as computeCagr } from '@/lib/performance-cagr';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
 import {
   computePctMonthsBeating,
@@ -21,22 +22,6 @@ function toNumber(value: unknown, fallback = 0): number {
 function computeTotalReturn(startValue: number, endValue: number): number | null {
   if (startValue <= 0) return null;
   return endValue / startValue - 1;
-}
-
-function computeCagr(
-  startValue: number,
-  endValue: number,
-  startDate: string,
-  endDate: string
-): number | null {
-  if (startValue <= 0 || endValue <= 0 || startDate === endDate) return null;
-  const start = new Date(`${startDate}T00:00:00Z`);
-  const end = new Date(`${endDate}T00:00:00Z`);
-  const diffMs = end.getTime() - start.getTime();
-  if (!Number.isFinite(diffMs) || diffMs <= 0) return null;
-  const years = diffMs / (1000 * 60 * 60 * 24 * 365.25);
-  if (years <= 0) return null;
-  return Math.pow(endValue / startValue, 1 / years) - 1;
 }
 
 function computeMaxDrawdown(values: number[]): number | null {
