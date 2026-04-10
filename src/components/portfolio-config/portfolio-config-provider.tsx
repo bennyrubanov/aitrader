@@ -21,6 +21,7 @@ import {
   ENTRY_DATE_KEY,
   ONBOARDING_KEY,
   clearOnboardingDoneCache,
+  clearPendingGuestPortfolioFollow,
   loadPortfolioConfigFromStorage,
   savePortfolioConfigToStorage,
   syncPendingGuestPortfolioFollowForGuestLocal,
@@ -100,6 +101,7 @@ export function PortfolioConfigProvider({ children }: { children: ReactNode }) {
     setIsOnboardingDone(dbDone);
     try {
       if (dbDone) {
+        clearPendingGuestPortfolioFollow();
         localStorage.setItem(ONBOARDING_KEY, '1');
       } else {
         localStorage.removeItem(ONBOARDING_KEY);

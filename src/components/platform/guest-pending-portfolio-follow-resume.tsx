@@ -42,6 +42,14 @@ export function GuestPendingPortfolioFollowResume() {
   useEffect(() => {
     if (!auth.isLoaded || !auth.isAuthenticated || !portfolioConfigHydrated) return;
 
+    /** Stale guest pending often survives sign-in; never POST or toast for users who already finished onboarding. */
+    if (auth.portfolioOnboardingDone) {
+      if (readPendingGuestPortfolioFollow()) {
+        clearPendingGuestPortfolioFollow();
+      }
+      return;
+    }
+
     const pending = readPendingGuestPortfolioFollow();
     if (!pending) return;
 
@@ -79,7 +87,11 @@ export function GuestPendingPortfolioFollowResume() {
           return;
         }
 
-        const j = (await res.json().catch(() => ({}))) as { error?: string; profileId?: string };
+        const j = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          profileId?: string;
+          deduplicated?: boolean;
+        };
 
         if (!res.ok) {
           console.error('[GuestPendingPortfolioFollowResume]', j?.error ?? res.status);
@@ -101,16 +113,17 @@ export function GuestPendingPortfolioFollowResume() {
 
         invalidateUserPortfolioProfiles();
 
-        const entryLabel = formatYmdDisplay(pending.userStartDate);
-
-        showPortfolioFollowToast({
-          profileId,
-          title: 'You’re following this portfolio',
-          description: `Added to your overview — tracking with ${formatUsdWhole(pending.investmentSize)} from ${entryLabel}.`,
-          onAfterUndo: () => {
-            router.refresh();
-          },
-        });
+        if (!j.deduplicated) {
+          const entryLabel = formatYmdDisplay(pending.userStartDate);
+          showPortfolioFollowToast({
+            profileId,
+            title: 'You’re following this portfolio',
+            description: `Added to your overview — tracking with ${formatUsdWhole(pending.investmentSize)} from ${entryLabel}.`,
+            onAfterUndo: () => {
+              router.refresh();
+            },
+          });
+        }
 
         try {
           await markOnboardingDone();
@@ -132,6 +145,7 @@ export function GuestPendingPortfolioFollowResume() {
   }, [
     auth.isAuthenticated,
     auth.isLoaded,
+    auth.portfolioOnboardingDone,
     markOnboardingDone,
     portfolioConfigHydrated,
     router,

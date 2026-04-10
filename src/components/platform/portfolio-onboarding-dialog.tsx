@@ -742,7 +742,11 @@ export function PortfolioOnboardingDialog({
           startingPortfolio: true,
         }),
       });
-      const j = (await res.json().catch(() => ({}))) as { error?: string; profileId?: string };
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        profileId?: string;
+        deduplicated?: boolean;
+      };
       if (!res.ok) {
         toast({
           title: 'Could not follow portfolio',
@@ -764,16 +768,18 @@ export function PortfolioOnboardingDialog({
       const synced = onFollowPortfolioSynced ? await onFollowPortfolioSynced(profileId) : true;
       invalidateUserPortfolioProfiles();
       setEntryDate(entryYmd);
-      showPortfolioFollowToast({
-        profileId,
-        title: 'You’re following this portfolio',
-        description: synced
-          ? `Added to your overview and tracking with ${formatCurrency(draft.investmentSize)} from ${entryYmd === localTodayYmd() ? 'today' : formatYmdDisplay(entryYmd)}.`
-          : `Your portfolio is saved. If it doesn’t appear on the overview yet, refresh the page — tracking with ${formatCurrency(draft.investmentSize)} from ${entryYmd === localTodayYmd() ? 'today' : formatYmdDisplay(entryYmd)}.`,
-        onAfterUndo: () => {
-          router.refresh();
-        },
-      });
+      if (!j.deduplicated) {
+        showPortfolioFollowToast({
+          profileId,
+          title: 'You’re following this portfolio',
+          description: synced
+            ? `Added to your overview and tracking with ${formatCurrency(draft.investmentSize)} from ${entryYmd === localTodayYmd() ? 'today' : formatYmdDisplay(entryYmd)}.`
+            : `Your portfolio is saved. If it doesn’t appear on the overview yet, refresh the page — tracking with ${formatCurrency(draft.investmentSize)} from ${entryYmd === localTodayYmd() ? 'today' : formatYmdDisplay(entryYmd)}.`,
+          onAfterUndo: () => {
+            router.refresh();
+          },
+        });
+      }
       await markOnboardingDone();
       router.refresh();
       window.setTimeout(() => {
