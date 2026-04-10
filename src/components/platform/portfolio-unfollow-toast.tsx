@@ -7,9 +7,33 @@ import { cn } from '@/lib/utils';
 /** Fired after follow is undone (PATCH isActive: false) so clients can refetch profiles. */
 export const USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT = 'user-portfolio-profiles-invalidate';
 
+export type UserPortfolioProfilesInvalidateDetail = {
+  profileId?: string;
+  entrySettingsOnly?: boolean;
+  /** When true, overview already refetched profiles; skip profileFetchNonce to avoid duplicate GET. */
+  skipOverviewProfileRefetch?: boolean;
+};
+
 export function invalidateUserPortfolioProfiles(): void {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT));
+}
+
+/** After entry date / investment PATCH — same event; set `skipOverviewProfileRefetch` when overview already called GET. */
+export function invalidateUserPortfolioProfilesEntrySave(
+  profileId: string,
+  opts?: { skipOverviewProfileRefetch?: boolean }
+): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(
+    new CustomEvent<UserPortfolioProfilesInvalidateDetail>(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, {
+      detail: {
+        profileId,
+        entrySettingsOnly: true,
+        skipOverviewProfileRefetch: opts?.skipOverviewProfileRefetch === true,
+      },
+    })
+  );
 }
 
 export async function setUserPortfolioProfileActive(

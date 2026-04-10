@@ -25,7 +25,7 @@ const AboutPage = () => {
                   We set out to change that by combining the latest advancements in artificial
                   intelligence with proven investment research. The result is a platform that
                   delivers deep, research-backed stock analysis at a fraction of the traditional
-                  cost — and tracks every result transparently.
+                  cost, while tracking every result transparently.
                 </p>
                 <p className="text-foreground/90">
                   What started as a passion project has grown into a live AI-driven investing system

@@ -81,8 +81,13 @@ type CronErrorEntry = {
 
 type CronRatingDigestMeta = {
   forceRun?: boolean;
+  runMode?: 'rating_day' | 'prices_only';
   nasdaqSource?: 'api' | 'fallback';
   nasdaqSymbolCount?: number;
+  /** Rows written to `nasdaq_100_daily_raw` this run */
+  nasdaqRawRowsUpserted?: number;
+  /** Symbols where `lastSalePrice` parsed to a finite number (API quote quality) */
+  nasdaqSymbolsWithParsedPrice?: number;
   strategySlug?: string;
   strategyName?: string;
   strategyVersion?: string;
@@ -1195,7 +1200,8 @@ const handleRequest = async (req: Request) => {
   const errorKeys = new Set<string>();
   const runStartedAt = new Date().toISOString();
 
-  let cronRatingDigestEnabled = false;
+  /** When set, `finally` sends HTML digest (daily or rating-day) instead of errors-only email. */
+  let cronDigestEmailEnabled = false;
   let cronDigestFatalMessage: string | null = null;
   const digestMarks = {
     prepEndMs: null as number | null,
@@ -1301,21 +1307,29 @@ const handleRequest = async (req: Request) => {
       const hadRecordedErrors = errors.length > 0;
       const statusLabel = hadFatal ? 'Failed' : hadRecordedErrors ? 'Completed with warnings' : 'Completed';
 
-      const sectionRows = [
-        [
-          'Preparation (NASDAQ list, stocks, snapshot, batch, members)',
-          formatSectionSeconds(t0, digestMarks.prepEndMs),
-        ],
-        ['AI ratings (parallel)', formatSectionSeconds(digestMarks.prepEndMs, digestMarks.aiEndMs)],
-        [
-          'Model portfolio + weekly performance row (DB)',
-          formatSectionSeconds(digestMarks.aiEndMs, digestMarks.perfEndMs),
-        ],
-        [
-          'After performance: 48-config fan-out, rebalance log, research, revalidation',
-          formatSectionSeconds(digestMarks.perfEndMs, digestMarks.doneMs),
-        ],
-      ];
+      const isPricesOnly = digestMeta.runMode === 'prices_only';
+      const sectionRows = isPricesOnly
+        ? [
+            [
+              'Price sync (NASDAQ list, stocks, nasdaq_100_daily_raw, snapshot membership)',
+              formatSectionSeconds(t0, digestMarks.doneMs),
+            ],
+          ]
+        : [
+            [
+              'Preparation (NASDAQ list, stocks, snapshot, batch, members)',
+              formatSectionSeconds(t0, digestMarks.prepEndMs),
+            ],
+            ['AI ratings (parallel)', formatSectionSeconds(digestMarks.prepEndMs, digestMarks.aiEndMs)],
+            [
+              'Model portfolio + weekly performance row (DB)',
+              formatSectionSeconds(digestMarks.aiEndMs, digestMarks.perfEndMs),
+            ],
+            [
+              'After performance: 48-config fan-out, rebalance log, research, revalidation',
+              formatSectionSeconds(digestMarks.perfEndMs, digestMarks.doneMs),
+            ],
+          ];
 
       const sectionTable = sectionRows
         .map(
@@ -1340,26 +1354,36 @@ const handleRequest = async (req: Request) => {
         : '';
 
       const digestNote =
-        digestMarks.prepEndMs === null && digestMarks.aiEndMs === null
+        !isPricesOnly &&
+        digestMarks.prepEndMs === null &&
+        digestMarks.aiEndMs === null
           ? '<p style="color:#64748b;">Section timings were not fully recorded (run may have ended before the rating pipeline completed).</p>'
           : '';
 
-      htmlBody = `
-      <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 720px;">
-        <h2 style="color: ${hadFatal ? '#b91c1c' : '#0f172a'};">AITrader — Rating day cron digest</h2>
-        <p><strong>Status:</strong> ${escapeHtml(statusLabel)}</p>
-        <p><strong>Run date:</strong> ${escapeHtml(runDate)}</p>
-        <p><strong>Started:</strong> ${escapeHtml(runStartedAt)}</p>
-        <p><strong>Total wall time:</strong> ${escapeHtml(`${totalSec}s`)}</p>
-        <p><strong>Force run:</strong> ${escapeHtml(formatMeta(digestMeta.forceRun))}</p>
-        <p><strong>Git commit (deploy):</strong> ${escapeHtml(GIT_COMMIT_SHA || 'unavailable')}</p>
-        <hr style="margin: 16px 0;" />
-        <h3>Universe</h3>
+      const digestTitle = isPricesOnly
+        ? 'AITrader — Daily cron digest (prices only)'
+        : 'AITrader — Rating day cron digest';
+      const nasdaqPriceCoverage =
+        digestMeta.nasdaqSymbolCount !== undefined &&
+        digestMeta.nasdaqSymbolsWithParsedPrice !== undefined
+          ? `${digestMeta.nasdaqSymbolsWithParsedPrice} / ${digestMeta.nasdaqSymbolCount} symbols with a parsed last-sale price (API field quality)`
+          : 'unavailable';
+
+      const universeBlock = `
+        <h3>Universe &amp; NASDAQ-100 raw quotes</h3>
         <ul>
+          <li><strong>Run mode:</strong> ${escapeHtml(isPricesOnly ? 'Daily price sync (no AI rebalance)' : 'Rating / rebalance day')}</li>
           <li><strong>Index / universe:</strong> ${escapeHtml(formatMeta(digestMeta.indexName))}</li>
           <li><strong>Symbols (this run):</strong> ${escapeHtml(formatMeta(digestMeta.nasdaqSymbolCount))}</li>
           <li><strong>NASDAQ list source:</strong> ${escapeHtml(digestMeta.nasdaqSource ?? 'unavailable')}</li>
+          <li><strong><code>nasdaq_100_daily_raw</code> rows upserted:</strong> ${escapeHtml(formatMeta(digestMeta.nasdaqRawRowsUpserted))}</li>
+          <li><strong>Last-sale price coverage:</strong> ${escapeHtml(nasdaqPriceCoverage)}</li>
         </ul>
+        <p style="font-size:13px;color:#64748b;">Low coverage usually means the Nasdaq.com list API returned rows without usable <code>lastSalePrice</code> (e.g. holiday, halted feed, or payload change). Rows are still stored; downstream features may lack same-day marks.</p>
+      `;
+
+      const ratingDayBlock = !isPricesOnly
+        ? `
         <h3>Strategy / model</h3>
         <ul>
           <li><strong>Slug:</strong> ${escapeHtml(formatMeta(digestMeta.strategySlug))}</li>
@@ -1392,10 +1416,29 @@ const handleRequest = async (req: Request) => {
           <li><strong>Turnover:</strong> ${escapeHtml(formatPct(digestMeta.turnover))}</li>
           <li><strong>Gross return (week):</strong> ${escapeHtml(formatPct(digestMeta.grossReturn))}</li>
           <li><strong>Net return (week, after costs):</strong> ${escapeHtml(formatPct(digestMeta.netReturn))}</li>
-          <li><strong>Benchmark week (approx):</strong> NDX cap ${escapeHtml(formatPct(digestMeta.benchmarkNasdaqCap))}, QQQEW / equal proxy ${escapeHtml(formatPct(digestMeta.benchmarkNasdaqEqual))}, S&amp;P 500 ${escapeHtml(formatPct(digestMeta.benchmarkSp500))}</li>
+          <li><strong>Benchmark week (approx, Stooq daily):</strong> NDX cap ${escapeHtml(formatPct(digestMeta.benchmarkNasdaqCap))}, QQQEW / equal proxy ${escapeHtml(formatPct(digestMeta.benchmarkNasdaqEqual))}, S&amp;P 500 ${escapeHtml(formatPct(digestMeta.benchmarkSp500))}</li>
+          <li style="font-size:13px;color:#64748b;">Benchmarks use Stooq CSV between prior rebalance date and this run. All zeros often means no trading days in the window, CSV fetch failure, or symbol mapping issues — not necessarily missing <code>nasdaq_100_daily_raw</code>.</li>
           <li><strong>Rebalance actions logged:</strong> ${escapeHtml(formatMeta(digestMeta.rebalanceActionsCount))}</li>
           <li><strong>Portfolio configs precompute:</strong> ran ${escapeHtml(formatMeta(digestMeta.portfolioConfigBatchTriggered))} · non-default OK ${escapeHtml(formatMeta(digestMeta.portfolioConfigsComputed))} · failed ${escapeHtml(formatMeta(digestMeta.portfolioConfigsFailed))}</li>
         </ul>
+      `
+        : `
+        <h3>Skipped today</h3>
+        <p>AI ratings, weekly model portfolio, benchmarks, and config precompute run only on the configured rebalance weekday (or with <code>?force=1</code>). Today’s job stored NASDAQ-100 list quotes and snapshot membership only.</p>
+      `;
+
+      htmlBody = `
+      <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 720px;">
+        <h2 style="color: ${hadFatal ? '#b91c1c' : '#0f172a'};">${escapeHtml(digestTitle)}</h2>
+        <p><strong>Status:</strong> ${escapeHtml(statusLabel)}</p>
+        <p><strong>Run date (UTC):</strong> ${escapeHtml(runDate)}</p>
+        <p><strong>Started:</strong> ${escapeHtml(runStartedAt)}</p>
+        <p><strong>Total wall time:</strong> ${escapeHtml(`${totalSec}s`)}</p>
+        <p><strong>Force run:</strong> ${escapeHtml(formatMeta(digestMeta.forceRun))}</p>
+        <p><strong>Git commit (deploy):</strong> ${escapeHtml(GIT_COMMIT_SHA || 'unavailable')}</p>
+        <hr style="margin: 16px 0;" />
+        ${universeBlock}
+        ${ratingDayBlock}
         <h3>Time by section</h3>
         ${digestNote}
         <table style="border-collapse:collapse;width:100%;font-size:14px;">${sectionTable}</table>
@@ -1405,14 +1448,16 @@ const handleRequest = async (req: Request) => {
       </div>
     `;
 
-      subject = `AITrader Cron — ${runDate} (${statusLabel})`;
+      subject = isPricesOnly
+        ? `AITrader Cron — ${runDate} (daily prices · ${statusLabel})`
+        : `AITrader Cron — ${runDate} (${statusLabel})`;
     } catch (buildError) {
       const buildMsg = buildError instanceof Error ? buildError.message : JSON.stringify(buildError);
       log('CRON RATING DIGEST BUILD FAILED', buildMsg);
       subject = `AITrader Cron — ${runDate} (digest incomplete)`;
       htmlBody = `
         <div style="font-family: Arial, sans-serif; padding: 20px;">
-          <h2>AITrader — Rating day cron digest</h2>
+          <h2>AITrader — Cron digest (template error)</h2>
           <p>The digest template failed to render. Run started: ${escapeHtml(runStartedAt)}</p>
           <p><strong>Build error:</strong></p>
           <pre style="background:#f8fafc;padding:12px;border-radius:8px;">${escapeHtml(buildMsg)}</pre>
@@ -1440,7 +1485,7 @@ const handleRequest = async (req: Request) => {
     }
     summarySent = true;
 
-    if (cronRatingDigestEnabled && CRON_ERROR_EMAIL) {
+    if (cronDigestEmailEnabled) {
       await sendCronRatingDigestEmail();
       return;
     }
@@ -1511,10 +1556,9 @@ const handleRequest = async (req: Request) => {
     const runWeekday = getUtcWeekday(runDate);
     const isRebalanceDay = forceRun || runWeekday === STRATEGY_CONFIG.rebalanceDayOfWeek;
 
-    if (isRebalanceDay) {
-      cronRatingDigestEnabled = true;
-    }
+    cronDigestEmailEnabled = Boolean(CRON_ERROR_EMAIL);
     digestMeta.forceRun = forceRun;
+    digestMeta.runMode = isRebalanceDay ? 'rating_day' : 'prices_only';
 
     if (!isRebalanceDay) {
       log(
@@ -1658,6 +1702,32 @@ const handleRequest = async (req: Request) => {
     }
     log('RAW UPSERTED', `${rawPayload.length} rows`);
 
+    const nasdaqSymbolsWithParsedPrice = nasdaqRows.filter(
+      (row) => parsePrice(row.lastSalePrice) !== null
+    ).length;
+    digestMeta.nasdaqRawRowsUpserted = rawPayload.length;
+    digestMeta.nasdaqSymbolsWithParsedPrice = nasdaqSymbolsWithParsedPrice;
+
+    if (nasdaqRows.length > 0 && nasdaqSymbolsWithParsedPrice === 0) {
+      recordCronError(
+        'Nasdaq API: no parsed last-sale prices',
+        new Error(
+          'Every symbol lacked a usable lastSalePrice (check Nasdaq list API payload or market closure).'
+        ),
+        `Listed symbols: ${nasdaqRows.length}, source: ${digestMeta.nasdaqSource ?? 'unknown'}`
+      );
+    } else if (
+      nasdaqRows.length >= 20 &&
+      nasdaqSymbolsWithParsedPrice < Math.ceil(nasdaqRows.length * 0.25)
+    ) {
+      recordCronError(
+        'Nasdaq API: low last-sale price coverage',
+        new Error(
+          `${nasdaqSymbolsWithParsedPrice} of ${nasdaqRows.length} symbols had a parsed lastSalePrice.`
+        )
+      );
+    }
+
     // On non-rebalance days, we only save price data and snapshot membership
     if (!isRebalanceDay) {
       // Still update snapshot membership daily
@@ -1680,6 +1750,8 @@ const handleRequest = async (req: Request) => {
         'DAILY COMPLETE',
         `Prices saved for ${rawPayload.length} symbols. Snapshot updated. AI ratings skipped (not rebalance day).`
       );
+
+      digestMarks.doneMs = Date.now();
 
       revalidatePath('/platform');
       revalidatePath('/platform/overview');

@@ -44,7 +44,11 @@ import { PortfolioListSortDialog } from '@/components/platform/portfolio-list-so
 import { HoldingRankWithChange } from '@/components/platform/holding-rank-with-change';
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
 import { PortfolioOnboardingDialog } from '@/components/platform/portfolio-onboarding-dialog';
-import { USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT } from '@/components/platform/portfolio-unfollow-toast';
+import {
+  USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT,
+  invalidateUserPortfolioProfilesEntrySave,
+  type UserPortfolioProfilesInvalidateDetail,
+} from '@/components/platform/portfolio-unfollow-toast';
 import {
   PLATFORM_POST_ONBOARDING_TOUR_PRIMED_EVENT,
   PLATFORM_POST_ONBOARDING_TOUR_REQUEST_READINESS_EVENT,
@@ -2009,14 +2013,18 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   /** Dedupe overview movement prime + date warm per profile per epoch + user-entry fingerprint. */
   const overviewMovementWarmStartedRef = useRef<Map<string, string>>(new Map());
   useEffect(() => {
-    const handler = () => {
+    const handler = (e: Event) => {
+      const d = (e as CustomEvent<UserPortfolioProfilesInvalidateDetail>).detail;
       portfolioMovementFetchCache.clear();
       portfolioMovementInflight.clear();
       overviewMovementWarmStartedRef.current.clear();
-      setMovementRefreshEpoch((e) => e + 1);
-      // Re-run the authenticated profile effect (abort + loading) so POST-follow data isn’t missed
-      // when the prior fetch returned [] or the tree remounted.
-      setProfileFetchNonce((n) => n + 1);
+      setMovementRefreshEpoch((x) => x + 1);
+      if (!d?.entrySettingsOnly || !d.skipOverviewProfileRefetch) {
+        // Re-run the authenticated profile effect (abort + loading) so POST-follow data isn’t missed
+        // when the prior fetch returned [] or the tree remounted. Entry-only from Your portfolios
+        // omits skipOverviewProfileRefetch so overview profiles stay in sync.
+        setProfileFetchNonce((n) => n + 1);
+      }
     };
     window.addEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, handler);
     return () => window.removeEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, handler);
@@ -2634,10 +2642,14 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
           setEntryDate(userStartDate);
           updateConfig({ investmentSize });
         }}
-        onSaved={() => {
-          if (authState.isAuthenticated) {
-            void refreshOverviewProfiles();
-          }
+        onSaved={({ profileId }) => {
+          if (!authState.isAuthenticated) return;
+          void (async () => {
+            await refreshOverviewProfiles();
+            invalidateUserPortfolioProfilesEntrySave(profileId, {
+              skipOverviewProfileRefetch: true,
+            });
+          })();
         }}
         prefetchedModelInceptionYmd={entrySettingsPrefetchedModelInceptionYmd}
       />

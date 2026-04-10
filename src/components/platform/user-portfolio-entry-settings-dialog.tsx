@@ -40,7 +40,7 @@ type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   profile: UserPortfolioEntrySettingsProfile | null;
-  onSaved?: () => void;
+  onSaved?: (args: { profileId: string }) => void;
   /** Guests: persist to localStorage via `onLocalPersist` instead of the authenticated API. */
   persistMode?: 'api' | 'local';
   onLocalPersist?: (args: { investmentSize: number; userStartDate: string }) => void;
@@ -203,8 +203,8 @@ export function UserPortfolioEntrySettingsDialog({
             </div>
           ),
         });
+        onSaved?.({ profileId: profile.id });
         onOpenChange(false);
-        onSaved?.();
         return;
       }
 
@@ -231,8 +231,8 @@ export function UserPortfolioEntrySettingsDialog({
         description:
           'Performance now reflects your updated entry date and investment amount.',
       });
+      onSaved?.({ profileId: profile.id });
       onOpenChange(false);
-      onSaved?.();
     } finally {
       setBusy(false);
     }

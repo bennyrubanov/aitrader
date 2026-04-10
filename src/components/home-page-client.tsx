@@ -9,8 +9,13 @@ import CTA from '@/components/CTA';
 import Footer from '@/components/Footer';
 import NewsletterPopup, { NewsletterPopupRef } from '@/components/NewsletterPopup';
 import NewsletterLink from '@/components/NewsletterLink';
+import type { LandingTopPortfolioPerformance } from '@/lib/landing-top-portfolio-performance';
 
-const HomePageClient = () => {
+type HomePageClientProps = {
+  landingPerformance: LandingTopPortfolioPerformance | null;
+};
+
+const HomePageClient = ({ landingPerformance }: HomePageClientProps) => {
   const newsletterPopupRef = useRef<NewsletterPopupRef>(null);
   const parentDivRef = useRef<HTMLDivElement>(null);
 
@@ -26,7 +31,7 @@ const HomePageClient = () => {
       <main>
         <Hero />
         <ExperimentSection />
-        <ResearchSection parentDivRef={parentDivRef} />
+        <ResearchSection parentDivRef={parentDivRef} landingPerformance={landingPerformance} />
         <NewsletterLink onClick={handleOpenNewsletterPopup} />
         <CTA />
       </main>

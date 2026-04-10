@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import {
   Area,
   AreaChart,
@@ -199,33 +199,38 @@ export function CagrOverTimeChart({
   );
 }
 
-// ── Risk Chart (Drawdown + Rolling Sharpe, combined with toggle) ──────────────
+// ── Drawdown + Rolling Sharpe (standalone + combined toggle) ─────────────────
 
-const SHARPE_WINDOW_MAX = 12;
+/** Weeks of weekly returns in each rolling Sharpe estimate (fixed window; not expanding history). */
+export const ROLLING_SHARPE_WINDOW_WEEKS = 12;
 
-export function RiskChart({
+/** Equity curve points: inception row + one per week → need W+1 points for the first rolling estimate. */
+export const ROLLING_SHARPE_MIN_SERIES_LENGTH = ROLLING_SHARPE_WINDOW_WEEKS + 1;
+
+function seriesLineLabels(strategyName?: string): Record<ReturnsKey, string> {
+  return {
+    aiTop20: strategyName ?? RETURNS_SERIES.aiTop20.label,
+    nasdaq100CapWeight: RETURNS_SERIES.nasdaq100CapWeight.label,
+    nasdaq100EqualWeight: RETURNS_SERIES.nasdaq100EqualWeight.label,
+    sp500: RETURNS_SERIES.sp500.label,
+  };
+}
+
+/** Drawdown from rolling peak for each series (same as drawdown view inside `RiskChart`). */
+export function DrawdownOverTimeChart({
   series,
   strategyName,
+  embedded = false,
 }: {
   series: SeriesPoint[];
-  /** Model name, or full overview-style track title (`model · Top n · weight · frequency`). */
   strategyName?: string;
+  /** When true, omit outer card chrome (for use inside `RiskChart`). */
+  embedded?: boolean;
 }) {
-  const [view, setView] = useState<'drawdown' | 'sharpe'>('drawdown');
   const [hiddenDd, setHiddenDd] = useState<Set<ReturnsKey>>(new Set());
-  const [hiddenSh, setHiddenSh] = useState<Set<ReturnsKey>>(new Set());
 
   const toggleDd = (key: ReturnsKey) => {
     setHiddenDd((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
-
-  const toggleSh = (key: ReturnsKey) => {
-    setHiddenSh((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
@@ -269,8 +274,111 @@ export function RiskChart({
     return [min - pad, Math.max(max + pad, 0.5)];
   }, [drawdownChartData, hiddenDd]);
 
-  const { sharpeData, sharpeWindow } = useMemo(() => {
-    if (series.length < 3) return { sharpeData: [], sharpeWindow: 0 };
+  if (drawdownChartData.length < 2) return null;
+
+  const ddLabels = seriesLineLabels(strategyName);
+
+  const inner = (
+    <>
+      <p className="text-sm font-semibold mb-1">Drawdown over time</p>
+      <p className="text-xs text-muted-foreground mb-3">
+        Drawdown from rolling peak for each series. Tap chips to show or hide lines.
+      </p>
+      <div className="flex flex-wrap gap-1.5 mb-3">
+        {(Object.entries(RETURNS_SERIES) as [ReturnsKey, (typeof RETURNS_SERIES)[ReturnsKey]][]).map(
+          ([key, cfg]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => toggleDd(key)}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs transition-opacity ${
+                hiddenDd.has(key) ? 'opacity-40' : ''
+              }`}
+            >
+              <span className="size-2 rounded-full shrink-0" style={{ background: cfg.color }} />
+              {key === 'aiTop20' ? ddLabels.aiTop20 : cfg.label}
+            </button>
+          )
+        )}
+      </div>
+      <ChartContainer
+        className="h-[260px] w-full"
+        config={Object.fromEntries(
+          Object.entries(RETURNS_SERIES).map(([key, cfg]) => [
+            key,
+            { label: ddLabels[key as ReturnsKey], color: cfg.color },
+          ])
+        )}
+      >
+        <LineChart data={drawdownChartData} margin={{ top: 4, right: 8, left: 4, bottom: 4 }}>
+          <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />
+          <XAxis dataKey="date" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+          <YAxis
+            domain={drawdownYDomain}
+            tickFormatter={(v) => `${v.toFixed(1)}%`}
+            tick={{ fontSize: 10 }}
+            width={48}
+          />
+          <ReferenceLine y={0} stroke={CHART_NEUTRAL_REFERENCE_STROKE} strokeDasharray="4 2" />
+          <ChartTooltip
+            content={
+              <ChartTooltipContent
+                formatter={(v, name) => {
+                  const label = ddLabels[name as ReturnsKey] ?? String(name);
+                  return [`${Number(v).toFixed(2)}% `, ` ${label}`];
+                }}
+              />
+            }
+          />
+          {(Object.keys(RETURNS_SERIES) as ReturnsKey[]).map((key) => (
+            <Line
+              key={key}
+              type="monotone"
+              dataKey={key}
+              stroke={RETURNS_SERIES[key].color}
+              strokeWidth={key === 'aiTop20' ? 2.5 : 1.75}
+              dot={false}
+              hide={hiddenDd.has(key)}
+              connectNulls
+            />
+          ))}
+        </LineChart>
+      </ChartContainer>
+      <p className="text-[11px] text-muted-foreground mt-2">
+        Deeper troughs = larger losses from peak. 0% means at the all-time high for that window.
+      </p>
+    </>
+  );
+
+  return embedded ? inner : <div className="rounded-lg border bg-card p-4">{inner}</div>;
+}
+
+/** Rolling N-week Sharpe (annualized) per series (same as Sharpe view inside `RiskChart`). */
+export function RollingSharpeRatioChart({
+  series,
+  strategyName,
+  embedded = false,
+}: {
+  series: SeriesPoint[];
+  strategyName?: string;
+  embedded?: boolean;
+}) {
+  const [hiddenSh, setHiddenSh] = useState<Set<ReturnsKey>>(new Set());
+
+  const toggleSh = (key: ReturnsKey) => {
+    setHiddenSh((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const { sharpeData, sharpeWindow, weeklyReturnCount } = useMemo(() => {
+    const W = ROLLING_SHARPE_WINDOW_WEEKS;
+    if (series.length < 2) {
+      return { sharpeData: [] as Array<{ date: string } & Record<ReturnsKey, number>>, sharpeWindow: W, weeklyReturnCount: 0 };
+    }
 
     const keys = Object.keys(RETURNS_SERIES) as ReturnsKey[];
     const weeklyReturns = series.slice(1).map((point, i) => {
@@ -285,9 +393,12 @@ export function RiskChart({
       };
       return { date: point.date, ...row };
     });
-    if (weeklyReturns.length < 2) return { sharpeData: [], sharpeWindow: 0 };
 
-    const windowSize = Math.min(SHARPE_WINDOW_MAX, weeklyReturns.length);
+    if (weeklyReturns.length < W) {
+      return { sharpeData: [], sharpeWindow: W, weeklyReturnCount: weeklyReturns.length };
+    }
+
+    const windowSize = W;
     const result: Array<{ date: string } & Record<ReturnsKey, number>> = [];
 
     for (let i = windowSize - 1; i < weeklyReturns.length; i++) {
@@ -303,7 +414,7 @@ export function RiskChart({
       result.push(row as { date: string } & Record<ReturnsKey, number>);
     }
 
-    return { sharpeData: result, sharpeWindow: windowSize };
+    return { sharpeData: result, sharpeWindow: windowSize, weeklyReturnCount: weeklyReturns.length };
   }, [series]);
 
   const sharpeYDomain = useMemo((): [number, number] | ['auto', 'auto'] => {
@@ -334,14 +445,141 @@ export function RiskChart({
     return [min - pad, max + pad];
   }, [sharpeData, hiddenSh]);
 
-  if (drawdownChartData.length < 2 && sharpeData.length < 2) return null;
+  const ddLabels = seriesLineLabels(strategyName);
 
-  const ddLabels: Record<ReturnsKey, string> = {
-    aiTop20: strategyName ?? RETURNS_SERIES.aiTop20.label,
-    nasdaq100CapWeight: RETURNS_SERIES.nasdaq100CapWeight.label,
-    nasdaq100EqualWeight: RETURNS_SERIES.nasdaq100EqualWeight.label,
-    sp500: RETURNS_SERIES.sp500.label,
-  };
+  if (!sharpeData.length) {
+    const W = sharpeWindow || ROLLING_SHARPE_WINDOW_WEEKS;
+    const emptyBody =
+      weeklyReturnCount === 0 ? (
+        <p>No weekly returns yet; this chart appears once there is enough history.</p>
+      ) : (
+        <p>
+          Uses a fixed {W}-week rolling window (not expanding history). You have {weeklyReturnCount} week
+          {weeklyReturnCount === 1 ? '' : 's'} so far—the line fills in automatically as more weekly data is
+          recorded.
+        </p>
+      );
+    const emptyInner = (
+      <>
+        <p className="text-sm font-semibold mb-1">Rolling Sharpe ratio ({W}-week)</p>
+        <p className="text-xs text-muted-foreground mb-3">
+          Annualized Sharpe from the last {W} weekly returns at each date. Higher = more return per unit of
+          risk.
+        </p>
+        <div className="h-[260px] w-full rounded-md border border-dashed flex items-center justify-center px-4 text-center text-xs text-muted-foreground">
+          {emptyBody}
+        </div>
+      </>
+    );
+    return embedded ? emptyInner : <div className="rounded-lg border bg-card p-4">{emptyInner}</div>;
+  }
+
+  const inner: ReactNode = (
+    <>
+      <p className="text-sm font-semibold mb-1">Rolling Sharpe ratio ({sharpeWindow}-week)</p>
+      <p className="text-xs text-muted-foreground mb-3">
+        Rolling {sharpeWindow}-week Sharpe (annualized) for each series. Tap chips to show or hide lines.
+        Above 1.0 is often cited as “good” for equities.
+      </p>
+      <div className="flex flex-wrap gap-1.5 mb-3">
+        {(Object.entries(RETURNS_SERIES) as [ReturnsKey, (typeof RETURNS_SERIES)[ReturnsKey]][]).map(
+          ([key, cfg]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => toggleSh(key)}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs transition-opacity ${
+                hiddenSh.has(key) ? 'opacity-40' : ''
+              }`}
+            >
+              <span className="size-2 rounded-full shrink-0" style={{ background: cfg.color }} />
+              {key === 'aiTop20' ? ddLabels.aiTop20 : cfg.label}
+            </button>
+          )
+        )}
+      </div>
+      <ChartContainer
+        className="h-[260px] w-full"
+        config={Object.fromEntries(
+          Object.entries(RETURNS_SERIES).map(([key, cfg]) => [
+            key,
+            { label: ddLabels[key as ReturnsKey], color: cfg.color },
+          ])
+        )}
+      >
+        <LineChart data={sharpeData} margin={{ top: 4, right: 8, left: 4, bottom: 4 }}>
+          <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />
+          <XAxis dataKey="date" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+          <YAxis domain={sharpeYDomain} tick={{ fontSize: 10 }} width={40} />
+          <ReferenceLine
+            y={1}
+            stroke={CHART_NEUTRAL_REFERENCE_STROKE}
+            strokeDasharray="4 2"
+            label={{
+              value: '1.0',
+              position: 'left',
+              fontSize: 9,
+              fill: CHART_NEUTRAL_REFERENCE_STROKE,
+            }}
+          />
+          <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="4 2" />
+          <ChartTooltip
+            content={
+              <ChartTooltipContent
+                formatter={(v, name) => {
+                  const label = ddLabels[name as ReturnsKey] ?? String(name);
+                  return [`${Number(v).toFixed(2)} `, ` ${label}`];
+                }}
+              />
+            }
+          />
+          {(Object.keys(RETURNS_SERIES) as ReturnsKey[]).map((key) => (
+            <Line
+              key={key}
+              type="monotone"
+              dataKey={key}
+              stroke={RETURNS_SERIES[key].color}
+              strokeWidth={key === 'aiTop20' ? 2.5 : 1.75}
+              dot={sharpeData.length <= 2 ? { r: 2.5 } : false}
+              hide={hiddenSh.has(key)}
+              connectNulls
+            />
+          ))}
+        </LineChart>
+      </ChartContainer>
+      <p className="text-[11px] text-muted-foreground mt-2">
+        Sharpe = mean weekly return ÷ volatility in the window, scaled to a 52-week year. Higher = more return per unit of risk.
+      </p>
+    </>
+  );
+
+  return embedded ? inner : <div className="rounded-lg border bg-card p-4">{inner}</div>;
+}
+
+export function RiskChart({
+  series,
+  strategyName,
+}: {
+  series: SeriesPoint[];
+  /** Model name, or full overview-style track title (`model · Top n · weight · frequency`). */
+  strategyName?: string;
+}) {
+  const [view, setView] = useState<'drawdown' | 'sharpe'>('drawdown');
+
+  const drawdownChartData = useMemo(() => {
+    if (series.length < 2) return [];
+    return toDrawdownPercentSeries(series).map((p) => ({
+      ...p,
+      date: shortDate(p.date),
+    }));
+  }, [series]);
+
+  const sharpeReady = useMemo(
+    () => series.length >= ROLLING_SHARPE_MIN_SERIES_LENGTH,
+    [series.length]
+  );
+
+  if (drawdownChartData.length < 2 && !sharpeReady) return null;
 
   return (
     <div className="relative rounded-lg border bg-card p-4">
@@ -359,171 +597,30 @@ export function RiskChart({
         </button>
         <button
           type="button"
+          disabled={!sharpeReady}
+          title={
+            sharpeReady
+              ? undefined
+              : `Needs at least ${ROLLING_SHARPE_WINDOW_WEEKS} weeks of weekly returns for a rolling estimate.`
+          }
           onClick={() => setView('sharpe')}
           className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
             view === 'sharpe'
               ? 'bg-trader-blue text-white'
               : 'text-muted-foreground hover:text-foreground'
-          }`}
+          } ${!sharpeReady ? 'opacity-40 cursor-not-allowed hover:text-muted-foreground' : ''}`}
         >
           Sharpe
         </button>
       </div>
 
       <div className="mb-3 min-w-0 pr-[13.5rem] sm:pr-[14.5rem]">
-        <p className="text-sm font-semibold">
-          {view === 'drawdown' ? 'Drawdown over time' : `Rolling Sharpe ratio (${sharpeWindow}-week)`}
-        </p>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          {view === 'drawdown'
-            ? 'Drawdown from rolling peak for each series. Tap chips to show or hide lines.'
-            : `Rolling ${sharpeWindow}-week Sharpe (annualized) for each series. Tap chips to show or hide lines. Above 1.0 is often cited as “good” for equities.`}
-        </p>
+        {view === 'drawdown' ? (
+          <DrawdownOverTimeChart series={series} strategyName={strategyName} embedded />
+        ) : (
+          <RollingSharpeRatioChart series={series} strategyName={strategyName} embedded />
+        )}
       </div>
-
-      {view === 'drawdown' ? (
-        <>
-          <div className="flex flex-wrap gap-1.5 mb-3">
-            {(Object.entries(RETURNS_SERIES) as [ReturnsKey, (typeof RETURNS_SERIES)[ReturnsKey]][]).map(
-              ([key, cfg]) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => toggleDd(key)}
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs transition-opacity ${
-                    hiddenDd.has(key) ? 'opacity-40' : ''
-                  }`}
-                >
-                  <span className="size-2 rounded-full shrink-0" style={{ background: cfg.color }} />
-                  {key === 'aiTop20' ? ddLabels.aiTop20 : cfg.label}
-                </button>
-              )
-            )}
-          </div>
-          <ChartContainer
-            className="h-[260px] w-full"
-            config={Object.fromEntries(
-              Object.entries(RETURNS_SERIES).map(([key, cfg]) => [
-                key,
-                { label: ddLabels[key as ReturnsKey], color: cfg.color },
-              ])
-            )}
-          >
-            <LineChart data={drawdownChartData} margin={{ top: 4, right: 8, left: 4, bottom: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />
-              <XAxis dataKey="date" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
-              <YAxis
-                domain={drawdownYDomain}
-                tickFormatter={(v) => `${v.toFixed(1)}%`}
-                tick={{ fontSize: 10 }}
-                width={48}
-              />
-              <ReferenceLine y={0} stroke={CHART_NEUTRAL_REFERENCE_STROKE} strokeDasharray="4 2" />
-              <ChartTooltip
-                content={
-                  <ChartTooltipContent
-                    formatter={(v, name) => {
-                      const label = ddLabels[name as ReturnsKey] ?? String(name);
-                      return [`${Number(v).toFixed(2)}% `, ` ${label}`];
-                    }}
-                  />
-                }
-              />
-              {(Object.keys(RETURNS_SERIES) as ReturnsKey[]).map((key) => (
-                <Line
-                  key={key}
-                  type="monotone"
-                  dataKey={key}
-                  stroke={RETURNS_SERIES[key].color}
-                  strokeWidth={key === 'aiTop20' ? 2.5 : 1.75}
-                  dot={false}
-                  hide={hiddenDd.has(key)}
-                  connectNulls
-                />
-              ))}
-            </LineChart>
-          </ChartContainer>
-          <p className="text-[11px] text-muted-foreground mt-2">
-            Deeper troughs = larger losses from peak. 0% means at the all-time high for that window.
-          </p>
-        </>
-      ) : sharpeData.length ? (
-        <>
-          <div className="flex flex-wrap gap-1.5 mb-3">
-            {(Object.entries(RETURNS_SERIES) as [ReturnsKey, (typeof RETURNS_SERIES)[ReturnsKey]][]).map(
-              ([key, cfg]) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => toggleSh(key)}
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs transition-opacity ${
-                    hiddenSh.has(key) ? 'opacity-40' : ''
-                  }`}
-                >
-                  <span className="size-2 rounded-full shrink-0" style={{ background: cfg.color }} />
-                  {key === 'aiTop20' ? ddLabels.aiTop20 : cfg.label}
-                </button>
-              )
-            )}
-          </div>
-          <ChartContainer
-            className="h-[260px] w-full"
-            config={Object.fromEntries(
-              Object.entries(RETURNS_SERIES).map(([key, cfg]) => [
-                key,
-                { label: ddLabels[key as ReturnsKey], color: cfg.color },
-              ])
-            )}
-          >
-            <LineChart data={sharpeData} margin={{ top: 4, right: 8, left: 4, bottom: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />
-              <XAxis dataKey="date" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
-              <YAxis domain={sharpeYDomain} tick={{ fontSize: 10 }} width={40} />
-              <ReferenceLine
-                y={1}
-                stroke={CHART_NEUTRAL_REFERENCE_STROKE}
-                strokeDasharray="4 2"
-                label={{
-                  value: '1.0',
-                  position: 'left',
-                  fontSize: 9,
-                  fill: CHART_NEUTRAL_REFERENCE_STROKE,
-                }}
-              />
-              <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="4 2" />
-              <ChartTooltip
-                content={
-                  <ChartTooltipContent
-                    formatter={(v, name) => {
-                      const label = ddLabels[name as ReturnsKey] ?? String(name);
-                      return [`${Number(v).toFixed(2)} `, ` ${label}`];
-                    }}
-                  />
-                }
-              />
-              {(Object.keys(RETURNS_SERIES) as ReturnsKey[]).map((key) => (
-                <Line
-                  key={key}
-                  type="monotone"
-                  dataKey={key}
-                  stroke={RETURNS_SERIES[key].color}
-                  strokeWidth={key === 'aiTop20' ? 2.5 : 1.75}
-                  dot={sharpeData.length === 1 ? { r: 3 } : false}
-                  hide={hiddenSh.has(key)}
-                  connectNulls
-                />
-              ))}
-            </LineChart>
-          </ChartContainer>
-          <p className="text-[11px] text-muted-foreground mt-2">
-            Sharpe = mean weekly return ÷ volatility in the window, scaled to a 52-week year. Higher = more return per unit of risk.
-          </p>
-        </>
-      ) : (
-        <div className="h-[260px] w-full rounded-md border border-dashed flex items-center justify-center px-4 text-center text-xs text-muted-foreground">
-          Sharpe needs at least 2 weekly returns. It will populate automatically as more weekly data is recorded.
-        </div>
-      )}
     </div>
   );
 }

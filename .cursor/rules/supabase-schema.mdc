@@ -14,7 +14,7 @@ Schema files live in `supabase/`:
 
 **Migrations filenames:** Always-applied `.cursor/rules/supabase-migrations.mdc` — prefix = real creation `YYYYMMDDHHMMSS` (user-stated date/time or `date +%Y%m%d%H%M%S`); never invented future dates.
 
-The daily cron job is at `src/app/api/cron/daily/route.ts` (runs every weekday; AI ratings + portfolio only execute on rebalance day, prices saved daily). On rebalance days it emails `CRON_ERROR_EMAIL` a run digest (timings, universe, model, counts); on price-only days it emails only when errors were recorded.
+The daily cron job is at `src/app/api/cron/daily/route.ts` (runs every weekday; AI ratings + portfolio only execute on rebalance day, prices saved daily). When `CRON_ERROR_EMAIL` is set it emails a digest every run: price-only days get a short digest (NASDAQ list source, `nasdaq_100_daily_raw` row count, last-sale price coverage); rebalance days include the full rating/portfolio section. Recorded issues and fatals appear in the same email.
 The AI prompt template and JSON schema are at `src/lib/aiPrompt.ts`.
 
 ## Versioning

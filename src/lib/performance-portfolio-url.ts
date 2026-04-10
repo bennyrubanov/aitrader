@@ -75,6 +75,13 @@ export function parsePerformancePortfolioConfigParam(
   };
 }
 
+/** Validates `top{N}-…` segment used in `/performance/[slug]/[config]`. */
+export function isValidPortfolioConfigPathSegment(raw: string): boolean {
+  const u = new URLSearchParams();
+  u.set(PERFORMANCE_PORTFOLIO_CONFIG_QUERY_KEY, raw.trim());
+  return parsePerformancePortfolioConfigParam(u) != null;
+}
+
 export function portfolioSliceMatchesRankedRow(
   slice: PortfolioConfigSlice,
   c: RankedConfig

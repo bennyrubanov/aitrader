@@ -76,6 +76,8 @@ import {
   showPortfolioFollowToast,
   setUserPortfolioProfileActive,
   USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT,
+  invalidateUserPortfolioProfilesEntrySave,
+  type UserPortfolioProfilesInvalidateDetail,
 } from '@/components/platform/portfolio-unfollow-toast';
 import { UserPortfolioEntrySettingsDialog } from '@/components/platform/user-portfolio-entry-settings-dialog';
 import { YourPortfoliosGuestPreview } from '@/components/platform/your-portfolios-guest-preview';
@@ -791,7 +793,11 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
 
   useEffect(() => {
     if (!authState.isAuthenticated) return;
-    const handler = () => {
+    const handler = (e: Event) => {
+      const d = (e as CustomEvent<UserPortfolioProfilesInvalidateDetail>).detail;
+      if (d?.profileId) {
+        invalidateUserEntryPerformanceCache(d.profileId);
+      }
       void loadProfiles();
     };
     window.addEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, handler);
@@ -905,6 +911,14 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
           .slice()
           .sort((a, b) => a.localeCompare(b))
           .join('\0'),
+        sidebarProfiles
+          .map(
+            (p) =>
+              `${p.id}:${String(p.user_start_date ?? '').trim()}:${String(p.investment_size)}`
+          )
+          .slice()
+          .sort((a, b) => a.localeCompare(b))
+          .join('|'),
       ].join('\0'),
     [
       sidebarSortMetric,
@@ -2896,12 +2910,13 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
           setEntryDate(userStartDate);
           updateConfig({ investmentSize });
         }}
-        onSaved={() => {
+        onSaved={({ profileId }) => {
+          if (authState.isAuthenticated) {
+            invalidateUserPortfolioProfilesEntrySave(profileId);
+            return;
+          }
           if (selectedProfile?.id) {
             invalidateUserEntryPerformanceCache(selectedProfile.id);
-          }
-          if (authState.isAuthenticated) {
-            void loadProfiles();
           }
           void loadUserEntry();
         }}

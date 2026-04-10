@@ -59,10 +59,9 @@ const ContactPage = () => {
                       </p>
                     </li>
                     <li>
-                      <h4 className="font-medium">Is my data secure?</h4>
+                      <h4 className="font-medium">Can I use AITrader for free?</h4>
                       <p className="text-muted-foreground text-sm mt-1">
-                        We take data security seriously and implement industry-standard encryption
-                        and security practices.
+                        Yes, you can use AITrader for free. However, you will not have access to the full features of the platform - particularly portfolio construction customization and recommendations.
                       </p>
                     </li>
                   </ul>
