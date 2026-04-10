@@ -311,8 +311,8 @@ export function PostOnboardingPlatformTour() {
       ))}
       <div
         className={cn(
-          'pointer-events-auto fixed z-[202] w-[min(22rem,calc(100vw-2rem))] rounded-xl border bg-card p-4 shadow-lg',
-          'bottom-6 left-1/2 -translate-x-1/2 sm:bottom-8'
+          'pointer-events-auto fixed z-[202] w-[min(22rem,calc(100vw-2rem))] max-h-[min(42dvh,22rem)] overflow-y-auto overscroll-y-contain rounded-xl border bg-card p-4 shadow-lg',
+          'bottom-[max(1.25rem,env(safe-area-inset-bottom,0px)+0.75rem)] left-1/2 -translate-x-1/2 sm:bottom-[max(2rem,env(safe-area-inset-bottom,0px)+0.5rem)]'
         )}
         role="dialog"
         aria-labelledby="platform-tour-title"
@@ -321,13 +321,13 @@ export function PostOnboardingPlatformTour() {
         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
           Step {stepIndex + 1} of {stepCount}
         </p>
-        <h2 id="platform-tour-title" className="mt-1 text-base font-semibold leading-snug">
+        <h2 id="platform-tour-title" className="mt-1 text-balance text-base font-semibold leading-snug">
           {step.title}
         </h2>
-        <p id="platform-tour-desc" className="mt-2 text-sm text-muted-foreground leading-snug">
+        <p id="platform-tour-desc" className="mt-2 text-pretty text-sm text-muted-foreground leading-snug">
           {step.body}
         </p>
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-x-2 gap-y-2">
           <Button type="button" variant="ghost" size="sm" className="text-muted-foreground" onClick={handleSkip}>
             Skip tour
           </Button>

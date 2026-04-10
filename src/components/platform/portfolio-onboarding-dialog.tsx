@@ -35,6 +35,7 @@ import {
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { PortfolioEntryDatePicker } from '@/components/platform/portfolio-entry-date-picker';
 import { portfolioEntryDateBounds } from '@/components/platform/portfolio-entry-date-utils';
@@ -325,7 +326,7 @@ const PROGRESS_STEP_LABELS: Record<(typeof PROGRESS_STEPS)[number], string> = {
 
 function OnboardingDialogFooter({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mt-auto shrink-0 space-y-2 border-t border-border/50 pt-3 dark:border-border/40">
+    <div className="mt-auto shrink-0 space-y-2 border-t border-border/50 pt-3 pb-[max(0px,env(safe-area-inset-bottom,0px))] dark:border-border/40">
       {children}
     </div>
   );
@@ -348,12 +349,12 @@ function StepNav({
   beforeNext?: ReactNode;
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2">
+    <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-2">
       <Button variant="ghost" size="sm" onClick={onBack} className="gap-1">
-        <ArrowLeft className="size-3.5" />
+        <ArrowLeft className="size-3.5 shrink-0" />
         Back
       </Button>
-      <div className="flex flex-wrap gap-2 justify-end">
+      <div className="flex flex-wrap justify-end gap-2">
         {returnToSummary && (
           <Button variant="outline" size="sm" onClick={onBackToSummary} className="gap-1.5">
             <Check className="size-3.5" />
@@ -866,8 +867,10 @@ export function PortfolioOnboardingDialog({
     <Dialog open={!isOnboardingDone && !suppressForGuestResume}>
       <DialogContent
         className={cn(
-          'flex max-h-[calc(100dvh-1.5rem)] w-full flex-col gap-0 overflow-hidden p-6',
-          step === 'celebrate' ? 'sm:max-w-[min(62rem,calc(100vw-1.5rem))] sm:p-7' : 'sm:max-w-md'
+          'flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1.5rem)] flex-col gap-0 overflow-hidden px-4 py-5 sm:px-6 sm:py-6',
+          step === 'celebrate'
+            ? 'max-w-[min(62rem,calc(100vw-1.5rem))] sm:p-7'
+            : 'max-w-md'
         )}
         showCloseButton={false}
         onPointerDownOutside={(e) => e.preventDefault()}
@@ -934,7 +937,7 @@ export function PortfolioOnboardingDialog({
                     ))}
                   </div>
                 </div>
-                <div className="flex shrink-0 justify-between border-t border-border/50 pt-3 dark:border-border/40">
+                <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border/50 pt-3 dark:border-border/40">
                   <Button
                     variant="ghost"
                     size="sm"
@@ -1020,18 +1023,18 @@ export function PortfolioOnboardingDialog({
                   AI&apos;s top picks.
                 </DialogDescription>
               </DialogHeader>
-              <div className="min-h-0 flex-1 overflow-hidden py-2">
-                <div className="flex gap-2.5">
-                  <div className="flex flex-col items-center gap-1 shrink-0 py-0.5">
-                    <span className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground text-center leading-tight max-w-[4.5rem]">
-                      Safer / more diversified
-                    </span>
-                    <div className="w-2 flex-1 min-h-[168px] rounded-full bg-gradient-to-b from-emerald-400 via-amber-400 to-rose-500" />
-                    <span className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground text-center leading-tight max-w-[4.5rem]">
-                      Higher risk / concentrated
-                    </span>
-                  </div>
-                  <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <div className="flex min-h-0 flex-1 gap-2.5 overflow-hidden py-2">
+                <div className="flex w-[4.5rem] shrink-0 flex-col items-center gap-1 py-0.5">
+                  <span className="max-w-[4.5rem] text-center text-[9px] font-medium uppercase leading-tight tracking-wide text-muted-foreground">
+                    Safer / more diversified
+                  </span>
+                  <div className="h-[min(10.5rem,32dvh)] w-2 shrink-0 rounded-full bg-gradient-to-b from-emerald-400 via-amber-400 to-rose-500 sm:h-[10.5rem]" />
+                  <span className="max-w-[4.5rem] text-center text-[9px] font-medium uppercase leading-tight tracking-wide text-muted-foreground">
+                    Higher risk / concentrated
+                  </span>
+                </div>
+                <div className="min-h-0 min-w-0 flex-1 touch-pan-y overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] pr-0.5">
+                  <div className="flex flex-col gap-1">
                     {RISK_LEVELS.map((r) => {
                       const isSelected = draft.riskLevel === r;
                       const barColor = RISK_SPECTRUM_BAR[r];
@@ -1097,30 +1100,37 @@ export function PortfolioOnboardingDialog({
               <DialogHeader className="shrink-0">
                 <DialogTitle className="flex flex-wrap items-center gap-2">
                   How often will you rebalance?
-                  <Tooltip>
-                    <TooltipTrigger asChild>
+                  <Popover modal={false}>
+                    <PopoverTrigger asChild>
                       <button
                         type="button"
                         className="inline-flex shrink-0 rounded-sm text-muted-foreground/70 outline-none ring-offset-background transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                         aria-label="What rebalancing means"
                       >
-                        <HelpCircle className="size-3.5 cursor-help" />
+                        <HelpCircle className="size-3.5" aria-hidden />
                       </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="max-w-sm p-3 text-xs leading-relaxed">
+                    </PopoverTrigger>
+                    <PopoverContent
+                      side="bottom"
+                      align="start"
+                      sideOffset={6}
+                      className="z-[300] max-w-sm p-3 text-xs leading-relaxed"
+                      onOpenAutoFocus={(e) => e.preventDefault()}
+                    >
                       <p className="font-semibold text-foreground">Rebalance frequency</p>
                       <p className="mt-1.5 text-muted-foreground">
                         Swapping more often lets you align to AI ratings more closely, but adds more
                         work on your end (and may carry tax implications).
                       </p>
-                    </TooltipContent>
-                  </Tooltip>
+                    </PopoverContent>
+                  </Popover>
                 </DialogTitle>
                 <DialogDescription>
                   How often you swap holdings to match the latest AI ratings.
                 </DialogDescription>
               </DialogHeader>
-              <div className="min-h-0 flex-1 space-y-1.5 overflow-hidden py-2">
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden py-2">
+                <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] pr-0.5">
                 <div className="space-y-1.5">
                   {!frequencyMeta ? (
                     <Skeleton className="h-40 w-full" />
@@ -1166,6 +1176,7 @@ export function PortfolioOnboardingDialog({
                       );
                     })
                   )}
+                </div>
                 </div>
               </div>
               <OnboardingDialogFooter>
@@ -1411,9 +1422,9 @@ export function PortfolioOnboardingDialog({
                 <DialogTitle>Your starting portfolio is configured</DialogTitle>
                 <DialogDescription>Tap any row to edit it.</DialogDescription>
               </DialogHeader>
-              <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
-                <div className="flex min-h-0 flex-1 flex-col justify-center">
-                  <div className="space-y-1.5 py-2">
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden pt-1">
+                <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch]">
+                  <div className="space-y-1.5 pb-2">
                     <EditableSummaryRow
                       label="Strategy model"
                       value={selectedStrategy?.name ?? draft.strategySlug}
@@ -1424,7 +1435,7 @@ export function PortfolioOnboardingDialog({
                       value={
                         <>
                           <span
-                            className="inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-muted/50 px-2 py-0.5 text-[11px] font-semibold text-foreground shrink-0"
+                            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border/80 bg-muted/50 px-2 py-0.5 text-[11px] font-semibold text-foreground"
                             title={RISK_LABELS[draft.riskLevel]}
                           >
                             <span
