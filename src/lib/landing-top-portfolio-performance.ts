@@ -16,6 +16,9 @@ import {
 import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import { createPublicClient } from '@/utils/supabase/public';
 
+/** Use with `revalidateTag` after `strategy_portfolio_config_performance` / weekly benchmark updates (cron, backfill). */
+export const LANDING_TOP_PORTFOLIO_PERFORMANCE_CACHE_TAG = 'landing-top-portfolio-performance';
+
 export type LandingTopPortfolioPerformance = {
   series: PerformanceSeriesPoint[];
   strategySlug: string;
@@ -107,5 +110,5 @@ async function loadLandingTopPortfolioPerformanceUncached(): Promise<LandingTopP
 export const getLandingTopPortfolioPerformance = unstable_cache(
   loadLandingTopPortfolioPerformanceUncached,
   ['landing-top-portfolio-performance', STRATEGY_CONFIG.slug],
-  { revalidate: 300 }
+  { revalidate: 300, tags: [LANDING_TOP_PORTFOLIO_PERFORMANCE_CACHE_TAG] }
 );

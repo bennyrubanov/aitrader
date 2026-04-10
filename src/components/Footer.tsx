@@ -51,17 +51,16 @@ const Footer: React.FC = () => {
           </div>
         </div>
         
-        <div className="border-t border-border mt-12 pt-8 flex flex-col md:flex-row justify-between items-center">
-          <p className="text-muted-foreground text-sm">
+        <div className="mt-12 flex flex-col items-center justify-between gap-4 border-t border-border pt-8 md:flex-row">
+          <p className="text-center text-sm text-muted-foreground md:text-left">
             &copy; {currentYear} AITrader. All rights reserved.
           </p>
-          <div className="mt-4 md:mt-0">
-            <ul className="flex flex-wrap gap-x-6 gap-y-2">
-              <li><Link href="/privacy" prefetch className="text-muted-foreground hover:text-trader-blue text-sm transition-colors">Privacy Policy</Link></li>
-              <li><Link href="/terms" prefetch className="text-muted-foreground hover:text-trader-blue text-sm transition-colors">Terms of Service</Link></li>
-              <li><Link href="/disclaimer" prefetch className="text-muted-foreground hover:text-trader-blue text-sm transition-colors">Disclaimer</Link></li>
-            </ul>
-          </div>
+          <a
+            href="mailto:tryaitrader@gmail.com"
+            className="text-sm text-muted-foreground transition-colors hover:text-trader-blue"
+          >
+            tryaitrader@gmail.com
+          </a>
         </div>
       </div>
     </footer>

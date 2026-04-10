@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { revalidatePath } from 'next/cache';
+import { revalidatePath, revalidateTag } from 'next/cache';
 import { createHash } from 'crypto';
 import OpenAI from 'openai';
 import { zodTextFormat } from 'openai/helpers/zod';
@@ -9,6 +9,7 @@ import {
   StockRatingSchema,
   type StockRatingParsed,
 } from '@/lib/aiPrompt';
+import { LANDING_TOP_PORTFOLIO_PERFORMANCE_CACHE_TAG } from '@/lib/landing-top-portfolio-performance';
 import { STRATEGY_CONFIG, GIT_COMMIT_SHA } from '@/lib/strategyConfig';
 import {
   INITIAL_CAPITAL,
@@ -2486,6 +2487,8 @@ const handleRequest = async (req: Request) => {
     revalidatePath('/platform/performance');
     revalidatePath('/performance');
     revalidatePath('/performance', 'page');
+    revalidatePath('/', 'page');
+    revalidateTag(LANDING_TOP_PORTFOLIO_PERFORMANCE_CACHE_TAG);
     revalidatePath('/strategy-models');
     // Revalidate per-slug performance and model detail pages
     revalidatePath('/performance/[slug]', 'page');

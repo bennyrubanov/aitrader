@@ -458,16 +458,6 @@ export function ExplorePortfoliosEquityChart({
   );
 
   /** Touch scrubbing (mobile): update hovered date like mouse move; desktop mouse path unchanged. */
-  const handleChartTouchMove = useCallback(
-    (state: CategoricalChartState) => {
-      if (isPicker) return;
-      if (pinnedIndex != null) return;
-      const i = state.activeTooltipIndex;
-      if (typeof i === 'number' && i >= 0 && i < chartData.length) setHoverIndex(i);
-    },
-    [isPicker, pinnedIndex, chartData.length]
-  );
-
   const pickPortfolioFromLine = useCallback(
     (cfgId: string) => {
       if (!cfgId) return;
@@ -625,8 +615,6 @@ export function ExplorePortfoliosEquityChart({
               onMouseMove={isPicker ? undefined : handleChartMouseMove}
               onMouseLeave={isPicker ? undefined : handleChartMouseLeave}
               onClick={isPicker ? undefined : handleChartClick}
-              onTouchMove={isPicker ? undefined : handleChartTouchMove}
-              onTouchStart={isPicker ? undefined : handleChartTouchMove}
             >
               <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.4} />
               <XAxis dataKey="shortDate" tick={{ fontSize: 10 }} />
@@ -751,14 +739,6 @@ export function ExplorePortfoliosEquityChart({
                       hoverSourceRef.current = null;
                     }}
                     onClick={() => pickPortfolioFromLine(cfgId)}
-                    onTouchEnd={
-                      isNarrowLayout && !isPicker
-                        ? (e) => {
-                            e.preventDefault();
-                            pickPortfolioFromLine(cfgId);
-                          }
-                        : undefined
-                    }
                     style={{ cursor: 'pointer' }}
                   />
                 );
@@ -792,6 +772,31 @@ export function ExplorePortfoliosEquityChart({
                   />
                 );
               })}
+              {!isPicker &&
+                isNarrowLayout &&
+                dataKeys.map((k) => {
+                  const cfgId =
+                    visibleSeries.find((s) => dataKeyForExploreConfig(s.configId) === k)?.configId ??
+                    '';
+                  return (
+                    <Line
+                      key={`hit-${k}`}
+                      type="monotone"
+                      dataKey={k}
+                      name=""
+                      stroke="transparent"
+                      strokeOpacity={0}
+                      strokeWidth={16}
+                      dot={false}
+                      activeDot={false}
+                      isAnimationActive={false}
+                      connectNulls
+                      tooltipType="none"
+                      onClick={() => pickPortfolioFromLine(cfgId)}
+                      style={{ cursor: 'pointer' }}
+                    />
+                  );
+                })}
             </LineChart>
           </ChartContainer>
           <div
@@ -862,9 +867,9 @@ export function ExplorePortfoliosEquityChart({
                   'No portfolio lines in view.'
                 ) : isNarrowLayout ? (
                   <>
-                    <strong className="font-semibold text-foreground">Drag</strong> on the chart to
-                    choose a date; <strong className="font-semibold text-foreground">tap</strong> a
-                    line or a row below for portfolio details.
+                    <strong className="font-semibold text-foreground">Tap</strong> a colored line
+                    (or a row below) to open portfolio details. Values shown use the latest date in
+                    view.
                   </>
                 ) : (
                   <>

@@ -1226,12 +1226,10 @@ function ConfigCard({
       <div className="flex flex-col gap-2 p-3 min-w-0 lg:hidden">
         <p className="text-sm font-semibold leading-snug text-foreground">{config.label}</p>
         {config.badges.length > 0 ? (
-          <div className="flex min-w-0 flex-col gap-1">
+          <div className="flex min-w-0 flex-col gap-1 overflow-x-auto">
             {config.badges.map((b) => (
-              <div key={b} className="min-w-0 w-full">
-                <div className="w-max max-w-full">
-                  <PortfolioConfigBadgePill name={b} strategySlug={strategySlug} />
-                </div>
+              <div key={b} className="min-w-0 w-max max-w-full whitespace-nowrap">
+                <PortfolioConfigBadgePill name={b} strategySlug={strategySlug} />
               </div>
             ))}
           </div>

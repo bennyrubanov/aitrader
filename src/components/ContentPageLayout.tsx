@@ -2,17 +2,10 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Menu, X } from 'lucide-react';
+import { Menu } from 'lucide-react';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetClose,
-} from '@/components/ui/sheet';
-import { Button } from '@/components/ui/button';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
 
 interface ContentPageLayoutProps {
@@ -216,16 +209,6 @@ export const ContentPageLayout: React.FC<ContentPageLayoutProps> = ({
               <SheetHeader className="sr-only">
                 <SheetTitle>Page navigation</SheetTitle>
               </SheetHeader>
-              <SheetClose asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-4 top-4 z-10"
-                  aria-label="Close"
-                >
-                  <X className="size-4" />
-                </Button>
-              </SheetClose>
               <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-6 pb-6 pt-2">
                 <div className="space-y-5 pr-1">{mobileSidebarContent}</div>
               </div>

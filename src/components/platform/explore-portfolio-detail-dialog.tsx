@@ -688,7 +688,7 @@ export function ExplorePortfolioDetailDialog({
                 Portfolio holdings
               </h4>
               {exploreHoldingsUnlocked && rebalanceDates.length > 0 ? (
-                <div className="flex w-full min-w-0 flex-row flex-wrap items-center gap-x-2 gap-y-2 sm:w-auto sm:justify-end sm:gap-x-3">
+                <div className="flex w-full min-w-0 flex-row flex-nowrap items-center gap-x-2 overflow-x-auto sm:w-auto sm:flex-wrap sm:justify-end sm:gap-x-3 sm:overflow-visible">
                   <Select
                     value={
                       selectedAsOf && rebalanceDates.includes(selectedAsOf)
