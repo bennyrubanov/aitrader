@@ -212,7 +212,7 @@ export function LandingPerformanceSection({ perf, visibleRef }: Props) {
                     type="button"
                     variant="outline"
                     size="icon"
-                    className="absolute left-0 top-1/2 z-10 h-9 w-9 -translate-y-1/2 rounded-full border bg-background/95 shadow-sm md:-left-1"
+                    className="absolute left-0 top-1/2 z-10 hidden h-9 w-9 -translate-y-1/2 rounded-full border bg-background/95 shadow-sm md:flex md:-left-1"
                     aria-label="Previous chart"
                     onClick={() => setActiveSlide((i) => (i - 1 + slides.length) % slides.length)}
                   >
@@ -222,7 +222,7 @@ export function LandingPerformanceSection({ perf, visibleRef }: Props) {
                     type="button"
                     variant="outline"
                     size="icon"
-                    className="absolute right-0 top-1/2 z-10 h-9 w-9 -translate-y-1/2 rounded-full border bg-background/95 shadow-sm md:-right-1"
+                    className="absolute right-0 top-1/2 z-10 hidden h-9 w-9 -translate-y-1/2 rounded-full border bg-background/95 shadow-sm md:flex md:-right-1"
                     aria-label="Next chart"
                     onClick={() => setActiveSlide((i) => (i + 1) % slides.length)}
                   >
@@ -231,12 +231,36 @@ export function LandingPerformanceSection({ perf, visibleRef }: Props) {
                 </>
               ) : null}
               <div
-                className={`rounded-lg border border-border p-2 md:p-4 bg-muted/10 min-h-[280px] md:min-h-[300px] ${
-                  slides.length > 1 ? 'mx-10 md:mx-12' : ''
+                className={`rounded-lg border border-border bg-muted/10 p-2 md:p-4 min-h-[280px] md:min-h-[300px] ${
+                  slides.length > 1 ? 'mx-0 md:mx-12' : ''
                 }`}
               >
                 {slides[activeSlide]?.render() ?? null}
               </div>
+              {slides.length > 1 ? (
+                <div className="mt-3 flex justify-center gap-3 md:hidden">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="h-10 w-10 shrink-0 rounded-full border bg-background shadow-sm"
+                    aria-label="Previous chart"
+                    onClick={() => setActiveSlide((i) => (i - 1 + slides.length) % slides.length)}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="h-10 w-10 shrink-0 rounded-full border bg-background shadow-sm"
+                    aria-label="Next chart"
+                    onClick={() => setActiveSlide((i) => (i + 1) % slides.length)}
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              ) : null}
             </div>
 
             <div className="mt-5 flex items-center justify-center gap-4">
