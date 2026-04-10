@@ -261,10 +261,10 @@ function SignUpPageContent() {
       </div>
 
       <div className="mx-auto grid min-h-screen max-w-[1320px] grid-cols-1 lg:grid-cols-2">
-        <section className="border-r border-border px-6 py-8">
-          <div className="mx-auto flex h-full w-full max-w-[420px] flex-col">
-            <div className="flex flex-1 items-center">
-              <div className="w-full">
+        <section className="flex min-h-[100dvh] flex-col border-r border-border px-6 py-8 lg:min-h-screen">
+          <div className="mx-auto flex min-h-0 w-full max-w-[420px] flex-1 flex-col">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
+              <div className="flex w-full flex-col justify-start py-2 lg:min-h-full lg:justify-center lg:py-8">
                 <h1 className="text-3xl font-semibold tracking-tight">Get started</h1>
                 <p className="mt-1 text-sm text-muted-foreground">Create a new account</p>
 
@@ -407,7 +407,7 @@ function SignUpPageContent() {
               </div>
             </div>
 
-            <p className="pt-6 text-xs leading-relaxed text-muted-foreground">
+            <div className="shrink-0 border-t border-border bg-background/95 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 text-xs leading-relaxed text-muted-foreground backdrop-blur supports-[backdrop-filter]:bg-background/80">
               By continuing, you agree to AI Trader&apos;s{" "}
               <Link href="/terms" className="underline underline-offset-4 hover:text-foreground">
                 Terms of Service
@@ -417,7 +417,7 @@ function SignUpPageContent() {
                 Privacy Policy
               </Link>
               , and to receive periodic emails with updates.
-            </p>
+            </div>
           </div>
         </section>
 

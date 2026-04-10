@@ -11,11 +11,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { PlanChangeCompareLayout } from '@/components/account/plan-change-detail';
 import {
-  PlanChangeCompareLayout,
   formatBillingCadenceLabel,
   formatPaidTierLabel,
-} from '@/components/account/plan-change-detail';
+} from '@/components/account/plan-change-labels';
 
 type PreviewPayload = {
   prorationDate: number;
@@ -387,9 +387,10 @@ export function BillingIntervalSwitchDialog({
     >
       <DialogContent
         showCloseButton={phase !== 'confirming'}
-        className="min-w-0 max-w-[calc(100vw-2rem)] overflow-x-hidden sm:max-w-lg"
+        className="grid h-[min(90dvh,calc(100dvh-1rem))] max-h-[min(90dvh,calc(100dvh-1rem))] min-h-0 min-w-0 w-full max-w-[calc(100vw-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-lg"
       >
-        <DialogHeader>
+        <div className="min-w-0 shrink-0 px-6 pb-2 pt-6 pr-12">
+          <DialogHeader className="space-y-1.5 p-0">
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
             {scheduled ? (
@@ -406,8 +407,10 @@ export function BillingIntervalSwitchDialog({
               <>Review the billing change below.</>
             )}
           </DialogDescription>
-        </DialogHeader>
+          </DialogHeader>
+        </div>
 
+        <div className="min-h-0 min-w-0 overflow-y-auto overscroll-y-contain px-6 pb-2">
         {phase === 'loading' && (
           <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" />
@@ -527,8 +530,9 @@ export function BillingIntervalSwitchDialog({
             {error && <p className="text-sm text-destructive">{error}</p>}
           </div>
         )}
+        </div>
 
-        <DialogFooter className="gap-2 sm:gap-0">
+        <DialogFooter className="shrink-0 gap-2 border-t border-border px-6 py-4 sm:gap-0">
           {paymentPendingNotice ? (
             <>
               <Button

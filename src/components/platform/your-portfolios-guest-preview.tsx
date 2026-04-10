@@ -52,7 +52,7 @@ import {
 import type { StrategyListItem } from '@/lib/platform-performance-payload';
 import type { PortfolioListSortMetric } from '@/lib/portfolio-profile-list-sort';
 import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
-import { useAccountSignupPrompt } from '@/components/platform/account-prompt-dialog';
+import { useAccountSignupPrompt } from '@/components/platform/account-signup-prompt-context';
 import { HoldingsAllocationColumnTooltip } from '@/components/tooltips/holdings-allocation-column-tooltip';
 import { HoldingsMovementInfoTooltip } from '@/components/tooltips/holdings-movement-tooltip';
 import {

@@ -448,7 +448,7 @@ export function ExplorePortfolioDetailDialog({
     exploreHoldingsUnlocked,
     holdingsMovementView,
     exploreHoldingsPrevRebalanceDate,
-    config?.id,
+    config,
     strategySlug,
   ]);
 

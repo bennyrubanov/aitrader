@@ -439,7 +439,6 @@ const StockDetailClient = ({
   const showPremium = premiumState === 'ready';
   const historyLoading =
     historyEligible && !showPremium && (premiumState === 'loading' || premiumState === 'idle');
-  const displayHistory = showPremium ? premiumHistory : [];
   const newestFromHistory =
     showPremium && premiumHistory.length > 0 ? premiumHistory[premiumHistory.length - 1] : null;
   const latestBucket = newestFromHistory?.bucket ?? latest.bucket ?? null;
@@ -452,10 +451,10 @@ const StockDetailClient = ({
         : []
     : [];
 
-  const rationaleHistory = useMemo(
-    () => [...displayHistory].sort((a, b) => b.date.localeCompare(a.date)),
-    [displayHistory]
-  );
+  const rationaleHistory = useMemo(() => {
+    const displayHistory = showPremium ? premiumHistory : [];
+    return [...displayHistory].sort((a, b) => b.date.localeCompare(a.date));
+  }, [showPremium, premiumHistory]);
 
   const rationaleScrollRef = useRef<HTMLDivElement>(null);
   const [rationaleScrollHintVisible, setRationaleScrollHintVisible] = useState(false);

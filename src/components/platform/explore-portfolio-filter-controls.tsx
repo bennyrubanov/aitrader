@@ -70,7 +70,7 @@ export type ExplorePortfolioFilterControlsProps = {
   benchmarkHeaderEnd?: ReactNode;
   /** ISO `YYYY-MM-DD` of latest portfolio valuation (from ranked-configs API); drives benchmark outperformance tooltip. */
   benchmarkOutperformanceAsOf?: string | null;
-  /** Attach to the first benchmark toggle (Nasdaq) so dialogs can focus it on open instead of the help tooltip trigger. */
+  /** Optional ref on the Nasdaq benchmark toggle (e.g. for tests or programmatic focus). */
   benchmarkNasdaqToggleRef?: Ref<HTMLButtonElement>;
 };
 
@@ -102,12 +102,12 @@ export function ExplorePortfolioFilterControls({
     benchmarkOutperformanceTooltipText(benchmarkOutperformanceAsOf);
 
   return (
-    <TooltipProvider delayDuration={200}>
+    <TooltipProvider delayDuration={0}>
       <div className="space-y-4">
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0 flex-1">
-              <Tooltip delayDuration={200}>
+              <Tooltip delayDuration={0}>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
@@ -248,7 +248,7 @@ export function ExplorePortfolioFilterControls({
         </div>
 
         {isSingleStockTier ? (
-          <Tooltip delayDuration={200}>
+          <Tooltip delayDuration={0}>
             <TooltipTrigger asChild>
               <div
                 className="block w-full cursor-help rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"

@@ -76,7 +76,12 @@ async function loadLandingTopPortfolioPerformanceUncached(): Promise<LandingTopP
     };
   }
 
-  let { rows, computeStatus: rawStatus } = await getConfigPerformance(supabase, ranked.strategyId, configId);
+  const { rows: initialRows, computeStatus: rawStatus } = await getConfigPerformance(
+    supabase,
+    ranked.strategyId,
+    configId
+  );
+  let rows = initialRows;
   rows = await prependModelInceptionToConfigRows(supabase, ranked.strategyId, rows);
 
   const { series } = buildConfigPerformanceChart(rows);

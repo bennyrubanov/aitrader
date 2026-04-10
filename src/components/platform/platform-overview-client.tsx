@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
 import { useAuthState, useRefreshAuthProfile } from '@/components/auth/auth-state-context';
-import { useAccountSignupPrompt } from '@/components/platform/account-prompt-dialog';
+import { useAccountSignupPrompt } from '@/components/platform/account-signup-prompt-context';
 import {
   RISK_LABELS,
   usePortfolioConfig,
@@ -2031,6 +2031,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   }, [refreshOverviewProfiles]);
 
   const rebalanceFilterDialogBenchmarkNasdaqRef = useRef<HTMLButtonElement>(null);
+  const rebalanceFilterDialogTitleRef = useRef<HTMLHeadingElement>(null);
   const [rebalanceFiltersDialogOpen, setRebalanceFiltersDialogOpen] = useState(false);
   const [rebalanceSortDialogOpen, setRebalanceSortDialogOpen] = useState(false);
   const [rebalanceFilterBeatNasdaq, setRebalanceFilterBeatNasdaq] = useState(false);
@@ -2609,12 +2610,12 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
         onFollow={() => {}}
       />
       <UserPortfolioEntrySettingsDialog
-        open={entrySettingsProfileId != null && Boolean(entrySettingsProfile?.user_start_date)}
+        open={entrySettingsProfileId != null && entrySettingsProfile != null}
         onOpenChange={(o) => {
           if (!o) setEntrySettingsProfileId(null);
         }}
         profile={
-          entrySettingsProfile?.user_start_date
+          entrySettingsProfile
             ? {
                 id: entrySettingsProfile.id,
                 investment_size: entrySettingsProfile.investment_size,
@@ -2661,19 +2662,25 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
       />
       <Dialog open={rebalanceFiltersDialogOpen} onOpenChange={setRebalanceFiltersDialogOpen}>
         <DialogContent
-          className="flex max-h-[min(90vh,720px)] w-[calc(100vw-1.5rem)] max-w-lg flex-col gap-0 overflow-hidden p-0 sm:w-full"
+          className="flex max-h-[min(90dvh,560px)] w-[calc(100vw-1.5rem)] max-w-lg flex-col gap-0 overflow-hidden p-0 sm:w-full"
           onOpenAutoFocus={(e) => {
             e.preventDefault();
-            rebalanceFilterDialogBenchmarkNasdaqRef.current?.focus();
+            rebalanceFilterDialogTitleRef.current?.focus();
           }}
         >
-          <DialogHeader className="shrink-0 space-y-1 border-b px-6 py-5 text-left">
-            <DialogTitle>Filter portfolios</DialogTitle>
+          <DialogHeader className="shrink-0 space-y-1 border-b px-6 py-4 text-left">
+            <DialogTitle
+              ref={rebalanceFilterDialogTitleRef}
+              tabIndex={-1}
+              className="outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              Filter portfolios
+            </DialogTitle>
             <DialogDescription>
               Narrow the rebalance list the same way as Your portfolios.
             </DialogDescription>
           </DialogHeader>
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-6 py-4">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-6 py-3">
             <ExplorePortfolioFilterControls
               filterBeatNasdaq={rebalanceFilterBeatNasdaq}
               filterBeatSp500={rebalanceFilterBeatSp500}
@@ -2771,7 +2778,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
               }
             />
           </div>
-          <DialogFooter className="shrink-0 flex-col gap-2 border-t px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <DialogFooter className="shrink-0 flex-col gap-2 border-t px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-xs text-muted-foreground">
               {activeRebalanceFilterCount > 0
                 ? `${filteredProfilesForRebalance.length} of ${profiles.length} match filters`
@@ -3797,7 +3804,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
 
                   <div className="relative -m-1 rounded-2xl border border-border p-2">
                     <div
-                      className="grid grid-cols-2 gap-3 sm:grid-cols-3"
+                      className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
                       style={{ gridAutoRows: OVERVIEW_TILE_ROW_HEIGHT }}
                     >
                       {slotDisplay.map((p, i) => {
@@ -3819,21 +3826,19 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                       className="flex shrink-0 items-start gap-0.5"
                                       onClick={(e) => e.stopPropagation()}
                                     >
-                                      {p.user_start_date ? (
-                                        <Button
-                                          type="button"
-                                          variant="ghost"
-                                          size="icon"
-                                          className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
-                                          aria-label="Edit starting investment and entry"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            setEntrySettingsProfileId(p.id);
-                                          }}
-                                        >
-                                          <Settings2 className="size-4" />
-                                        </Button>
-                                      ) : null}
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
+                                        aria-label="Edit starting investment and entry"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setEntrySettingsProfileId(p.id);
+                                        }}
+                                      >
+                                        <Settings2 className="size-4" />
+                                      </Button>
                                       <Button
                                         type="button"
                                         variant="ghost"

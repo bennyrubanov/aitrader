@@ -54,6 +54,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import {
@@ -688,6 +689,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     Record<string, string | null>
   >({});
   const [filtersDialogOpen, setFiltersDialogOpen] = useState(false);
+  const [mobilePortfoliosSheetOpen, setMobilePortfoliosSheetOpen] = useState(false);
   const [sidebarSortDialogOpen, setSidebarSortDialogOpen] = useState(false);
   const filterDialogBenchmarkNasdaqRef = useRef<HTMLButtonElement>(null);
   const [sidebarSortMetric, setSidebarSortMetric] =
@@ -828,15 +830,16 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     return profiles.filter((p) => p.strategy_models?.slug === slug);
   }, [profiles, selectedProfile?.strategy_models?.slug]);
 
-  const allSidebarCached = useMemo(
-    () =>
-      sidebarProfiles.every(
-        (p) => !p.user_start_date?.trim() || getCachedUserEntryPayload(p.id) != null
-      ),
-    [sidebarProfiles, sidebarSortCacheEpoch, userEntryPayload]
-  );
+  const allSidebarCached = useMemo(() => {
+    void sidebarSortCacheEpoch;
+    void userEntryPayload;
+    return sidebarProfiles.every(
+      (p) => !p.user_start_date?.trim() || getCachedUserEntryPayload(p.id) != null
+    );
+  }, [sidebarProfiles, sidebarSortCacheEpoch, userEntryPayload]);
 
   const sortedSidebarProfiles = useMemo(() => {
+    void sidebarSortCacheEpoch;
     if (sidebarSortMetric === 'follow_order' || !allSidebarCached) {
       return [...sidebarProfiles];
     }
@@ -1863,7 +1866,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         />
       ) : null}
       {/* Sidebar — match explore-portfolios shell so the top offset stays identical across pages. */}
-      <aside className="flex w-full shrink-0 flex-col lg:h-full lg:min-h-0 lg:w-72 lg:max-h-full">
+      <aside className="hidden w-full shrink-0 flex-col lg:flex lg:h-full lg:min-h-0 lg:w-72 lg:max-h-full">
         <div
           className={cn(
             'min-h-0 flex-1 space-y-0 px-4 pt-2 sm:px-6 lg:min-h-0 lg:flex-1 lg:overflow-x-hidden lg:overflow-y-auto lg:overscroll-y-contain lg:px-0 lg:pr-1 lg:pt-0',
@@ -2037,6 +2040,195 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         </div>
       </aside>
 
+      <button
+        type="button"
+        className="fixed bottom-6 right-4 z-40 flex items-center gap-2 rounded-full bg-trader-blue px-4 py-2.5 text-sm font-medium text-white shadow-lg lg:hidden"
+        onClick={() => setMobilePortfoliosSheetOpen(true)}
+        aria-label="Open portfolios"
+      >
+        <FolderHeart className="size-4 shrink-0" aria-hidden />
+        Portfolios
+      </button>
+      <Sheet open={mobilePortfoliosSheetOpen} onOpenChange={setMobilePortfoliosSheetOpen}>
+        <SheetContent
+          side="right"
+          className="flex w-[min(100vw-1rem,22rem)] flex-col gap-0 overflow-hidden p-0 pt-10"
+        >
+          <SheetHeader className="shrink-0 border-b px-4 pb-3 text-left sm:px-6">
+            <SheetTitle>Portfolios</SheetTitle>
+          </SheetHeader>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-4 pb-6 pt-4 sm:px-6">
+            <div className="space-y-0">
+              {strategyPickerList.length > 0 ? (
+                <StrategyModelSidebarDropdown
+                  strategies={strategyPickerList}
+                  selectedSlug={
+                    selectedProfile?.strategy_models?.slug ?? strategyPickerList[0]?.slug ?? null
+                  }
+                  onSelectStrategy={(slug) => {
+                    const next = profiles.find((p) => p.strategy_models?.slug === slug);
+                    if (next) {
+                      router.replace(`/platform/your-portfolios?profile=${next.id}`, {
+                        scroll: false,
+                      });
+                    }
+                  }}
+                >
+                  <div className="space-y-0.5">
+                    <Button
+                      asChild
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-full justify-start gap-1.5 px-1 text-xs"
+                    >
+                      <Link
+                        href={`/strategy-models/${selectedProfile?.strategy_models?.slug ?? strategySlug}`}
+                      >
+                        <ExternalLink className="size-3 shrink-0" />
+                        How this model works
+                      </Link>
+                    </Button>
+                  </div>
+                </StrategyModelSidebarDropdown>
+              ) : null}
+              <div
+                className={cn(
+                  'flex items-center justify-between gap-2 p-3 sm:px-0',
+                  strategyPickerList.length > 0 ? 'pt-2' : 'pt-0'
+                )}
+              >
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Portfolios
+                </p>
+                <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-8 shrink-0"
+                    aria-label="Sort portfolios"
+                    onClick={() => setSidebarSortDialogOpen(true)}
+                  >
+                    <ArrowUpDown className="size-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="relative size-8 shrink-0"
+                    aria-label="Filter portfolios"
+                    onClick={() => setFiltersDialogOpen(true)}
+                  >
+                    <ListFilter className="size-4" />
+                    {activeSidebarFilterCount > 0 ? (
+                      <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold tabular-nums text-primary-foreground">
+                        {activeSidebarFilterCount}
+                      </span>
+                    ) : null}
+                  </Button>
+                  <Button variant="ghost" size="icon" className="size-8 shrink-0" asChild>
+                    <Link href="/platform/explore-portfolios">
+                      <Plus className="size-4" />
+                      <span className="sr-only">Follow portfolio</span>
+                    </Link>
+                  </Button>
+                </div>
+              </div>
+              <nav className="flex flex-col gap-2 pb-2">
+                {sidebarProfiles.length > 0 && filteredSidebarProfiles.length === 0 ? (
+                  <p className="w-full px-1 py-4 text-center text-xs text-muted-foreground">
+                    No portfolios match these filters. Open filters to adjust or clear.
+                  </p>
+                ) : null}
+                {filteredSidebarProfiles.map((p) => {
+                  const active = p.id === selectedProfile?.id;
+                  const pc = p.portfolio_config;
+                  const rowRisk = (pc?.risk_level ?? 3) as RiskLevel;
+                  const rowRiskTitle =
+                    (pc?.risk_label && pc.risk_label.trim()) || (RISK_LABELS[rowRisk] ?? 'Risk');
+                  const rowRiskDot = SIDEBAR_RISK_DOT[rowRisk] ?? 'bg-muted';
+                  const rowRanked = rankedConfigForProfile(p, rankedBySlug);
+                  const rowStrategySlug = p.strategy_models?.slug ?? strategySlug;
+                  const rowStartAbbrev = p.user_start_date?.trim()
+                    ? formatYmdDisplay(p.user_start_date.trim())
+                    : null;
+                  const rowInvestment = num(p.investment_size);
+                  const rowInvestmentDigits =
+                    Number.isFinite(rowInvestment) && rowInvestment > 0
+                      ? rowInvestment.toLocaleString('en-US', { maximumFractionDigits: 0 })
+                      : null;
+                  return (
+                    <div
+                      key={p.id}
+                      className={cn(
+                        'flex gap-0.5 rounded-lg border text-sm transition-colors w-full',
+                        active
+                          ? 'border-primary bg-primary/5 ring-1 ring-primary/20'
+                          : 'border-transparent bg-background/80 hover:bg-muted/60'
+                      )}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          selectProfile(p.id);
+                          setMobilePortfoliosSheetOpen(false);
+                        }}
+                        className="min-w-0 flex-1 px-3 py-2 text-left"
+                      >
+                        <div className="flex items-start gap-1.5 min-w-0">
+                          <span
+                            className="inline-flex shrink-0 self-start pt-1"
+                            title={rowRiskTitle}
+                            aria-label={`Risk level: ${rowRiskTitle}`}
+                          >
+                            <span
+                              className={cn('size-2 shrink-0 rounded-full', rowRiskDot)}
+                              aria-hidden
+                            />
+                          </span>
+                          <div className="min-w-0 flex-1 flex flex-col gap-1">
+                            <div className="flex items-start justify-between gap-2">
+                              <span className="min-w-0 text-sm font-semibold text-foreground line-clamp-2">
+                                {pc?.label ?? 'Portfolio'}
+                              </span>
+                              {rowStartAbbrev || rowInvestmentDigits ? (
+                                <div className="flex shrink-0 flex-col items-end gap-0.5 pt-0.5 text-right">
+                                  {rowStartAbbrev ? (
+                                    <span className="text-[10px] leading-snug text-muted-foreground tabular-nums">
+                                      {rowStartAbbrev}
+                                    </span>
+                                  ) : null}
+                                  {rowInvestmentDigits ? (
+                                    <span className="text-[10px] leading-snug text-muted-foreground tabular-nums">
+                                      {`$${rowInvestmentDigits}`}
+                                    </span>
+                                  ) : null}
+                                </div>
+                              ) : null}
+                            </div>
+                            {(rowRanked?.badges ?? []).length > 0 ? (
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                {(rowRanked?.badges ?? []).map((b) => (
+                                  <SidebarPortfolioBadgeIcon
+                                    key={b}
+                                    name={b}
+                                    strategySlug={rowStrategySlug}
+                                  />
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      </button>
+                    </div>
+                  );
+                })}
+              </nav>
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
+
       {/* Main — single scroll column (header + body), same as explore-portfolios */}
       <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-y-auto overscroll-y-contain lg:h-full lg:max-h-full lg:min-h-0 lg:pl-8">
         <div className="flex min-h-0 w-full min-w-0 max-w-none flex-1 flex-col self-stretch">
@@ -2075,7 +2267,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
               ) : null}
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              {selectedProfile?.user_start_date ? (
+              {selectedProfile ? (
                 <Button
                   type="button"
                   variant="outline"
@@ -2884,7 +3076,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         open={entrySettingsOpen}
         onOpenChange={setEntrySettingsOpen}
         profile={
-          selectedProfile?.user_start_date
+          selectedProfile
             ? {
                 id: selectedProfile.id,
                 investment_size: selectedProfile.investment_size,

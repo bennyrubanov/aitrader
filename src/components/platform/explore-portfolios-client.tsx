@@ -31,6 +31,7 @@ import {
   Info,
   LayoutList,
   LineChart,
+  ListFilter,
   Plus,
   Trophy,
   UserMinus,
@@ -50,6 +51,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
@@ -61,7 +63,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
 import { useAuthState } from '@/components/auth/auth-state-context';
-import { useAccountSignupPrompt } from '@/components/platform/account-prompt-dialog';
+import { useAccountSignupPrompt } from '@/components/platform/account-signup-prompt-context';
 import { PORTFOLIO_EXPLORE_QUICK_PICKS } from '@/lib/portfolio-explore-quick-picks';
 import { PortfolioIdentitySummaryRow } from '@/components/platform/portfolio-identity-summary-row';
 import { sharpeRatioValueClass } from '@/lib/sharpe-value-class';
@@ -374,6 +376,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
   const asideFiltersInnerRef = useRef<HTMLDivElement | null>(null);
   const [showAsideFiltersScrollFade, setShowAsideFiltersScrollFade] = useState(false);
   const [asideFiltersChevronDismissed, setAsideFiltersChevronDismissed] = useState(false);
+  const [mobileExploreFiltersOpen, setMobileExploreFiltersOpen] = useState(false);
 
   useEffect(() => {
     setAsideFiltersChevronDismissed(false);
@@ -538,7 +541,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
         )}
         data-platform-tour="explore-portfolios-page-root"
       >
-        <aside className="flex w-full shrink-0 flex-col lg:h-full lg:min-h-0 lg:w-72 lg:max-h-full">
+        <aside className="hidden w-full shrink-0 flex-col lg:flex lg:h-full lg:min-h-0 lg:w-72 lg:max-h-full">
           <div
             ref={asideFiltersScrollRef}
             className={cn(
@@ -845,6 +848,93 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
             )}
           </div>
         </div>
+
+        <button
+          type="button"
+          className="fixed bottom-6 right-4 z-40 flex items-center gap-2 rounded-full bg-trader-blue px-4 py-2.5 text-sm font-medium text-white shadow-lg lg:hidden"
+          onClick={() => setMobileExploreFiltersOpen(true)}
+          aria-label="Open filters"
+        >
+          <ListFilter className="size-4 shrink-0" aria-hidden />
+          Filters
+        </button>
+        <Sheet open={mobileExploreFiltersOpen} onOpenChange={setMobileExploreFiltersOpen}>
+          <SheetContent
+            side="right"
+            className="flex w-[min(100vw-1rem,22rem)] flex-col gap-0 overflow-hidden p-0 pt-10"
+          >
+            <SheetHeader className="shrink-0 border-b px-4 pb-3 text-left sm:px-6">
+              <SheetTitle>Filters</SheetTitle>
+            </SheetHeader>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-4 pb-6 pt-4 sm:px-6">
+              <div className="space-y-0">
+                {strategies.length > 0 ? (
+                  <StrategyModelSidebarDropdown
+                    strategies={strategies}
+                    selectedSlug={strategySlug}
+                    onSelectStrategy={(slug) => updateConfig({ strategySlug: slug })}
+                  >
+                    <div className="space-y-0.5">
+                      <Button
+                        asChild
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-full justify-start gap-1.5 px-1 text-xs"
+                      >
+                        <Link href={`/strategy-models/${strategySlug}`}>
+                          <ExternalLink className="size-3 shrink-0" />
+                          How this model works
+                        </Link>
+                      </Button>
+                    </div>
+                  </StrategyModelSidebarDropdown>
+                ) : null}
+                <div
+                  className={cn(
+                    'space-y-3 pt-3',
+                    strategies.length > 0 && 'mt-4 border-t border-border'
+                  )}
+                >
+                  <div className="flex min-h-8 flex-wrap items-center justify-between gap-2">
+                    <p className="min-w-0 truncate text-xs font-semibold uppercase tracking-wider text-muted-foreground leading-none">
+                      Filter portfolios
+                    </p>
+                    <div className="flex min-h-8 shrink-0 items-center justify-end">
+                      {activeFilterCount > 0 ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                          onClick={clearFilters}
+                        >
+                          <FilterX className="size-3.5 shrink-0" aria-hidden />
+                          Clear filters
+                          <span className="rounded-full bg-primary/15 px-1.5 text-[10px] font-semibold tabular-nums text-foreground">
+                            {activeFilterCount}
+                          </span>
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                  <ExplorePortfolioFilterControls
+                    filterBeatNasdaq={filterBeatNasdaq}
+                    filterBeatSp500={filterBeatSp500}
+                    onFilterBeatNasdaqChange={setFilterBeatNasdaq}
+                    onFilterBeatSp500Change={setFilterBeatSp500}
+                    riskFilter={riskFilter}
+                    freqFilter={freqFilter}
+                    weightFilter={weightFilter}
+                    onRiskChange={setRiskFilter}
+                    onFreqChange={setFreqFilter}
+                    onWeightChange={setWeightFilter}
+                    benchmarkOutperformanceAsOf={latestPerformanceDate}
+                  />
+                </div>
+              </div>
+            </div>
+          </SheetContent>
+        </Sheet>
       </div>
 
       {/* Add-to-portfolio dialog */}

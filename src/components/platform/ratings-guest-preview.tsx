@@ -22,7 +22,7 @@ import {
   type FakeRatingsPreviewRow,
   type GuestPreviewBucket,
 } from '@/lib/guest-workspace-preview-data';
-import { useAccountSignupPrompt } from '@/components/platform/account-prompt-dialog';
+import { useAccountSignupPrompt } from '@/components/platform/account-signup-prompt-context';
 import { cn } from '@/lib/utils';
 
 const BUCKET_FILTERS = [

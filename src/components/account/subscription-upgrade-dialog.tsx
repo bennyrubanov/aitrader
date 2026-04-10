@@ -11,11 +11,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { PlanChangeCompareLayout } from '@/components/account/plan-change-detail';
 import {
-  PlanChangeCompareLayout,
   formatBillingCadenceLabel,
   formatPaidTierLabel,
-} from '@/components/account/plan-change-detail';
+} from '@/components/account/plan-change-labels';
 
 type PreviewPayload = {
   prorationDate: number;

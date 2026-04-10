@@ -112,6 +112,8 @@ type CronRatingDigestMeta = {
   benchmarkNasdaqCap?: number;
   benchmarkNasdaqEqual?: number;
   benchmarkSp500?: number;
+  /** Stooq CSV health for benchmark fetch (rating day only) */
+  benchmarkStooqDetail?: string;
 };
 
 type StrategyRow = {
@@ -164,6 +166,26 @@ type RebalanceActionRow = {
 type StooqCsvRow = {
   date: string;
   close: number;
+};
+
+type StooqFetchResult = {
+  ok: boolean;
+  symbol: string;
+  httpStatus: number | null;
+  rowCount: number;
+  firstDate: string | null;
+  lastDate: string | null;
+  rows: StooqCsvRow[] | null;
+  error?: string;
+};
+
+type BenchmarkReturnDetail = {
+  returnValue: number;
+  fromClose: number | null;
+  toClose: number | null;
+  fromBarDate: string | null;
+  toBarDate: string | null;
+  fetch: StooqFetchResult;
 };
 
 type BatchScoreRow = {
@@ -836,59 +858,142 @@ const createSnapshot = async (
   return { id: inserted.id, membershipHash, isNew: true };
 };
 
-const fetchStooqRows = async (symbol: string): Promise<StooqCsvRow[] | null> => {
-  try {
-    const response = await fetch(`https://stooq.com/q/d/l/?s=${encodeURIComponent(symbol)}&i=d`, {
-      cache: 'no-store',
-    });
-    if (!response.ok) {
-      return null;
+const STOOQ_BENCHMARK_RETRY_MS = 2000;
+
+const fetchStooqRowsWithMeta = async (symbol: string): Promise<StooqFetchResult> => {
+  const attempt = async (): Promise<StooqFetchResult> => {
+    try {
+      const response = await fetch(`https://stooq.com/q/d/l/?s=${encodeURIComponent(symbol)}&i=d`, {
+        cache: 'no-store',
+      });
+      const httpStatus = response.status;
+      if (!response.ok) {
+        return {
+          ok: false,
+          symbol,
+          httpStatus,
+          rowCount: 0,
+          firstDate: null,
+          lastDate: null,
+          rows: null,
+          error: `HTTP ${httpStatus}`,
+        };
+      }
+
+      const csv = await response.text();
+      const lines = csv.trim().split('\n');
+      if (lines.length < 2) {
+        return {
+          ok: false,
+          symbol,
+          httpStatus,
+          rowCount: 0,
+          firstDate: null,
+          lastDate: null,
+          rows: null,
+          error: 'CSV has no data rows',
+        };
+      }
+
+      const rows = lines
+        .slice(1)
+        .map((line) => {
+          const [date, _open, _high, _low, close] = line.split(',');
+          const d = date?.trim();
+          const closeValue = Number(close);
+          if (!d || !Number.isFinite(closeValue)) {
+            return null;
+          }
+          return { date: d, close: closeValue };
+        })
+        .filter((row): row is StooqCsvRow => Boolean(row))
+        .sort((a, b) => a.date.localeCompare(b.date));
+
+      if (!rows.length) {
+        return {
+          ok: false,
+          symbol,
+          httpStatus,
+          rowCount: 0,
+          firstDate: null,
+          lastDate: null,
+          rows: null,
+          error: 'No parseable CSV rows',
+        };
+      }
+
+      return {
+        ok: true,
+        symbol,
+        httpStatus,
+        rowCount: rows.length,
+        firstDate: rows[0]!.date,
+        lastDate: rows[rows.length - 1]!.date,
+        rows,
+      };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return {
+        ok: false,
+        symbol,
+        httpStatus: null,
+        rowCount: 0,
+        firstDate: null,
+        lastDate: null,
+        rows: null,
+        error: msg,
+      };
     }
+  };
 
-    const csv = await response.text();
-    const lines = csv.trim().split('\n');
-    if (lines.length < 2) {
-      return null;
-    }
-
-    const rows = lines
-      .slice(1)
-      .map((line) => {
-        const [date, _open, _high, _low, close] = line.split(',');
-        const closeValue = Number(close);
-        if (!date || !Number.isFinite(closeValue)) {
-          return null;
-        }
-        return { date, close: closeValue };
-      })
-      .filter((row): row is StooqCsvRow => Boolean(row))
-      .sort((a, b) => a.date.localeCompare(b.date));
-
-    return rows.length ? rows : null;
-  } catch {
-    return null;
+  let result = await attempt();
+  if (!result.ok) {
+    await new Promise((r) => setTimeout(r, STOOQ_BENCHMARK_RETRY_MS));
+    result = await attempt();
   }
+  return result;
 };
 
-const closeOnOrBefore = (rows: StooqCsvRow[], date: string) => {
-  let latest: number | null = null;
+const getCloseOnOrBefore = (rows: StooqCsvRow[], date: string) => {
+  let close: number | null = null;
+  let barDate: string | null = null;
   for (const row of rows) {
     if (row.date > date) {
       break;
     }
-    latest = row.close;
+    close = row.close;
+    barDate = row.date;
   }
-  return latest;
+  return { close, barDate };
 };
 
-const fetchBenchmarkReturn = async (symbol: string, fromDate: string, toDate: string) => {
-  const rows = await fetchStooqRows(symbol);
-  if (!rows?.length) {
-    return 0;
+const fetchBenchmarkReturnDetail = async (
+  symbol: string,
+  fromDate: string,
+  toDate: string
+): Promise<BenchmarkReturnDetail> => {
+  const fetchResult = await fetchStooqRowsWithMeta(symbol);
+  if (!fetchResult.ok || !fetchResult.rows?.length) {
+    return {
+      returnValue: 0,
+      fromClose: null,
+      toClose: null,
+      fromBarDate: null,
+      toBarDate: null,
+      fetch: fetchResult,
+    };
   }
-  const fromClose = closeOnOrBefore(rows, fromDate);
-  const toClose = closeOnOrBefore(rows, toDate);
-  return computeSimpleReturn(fromClose, toClose);
+  const { rows } = fetchResult;
+  const from = getCloseOnOrBefore(rows, fromDate);
+  const to = getCloseOnOrBefore(rows, toDate);
+  return {
+    returnValue: computeSimpleReturn(from.close, to.close),
+    fromClose: from.close,
+    toClose: to.close,
+    fromBarDate: from.barDate,
+    toBarDate: to.barDate,
+    fetch: fetchResult,
+  };
 };
 
 const buildTopHoldings = (
@@ -1417,7 +1522,8 @@ const handleRequest = async (req: Request) => {
           <li><strong>Gross return (week):</strong> ${escapeHtml(formatPct(digestMeta.grossReturn))}</li>
           <li><strong>Net return (week, after costs):</strong> ${escapeHtml(formatPct(digestMeta.netReturn))}</li>
           <li><strong>Benchmark week (approx, Stooq daily):</strong> NDX cap ${escapeHtml(formatPct(digestMeta.benchmarkNasdaqCap))}, QQQEW / equal proxy ${escapeHtml(formatPct(digestMeta.benchmarkNasdaqEqual))}, S&amp;P 500 ${escapeHtml(formatPct(digestMeta.benchmarkSp500))}</li>
-          <li style="font-size:13px;color:#64748b;">Benchmarks use Stooq CSV between prior rebalance date and this run. All zeros often means no trading days in the window, CSV fetch failure, or symbol mapping issues — not necessarily missing <code>nasdaq_100_daily_raw</code>.</li>
+          <li><strong>Stooq CSV (per symbol):</strong> ${escapeHtml(formatMeta(digestMeta.benchmarkStooqDetail))}</li>
+          <li style="font-size:13px;color:#64748b;">Benchmarks use Stooq CSV between prior rebalance date and this run. All zeros often means no trading days in the window, CSV fetch failure, stale last bar, same-bar from/to anchors, or symbol issues — not necessarily missing <code>nasdaq_100_daily_raw</code>.</li>
           <li><strong>Rebalance actions logged:</strong> ${escapeHtml(formatMeta(digestMeta.rebalanceActionsCount))}</li>
           <li><strong>Portfolio configs precompute:</strong> ran ${escapeHtml(formatMeta(digestMeta.portfolioConfigBatchTriggered))} · non-default OK ${escapeHtml(formatMeta(digestMeta.portfolioConfigsComputed))} · failed ${escapeHtml(formatMeta(digestMeta.portfolioConfigsFailed))}</li>
         </ul>
@@ -2195,15 +2301,96 @@ const handleRequest = async (req: Request) => {
     let sp500Return = 0;
 
     if (previousBatch?.run_date) {
-      const [capRet, equalRet, spRet] = await Promise.all([
-        fetchBenchmarkReturn('^ndx', previousBatch.run_date, runDate),
-        fetchBenchmarkReturn('qqew.us', previousBatch.run_date, runDate),
-        fetchBenchmarkReturn('^spx', previousBatch.run_date, runDate),
+      const fromDate = previousBatch.run_date;
+      const [ndxDetail, qqewDetail, spxDetail] = await Promise.all([
+        fetchBenchmarkReturnDetail('^ndx', fromDate, runDate),
+        fetchBenchmarkReturnDetail('qqew.us', fromDate, runDate),
+        fetchBenchmarkReturnDetail('^spx', fromDate, runDate),
       ]);
 
-      nasdaqCapWeightReturn = capRet;
-      nasdaqEqualWeightReturn = equalRet;
-      sp500Return = spRet;
+      nasdaqCapWeightReturn = ndxDetail.returnValue;
+      nasdaqEqualWeightReturn = qqewDetail.returnValue;
+      sp500Return = spxDetail.returnValue;
+
+      const benchmarkDetails: BenchmarkReturnDetail[] = [ndxDetail, qqewDetail, spxDetail];
+      for (const d of benchmarkDetails) {
+        const f = d.fetch;
+        if (!f.ok) {
+          recordCronError(
+            'Stooq benchmark CSV fetch failed',
+            f.error ?? 'unknown',
+            `symbol=${f.symbol} http=${f.httpStatus ?? 'n/a'}`
+          );
+          continue;
+        }
+        if (f.rowCount > 0 && f.rowCount < 30) {
+          recordCronError(
+            'Stooq benchmark CSV thin history',
+            JSON.stringify({ rowCount: f.rowCount, first: f.firstDate, last: f.lastDate }),
+            `symbol=${f.symbol}`
+          );
+        }
+        if (f.lastDate && f.lastDate < runDate) {
+          recordCronError(
+            'Stooq benchmark CSV may be stale (last bar before run date)',
+            JSON.stringify({ lastBar: f.lastDate, runDate, symbol: f.symbol }),
+            `symbol=${f.symbol}`
+          );
+        }
+        if (d.fromBarDate && d.toBarDate && d.fromBarDate === d.toBarDate && fromDate < runDate) {
+          recordCronError(
+            'Stooq benchmark window used same OHLC bar for from/to',
+            JSON.stringify({
+              fromDate,
+              toDate: runDate,
+              barDate: d.fromBarDate,
+              symbol: f.symbol,
+              fromClose: d.fromClose,
+              toClose: d.toClose,
+            }),
+            `symbol=${f.symbol}`
+          );
+        }
+      }
+
+      if (
+        nasdaqCapWeightReturn === 0 &&
+        nasdaqEqualWeightReturn === 0 &&
+        sp500Return === 0
+      ) {
+        recordCronError(
+          'Stooq all benchmark weekly returns are zero',
+          JSON.stringify({
+            fromDate,
+            toDate: runDate,
+            ndx: {
+              ok: ndxDetail.fetch.ok,
+              rows: ndxDetail.fetch.rowCount,
+              last: ndxDetail.fetch.lastDate,
+              bars: `${ndxDetail.fromBarDate ?? '—'}→${ndxDetail.toBarDate ?? '—'}`,
+            },
+            qqew: {
+              ok: qqewDetail.fetch.ok,
+              rows: qqewDetail.fetch.rowCount,
+              last: qqewDetail.fetch.lastDate,
+              bars: `${qqewDetail.fromBarDate ?? '—'}→${qqewDetail.toBarDate ?? '—'}`,
+            },
+            spx: {
+              ok: spxDetail.fetch.ok,
+              rows: spxDetail.fetch.rowCount,
+              last: spxDetail.fetch.lastDate,
+              bars: `${spxDetail.fromBarDate ?? '—'}→${spxDetail.toBarDate ?? '—'}`,
+            },
+          }),
+          'weekly-benchmark-window'
+        );
+      }
+
+      digestMeta.benchmarkStooqDetail = [
+        `^ndx n=${ndxDetail.fetch.rowCount} last=${ndxDetail.fetch.lastDate ?? '—'} bars ${ndxDetail.fromBarDate ?? '—'}→${ndxDetail.toBarDate ?? '—'}`,
+        `qqew n=${qqewDetail.fetch.rowCount} last=${qqewDetail.fetch.lastDate ?? '—'} bars ${qqewDetail.fromBarDate ?? '—'}→${qqewDetail.toBarDate ?? '—'}`,
+        `^spx n=${spxDetail.fetch.rowCount} last=${spxDetail.fetch.lastDate ?? '—'} bars ${spxDetail.fromBarDate ?? '—'}→${spxDetail.toBarDate ?? '—'}`,
+      ].join(' · ');
     }
 
     // ----- Step 15: Upsert weekly strategy performance row -----

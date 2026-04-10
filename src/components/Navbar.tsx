@@ -587,9 +587,13 @@ const Navbar: React.FC = () => {
                   <Menu size={18} />
                 </Button>
               </SheetTrigger>
-              <SheetContent side="right" className="w-[88vw] max-w-sm pr-4">
+              <SheetContent
+                side="right"
+                className="flex h-[100dvh] max-h-[100dvh] w-[88vw] max-w-sm flex-col overflow-hidden pr-4"
+              >
                 <SheetTitle className="sr-only">Main menu</SheetTitle>
-                <div className="mt-6 flex h-full flex-col">
+                <div className="flex min-h-0 flex-1 flex-col pt-6">
+                  <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain pr-1">
                   <Accordion type="multiple" defaultValue={["platform"]} className="w-full">
                     <AccordionItem value="platform">
                       <AccordionTrigger className="py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:no-underline">
@@ -687,8 +691,9 @@ const Navbar: React.FC = () => {
                       </AccordionContent>
                     </AccordionItem>
                   </Accordion>
+                  </div>
 
-                  <div className="mt-auto space-y-2 pt-6">
+                  <div className="shrink-0 space-y-2 border-t border-border/60 pt-4">
                     {!isAuthenticated && (
                       <Button
                         variant="outline"

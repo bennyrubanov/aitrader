@@ -1,14 +1,6 @@
 "use client";
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Loader2, Sparkles } from "lucide-react";
 import {
@@ -27,31 +19,16 @@ import {
   clearGuestDeclinedAccountNudgeSession,
   hasGuestDeclinedAccountNudgeThisSession,
 } from "@/lib/guest-account-nudge-session";
+import {
+  AccountSignupPromptContext,
+  type SignupPromptOpenOpts,
+} from "@/components/platform/account-signup-prompt-context";
 
 const PROMPT_DISMISS_KEY = "platform-account-prompt-dismissed-at";
 const ACCOUNT_SEEN_KEY = "platform-account-seen-on-device";
 const SESSION_PROMPT_SHOWN_KEY = "platform-account-signup-prompt-session";
 const PROMPT_HIDE_MS = 24 * 60 * 60 * 1000;
 const AUTO_OPEN_DELAY_MS = 12_000;
-
-type SignupPromptOpenOpts = {
-  /** Guest tapped Follow on Explore — title emphasizes following. */
-  fromFollow?: boolean;
-};
-
-type AccountSignupPromptContextValue = {
-  openSignupPrompt: (opts?: SignupPromptOpenOpts) => void;
-};
-
-const AccountSignupPromptContext = createContext<AccountSignupPromptContextValue | null>(null);
-
-export function useAccountSignupPrompt() {
-  const ctx = useContext(AccountSignupPromptContext);
-  if (!ctx) {
-    throw new Error("useAccountSignupPrompt must be used within AccountSignupPromptProvider");
-  }
-  return ctx;
-}
 
 const hasDismissedRecently = () => {
   if (typeof window === "undefined") {

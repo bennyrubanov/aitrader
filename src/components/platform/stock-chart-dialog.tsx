@@ -715,7 +715,7 @@ export function StockChartDialog({
           </Button>
         </DialogTrigger>
       ) : null}
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="w-[calc(100vw-1rem)] max-w-3xl sm:w-full">
         {open ? (
           <>
             <StockPriceRatingChart

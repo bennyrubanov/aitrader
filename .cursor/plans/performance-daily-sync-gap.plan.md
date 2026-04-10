@@ -1,18 +1,24 @@
 ---
 name: performance-cron-charts
-overview: Charts lag raw quotes between rebalances; benchmark index lines are flat when Stooq weekly returns are zero. Pipeline sync for ait-1-daneel was verified healthy through last batch.
+overview: Fix Stooq benchmark zeros; log Stooq issues to CRON_ERROR_EMAIL; optional daily MTM and resilience/fallback strategies.
 todos:
   - id: fix-stooq-benchmarks
-    content: Debug and fix fetchBenchmarkReturn / Stooq path so nasdaq100_*_return and sp500_return are not persistently 0 when markets moved (see weekly rows 2026-03-30, 2026-04-06)
+    content: Debug and fix fetchBenchmarkReturn / Stooq path; backfill corrected strategy_performance_weekly rows then config compute
+    status: pending
+  - id: stooq-email-logging
+    content: On rebalance cron, recordCronError and/or digest lines when Stooq fetch fails, CSV thin, or all benchmark returns 0 with prior batch; include symbol, from/to dates, HTTP status, row counts
+    status: pending
+  - id: stooq-resilience
+    content: Optional — retries, secondary provider, or cap-weight proxy from nasdaq_100_daily_raw for NDX-like benchmark
     status: pending
   - id: daily-mtm-cron
-    content: Optional product — extend price-only cron to append or recompute performance rows through latest nasdaq_100_daily_raw run_date + define daily benchmark methodology
+    content: Optional product — extend price-only cron for daily performance rows + daily benchmark definition
     status: pending
   - id: revalidate-performance
-    content: revalidatePath('/performance') and related platform routes after performance writes; bump compute-portfolio-configs-batch maxDuration if backfill times out
+    content: revalidatePath('/performance'); bump compute-portfolio-configs-batch maxDuration if needed
     status: pending
   - id: backfill-script-ux
-    content: Fix backfill-all-configs.mjs messaging (inline compute); optional --strategy-id when multiple active strategies
+    content: Fix backfill-all-configs.mjs messaging; optional --strategy-id
     status: pending
 isProject: false
 ---
@@ -25,25 +31,19 @@ isProject: false
 
 ## Empirical findings (executed diagnostics)
 
-Queries were run against the linked Supabase project for active strategy `**ait-1-daneel` (`strategy_id` `b71cda49-eda0-42ff-80f0-6930e3c6bbf9`) and default config risk 3 / weekly / equal / top 20 (`config_id` `8b7df3b6-4a4e-40d2-ba03-bcbad5eae5b7`).
+Queries were run for active strategy `**ait-1-daneel` (`strategy_id` `b71cda49-eda0-42ff-80f0-6930e3c6bbf9`) and default config (`config_id` `8b7df3b6-4a4e-40d2-ba03-bcbad5eae5b7`).
 
-| Check                                                                      | Result                                                                                  |
-| -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `max(run_date)` **ai_run_batches**                                         | **2026-04-06** (8 batches)                                                              |
-| `max(run_date)` **strategy_performance_weekly**                            | **2026-04-06** (8 rows)                                                                 |
-| `max(run_date)` **strategy_portfolio_config_performance** (default config) | **2026-04-06** (8 rows)                                                                 |
-| `max(run_date)` **nasdaq_100_daily_raw**                                   | **2026-04-09**                                                                          |
-| **portfolio_config_compute_queue**                                         | **0** rows with `status = 'failed'`; recent rows `**done` (~2026-04-06 13:47–13:48 UTC) |
 
-**Conclusion 1 — Pipeline sync:** For this strategy, **A = B = C**. There is **no** failure mode where batches advanced but weekly or config performance lagged. Config compute **completed** on the last rebalance run.
+| Check                                                               | Result                          |
+| ------------------------------------------------------------------- | ------------------------------- |
+| `max(run_date)` **ai_run_batches**                                  | **2026-04-06** (8 batches)      |
+| `max(run_date)` **strategy_performance_weekly**                     | **2026-04-06** (8 rows)         |
+| `max(run_date)` **strategy_portfolio_config_performance** (default) | **2026-04-06** (8 rows)         |
+| `max(run_date)` **nasdaq_100_daily_raw**                            | **2026-04-09**                  |
+| **portfolio_config_compute_queue**                                  | **0** `failed`; recent `**done` |
 
-**Conclusion 2 — “Stuck” vs calendar:** Raw has **three extra calendar days** (Apr 7–9) vs performance. That matches **design**: price-only cron does not write weekly/config performance. The chart’s last point stays on the **last rebalance date** until the next rating day.
 
-**Conclusion 3 — Flat index lines (recent weeks):** In `**strategy_performance_weekly`**, for `**run_date`2026-03-30** and **2026-04-06**,`nasdaq100_cap_weight_return`, `nasdaq100_equal_weight_return`, and `sp500_return`are all **0** while`gross_return`(model) is non-zero. Earlier weeks show non-zero benchmark returns. Those zeros are written on rebalance in`[src/app/api/cron/daily/route.ts](src/app/api/cron/daily/route.ts)`, then copied into every portfolio config row for the same `run_date`via`[backfillBenchmarkEquities](src/lib/portfolio-config-compute-core.ts)`during`computeAllPortfolioConfigs`— so **flat benchmark curves in`/performance` and platform charts match the DB exactly.
-
-**User-confirmed:** The UI shows flat benchmark curves on those recent weeks; this aligns with the stored **0** benchmark returns above (not a separate frontend bug).
-
-**Root cause to fix in code:** Stooq CSV path — `[fetchStooqRows](src/app/api/cron/daily/route.ts)` / `[fetchBenchmarkReturn](src/app/api/cron/daily/route.ts)` for `^ndx`, `qqew.us`, `^spx` — e.g. `fromDate`/`toDate` vs trading calendar, symbol mapping, or empty/`closeOnOrBefore` results. **Not** `nasdaq_100_daily_raw`.
+**Pipeline sync:** A = B = C through last rebalance. **Flat benchmarks in UI** match `**strategy_performance_weekly`** storing **0** for all three benchmark returns on **2026-03-30** and **2026-04-06** (then copied via `[backfillBenchmarkEquities](src/lib/portfolio-config-compute-core.ts)`). **Root cause class: `[fetchStooqRows](src/app/api/cron/daily/route.ts)` / `[fetchBenchmarkReturn](src/app/api/cron/daily/route.ts)` for `^ndx`, `qqew.us`, `^spx` — not raw quotes.
 
 ```mermaid
 flowchart TB
@@ -64,119 +64,72 @@ flowchart TB
   end
   dailyOnly -.->|no write| weekly
   cfg --> perf[strategy_portfolio_config_performance]
-  perf --> ui[/performance API and charts]
+  perf --> ui[/performance charts]
 ```
+
+
 
 ## Architecture (unchanged)
 
-1. Charts read `**strategy_portfolio_config_performance**` (`[getConfigPerformance](src/lib/portfolio-config-utils.ts)` → `[buildConfigPerformanceChart](src/lib/config-performance-chart.ts)`), not raw quotes directly.
-2. `[computeAllPortfolioConfigs](src/lib/compute-all-portfolio-configs.ts)` runs only on the **rebalance** branch of `[src/app/api/cron/daily/route.ts](src/app/api/cron/daily/route.ts)`, not on the price-only early return.
-3. Benchmark equity on config rows is copied from `**strategy_performance_weekly`**; weekly benchmark **returns** come from **Stooq in the same cron file.
-
-## Part A — Deprioritized hypotheses
-
-- **Missing raw for batch dates:** Deprioritized; user confirmed raw quality, and diagnostics show pipeline aligned through last batch.
-- **Config compute failure / queue stuck:** **Ruled out** for current data (all `done`, no `failed`).
-- **“Rebalance days didn’t update”:** For this DB snapshot, **last rebalance (2026-04-06) did update** all three layers. Any “flat” feeling is explained by **(a)** no data points after Apr 6 until next rebalance, and **(b)** **zero benchmark returns** stored for the last two weekly rows.
+1. Charts read `**strategy_portfolio_config_performance**` (`[getConfigPerformance](src/lib/portfolio-config-utils.ts)` → `[buildConfigPerformanceChart](src/lib/config-performance-chart.ts)`).
+2. `[computeAllPortfolioConfigs](src/lib/compute-all-portfolio-configs.ts)` runs only on the **rebalance** branch of `[daily/route.ts](src/app/api/cron/daily/route.ts)`.
+3. Weekly benchmark **returns** come from **Stooq** in that file; config rows copy benchmark **equity** from `**strategy_performance_weekly`.
 
 ## Part B — What still needs building (prioritized)
 
-### P0 — Fix zero benchmark returns (Stooq path)
+### P0 — Fix zero benchmark returns (Stooq)
 
-- **Symptom:** Index curves flat for weeks where `*_return` columns are 0 in `**strategy_performance_weekly` despite moving markets.
-- **Work:** Inspect `[fetchStooqRows](src/app/api/cron/daily/route.ts)` / `[fetchBenchmarkReturn](src/app/api/cron/daily/route.ts)` for `^ndx`, `qqew.us`, `^spx`: trading calendar vs `fromDate`/`toDate` (batch `run_date` strings), symbol correctness, empty CSV, `closeOnOrBefore` behavior. Add logging or digest fields for benchmark fetch success. After a code fix, **recompute affected weekly rows** (manual SQL patch or one-off script) or accept correction from **next** rebalance only — product decision.
+- Inspect date window (`previousBatch.run_date` → `runDate`), `[closeOnOrBefore](src/app/api/cron/daily/route.ts)`, symbol forms (`qqew.us`, `^ndx`, `^spx`).
+- Backfill corrected `**strategy_performance_weekly`** rows, then `**computeAllPortfolioConfigs**` or `**npm run backfill-configs**`.
 
-### P1 — Daily mark-to-market (product requirement)
+### P0a — Log Stooq problems to email (**yes, possible**)
 
-- **Symptom:** `nasdaq_100_daily_raw.max(run_date)` > performance `max(run_date)` between rebalances.
-- **Work:** After raw upsert on price-only days, extend pipeline to append/recompute rows through latest session (holdings from last batch + prices from raw; **define daily benchmark** — not only Stooq week-over-week). Add `[revalidatePath('/performance')](https://nextjs.org/docs/app/api-reference/functions/revalidatePath)` and any platform paths.
+Existing machinery: `[recordCronError](src/app/api/cron/daily/route.ts)` + `[sendCronSummaryOnce](src/app/api/cron/daily/route.ts)` already send `**CRON_ERROR_EMAIL` on rating days (digest includes “Recorded issues”) and on failures.
+
+**Implementation sketch (when executing):**
+
+1. **Structured Stooq fetch result** — Extend `[fetchStooqRows](src/app/api/cron/daily/route.ts)` (or wrap it) to return `{ ok, httpStatus, dataRowCount, firstDate, lastDate, error? }` instead of only `null` on failure, so the caller can distinguish **HTTP error**, **empty body**, **parse failure**, vs **success**.
+2. **Per-symbol warnings** — After `fetchBenchmarkReturn` for each benchmark, if `rows === null` or `dataRowCount < N`, call `recordCronError('Stooq benchmark CSV', …, 'symbol=^ndx, …')`.
+3. **“Suspicious zero” heuristic** — When `previousBatch` exists and **all three** computed benchmark returns are **0**, call `recordCronError('Stooq benchmark returns all zero', …)` with `fromDate`, `toDate`, and per-symbol summaries (optional: skip if both dates are the same or known holiday — reduce noise).
+4. **Digest visibility** — Add optional lines to `[sendCronRatingDigestEmail](src/app/api/cron/daily/route.ts)` / `CronRatingDigestMeta`: e.g. Stooq row counts per symbol, or “benchmark data quality: OK / degraded”, so you see health even when no `recordCronError` fired.
+
+**Note:** Price-only cron does not run benchmarks today; logging applies on **rebalance** runs unless you later add daily benchmark checks.
+
+### P1 — Daily mark-to-market (optional product)
+
+- Extend price-only cron so chart `run_date` can advance with `**nasdaq_100_daily_raw`; define daily benchmark source.
 
 ### P2 — Ops / ergonomics
 
-- `[compute-portfolio-configs-batch/route.ts](src/app/api/internal/compute-portfolio-configs-batch/route.ts)`: `**maxDuration = 60` may truncate full recompute; align with cron (300) or document localhost backfill.
-- `[scripts/backfill-all-configs.mjs](scripts/backfill-all-configs.mjs)`: Fix “workers” wording; optional `strategy_id` CLI arg if multiple active strategies.
+- `[compute-portfolio-configs-batch/route.ts](src/app/api/internal/compute-portfolio-configs-batch/route.ts)`: `**maxDuration = 60`** vs full compute.
+- `[scripts/backfill-all-configs.mjs](scripts/backfill-all-configs.mjs)`: messaging + optional `--strategy-id`.
+
+## Part E — Ideation: reduce Stooq fragility long-term
+
+
+| Approach                                                                         | Pros                                                                                  | Cons                                                                               |
+| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| **Retry + backoff**                                                              | Cheap; handles transient HTTP failures                                                | Does not fix bad date logic or permanent blocks                                    |
+| **Second provider fallback** (e.g. Yahoo chart API, Polygon, Alpha Vantage, FMP) | Resilience if Stooq blocks or changes CSV                                             | Cost, ToS, rate limits, another integration                                        |
+| **Cap-weight proxy from `nasdaq_100_daily_raw`**                                 | Same data you already trust; aligns NDX-like track with constituents                  | Implementation cost; not identical to real NDX; need stable cap or price weighting |
+| **Store daily benchmark closes in DB**                                           | Single source of truth; week return = compound of dailies                             | Schema + cron work; still need a price source once                                 |
+| **Widen Stooq window**                                                           | If bug is “same close for from and to” on calendar quirks, use last **trading** dates | Must implement trading-calendar helpers (NYSE/Nasdaq)                              |
+| **Monitor / alert threshold**                                                    | e.g. 2 consecutive weeks all-zero benchmarks → always email                           | Complements P0a; does not fix root cause alone                                     |
+
+
+**Pragmatic stack:** Implement **P0a email logging** + **P0 date/symbol fix** first; add **retries**; then evaluate **fallback provider** or **raw-based cap proxy** if Stooq remains unreliable.
 
 ## Part C — Backfill (when to use)
 
-- `**npm run backfill-configs`** replays **existing** batches + raw + weekly into `**strategy_portfolio_config_performance`**. It **does not** fix Stooq zeros in `\*\*strategy_performance_weekly`.
-- Use after **P0** weekly data repair, or after changing compute logic, not as the primary fix for bad benchmark returns.
+- `**npm run backfill-configs`** refreshes `**strategy_portfolio_config_performance`** from existing weekly + raw; it does **not** fix wrong `**strategy_performance_weekly` benchmark columns until those rows are corrected (or Stooq fix + re-run weekly upsert logic).
 
 ## Part D — Diagnostic playbook (SQL)
 
-Keep the SQL sections in this file for regression checks: three `max(run_date)` values, queue `failed` count, last 8 `**strategy_performance_weekly`_ rows including `_\_return` columns, raw row counts joined to last N batch dates.
-
-#### 1) Resolve `strategy_id` from slug
-
-```sql
-select id, slug, name, status
-from strategy_models
-where slug = 'ait-1-daneel'
-  and status = 'active';
-```
-
-#### 2) Default config id (adjust for other presets)
-
-```sql
-select id, label
-from portfolio_configs
-where risk_level = 3
-  and rebalance_frequency = 'weekly'
-  and weighting_method = 'equal'
-  and top_n = 20;
-```
-
-#### 3) Pipeline sync (replace UUIDs)
-
-```sql
-select
-  (select max(run_date) from ai_run_batches where strategy_id = 'b71cda49-eda0-42ff-80f0-6930e3c6bbf9') as latest_batch,
-  (select max(run_date) from strategy_performance_weekly where strategy_id = 'b71cda49-eda0-42ff-80f0-6930e3c6bbf9') as latest_weekly,
-  (select max(run_date) from strategy_portfolio_config_performance
-   where strategy_id = 'b71cda49-eda0-42ff-80f0-6930e3c6bbf9' and config_id = '8b7df3b6-4a4e-40d2-ba03-bcbad5eae5b7') as latest_config;
-```
-
-#### 4) Queue failures
-
-```sql
-select config_id, status, error_message, updated_at
-from portfolio_config_compute_queue
-where strategy_id = 'b71cda49-eda0-42ff-80f0-6930e3c6bbf9'
-  and status = 'failed'
-order by updated_at desc;
-```
-
-#### 5) Weekly returns (spot zero benchmarks)
-
-```sql
-select run_date, ending_equity, gross_return,
-       nasdaq100_cap_weight_return, nasdaq100_equal_weight_return, sp500_return
-from strategy_performance_weekly
-where strategy_id = 'b71cda49-eda0-42ff-80f0-6930e3c6bbf9'
-order by run_date desc
-limit 12;
-```
-
-#### 6) Raw vs batch dates
-
-```sql
-with b as (
-  select run_date from ai_run_batches
-  where strategy_id = 'b71cda49-eda0-42ff-80f0-6930e3c6bbf9'
-  order by run_date desc limit 5
-)
-select b.run_date,
-       count(r.symbol) as raw_rows,
-       count(*) filter (where r.last_sale_price is not null and trim(r.last_sale_price) <> '') as with_price
-from b
-left join nasdaq_100_daily_raw r on r.run_date = b.run_date
-group by b.run_date
-order by b.run_date desc;
-```
-
----
+Three `max(run_date)` (batches / weekly / config), queue `failed`, last 12 `**strategy_performance_weekly`** rows with `*_return`, raw counts for last N batch dates — see earlier revision for full queries (same UUIDs).
 
 ## Execution order (summary)
 
-1. **P0** — Fix Stooq/benchmark computation; optionally backfill corrected `strategy_performance_weekly` rows + rerun `computeAllPortfolioConfigs` or `npm run backfill-configs`.
-2. **P1** — If product requires charts through every trading day: daily performance extension + revalidation.
-3. **P2** — Batch route timeout + backfill script polish.
+1. **P0** — Fix Stooq computation; backfill weekly + config.
+2. **P0a** — Email / digest visibility for Stooq failures and suspicious zeros.
+3. **P1 / P2 / Part E** — As needed (daily MTM, timeouts, resilience).
+
