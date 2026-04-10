@@ -145,15 +145,22 @@ export async function resolvePendingTierFromSubscription(
   return null;
 }
 
+/** First post–period-end phase on the subscription schedule when cadence changes at same tier. */
+export type PendingRecurringPlanFromSchedule = {
+  interval: 'month' | 'year';
+  unitAmount: number | null;
+  currency: string | null;
+};
+
 /**
  * Same-tier billing cadence scheduled via a subscription schedule (e.g. monthly → yearly).
  * Omit when a tier change is already pending (`resolvePendingTierFromSubscription` non-null).
  */
-export async function resolvePendingRecurringIntervalFromSubscription(
+export async function resolvePendingRecurringPlanFromSchedule(
   stripe: Stripe,
   subscription: Stripe.Subscription,
   currentInterval: 'month' | 'year' | null
-): Promise<'month' | 'year' | null> {
+): Promise<PendingRecurringPlanFromSchedule | null> {
   if (!subscriptionStatusSyncsBillingSnapshot(subscription.status) || subscription.cancel_at_period_end) {
     return null;
   }
@@ -183,16 +190,31 @@ export async function resolvePendingRecurringIntervalFromSubscription(
         continue;
       }
       const item = phase.items?.[0];
-      const plannedPrice =
+      const plannedPriceId =
         typeof item?.price === 'string' ? item.price : (item?.price as Stripe.Price | undefined)?.id;
-      if (!plannedPrice || plannedPrice === currentPriceId) {
+      if (!plannedPriceId || plannedPriceId === currentPriceId) {
         continue;
       }
-      const nextInterval = await recurringIntervalFromPriceId(stripe, plannedPrice);
-      if (!nextInterval || nextInterval === currentInterval) {
+      let price: Stripe.Price;
+      try {
+        price = await stripe.prices.retrieve(plannedPriceId);
+      } catch {
+        continue;
+      }
+      const nextInterval = price.recurring?.interval;
+      if (nextInterval !== 'month' && nextInterval !== 'year') {
+        continue;
+      }
+      if (nextInterval === currentInterval) {
         return null;
       }
-      return nextInterval;
+      const u = price.unit_amount;
+      const c = price.currency;
+      return {
+        interval: nextInterval,
+        unitAmount: typeof u === 'number' ? u : null,
+        currency: typeof c === 'string' && c.length > 0 ? c.toLowerCase() : null,
+      };
     }
   } catch {
     // ignore
@@ -234,6 +256,9 @@ export type SubscriptionBillingExtras = {
   stripe_pending_tier: SubscriptionTier | null;
   /** Scheduled target cadence when same-tier interval switch is pending; null otherwise. */
   stripe_pending_recurring_interval: 'month' | 'year' | null;
+  /** Recurring amount for that scheduled phase (e.g. yearly total); null if unknown. */
+  stripe_pending_recurring_unit_amount: number | null;
+  stripe_pending_recurring_currency: string | null;
   stripe_recurring_interval: 'month' | 'year' | null;
   /** Primary subscription item price; Stripe smallest currency unit (e.g. cents). */
   stripe_recurring_unit_amount: number | null;
@@ -295,16 +320,23 @@ export async function buildSubscriptionBillingExtras(
   }
 
   let pendingRecurringInterval: 'month' | 'year' | null = null;
+  let pendingRecurringUnitAmount: number | null = null;
+  let pendingRecurringCurrency: string | null = null;
   if (
     subscriptionStatusSyncsBillingSnapshot(subscription.status) &&
     !subscription.cancel_at_period_end &&
     pending === null
   ) {
-    pendingRecurringInterval = await resolvePendingRecurringIntervalFromSubscription(
+    const pendingPlan = await resolvePendingRecurringPlanFromSchedule(
       stripe,
       subscription,
       recurringInterval
     );
+    if (pendingPlan) {
+      pendingRecurringInterval = pendingPlan.interval;
+      pendingRecurringUnitAmount = pendingPlan.unitAmount;
+      pendingRecurringCurrency = pendingPlan.currency;
+    }
   }
 
   const periodEnd = subscriptionCurrentPeriodEndUnix(subscription);
@@ -316,6 +348,8 @@ export async function buildSubscriptionBillingExtras(
     stripe_cancel_at_period_end: subscription.cancel_at_period_end,
     stripe_pending_tier: pending,
     stripe_pending_recurring_interval: pendingRecurringInterval,
+    stripe_pending_recurring_unit_amount: pendingRecurringUnitAmount,
+    stripe_pending_recurring_currency: pendingRecurringCurrency,
     stripe_recurring_interval: recurringInterval,
     stripe_recurring_unit_amount: recurringUnitAmount,
     stripe_recurring_currency: recurringCurrency,

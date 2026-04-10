@@ -10,6 +10,8 @@ export type UserProfileAuthRow = {
   stripe_cancel_at_period_end?: boolean | null;
   stripe_pending_tier?: string | null;
   stripe_pending_recurring_interval?: string | null;
+  stripe_pending_recurring_unit_amount?: number | null;
+  stripe_pending_recurring_currency?: string | null;
   stripe_recurring_interval?: string | null;
   stripe_recurring_unit_amount?: number | null;
   stripe_recurring_currency?: string | null;
@@ -40,6 +42,13 @@ export function buildAuthStateFromUserAndProfile(
   const rawPendingInterval = !profileReadFailed ? profile?.stripe_pending_recurring_interval : null;
   const stripePendingRecurringInterval: 'month' | 'year' | null =
     rawPendingInterval === 'month' || rawPendingInterval === 'year' ? rawPendingInterval : null;
+
+  const rawPendingUnit = !profileReadFailed ? profile?.stripe_pending_recurring_unit_amount : null;
+  const stripePendingRecurringUnitAmount =
+    typeof rawPendingUnit === 'number' && Number.isFinite(rawPendingUnit) ? rawPendingUnit : null;
+  const rawPendingCur = !profileReadFailed ? profile?.stripe_pending_recurring_currency : null;
+  const stripePendingRecurringCurrency =
+    typeof rawPendingCur === 'string' && rawPendingCur.length > 0 ? rawPendingCur.toLowerCase() : null;
 
   const rawInterval = !profileReadFailed ? profile?.stripe_recurring_interval : null;
   const stripeRecurringInterval: 'month' | 'year' | null =
@@ -77,6 +86,8 @@ export function buildAuthStateFromUserAndProfile(
       !profileReadFailed && profile?.stripe_cancel_at_period_end === true,
     stripePendingTier: !profileReadFailed ? stripePendingTier : null,
     stripePendingRecurringInterval: !profileReadFailed ? stripePendingRecurringInterval : null,
+    stripePendingRecurringUnitAmount: !profileReadFailed ? stripePendingRecurringUnitAmount : null,
+    stripePendingRecurringCurrency: !profileReadFailed ? stripePendingRecurringCurrency : null,
     stripeRecurringInterval: !profileReadFailed ? stripeRecurringInterval : null,
     stripeRecurringUnitAmount: !profileReadFailed ? stripeRecurringUnitAmount : null,
     stripeRecurringCurrency: !profileReadFailed ? stripeRecurringCurrency : null,

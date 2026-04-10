@@ -73,6 +73,8 @@ function billingSectionSummary(
   cancelAtPeriodEnd: boolean,
   pendingTier: 'free' | 'supporter' | 'outperformer' | null,
   pendingRecurringInterval: 'month' | 'year' | null,
+  pendingRecurringUnitAmount: number | null,
+  pendingRecurringCurrency: string | null,
   dateLabel: string,
   interval: 'month' | 'year' | null,
   unitAmount: number | null,
@@ -93,11 +95,16 @@ function billingSectionSummary(
   if (cadenceChangingOnly) {
     const thenWord = pendingRecurringInterval === 'year' ? 'yearly' : 'monthly';
     const untilWord = interval === 'month' ? 'monthly' : interval === 'year' ? 'yearly' : '';
+    const nextPaymentUsesPendingPrice =
+      pendingRecurringUnitAmount !== null && pendingRecurringCurrency !== null;
     return (
       <>
         Your next payment is on{' '}
         <span className="font-medium text-foreground">{dateLabel}</span>
-        {showNextCharge ? <> for {formatBillingCharge(unitAmount, currency)}</> : null}.
+        {nextPaymentUsesPendingPrice ? (
+          <> for {formatBillingCharge(pendingRecurringUnitAmount, pendingRecurringCurrency)}</>
+        ) : null}
+        .
         {untilWord ? (
           <>
             {' '}
@@ -1009,8 +1016,8 @@ const SettingsPageContent = () => {
                       <Button
                         type="button"
                         size="sm"
-                        variant="outline"
                         disabled={isCancellingSchedule || isOpeningPortal}
+                        className="bg-trader-blue text-white hover:bg-trader-blue-dark"
                         onClick={() => void handleCancelScheduledBilling('resume_subscription')}
                       >
                         {isCancellingSchedule ? (
@@ -1128,6 +1135,8 @@ const SettingsPageContent = () => {
                     authState.stripeCancelAtPeriodEnd,
                     authState.stripePendingTier,
                     authState.stripePendingRecurringInterval,
+                    authState.stripePendingRecurringUnitAmount,
+                    authState.stripePendingRecurringCurrency,
                     formatBillingDate(authState.stripeCurrentPeriodEnd),
                     authState.stripeRecurringInterval,
                     authState.stripeRecurringUnitAmount,
@@ -1252,7 +1261,7 @@ const SettingsPageContent = () => {
                   {authState.stripePendingTier === 'supporter' ? (
                     <Button
                       size="sm"
-                      variant="outline"
+                      variant="destructive"
                       className="w-full shrink-0 sm:w-auto"
                       disabled={isOpeningPortal}
                       onClick={() => setScheduledDowngradeDetailOpen(true)}
@@ -1262,7 +1271,7 @@ const SettingsPageContent = () => {
                   ) : (
                     <Button
                       size="sm"
-                      variant="outline"
+                      variant="destructive"
                       className="w-full shrink-0 sm:w-auto"
                       disabled={isOpeningPortal}
                       onClick={() => setDowngradeDialogOpen(true)}
@@ -1291,8 +1300,7 @@ const SettingsPageContent = () => {
                     </div>
                     <Button
                       size="sm"
-                      variant="outline"
-                      className="w-full shrink-0 sm:w-auto"
+                      className="w-full shrink-0 bg-trader-blue text-white hover:bg-trader-blue-dark sm:w-auto"
                       disabled={isCancellingSchedule}
                       onClick={() => void handleCancelScheduledBilling('cancel_scheduled_downgrade')}
                     >

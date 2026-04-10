@@ -36,7 +36,7 @@ export async function POST() {
     const { data: existingProfile } = await supabase
       .from("user_profiles")
       .select(
-        "email, subscription_tier, stripe_subscription_status, stripe_current_period_end, stripe_cancel_at_period_end, stripe_pending_tier, stripe_pending_recurring_interval, stripe_recurring_interval, stripe_recurring_unit_amount, stripe_recurring_currency"
+        "email, subscription_tier, stripe_subscription_status, stripe_current_period_end, stripe_cancel_at_period_end, stripe_pending_tier, stripe_pending_recurring_interval, stripe_pending_recurring_unit_amount, stripe_pending_recurring_currency, stripe_recurring_interval, stripe_recurring_unit_amount, stripe_recurring_currency"
       )
       .eq("id", user.id)
       .maybeSingle();
@@ -100,9 +100,17 @@ export async function POST() {
         stripeCancelAtPeriodEnd: Boolean(existingProfile?.stripe_cancel_at_period_end),
         stripePendingTier: (existingProfile?.stripe_pending_tier as SubscriptionTier | null) ?? null,
         stripePendingRecurringInterval:
-          existingProfile?.stripe_pending_recurring_interval === 'month' ||
-          existingProfile?.stripe_pending_recurring_interval === 'year'
+          existingProfile?.stripe_pending_recurring_interval === "month" ||
+          existingProfile?.stripe_pending_recurring_interval === "year"
             ? existingProfile.stripe_pending_recurring_interval
+            : null,
+        stripePendingRecurringUnitAmount:
+          typeof existingProfile?.stripe_pending_recurring_unit_amount === "number"
+            ? existingProfile.stripe_pending_recurring_unit_amount
+            : null,
+        stripePendingRecurringCurrency:
+          typeof existingProfile?.stripe_pending_recurring_currency === "string"
+            ? existingProfile.stripe_pending_recurring_currency
             : null,
         stripeRecurringInterval:
           existingProfile?.stripe_recurring_interval === "month" ||
@@ -135,6 +143,8 @@ export async function POST() {
         stripe_cancel_at_period_end: extras.stripe_cancel_at_period_end,
         stripe_pending_tier: extras.stripe_pending_tier,
         stripe_pending_recurring_interval: extras.stripe_pending_recurring_interval,
+        stripe_pending_recurring_unit_amount: extras.stripe_pending_recurring_unit_amount,
+        stripe_pending_recurring_currency: extras.stripe_pending_recurring_currency,
         stripe_recurring_interval: extras.stripe_recurring_interval,
         stripe_recurring_unit_amount: extras.stripe_recurring_unit_amount,
         stripe_recurring_currency: extras.stripe_recurring_currency,
@@ -155,6 +165,8 @@ export async function POST() {
       stripeCancelAtPeriodEnd: extras.stripe_cancel_at_period_end,
       stripePendingTier: extras.stripe_pending_tier,
       stripePendingRecurringInterval: extras.stripe_pending_recurring_interval,
+      stripePendingRecurringUnitAmount: extras.stripe_pending_recurring_unit_amount,
+      stripePendingRecurringCurrency: extras.stripe_pending_recurring_currency,
       stripeRecurringInterval: extras.stripe_recurring_interval,
       stripeRecurringUnitAmount: extras.stripe_recurring_unit_amount,
       stripeRecurringCurrency: extras.stripe_recurring_currency,

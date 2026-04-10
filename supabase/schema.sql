@@ -70,6 +70,8 @@ create table if not exists public.user_profiles (
   stripe_cancel_at_period_end boolean not null default false,
   stripe_pending_tier text,
   stripe_pending_recurring_interval text,
+  stripe_pending_recurring_unit_amount integer,
+  stripe_pending_recurring_currency text,
   stripe_recurring_interval text,
   stripe_recurring_unit_amount integer,
   stripe_recurring_currency text,
@@ -275,6 +277,8 @@ begin
     or old.stripe_cancel_at_period_end is distinct from new.stripe_cancel_at_period_end
     or old.stripe_pending_tier is distinct from new.stripe_pending_tier
     or old.stripe_pending_recurring_interval is distinct from new.stripe_pending_recurring_interval
+    or old.stripe_pending_recurring_unit_amount is distinct from new.stripe_pending_recurring_unit_amount
+    or old.stripe_pending_recurring_currency is distinct from new.stripe_pending_recurring_currency
     or old.stripe_recurring_interval is distinct from new.stripe_recurring_interval
     or old.stripe_recurring_unit_amount is distinct from new.stripe_recurring_unit_amount
     or old.stripe_recurring_currency is distinct from new.stripe_recurring_currency

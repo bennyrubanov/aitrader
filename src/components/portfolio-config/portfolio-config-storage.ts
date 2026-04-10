@@ -2,6 +2,7 @@ import type { PortfolioConfig, RebalanceFrequency, RiskLevel, WeightingMethod } 
 import { DEFAULT_PORTFOLIO_CONFIG } from './portfolio-config-shared';
 
 const STORAGE_KEY = 'aitrader:portfolio_config';
+/** Guest-only local "onboarding done" for the unsigned platform. Signed-in truth is `user_profiles.portfolio_onboarding_done` via auth. */
 const ONBOARDING_KEY = 'aitrader:portfolio_onboarding_done';
 const ENTRY_DATE_KEY = 'aitrader:portfolio_entry_date';
 /** Guest completes onboarding picks; after sign-up we POST this to `/api/platform/user-portfolio-profile`. */
@@ -116,7 +117,7 @@ export function isGuestPortfolioResumeUILocked(): boolean {
     return false;
   }
 }
-/** Signed-in users: mirrors `user_profiles.portfolio_onboarding_done` (validated when auth hydrates). */
+/** Last written onboarding flag per user id (provider / markOnboardingDone); not used for gating — UI uses auth. */
 const ONBOARDING_DONE_CACHE_KEY = 'aitrader:portfolio_onboarding_cache_v1';
 
 export type OnboardingDoneCache = { userId: string; done: boolean };

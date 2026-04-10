@@ -6,7 +6,7 @@ import { DEFAULT_AUTH_STATE, type AuthState, type SubscriptionTier } from "@/lib
 import { buildAuthStateFromUserAndProfile } from "@/lib/build-auth-state";
 import { AuthStateContext } from "@/components/auth/auth-state-context";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/utils/supabase/browser";
-const AUTH_SNAPSHOT_KEY = "aitrader.auth.snapshot.v6";
+const AUTH_SNAPSHOT_KEY = "aitrader.auth.snapshot.v7";
 
 const tierFromAuthSnapshot = (
   raw: unknown,
@@ -38,7 +38,7 @@ const hydrateUserState = async (user: User): Promise<AuthState> => {
   const { data, error } = await supabase
     .from("user_profiles")
     .select(
-      "subscription_tier, full_name, email, portfolio_onboarding_done, stripe_current_period_end, stripe_cancel_at_period_end, stripe_pending_tier, stripe_pending_recurring_interval, stripe_recurring_interval, stripe_recurring_unit_amount, stripe_recurring_currency"
+      "subscription_tier, full_name, email, portfolio_onboarding_done, stripe_current_period_end, stripe_cancel_at_period_end, stripe_pending_tier, stripe_pending_recurring_interval, stripe_pending_recurring_unit_amount, stripe_pending_recurring_currency, stripe_recurring_interval, stripe_recurring_unit_amount, stripe_recurring_currency"
     )
     .eq("id", user.id)
     .maybeSingle();
@@ -112,6 +112,14 @@ export function AuthStateProvider({ children, initialState }: AuthStateProviderP
               parsed.stripePendingRecurringInterval === "year"
                 ? parsed.stripePendingRecurringInterval
                 : previous.stripePendingRecurringInterval ?? null,
+            stripePendingRecurringUnitAmount:
+              typeof parsed.stripePendingRecurringUnitAmount === "number"
+                ? parsed.stripePendingRecurringUnitAmount
+                : previous.stripePendingRecurringUnitAmount ?? null,
+            stripePendingRecurringCurrency:
+              typeof parsed.stripePendingRecurringCurrency === "string"
+                ? parsed.stripePendingRecurringCurrency
+                : previous.stripePendingRecurringCurrency ?? null,
             stripeRecurringInterval:
               parsed.stripeRecurringInterval === "month" ||
               parsed.stripeRecurringInterval === "year"
@@ -161,21 +169,28 @@ export function AuthStateProvider({ children, initialState }: AuthStateProviderP
       }
 
       // Optimistically update from session metadata for instant UI response.
-      setAuthState((previous) => ({
-        ...previous,
-        isLoaded: true,
-        isAuthenticated: true,
-        userId: session.user.id,
-        email: session.user.email ?? previous.email,
-        name:
-          session.user.user_metadata?.full_name ??
-          session.user.user_metadata?.name ??
-          previous.name,
-        avatar:
-          session.user.user_metadata?.avatar_url ??
-          session.user.user_metadata?.picture ??
-          previous.avatar,
-      }));
+      setAuthState((previous) => {
+        const userIdChanged =
+          previous.userId != null && previous.userId !== session.user.id;
+        return {
+          ...previous,
+          isLoaded: true,
+          isAuthenticated: true,
+          userId: session.user.id,
+          email: session.user.email ?? previous.email,
+          name:
+            session.user.user_metadata?.full_name ??
+            session.user.user_metadata?.name ??
+            previous.name,
+          avatar:
+            session.user.user_metadata?.avatar_url ??
+            session.user.user_metadata?.picture ??
+            previous.avatar,
+          portfolioOnboardingDone: userIdChanged
+            ? false
+            : previous.portfolioOnboardingDone,
+        };
+      });
 
       void hydrateUserState(session.user).then((nextState) => {
         if (isMounted) {

@@ -359,7 +359,12 @@ export function BillingIntervalSwitchDialog({
             type="button"
             onClick={() => void handleScheduleSwitch()}
             disabled={phase !== 'ready' || !preview}
-            className="bg-trader-blue text-white hover:bg-trader-blue-dark"
+            variant={preview && targetInterval === 'month' ? 'destructive' : undefined}
+            className={
+              preview && targetInterval === 'month'
+                ? undefined
+                : 'bg-trader-blue text-white hover:bg-trader-blue-dark'
+            }
           >
             {phase === 'confirming' ? (
               <>

@@ -100,11 +100,9 @@ export function PortfolioConfigProvider({ children }: { children: ReactNode }) {
     }
     setIsOnboardingDone(dbDone);
     try {
+      localStorage.removeItem(ONBOARDING_KEY);
       if (dbDone) {
         clearPendingGuestPortfolioFollow();
-        localStorage.setItem(ONBOARDING_KEY, '1');
-      } else {
-        localStorage.removeItem(ONBOARDING_KEY);
       }
     } catch {
       // ignore
@@ -173,11 +171,6 @@ export function PortfolioConfigProvider({ children }: { children: ReactNode }) {
             return;
           }
           writeOnboardingDoneCache(user.id, true);
-          try {
-            localStorage.setItem(ONBOARDING_KEY, '1');
-          } catch {
-            // ignore
-          }
           setIsOnboardingDone(true);
           await refreshProfile();
           return;

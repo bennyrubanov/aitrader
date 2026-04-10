@@ -612,9 +612,8 @@ function PricingPageContent() {
                       {!planChangeActionsLocked && (
                         <Button
                           type="button"
-                          variant="outline"
                           size="sm"
-                          className="w-full"
+                          className="w-full bg-trader-blue text-white hover:bg-trader-blue-dark"
                           onClick={() => setUpgradeDialogOpen(true)}
                         >
                           Upgrade to Outperformer
@@ -625,7 +624,7 @@ function PricingPageContent() {
                     stripePendingTier === 'supporter' ? (
                       <Button
                         type="button"
-                        variant="outline"
+                        variant="destructive"
                         className="w-full mt-auto"
                         onClick={() => setScheduledDowngradeDetailOpen(true)}
                       >
@@ -645,7 +644,7 @@ function PricingPageContent() {
                     ) : (
                       <Button
                         type="button"
-                        variant="outline"
+                        variant="destructive"
                         className="w-full mt-auto"
                         onClick={() => setDowngradeDialogOpen(true)}
                       >
@@ -745,7 +744,7 @@ function PricingPageContent() {
                       {stripePendingTier === 'supporter' ? (
                         <Button
                           type="button"
-                          variant="outline"
+                          variant="destructive"
                           size="sm"
                           className="w-full"
                           onClick={() => setScheduledDowngradeDetailOpen(true)}
@@ -755,7 +754,7 @@ function PricingPageContent() {
                       ) : !planChangeActionsLocked ? (
                         <Button
                           type="button"
-                          variant="outline"
+                          variant="destructive"
                           size="sm"
                           className="w-full"
                           onClick={() => setDowngradeDialogOpen(true)}

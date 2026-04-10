@@ -301,9 +301,9 @@ export function DowngradeToSupporterDialog({
           </Button>
           <Button
             type="button"
+            variant="destructive"
             onClick={() => void handleSchedule()}
             disabled={phase !== 'ready' || !preview}
-            className="bg-trader-blue text-white hover:bg-trader-blue-dark"
           >
             {phase === 'submitting' ? (
               <>
@@ -535,9 +535,7 @@ export function ScheduledDowngradeDetailDialog({
                 { label: 'Plan', value: 'Supporter' },
                 {
                   label: 'Billing',
-                  value: intervalChangedVsCurrent
-                    ? `${formatBillingCadenceLabel(preview.billingInterval)} → ${formatBillingCadenceLabel(chosenInterval)} at renewal`
-                    : formatBillingCadenceLabel(chosenInterval),
+                  value: formatBillingCadenceLabel(chosenInterval),
                 },
                 {
                   label: 'Recurring price',
@@ -601,9 +599,9 @@ export function ScheduledDowngradeDetailDialog({
           )}
           <Button
             type="button"
-            variant="destructive"
             onClick={() => void handleCancel()}
             disabled={!!busy}
+            className="bg-trader-blue text-white hover:bg-trader-blue-dark"
           >
             {busy === 'cancel' ? (
               <>
