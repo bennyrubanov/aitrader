@@ -27,7 +27,7 @@ export const getInitialAuthState = async (): Promise<AuthState> => {
     const { data, error } = await supabase
       .from('user_profiles')
       .select(
-        'subscription_tier, full_name, email, portfolio_onboarding_done, stripe_current_period_end, stripe_cancel_at_period_end, stripe_pending_tier, stripe_recurring_interval, stripe_recurring_unit_amount, stripe_recurring_currency'
+        'subscription_tier, full_name, email, portfolio_onboarding_done, stripe_current_period_end, stripe_cancel_at_period_end, stripe_pending_tier, stripe_pending_recurring_interval, stripe_recurring_interval, stripe_recurring_unit_amount, stripe_recurring_currency'
       )
       .eq('id', user.id)
       .maybeSingle();

@@ -716,6 +716,26 @@ export async function releaseScheduledDowngradeIfApplicable(
   return { scheduleId };
 }
 
+/**
+ * Releases any subscription schedule attached to the subscription (interval switch, downgrade, etc.).
+ */
+export async function releaseAttachedSubscriptionScheduleOrThrow(
+  ctx: LoadedSubscriptionContext
+): Promise<{ scheduleId: string }> {
+  const scheduleRef = ctx.subscription.schedule;
+  const scheduleId =
+    typeof scheduleRef === 'string'
+      ? scheduleRef
+      : scheduleRef && 'id' in scheduleRef
+        ? scheduleRef.id
+        : null;
+  if (!scheduleId) {
+    throw new Error('No scheduled subscription change to cancel.');
+  }
+  await ctx.stripe.subscriptionSchedules.release(scheduleId);
+  return { scheduleId };
+}
+
 export async function resumeSubscriptionIfCancelAtPeriodEnd(
   ctx: LoadedSubscriptionContext
 ): Promise<void> {

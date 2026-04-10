@@ -36,7 +36,7 @@ export async function POST() {
     const { data: existingProfile } = await supabase
       .from("user_profiles")
       .select(
-        "email, subscription_tier, stripe_subscription_status, stripe_current_period_end, stripe_cancel_at_period_end, stripe_pending_tier, stripe_recurring_interval, stripe_recurring_unit_amount, stripe_recurring_currency"
+        "email, subscription_tier, stripe_subscription_status, stripe_current_period_end, stripe_cancel_at_period_end, stripe_pending_tier, stripe_pending_recurring_interval, stripe_recurring_interval, stripe_recurring_unit_amount, stripe_recurring_currency"
       )
       .eq("id", user.id)
       .maybeSingle();
@@ -99,6 +99,11 @@ export async function POST() {
         stripeCurrentPeriodEnd: existingProfile?.stripe_current_period_end ?? null,
         stripeCancelAtPeriodEnd: Boolean(existingProfile?.stripe_cancel_at_period_end),
         stripePendingTier: (existingProfile?.stripe_pending_tier as SubscriptionTier | null) ?? null,
+        stripePendingRecurringInterval:
+          existingProfile?.stripe_pending_recurring_interval === 'month' ||
+          existingProfile?.stripe_pending_recurring_interval === 'year'
+            ? existingProfile.stripe_pending_recurring_interval
+            : null,
         stripeRecurringInterval:
           existingProfile?.stripe_recurring_interval === "month" ||
           existingProfile?.stripe_recurring_interval === "year"
@@ -129,6 +134,7 @@ export async function POST() {
         stripe_current_period_end: extras.stripe_current_period_end,
         stripe_cancel_at_period_end: extras.stripe_cancel_at_period_end,
         stripe_pending_tier: extras.stripe_pending_tier,
+        stripe_pending_recurring_interval: extras.stripe_pending_recurring_interval,
         stripe_recurring_interval: extras.stripe_recurring_interval,
         stripe_recurring_unit_amount: extras.stripe_recurring_unit_amount,
         stripe_recurring_currency: extras.stripe_recurring_currency,
@@ -148,6 +154,7 @@ export async function POST() {
       stripeCurrentPeriodEnd: extras.stripe_current_period_end,
       stripeCancelAtPeriodEnd: extras.stripe_cancel_at_period_end,
       stripePendingTier: extras.stripe_pending_tier,
+      stripePendingRecurringInterval: extras.stripe_pending_recurring_interval,
       stripeRecurringInterval: extras.stripe_recurring_interval,
       stripeRecurringUnitAmount: extras.stripe_recurring_unit_amount,
       stripeRecurringCurrency: extras.stripe_recurring_currency,

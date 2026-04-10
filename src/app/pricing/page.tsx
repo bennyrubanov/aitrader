@@ -255,6 +255,7 @@ function PricingPageContent() {
     subscriptionTier,
     hasPremiumAccess,
     stripePendingTier,
+    stripePendingRecurringInterval,
     stripeCurrentPeriodEnd,
     stripeCancelAtPeriodEnd,
   } = useAuthState();
@@ -289,8 +290,10 @@ function PricingPageContent() {
   const planChangeActionsLocked = useMemo(
     () =>
       hasPremiumAccess &&
-      (Boolean(stripePendingTier) || Boolean(stripeCancelAtPeriodEnd)),
-    [hasPremiumAccess, stripePendingTier, stripeCancelAtPeriodEnd]
+      (Boolean(stripePendingTier) ||
+        Boolean(stripePendingRecurringInterval) ||
+        Boolean(stripeCancelAtPeriodEnd)),
+    [hasPremiumAccess, stripePendingTier, stripePendingRecurringInterval, stripeCancelAtPeriodEnd]
   );
 
   const startStripeCheckout = useCallback(

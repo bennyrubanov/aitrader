@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { Loader2 } from "lucide-react";
 import { getSupabaseBrowserClient } from "@/utils/supabase/browser";
 import {
   DEFAULT_POST_AUTH_PATH,
@@ -189,7 +190,11 @@ function AuthCallbackContent() {
   }, [router, searchParams, nextPath]);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
+    <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background px-4 text-foreground">
+      <Loader2
+        className="size-5 shrink-0 animate-spin text-muted-foreground"
+        aria-hidden
+      />
       <p className="text-muted-foreground text-sm">Completing sign-in…</p>
     </div>
   );
@@ -199,7 +204,11 @@ export default function AuthCallbackPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
+        <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background px-4 text-foreground">
+          <Loader2
+            className="size-5 shrink-0 animate-spin text-muted-foreground"
+            aria-hidden
+          />
           <p className="text-muted-foreground text-sm">Loading…</p>
         </div>
       }

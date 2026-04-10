@@ -72,12 +72,15 @@ function formatBillingCharge(amount: number, currency: string): string {
 function billingSectionSummary(
   cancelAtPeriodEnd: boolean,
   pendingTier: 'free' | 'supporter' | 'outperformer' | null,
+  pendingRecurringInterval: 'month' | 'year' | null,
   dateLabel: string,
   interval: 'month' | 'year' | null,
   unitAmount: number | null,
   currency: string | null
 ) {
   const planChangesAtPeriodEnd = cancelAtPeriodEnd || pendingTier != null;
+  const cadenceChangingOnly =
+    !cancelAtPeriodEnd && pendingTier == null && pendingRecurringInterval != null;
   const cadence =
     interval === 'month'
       ? 'You are billed monthly.'
@@ -85,7 +88,25 @@ function billingSectionSummary(
         ? 'You are billed yearly.'
         : '';
   const showNextCharge =
-    !planChangesAtPeriodEnd && unitAmount !== null && currency !== null;
+    !cancelAtPeriodEnd && pendingTier == null && unitAmount !== null && currency !== null;
+
+  if (cadenceChangingOnly) {
+    const thenWord = pendingRecurringInterval === 'year' ? 'yearly' : 'monthly';
+    const untilWord = interval === 'month' ? 'monthly' : interval === 'year' ? 'yearly' : '';
+    return (
+      <>
+        Your next payment is on{' '}
+        <span className="font-medium text-foreground">{dateLabel}</span>
+        {showNextCharge ? <> for {formatBillingCharge(unitAmount, currency)}</> : null}.
+        {untilWord ? (
+          <>
+            {' '}
+            You are billed {untilWord} until then; then {thenWord} billing.
+          </>
+        ) : null}
+      </>
+    );
+  }
 
   return (
     <>
@@ -555,7 +576,9 @@ const SettingsPageContent = () => {
         description:
           intent === 'resume_subscription'
             ? 'Your subscription will renew as usual.'
-            : 'You will stay on your current plan after the next renewal.',
+            : authState.stripePendingRecurringInterval
+              ? 'Your billing cadence will stay as it is now.'
+              : 'You will stay on your current plan after the next renewal.',
       });
     } catch (error) {
       toast({
@@ -571,7 +594,8 @@ const SettingsPageContent = () => {
     authState.hasPremiumAccess &&
     (authState.stripeRecurringInterval === 'month' || authState.stripeRecurringInterval === 'year') &&
     !authState.stripeCancelAtPeriodEnd &&
-    !authState.stripePendingTier;
+    !authState.stripePendingTier &&
+    !authState.stripePendingRecurringInterval;
 
   const handleSignOut = async () => {
     const supabase = getSupabaseBrowserClient();
@@ -1103,6 +1127,7 @@ const SettingsPageContent = () => {
                   {billingSectionSummary(
                     authState.stripeCancelAtPeriodEnd,
                     authState.stripePendingTier,
+                    authState.stripePendingRecurringInterval,
                     formatBillingDate(authState.stripeCurrentPeriodEnd),
                     authState.stripeRecurringInterval,
                     authState.stripeRecurringUnitAmount,
@@ -1247,6 +1272,41 @@ const SettingsPageContent = () => {
                   )}
                 </div>
               )}
+              {authState.hasPremiumAccess &&
+                authState.stripePendingRecurringInterval &&
+                authState.stripeCurrentPeriodEnd && (
+                  <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">
+                        {authState.stripePendingRecurringInterval === 'year'
+                          ? 'Yearly billing scheduled'
+                          : 'Monthly billing scheduled'}
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {authState.stripeRecurringInterval === 'month'
+                          ? `Switches to yearly billing on ${formatBillingDate(authState.stripeCurrentPeriodEnd)}.`
+                          : `Switches to monthly billing on ${formatBillingDate(authState.stripeCurrentPeriodEnd)}.`}{' '}
+                        Cancel if you want to keep your current billing cadence.
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-full shrink-0 sm:w-auto"
+                      disabled={isCancellingSchedule}
+                      onClick={() => void handleCancelScheduledBilling('cancel_scheduled_downgrade')}
+                    >
+                      {isCancellingSchedule ? (
+                        <>
+                          <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                          Canceling…
+                        </>
+                      ) : (
+                        'Cancel scheduled change'
+                      )}
+                    </Button>
+                  </div>
+                )}
               {authState.hasPremiumAccess && canSwitchBillingInterval && (
                 <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0">

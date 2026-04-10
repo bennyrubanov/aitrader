@@ -52,15 +52,11 @@ export async function POST(request: Request) {
   }
 
   const now = new Date().toISOString();
-  const { error } = await supabase
-    .from("user_profiles")
-    .update({
-      last_sign_in_at: now,
-      last_sign_in_device_class: deviceClass,
-      last_sign_in_client,
-      updated_at: now,
-    })
-    .eq("id", user.id);
+  const { error } = await supabase.rpc("record_user_sign_in_context", {
+    p_device_class: deviceClass,
+    p_client: last_sign_in_client,
+    p_now: now,
+  });
 
   if (error) {
     return NextResponse.json({ error: "Failed to update profile." }, { status: 500 });

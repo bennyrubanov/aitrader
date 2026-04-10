@@ -16,6 +16,8 @@ export type AuthState = {
   stripeCancelAtPeriodEnd: boolean;
   /** Scheduled target tier (e.g. cancel at period end → free); null if none. */
   stripePendingTier: SubscriptionTier | null;
+  /** Scheduled target cadence for a same-tier interval switch; null if none. */
+  stripePendingRecurringInterval: 'month' | 'year' | null;
   /** Monthly vs yearly from Stripe snapshot; null if unknown / free. */
   stripeRecurringInterval: 'month' | 'year' | null;
   /** Primary line item recurring amount (Stripe smallest currency unit); null if unknown. */
@@ -37,6 +39,7 @@ export const DEFAULT_AUTH_STATE: AuthState = {
   stripeCurrentPeriodEnd: null,
   stripeCancelAtPeriodEnd: false,
   stripePendingTier: null,
+  stripePendingRecurringInterval: null,
   stripeRecurringInterval: null,
   stripeRecurringUnitAmount: null,
   stripeRecurringCurrency: null,

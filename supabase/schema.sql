@@ -69,6 +69,7 @@ create table if not exists public.user_profiles (
   stripe_current_period_end timestamptz,
   stripe_cancel_at_period_end boolean not null default false,
   stripe_pending_tier text,
+  stripe_pending_recurring_interval text,
   stripe_recurring_interval text,
   stripe_recurring_unit_amount integer,
   stripe_recurring_currency text,
@@ -76,6 +77,10 @@ create table if not exists public.user_profiles (
   last_sign_in_at timestamptz,
   last_sign_in_device_class text not null default 'unknown',
   last_sign_in_client jsonb,
+  sign_in_count_mobile integer not null default 0,
+  sign_in_count_desktop integer not null default 0,
+  sign_in_count_tablet integer not null default 0,
+  sign_in_count_unknown integer not null default 0,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint user_profiles_auth_signup_provider_valid check (
@@ -84,12 +89,22 @@ create table if not exists public.user_profiles (
   constraint user_profiles_last_sign_in_device_class_valid check (
     last_sign_in_device_class in ('mobile', 'desktop', 'tablet', 'unknown')
   ),
+  constraint user_profiles_sign_in_counts_non_negative check (
+    sign_in_count_mobile >= 0
+    and sign_in_count_desktop >= 0
+    and sign_in_count_tablet >= 0
+    and sign_in_count_unknown >= 0
+  ),
   constraint user_profiles_subscription_tier_valid check (
     subscription_tier in ('free', 'supporter', 'outperformer')
   ),
   constraint user_profiles_stripe_pending_tier_valid check (
     stripe_pending_tier is null
     or stripe_pending_tier in ('free', 'supporter', 'outperformer')
+  ),
+  constraint user_profiles_stripe_pending_recurring_interval_valid check (
+    stripe_pending_recurring_interval is null
+    or stripe_pending_recurring_interval in ('month', 'year')
   ),
   constraint user_profiles_stripe_recurring_interval_valid check (
     stripe_recurring_interval is null
@@ -259,6 +274,7 @@ begin
     or old.stripe_current_period_end is distinct from new.stripe_current_period_end
     or old.stripe_cancel_at_period_end is distinct from new.stripe_cancel_at_period_end
     or old.stripe_pending_tier is distinct from new.stripe_pending_tier
+    or old.stripe_pending_recurring_interval is distinct from new.stripe_pending_recurring_interval
     or old.stripe_recurring_interval is distinct from new.stripe_recurring_interval
     or old.stripe_recurring_unit_amount is distinct from new.stripe_recurring_unit_amount
     or old.stripe_recurring_currency is distinct from new.stripe_recurring_currency
@@ -276,6 +292,50 @@ create trigger on_user_profiles_protect_billing
   before update on public.user_profiles
   for each row
   execute procedure public.user_profiles_protect_billing_columns();
+
+-- Signed-in client: last context + atomic per-device sign-in counts (POST /api/auth/record-sign-in-context).
+create or replace function public.record_user_sign_in_context(
+  p_device_class text,
+  p_client jsonb,
+  p_now timestamptz
+)
+returns void
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  n int;
+begin
+  if auth.uid() is null then
+    raise exception 'not authenticated';
+  end if;
+
+  if p_device_class not in ('mobile', 'desktop', 'tablet', 'unknown') then
+    raise exception 'invalid device class';
+  end if;
+
+  update public.user_profiles
+  set
+    last_sign_in_at = p_now,
+    last_sign_in_device_class = p_device_class,
+    last_sign_in_client = p_client,
+    updated_at = p_now,
+    sign_in_count_mobile = sign_in_count_mobile + case when p_device_class = 'mobile' then 1 else 0 end,
+    sign_in_count_desktop = sign_in_count_desktop + case when p_device_class = 'desktop' then 1 else 0 end,
+    sign_in_count_tablet = sign_in_count_tablet + case when p_device_class = 'tablet' then 1 else 0 end,
+    sign_in_count_unknown = sign_in_count_unknown + case when p_device_class = 'unknown' then 1 else 0 end
+  where id = auth.uid();
+
+  get diagnostics n = row_count;
+  if n = 0 then
+    raise exception 'user profile not found';
+  end if;
+end;
+$$;
+
+grant execute on function public.record_user_sign_in_context(text, jsonb, timestamptz) to authenticated;
+revoke all on function public.record_user_sign_in_context(text, jsonb, timestamptz) from public;
 
 -- =========================
 -- 3) Canonical stocks table

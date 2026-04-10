@@ -9,6 +9,7 @@ export type UserProfileAuthRow = {
   stripe_current_period_end?: string | null;
   stripe_cancel_at_period_end?: boolean | null;
   stripe_pending_tier?: string | null;
+  stripe_pending_recurring_interval?: string | null;
   stripe_recurring_interval?: string | null;
   stripe_recurring_unit_amount?: number | null;
   stripe_recurring_currency?: string | null;
@@ -35,6 +36,10 @@ export function buildAuthStateFromUserAndProfile(
     rawPending === 'supporter' || rawPending === 'outperformer' || rawPending === 'free'
       ? rawPending
       : null;
+
+  const rawPendingInterval = !profileReadFailed ? profile?.stripe_pending_recurring_interval : null;
+  const stripePendingRecurringInterval: 'month' | 'year' | null =
+    rawPendingInterval === 'month' || rawPendingInterval === 'year' ? rawPendingInterval : null;
 
   const rawInterval = !profileReadFailed ? profile?.stripe_recurring_interval : null;
   const stripeRecurringInterval: 'month' | 'year' | null =
@@ -71,6 +76,7 @@ export function buildAuthStateFromUserAndProfile(
     stripeCancelAtPeriodEnd:
       !profileReadFailed && profile?.stripe_cancel_at_period_end === true,
     stripePendingTier: !profileReadFailed ? stripePendingTier : null,
+    stripePendingRecurringInterval: !profileReadFailed ? stripePendingRecurringInterval : null,
     stripeRecurringInterval: !profileReadFailed ? stripeRecurringInterval : null,
     stripeRecurringUnitAmount: !profileReadFailed ? stripeRecurringUnitAmount : null,
     stripeRecurringCurrency: !profileReadFailed ? stripeRecurringCurrency : null,

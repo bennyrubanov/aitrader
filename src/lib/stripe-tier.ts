@@ -52,6 +52,9 @@ export async function inferRecurringBillingInterval(
   return recurringIntervalFromPriceId(stripe, priceId);
 }
 
+export const subscriptionStatusSyncsBillingSnapshot = (status: Stripe.Subscription.Status) =>
+  status === 'active' || status === 'trialing' || status === 'past_due';
+
 export async function resolveTierFromPriceId(
   stripe: Stripe,
   priceId: string
@@ -143,6 +146,62 @@ export async function resolvePendingTierFromSubscription(
 }
 
 /**
+ * Same-tier billing cadence scheduled via a subscription schedule (e.g. monthly → yearly).
+ * Omit when a tier change is already pending (`resolvePendingTierFromSubscription` non-null).
+ */
+export async function resolvePendingRecurringIntervalFromSubscription(
+  stripe: Stripe,
+  subscription: Stripe.Subscription,
+  currentInterval: 'month' | 'year' | null
+): Promise<'month' | 'year' | null> {
+  if (!subscriptionStatusSyncsBillingSnapshot(subscription.status) || subscription.cancel_at_period_end) {
+    return null;
+  }
+  if (!currentInterval) {
+    return null;
+  }
+
+  const scheduleRef = subscription.schedule as string | Stripe.SubscriptionSchedule | null | undefined;
+  const scheduleId = typeof scheduleRef === 'string' ? scheduleRef : scheduleRef?.id ?? null;
+  if (!scheduleId) {
+    return null;
+  }
+
+  try {
+    const schedule = await stripe.subscriptionSchedules.retrieve(scheduleId);
+    const currentPeriodEnd = subscriptionCurrentPeriodEndUnix(subscription);
+    if (currentPeriodEnd === null) {
+      return null;
+    }
+    const currentPriceId = subscription.items.data[0]?.price?.id;
+    if (!currentPriceId) {
+      return null;
+    }
+
+    for (const phase of schedule.phases ?? []) {
+      if (!phase.start_date || phase.start_date < currentPeriodEnd) {
+        continue;
+      }
+      const item = phase.items?.[0];
+      const plannedPrice =
+        typeof item?.price === 'string' ? item.price : (item?.price as Stripe.Price | undefined)?.id;
+      if (!plannedPrice || plannedPrice === currentPriceId) {
+        continue;
+      }
+      const nextInterval = await recurringIntervalFromPriceId(stripe, plannedPrice);
+      if (!nextInterval || nextInterval === currentInterval) {
+        return null;
+      }
+      return nextInterval;
+    }
+  } catch {
+    // ignore
+  }
+
+  return null;
+}
+
+/**
  * When a subscription update is held until invoice payment (pending updates), Stripe keeps the
  * current items but sets `pending_update` with the target items.
  */
@@ -173,6 +232,8 @@ export type SubscriptionBillingExtras = {
   stripe_current_period_end: string | null;
   stripe_cancel_at_period_end: boolean;
   stripe_pending_tier: SubscriptionTier | null;
+  /** Scheduled target cadence when same-tier interval switch is pending; null otherwise. */
+  stripe_pending_recurring_interval: 'month' | 'year' | null;
   stripe_recurring_interval: 'month' | 'year' | null;
   /** Primary subscription item price; Stripe smallest currency unit (e.g. cents). */
   stripe_recurring_unit_amount: number | null;
@@ -193,9 +254,6 @@ export function getStripeCustomerIdFromField(
   }
   return customer.id;
 }
-
-const subscriptionStatusSyncsBillingSnapshot = (status: Stripe.Subscription.Status) =>
-  status === 'active' || status === 'trialing' || status === 'past_due';
 
 function recurringUnitAmountAndCurrency(subscription: Stripe.Subscription): {
   unitAmount: number | null;
@@ -236,6 +294,19 @@ export async function buildSubscriptionBillingExtras(
     recurringCurrency = recurring.currency;
   }
 
+  let pendingRecurringInterval: 'month' | 'year' | null = null;
+  if (
+    subscriptionStatusSyncsBillingSnapshot(subscription.status) &&
+    !subscription.cancel_at_period_end &&
+    pending === null
+  ) {
+    pendingRecurringInterval = await resolvePendingRecurringIntervalFromSubscription(
+      stripe,
+      subscription,
+      recurringInterval
+    );
+  }
+
   const periodEnd = subscriptionCurrentPeriodEndUnix(subscription);
   return {
     stripe_customer_id: getStripeCustomerIdFromField(subscription.customer),
@@ -244,6 +315,7 @@ export async function buildSubscriptionBillingExtras(
       periodEnd !== null ? new Date(periodEnd * 1000).toISOString() : null,
     stripe_cancel_at_period_end: subscription.cancel_at_period_end,
     stripe_pending_tier: pending,
+    stripe_pending_recurring_interval: pendingRecurringInterval,
     stripe_recurring_interval: recurringInterval,
     stripe_recurring_unit_amount: recurringUnitAmount,
     stripe_recurring_currency: recurringCurrency,

@@ -4,7 +4,7 @@ import { createClient as createServerClient } from '@/utils/supabase/server';
 import { resolveStripeCustomerForUser } from '@/lib/stripe-resolve-user-customer';
 import {
   buildSubscriptionChangeContext,
-  releaseScheduledDowngradeIfApplicable,
+  releaseAttachedSubscriptionScheduleOrThrow,
   resumeSubscriptionIfCancelAtPeriodEnd,
 } from '@/lib/stripe-subscription-change';
 
@@ -51,7 +51,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, intent: 'resume_subscription' });
     }
 
-    const { scheduleId } = await releaseScheduledDowngradeIfApplicable(ctx);
+    const { scheduleId } = await releaseAttachedSubscriptionScheduleOrThrow(ctx);
     return NextResponse.json({ ok: true, intent: 'cancel_scheduled_downgrade', scheduleId });
   } catch (error) {
     return NextResponse.json(
