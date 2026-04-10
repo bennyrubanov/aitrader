@@ -540,7 +540,7 @@ export function ExplorePortfolioDetailDialog({
         />
       ) : null}
       <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[min(90vh,880px)] w-[calc(100vw-1.5rem)] max-w-3xl flex flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
+      <DialogContent className="flex max-h-[min(82dvh,640px)] w-[calc(100vw-1.5rem)] max-w-3xl flex-col gap-0 overflow-hidden p-0 sm:max-h-[min(90vh,880px)] sm:max-w-3xl">
         <DialogHeader className="sr-only">
           <DialogTitle>
             {config ? `${config.label} — ${strategyName}` : 'Portfolio details'}
@@ -683,12 +683,12 @@ export function ExplorePortfolioDetailDialog({
           ) : null}
 
           <section className="space-y-2">
-            <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between sm:gap-x-3 sm:gap-y-2">
               <h4 className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Portfolio holdings
               </h4>
               {exploreHoldingsUnlocked && rebalanceDates.length > 0 ? (
-                <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-2 sm:gap-x-3">
+                <div className="flex w-full min-w-0 flex-row flex-wrap items-center gap-x-2 gap-y-2 sm:w-auto sm:justify-end sm:gap-x-3">
                   <Select
                     value={
                       selectedAsOf && rebalanceDates.includes(selectedAsOf)
@@ -700,7 +700,7 @@ export function ExplorePortfolioDetailDialog({
                     }}
                     disabled={holdingsLoading}
                   >
-                    <SelectTrigger className="h-9 w-full max-w-[168px] shrink-0 text-xs sm:w-[168px]">
+                    <SelectTrigger className="h-9 min-w-0 flex-1 text-xs sm:w-[168px] sm:flex-none sm:max-w-[168px]">
                       <SelectValue placeholder="Rebalance date" />
                     </SelectTrigger>
                     <SelectContent>

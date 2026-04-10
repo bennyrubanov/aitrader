@@ -483,7 +483,7 @@ export function PerformanceChart({
       {!hideFootnote ? (
         <p className="text-[11px] text-muted-foreground">
           {view === 'equity'
-            ? `Growth rebased to the start of the selected window. Net of trading costs. Index benchmarks follow weekly stored returns; if a line is flat while markets move, that week's benchmark return may have been recorded as 0% (e.g. upstream data lag).`
+            ? `Growth rebased to the start of the selected window. Net of trading costs.`
             : `Drawdown from rolling peak for each series. Deeper troughs = larger losses from peak.`}
         </p>
       ) : null}

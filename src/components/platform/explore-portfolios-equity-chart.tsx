@@ -1,6 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { CartesianGrid, Line, LineChart, ReferenceLine, Tooltip, XAxis, YAxis } from 'recharts';
 import { ChartContainer } from '@/components/ui/chart';
 import type { RiskLevel } from '@/components/portfolio-config';
@@ -146,6 +154,21 @@ function scrollWithinContainer(root: HTMLElement, el: HTMLElement, margin = 4) {
   }
 }
 
+/** Tailwind `lg` breakpoint — chart/sidebar layout stacks below this width. */
+function useIsNarrowExploreChartLayout() {
+  const query = '(max-width: 1023px)';
+  return useSyncExternalStore(
+    (onStoreChange) => {
+      if (typeof window === 'undefined') return () => {};
+      const mq = window.matchMedia(query);
+      mq.addEventListener('change', onStoreChange);
+      return () => mq.removeEventListener('change', onStoreChange);
+    },
+    () => (typeof window !== 'undefined' ? window.matchMedia(query).matches : false),
+    () => false
+  );
+}
+
 type CategoricalChartState = {
   activeTooltipIndex?: number;
   isTooltipActive?: boolean;
@@ -179,6 +202,7 @@ export function ExplorePortfoliosEquityChart({
   variant = 'explore',
 }: Props) {
   const isPicker = variant === 'performancePicker';
+  const isNarrowLayout = useIsNarrowExploreChartLayout();
   const [range, setRange] = useState<TimeRange>('All');
   /** Hidden benchmark lines — same interaction pattern as `PerformanceChart` legend pills */
   const [hiddenBenchmarkKeys, setHiddenBenchmarkKeys] = useState<Set<ExploreBenchmarkKey>>(
@@ -192,6 +216,7 @@ export function ExplorePortfoliosEquityChart({
   const [hoveredLineKey, setHoveredLineKey] = useState<string | null>(null);
   const sidebarScrollRef = useRef<HTMLDivElement>(null);
   const hoverSourceRef = useRef<'chart' | 'sidebar' | null>(null);
+  const lastPortfolioLinePickAtRef = useRef(0);
 
   const visibleSeries = useMemo(
     () => series.filter((s) => visibleConfigIds.has(s.configId)),
@@ -383,6 +408,10 @@ export function ExplorePortfoliosEquityChart({
   const clearPin = useCallback(() => setPinnedIndex(null), []);
 
   useEffect(() => {
+    if (isNarrowLayout) setPinnedIndex(null);
+  }, [isNarrowLayout]);
+
+  useEffect(() => {
     if (isPicker) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') clearPin();
@@ -421,10 +450,33 @@ export function ExplorePortfoliosEquityChart({
 
   const handleChartClick = useCallback(
     (state: CategoricalChartState) => {
+      if (isNarrowLayout) return;
       const i = state.activeTooltipIndex;
       if (typeof i === 'number' && i >= 0 && i < chartData.length) setPinnedIndex(i);
     },
-    [chartData.length]
+    [chartData.length, isNarrowLayout]
+  );
+
+  /** Touch scrubbing (mobile): update hovered date like mouse move; desktop mouse path unchanged. */
+  const handleChartTouchMove = useCallback(
+    (state: CategoricalChartState) => {
+      if (isPicker) return;
+      if (pinnedIndex != null) return;
+      const i = state.activeTooltipIndex;
+      if (typeof i === 'number' && i >= 0 && i < chartData.length) setHoverIndex(i);
+    },
+    [isPicker, pinnedIndex, chartData.length]
+  );
+
+  const pickPortfolioFromLine = useCallback(
+    (cfgId: string) => {
+      if (!cfgId) return;
+      const now = Date.now();
+      if (now - lastPortfolioLinePickAtRef.current < 450) return;
+      lastPortfolioLinePickAtRef.current = now;
+      onSelectConfig(cfgId);
+    },
+    [onSelectConfig]
   );
 
   const yDomain = useMemo<[number, number] | ['auto', 'auto']>(() => {
@@ -485,7 +537,10 @@ export function ExplorePortfoliosEquityChart({
       : null;
 
   const pinnedXLabel =
-    !isPicker && pinnedIndex != null && chartData[pinnedIndex] != null
+    !isPicker &&
+    !isNarrowLayout &&
+    pinnedIndex != null &&
+    chartData[pinnedIndex] != null
       ? String(chartData[pinnedIndex]!.shortDate)
       : null;
 
@@ -570,6 +625,8 @@ export function ExplorePortfoliosEquityChart({
               onMouseMove={isPicker ? undefined : handleChartMouseMove}
               onMouseLeave={isPicker ? undefined : handleChartMouseLeave}
               onClick={isPicker ? undefined : handleChartClick}
+              onTouchMove={isPicker ? undefined : handleChartTouchMove}
+              onTouchStart={isPicker ? undefined : handleChartTouchMove}
             >
               <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.4} />
               <XAxis dataKey="shortDate" tick={{ fontSize: 10 }} />
@@ -616,7 +673,19 @@ export function ExplorePortfoliosEquityChart({
                 const sel = selectedConfigId === cfgId;
                 const lineHover = hoveredLineKey === k;
                 const color = chartConfig[k]?.color ?? CHART_NEUTRAL_REFERENCE_STROKE;
-                const showPinDots = !isPicker && pinnedIndex != null;
+                const showPinDots = !isPicker && !isNarrowLayout && pinnedIndex != null;
+                const lineStroke =
+                  isNarrowLayout && !isPicker
+                    ? sel
+                      ? 3.5
+                      : lineHover
+                        ? 3
+                        : 2.5
+                    : sel
+                      ? 2.75
+                      : lineHover
+                        ? 2.2
+                        : 1.15;
                 return (
                   <Line
                     key={k}
@@ -624,7 +693,7 @@ export function ExplorePortfoliosEquityChart({
                     dataKey={k}
                     name={chartConfig[k]?.label}
                     stroke={color}
-                    strokeWidth={sel ? 2.75 : lineHover ? 2.2 : 1.15}
+                    strokeWidth={lineStroke}
                     strokeOpacity={
                       selectedConfigId && !sel
                         ? lineHover
@@ -664,7 +733,13 @@ export function ExplorePortfoliosEquityChart({
                           ? { r: sel ? 4 : 2, strokeWidth: 0, fill: color }
                           : false
                     }
-                    activeDot={isPicker || showPinDots ? false : { r: 3, strokeWidth: 1 }}
+                    activeDot={
+                      isPicker || showPinDots
+                        ? false
+                        : isNarrowLayout
+                          ? { r: 5, strokeWidth: 1 }
+                          : { r: 3, strokeWidth: 1 }
+                    }
                     connectNulls
                     isAnimationActive={false}
                     onMouseEnter={() => {
@@ -675,9 +750,15 @@ export function ExplorePortfoliosEquityChart({
                       setHoveredLineKey((cur) => (cur === k ? null : cur));
                       hoverSourceRef.current = null;
                     }}
-                    onClick={() => {
-                      if (cfgId) onSelectConfig(cfgId);
-                    }}
+                    onClick={() => pickPortfolioFromLine(cfgId)}
+                    onTouchEnd={
+                      isNarrowLayout && !isPicker
+                        ? (e) => {
+                            e.preventDefault();
+                            pickPortfolioFromLine(cfgId);
+                          }
+                        : undefined
+                    }
                     style={{ cursor: 'pointer' }}
                   />
                 );
@@ -685,7 +766,7 @@ export function ExplorePortfoliosEquityChart({
               {benchmarkKeys.map((k) => {
                 const color = chartConfig[k]?.color ?? CHART_NEUTRAL_REFERENCE_STROKE;
                 const lineHover = hoveredLineKey === k;
-                const showPinDots = !isPicker && pinnedIndex != null;
+                const showPinDots = !isPicker && !isNarrowLayout && pinnedIndex != null;
                 return (
                   <Line
                     key={k}
@@ -750,13 +831,13 @@ export function ExplorePortfoliosEquityChart({
                       {sidebarDateLabel ?? '—'}
                     </p>
                   </div>
-                  {pinnedIndex != null ? (
+                  {!isNarrowLayout && pinnedIndex != null ? (
                     <span className="shrink-0 rounded-full bg-trader-blue/15 px-2 py-0.5 text-[10px] font-medium text-trader-blue">
                       Pinned
                     </span>
                   ) : null}
                 </div>
-                {pinnedIndex != null ? (
+                {!isNarrowLayout && pinnedIndex != null ? (
                   <button
                     type="button"
                     onClick={clearPin}
@@ -779,6 +860,12 @@ export function ExplorePortfoliosEquityChart({
               <p className="px-1 py-4 text-center text-xs leading-relaxed text-muted-foreground">
                 {isPicker ? (
                   'No portfolio lines in view.'
+                ) : isNarrowLayout ? (
+                  <>
+                    <strong className="font-semibold text-foreground">Drag</strong> on the chart to
+                    choose a date; <strong className="font-semibold text-foreground">tap</strong> a
+                    line or a row below for portfolio details.
+                  </>
                 ) : (
                   <>
                     <strong className="font-semibold text-foreground">Hover</strong> over the chart

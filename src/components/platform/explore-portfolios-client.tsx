@@ -108,6 +108,115 @@ const CONFIG_CARD_RISK_DOT: Record<RiskLevel, string> = {
   6: 'bg-rose-600',
 };
 
+type ExploreQuickPicksSectionProps = {
+  configs: RankedConfig[];
+  filterBeatNasdaq: boolean;
+  filterBeatSp500: boolean;
+  riskFilter: RiskLevel | null;
+  freqFilter: RebalanceFrequency | null;
+  weightFilter: 'equal' | 'cap' | null;
+  setFilterBeatNasdaq: (v: boolean) => void;
+  setFilterBeatSp500: (v: boolean) => void;
+  setRiskFilter: (v: RiskLevel | null) => void;
+  setFreqFilter: (v: RebalanceFrequency | null) => void;
+  setWeightFilter: (v: 'equal' | 'cap' | null) => void;
+  clearFilters: () => void;
+  /** Main column uses a wide grid; sheet uses 2 columns like performance filter dialog. */
+  layout: 'main' | 'sheet';
+};
+
+function ExploreQuickPicksSection({
+  configs,
+  filterBeatNasdaq,
+  filterBeatSp500,
+  riskFilter,
+  freqFilter,
+  weightFilter,
+  setFilterBeatNasdaq,
+  setFilterBeatSp500,
+  setRiskFilter,
+  setFreqFilter,
+  setWeightFilter,
+  clearFilters,
+  layout,
+}: ExploreQuickPicksSectionProps) {
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        Quick picks
+      </p>
+      <div
+        className={cn(
+          'grid gap-2',
+          layout === 'main'
+            ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-6'
+            : 'grid-cols-2'
+        )}
+      >
+        {PORTFOLIO_EXPLORE_QUICK_PICKS.map((pick) => {
+          const matched = configs.find(
+            (c) =>
+              c.riskLevel === pick.riskLevel &&
+              c.rebalanceFrequency === pick.rebalanceFrequency &&
+              c.weightingMethod === pick.weightingMethod
+          );
+          const isQuickPickActive =
+            !filterBeatNasdaq &&
+            !filterBeatSp500 &&
+            riskFilter === pick.riskLevel &&
+            freqFilter === pick.rebalanceFrequency &&
+            (pick.riskLevel === 6 && pick.weightingMethod === 'equal'
+              ? weightFilter === 'equal' || weightFilter === null
+              : weightFilter === pick.weightingMethod);
+          return (
+            <button
+              key={pick.key}
+              type="button"
+              aria-pressed={isQuickPickActive}
+              onClick={() => {
+                if (isQuickPickActive) {
+                  clearFilters();
+                } else {
+                  setFilterBeatNasdaq(false);
+                  setFilterBeatSp500(false);
+                  setRiskFilter(pick.riskLevel);
+                  setFreqFilter(pick.rebalanceFrequency);
+                  setWeightFilter(pick.weightingMethod);
+                }
+              }}
+              className={cn(
+                'rounded-lg border px-3 py-2.5 text-left transition-all hover:shadow-sm',
+                isQuickPickActive
+                  ? 'border-trader-blue bg-trader-blue/10 shadow-sm ring-2 ring-trader-blue/35 hover:border-trader-blue'
+                  : pick.highlight
+                    ? 'border-trader-blue/25 bg-trader-blue/[0.04] hover:border-trader-blue/50'
+                    : 'border-border hover:border-foreground/20 hover:bg-muted/30'
+              )}
+            >
+              <p className="text-xs font-semibold truncate">{pick.label}</p>
+              <p className="mt-0.5 line-clamp-2 text-[10px] leading-relaxed text-muted-foreground">
+                {pick.description}
+              </p>
+              {matched?.metrics.totalReturn != null && (
+                <p
+                  className={cn(
+                    'mt-1 text-[10px] font-medium',
+                    matched.metrics.totalReturn >= 0
+                      ? 'text-green-600 dark:text-green-400'
+                      : 'text-red-600 dark:text-red-400'
+                  )}
+                >
+                  {fmt(matched.metrics.totalReturn, 'pct')}
+                </p>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 type ExploreProps = {
@@ -647,72 +756,23 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
           </div>
 
           <div className="flex-1 space-y-4 px-4 pb-8 pt-2.5 sm:px-6 sm:pb-10 sm:pt-3">
-            {/* Quick picks — portfolios */}
-            <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Quick picks
-              </p>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-                {PORTFOLIO_EXPLORE_QUICK_PICKS.map((pick) => {
-                  const matched = configs.find(
-                    (c) =>
-                      c.riskLevel === pick.riskLevel &&
-                      c.rebalanceFrequency === pick.rebalanceFrequency &&
-                      c.weightingMethod === pick.weightingMethod
-                  );
-                  const isQuickPickActive =
-                    !filterBeatNasdaq &&
-                    !filterBeatSp500 &&
-                    riskFilter === pick.riskLevel &&
-                    freqFilter === pick.rebalanceFrequency &&
-                    (pick.riskLevel === 6 && pick.weightingMethod === 'equal'
-                      ? weightFilter === 'equal' || weightFilter === null
-                      : weightFilter === pick.weightingMethod);
-                  return (
-                    <button
-                      key={pick.key}
-                      type="button"
-                      aria-pressed={isQuickPickActive}
-                      onClick={() => {
-                        if (isQuickPickActive) {
-                          clearFilters();
-                        } else {
-                          setFilterBeatNasdaq(false);
-                          setFilterBeatSp500(false);
-                          setRiskFilter(pick.riskLevel);
-                          setFreqFilter(pick.rebalanceFrequency);
-                          setWeightFilter(pick.weightingMethod);
-                        }
-                      }}
-                      className={cn(
-                        'rounded-lg border px-3 py-2.5 text-left transition-all hover:shadow-sm',
-                        isQuickPickActive
-                          ? 'border-trader-blue bg-trader-blue/10 shadow-sm ring-2 ring-trader-blue/35 hover:border-trader-blue'
-                          : pick.highlight
-                            ? 'border-trader-blue/25 bg-trader-blue/[0.04] hover:border-trader-blue/50'
-                            : 'border-border hover:border-foreground/20 hover:bg-muted/30'
-                      )}
-                    >
-                      <p className="text-xs font-semibold truncate">{pick.label}</p>
-                      <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2 leading-relaxed">
-                        {pick.description}
-                      </p>
-                      {matched?.metrics.totalReturn != null && (
-                        <p
-                          className={cn(
-                            'text-[10px] font-medium mt-1',
-                            matched.metrics.totalReturn >= 0
-                              ? 'text-green-600 dark:text-green-400'
-                              : 'text-red-600 dark:text-red-400'
-                          )}
-                        >
-                          {fmt(matched.metrics.totalReturn, 'pct')}
-                        </p>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
+            {/* Quick picks — desktop/tablet only; mobile uses filter sheet (performance-style) */}
+            <div className="hidden lg:block">
+              <ExploreQuickPicksSection
+                layout="main"
+                configs={configs}
+                filterBeatNasdaq={filterBeatNasdaq}
+                filterBeatSp500={filterBeatSp500}
+                riskFilter={riskFilter}
+                freqFilter={freqFilter}
+                weightFilter={weightFilter}
+                setFilterBeatNasdaq={setFilterBeatNasdaq}
+                setFilterBeatSp500={setFilterBeatSp500}
+                setRiskFilter={setRiskFilter}
+                setFreqFilter={setFreqFilter}
+                setWeightFilter={setWeightFilter}
+                clearFilters={clearFilters}
+              />
             </div>
 
             {/* Early data notice */}
@@ -929,6 +989,23 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
                     onFreqChange={setFreqFilter}
                     onWeightChange={setWeightFilter}
                     benchmarkOutperformanceAsOf={latestPerformanceDate}
+                    betweenBenchmarkAndRisk={
+                      <ExploreQuickPicksSection
+                        layout="sheet"
+                        configs={configs}
+                        filterBeatNasdaq={filterBeatNasdaq}
+                        filterBeatSp500={filterBeatSp500}
+                        riskFilter={riskFilter}
+                        freqFilter={freqFilter}
+                        weightFilter={weightFilter}
+                        setFilterBeatNasdaq={setFilterBeatNasdaq}
+                        setFilterBeatSp500={setFilterBeatSp500}
+                        setRiskFilter={setRiskFilter}
+                        setFreqFilter={setFreqFilter}
+                        setWeightFilter={setWeightFilter}
+                        clearFilters={clearFilters}
+                      />
+                    }
                   />
                 </div>
               </div>
@@ -1101,14 +1178,171 @@ function ConfigCard({
       ? config.metrics.totalReturn - benchNasdaqTotalReturn
       : null;
 
+  const followUnfollowButtons = (
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="h-8 text-xs sm:h-7"
+        onClick={onOpenDetails}
+      >
+        Details
+      </Button>
+      {isFollowing && followProfileId ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1 text-xs text-muted-foreground hover:text-rose-600 sm:h-7"
+              disabled={unfollowBusy}
+              onClick={onUnfollow}
+            >
+              <UserMinus className="size-3 shrink-0" aria-hidden />
+              Unfollow
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-xs text-xs">
+            Remove from Your Portfolios.
+          </TooltipContent>
+        </Tooltip>
+      ) : isFollowing ? null : (
+        <Button size="sm" className="h-8 gap-1 text-xs sm:h-7" onClick={onAdd}>
+          <Plus className="size-3" />
+          Follow
+        </Button>
+      )}
+    </>
+  );
+
   return (
     <div
       id={listDomId}
-      className="group rounded-xl border border-border bg-card hover:border-foreground/20 transition-colors scroll-mt-24"
+      className="group min-w-0 overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-foreground/20 scroll-mt-24"
     >
-      <div className="flex">
+      {/* Mobile: stacked layout — name, awards (one line each), stats, actions */}
+      <div className="flex flex-col gap-2 p-3 min-w-0 lg:hidden">
+        <p className="text-sm font-semibold leading-snug text-foreground">{config.label}</p>
+        {config.badges.length > 0 ? (
+          <div className="flex min-w-0 flex-col gap-1">
+            {config.badges.map((b) => (
+              <div key={b} className="min-w-0 w-full">
+                <div className="w-max max-w-full">
+                  <PortfolioConfigBadgePill name={b} strategySlug={strategySlug} />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+        <div className="flex flex-wrap items-center gap-2 text-[11px]">
+          <span
+            className="inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-muted/50 px-2 py-0.5 font-semibold text-foreground"
+            title={riskTitle}
+          >
+            <span className={cn('size-1.5 shrink-0 rounded-full', riskColor)} aria-hidden />
+            {riskTitle}
+          </span>
+          {config.rank != null ? (
+            config.rank === 1 ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="cursor-help rounded-md border border-transparent px-1.5 py-0.5 text-xs font-semibold tabular-nums text-foreground hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    aria-label={`Rank ${config.rank}, more info`}
+                  >
+                    Rank {config.rank}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-xs text-xs">
+                  <PortfolioRankingTooltipBody rank={config.rank} strategySlug={strategySlug} />
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              <span
+                className="px-1.5 text-xs font-semibold tabular-nums text-muted-foreground"
+                aria-label={`Rank ${config.rank}`}
+              >
+                Rank {config.rank}
+              </span>
+            )
+          ) : null}
+        </div>
+        {hasMetrics ? (
+          <div className="flex min-w-0 flex-col gap-2 border-t border-border/60 pt-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="min-w-0 cursor-default">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Value</p>
+                  <p className="mt-0.5 text-xs font-semibold tabular-nums text-foreground">
+                    {fmtUsd(
+                      config.metrics.endingValuePortfolio ??
+                        (config.metrics.totalReturn != null
+                          ? INITIAL_CAPITAL * (1 + config.metrics.totalReturn)
+                          : null)
+                    )}{' '}
+                    <span
+                      className={cn(
+                        'font-semibold',
+                        (config.metrics.totalReturn ?? 0) >= 0
+                          ? 'text-green-600 dark:text-green-400'
+                          : 'text-red-600 dark:text-red-400'
+                      )}
+                    >
+                      ({fmt(config.metrics.totalReturn, 'pct')})
+                    </span>
+                  </p>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs text-xs">
+                Hypothetical portfolio value from $10,000 at inception through the latest performance
+                date. Parentheses show total return over that period.
+              </TooltipContent>
+            </Tooltip>
+            <MetricPill
+              label="Sharpe"
+              value={fmt(config.metrics.sharpeRatio, 'num')}
+              valueClassName={
+                config.metrics.sharpeRatio != null && Number.isFinite(config.metrics.sharpeRatio)
+                  ? sharpeRatioValueClass(config.metrics.sharpeRatio)
+                  : undefined
+              }
+            />
+            <MetricPill
+              label="CAGR"
+              value={fmt(config.metrics.cagr, 'pct')}
+              positive={(config.metrics.cagr ?? 0) >= 0}
+            />
+            <MetricPill
+              label="Max drawdown"
+              value={fmt(config.metrics.maxDrawdown, 'pct')}
+              positive={false}
+            />
+            <MetricPill
+              label="Performance vs NDX-100 (cap)"
+              value={fmt(outperformanceVsNasdaqCap, 'pct')}
+              positive={(outperformanceVsNasdaqCap ?? 0) > 0}
+              title="Portfolio cumulative return minus Nasdaq-100 cap-weight benchmark cumulative return over the same period ($10k start)."
+              labelClassName="whitespace-normal"
+            />
+          </div>
+        ) : isLimited ? (
+          <p className="text-[11px] text-amber-600 dark:text-amber-400">
+            Limited data — building track record
+          </p>
+        ) : (
+          <p className="text-[11px] text-muted-foreground">Performance computing…</p>
+        )}
+        <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-2">
+          {followUnfollowButtons}
+        </div>
+      </div>
+
+      <div className="hidden lg:flex">
         {/* Rank badge — prominent left column */}
-        <div className="flex flex-col items-center justify-center w-14 shrink-0 border-r bg-muted/20">
+        <div className="flex w-14 shrink-0 flex-col items-center justify-center border-r bg-muted/20">
           {config.rank != null ? (
             config.rank === 1 ? (
               <Tooltip>
@@ -1159,42 +1393,7 @@ function ConfigCard({
                 ))}
               </div>
             </div>
-            <div className="flex items-center gap-1.5 shrink-0">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-7 text-xs"
-                onClick={onOpenDetails}
-              >
-                Details
-              </Button>
-              {isFollowing && followProfileId ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-7 gap-1 text-xs text-muted-foreground hover:text-rose-600"
-                      disabled={unfollowBusy}
-                      onClick={onUnfollow}
-                    >
-                      <UserMinus className="size-3 shrink-0" aria-hidden />
-                      Unfollow
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="max-w-xs text-xs">
-                    Remove from Your Portfolios.
-                  </TooltipContent>
-                </Tooltip>
-              ) : isFollowing ? null : (
-                <Button size="sm" className="h-7 text-xs gap-1" onClick={onAdd}>
-                  <Plus className="size-3" />
-                  Follow
-                </Button>
-              )}
-            </div>
+            <div className="flex shrink-0 items-center gap-1.5">{followUnfollowButtons}</div>
           </div>
 
           {/* Highlight metrics — first four columns share space; last column fits label in one line */}

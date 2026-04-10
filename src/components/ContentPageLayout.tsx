@@ -209,7 +209,10 @@ export const ContentPageLayout: React.FC<ContentPageLayoutProps> = ({
           </button>
 
           <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-            <SheetContent side="right" className="w-[80vw] max-w-xs pt-12">
+            <SheetContent
+              side="right"
+              className="flex h-[100dvh] max-h-[100dvh] w-[80vw] max-w-xs flex-col gap-0 overflow-hidden p-0 pt-12"
+            >
               <SheetHeader className="sr-only">
                 <SheetTitle>Page navigation</SheetTitle>
               </SheetHeader>
@@ -217,14 +220,14 @@ export const ContentPageLayout: React.FC<ContentPageLayoutProps> = ({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="absolute top-4 right-4"
+                  className="absolute right-4 top-4 z-10"
                   aria-label="Close"
                 >
                   <X className="size-4" />
                 </Button>
               </SheetClose>
-              <div className="space-y-5 overflow-y-auto max-h-[calc(100vh-5rem)] pr-1">
-                {mobileSidebarContent}
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-6 pb-6 pt-2">
+                <div className="space-y-5 pr-1">{mobileSidebarContent}</div>
               </div>
             </SheetContent>
           </Sheet>

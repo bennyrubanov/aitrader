@@ -10,6 +10,12 @@ import {
   type StockRatingParsed,
 } from '@/lib/aiPrompt';
 import { STRATEGY_CONFIG, GIT_COMMIT_SHA } from '@/lib/strategyConfig';
+import {
+  INITIAL_CAPITAL,
+  computeSimpleReturn,
+  fetchBenchmarkReturnDetail,
+  type BenchmarkReturnDetail,
+} from '@/lib/stooq-benchmark-weekly';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { sendEmailByGmail } from '@/lib/sendEmailByGmail';
 
@@ -23,8 +29,6 @@ const CRON_TIMEOUT_SECONDS = Number(process.env.CRON_TIMEOUT_SECONDS || 300);
 const CRON_TIMEOUT_WARNING_BUFFER_SECONDS = Number(
   process.env.CRON_TIMEOUT_WARNING_BUFFER_SECONDS || 25
 );
-const INITIAL_CAPITAL = 10_000;
-
 type NasdaqRow = {
   symbol: string;
   companyName?: string;
@@ -161,31 +165,6 @@ type RebalanceActionRow = {
   action_label: string;
   previous_weight: number | null;
   new_weight: number | null;
-};
-
-type StooqCsvRow = {
-  date: string;
-  close: number;
-};
-
-type StooqFetchResult = {
-  ok: boolean;
-  symbol: string;
-  httpStatus: number | null;
-  rowCount: number;
-  firstDate: string | null;
-  lastDate: string | null;
-  rows: StooqCsvRow[] | null;
-  error?: string;
-};
-
-type BenchmarkReturnDetail = {
-  returnValue: number;
-  fromClose: number | null;
-  toClose: number | null;
-  fromBarDate: string | null;
-  toBarDate: string | null;
-  fetch: StooqFetchResult;
 };
 
 type BatchScoreRow = {
@@ -327,19 +306,6 @@ const parsePrice = (value: string | null | undefined) => {
     .trim();
   const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : null;
-};
-
-const computeSimpleReturn = (fromPrice: number | null, toPrice: number | null) => {
-  if (
-    fromPrice === null ||
-    toPrice === null ||
-    !Number.isFinite(fromPrice) ||
-    !Number.isFinite(toPrice) ||
-    fromPrice <= 0
-  ) {
-    return 0;
-  }
-  return (toPrice - fromPrice) / fromPrice;
 };
 
 const parseNasdaqRows = (payload: unknown): NasdaqRow[] => {
@@ -856,144 +822,6 @@ const createSnapshot = async (
   }
 
   return { id: inserted.id, membershipHash, isNew: true };
-};
-
-const STOOQ_BENCHMARK_RETRY_MS = 2000;
-
-const fetchStooqRowsWithMeta = async (symbol: string): Promise<StooqFetchResult> => {
-  const attempt = async (): Promise<StooqFetchResult> => {
-    try {
-      const response = await fetch(`https://stooq.com/q/d/l/?s=${encodeURIComponent(symbol)}&i=d`, {
-        cache: 'no-store',
-      });
-      const httpStatus = response.status;
-      if (!response.ok) {
-        return {
-          ok: false,
-          symbol,
-          httpStatus,
-          rowCount: 0,
-          firstDate: null,
-          lastDate: null,
-          rows: null,
-          error: `HTTP ${httpStatus}`,
-        };
-      }
-
-      const csv = await response.text();
-      const lines = csv.trim().split('\n');
-      if (lines.length < 2) {
-        return {
-          ok: false,
-          symbol,
-          httpStatus,
-          rowCount: 0,
-          firstDate: null,
-          lastDate: null,
-          rows: null,
-          error: 'CSV has no data rows',
-        };
-      }
-
-      const rows = lines
-        .slice(1)
-        .map((line) => {
-          const [date, _open, _high, _low, close] = line.split(',');
-          const d = date?.trim();
-          const closeValue = Number(close);
-          if (!d || !Number.isFinite(closeValue)) {
-            return null;
-          }
-          return { date: d, close: closeValue };
-        })
-        .filter((row): row is StooqCsvRow => Boolean(row))
-        .sort((a, b) => a.date.localeCompare(b.date));
-
-      if (!rows.length) {
-        return {
-          ok: false,
-          symbol,
-          httpStatus,
-          rowCount: 0,
-          firstDate: null,
-          lastDate: null,
-          rows: null,
-          error: 'No parseable CSV rows',
-        };
-      }
-
-      return {
-        ok: true,
-        symbol,
-        httpStatus,
-        rowCount: rows.length,
-        firstDate: rows[0]!.date,
-        lastDate: rows[rows.length - 1]!.date,
-        rows,
-      };
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      return {
-        ok: false,
-        symbol,
-        httpStatus: null,
-        rowCount: 0,
-        firstDate: null,
-        lastDate: null,
-        rows: null,
-        error: msg,
-      };
-    }
-  };
-
-  let result = await attempt();
-  if (!result.ok) {
-    await new Promise((r) => setTimeout(r, STOOQ_BENCHMARK_RETRY_MS));
-    result = await attempt();
-  }
-  return result;
-};
-
-const getCloseOnOrBefore = (rows: StooqCsvRow[], date: string) => {
-  let close: number | null = null;
-  let barDate: string | null = null;
-  for (const row of rows) {
-    if (row.date > date) {
-      break;
-    }
-    close = row.close;
-    barDate = row.date;
-  }
-  return { close, barDate };
-};
-
-const fetchBenchmarkReturnDetail = async (
-  symbol: string,
-  fromDate: string,
-  toDate: string
-): Promise<BenchmarkReturnDetail> => {
-  const fetchResult = await fetchStooqRowsWithMeta(symbol);
-  if (!fetchResult.ok || !fetchResult.rows?.length) {
-    return {
-      returnValue: 0,
-      fromClose: null,
-      toClose: null,
-      fromBarDate: null,
-      toBarDate: null,
-      fetch: fetchResult,
-    };
-  }
-  const { rows } = fetchResult;
-  const from = getCloseOnOrBefore(rows, fromDate);
-  const to = getCloseOnOrBefore(rows, toDate);
-  return {
-    returnValue: computeSimpleReturn(from.close, to.close),
-    fromClose: from.close,
-    toClose: to.close,
-    fromBarDate: from.barDate,
-    toBarDate: to.barDate,
-    fetch: fetchResult,
-  };
 };
 
 const buildTopHoldings = (
