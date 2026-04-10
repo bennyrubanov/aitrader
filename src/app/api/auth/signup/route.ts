@@ -41,7 +41,12 @@ const isDuplicateSignupError = (message: string, code?: string) => {
   return (
     m.includes("already registered") ||
     m.includes("user already exists") ||
-    m.includes("email address is already")
+    m.includes("email address is already") ||
+    m.includes("already been registered") ||
+    m.includes("user already registered") ||
+    m.includes("email already") ||
+    m.includes("duplicate") ||
+    m.includes("unique constraint")
   );
 };
 
@@ -65,6 +70,16 @@ export async function POST(request: Request) {
     const redirectTo = `${origin}/auth/callback?next=${encodeURIComponent(nextPath)}`;
     const supabase = createAdminClient();
 
+    const { data: existingProfile } = await supabase
+      .from("user_profiles")
+      .select("id")
+      .eq("email", email)
+      .maybeSingle();
+
+    if (existingProfile) {
+      return NextResponse.json({ exists: true });
+    }
+
     const { data, error } = await supabase.auth.admin.generateLink({
       type: "signup",
       email,
@@ -76,8 +91,10 @@ export async function POST(request: Request) {
       if (isDuplicateSignupError(error.message ?? "", error.code)) {
         return NextResponse.json({ exists: true });
       }
-      // Avoid leaking internal auth errors; behave like a generic success where appropriate.
-      return NextResponse.json({ ok: true });
+      return NextResponse.json(
+        { error: "Unable to complete signup. Please try again or sign in." },
+        { status: 500 },
+      );
     }
 
     const user = data?.user;

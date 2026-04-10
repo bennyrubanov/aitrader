@@ -21,6 +21,7 @@ import {
   DEFAULT_POST_AUTH_PATH,
   sanitizeAuthRedirectPath,
 } from "@/lib/auth-redirect";
+import { recordSignInContext } from "@/lib/auth-record-sign-in-context";
 
 const methodBadge = (lastMethod: string | null, method: string) =>
   lastMethod === method ? (
@@ -236,6 +237,7 @@ function SignUpPageContent() {
         setIsSubmitting(false);
         return;
       }
+      recordSignInContext();
       router.push(nextPath);
       router.refresh();
       return;

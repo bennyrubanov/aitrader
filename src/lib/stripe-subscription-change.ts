@@ -111,6 +111,77 @@ function resolvePreviewEndingCustomerBalance(preview: Stripe.Invoice): number | 
   return start + applied;
 }
 
+function unixSecondsToIsoUtc(seconds: number): string {
+  return new Date(seconds * 1000).toISOString();
+}
+
+/**
+ * Period start/end for the new recurring subscription line on an invoice preview (prefer line matching target price).
+ */
+function extractPreviewNewPlanPeriodBounds(
+  preview: Stripe.Invoice,
+  targetPriceId: string
+): { startIso: string | null; endIso: string | null } {
+  const lines = preview.lines?.data ?? [];
+  type Period = { start: number; end: number; duration: number };
+
+  function periodOf(li: (typeof lines)[number]): Period | null {
+    const p = li.period;
+    if (!p || typeof p.start !== 'number' || typeof p.end !== 'number') {
+      return null;
+    }
+    const duration = p.end - p.start;
+    if (duration <= 0) return null;
+    return { start: p.start, end: p.end, duration };
+  }
+
+  function priceIdOf(li: (typeof lines)[number]): string | null {
+    const price = li.price;
+    if (typeof price === 'string') return price;
+    if (
+      price &&
+      typeof price === 'object' &&
+      'id' in price &&
+      typeof (price as { id: unknown }).id === 'string'
+    ) {
+      return (price as { id: string }).id;
+    }
+    return null;
+  }
+
+  let bestForTarget: Period | null = null;
+  let longestPositive: Period | null = null;
+
+  for (const li of lines) {
+    const per = periodOf(li);
+    if (!per) continue;
+
+    const pid = priceIdOf(li);
+    if (pid === targetPriceId) {
+      if (!bestForTarget || per.duration > bestForTarget.duration) {
+        bestForTarget = per;
+      }
+    }
+
+    const desc = typeof li.description === 'string' ? li.description : '';
+    const isUnusedOrRemaining = UNUSED_OR_REMAINING_TIME_LINE.test(desc);
+    if (!isUnusedOrRemaining && typeof li.amount === 'number' && li.amount > 0) {
+      if (!longestPositive || per.duration > longestPositive.duration) {
+        longestPositive = per;
+      }
+    }
+  }
+
+  const chosen = bestForTarget ?? longestPositive;
+  if (!chosen) {
+    return { startIso: null, endIso: null };
+  }
+  return {
+    startIso: unixSecondsToIsoUtc(chosen.start),
+    endIso: unixSecondsToIsoUtc(chosen.end),
+  };
+}
+
 const UNUSED_OR_REMAINING_TIME_LINE =
   /unused\s+time|remaining\s+time|unused\s+amount|remaining\s+amount/i;
 

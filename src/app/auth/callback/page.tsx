@@ -8,6 +8,7 @@ import {
   parseSafeAuthRedirectPath,
 } from "@/lib/auth-redirect";
 import { parsePreAuthReturnUrlFromCookies } from "@/lib/auth-storage";
+import { recordSignInContext } from "@/lib/auth-record-sign-in-context";
 
 /**
  * Email confirmation and OAuth return to this URL. Supabase often puts errors only in the
@@ -48,6 +49,7 @@ function AuthCallbackContent() {
 
     const redirectToApp = () => {
       handledRef.current = true;
+      recordSignInContext();
       router.replace(nextPath);
       router.refresh();
     };

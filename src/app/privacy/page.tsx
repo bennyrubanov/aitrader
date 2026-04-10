@@ -58,7 +58,9 @@ const PrivacyPage = () => {
         </li>
         <li>
           <strong>Account Data:</strong> Information associated with your account, including
-          preferences, subscription status, and usage history within our platform.
+          preferences, subscription status, usage history within our platform, and (when you sign
+          in) coarse device type and limited browser metadata we store to support your account and
+          improve security.
         </li>
       </ul>
 

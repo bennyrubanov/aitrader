@@ -25,6 +25,7 @@ import {
   sanitizeAuthRedirectPath,
   shouldPersistSignInReturnPath,
 } from "@/lib/auth-redirect";
+import { recordSignInContext } from "@/lib/auth-record-sign-in-context";
 
 const methodBadge = (lastMethod: string | null, method: string) =>
   lastMethod === method ? (
@@ -187,6 +188,7 @@ function SignInPageContent() {
     }
 
     rememberSignInMethod(EMAIL_PASSWORD_SIGN_IN_METHOD);
+    recordSignInContext();
     setStatusMessage("Signed in successfully. Redirecting...");
     const returnUrl = getPreAuthReturnUrl();
     clearPreAuthReturnUrl();

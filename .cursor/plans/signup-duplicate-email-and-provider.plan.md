@@ -4,65 +4,66 @@ overview: Fix duplicate-email signup UX via user_profiles pre-check; add auth_si
 todos:
   - id: migration
     content: 'Add migration (+ sync schema.sql): user_profiles columns auth_signup_provider, last_sign_in_at, last_sign_in_device_class, last_sign_in_client jsonb; optional index on lower(email); replace handle_new_auth_user to set provider from raw_app_meta_data and never overwrite provider on conflict'
-    status: pending
+    status: completed
   - id: schema-rule
     content: Update .cursor/rules/supabase-schema.mdc user_profiles row
-    status: pending
+    status: completed
   - id: signup-api
     content: 'src/app/api/auth/signup/route.ts — admin pre-check user_profiles by normalized email → { exists: true }; broaden isDuplicateSignupError; replace fake { ok: true } on generateLink errors with generic 4xx/5xx + error body'
-    status: pending
+    status: completed
   - id: record-signin-route
     content: New POST src/app/api/auth/record-sign-in-context/route.ts — cookie session + headers (user-agent, sec-ch-ua-mobile, sec-ch-ua-platform) → device_class + bounded jsonb payload + last_sign_in_at; use server Supabase client (RLS ok for own row)
-    status: pending
+    status: completed
   - id: wire-record-signin
     content: Fire-and-forget fetch to record-sign-in-context after session established — sign-in page, sign-up canSignIn path, auth callback
-    status: pending
+    status: completed
   - id: privacy-optional
     content: Optional one line in privacy page if you retain UA/Client Hints
-    status: pending
+    status: completed
 isProject: false
 ---
 
-# Go-forward: signup duplicate email, signup provider, last sign-in context
+# Auth: duplicate signup, signup provider, last sign-in context
 
-## Supersedes
+## Context
 
-- [~/.cursor/plans/signup_duplicate_email_fix_ea969c9f.plan.md](/Users/bennyrubanov/.cursor/plans/signup_duplicate_email_fix_ea969c9f.plan.md) — **obsolete.** Same duplicate-email bug and signup-route fixes are folded in here; choice **B** (`user_profiles` pre-check) is locked (no auth.users RPC). Safe to delete that file locally to avoid confusion.
+- **Bug:** `auth.admin.generateLink` can succeed for an existing email or return errors your matcher misses; the catch-all returns `{ ok: true }`, so the client shows “check your email” incorrectly.
+- **Duplicate check:** Do not rely on PostgREST for `auth.users`. Use `**user_profiles`** with the **service-role admin client** and the same **trim + lower** email as today, **before `generateLink`.
+- **Signup provider:** First provider only, immutable after insert: `google` if `NEW.raw_app_meta_data->>'provider'` lowercases to `google`, else `email`. Do **not** update this column in `on conflict do update`.
+- **Last sign-in:** One **POST** route reads **request headers** (User-Agent, Client Hints), writes `last_sign_in_at`, `last_sign_in_device_class`, bounded `last_sign_in_client` jsonb. Call it **only** when a session is first established (password sign-in, sign-up `canSignIn` path, OAuth callback)—not on every page load.
 
-## Coverage check (nothing material missing)
+## Actions (do in this order)
 
-| Source                                                                                                               | In this plan                               |
-| -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
-| Root cause: `generateLink` succeeds or errors are misclassified; catch-all `{ ok: true }` → wrong “check your email” | Signup API todo + decisions row            |
-| Pre-check before `generateLink`; normalize email like today                                                          | Signup API todo + migration index optional |
-| Broaden `isDuplicateSignupError`                                                                                     | Signup API todo                            |
-| Remove fake success on non-duplicate admin errors                                                                    | Signup API todo                            |
-| Optional index on `lower(email)`                                                                                     | Migration todo                             |
-| `auth_signup_provider` on INSERT only; no overwrite on conflict                                                      | Migration todo + decisions                 |
-| Last sign-in fields + header-based route + wire three session paths                                                  | record-signin + wire todos                 |
-| OAuth note (duplicate fix is email/password API; sign-in context still wired at callback)                            | Wire todo includes callback                |
+1. **Database**
 
-**Not required for this repo:** generated `database.types.ts` was not found; add typings only if you introduce a shared `user_profiles` type that breaks builds.
+- Add migration (real `YYYYMMDDHHMMSS_…` per repo rules) and mirror in [supabase/schema.sql](supabase/schema.sql).
+- On `user_profiles`: `auth_signup_provider text not null default 'email'` check (`email`, `google`); `last_sign_in_at timestamptz`; `last_sign_in_device_class text not null default 'unknown'` check (`mobile`, `desktop`, `tablet`, `unknown`); `last_sign_in_client jsonb`.
+- Optionally index `lower(email)` for the signup pre-check.
+- Replace `handle_new_auth_user`: include `auth_signup_provider` in the insert; keep `on conflict do update` limited to email / full_name / updated_at (and newsletter side effects)—**do not** touch `auth_signup_provider` on update.
 
-## Decisions (locked)
+1. **Docs**
 
-| Topic                  | Approach                                                                                                                                                                                                           |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Duplicate email        | Use `**user_profiles`** + `**createAdminClient()`**, normalized email, **before `generateLink`. No PostgREST on `auth.users`; no RPC unless you revisit later.                                                     |
-| `auth_signup_provider` | `email` or `google`; `default 'email'`; set **only on INSERT** from `NEW.raw_app_meta_data->>'provider'` (`google` if lowercased provider is `google`, else `email`). **Do not** set on `on conflict … do update`. |
-| Last sign-in           | `last_sign_in_at`, `last_sign_in_device_class` (`mobile` / `desktop` / `tablet` / `unknown`), `last_sign_in_client` **jsonb** with bounded strings (`userAgent`, optional Client Hints fields).                    |
-| Who writes sign-in     | **One POST Route Handler** reads **request headers** (not body) and updates the session user’s row (RLS allows non-billing updates).                                                                               |
-| When                   | **Only** when session is **established** (sign-in, sign-up `canSignIn`, OAuth callback)—not every navigation.                                                                                                      |
+- Update [.cursor/rules/supabase-schema.mdc](.cursor/rules/supabase-schema.mdc) for new `user_profiles` columns.
 
-## Implementation order
+1. **POST [src/app/api/auth/record-sign-in-context/route.ts](src/app/api/auth/record-sign-in-context/route.ts)** (new)
 
-1. **Migration + [supabase/schema.sql](supabase/schema.sql)** — columns, checks, optional `lower(email)` index; `create or replace` `handle_new_auth_user` (and same SQL in migration if you mirror triggers there).
-2. **[.cursor/rules/supabase-schema.mdc](.cursor/rules/supabase-schema.mdc)** — document new `user_profiles` fields.
-3. `**POST /api/auth/record-sign-in-context` — `getUser()` from cookies; `device_class` from `sec-ch-ua-mobile` + light UA tablet heuristic; cap JSON length; `update user_profiles … where id = user.id`.
-4. **Wire** fire-and-forget `fetch` from [src/app/sign-in/page.tsx](src/app/sign-in/page.tsx), [src/app/sign-up/page.tsx](src/app/sign-up/page.tsx) (after `canSignIn` sign-in), [src/app/auth/callback](src/app/auth/callback) (after session).
-5. **[src/app/api/auth/signup/route.ts](src/app/api/auth/signup/route.ts)** — pre-check, duplicate strings, real error response instead of misleading `{ ok: true }`.
+- Resolve user via cookie session (`createServerClient` + `getUser()`).
+- Read `user-agent`, `sec-ch-ua-mobile`, `sec-ch-ua-platform`; derive `device_class` (e.g. `?1` on mobile hint → mobile; light tablet heuristic on UA; else desktop; empty → unknown).
+- Truncate strings before storing in jsonb; set `last_sign_in_at = now()`; `update user_profiles` for that user (RLS-allowed columns only).
+
+1. **Wire the recorder**
+
+- After successful session: fire-and-forget `fetch('/api/auth/record-sign-in-context', { method: 'POST' })` from [src/app/sign-in/page.tsx](src/app/sign-in/page.tsx), [src/app/sign-up/page.tsx](src/app/sign-up/page.tsx) after `canSignIn` password sign-in succeeds, and [src/app/auth/callback](src/app/auth/callback) after exchange. Failures are silent.
+
+1. **[src/app/api/auth/signup/route.ts](src/app/api/auth/signup/route.ts)**
+
+- If `user_profiles` already has this normalized email → `{ exists: true }` (200) before `generateLink`.
+- Broaden `isDuplicateSignupError` for common GoTrue messages/codes.
+- On any other `generateLink` error, return a **non-2xx** JSON `{ error }`—never `{ ok: true }`.
+
+1. **Optional:** One privacy-policy line if you keep UA / Client Hints in the database.
 
 ## Out of scope
 
-- Backfilling historical signup provider or device data.
-- RPC on `auth.users`, fingerprinting, middleware per request.
+- Backfilling old rows for provider or device.
+- `auth.users` RPC, fingerprinting, or middleware that updates on every request.

@@ -195,7 +195,9 @@ function OverviewTopPortfolioSpotlightSkeleton() {
         <Skeleton className="h-6 w-full max-w-3xl rounded-md" />
       </div>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,11rem)_minmax(0,1.25fr)_minmax(0,0.75fr)]">
-        <div className="space-y-2">
+        <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-1 lg:gap-2">
+          <Skeleton className="h-14 w-full rounded-lg" />
+          <Skeleton className="h-14 w-full rounded-lg" />
           <Skeleton className="h-14 w-full rounded-lg" />
           <Skeleton className="h-14 w-full rounded-lg" />
           <Skeleton className="h-14 w-full rounded-lg" />
@@ -3109,7 +3111,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                             </p>
                           ) : null}
                           <div className="grid gap-4 lg:grid-cols-[minmax(0,11rem)_minmax(0,1.25fr)_minmax(0,0.75fr)] lg:items-start">
-                              <div className="mx-auto w-full max-w-[11rem] space-y-2 lg:mx-0 lg:max-h-[min(70vh,520px)] lg:overflow-y-auto lg:pr-1">
+                              <div className="mx-auto grid w-full max-w-full grid-cols-2 gap-2 sm:gap-3 lg:mx-0 lg:max-w-[11rem] lg:grid-cols-1 lg:gap-2 lg:max-h-[min(70vh,520px)] lg:overflow-y-auto lg:pr-1">
                                 <SpotlightStatCard
                                   tooltipKey="portfolio_value"
                                   label="Portfolio value"

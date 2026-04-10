@@ -65,7 +65,12 @@ export function SpotlightStatCard({
           {valueLine}
         </button>
       </TooltipTrigger>
-      <TooltipContent side="right" className="max-w-xs px-3 py-2 text-xs" sideOffset={6}>
+      <TooltipContent
+        side="bottom"
+        align="center"
+        className="max-w-xs px-3 py-2 text-xs"
+        sideOffset={6}
+      >
         <p className="mb-1 font-semibold leading-snug text-foreground">{tip.title}</p>
         <p className="text-muted-foreground leading-snug">{tip.body}</p>
       </TooltipContent>
@@ -86,7 +91,8 @@ export function SpotlightAllocationHeaderTooltip() {
         </button>
       </TooltipTrigger>
       <TooltipContent
-        side="left"
+        side="bottom"
+        align="end"
         className="max-w-sm px-3 py-2 text-xs pointer-events-auto"
         sideOffset={8}
       >

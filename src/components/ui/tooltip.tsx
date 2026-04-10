@@ -101,6 +101,7 @@ const TooltipContent = React.forwardRef<
         <PopoverPrimitive.Content
           ref={ref}
           sideOffset={sideOffset}
+          collisionPadding={16}
           className={cn(
             tooltipContentClassName,
             'max-w-[min(20rem,calc(100vw-2rem))] text-left',

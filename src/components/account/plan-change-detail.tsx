@@ -98,8 +98,8 @@ export function PlanChangeCompareLayout({
   return (
     <div className="w-full min-w-0 max-w-full overflow-hidden rounded-md border bg-muted/30 text-sm">
       <div className="grid grid-cols-1 divide-y sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] sm:divide-y-0 sm:gap-3 sm:p-3">
-        {column('New plan', afterRows, effectiveLabel ?? undefined, true)}
         {column('Current plan', beforeRows)}
+        {column('New plan', afterRows, effectiveLabel ?? undefined, true)}
       </div>
       <div className="min-w-0 border-t bg-muted/50">
         <div className="min-w-0 space-y-3 px-3 py-3">

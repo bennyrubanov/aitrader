@@ -72,8 +72,18 @@ create table if not exists public.user_profiles (
   stripe_recurring_interval text,
   stripe_recurring_unit_amount integer,
   stripe_recurring_currency text,
+  auth_signup_provider text not null default 'email',
+  last_sign_in_at timestamptz,
+  last_sign_in_device_class text not null default 'unknown',
+  last_sign_in_client jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
+  constraint user_profiles_auth_signup_provider_valid check (
+    auth_signup_provider in ('email', 'google')
+  ),
+  constraint user_profiles_last_sign_in_device_class_valid check (
+    last_sign_in_device_class in ('mobile', 'desktop', 'tablet', 'unknown')
+  ),
   constraint user_profiles_subscription_tier_valid check (
     subscription_tier in ('free', 'supporter', 'outperformer')
   ),
@@ -99,6 +109,9 @@ create table if not exists public.user_profiles (
     )
   )
 );
+
+create index if not exists idx_user_profiles_email_lower
+  on public.user_profiles (lower(email));
 
 create table if not exists public.newsletter_subscribers (
   id uuid primary key default gen_random_uuid(),
@@ -144,7 +157,14 @@ for each row execute procedure public.link_newsletter_subscriber_to_user();
 create or replace function public.handle_new_auth_user()
 returns trigger as $$
 begin
-  insert into public.user_profiles (id, email, full_name, created_at, updated_at)
+  insert into public.user_profiles (
+    id,
+    email,
+    full_name,
+    auth_signup_provider,
+    created_at,
+    updated_at
+  )
   values (
     new.id,
     new.email,
@@ -153,6 +173,10 @@ begin
       new.raw_user_meta_data->>'name',
       new.email
     ),
+    case
+      when lower(coalesce(new.raw_app_meta_data->>'provider', '')) = 'google' then 'google'
+      else 'email'
+    end,
     now(),
     now()
   )
