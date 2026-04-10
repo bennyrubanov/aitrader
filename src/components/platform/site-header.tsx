@@ -14,6 +14,7 @@ import { MiniStockSearch } from '@/components/platform/mini-stock-search';
 import { PlanLabel } from '@/components/account/plan-label';
 import { useAuthState } from '@/components/auth/auth-state-context';
 import { SiteHeaderGuestAuth } from '@/components/platform/site-header-guest-auth';
+import { PLATFORM_TOUR_SHELL_READY_ATTR } from '@/lib/platform-post-onboarding-tour';
 
 type ViewMeta = {
   title: string;
@@ -106,7 +107,10 @@ export function SiteHeader() {
   const guestSignUpHref = `/sign-up?next=${encodeURIComponent(pathname || '/platform')}`;
 
   return (
-    <header className="sticky top-0 z-50 border-b bg-background">
+    <header
+      className="sticky top-0 z-50 border-b bg-background"
+      {...(isLoaded ? { [PLATFORM_TOUR_SHELL_READY_ATTR]: '1' } : {})}
+    >
       <div className="flex h-[var(--header-height)] items-center gap-3 px-4">
         <Link
           href="/"

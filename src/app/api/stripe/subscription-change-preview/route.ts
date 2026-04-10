@@ -73,6 +73,8 @@ export async function POST(req: Request) {
         outperformerYearlyUnitAmount: preview.outperformerYearlyUnitAmount,
         outperformerYearlyCurrency: preview.outperformerYearlyCurrency,
         currentSubscriptionPeriodEndIso: preview.currentSubscriptionPeriodEndIso,
+        newPlanPeriodStartIso: preview.newPlanPeriodStartIso,
+        newPlanNextRenewalIso: preview.newPlanNextRenewalIso,
       });
     }
 
@@ -99,6 +101,8 @@ export async function POST(req: Request) {
         targetRecurringCurrency: preview.targetRecurringCurrency,
         targetRecurringInterval: preview.targetRecurringInterval,
         currentSubscriptionPeriodEndIso: preview.currentSubscriptionPeriodEndIso,
+        newPlanPeriodStartIso: preview.newPlanPeriodStartIso,
+        newPlanNextRenewalIso: preview.newPlanNextRenewalIso,
       });
     }
 

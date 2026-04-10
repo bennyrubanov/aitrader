@@ -16,6 +16,11 @@ import {
   formatBillingCadenceLabel,
   formatPaidTierLabel,
 } from '@/components/account/plan-change-labels';
+import {
+  addIntervalToIsoUtc,
+  formatIsoDateUtcMedium,
+  formatNowUtcMedium,
+} from '@/lib/billing-dates';
 
 type PreviewPayload = {
   prorationDate: number;
@@ -35,6 +40,8 @@ type PreviewPayload = {
   targetRecurringCurrency: string;
   targetRecurringInterval: 'month' | 'year';
   currentSubscriptionPeriodEndIso: string | null;
+  newPlanPeriodStartIso: string | null;
+  newPlanNextRenewalIso: string | null;
 };
 
 function formatMoney(amount: number | null, currency: string) {
@@ -58,22 +65,6 @@ function formatPeriodEndUtc(iso: string | null) {
     }).format(new Date(iso));
   } catch {
     return null;
-  }
-}
-
-function computeNewRenewalDateLabel(interval: 'month' | 'year'): string {
-  const d = new Date();
-  if (interval === 'year') d.setFullYear(d.getFullYear() + 1);
-  else d.setMonth(d.getMonth() + 1);
-  try {
-    return (
-      new Intl.DateTimeFormat(undefined, {
-        dateStyle: 'medium',
-        timeZone: 'UTC',
-      }).format(d)
-    );
-  } catch {
-    return d.toISOString().slice(0, 10);
   }
 }
 
@@ -182,6 +173,8 @@ export function BillingIntervalSwitchDialog({
               typeof data.currentSubscriptionPeriodEndIso === 'string'
                 ? data.currentSubscriptionPeriodEndIso
                 : null,
+            newPlanPeriodStartIso: null,
+            newPlanNextRenewalIso: null,
           });
           setScheduled(true);
           setPhase('ready');
@@ -235,6 +228,10 @@ export function BillingIntervalSwitchDialog({
               typeof data.currentSubscriptionPeriodEndIso === 'string'
                 ? data.currentSubscriptionPeriodEndIso
                 : null,
+            newPlanPeriodStartIso:
+              typeof data.newPlanPeriodStartIso === 'string' ? data.newPlanPeriodStartIso : null,
+            newPlanNextRenewalIso:
+              typeof data.newPlanNextRenewalIso === 'string' ? data.newPlanNextRenewalIso : null,
           });
           setScheduled(false);
           setPhase('ready');
@@ -377,6 +374,32 @@ export function BillingIntervalSwitchDialog({
       ? 'See Billing & invoices'
       : `${formatMoney(amount, currency)}${interval === 'year' ? '/year' : '/month'} before tax`;
 
+  const newPlanStartRenewal = (() => {
+    if (!preview) {
+      return { start: '—', renewal: '—', nextPaymentDate: '—' };
+    }
+    if (scheduled && preview.currentSubscriptionPeriodEndIso) {
+      const iso = preview.currentSubscriptionPeriodEndIso;
+      const start = formatIsoDateUtcMedium(iso) ?? renewalOnLabel;
+      const nextIso = addIntervalToIsoUtc(iso, 'month');
+      const renewal = formatIsoDateUtcMedium(nextIso) ?? '—';
+      return { start, renewal, nextPaymentDate: start };
+    }
+    if (preview.newPlanPeriodStartIso && preview.newPlanNextRenewalIso) {
+      const start = formatIsoDateUtcMedium(preview.newPlanPeriodStartIso) ?? '—';
+      const renewal = formatIsoDateUtcMedium(preview.newPlanNextRenewalIso) ?? '—';
+      return { start, renewal, nextPaymentDate: start };
+    }
+    const start = formatNowUtcMedium();
+    const interval = preview.targetInterval;
+    const nextIso = addIntervalToIsoUtc(
+      new Date().toISOString(),
+      interval === 'year' ? 'year' : 'month'
+    );
+    const renewal = formatIsoDateUtcMedium(nextIso) ?? '—';
+    return { start, renewal, nextPaymentDate: start };
+  })();
+
   return (
     <Dialog
       open={open}
@@ -468,10 +491,8 @@ export function BillingIntervalSwitchDialog({
                     preview.targetInterval
                   ),
                 },
-                {
-                  label: 'Renewal date',
-                  value: scheduled ? renewalOnLabel : computeNewRenewalDateLabel(preview.targetInterval),
-                },
+                { label: 'Start date', value: newPlanStartRenewal.start },
+                { label: 'Renewal date', value: newPlanStartRenewal.renewal },
               ]}
               dueNowLabel="Due now"
               dueNowValue={
@@ -481,15 +502,13 @@ export function BillingIntervalSwitchDialog({
                     ? formatMoney(0, preview.currency)
                     : formatMoney(preview.amountDue, preview.currency)
               }
-              dueAtRenewal={{
+              nextPayment={{
                 amount: renewalDisplay(
                   preview.targetRecurringUnitAmount,
                   preview.targetRecurringCurrency,
                   preview.targetInterval
                 ),
-                renewalDate: scheduled
-                  ? renewalOnLabel
-                  : computeNewRenewalDateLabel(preview.targetInterval),
+                paymentDate: newPlanStartRenewal.nextPaymentDate,
               }}
               footnote={
                 scheduled ? (

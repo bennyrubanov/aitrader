@@ -11,8 +11,9 @@ export const PLATFORM_POST_ONBOARDING_TOUR_QUEUE_KEY = 'aitrader_platform_post_t
 export const PLATFORM_POST_ONBOARDING_TOUR_QUEUED_EVENT = 'aitrader:platform-post-tour-queued';
 
 /**
- * Sidebar / account chrome sets {@link PLATFORM_TOUR_SHELL_READY_ATTR} when auth has finished loading
- * so the tour can wait for subscription tier UI before appearing.
+ * Site header and sidebar account chrome set {@link PLATFORM_TOUR_SHELL_READY_ATTR} when auth has
+ * finished loading so the tour can wait for subscription tier UI before appearing (header stays
+ * mounted when the mobile nav sheet is closed).
  */
 export const PLATFORM_POST_ONBOARDING_TOUR_SHELL_READY_EVENT =
   'aitrader:platform-post-tour-shell-ready';
@@ -27,7 +28,7 @@ export const PLATFORM_POST_ONBOARDING_TOUR_REQUEST_READINESS_EVENT =
 /** Fired when overview + shell markers show the app is ready for the tour overlay (after rAF paint). */
 export const PLATFORM_POST_ONBOARDING_TOUR_PRIMED_EVENT = 'aitrader:platform-post-tour-primed';
 
-/** DOM marker for shell auth loaded (see sidebar account module). */
+/** DOM marker for shell auth loaded (site header + sidebar account module). */
 export const PLATFORM_TOUR_SHELL_READY_ATTR = 'data-platform-tour-shell-ready';
 
 export const PLATFORM_POST_ONBOARDING_TOUR_DONE_KEY = 'aitrader_platform_area_tour_v1_done';

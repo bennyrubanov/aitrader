@@ -4,22 +4,22 @@ overview: Fix Start vs Renewal dates in **paid → paid** plan-change dialogs; *
 todos:
   - id: stripe-preview-periods
     content: Extract newPlanPeriodStartIso/newPlanNextRenewalIso from invoice preview (prefer line items tied to target price); extend previewChangeBillingInterval + previewUpgradeToOutperformer + API route
-    status: pending
+    status: completed
   - id: utc-add-interval
     content: addIntervalToIsoUtc(iso, month|year) for scheduled transitions; document UTC month edge cases
-    status: pending
+    status: completed
   - id: billing-interval-dialog
     content: BillingIntervalSwitchDialog — New plan always Start + Renewal; branch scheduled vs immediate month→year; remove computeNewRenewalDateLabel
-    status: pending
+    status: completed
   - id: upgrade-dialog
     content: SubscriptionUpgradeDialog — always two date rows on New plan (Start + Renewal); preview extraction for all upgrade previews
-    status: pending
+    status: completed
   - id: downgrade-dialogs
     content: DowngradeToSupporterDialog + ScheduledDowngradeDetailDialog — New plan always Start + Renewal (period end / + interval)
-    status: pending
+    status: completed
   - id: plan-change-detail
     content: Replace "Due at renewal" block with section title "Next payment" + Amount + Date (rename type/props from dueAtRenewal as needed)
-    status: pending
+    status: completed
 isProject: false
 ---
 

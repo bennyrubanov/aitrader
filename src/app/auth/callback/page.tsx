@@ -37,7 +37,17 @@ function AuthCallbackContent() {
   useEffect(() => {
     if (handledRef.current) return;
 
+    let cancelled = false;
+    let subscription: { unsubscribe: () => void } | null = null;
+
+    const clearSubscription = () => {
+      subscription?.unsubscribe();
+      subscription = null;
+    };
+
     const redirectToError = (params: Record<string, string>) => {
+      if (cancelled) return;
+      clearSubscription();
       handledRef.current = true;
       const qs = new URLSearchParams();
       qs.set("next", nextPath);
@@ -48,6 +58,8 @@ function AuthCallbackContent() {
     };
 
     const redirectToApp = () => {
+      if (cancelled) return;
+      clearSubscription();
       handledRef.current = true;
       recordSignInContext();
       router.replace(nextPath);
@@ -55,6 +67,8 @@ function AuthCallbackContent() {
     };
 
     const run = async () => {
+      const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
       const hashRaw = window.location.hash?.replace(/^#/, "") ?? "";
       const hashParams = new URLSearchParams(hashRaw);
 
@@ -67,6 +81,7 @@ function AuthCallbackContent() {
       const hashErrorDesc = hashParams.get("error_description");
 
       if (queryError || queryErrorCode || hashError || hashErrorCode) {
+        if (cancelled) return;
         redirectToError({
           reason: "oauth",
           ...(hashErrorCode || queryErrorCode
@@ -90,6 +105,10 @@ function AuthCallbackContent() {
           access_token: hashAccessToken,
           refresh_token: hashRefreshToken,
         });
+        if (cancelled) {
+          handledRef.current = false;
+          return;
+        }
         if (sessionError) {
           handledRef.current = false;
           redirectToError({
@@ -103,21 +122,70 @@ function AuthCallbackContent() {
         return;
       }
 
-      if (supabase) {
+      if (!supabase) {
+        if (cancelled) return;
+        redirectToError({ reason: "missing_callback" });
+        return;
+      }
+
+      const oauthCode = searchParams.get("code");
+
+      const tryRedirectIfSignedIn = async (): Promise<boolean> => {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (cancelled || handledRef.current) return false;
+        if (session?.user) return true;
         const {
           data: { user },
         } = await supabase.auth.getUser();
-        if (user) {
-          handledRef.current = true;
+        if (cancelled || handledRef.current) return false;
+        return Boolean(user);
+      };
+
+      const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+        if (cancelled || handledRef.current) return;
+        if (!session?.user) return;
+        const allowInitial = !oauthCode;
+        if (
+          event !== "SIGNED_IN" &&
+          !(allowInitial && event === "INITIAL_SESSION")
+        ) {
+          return;
+        }
+        redirectToApp();
+      });
+      subscription = authListener.subscription;
+
+      for (let attempt = 0; attempt < 5; attempt++) {
+        if (cancelled || handledRef.current) break;
+        if (attempt > 0) {
+          await supabase.auth.refreshSession().catch(() => undefined);
+          await sleep(120 * attempt);
+        }
+        if (cancelled || handledRef.current) break;
+        if (await tryRedirectIfSignedIn()) {
           redirectToApp();
           return;
         }
       }
 
+      if (cancelled || handledRef.current) {
+        clearSubscription();
+        return;
+      }
+
+      clearSubscription();
       redirectToError({ reason: "missing_callback" });
     };
 
     void run();
+
+    return () => {
+      cancelled = true;
+      subscription?.unsubscribe();
+      subscription = null;
+    };
   }, [router, searchParams, nextPath]);
 
   return (

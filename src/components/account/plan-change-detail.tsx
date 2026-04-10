@@ -21,22 +21,22 @@ function formatMoneyForBreakdown(amount: number, currency: string): string {
 
 export type PlanCompareRow = { label: string; value: ReactNode };
 
-export type PlanChangeDueAtRenewal = {
-  /** Amount charged on the next regular renewal (e.g. formatted price). */
+export type PlanChangeNextPayment = {
+  /** Recurring amount for the new plan (e.g. formatted price). */
   amount: ReactNode;
-  /** When that renewal falls (e.g. formatted date). */
-  renewalDate: ReactNode;
+  /** When that payment occurs (e.g. formatted date; aligns with New plan Start date). */
+  paymentDate: ReactNode;
 };
 
 /**
- * Current vs new plan columns, due now, optional due at renewal (amount + date), optional footnote.
+ * Current vs new plan columns, due now, optional next payment (amount + date), optional footnote.
  */
 export function PlanChangeCompareLayout({
   beforeRows,
   afterRows,
   dueNowLabel,
   dueNowValue,
-  dueAtRenewal,
+  nextPayment,
   dueNowBreakdown,
   effectiveLabel,
   footnote,
@@ -45,7 +45,7 @@ export function PlanChangeCompareLayout({
   afterRows: PlanCompareRow[];
   dueNowLabel: string;
   dueNowValue: ReactNode;
-  dueAtRenewal?: PlanChangeDueAtRenewal | null;
+  nextPayment?: PlanChangeNextPayment | null;
   dueNowBreakdown?: {
     lineItems: Array<{ description: string; amount: number }>;
     currency: string;
@@ -195,21 +195,21 @@ export function PlanChangeCompareLayout({
               </div>
             ) : null}
           </div>
-          {dueAtRenewal ? (
+          {nextPayment ? (
             <div className="min-w-0 space-y-2 border-t border-border/50 pt-3">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Due at renewal
+                Next payment
               </p>
               <div className="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:justify-between">
                 <span className="shrink-0 text-xs text-muted-foreground">Amount</span>
                 <span className="min-w-0 break-words font-semibold tabular-nums text-foreground sm:text-right">
-                  {dueAtRenewal.amount}
+                  {nextPayment.amount}
                 </span>
               </div>
               <div className="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:justify-between">
-                <span className="shrink-0 text-xs text-muted-foreground">Renewal date</span>
+                <span className="shrink-0 text-xs text-muted-foreground">Date</span>
                 <span className="min-w-0 break-words text-sm font-medium text-foreground sm:text-right">
-                  {dueAtRenewal.renewalDate}
+                  {nextPayment.paymentDate}
                 </span>
               </div>
             </div>

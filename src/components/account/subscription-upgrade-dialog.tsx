@@ -16,6 +16,11 @@ import {
   formatBillingCadenceLabel,
   formatPaidTierLabel,
 } from '@/components/account/plan-change-labels';
+import {
+  addIntervalToIsoUtc,
+  formatIsoDateUtcMedium,
+  formatNowUtcMedium,
+} from '@/lib/billing-dates';
 
 type PreviewPayload = {
   prorationDate: number;
@@ -37,6 +42,8 @@ type PreviewPayload = {
   outperformerYearlyUnitAmount: number | null;
   outperformerYearlyCurrency: string;
   currentSubscriptionPeriodEndIso: string | null;
+  newPlanPeriodStartIso: string | null;
+  newPlanNextRenewalIso: string | null;
 };
 
 function formatMoney(amount: number | null, currency: string) {
@@ -60,22 +67,6 @@ function formatPeriodEndUtc(iso: string | null) {
     }).format(new Date(iso));
   } catch {
     return null;
-  }
-}
-
-function computeNewRenewalDateLabel(interval: 'month' | 'year'): string {
-  const d = new Date();
-  if (interval === 'year') d.setFullYear(d.getFullYear() + 1);
-  else d.setMonth(d.getMonth() + 1);
-  try {
-    return (
-      new Intl.DateTimeFormat(undefined, {
-        dateStyle: 'medium',
-        timeZone: 'UTC',
-      }).format(d)
-    );
-  } catch {
-    return d.toISOString().slice(0, 10);
   }
 }
 
@@ -146,7 +137,36 @@ function parsePreviewPayload(
       typeof data.currentSubscriptionPeriodEndIso === 'string'
         ? data.currentSubscriptionPeriodEndIso
         : null,
+    newPlanPeriodStartIso:
+      typeof data.newPlanPeriodStartIso === 'string' ? data.newPlanPeriodStartIso : null,
+    newPlanNextRenewalIso:
+      typeof data.newPlanNextRenewalIso === 'string' ? data.newPlanNextRenewalIso : null,
   };
+}
+
+function upgradeNewPlanDateLabels(
+  preview: PreviewPayload,
+  chosenInterval: 'month' | 'year',
+  intervalChanged: boolean
+): { start: string; renewal: string; nextPaymentDate: string } {
+  if (preview.newPlanPeriodStartIso && preview.newPlanNextRenewalIso) {
+    const start = formatIsoDateUtcMedium(preview.newPlanPeriodStartIso) ?? '—';
+    const renewal = formatIsoDateUtcMedium(preview.newPlanNextRenewalIso) ?? '—';
+    return { start, renewal, nextPaymentDate: start };
+  }
+  const renewalFromPeriod = formatIsoDateUtcMedium(preview.currentSubscriptionPeriodEndIso);
+  if (!intervalChanged) {
+    const start = formatNowUtcMedium();
+    const renewal = renewalFromPeriod ?? 'See Billing & invoices';
+    return { start, renewal, nextPaymentDate: start };
+  }
+  const start = formatNowUtcMedium();
+  const nextEnd = addIntervalToIsoUtc(
+    new Date().toISOString(),
+    chosenInterval === 'year' ? 'year' : 'month'
+  );
+  const renewal = formatIsoDateUtcMedium(nextEnd) ?? '—';
+  return { start, renewal, nextPaymentDate: start };
 }
 
 type SubscriptionUpgradeDialogProps = {
@@ -397,6 +417,11 @@ export function SubscriptionUpgradeDialog({
       ? formatMoney(0, preview.currency)
       : formatMoney(preview?.amountDue ?? null, preview?.currency ?? 'usd');
 
+  const newPlanDates =
+    preview && chosenInterval !== null
+      ? upgradeNewPlanDateLabels(preview, chosenInterval, intervalChanged)
+      : { start: '—', renewal: '—', nextPaymentDate: '—' };
+
   const showPricingDescription = (phase === 'ready' || phase === 'confirming') && preview;
   const showIntervalToggleInFooter =
     (phase === 'ready' || phase === 'confirming') &&
@@ -518,24 +543,18 @@ export function SubscriptionUpgradeDialog({
                         chosenInterval
                       ),
                     },
-                    {
-                      label: 'Renewal date',
-                      value: intervalChanged
-                        ? computeNewRenewalDateLabel(chosenInterval)
-                        : renewalOnLabel,
-                    },
+                    { label: 'Start date', value: newPlanDates.start },
+                    { label: 'Renewal date', value: newPlanDates.renewal },
                   ]}
                   dueNowLabel="Due now"
                   dueNowValue={dueNowLayoutValue}
-                  dueAtRenewal={{
+                  nextPayment={{
                     amount: renewalDisplay(
                       afterRecurring.amount,
                       afterRecurring.currency,
                       chosenInterval
                     ),
-                    renewalDate: intervalChanged
-                      ? computeNewRenewalDateLabel(chosenInterval)
-                      : renewalOnLabel,
+                    paymentDate: newPlanDates.nextPaymentDate,
                   }}
                   footnote={
                     intervalChanged ? (

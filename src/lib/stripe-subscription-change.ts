@@ -136,15 +136,18 @@ function extractPreviewNewPlanPeriodBounds(
   }
 
   function priceIdOf(li: (typeof lines)[number]): string | null {
-    const price = li.price;
-    if (typeof price === 'string') return price;
+    const pricing = li.pricing;
     if (
-      price &&
-      typeof price === 'object' &&
-      'id' in price &&
-      typeof (price as { id: unknown }).id === 'string'
+      pricing &&
+      pricing.type === 'price_details' &&
+      pricing.price_details &&
+      'price' in pricing.price_details
     ) {
-      return (price as { id: string }).id;
+      const p = pricing.price_details.price;
+      if (typeof p === 'string') return p;
+      if (p && typeof p === 'object' && 'id' in p && typeof (p as { id: unknown }).id === 'string') {
+        return (p as { id: string }).id;
+      }
     }
     return null;
   }
@@ -485,6 +488,9 @@ export async function previewChangeBillingInterval(
   targetRecurringInterval: 'month' | 'year';
   /** End of current subscription item period before this change (ISO). */
   currentSubscriptionPeriodEndIso: string | null;
+  /** New recurring line on preview invoice (ISO UTC), when extractable. */
+  newPlanPeriodStartIso: string | null;
+  newPlanNextRenewalIso: string | null;
   lineItems: InvoiceLineItemSummary[];
   /** Customer balance after this charge; negative = credit left. Null when unknown from preview. */
   endingBalance: number | null;
@@ -542,6 +548,7 @@ export async function previewChangeBillingInterval(
     typeof currentPrice.unit_amount === 'number' ? currentPrice.unit_amount : null;
   const currentRecurringCurrency = currentPrice.currency || preview.currency;
   const periodEndUnix = subscriptionCurrentPeriodEndUnix(ctx.subscription);
+  const periodBounds = extractPreviewNewPlanPeriodBounds(preview, targetPriceId);
 
   return {
     prorationDate,
@@ -560,6 +567,8 @@ export async function previewChangeBillingInterval(
     targetRecurringInterval: ri,
     currentSubscriptionPeriodEndIso:
       periodEndUnix !== null ? new Date(periodEndUnix * 1000).toISOString() : null,
+    newPlanPeriodStartIso: periodBounds.startIso,
+    newPlanNextRenewalIso: periodBounds.endIso,
     lineItems: sortInvoiceLineItemsForCalculation(
       (preview.lines?.data ?? []).map((li) => ({
         description: invoiceLineDescriptionWithPeriod(li, {
@@ -820,6 +829,8 @@ export async function previewUpgradeToOutperformer(
   outperformerYearlyUnitAmount: number | null;
   outperformerYearlyCurrency: string;
   currentSubscriptionPeriodEndIso: string | null;
+  newPlanPeriodStartIso: string | null;
+  newPlanNextRenewalIso: string | null;
   lineItems: InvoiceLineItemSummary[];
   /** Customer balance after this charge; negative = credit left. Null when unknown from preview. */
   endingBalance: number | null;
@@ -869,6 +880,7 @@ export async function previewUpgradeToOutperformer(
   ]);
 
   const periodEndUnix = subscriptionCurrentPeriodEndUnix(ctx.subscription);
+  const periodBounds = extractPreviewNewPlanPeriodBounds(preview, targetPriceId);
 
   return {
     prorationDate,
@@ -894,6 +906,8 @@ export async function previewUpgradeToOutperformer(
     outperformerYearlyCurrency: yearlyOutPrice.currency || preview.currency,
     currentSubscriptionPeriodEndIso:
       periodEndUnix !== null ? new Date(periodEndUnix * 1000).toISOString() : null,
+    newPlanPeriodStartIso: periodBounds.startIso,
+    newPlanNextRenewalIso: periodBounds.endIso,
     lineItems: sortInvoiceLineItemsForCalculation(
       (preview.lines?.data ?? []).map((li) => ({
         description: invoiceLineDescriptionWithPeriod(li, {

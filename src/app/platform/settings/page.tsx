@@ -68,7 +68,7 @@ function formatBillingCharge(amount: number, currency: string): string {
   }
 }
 
-/** Billing section subtitle: renewal or plan-change date, next charge when known, cadence. */
+/** Billing section subtitle: next payment or plan-change date, amount when known, cadence. */
 function billingSectionSummary(
   cancelAtPeriodEnd: boolean,
   pendingTier: 'free' | 'supporter' | 'outperformer' | null,
@@ -89,7 +89,7 @@ function billingSectionSummary(
 
   return (
     <>
-      {planChangesAtPeriodEnd ? 'Your plan changes on ' : 'Your subscription renews on '}
+      {planChangesAtPeriodEnd ? 'Your plan changes on ' : 'Your next payment is on '}
       <span className="font-medium text-foreground">{dateLabel}</span>
       {showNextCharge ? <> for {formatBillingCharge(unitAmount, currency)}</> : null}.
       {cadence ? <> {cadence}</> : null}

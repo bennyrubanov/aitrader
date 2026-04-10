@@ -18,6 +18,57 @@ import {
 import { cn } from '@/lib/utils';
 const HIGHLIGHT_PAD = 6;
 const POLL_INTERVAL_MS = 100;
+
+/** First matching element with a non-zero layout rect; optional checkVisibility when supported. */
+function queryFirstVisibleRect(selector: string): DOMRect | null {
+  const nodes = document.querySelectorAll(selector);
+  for (let i = 0; i < nodes.length; i++) {
+    const el = nodes[i];
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) continue;
+    if (el instanceof HTMLElement && typeof el.checkVisibility === 'function') {
+      try {
+        if (
+          !el.checkVisibility({
+            checkOpacity: true,
+            checkVisibilityCSS: true,
+          })
+        ) {
+          continue;
+        }
+      } catch {
+        /* optional API */
+      }
+    }
+    return r;
+  }
+  return null;
+}
+
+function scrollFirstVisibleIntoView(selector: string) {
+  const nodes = document.querySelectorAll(selector);
+  for (let i = 0; i < nodes.length; i++) {
+    const el = nodes[i];
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) continue;
+    if (el instanceof HTMLElement && typeof el.checkVisibility === 'function') {
+      try {
+        if (
+          !el.checkVisibility({
+            checkOpacity: true,
+            checkVisibilityCSS: true,
+          })
+        ) {
+          continue;
+        }
+      } catch {
+        /* optional API */
+      }
+    }
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    break;
+  }
+}
 const POLL_MAX_ATTEMPTS = 30;
 const ROUTE_SETTLE_MS = 250;
 
@@ -152,24 +203,20 @@ export function PostOnboardingPlatformTour() {
     const tryMeasure = (): DOMRect[] | null => {
       const rects: DOMRect[] = [];
       for (const selector of selectors) {
-        const el = document.querySelector(selector);
-        if (!el) return null;
-        const r = el.getBoundingClientRect();
-        if (r.width <= 0 || r.height <= 0) return null;
-        rects.push(r);
+        const r = queryFirstVisibleRect(selector);
+        if (r) rects.push(r);
       }
-      return rects;
+      return rects.length > 0 ? rects : null;
     };
 
     const scrollToTarget = () => {
-      const scrollTarget =
+      const scrollTargetSelector =
         selectors.find((s) => s.includes('page-root')) ??
         selectors.find((s) => s.includes('first-portfolio')) ??
         selectors.find((s) => s.includes('-panel')) ??
         selectors[0];
-      const scrollEl = scrollTarget ? document.querySelector(scrollTarget) : null;
-      if (scrollEl) {
-        scrollEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      if (scrollTargetSelector) {
+        scrollFirstVisibleIntoView(scrollTargetSelector);
       }
     };
 

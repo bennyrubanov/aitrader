@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog';
 import { PlanChangeCompareLayout } from '@/components/account/plan-change-detail';
 import { formatBillingCadenceLabel } from '@/components/account/plan-change-labels';
+import { addIntervalToIsoUtc, formatIsoDateUtcMedium } from '@/lib/billing-dates';
 
 type DowngradePreview = {
   billingInterval: 'month' | 'year';
@@ -187,6 +188,18 @@ export function DowngradeToSupporterDialog({
   const target = preview ? targetAmountForInterval(preview, chosenInterval) : null;
   const otherInterval = chosenInterval === 'year' ? 'month' : 'year';
 
+  const supporterNewPlanDates = preview
+    ? preview.currentSubscriptionPeriodEndIso
+      ? (() => {
+          const iso = preview.currentSubscriptionPeriodEndIso;
+          const start = formatIsoDateUtcMedium(iso) ?? renewalOnLabel;
+          const nextIso = addIntervalToIsoUtc(iso, chosenInterval);
+          const renewal = formatIsoDateUtcMedium(nextIso) ?? '—';
+          return { start, renewal, nextPaymentDate: start };
+        })()
+      : { start: renewalOnLabel, renewal: '—', nextPaymentDate: renewalOnLabel }
+    : { start: '—', renewal: '—', nextPaymentDate: '—' };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -244,13 +257,14 @@ export function DowngradeToSupporterDialog({
                   label: 'Recurring price',
                   value: renewalDisplay(target.amount, target.currency, chosenInterval),
                 },
-                { label: 'Renewal date', value: renewalOnLabel },
+                { label: 'Start date', value: supporterNewPlanDates.start },
+                { label: 'Renewal date', value: supporterNewPlanDates.renewal },
               ]}
               dueNowLabel="Due now"
               dueNowValue="$0"
-              dueAtRenewal={{
+              nextPayment={{
                 amount: renewalDisplay(target.amount, target.currency, chosenInterval),
-                renewalDate: renewalOnLabel,
+                paymentDate: supporterNewPlanDates.nextPaymentDate,
               }}
               footnote={
                 <p>
@@ -439,6 +453,18 @@ export function ScheduledDowngradeDetailDialog({
   const otherInterval = chosenInterval === 'year' ? 'month' : 'year';
   const intervalChangedVsCurrent = preview ? chosenInterval !== preview.billingInterval : false;
 
+  const scheduledSupporterNewPlanDates = preview
+    ? preview.currentSubscriptionPeriodEndIso
+      ? (() => {
+          const iso = preview.currentSubscriptionPeriodEndIso;
+          const start = formatIsoDateUtcMedium(iso) ?? renewalOnLabel;
+          const nextIso = addIntervalToIsoUtc(iso, chosenInterval);
+          const renewal = formatIsoDateUtcMedium(nextIso) ?? '—';
+          return { start, renewal, nextPaymentDate: start };
+        })()
+      : { start: renewalOnLabel, renewal: '—', nextPaymentDate: renewalOnLabel }
+    : { start: '—', renewal: '—', nextPaymentDate: '—' };
+
   const handleCancel = async () => {
     setBusy('cancel');
     setError(null);
@@ -525,13 +551,14 @@ export function ScheduledDowngradeDetailDialog({
                   label: 'Recurring price',
                   value: renewalDisplay(target.amount, target.currency, chosenInterval),
                 },
-                { label: 'Renewal date', value: renewalOnLabel },
+                { label: 'Start date', value: scheduledSupporterNewPlanDates.start },
+                { label: 'Renewal date', value: scheduledSupporterNewPlanDates.renewal },
               ]}
               dueNowLabel="Due now"
               dueNowValue="$0"
-              dueAtRenewal={{
+              nextPayment={{
                 amount: renewalDisplay(target.amount, target.currency, chosenInterval),
-                renewalDate: renewalOnLabel,
+                paymentDate: scheduledSupporterNewPlanDates.nextPaymentDate,
               }}
               footnote={
                 <p>
