@@ -228,7 +228,7 @@ function frequencyMetaFromCounts(
 
   return {
     weekly: {
-      dataLabel: `${w} weekly run${w === 1 ? '' : 's'} recorded`,
+      dataLabel: `${w} week${w === 1 ? '' : 's'} recorded`,
       implication:
         w >= 12
           ? 'Solid history for rankings and charts.'
@@ -238,7 +238,7 @@ function frequencyMetaFromCounts(
       tone: w >= 12 ? 'green' : w >= 4 ? 'amber' : 'red',
     },
     monthly: {
-      dataLabel: `${m} month${m === 1 ? '' : 's'} with at least one run`,
+      dataLabel: `${m} month${m === 1 ? '' : 's'} recorded`,
       implication:
         m >= 6
           ? 'Enough months to compare monthly rebalancing meaningfully.'
@@ -248,7 +248,7 @@ function frequencyMetaFromCounts(
       tone: m >= 6 ? 'green' : m >= 2 ? 'amber' : 'red',
     },
     quarterly: {
-      dataLabel: q === 1 ? '1 quarter with data (no rebalances yet)' : `${q} quarters with data`,
+      dataLabel: `${q} quarter${q === 1 ? '' : 's'} recorded`,
       implication:
         q >= 3
           ? 'Several quarters to compare quarterly rebalancing.'
@@ -259,11 +259,7 @@ function frequencyMetaFromCounts(
     },
     yearly: {
       dataLabel:
-        y === 0
-          ? 'No full calendar year yet'
-          : y === 1
-            ? '1 year with data (no rebalances yet)'
-            : `${y} years with data`,
+        y < 1 ? 'less than 1 year recorded' : `${y} year${y === 1 ? '' : 's'} recorded`,
       implication:
         y >= 2
           ? 'Multiple years — yearly cadence is observable.'
@@ -1195,13 +1191,27 @@ export function PortfolioOnboardingDialog({
                                   <FrequencyIcon className="size-3.5 text-muted-foreground" />
                                   {frequencyUi.label}
                                 </span>
-                                <span className={`text-[11px] font-medium ${toneClass}`}>
-                                  {meta.dataLabel}
+                                <span
+                                  className={`inline-flex items-center gap-1 text-[11px] font-medium ${toneClass}`}
+                                >
+                                  <span>{meta.dataLabel}</span>
+                                  <span className="hidden md:inline-flex">
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <span
+                                          aria-label={`${frequencyUi.label} data context`}
+                                          className="inline-flex rounded-sm text-muted-foreground/70 transition-colors hover:text-foreground"
+                                        >
+                                          <HelpCircle className="size-3" aria-hidden />
+                                        </span>
+                                      </TooltipTrigger>
+                                      <TooltipContent className="max-w-xs text-xs leading-relaxed">
+                                        {meta.implication}
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </span>
                                 </span>
                               </div>
-                              <p className="mt-0.5 text-xs text-muted-foreground leading-snug">
-                                {meta.implication}
-                              </p>
                             </div>
                             {isSelected && (
                               <Check className="size-3.5 text-primary shrink-0 mt-0.5" />

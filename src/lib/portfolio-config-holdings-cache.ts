@@ -4,6 +4,8 @@ export type ExploreHoldingsPayload = {
   holdings: HoldingItem[];
   asOfDate: string | null;
   rebalanceDates: string[];
+  asOfPriceBySymbol: Record<string, number | null>;
+  latestPriceBySymbol: Record<string, number | null>;
 };
 
 const store = new Map<string, ExploreHoldingsPayload>();
@@ -60,12 +62,16 @@ export async function loadExplorePortfolioConfigHoldings(
           holdings?: HoldingItem[];
           asOfDate?: string | null;
           rebalanceDates?: string[];
+          asOfPriceBySymbol?: Record<string, number | null>;
+          latestPriceBySymbol?: Record<string, number | null>;
         };
         if (!res.ok) return null;
         const data: ExploreHoldingsPayload = {
           holdings: Array.isArray(d.holdings) ? d.holdings : [],
           asOfDate: typeof d.asOfDate === 'string' ? d.asOfDate : null,
           rebalanceDates: Array.isArray(d.rebalanceDates) ? d.rebalanceDates : [],
+          asOfPriceBySymbol: d.asOfPriceBySymbol ?? {},
+          latestPriceBySymbol: d.latestPriceBySymbol ?? {},
         };
         remember(s, configId, asOf, data);
         return data;

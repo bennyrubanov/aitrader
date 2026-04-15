@@ -18,10 +18,13 @@ function normalizeWeighting(w: string | null | undefined): 'equal' | 'cap' {
 export function HoldingsAllocationColumnTooltip({
   weightingMethod,
   topN,
+  showCurrentVsTargetCopy = false,
 }: {
   weightingMethod: 'equal' | 'cap' | string | null | undefined;
   /** When 1 (tier 6), shows single-stock pie + copy; otherwise equal/cap mini pie by weighting. */
   topN?: number | null;
+  /** User-owned holdings tables can explain live current % vs target % semantics. */
+  showCurrentVsTargetCopy?: boolean;
 }) {
   const w = normalizeWeighting(weightingMethod);
   const title = w === 'cap' ? 'Cap weighting' : 'Equal weighting';
@@ -66,6 +69,12 @@ export function HoldingsAllocationColumnTooltip({
               <p>
                 <strong>{title}</strong> — {detail}
               </p>
+              {showCurrentVsTargetCopy ? (
+                <p className="text-muted-foreground">
+                  Current % reflects each holding&apos;s live share of your portfolio value.
+                  Target % is the model&apos;s cap/equal allocation at the selected rebalance.
+                </p>
+              ) : null}
               {exploreBlurb}
             </div>
           </div>

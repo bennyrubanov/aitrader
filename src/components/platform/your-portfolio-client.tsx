@@ -132,6 +132,7 @@ import {
 import { cn } from '@/lib/utils';
 import type { ConfigPerfRow } from '@/lib/portfolio-config-utils';
 import { buildConfigPerformanceChart } from '@/lib/config-performance-chart';
+import { buildLiveHoldingsAllocationResult } from '@/lib/live-holdings-allocation';
 import {
   getCachedConfigPerfPayload,
   getCachedUserEntryPayload,
@@ -677,6 +678,12 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const [configHoldingsLoading, setConfigHoldingsLoading] = useState(false);
   const [configHoldingsRefreshing, setConfigHoldingsRefreshing] = useState(false);
   const [configHoldingsAsOf, setConfigHoldingsAsOf] = useState<string | null>(null);
+  const [configHoldingsAsOfPriceBySymbol, setConfigHoldingsAsOfPriceBySymbol] = useState<
+    Record<string, number | null>
+  >({});
+  const [configHoldingsLatestPriceBySymbol, setConfigHoldingsLatestPriceBySymbol] = useState<
+    Record<string, number | null>
+  >({});
   const [configHoldingsRebalanceDates, setConfigHoldingsRebalanceDates] = useState<string[]>([]);
   const configHoldingsLenRef = useRef(0);
   configHoldingsLenRef.current = configHoldings.length;
@@ -1278,6 +1285,8 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       if (!yourPortfoliosHoldingsPaid) {
         setConfigHoldings([]);
         setConfigHoldingsAsOf(null);
+        setConfigHoldingsAsOfPriceBySymbol({});
+        setConfigHoldingsLatestPriceBySymbol({});
         setConfigHoldingsRebalanceDates([]);
         setConfigHoldingsLoading(false);
         setConfigHoldingsRefreshing(false);
@@ -1300,6 +1309,8 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         if (yourPortfolioHoldingsRequestIdRef.current !== reqId) return;
         setConfigHoldings(syncHit.holdings);
         setConfigHoldingsAsOf(syncHit.asOfDate);
+        setConfigHoldingsAsOfPriceBySymbol(syncHit.asOfPriceBySymbol);
+        setConfigHoldingsLatestPriceBySymbol(syncHit.latestPriceBySymbol);
         setConfigHoldingsRebalanceDates(syncHit.rebalanceDates);
         setConfigHoldingsLoading(false);
         setConfigHoldingsRefreshing(false);
@@ -1322,6 +1333,8 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         if (!data) {
           setConfigHoldings([]);
           setConfigHoldingsAsOf(null);
+          setConfigHoldingsAsOfPriceBySymbol({});
+          setConfigHoldingsLatestPriceBySymbol({});
           setConfigHoldingsRebalanceDates([]);
         } else {
           if (useRefreshChrome) {
@@ -1333,6 +1346,8 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
           }
           setConfigHoldings(data.holdings);
           setConfigHoldingsAsOf(data.asOfDate);
+          setConfigHoldingsAsOfPriceBySymbol(data.asOfPriceBySymbol);
+          setConfigHoldingsLatestPriceBySymbol(data.latestPriceBySymbol);
           setConfigHoldingsRebalanceDates(data.rebalanceDates);
           prefetchExploreHoldingsDates(slug, configId, data.rebalanceDates);
         }
@@ -1352,6 +1367,8 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       yourPortfolioHoldingsRequestIdRef.current += 1;
       setConfigHoldings([]);
       setConfigHoldingsAsOf(null);
+      setConfigHoldingsAsOfPriceBySymbol({});
+      setConfigHoldingsLatestPriceBySymbol({});
       setConfigHoldingsRebalanceDates([]);
       setConfigHoldingsLoading(false);
       setConfigHoldingsRefreshing(false);
@@ -1451,6 +1468,21 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   ]);
 
   const topN = selectedProfile?.portfolio_config?.top_n ?? 20;
+  const liveConfigHoldingsAllocation = useMemo(
+    () =>
+      buildLiveHoldingsAllocationResult(
+        configHoldings,
+        num(selectedProfile?.investment_size),
+        configHoldingsAsOfPriceBySymbol,
+        configHoldingsLatestPriceBySymbol
+      ),
+    [
+      configHoldings,
+      selectedProfile?.investment_size,
+      configHoldingsAsOfPriceBySymbol,
+      configHoldingsLatestPriceBySymbol,
+    ]
+  );
 
   const effectiveHoldingsAsOf = pendingHoldingsAsOf ?? configHoldingsAsOf;
 
@@ -2485,12 +2517,12 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                   </div>
 
                   <div className="relative flex min-h-0 w-full max-w-full min-w-0 flex-col gap-1.5 overflow-hidden rounded-xl border border-border/80 bg-background/80 p-3 shadow-sm sm:gap-2 sm:p-4 lg:flex-1 lg:basis-0">
-                  <div className="flex shrink-0 min-w-0 w-full flex-wrap items-end justify-between gap-x-3 gap-y-2">
+                  <div className="flex shrink-0 min-w-0 w-full flex-col gap-2">
                     <h4 className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       Portfolio holdings
                     </h4>
                     {yourPortfoliosHoldingsPaid && configHoldingsRebalanceDates.length > 0 ? (
-                      <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-2 sm:gap-x-3">
+                      <div className="flex flex-wrap items-center justify-start gap-x-2 gap-y-2 sm:gap-x-3">
                         <Select
                           value={
                             effectiveHoldingsAsOf &&
@@ -2506,10 +2538,10 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                           }}
                           disabled={configHoldingsLoading}
                         >
-                          <SelectTrigger className="h-9 w-full max-w-[168px] shrink-0 text-xs sm:w-[168px]">
+                          <SelectTrigger className="h-9 w-full max-w-[168px] shrink-0 text-left text-xs sm:w-[168px]">
                             <SelectValue placeholder="Rebalance date" />
                           </SelectTrigger>
-                          <SelectContent>
+                          <SelectContent align="start">
                             {configHoldingsRebalanceDates.map((d) => (
                               <SelectItem key={d} value={d} className="text-xs">
                                 {yourPortfolioHoldingsShortDateFmt.format(
@@ -2547,7 +2579,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                     ) : yourPortfoliosHoldingsPaid && configHoldingsLoading ? (
                       <span className="shrink-0 text-[11px] text-muted-foreground">Loading…</span>
                     ) : yourPortfoliosHoldingsPaid ? (
-                      <p className="shrink-0 text-right text-[11px] text-muted-foreground">
+                      <p className="shrink-0 text-left text-[11px] text-muted-foreground">
                         No rebalance history yet.
                       </p>
                     ) : null}
@@ -2618,6 +2650,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                       selectedProfile?.portfolio_config?.weighting_method
                                     }
                                     topN={selectedProfile?.portfolio_config?.top_n}
+                                    showCurrentVsTargetCopy
                                   />
                                 </span>
                               </TableHead>
@@ -2637,6 +2670,12 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                         ? h.companyName.trim()
                                         : null;
                                     const inv = num(selectedProfile?.investment_size);
+                                    const liveRow =
+                                      liveConfigHoldingsAllocation.bySymbol[h.symbol.toUpperCase()];
+                                    const showLive =
+                                      liveConfigHoldingsAllocation.hasCompleteCoverage &&
+                                      liveRow?.currentValue != null &&
+                                      liveRow.currentWeight != null;
                                     return (
                                       <TableRow
                                         key={`${h.symbol}-${h.rank}-m`}
@@ -2681,9 +2720,21 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                           )}
                                         </TableCell>
                                         <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap">
-                                          {Number.isFinite(inv) && inv > 0
-                                            ? `${formatYourPortfolioCurrency(h.weight * inv)} (${(h.weight * 100).toFixed(1)}%)`
-                                            : `— (${(h.weight * 100).toFixed(1)}%)`}
+                                          {showLive ? (
+                                            <div className="leading-tight">
+                                              <div>
+                                                Current:{' '}
+                                                {`${formatYourPortfolioCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
+                                              </div>
+                                              <div className="text-[11px] text-muted-foreground">
+                                                Target: {(h.weight * 100).toFixed(1)}%
+                                              </div>
+                                            </div>
+                                          ) : Number.isFinite(inv) && inv > 0 ? (
+                                            `${formatYourPortfolioCurrency(h.weight * inv)} (${(h.weight * 100).toFixed(1)}%)`
+                                          ) : (
+                                            `— (${(h.weight * 100).toFixed(1)}%)`
+                                          )}
                                         </TableCell>
                                         <TableCell className="py-1.5 pl-1.5 pr-3 text-right">
                                           <span className="inline-flex items-center justify-end gap-1">
@@ -2797,6 +2848,12 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                       ? h.companyName.trim()
                                       : null;
                                   const inv = num(selectedProfile?.investment_size);
+                                  const liveRow =
+                                    liveConfigHoldingsAllocation.bySymbol[h.symbol.toUpperCase()];
+                                  const showLive =
+                                    liveConfigHoldingsAllocation.hasCompleteCoverage &&
+                                    liveRow?.currentValue != null &&
+                                    liveRow.currentWeight != null;
                                   return (
                                     <TableRow
                                       key={`${h.symbol}-${h.rank}`}
@@ -2838,9 +2895,21 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                         )}
                                       </TableCell>
                                       <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap">
-                                        {Number.isFinite(inv) && inv > 0
-                                          ? `${formatYourPortfolioCurrency(h.weight * inv)} (${(h.weight * 100).toFixed(1)}%)`
-                                          : `— (${(h.weight * 100).toFixed(1)}%)`}
+                                        {showLive ? (
+                                          <div className="leading-tight">
+                                            <div>
+                                              Current:{' '}
+                                              {`${formatYourPortfolioCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
+                                            </div>
+                                            <div className="text-[11px] text-muted-foreground">
+                                              Target: {(h.weight * 100).toFixed(1)}%
+                                            </div>
+                                          </div>
+                                        ) : Number.isFinite(inv) && inv > 0 ? (
+                                          `${formatYourPortfolioCurrency(h.weight * inv)} (${(h.weight * 100).toFixed(1)}%)`
+                                        ) : (
+                                          `— (${(h.weight * 100).toFixed(1)}%)`
+                                        )}
                                       </TableCell>
                                       <TableCell className="py-1.5 pl-1.5 pr-3 text-right">
                                         <span className="inline-flex items-center justify-end gap-1">

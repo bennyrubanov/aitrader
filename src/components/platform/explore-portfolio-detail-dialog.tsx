@@ -483,8 +483,6 @@ export function ExplorePortfolioDetailDialog({
     void fetchExploreHoldings(date);
   };
 
-  const holdingsAllocationNotional = INITIAL_CAPITAL;
-
   const hasMetrics = config?.dataStatus === 'ready';
   const m = config?.metrics;
 
@@ -781,7 +779,7 @@ export function ExplorePortfolioDetailDialog({
                 Portfolio holdings
               </h4>
               {exploreHoldingsUnlocked && rebalanceDates.length > 0 ? (
-                <div className="flex w-full min-w-0 flex-row flex-nowrap items-center gap-x-2 overflow-x-auto sm:w-auto sm:flex-wrap sm:justify-end sm:gap-x-3 sm:overflow-visible">
+                <div className="flex w-full min-w-0 flex-row flex-nowrap items-center gap-x-2 overflow-x-auto sm:w-auto sm:flex-wrap sm:justify-start sm:gap-x-3 sm:overflow-visible">
                   <Select
                     value={
                       selectedAsOf && rebalanceDates.includes(selectedAsOf)
@@ -793,10 +791,10 @@ export function ExplorePortfolioDetailDialog({
                     }}
                     disabled={holdingsLoading}
                   >
-                    <SelectTrigger className="h-9 min-w-0 flex-1 text-xs sm:w-[168px] sm:flex-none sm:max-w-[168px]">
+                    <SelectTrigger className="h-9 min-w-0 flex-1 text-left text-xs sm:w-[168px] sm:flex-none sm:max-w-[168px]">
                       <SelectValue placeholder="Rebalance date" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent align="start">
                       {rebalanceDates.map((d) => (
                         <SelectItem key={d} value={d} className="text-xs">
                           {shortDateFmt.format(new Date(`${d}T00:00:00Z`))}
@@ -969,10 +967,7 @@ export function ExplorePortfolioDetailDialog({
                                       )}
                                     </TableCell>
                                     <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap">
-                                      {Number.isFinite(holdingsAllocationNotional) &&
-                                      holdingsAllocationNotional > 0
-                                        ? `${fmtUsd(h.weight * holdingsAllocationNotional)} (${(h.weight * 100).toFixed(1)}%)`
-                                        : `— (${(h.weight * 100).toFixed(1)}%)`}
+                                      {(h.weight * 100).toFixed(1)}%
                                     </TableCell>
                                     <TableCell className="py-1.5 pl-1.5 pr-3 text-right">
                                       <span className="inline-flex items-center justify-end gap-1">
@@ -1122,10 +1117,7 @@ export function ExplorePortfolioDetailDialog({
                                     )}
                                   </TableCell>
                                   <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap">
-                                    {Number.isFinite(holdingsAllocationNotional) &&
-                                    holdingsAllocationNotional > 0
-                                      ? `${fmtUsd(h.weight * holdingsAllocationNotional)} (${(h.weight * 100).toFixed(1)}%)`
-                                      : `— (${(h.weight * 100).toFixed(1)}%)`}
+                                    {(h.weight * 100).toFixed(1)}%
                                   </TableCell>
                                   <TableCell className="py-1.5 pl-1.5 pr-3 text-right">
                                     <span className="inline-flex items-center justify-end gap-1">

@@ -96,6 +96,7 @@ import {
 import {
   HoldingsAllocationColumnTooltip,
   HoldingsMovementInfoTooltip,
+  InfoIconTooltip,
   SpotlightStatCard,
 } from '@/components/tooltips';
 import { StockChartDialog } from '@/components/platform/stock-chart-dialog';
@@ -148,6 +149,7 @@ import {
   isGuestLocalProfileId,
 } from '@/lib/guest-local-profile';
 import { cn } from '@/lib/utils';
+import { buildLiveHoldingsAllocationResult } from '@/lib/live-holdings-allocation';
 
 const PerformanceChart = dynamic(
   () => import('@/components/platform/performance-chart').then((m) => m.PerformanceChart),
@@ -895,10 +897,12 @@ function RebalanceActionsTable({
   hold,
   buy,
   sell,
+  weightingMethod,
 }: {
   hold: PortfolioMovementLine[];
   buy: PortfolioMovementLine[];
   sell: PortfolioMovementLine[];
+  weightingMethod?: string | null;
 }) {
   /** Holds list only when there are no buy/sell name changes; otherwise table is buys + sells only. */
   const includeHoldsInTable = buy.length === 0 && sell.length === 0;
@@ -979,6 +983,17 @@ function RebalanceActionsTable({
     );
   };
 
+  const targetValueCell = (r: PortfolioMovementLine) => {
+    const pct = (r.targetWeight * 100).toFixed(1);
+    return (
+      <span className="font-medium tabular-nums text-foreground">
+        {formatOverviewCurrency(r.targetDollars)}{' '}
+        <span className="whitespace-nowrap font-normal text-muted-foreground">({pct}%)</span>
+      </span>
+    );
+  };
+  const targetWeightingLabel = weightingMethod === 'cap' ? 'cap-weighted' : 'equal-weighted';
+
   return (
     <div className="overflow-hidden rounded-lg border border-border/70 bg-card/30">
       <div className="max-h-[min(22rem,50vh)] overflow-y-auto overscroll-y-contain px-1 py-1 [scrollbar-width:thin]">
@@ -1026,7 +1041,16 @@ function RebalanceActionsTable({
                     scope="col"
                     className="whitespace-nowrap py-1.5 pl-3 pr-3 text-right font-semibold text-muted-foreground sm:pr-14"
                   >
-                    Target value
+                    <span className="inline-flex items-center justify-end gap-1">
+                      Target value
+                      <InfoIconTooltip ariaLabel="How target value percent is calculated">
+                        <p className="mb-1 font-semibold">Target %</p>
+                        <p className="text-muted-foreground">
+                          The percentage beside target value is this rebalance&apos;s{' '}
+                          {targetWeightingLabel} target allocation for the holding.
+                        </p>
+                      </InfoIconTooltip>
+                    </span>
                   </th>
                 </>
               )}
@@ -1066,7 +1090,7 @@ function RebalanceActionsTable({
                       {tradeCell(kind, r)}
                     </td>
                     <td className="whitespace-nowrap py-1 pl-3 pr-3 text-right align-middle font-medium tabular-nums text-foreground sm:pr-14">
-                      {formatOverviewCurrency(r.targetDollars)}
+                      {targetValueCell(r)}
                     </td>
                   </>
                 )}
@@ -1263,9 +1287,6 @@ function SinglePortfolioRebalanceMovementSection({
                   ) : (
                     <p className="text-sm font-medium text-foreground">Rebalance</p>
                   )}
-                  {actionsTableLoading ? (
-                    <p className="text-[11px] text-muted-foreground">Loading actions for this date…</p>
-                  ) : null}
                   {headerNotional != null ? (
                     <p className="text-[11px] text-muted-foreground">
                       {portfolioValueLineLabel}{' '}
@@ -1326,6 +1347,7 @@ function SinglePortfolioRebalanceMovementSection({
                     hold={actionsTablePayload.hold}
                     buy={actionsTablePayload.buy}
                     sell={actionsTablePayload.sell}
+                    weightingMethod={profile.portfolio_config?.weighting_method}
                   />
                   {actionsTablePayload.buy.length === 0 && actionsTablePayload.sell.length === 0 ? (
                     <p className="text-sm text-muted-foreground">
@@ -1600,6 +1622,12 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   const [topSpotlightHoldingsLoading, setTopSpotlightHoldingsLoading] = useState(false);
   const [topSpotlightHoldingsRefreshing, setTopSpotlightHoldingsRefreshing] = useState(false);
   const [topSpotlightHoldingsAsOf, setTopSpotlightHoldingsAsOf] = useState<string | null>(null);
+  const [topSpotlightAsOfPriceBySymbol, setTopSpotlightAsOfPriceBySymbol] = useState<
+    Record<string, number | null>
+  >({});
+  const [topSpotlightLatestPriceBySymbol, setTopSpotlightLatestPriceBySymbol] = useState<
+    Record<string, number | null>
+  >({});
   const [topSpotlightRebalanceDates, setTopSpotlightRebalanceDates] = useState<string[]>([]);
   const spotlightHoldingsRequestIdRef = useRef(0);
   const spotlightHoldingsLenRef = useRef(0);
@@ -2365,6 +2393,8 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
       if (!overviewPaidHoldings) {
         setTopSpotlightHoldings([]);
         setTopSpotlightHoldingsAsOf(null);
+        setTopSpotlightAsOfPriceBySymbol({});
+        setTopSpotlightLatestPriceBySymbol({});
         setTopSpotlightRebalanceDates([]);
         setTopSpotlightHoldingsLoading(false);
         setTopSpotlightHoldingsRefreshing(false);
@@ -2380,6 +2410,8 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
         if (spotlightHoldingsRequestIdRef.current !== reqId) return;
         setTopSpotlightHoldings(syncHit.holdings);
         setTopSpotlightHoldingsAsOf(syncHit.asOfDate);
+        setTopSpotlightAsOfPriceBySymbol(syncHit.asOfPriceBySymbol);
+        setTopSpotlightLatestPriceBySymbol(syncHit.latestPriceBySymbol);
         setTopSpotlightRebalanceDates(syncHit.rebalanceDates);
         setTopSpotlightHoldingsLoading(false);
         setTopSpotlightHoldingsRefreshing(false);
@@ -2401,6 +2433,8 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
         if (!data) {
           setTopSpotlightHoldings([]);
           setTopSpotlightHoldingsAsOf(null);
+          setTopSpotlightAsOfPriceBySymbol({});
+          setTopSpotlightLatestPriceBySymbol({});
           setTopSpotlightRebalanceDates([]);
         } else {
           if (useRefreshChrome) {
@@ -2412,6 +2446,8 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
           }
           setTopSpotlightHoldings(data.holdings);
           setTopSpotlightHoldingsAsOf(data.asOfDate);
+          setTopSpotlightAsOfPriceBySymbol(data.asOfPriceBySymbol);
+          setTopSpotlightLatestPriceBySymbol(data.latestPriceBySymbol);
           setTopSpotlightRebalanceDates(data.rebalanceDates);
           prefetchExploreHoldingsDates(slug, configId, data.rebalanceDates);
         }
@@ -2430,6 +2466,8 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
       spotlightHoldingsRequestIdRef.current += 1;
       setTopSpotlightHoldings([]);
       setTopSpotlightHoldingsAsOf(null);
+      setTopSpotlightAsOfPriceBySymbol({});
+      setTopSpotlightLatestPriceBySymbol({});
       setTopSpotlightRebalanceDates([]);
       setTopSpotlightHoldingsLoading(false);
       setTopSpotlightHoldingsRefreshing(false);
@@ -2447,6 +2485,21 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
 
   const spotlightHoldingsTopN =
     topSpotlightOverview?.profile.portfolio_config?.top_n ?? 20;
+  const liveTopSpotlightAllocation = useMemo(
+    () =>
+      buildLiveHoldingsAllocationResult(
+        topSpotlightHoldings,
+        Number(topSpotlightOverview?.profile.investment_size),
+        topSpotlightAsOfPriceBySymbol,
+        topSpotlightLatestPriceBySymbol
+      ),
+    [
+      topSpotlightHoldings,
+      topSpotlightOverview?.profile.investment_size,
+      topSpotlightAsOfPriceBySymbol,
+      topSpotlightLatestPriceBySymbol,
+    ]
+  );
 
   const spotlightHoldingsPrevRebalanceDate = useMemo(
     () => getPreviousRebalanceDate(topSpotlightRebalanceDates, topSpotlightHoldingsAsOf),
@@ -3237,12 +3290,12 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                 )}
                               </div>
                               <div className="min-w-0 space-y-2">
-                                <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-2">
+                                <div className="flex flex-col gap-2">
                                   <h4 className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                                     Portfolio holdings
                                   </h4>
                                   {overviewPaidHoldings && topSpotlightRebalanceDates.length > 0 ? (
-                                    <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-2 sm:gap-x-3">
+                                    <div className="flex flex-wrap items-center justify-start gap-x-2 gap-y-2 sm:gap-x-3">
                                       <Select
                                         value={
                                           topSpotlightHoldingsAsOf &&
@@ -3259,10 +3312,10 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                         }}
                                         disabled={topSpotlightHoldingsLoading}
                                       >
-                                        <SelectTrigger className="h-9 w-full max-w-[168px] shrink-0 text-xs sm:w-[168px]">
+                                        <SelectTrigger className="h-9 w-full max-w-[168px] shrink-0 text-left text-xs sm:w-[168px]">
                                           <SelectValue placeholder="Rebalance date" />
                                         </SelectTrigger>
-                                        <SelectContent>
+                                        <SelectContent align="start">
                                           {topSpotlightRebalanceDates.map((d) => (
                                             <SelectItem key={d} value={d} className="text-xs">
                                               {spotlightHoldingsShortDateFmt.format(
@@ -3303,7 +3356,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                       Loading…
                                     </span>
                                   ) : overviewPaidHoldings ? (
-                                    <p className="shrink-0 text-right text-[11px] text-muted-foreground">
+                                    <p className="shrink-0 text-left text-[11px] text-muted-foreground">
                                       No rebalance history yet.
                                     </p>
                                   ) : null}
@@ -3385,6 +3438,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                                 <HoldingsAllocationColumnTooltip
                                                   weightingMethod={pc?.weighting_method}
                                                   topN={pc?.top_n}
+                                                  showCurrentVsTargetCopy
                                                 />
                                               </span>
                                             </TableHead>
@@ -3404,6 +3458,14 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                                       h.companyName.trim().length > 0
                                                         ? h.companyName.trim()
                                                         : null;
+                                                    const liveRow =
+                                                      liveTopSpotlightAllocation.bySymbol[
+                                                        h.symbol.toUpperCase()
+                                                      ];
+                                                    const showLive =
+                                                      liveTopSpotlightAllocation.hasCompleteCoverage &&
+                                                      liveRow?.currentValue != null &&
+                                                      liveRow.currentWeight != null;
                                                     return (
                                                       <TableRow
                                                         key={`${h.symbol}-${h.rank}-m`}
@@ -3450,10 +3512,22 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                                           )}
                                                         </TableCell>
                                                         <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap">
-                                                          {Number.isFinite(investmentSize) &&
-                                                          investmentSize > 0
-                                                            ? `${formatOverviewCurrency(h.weight * investmentSize)} (${(h.weight * 100).toFixed(1)}%)`
-                                                            : `— (${(h.weight * 100).toFixed(1)}%)`}
+                                                          {showLive ? (
+                                                            <div className="leading-tight">
+                                                              <div>
+                                                                Current:{' '}
+                                                                {`${formatOverviewCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
+                                                              </div>
+                                                              <div className="text-[11px] text-muted-foreground">
+                                                                Target: {(h.weight * 100).toFixed(1)}%
+                                                              </div>
+                                                            </div>
+                                                          ) : Number.isFinite(investmentSize) &&
+                                                            investmentSize > 0 ? (
+                                                            `${formatOverviewCurrency(h.weight * investmentSize)} (${(h.weight * 100).toFixed(1)}%)`
+                                                          ) : (
+                                                            `— (${(h.weight * 100).toFixed(1)}%)`
+                                                          )}
                                                         </TableCell>
                                                         <TableCell className="py-1.5 pl-1.5 pr-3 text-right">
                                                           <span className="inline-flex items-center justify-end gap-1">
@@ -3576,6 +3650,14 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                                   h.companyName.trim().length > 0
                                                     ? h.companyName.trim()
                                                     : null;
+                                                const liveRow =
+                                                  liveTopSpotlightAllocation.bySymbol[
+                                                    h.symbol.toUpperCase()
+                                                  ];
+                                                const showLive =
+                                                  liveTopSpotlightAllocation.hasCompleteCoverage &&
+                                                  liveRow?.currentValue != null &&
+                                                  liveRow.currentWeight != null;
                                                 return (
                                                   <TableRow
                                                     key={`${h.symbol}-${h.rank}`}
@@ -3619,10 +3701,22 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                                       )}
                                                     </TableCell>
                                                     <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap">
-                                                      {Number.isFinite(investmentSize) &&
-                                                      investmentSize > 0
-                                                        ? `${formatOverviewCurrency(h.weight * investmentSize)} (${(h.weight * 100).toFixed(1)}%)`
-                                                        : `— (${(h.weight * 100).toFixed(1)}%)`}
+                                                      {showLive ? (
+                                                        <div className="leading-tight">
+                                                          <div>
+                                                            Current:{' '}
+                                                            {`${formatOverviewCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
+                                                          </div>
+                                                          <div className="text-[11px] text-muted-foreground">
+                                                            Target: {(h.weight * 100).toFixed(1)}%
+                                                          </div>
+                                                        </div>
+                                                      ) : Number.isFinite(investmentSize) &&
+                                                        investmentSize > 0 ? (
+                                                        `${formatOverviewCurrency(h.weight * investmentSize)} (${(h.weight * 100).toFixed(1)}%)`
+                                                      ) : (
+                                                        `— (${(h.weight * 100).toFixed(1)}%)`
+                                                      )}
                                                     </TableCell>
                                                     <TableCell className="py-1.5 pl-1.5 pr-3 text-right">
                                                       <span className="inline-flex items-center justify-end gap-1">

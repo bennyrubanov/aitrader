@@ -1307,11 +1307,11 @@ function PerformancePagePublicClientInner({
                   >
                     <SelectTrigger
                       id="holdings-rebalance-date"
-                      className="h-8 min-h-8 w-full px-2 text-xs [&_svg]:size-3.5"
+                      className="h-8 min-h-8 w-full px-2 text-left text-xs [&_svg]:size-3.5"
                     >
                       <SelectValue placeholder="Choose date" />
                     </SelectTrigger>
-                    <SelectContent className="text-xs">
+                    <SelectContent align="start" className="text-xs">
                       <SelectItem value="__latest__" className="py-1.5 text-xs">
                         Latest ({fmt.date(holdingsRebalanceDates[0])})
                       </SelectItem>
