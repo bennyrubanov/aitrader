@@ -654,7 +654,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
           <div
             ref={asideFiltersScrollRef}
             className={cn(
-              'relative min-h-0 flex-1 px-4 pt-2 sm:px-6 lg:min-h-0 lg:flex-1 lg:overflow-x-hidden lg:overflow-y-auto lg:overscroll-y-contain lg:px-0 lg:pr-1 lg:pt-0',
+              'relative min-h-0 flex-1 px-4 pt-2 sm:px-6 lg:min-h-0 lg:flex-1 lg:overflow-x-hidden lg:overflow-y-auto lg:overscroll-y-contain lg:px-1 lg:pr-1 lg:pt-0',
               // Thin, low-contrast scrollbar (WebKit + Firefox)
               '[scrollbar-width:thin] [scrollbar-color:hsl(var(--border)/0.55)_transparent]',
               'lg:[&::-webkit-scrollbar]:w-1.5 lg:[&::-webkit-scrollbar]:h-1.5',
@@ -746,7 +746,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
           </div>
         </aside>
 
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-y-contain lg:h-full lg:max-h-full lg:min-h-0 lg:pl-8">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-y-contain px-1 py-1 lg:h-full lg:max-h-full lg:min-h-0 lg:pl-8">
           {/* Header */}
           <div className="border-b px-4 pb-2 -mt-1 sm:px-6 sm:pb-2.5">
             <h2 className="text-base font-semibold leading-tight">Explore Portfolios</h2>

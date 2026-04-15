@@ -228,7 +228,7 @@ export function RecommendedPortfolioClient() {
           </div>
         )}
 
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-1 py-1">
         {/* Strategy summary cards */}
         <div className="grid grid-cols-2 gap-3 px-4 pt-4 sm:grid-cols-4 sm:px-6">
           <MetricCard label="Total return" value={pctStr(strategy.totalReturn)} />

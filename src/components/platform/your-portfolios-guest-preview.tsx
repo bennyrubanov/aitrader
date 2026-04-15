@@ -474,7 +474,7 @@ export function YourPortfoliosGuestPreview({ signInHref, signUpHref }: Props) {
         </div>
         <div
           className={cn(
-            'min-h-0 flex-1 space-y-0 px-4 pt-2 sm:px-6 lg:min-h-0 lg:flex-1 lg:overflow-x-hidden lg:overflow-y-auto lg:overscroll-y-contain lg:px-0 lg:pr-1 lg:pt-0',
+            'min-h-0 flex-1 space-y-0 px-4 pt-2 sm:px-6 lg:min-h-0 lg:flex-1 lg:overflow-x-hidden lg:overflow-y-auto lg:overscroll-y-contain lg:px-1 lg:pr-1 lg:pt-0',
             '[scrollbar-width:thin] [scrollbar-color:hsl(var(--border)/0.55)_transparent]',
             'lg:[&::-webkit-scrollbar]:w-1.5 lg:[&::-webkit-scrollbar]:h-1.5',
             'lg:[&::-webkit-scrollbar-track]:bg-transparent',
@@ -603,7 +603,7 @@ export function YourPortfoliosGuestPreview({ signInHref, signUpHref }: Props) {
       </aside>
 
       {/* Main — mirrors signed-in your-portfolios; blurred values; interactions open signup (chart CTA links to sign-up). */}
-      <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-y-auto overscroll-y-contain lg:h-full lg:max-h-full lg:min-h-0 lg:pl-8">
+      <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-y-auto overscroll-y-contain px-1 py-1 lg:h-full lg:max-h-full lg:min-h-0 lg:pl-8">
         <TooltipProvider delayDuration={200}>
           <div className="flex min-h-0 w-full min-w-0 max-w-none flex-1 flex-col self-stretch">
             <div className="shrink-0 border-b bg-background/95 px-5 py-3 sm:px-7 sm:py-3">

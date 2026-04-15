@@ -727,7 +727,7 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
         </div>
 
         {/* Table area — single overflow container so sticky <th> works (no nested overflow-x) */}
-        <div className="min-h-0 flex-1 overflow-auto overscroll-y-contain pb-4 pt-0">
+        <div className="min-h-0 flex-1 overflow-auto overscroll-y-contain px-1 pb-4 pt-1">
           {isStrategyLoading || isDateLoading ? (
             <div className="space-y-2 px-4 pt-4 sm:px-6">
               <Skeleton className="h-10 w-full" />

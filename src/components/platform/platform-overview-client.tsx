@@ -977,7 +977,7 @@ function RebalanceActionsTable({
 
   return (
     <div className="overflow-hidden rounded-lg border border-border/70 bg-card/30">
-      <div className="max-h-[min(22rem,50vh)] overflow-y-auto overscroll-y-contain [scrollbar-width:thin]">
+      <div className="max-h-[min(22rem,50vh)] overflow-y-auto overscroll-y-contain px-1 py-1 [scrollbar-width:thin]">
         <table
           className={cn(
             'w-full border-collapse text-left text-[11px]',
@@ -2793,7 +2793,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
         </DialogContent>
       </Dialog>
       <div className="flex h-full min-h-0 flex-1 flex-col">
-        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-y-contain px-0 pb-3 sm:pb-4">
+        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-y-contain px-1 pb-3 pt-1 sm:pb-4">
           {loading ? (
             <div className="w-full space-y-3">
               <div className="space-y-2 pb-2">
@@ -3696,7 +3696,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                           Choose from the portfolios you follow already.
                         </DialogDescription>
                       </DialogHeader>
-                      <div className="flex max-h-[min(65vh,440px)] flex-col gap-2 overflow-y-auto pr-1">
+                      <div className="flex max-h-[min(65vh,440px)] flex-col gap-2 overflow-y-auto px-1 py-1">
                         {profiles.length === 0 ? (
                           <p className="text-sm text-muted-foreground py-4 text-center">
                             Follow a portfolio from Explore first.

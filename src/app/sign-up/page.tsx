@@ -265,7 +265,7 @@ function SignUpPageContent() {
       <div className="mx-auto grid min-h-screen max-w-[1320px] grid-cols-1 lg:grid-cols-2">
         <section className="flex min-h-[100dvh] flex-col border-r border-border px-6 pb-8 pt-[max(6rem,calc(env(safe-area-inset-top)+4.25rem))] lg:min-h-screen lg:py-8">
           <div className="mx-auto flex min-h-0 w-full max-w-[420px] flex-1 flex-col">
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-1 py-1">
               <div className="flex w-full flex-col justify-start pt-1 pb-2 lg:min-h-full lg:justify-center lg:py-8">
                 <h1 className="text-3xl font-semibold tracking-tight">Get started</h1>
                 <p className="mt-1 text-sm text-muted-foreground">Create a new account</p>

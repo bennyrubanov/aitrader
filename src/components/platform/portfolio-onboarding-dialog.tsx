@@ -1039,7 +1039,7 @@ export function PortfolioOnboardingDialog({
                     Higher risk / concentrated
                   </span>
                 </div>
-                <div className="min-h-0 min-w-0 flex-1 touch-pan-y overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] pr-0.5">
+                <div className="min-h-0 min-w-0 flex-1 touch-pan-y overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] px-0.5">
                   <div className="flex flex-col gap-1">
                     {RISK_LEVELS.map((r) => {
                       const isSelected = draft.riskLevel === r;
@@ -1136,7 +1136,7 @@ export function PortfolioOnboardingDialog({
                 </DialogDescription>
               </DialogHeader>
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden py-2">
-                <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] pr-0.5">
+                <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] px-0.5">
                 <div className="space-y-1.5">
                   {!frequencyMeta ? (
                     <Skeleton className="h-40 w-full" />
@@ -1429,7 +1429,7 @@ export function PortfolioOnboardingDialog({
                 <DialogDescription>Tap any row to edit it.</DialogDescription>
               </DialogHeader>
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden pt-1">
-                <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch]">
+                <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] px-0.5">
                   <div className="space-y-1.5 pb-2">
                     <EditableSummaryRow
                       label="Strategy model"

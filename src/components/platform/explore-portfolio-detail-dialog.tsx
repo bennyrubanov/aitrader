@@ -233,7 +233,7 @@ function FlipCard({
           <p className="text-[9px] uppercase tracking-wide text-trader-blue font-semibold mb-0.5 shrink-0 line-clamp-2 leading-tight">
             {label}
           </p>
-          <div ref={backScrollRef} className="relative overflow-y-auto flex-1 min-h-0 pr-0.5">
+          <div ref={backScrollRef} className="relative overflow-y-auto flex-1 min-h-0 px-1 py-1">
             <p className="text-[11px] text-foreground/80 leading-snug">{explanation}</p>
             {showScrollHint ? (
               <div className="pointer-events-none absolute inset-x-0 bottom-0 flex h-5 items-end justify-center bg-gradient-to-t from-background/85 to-transparent pb-0.5">

@@ -1,5 +1,6 @@
 import { unstable_cache } from 'next/cache';
 import { computePerformanceCagr as computeCagr } from '@/lib/performance-cagr';
+import { ACTIVE_STRATEGY_ENTRY } from '@/lib/ai-strategy-registry';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { createPublicClient } from '@/utils/supabase/public';
 
@@ -816,6 +817,28 @@ export const getPortfolioRunDates = async (strategyId: string): Promise<string[]
 
 const getStrategiesListCached = unstable_cache(
   async (): Promise<StrategyListItem[]> => {
+    const fallbackList = (): StrategyListItem[] => [
+      {
+        id: '00000000-0000-0000-0000-000000000000',
+        slug: ACTIVE_STRATEGY_ENTRY.slug,
+        name: ACTIVE_STRATEGY_ENTRY.displayName,
+        version: ACTIVE_STRATEGY_ENTRY.appVersion,
+        description: ACTIVE_STRATEGY_ENTRY.description,
+        status: 'active',
+        portfolioSize: ACTIVE_STRATEGY_ENTRY.defaultPortfolio.portfolioSize,
+        rebalanceFrequency: ACTIVE_STRATEGY_ENTRY.defaultPortfolio.rebalanceFrequency,
+        weightingMethod: ACTIVE_STRATEGY_ENTRY.defaultPortfolio.weightingMethod,
+        transactionCostBps: ACTIVE_STRATEGY_ENTRY.defaultPortfolio.transactionCostBps,
+        isDefault: true,
+        startDate: null,
+        runCount: 0,
+        sharpeRatio: null,
+        totalReturn: null,
+        cagr: null,
+        maxDrawdown: null,
+      },
+    ];
+
     try {
       const supabase = createPublicClient();
 
@@ -827,7 +850,15 @@ const getStrategiesListCached = unstable_cache(
         .eq('status', 'active')
         .order('created_at', { ascending: false });
 
-      if (error || !data?.length) return [];
+      if (error) {
+        console.error('[getStrategiesList] strategy_models query failed', error);
+        return fallbackList();
+      }
+
+      if (!data?.length) {
+        console.error('[getStrategiesList] no active strategy_models rows found');
+        return fallbackList();
+      }
 
       const strategies = data as Array<{
         id: string;
@@ -898,8 +929,9 @@ const getStrategiesListCached = unstable_cache(
         if (b.sharpeRatio === null) return -1;
         return b.sharpeRatio - a.sharpeRatio;
       });
-    } catch {
-      return [];
+    } catch (error) {
+      console.error('[getStrategiesList] unexpected failure', error);
+      return fallbackList();
     }
   },
   ['strategies-list'],

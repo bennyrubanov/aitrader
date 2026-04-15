@@ -593,7 +593,7 @@ const Navbar: React.FC = () => {
               >
                 <SheetTitle className="sr-only">Main menu</SheetTitle>
                 <div className="flex min-h-0 flex-1 flex-col pt-6">
-                  <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain pr-1">
+                  <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-1 py-1">
                   <Accordion type="multiple" defaultValue={["platform"]} className="w-full">
                     <AccordionItem value="platform">
                       <AccordionTrigger className="py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:no-underline">

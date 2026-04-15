@@ -94,7 +94,7 @@ export function PortfolioListSortDialog({
                       }
                     }}
                     className={cn(
-                      'cursor-pointer overflow-hidden rounded-lg border text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+                      'cursor-pointer rounded-lg border text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
                       selected
                         ? 'border-primary bg-primary/5 ring-1 ring-primary/20'
                         : 'border-transparent hover:bg-muted/60'
