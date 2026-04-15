@@ -130,10 +130,8 @@ export function GuestPendingPortfolioFollowResume() {
         } catch {
           // profile row may still be saved; refresh loads server state
         }
+        queuePlatformPostOnboardingTour();
         router.refresh();
-        window.setTimeout(() => {
-          queuePlatformPostOnboardingTour();
-        }, 150);
       } finally {
         if (typeof window !== 'undefined') {
           window.dispatchEvent(new Event(GUEST_PORTFOLIO_RESUME_ENDED_EVENT));

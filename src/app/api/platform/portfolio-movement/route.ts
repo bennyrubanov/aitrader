@@ -31,6 +31,8 @@ export const runtime = 'nodejs';
 const unauthorized = () => NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
+const TRADE_DELTA_TOLERANCE_DOLLARS = 0.02;
+const WEIGHT_SUM_TOLERANCE = 0.0005;
 
 export async function GET(req: Request) {
   const supabase = await createClient();
@@ -238,12 +240,39 @@ export async function GET(req: Request) {
   if (notionalPrev <= 0) notionalPrev = investmentSize;
   if (notionalCurr <= 0) notionalCurr = investmentSize;
 
-  const { hold, buy, sell } = diffConfigHoldingsForRebalance(
+  const movement = diffConfigHoldingsForRebalance(
     prevHoldings,
     currHoldings,
-    notionalPrev,
     notionalCurr
   );
+  const { hold, buy, sell } = movement;
+  if (Math.abs(movement.preReconciliationDeltaDollars) > TRADE_DELTA_TOLERANCE_DOLLARS) {
+    console.warn('[portfolio-movement] non-zero trade delta after reconciliation', {
+      profileId,
+      strategyId: row.strategy_id,
+      configId: row.config_id,
+      previousRebalanceDate,
+      lastRebalanceDate,
+      preReconciliationDeltaDollars: movement.preReconciliationDeltaDollars,
+      totalTradeDeltaDollars: movement.totalTradeDeltaDollars,
+      residualAppliedDollars: movement.residualAppliedDollars,
+      rebalanceNotional: movement.rebalanceNotional,
+    });
+  }
+  if (
+    Math.abs(movement.previousWeightSum - 1) > WEIGHT_SUM_TOLERANCE ||
+    Math.abs(movement.targetWeightSum - 1) > WEIGHT_SUM_TOLERANCE
+  ) {
+    console.warn('[portfolio-movement] weight sum drift', {
+      profileId,
+      strategyId: row.strategy_id,
+      configId: row.config_id,
+      previousRebalanceDate,
+      lastRebalanceDate,
+      previousWeightSum: movement.previousWeightSum,
+      targetWeightSum: movement.targetWeightSum,
+    });
+  }
 
   return NextResponse.json({
     profileId,
@@ -251,7 +280,13 @@ export async function GET(req: Request) {
     lastRebalanceDate,
     previousRebalanceDate,
     notionalAtPrevRebalanceEnd: notionalPrev,
-    notionalAtCurrRebalanceEnd: notionalCurr,
+    notionalAtCurrRebalanceEnd: movement.rebalanceNotional,
+    movementNotional: movement.rebalanceNotional,
+    previousWeightSum: movement.previousWeightSum,
+    targetWeightSum: movement.targetWeightSum,
+    preReconciliationDeltaDollars: movement.preReconciliationDeltaDollars,
+    totalTradeDeltaDollars: movement.totalTradeDeltaDollars,
+    residualAppliedDollars: movement.residualAppliedDollars,
     rebalanceDates,
     hold,
     buy,

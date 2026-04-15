@@ -108,19 +108,22 @@ export function PostOnboardingPlatformTour() {
   const [viewport, setViewport] = useState({ w: 0, h: 0 });
   const lastReplacedPathRef = useRef<string | null>(null);
   const didScrollForStepRef = useRef<number>(-1);
+  const hasPremiumAccessRef = useRef(authState.hasPremiumAccess);
   /** Prefetch all tour routes once per active session (avoid churn on every pathname change). */
   const tourPrefetchRanForSessionRef = useRef(false);
+
+  hasPremiumAccessRef.current = authState.hasPremiumAccess;
 
   const stepCount = tourSteps.length;
 
   const tryStartTour = useCallback(() => {
     if (isPlatformPostOnboardingTourDone()) return;
     if (!consumePlatformPostOnboardingTourQueue()) return;
-    setTourSteps(buildTourStepsForUser(authState.hasPremiumAccess));
+    setTourSteps(buildTourStepsForUser(hasPremiumAccessRef.current));
     setTourReady(false);
     setActive(true);
     setStepIndex(0);
-  }, [authState.hasPremiumAccess]);
+  }, []);
 
   useEffect(() => {
     tryStartTour();

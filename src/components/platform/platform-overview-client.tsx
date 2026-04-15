@@ -54,6 +54,7 @@ import {
   PLATFORM_POST_ONBOARDING_TOUR_REQUEST_READINESS_EVENT,
   PLATFORM_POST_ONBOARDING_TOUR_SHELL_READY_EVENT,
   PLATFORM_TOUR_SHELL_READY_ATTR,
+  queuePlatformPostOnboardingTour,
 } from '@/lib/platform-post-onboarding-tour';
 import { UserPortfolioEntrySettingsDialog } from '@/components/platform/user-portfolio-entry-settings-dialog';
 import { Badge } from '@/components/ui/badge';
@@ -769,6 +770,9 @@ type PortfolioMovementApiPayload = {
   previousRebalanceDate: string | null;
   notionalAtPrevRebalanceEnd?: number | null;
   notionalAtCurrRebalanceEnd?: number | null;
+  movementNotional?: number | null;
+  totalTradeDeltaDollars?: number | null;
+  residualAppliedDollars?: number | null;
   /** Newest-first rebalance run dates (when holdings were computed). Present on `ok` / `no_prior_rebalance`. */
   rebalanceDates?: string[];
   hold: PortfolioMovementLine[];
@@ -1437,7 +1441,6 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   const appAccess = useMemo(() => getAppAccessState(authState), [authState]);
   const overviewPaidHoldings = canAccessPaidPortfolioHoldings(appAccess);
   const {
-    resetOnboarding,
     portfolioConfigHydrated,
     isOnboardingDone,
     config: portfolioConfigCtx,
@@ -1471,6 +1474,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   /* eslint-enable react-hooks/exhaustive-deps */
   /** TEMP dev-only: bump to remount onboarding dialog from a clean step state. Remove when no longer needed. */
   const [onboardingDevKey, setOnboardingDevKey] = useState(0);
+  const [onboardingDevForceOpen, setOnboardingDevForceOpen] = useState(false);
   const postCheckoutReconcileInFlight = useRef(false);
 
   useEffect(() => {
@@ -1504,7 +1508,6 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
               if (tier === 'supporter' || tier === 'outperformer') {
                 await refreshAuthProfile();
                 router.refresh();
-                resetOnboarding();
                 setOnboardingDevKey((k) => k + 1);
                 stripCheckoutQueryParams();
                 return;
@@ -1534,7 +1537,6 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     authState.isLoaded,
     pathname,
     refreshAuthProfile,
-    resetOnboarding,
     router,
     searchParams,
   ]);
@@ -2591,6 +2593,8 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
       <PortfolioOnboardingDialog
         key={onboardingDevKey}
         onFollowPortfolioSynced={syncFollowedProfileToOverview}
+        forceOpenLocalOnly={onboardingDevForceOpen}
+        onForceOpenLocalOnlyChange={setOnboardingDevForceOpen}
       />
       <ExplorePortfolioDetailDialog
         open={detailOpen}
@@ -3996,19 +4000,33 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                     </Link>
                   ))}
                   {process.env.NODE_ENV === 'development' ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-auto shrink-0 gap-1.5 rounded-xl border border-dashed border-border/80 bg-background/95 px-3 py-1.5 text-sm font-medium shadow-sm hover:bg-muted/60"
-                      onClick={() => {
-                        resetOnboarding();
-                        setOnboardingDevKey((k) => k + 1);
-                      }}
-                    >
-                      <span>Open onboarding</span>
-                      <span className="font-normal text-muted-foreground">(local only)</span>
-                    </Button>
+                    <>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-auto shrink-0 gap-1.5 rounded-xl border border-dashed border-border/80 bg-background/95 px-3 py-1.5 text-sm font-medium shadow-sm hover:bg-muted/60"
+                        onClick={() => {
+                          setOnboardingDevKey((k) => k + 1);
+                          setOnboardingDevForceOpen(true);
+                        }}
+                      >
+                        <span>Open onboarding</span>
+                        <span className="font-normal text-muted-foreground">(local only)</span>
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-auto shrink-0 gap-1.5 rounded-xl border border-dashed border-border/80 bg-background/95 px-3 py-1.5 text-sm font-medium shadow-sm hover:bg-muted/60"
+                        onClick={() => {
+                          queuePlatformPostOnboardingTour();
+                        }}
+                      >
+                        <span>Start tour</span>
+                        <span className="font-normal text-muted-foreground">(local only)</span>
+                      </Button>
+                    </>
                   ) : null}
                 </div>
               </div>

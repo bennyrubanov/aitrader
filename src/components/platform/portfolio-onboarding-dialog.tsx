@@ -5,14 +5,18 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
+  BarChart3,
   ArrowLeft,
   ArrowRight,
   Calendar as CalendarIcon,
+  CalendarDays,
   Check,
+  Clock3,
   ExternalLink,
   HelpCircle,
   Layers,
   Sparkles,
+  Zap,
   X,
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
@@ -48,7 +52,6 @@ import {
 import { useAuthState } from '@/components/auth/auth-state-context';
 import {
   DEFAULT_PORTFOLIO_CONFIG,
-  FREQUENCY_LABELS,
   RISK_LABELS,
   RISK_TOP_N,
   usePortfolioConfig,
@@ -83,9 +86,19 @@ import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
 import { setGuestDeclinedAccountNudgeThisSession } from '@/lib/guest-account-nudge-session';
 import { queuePlatformPostOnboardingTour } from '@/lib/platform-post-onboarding-tour';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
+import type { LucideIcon } from 'lucide-react';
 
 const RISK_LEVELS: RiskLevel[] = [1, 2, 3, 4, 5, 6];
 const FREQUENCIES: RebalanceFrequency[] = ['weekly', 'monthly', 'quarterly', 'yearly'];
+const ONBOARDING_FREQUENCY_META: Record<
+  RebalanceFrequency,
+  { label: string; icon: LucideIcon }
+> = {
+  weekly: { label: 'Active (Weekly)', icon: Zap },
+  monthly: { label: 'Steady (Monthly)', icon: CalendarDays },
+  quarterly: { label: 'Low-touch (Quarterly)', icon: BarChart3 },
+  yearly: { label: 'Long-horizon (Yearly)', icon: Clock3 },
+};
 
 function pickTopRankedConfig(configs: RankedConfig[]): RankedConfig | null {
   const ranked = configs.filter((c) => c.rank != null && c.rank >= 1);
@@ -376,10 +389,16 @@ function StepNav({
 type PortfolioOnboardingDialogProps = {
   /** After POST, polls until the new favorited profile is visible and updates overview state. */
   onFollowPortfolioSynced?: (profileId: string) => Promise<boolean>;
+  /** Dev-only: locally force-open onboarding UI without mutating onboarding flags. */
+  forceOpenLocalOnly?: boolean;
+  /** Dev-only close callback for force-open mode. */
+  onForceOpenLocalOnlyChange?: (open: boolean) => void;
 };
 
 export function PortfolioOnboardingDialog({
   onFollowPortfolioSynced,
+  forceOpenLocalOnly = false,
+  onForceOpenLocalOnlyChange,
 }: PortfolioOnboardingDialogProps) {
   const router = useRouter();
   const { toast } = useToast();
@@ -654,7 +673,8 @@ export function PortfolioOnboardingDialog({
     setStep('done');
   };
 
-  if (isOnboardingDone) return null;
+  const shouldRender = forceOpenLocalOnly || !isOnboardingDone;
+  if (!shouldRender) return null;
 
   const stepIndex =
     step === 'intro' || step === 'celebrate'
@@ -781,10 +801,8 @@ export function PortfolioOnboardingDialog({
         });
       }
       await markOnboardingDone();
+      queuePlatformPostOnboardingTour();
       router.refresh();
-      window.setTimeout(() => {
-        queuePlatformPostOnboardingTour();
-      }, 150);
     } finally {
       setFollowPhase('idle');
     }
@@ -870,7 +888,7 @@ export function PortfolioOnboardingDialog({
 
   return (
     <>
-    <Dialog open={!isOnboardingDone && !suppressForGuestResume}>
+    <Dialog open={shouldRender && !suppressForGuestResume}>
       <DialogContent
         className={cn(
           'flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1.5rem)] flex-col gap-0 overflow-hidden px-4 py-5 sm:px-6 sm:py-6',
@@ -889,7 +907,13 @@ export function PortfolioOnboardingDialog({
             size="icon"
             className="absolute right-2 top-2 z-10 size-8 text-muted-foreground hover:text-foreground sm:right-3 sm:top-3"
             aria-label="Close onboarding (local dev)"
-            onClick={() => void markOnboardingDone()}
+            onClick={() => {
+              if (forceOpenLocalOnly) {
+                onForceOpenLocalOnlyChange?.(false);
+                return;
+              }
+              void markOnboardingDone();
+            }}
           >
             <X className="size-4" />
           </Button>
@@ -974,7 +998,7 @@ export function PortfolioOnboardingDialog({
                   available right now — more are coming soon.
                 </DialogDescription>
               </DialogHeader>
-              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain py-2">
+              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-0.5 py-2">
                 {metaLoading ? (
                   <Skeleton className="h-24 w-full" />
                 ) : !selectedStrategy ? (
@@ -1136,7 +1160,7 @@ export function PortfolioOnboardingDialog({
                 </DialogDescription>
               </DialogHeader>
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden py-2">
-                <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] px-0.5">
+                <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] px-0.5 py-0.5">
                 <div className="space-y-1.5">
                   {!frequencyMeta ? (
                     <Skeleton className="h-40 w-full" />
@@ -1144,6 +1168,8 @@ export function PortfolioOnboardingDialog({
                     FREQUENCIES.map((f) => {
                       const meta = frequencyMeta[f];
                       const isSelected = draft.rebalanceFrequency === f;
+                      const frequencyUi = ONBOARDING_FREQUENCY_META[f];
+                      const FrequencyIcon = frequencyUi.icon;
                       const toneClass =
                         meta.tone === 'green'
                           ? 'text-emerald-600 dark:text-emerald-400'
@@ -1165,7 +1191,10 @@ export function PortfolioOnboardingDialog({
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
                               <div className="flex flex-wrap items-center gap-2">
-                                <span className="text-sm font-semibold">{FREQUENCY_LABELS[f]}</span>
+                                <span className="inline-flex items-center gap-1.5 text-sm font-semibold">
+                                  <FrequencyIcon className="size-3.5 text-muted-foreground" />
+                                  {frequencyUi.label}
+                                </span>
                                 <span className={`text-[11px] font-medium ${toneClass}`}>
                                   {meta.dataLabel}
                                 </span>
@@ -1205,7 +1234,7 @@ export function PortfolioOnboardingDialog({
                   Used for performance guidance. Change it anytime.
                 </DialogDescription>
               </DialogHeader>
-              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain py-2">
+              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-0.5 py-2">
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                   {INVESTMENT_QUICK_PICKS.map((size) => {
                     const isSelected =
@@ -1462,7 +1491,16 @@ export function PortfolioOnboardingDialog({
                     />
                     <EditableSummaryRow
                       label="Rebalancing"
-                      value={FREQUENCY_LABELS[draft.rebalanceFrequency]}
+                      value={
+                        <span className="inline-flex items-center gap-1.5">
+                          {(() => {
+                            const FrequencyIcon =
+                              ONBOARDING_FREQUENCY_META[draft.rebalanceFrequency].icon;
+                            return <FrequencyIcon className="size-3.5 text-muted-foreground" />;
+                          })()}
+                          {ONBOARDING_FREQUENCY_META[draft.rebalanceFrequency].label}
+                        </span>
+                      }
                       onClick={() => goToStep('frequency', true)}
                     />
                     <EditableSummaryRow

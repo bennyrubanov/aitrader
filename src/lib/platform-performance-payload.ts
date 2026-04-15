@@ -817,9 +817,23 @@ export const getPortfolioRunDates = async (strategyId: string): Promise<string[]
 
 const getStrategiesListCached = unstable_cache(
   async (): Promise<StrategyListItem[]> => {
-    const fallbackList = (): StrategyListItem[] => [
+    const readLastKnown = (): StrategyListItem[] | null => {
+      const g = globalThis as typeof globalThis & {
+        __aitrader_last_known_strategies_list__?: StrategyListItem[];
+      };
+      return g.__aitrader_last_known_strategies_list__ ?? null;
+    };
+
+    const writeLastKnown = (list: StrategyListItem[]): void => {
+      const g = globalThis as typeof globalThis & {
+        __aitrader_last_known_strategies_list__?: StrategyListItem[];
+      };
+      g.__aitrader_last_known_strategies_list__ = list;
+    };
+
+    const coldStartFallback = (): StrategyListItem[] => [
       {
-        id: '00000000-0000-0000-0000-000000000000',
+        id: 'registry-fallback-active-strategy',
         slug: ACTIVE_STRATEGY_ENTRY.slug,
         name: ACTIVE_STRATEGY_ENTRY.displayName,
         version: ACTIVE_STRATEGY_ENTRY.appVersion,
@@ -852,12 +866,24 @@ const getStrategiesListCached = unstable_cache(
 
       if (error) {
         console.error('[getStrategiesList] strategy_models query failed', error);
-        return fallbackList();
+        const lastKnown = readLastKnown();
+        if (lastKnown && lastKnown.length > 0) {
+          console.error('[getStrategiesList] using last-known cached strategies list');
+          return lastKnown;
+        }
+        console.error('[getStrategiesList] using cold-start registry fallback');
+        return coldStartFallback();
       }
 
       if (!data?.length) {
         console.error('[getStrategiesList] no active strategy_models rows found');
-        return fallbackList();
+        const lastKnown = readLastKnown();
+        if (lastKnown && lastKnown.length > 0) {
+          console.error('[getStrategiesList] using last-known cached strategies list');
+          return lastKnown;
+        }
+        console.error('[getStrategiesList] using cold-start registry fallback');
+        return coldStartFallback();
       }
 
       const strategies = data as Array<{
@@ -923,15 +949,23 @@ const getStrategiesListCached = unstable_cache(
         })
       );
 
-      return items.sort((a, b) => {
+      const sorted = items.sort((a, b) => {
         if (a.sharpeRatio === null && b.sharpeRatio === null) return 0;
         if (a.sharpeRatio === null) return 1;
         if (b.sharpeRatio === null) return -1;
         return b.sharpeRatio - a.sharpeRatio;
       });
+      writeLastKnown(sorted);
+      return sorted;
     } catch (error) {
       console.error('[getStrategiesList] unexpected failure', error);
-      return fallbackList();
+      const lastKnown = readLastKnown();
+      if (lastKnown && lastKnown.length > 0) {
+        console.error('[getStrategiesList] using last-known cached strategies list');
+        return lastKnown;
+      }
+      console.error('[getStrategiesList] using cold-start registry fallback');
+      return coldStartFallback();
     }
   },
   ['strategies-list'],

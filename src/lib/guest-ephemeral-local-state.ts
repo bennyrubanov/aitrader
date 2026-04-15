@@ -4,6 +4,7 @@ import {
   ONBOARDING_KEY,
   clearPendingGuestPortfolioFollow,
   clearStoredPortfolioConfig,
+  readPendingGuestPortfolioFollow,
 } from '@/components/portfolio-config/portfolio-config-storage';
 
 const GUEST_EPHEMERAL_ACTIVE_KEY = 'aitrader:guest_ephemeral_active';
@@ -75,6 +76,9 @@ export function installGuestEphemeralPagehidePurge(): () => void {
   const onPageHide = (e: PageTransitionEvent) => {
     if (e.persisted) return;
     try {
+      if (readPendingGuestPortfolioFollow() != null) {
+        return;
+      }
       if (localStorage.getItem(GUEST_EPHEMERAL_ACTIVE_KEY) === '1') {
         purgeGuestEphemeralPlatformState();
       }
