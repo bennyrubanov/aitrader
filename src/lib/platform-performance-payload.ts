@@ -3,7 +3,7 @@ import { computePerformanceCagr as computeCagr } from '@/lib/performance-cagr';
 import { ACTIVE_STRATEGY_ENTRY } from '@/lib/ai-strategy-registry';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { createPublicClient } from '@/utils/supabase/public';
-import { buildLatestLiveSeriesPointForStrategy } from '@/lib/live-mark-to-market';
+import { buildDailyMarkedToMarketSeriesForStrategy } from '@/lib/live-mark-to-market';
 
 const INITIAL_CAPITAL = 10_000;
 
@@ -499,13 +499,13 @@ const buildPayloadForStrategy = async (
     sp500: toNumber(row.sp500_equity, INITIAL_CAPITAL),
   }));
 
-  const livePoint = await buildLatestLiveSeriesPointForStrategy(supabase, {
+  const dailySeries = await buildDailyMarkedToMarketSeriesForStrategy(supabase, {
     strategyId: strategy.id,
-    rebalanceDateNotional: series[series.length - 1]?.aiTop20 ?? INITIAL_CAPITAL,
-    lastSeriesPoint: series[series.length - 1] ?? null,
+    notionalSeries: series,
+    startDate: series[0]?.date,
   });
-  if (livePoint && livePoint.date > (series[series.length - 1]?.date ?? '')) {
-    series = [...series, livePoint];
+  if (dailySeries && dailySeries.length >= 2) {
+    series = dailySeries;
   }
 
   const netReturns: number[] = [];

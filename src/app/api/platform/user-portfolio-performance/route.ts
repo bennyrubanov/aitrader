@@ -25,7 +25,7 @@ import {
   computeExcessReturnVsNasdaqEqual,
   computeWeeklyConsistencyVsNasdaqCap,
 } from '@/lib/user-entry-performance';
-import { buildLatestLiveSeriesPointForConfig } from '@/lib/live-mark-to-market';
+import { buildDailyMarkedToMarketSeriesForConfig } from '@/lib/live-mark-to-market';
 
 export const runtime = 'nodejs';
 
@@ -127,16 +127,16 @@ export async function GET(req: Request) {
       .eq('id', row.config_id)
       .maybeSingle();
     if (cfg) {
-      const livePoint = await buildLatestLiveSeriesPointForConfig(admin, {
+      const dailySeries = await buildDailyMarkedToMarketSeriesForConfig(admin, {
         strategyId: row.strategy_id,
         riskLevel: Number(cfg.risk_level),
         rebalanceFrequency: String(cfg.rebalance_frequency),
         weightingMethod: String(cfg.weighting_method),
-        rebalanceDateNotional: userSeries[userSeries.length - 1]!.aiTop20,
-        lastSeriesPoint: userSeries[userSeries.length - 1] ?? null,
+        notionalSeries: userSeries,
+        startDate: userStart,
       });
-      if (livePoint && livePoint.date > userSeries[userSeries.length - 1]!.date) {
-        userSeries = [...userSeries, livePoint];
+      if (dailySeries && dailySeries.length >= 2) {
+        userSeries = dailySeries;
       }
     }
   }

@@ -6,11 +6,14 @@ import { useAuthState } from '@/components/auth/auth-state-context';
 import { usePortfolioConfig } from '@/components/portfolio-config';
 import {
   clearGuestPortfolioResumeUILock,
+  clearGuestResumeGlobalLock,
   clearPendingGuestPortfolioFollow,
+  ensureGuestResumeLockOwnerId,
   GUEST_PORTFOLIO_RESUME_ENDED_EVENT,
   GUEST_PORTFOLIO_RESUME_STARTED_EVENT,
   readPendingGuestPortfolioFollow,
   setGuestPortfolioResumeUILock,
+  setGuestResumeGlobalLock,
 } from '@/components/portfolio-config/portfolio-config-storage';
 import {
   invalidateUserPortfolioProfiles,
@@ -55,6 +58,8 @@ export function GuestPendingPortfolioFollowResume() {
 
     if (guestPortfolioResumeInFlight) return;
 
+    const lockOwnerId = ensureGuestResumeLockOwnerId();
+    setGuestResumeGlobalLock(lockOwnerId);
     setGuestPortfolioResumeUILock();
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new Event(GUEST_PORTFOLIO_RESUME_STARTED_EVENT));
@@ -136,6 +141,7 @@ export function GuestPendingPortfolioFollowResume() {
         if (typeof window !== 'undefined') {
           window.dispatchEvent(new Event(GUEST_PORTFOLIO_RESUME_ENDED_EVENT));
         }
+        clearGuestResumeGlobalLock(lockOwnerId);
         clearGuestPortfolioResumeUILock();
         guestPortfolioResumeInFlight = null;
       }

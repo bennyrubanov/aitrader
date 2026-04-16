@@ -15,6 +15,11 @@ import {
   INITIAL_CAPITAL,
   computeSimpleReturn,
   fetchBenchmarkReturnDetail,
+  getDateLagDetail,
+  shouldWarnForStaleBenchmarkBar,
+  STOOQ_BENCHMARK_SYMBOLS,
+  STOOQ_STALE_WARNING_MAX_CALENDAR_DAYS,
+  STOOQ_STALE_WARNING_MAX_WEEKDAY_DAYS,
   type BenchmarkReturnDetail,
 } from '@/lib/stooq-benchmark-weekly';
 import { createAdminClient } from '@/utils/supabase/admin';
@@ -89,6 +94,8 @@ type CronRatingDigestMeta = {
   runMode?: 'rating_day' | 'prices_only';
   nasdaqSource?: 'api' | 'fallback';
   nasdaqSymbolCount?: number;
+  /** Rows written to `stocks` this run. */
+  stocksRowsUpserted?: number;
   /** Rows written to `nasdaq_100_daily_raw` this run */
   nasdaqRawRowsUpserted?: number;
   /** Symbols where `lastSalePrice` parsed to a finite number (API quote quality) */
@@ -117,8 +124,16 @@ type CronRatingDigestMeta = {
   benchmarkNasdaqCap?: number;
   benchmarkNasdaqEqual?: number;
   benchmarkSp500?: number;
-  /** Stooq CSV health for benchmark fetch (rating day only) */
+  /** Compact Stooq CSV detail string used in logs/API output. */
   benchmarkStooqDetail?: string;
+  /** Human-readable Stooq symbol lines for email rendering. */
+  benchmarkStooqLines?: string[];
+  /** Benchmark data-quality criteria used to evaluate staleness warnings. */
+  benchmarkStooqCriteria?: string;
+  /** Equal-weight benchmark quality summary for keep/switch decisions. */
+  benchmarkEqualProxyQuality?: string;
+  /** Top holdings count written to `strategy_portfolio_holdings`. */
+  holdingsCount?: number;
 };
 
 type StrategyRow = {
@@ -1297,11 +1312,64 @@ const handleRequest = async (req: Request) => {
       const digestTitle = isPricesOnly
         ? 'AITrader — Daily cron digest (prices only)'
         : 'AITrader — Rating day cron digest';
+      const symbolCount = digestMeta.nasdaqSymbolCount ?? null;
+      const parsedPriceCount = digestMeta.nasdaqSymbolsWithParsedPrice ?? null;
       const nasdaqPriceCoverage =
-        digestMeta.nasdaqSymbolCount !== undefined &&
-        digestMeta.nasdaqSymbolsWithParsedPrice !== undefined
-          ? `${digestMeta.nasdaqSymbolsWithParsedPrice} / ${digestMeta.nasdaqSymbolCount} symbols with a parsed last-sale price (API field quality)`
+        symbolCount !== null && parsedPriceCount !== null
+          ? `${parsedPriceCount} / ${symbolCount} symbols with a parsed last-sale price`
           : 'unavailable';
+      const hasNoPrices = symbolCount !== null && symbolCount > 0 && parsedPriceCount === 0;
+      const hasLowCoverage =
+        symbolCount !== null &&
+        symbolCount >= 20 &&
+        parsedPriceCount !== null &&
+        parsedPriceCount < Math.ceil(symbolCount * 0.25);
+      const showCoverageNote = hasNoPrices || hasLowCoverage;
+      const coverageNote = showCoverageNote
+        ? '<p style="font-size:13px;color:#64748b;">Price fields were missing for many symbols today. Rows were still saved, but same-day mark calculations may be limited.</p>'
+        : '';
+      const benchmarkWarningRecorded = errors.some((entry) => entry.subject.startsWith('Stooq '));
+      const benchmarkDegraded =
+        benchmarkWarningRecorded ||
+        (digestMeta.benchmarkEqualProxyQuality?.startsWith('degraded') ?? false);
+      const benchmarkNote = benchmarkDegraded
+        ? '<li style="font-size:13px;color:#64748b;">Benchmark data looked incomplete for this run, so benchmark comparisons may be less reliable this week.</li>'
+        : '';
+      const stooqLinesBlock = (digestMeta.benchmarkStooqLines ?? [])
+        .map((line) => `<li>${escapeHtml(line)}</li>`)
+        .join('');
+      const dbWriteBlock = isPricesOnly
+        ? `
+        <h3>Database writes (this run)</h3>
+        <ul>
+          <li><strong>Strategy metadata:</strong> <code>ai_prompts</code>, <code>ai_models</code>, <code>strategy_models</code> upserted.</li>
+          <li><strong>Universe ingest:</strong> <code>stocks</code> upserted ${escapeHtml(formatMeta(digestMeta.stocksRowsUpserted))}; <code>nasdaq_100_daily_raw</code> upserted ${escapeHtml(formatMeta(digestMeta.nasdaqRawRowsUpserted))}.</li>
+          <li><strong>Snapshot:</strong> <code>nasdaq100_snapshots</code> ${escapeHtml(
+            digestMeta.snapshotIsNew === undefined
+              ? 'status unavailable'
+              : digestMeta.snapshotIsNew
+                ? 'created'
+                : 'reused'
+          )}; <code>nasdaq100_snapshot_stocks</code> upserted ${escapeHtml(formatMeta(digestMeta.snapshotMembers))} member rows.</li>
+        </ul>
+      `
+        : `
+        <h3>Database writes (this run)</h3>
+        <ul>
+          <li><strong>Strategy metadata:</strong> <code>ai_prompts</code>, <code>ai_models</code>, <code>strategy_models</code> upserted.</li>
+          <li><strong>Universe ingest:</strong> <code>stocks</code> upserted ${escapeHtml(formatMeta(digestMeta.stocksRowsUpserted))}; <code>nasdaq_100_daily_raw</code> upserted ${escapeHtml(formatMeta(digestMeta.nasdaqRawRowsUpserted))}.</li>
+          <li><strong>Snapshot + run id:</strong> <code>nasdaq100_snapshots</code> ${escapeHtml(
+            digestMeta.snapshotIsNew === undefined
+              ? 'status unavailable'
+              : digestMeta.snapshotIsNew
+                ? 'created'
+                : 'reused'
+          )}; <code>nasdaq100_snapshot_stocks</code> upserted ${escapeHtml(formatMeta(digestMeta.snapshotMembers))}; <code>ai_run_batches</code> upserted (batch ${escapeHtml(formatMeta(digestMeta.batchId))}).</li>
+          <li><strong>AI outputs:</strong> <code>ai_analysis_runs</code> upserted ${escapeHtml(formatMeta(digestMeta.aiOk))}; <code>nasdaq100_recommendations_current</code> refreshed for current members.</li>
+          <li><strong>Portfolio/performance:</strong> <code>strategy_portfolio_holdings</code> wrote ${escapeHtml(formatMeta(digestMeta.holdingsCount))} holdings; <code>strategy_performance_weekly</code> upserted 1 row; <code>strategy_rebalance_actions</code> wrote ${escapeHtml(formatMeta(digestMeta.rebalanceActionsCount))} actions.</li>
+          <li><strong>Research + configs:</strong> <code>strategy_quintile_returns</code> / <code>strategy_cross_sectional_regressions</code> updated when eligible; <code>strategy_portfolio_config_performance</code> and <code>portfolio_config_compute_queue</code> updated via precompute (OK ${escapeHtml(formatMeta(digestMeta.portfolioConfigsComputed))}, failed ${escapeHtml(formatMeta(digestMeta.portfolioConfigsFailed))}).</li>
+        </ul>
+      `;
 
       const universeBlock = `
         <h3>Universe &amp; NASDAQ-100 raw quotes</h3>
@@ -1313,18 +1381,17 @@ const handleRequest = async (req: Request) => {
           <li><strong><code>nasdaq_100_daily_raw</code> rows upserted:</strong> ${escapeHtml(formatMeta(digestMeta.nasdaqRawRowsUpserted))}</li>
           <li><strong>Last-sale price coverage:</strong> ${escapeHtml(nasdaqPriceCoverage)}</li>
         </ul>
-        <p style="font-size:13px;color:#64748b;">Low coverage usually means the Nasdaq.com list API returned rows without usable <code>lastSalePrice</code> (e.g. holiday, halted feed, or payload change). Rows are still stored; downstream features may lack same-day marks.</p>
+        ${coverageNote}
       `;
 
       const ratingDayBlock = !isPricesOnly
         ? `
         <h3>Strategy / model</h3>
         <ul>
-          <li><strong>Slug:</strong> ${escapeHtml(formatMeta(digestMeta.strategySlug))}</li>
           <li><strong>Name:</strong> ${escapeHtml(formatMeta(digestMeta.strategyName))}</li>
-          <li><strong>Strategy version (APP_VERSION):</strong> ${escapeHtml(formatMeta(digestMeta.strategyVersion))}</li>
+          <li><strong>Model release:</strong> ${escapeHtml(formatMeta(digestMeta.strategyVersion))}</li>
           <li><strong>OpenAI model:</strong> ${escapeHtml(formatMeta(digestMeta.modelName))}</li>
-          <li><strong>Prompt version:</strong> ${escapeHtml(formatMeta(digestMeta.promptVersion))}</li>
+          <li><strong>Prompt release:</strong> ${escapeHtml(formatMeta(digestMeta.promptVersion))}</li>
         </ul>
         <h3>Run identifiers</h3>
         <ul>
@@ -1338,7 +1405,7 @@ const handleRequest = async (req: Request) => {
           )} · <strong>Members:</strong> ${escapeHtml(formatMeta(digestMeta.snapshotMembers))}</li>
           <li><strong>AI concurrency:</strong> ${escapeHtml(formatMeta(digestMeta.aiConcurrency))}</li>
         </ul>
-        <h3>AI outcomes</h3>
+        <h3>AI rating outcomes</h3>
         <ul>
           <li><strong>OK:</strong> ${escapeHtml(formatMeta(digestMeta.aiOk))}</li>
           <li><strong>Failed (rating or DB upsert):</strong> ${escapeHtml(formatMeta(digestMeta.aiFailed))}</li>
@@ -1351,8 +1418,12 @@ const handleRequest = async (req: Request) => {
           <li><strong>Gross return (week):</strong> ${escapeHtml(formatPct(digestMeta.grossReturn))}</li>
           <li><strong>Net return (week, after costs):</strong> ${escapeHtml(formatPct(digestMeta.netReturn))}</li>
           <li><strong>Benchmark week (approx, Stooq daily):</strong> NDX cap ${escapeHtml(formatPct(digestMeta.benchmarkNasdaqCap))}, QQQEW / equal proxy ${escapeHtml(formatPct(digestMeta.benchmarkNasdaqEqual))}, S&amp;P 500 ${escapeHtml(formatPct(digestMeta.benchmarkSp500))}</li>
-          <li><strong>Stooq CSV (per symbol):</strong> ${escapeHtml(formatMeta(digestMeta.benchmarkStooqDetail))}</li>
-          <li style="font-size:13px;color:#64748b;">Benchmarks use Stooq CSV between prior rebalance date and this run. All zeros often means no trading days in the window, CSV fetch failure, stale last bar, same-bar from/to anchors, or symbol issues — not necessarily missing <code>nasdaq_100_daily_raw</code>.</li>
+          <li><strong>Benchmark source details:</strong>
+            <ul style="margin-top:6px;">${stooqLinesBlock || `<li>${escapeHtml(formatMeta(digestMeta.benchmarkStooqDetail))}</li>`}</ul>
+          </li>
+          <li><strong>Equal proxy data quality:</strong> ${escapeHtml(formatMeta(digestMeta.benchmarkEqualProxyQuality))}</li>
+          <li><strong>Stooq warning criteria:</strong> ${escapeHtml(formatMeta(digestMeta.benchmarkStooqCriteria))}</li>
+          ${benchmarkNote}
           <li><strong>Rebalance actions logged:</strong> ${escapeHtml(formatMeta(digestMeta.rebalanceActionsCount))}</li>
           <li><strong>Portfolio configs precompute:</strong> ran ${escapeHtml(formatMeta(digestMeta.portfolioConfigBatchTriggered))} · non-default OK ${escapeHtml(formatMeta(digestMeta.portfolioConfigsComputed))} · failed ${escapeHtml(formatMeta(digestMeta.portfolioConfigsFailed))}</li>
         </ul>
@@ -1374,6 +1445,7 @@ const handleRequest = async (req: Request) => {
         <hr style="margin: 16px 0;" />
         ${universeBlock}
         ${ratingDayBlock}
+        ${dbWriteBlock}
         <h3>Time by section</h3>
         ${digestNote}
         <table style="border-collapse:collapse;width:100%;font-size:14px;">${sectionTable}</table>
@@ -1610,6 +1682,7 @@ const handleRequest = async (req: Request) => {
       return NextResponse.json({ error: upsertError.message }, { status: 500 });
     }
     log('STOCKS UPSERTED', `${(upsertedStocks || []).length} rows`);
+    digestMeta.stocksRowsUpserted = (upsertedStocks || []).length;
 
     const stockMap = new Map(
       (upsertedStocks || []).map((stock: StockRow) => [stock.symbol, stock])
@@ -1681,6 +1754,8 @@ const handleRequest = async (req: Request) => {
       if (snapshotMembersError) {
         recordCronError('Snapshot members upsert failed (daily)', snapshotMembersError);
       }
+      digestMeta.snapshotIsNew = snapshot.isNew;
+      digestMeta.snapshotMembers = snapshotStocks.length;
       log(
         'DAILY COMPLETE',
         `Prices saved for ${rawPayload.length} symbols. Snapshot updated. AI ratings skipped (not rebalance day).`
@@ -2049,6 +2124,7 @@ const handleRequest = async (req: Request) => {
       recordCronError('Top-20 portfolio failed', message);
       return NextResponse.json({ error: message }, { status: 500 });
     }
+    digestMeta.holdingsCount = topHoldings.length;
 
     const { error: deleteHoldingsError } = await supabase
       .from('strategy_portfolio_holdings')
@@ -2132,9 +2208,9 @@ const handleRequest = async (req: Request) => {
     if (previousBatch?.run_date) {
       const fromDate = previousBatch.run_date;
       const [ndxDetail, qqewDetail, spxDetail] = await Promise.all([
-        fetchBenchmarkReturnDetail('^ndx', fromDate, runDate),
-        fetchBenchmarkReturnDetail('qqew.us', fromDate, runDate),
-        fetchBenchmarkReturnDetail('^spx', fromDate, runDate),
+        fetchBenchmarkReturnDetail(STOOQ_BENCHMARK_SYMBOLS.nasdaqCap, fromDate, runDate),
+        fetchBenchmarkReturnDetail(STOOQ_BENCHMARK_SYMBOLS.nasdaqEqual, fromDate, runDate),
+        fetchBenchmarkReturnDetail(STOOQ_BENCHMARK_SYMBOLS.sp500, fromDate, runDate),
       ]);
 
       nasdaqCapWeightReturn = ndxDetail.returnValue;
@@ -2159,10 +2235,21 @@ const handleRequest = async (req: Request) => {
             `symbol=${f.symbol}`
           );
         }
-        if (f.lastDate && f.lastDate < runDate) {
+        if (f.lastDate && shouldWarnForStaleBenchmarkBar(f.lastDate, runDate)) {
+          const lag = getDateLagDetail(f.lastDate, runDate);
           recordCronError(
             'Stooq benchmark CSV may be stale (last bar before run date)',
-            JSON.stringify({ lastBar: f.lastDate, runDate, symbol: f.symbol }),
+            JSON.stringify({
+              lastBar: f.lastDate,
+              runDate,
+              symbol: f.symbol,
+              lagCalendarDays: lag?.calendarDays ?? null,
+              lagWeekdayDays: lag?.weekdayDays ?? null,
+              criteria: {
+                maxCalendarDays: STOOQ_STALE_WARNING_MAX_CALENDAR_DAYS,
+                maxWeekdayDays: STOOQ_STALE_WARNING_MAX_WEEKDAY_DAYS,
+              },
+            }),
             `symbol=${f.symbol}`
           );
         }
@@ -2216,10 +2303,38 @@ const handleRequest = async (req: Request) => {
       }
 
       digestMeta.benchmarkStooqDetail = [
-        `^ndx n=${ndxDetail.fetch.rowCount} last=${ndxDetail.fetch.lastDate ?? '—'} bars ${ndxDetail.fromBarDate ?? '—'}→${ndxDetail.toBarDate ?? '—'}`,
-        `qqew n=${qqewDetail.fetch.rowCount} last=${qqewDetail.fetch.lastDate ?? '—'} bars ${qqewDetail.fromBarDate ?? '—'}→${qqewDetail.toBarDate ?? '—'}`,
-        `^spx n=${spxDetail.fetch.rowCount} last=${spxDetail.fetch.lastDate ?? '—'} bars ${spxDetail.fromBarDate ?? '—'}→${spxDetail.toBarDate ?? '—'}`,
+        `${STOOQ_BENCHMARK_SYMBOLS.nasdaqCap} n=${ndxDetail.fetch.rowCount} last=${ndxDetail.fetch.lastDate ?? '—'} bars ${ndxDetail.fromBarDate ?? '—'}→${ndxDetail.toBarDate ?? '—'}`,
+        `${STOOQ_BENCHMARK_SYMBOLS.nasdaqEqual} n=${qqewDetail.fetch.rowCount} last=${qqewDetail.fetch.lastDate ?? '—'} bars ${qqewDetail.fromBarDate ?? '—'}→${qqewDetail.toBarDate ?? '—'}`,
+        `${STOOQ_BENCHMARK_SYMBOLS.sp500} n=${spxDetail.fetch.rowCount} last=${spxDetail.fetch.lastDate ?? '—'} bars ${spxDetail.fromBarDate ?? '—'}→${spxDetail.toBarDate ?? '—'}`,
       ].join(' · ');
+      digestMeta.benchmarkStooqLines = [
+        `NDX cap (${STOOQ_BENCHMARK_SYMBOLS.nasdaqCap}): latest ${ndxDetail.fetch.lastDate ?? '—'}, return window ${ndxDetail.fromBarDate ?? '—'} to ${ndxDetail.toBarDate ?? '—'}`,
+        `Nasdaq equal proxy (${STOOQ_BENCHMARK_SYMBOLS.nasdaqEqual}): latest ${qqewDetail.fetch.lastDate ?? '—'}, return window ${qqewDetail.fromBarDate ?? '—'} to ${qqewDetail.toBarDate ?? '—'}`,
+        `S&P 500 (${STOOQ_BENCHMARK_SYMBOLS.sp500}): latest ${spxDetail.fetch.lastDate ?? '—'}, return window ${spxDetail.fromBarDate ?? '—'} to ${spxDetail.toBarDate ?? '—'}`,
+      ];
+      const equalLag = qqewDetail.fetch.lastDate
+        ? getDateLagDetail(qqewDetail.fetch.lastDate, runDate)
+        : null;
+      const equalProxyIssues = [
+        !qqewDetail.fetch.ok ? 'fetch_failed' : null,
+        qqewDetail.fetch.rowCount > 0 && qqewDetail.fetch.rowCount < 30 ? 'thin_history' : null,
+        qqewDetail.fetch.lastDate &&
+        shouldWarnForStaleBenchmarkBar(qqewDetail.fetch.lastDate, runDate)
+          ? 'stale_beyond_threshold'
+          : null,
+        qqewDetail.fromBarDate &&
+        qqewDetail.toBarDate &&
+        qqewDetail.fromBarDate === qqewDetail.toBarDate &&
+        fromDate < runDate
+          ? 'same_bar_window'
+          : null,
+      ].filter((issue): issue is string => Boolean(issue));
+      digestMeta.benchmarkEqualProxyQuality = equalProxyIssues.length
+        ? `degraded (${equalProxyIssues.join(', ')}) · symbol=${qqewDetail.fetch.symbol} · last=${qqewDetail.fetch.lastDate ?? '—'} · lag=${equalLag ? `${equalLag.calendarDays}d/${equalLag.weekdayDays}wd` : 'n/a'}`
+        : `ok · symbol=${qqewDetail.fetch.symbol} · last=${qqewDetail.fetch.lastDate ?? '—'} · lag=${equalLag ? `${equalLag.calendarDays}d/${equalLag.weekdayDays}wd` : 'n/a'}`;
+      digestMeta.benchmarkStooqCriteria =
+        `warn when lag exceeds ${STOOQ_STALE_WARNING_MAX_CALENDAR_DAYS} calendar days and ` +
+        `${STOOQ_STALE_WARNING_MAX_WEEKDAY_DAYS} weekday day(s); monitor repeated degraded runs for source/symbol switch`;
     }
 
     // ----- Step 15: Upsert weekly strategy performance row -----

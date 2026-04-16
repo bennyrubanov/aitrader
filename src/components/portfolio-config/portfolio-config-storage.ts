@@ -10,6 +10,81 @@ const PENDING_GUEST_PORTFOLLOW_KEY = 'aitrader:pending_guest_portfollow_v1';
 /** Set while guest→signed-in resume runs so onboarding dialog stays closed after pending is cleared from localStorage. */
 const GUEST_RESUME_UI_LOCK_KEY = 'aitrader:guest_resume_ui_lock_v1';
 
+/** Cross-tab: while a tab runs guest→signed-in resume POST (TTL so a crashed tab cannot suppress onboarding forever). */
+export const GUEST_RESUME_GLOBAL_LOCK_KEY = 'aitrader:guest_resume_global_lock_v1';
+const GUEST_RESUME_TAB_OWNER_SESSION_KEY = 'aitrader:guest_resume_tab_owner_v1';
+const GUEST_RESUME_GLOBAL_LOCK_TTL_MS = 20_000;
+
+export type GuestResumeGlobalLockPayload = { ownerId: string; ts: number };
+
+function readGuestResumeGlobalLockPayload(): GuestResumeGlobalLockPayload | null {
+  try {
+    const raw = localStorage.getItem(GUEST_RESUME_GLOBAL_LOCK_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw) as unknown;
+    if (!p || typeof p !== 'object') return null;
+    const o = p as Record<string, unknown>;
+    const ownerId = o.ownerId;
+    const ts = Number(o.ts);
+    if (typeof ownerId !== 'string' || ownerId.length === 0) return null;
+    if (!Number.isFinite(ts)) return null;
+    return { ownerId, ts };
+  } catch {
+    return null;
+  }
+}
+
+/** Tab-stable owner id for cross-tab resume lock (sessionStorage). */
+export function ensureGuestResumeLockOwnerId(): string {
+  if (typeof window === 'undefined') return '';
+  try {
+    let v = sessionStorage.getItem(GUEST_RESUME_TAB_OWNER_SESSION_KEY);
+    if (!v || !v.trim()) {
+      v = `t_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+      sessionStorage.setItem(GUEST_RESUME_TAB_OWNER_SESSION_KEY, v);
+    }
+    return v;
+  } catch {
+    return `t_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+  }
+}
+
+export function setGuestResumeGlobalLock(ownerId: string): void {
+  if (!ownerId) return;
+  try {
+    const payload: GuestResumeGlobalLockPayload = { ownerId, ts: Date.now() };
+    localStorage.setItem(GUEST_RESUME_GLOBAL_LOCK_KEY, JSON.stringify(payload));
+  } catch {
+    // ignore
+  }
+}
+
+export function clearGuestResumeGlobalLock(ownerId: string): void {
+  if (!ownerId) return;
+  try {
+    const cur = readGuestResumeGlobalLockPayload();
+    if (cur?.ownerId === ownerId) {
+      localStorage.removeItem(GUEST_RESUME_GLOBAL_LOCK_KEY);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+export function isGuestResumeGloballyLocked(): boolean {
+  try {
+    const cur = readGuestResumeGlobalLockPayload();
+    if (!cur) return false;
+    if (Date.now() - cur.ts > GUEST_RESUME_GLOBAL_LOCK_TTL_MS) {
+      localStorage.removeItem(GUEST_RESUME_GLOBAL_LOCK_KEY);
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Fired on `window` when guest follow resume starts / ends (same-tab; keeps onboarding dialog suppressed). */
 export const GUEST_PORTFOLIO_RESUME_STARTED_EVENT = 'aitrader:guest-portfolio-resume-started';
 export const GUEST_PORTFOLIO_RESUME_ENDED_EVENT = 'aitrader:guest-portfolio-resume-ended';

@@ -63,7 +63,9 @@ import {
 import {
   GUEST_PORTFOLIO_RESUME_ENDED_EVENT,
   GUEST_PORTFOLIO_RESUME_STARTED_EVENT,
+  GUEST_RESUME_GLOBAL_LOCK_KEY,
   isGuestPortfolioResumeUILocked,
+  isGuestResumeGloballyLocked,
   readPendingGuestPortfolioFollow,
   syncPendingGuestPortfolioFollowForGuestLocal,
 } from '@/components/portfolio-config/portfolio-config-storage';
@@ -435,11 +437,28 @@ export function PortfolioOnboardingDialog({
 
   /** True while guest→signed-in follow resume runs (`GuestPendingPortfolioFollowResume`). */
   const [guestResumeEventsActive, setGuestResumeEventsActive] = useState(false);
+  /** Cross-tab: another tab holds the guest resume global lock (localStorage). */
+  const [crossTabGuestResumeLock, setCrossTabGuestResumeLock] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const sync = () => setCrossTabGuestResumeLock(isGuestResumeGloballyLocked());
+    sync();
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === GUEST_RESUME_GLOBAL_LOCK_KEY || e.key === null) {
+        sync();
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
 
   const pendingGuestFollowOrResumeLock =
     typeof window !== 'undefined' &&
     authState.isAuthenticated &&
-    (readPendingGuestPortfolioFollow() != null || isGuestPortfolioResumeUILocked());
+    (readPendingGuestPortfolioFollow() != null ||
+      isGuestPortfolioResumeUILocked() ||
+      crossTabGuestResumeLock);
 
   const suppressForGuestResume = guestResumeEventsActive || pendingGuestFollowOrResumeLock;
 

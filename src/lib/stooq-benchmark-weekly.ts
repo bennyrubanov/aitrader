@@ -11,6 +11,13 @@ export const STOOQ_BENCHMARK_SYMBOLS = {
   sp500: '^spx',
 } as const;
 
+/**
+ * Warning threshold for stale benchmark bars.
+ * Allows normal weekend/holiday lag while still flagging meaningful staleness.
+ */
+export const STOOQ_STALE_WARNING_MAX_CALENDAR_DAYS = 4;
+export const STOOQ_STALE_WARNING_MAX_WEEKDAY_DAYS = 1;
+
 export type StooqCsvRow = {
   date: string;
   close: number;
@@ -36,7 +43,60 @@ export type BenchmarkReturnDetail = {
   fetch: StooqFetchResult;
 };
 
+export type DateLagDetail = {
+  calendarDays: number;
+  weekdayDays: number;
+};
+
 const STOOQ_BENCHMARK_RETRY_MS = 2000;
+
+function parseIsoDateUtc(value: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return null;
+  }
+  const date = new Date(`${value}T00:00:00Z`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/**
+ * Returns calendar + weekday lag between two ISO UTC dates.
+ * `startDate` should be the older bar date and `endDate` the run date.
+ */
+export function getDateLagDetail(startDate: string, endDate: string): DateLagDetail | null {
+  const start = parseIsoDateUtc(startDate);
+  const end = parseIsoDateUtc(endDate);
+  if (!start || !end || end <= start) {
+    return null;
+  }
+
+  const MS_PER_DAY = 24 * 60 * 60 * 1000;
+  const calendarDays = Math.floor((end.getTime() - start.getTime()) / MS_PER_DAY);
+  if (calendarDays <= 0) {
+    return null;
+  }
+
+  let weekdayDays = 0;
+  for (let i = 1; i <= calendarDays; i++) {
+    const cursor = new Date(start.getTime() + i * MS_PER_DAY);
+    const day = cursor.getUTCDay();
+    if (day !== 0 && day !== 6) {
+      weekdayDays += 1;
+    }
+  }
+
+  return { calendarDays, weekdayDays };
+}
+
+export function shouldWarnForStaleBenchmarkBar(lastBarDate: string, runDate: string): boolean {
+  const lag = getDateLagDetail(lastBarDate, runDate);
+  if (!lag) {
+    return false;
+  }
+  return (
+    lag.calendarDays > STOOQ_STALE_WARNING_MAX_CALENDAR_DAYS &&
+    lag.weekdayDays > STOOQ_STALE_WARNING_MAX_WEEKDAY_DAYS
+  );
+}
 
 /** Stooq may require `apikey` on `/q/d/l/` CSV requests; set in Vercel + `.env.local` for cron/repair. */
 function stooqDailyCsvUrl(symbol: string): string {

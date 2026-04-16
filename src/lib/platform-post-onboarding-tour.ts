@@ -7,6 +7,22 @@ import { platformOverviewPath } from '@/lib/platform-overview-tab';
 
 export const PLATFORM_POST_ONBOARDING_TOUR_QUEUE_KEY = 'aitrader_platform_post_tour_queue_v1';
 
+/** Cross-tab: other tabs listen for `storage` on this key and mirror the queue into their sessionStorage. */
+export const PLATFORM_POST_ONBOARDING_TOUR_BROADCAST_KEY = 'aitrader_platform_post_tour_broadcast_v1';
+
+type TourBroadcastPayload = { id: string; ts: number };
+
+function broadcastPostOnboardingTourToOtherTabs(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const id = `${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
+    const payload: TourBroadcastPayload = { id, ts: Date.now() };
+    localStorage.setItem(PLATFORM_POST_ONBOARDING_TOUR_BROADCAST_KEY, JSON.stringify(payload));
+  } catch {
+    // ignore
+  }
+}
+
 /** Fired on `window` after the queue flag is set so a mounted shell can start the tour without a full reload. */
 export const PLATFORM_POST_ONBOARDING_TOUR_QUEUED_EVENT = 'aitrader:platform-post-tour-queued';
 
@@ -119,6 +135,7 @@ export function queuePlatformPostOnboardingTour(): void {
   } catch {
     // ignore
   }
+  broadcastPostOnboardingTourToOtherTabs();
   // Local dev: onboarding can be repeated; clear "tour done" so the area tour runs again each time.
   if (process.env.NODE_ENV === 'development' && typeof window !== 'undefined') {
     try {
@@ -140,6 +157,15 @@ export function consumePlatformPostOnboardingTourQueue(): boolean {
     return true;
   } catch {
     return false;
+  }
+}
+
+/** Remove queued tour without starting (e.g. drain duplicates that arrived while a tour was already active). */
+export function discardPlatformPostOnboardingTourQueue(): void {
+  try {
+    sessionStorage.removeItem(PLATFORM_POST_ONBOARDING_TOUR_QUEUE_KEY);
+  } catch {
+    // ignore
   }
 }
 

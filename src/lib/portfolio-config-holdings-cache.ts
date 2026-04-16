@@ -7,9 +7,15 @@ export type ExploreHoldingsPayload = {
   asOfPriceBySymbol: Record<string, number | null>;
   latestPriceBySymbol: Record<string, number | null>;
 };
+type ExploreHoldingsTimelineEntry = {
+  holdings?: HoldingItem[];
+  asOfDate?: string | null;
+  asOfPriceBySymbol?: Record<string, number | null>;
+};
 
 const store = new Map<string, ExploreHoldingsPayload>();
 const inflight = new Map<string, Promise<ExploreHoldingsPayload | null>>();
+const timelineWarmStarted = new Set<string>();
 
 /** Stable cache key for explore-portfolio-config-holdings (slug + config + optional as-of date). */
 export function cacheKeyExploreHoldings(
@@ -30,6 +36,31 @@ function remember(
   store.set(cacheKeyExploreHoldings(s, configId, requestedAsOf), data);
   if (data.asOfDate) {
     store.set(cacheKeyExploreHoldings(s, configId, data.asOfDate), data);
+  }
+}
+
+function rememberTimeline(
+  slug: string,
+  configId: string,
+  rebalanceDates: string[],
+  latestPriceBySymbol: Record<string, number | null>,
+  byDate: Record<string, ExploreHoldingsTimelineEntry>
+) {
+  const s = slug.trim();
+  for (const d of rebalanceDates) {
+    const entry = byDate[d];
+    if (!entry) continue;
+    const payload: ExploreHoldingsPayload = {
+      holdings: Array.isArray(entry.holdings) ? entry.holdings : [],
+      asOfDate: typeof entry.asOfDate === 'string' ? entry.asOfDate : d,
+      rebalanceDates,
+      asOfPriceBySymbol: entry.asOfPriceBySymbol ?? {},
+      latestPriceBySymbol,
+    };
+    store.set(cacheKeyExploreHoldings(s, configId, d), payload);
+    if (payload.asOfDate) {
+      store.set(cacheKeyExploreHoldings(s, configId, payload.asOfDate), payload);
+    }
   }
 }
 
@@ -57,6 +88,7 @@ export async function loadExplorePortfolioConfigHoldings(
       try {
         const q = new URLSearchParams({ slug: s, configId });
         if (asOf) q.set('asOfDate', asOf);
+        else q.set('includeAllDates', '1');
         const res = await fetch(`/api/platform/explore-portfolio-config-holdings?${q}`);
         const d = (await res.json()) as {
           holdings?: HoldingItem[];
@@ -64,6 +96,7 @@ export async function loadExplorePortfolioConfigHoldings(
           rebalanceDates?: string[];
           asOfPriceBySymbol?: Record<string, number | null>;
           latestPriceBySymbol?: Record<string, number | null>;
+          byDate?: Record<string, ExploreHoldingsTimelineEntry>;
         };
         if (!res.ok) return null;
         const data: ExploreHoldingsPayload = {
@@ -74,6 +107,15 @@ export async function loadExplorePortfolioConfigHoldings(
           latestPriceBySymbol: d.latestPriceBySymbol ?? {},
         };
         remember(s, configId, asOf, data);
+        if (!asOf && d.byDate && typeof d.byDate === 'object') {
+          rememberTimeline(
+            s,
+            configId,
+            data.rebalanceDates,
+            data.latestPriceBySymbol,
+            d.byDate
+          );
+        }
         return data;
       } catch {
         return null;
@@ -100,13 +142,19 @@ export function prefetchExploreHoldingsDates(
     (dt) => dt && !store.has(cacheKeyExploreHoldings(s, configId, dt))
   );
   if (missing.length === 0) return;
+  const warmKey = `${s}\0${configId}`;
+  if (timelineWarmStarted.has(warmKey)) return;
+  timelineWarmStarted.add(warmKey);
 
-  void (async () => {
-    for (let i = 0; i < missing.length; i += PREFETCH_BATCH) {
-      const slice = missing.slice(i, i + PREFETCH_BATCH);
-      await Promise.all(slice.map((dt) => loadExplorePortfolioConfigHoldings(s, configId, dt)));
-    }
-  })();
+  void loadExplorePortfolioConfigHoldings(s, configId, null).then((timeline) => {
+    if (timeline) return;
+    void (async () => {
+      for (let i = 0; i < missing.length; i += PREFETCH_BATCH) {
+        const slice = missing.slice(i, i + PREFETCH_BATCH);
+        await Promise.all(slice.map((dt) => loadExplorePortfolioConfigHoldings(s, configId, dt)));
+      }
+    })();
+  });
 }
 
 /** Brief skeleton on network date switches (ms). */

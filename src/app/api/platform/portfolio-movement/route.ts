@@ -33,6 +33,23 @@ const unauthorized = () => NextResponse.json({ error: 'Unauthorized' }, { status
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
 const TRADE_DELTA_TOLERANCE_DOLLARS = 0.02;
 const WEIGHT_SUM_TOLERANCE = 0.0005;
+const MOVEMENT_RESPONSE_TTL_MS = 60_000;
+
+type PortfolioMovementApiResponse = Record<string, unknown>;
+const movementResponseCache = new Map<
+  string,
+  { expiresAt: number; data: PortfolioMovementApiResponse }
+>();
+
+function getCachedMovementResponse(key: string): PortfolioMovementApiResponse | null {
+  const hit = movementResponseCache.get(key);
+  if (!hit) return null;
+  if (Date.now() > hit.expiresAt) {
+    movementResponseCache.delete(key);
+    return null;
+  }
+  return hit.data;
+}
 
 export async function GET(req: Request) {
   const supabase = await createClient();
@@ -43,6 +60,7 @@ export async function GET(req: Request) {
 
   const { searchParams } = new URL(req.url);
   const profileId = searchParams.get('profileId')?.trim() ?? '';
+  const includeAllDates = searchParams.get('includeAllDates') === '1';
   if (!profileId) {
     return NextResponse.json({ error: 'profileId is required.' }, { status: 400 });
   }
@@ -153,6 +171,25 @@ export async function GET(req: Request) {
   const riskLevel = Number(pc.risk_level);
   const frequency = String(pc.rebalance_frequency);
   const weighting = String(pc.weighting_method);
+  const responseCacheKey = [
+    'portfolio-movement-v1',
+    user.id,
+    tier,
+    profileId,
+    row.strategy_id,
+    row.config_id ?? '',
+    userStart,
+    String(investmentSize),
+    riskLevel,
+    frequency,
+    weighting,
+    searchParams.get('rebalanceDate')?.trim() ?? 'latest',
+    includeAllDates ? 'timeline' : 'single',
+  ].join('\0');
+  const cachedResponse = getCachedMovementResponse(responseCacheKey);
+  if (cachedResponse) {
+    return NextResponse.json(cachedResponse);
+  }
 
   const { rows: cfgRowsRaw } = await getConfigPerformance(
     admin,
@@ -213,83 +250,102 @@ export async function GET(req: Request) {
   const lastRebalanceDate = rebalanceDates[currentIdx]!;
   const previousRebalanceDate = rebalanceDates[currentIdx + 1]!;
 
-  const { holdings: currHoldings } = await getPortfolioConfigHoldings(
-    admin,
-    row.strategy_id,
-    riskLevel,
-    frequency,
-    weighting,
-    lastRebalanceDate
-  );
-  const { holdings: prevHoldings } = await getPortfolioConfigHoldings(
-    admin,
-    row.strategy_id,
-    riskLevel,
-    frequency,
-    weighting,
-    previousRebalanceDate
-  );
+  const buildMovementAtIndex = async (idx: number) => {
+    const currDate = rebalanceDates[idx]!;
+    const prevDate = rebalanceDates[idx + 1]!;
+    const { holdings: currHoldings } = await getPortfolioConfigHoldings(
+      admin,
+      row.strategy_id,
+      riskLevel,
+      frequency,
+      weighting,
+      currDate
+    );
+    const { holdings: prevHoldings } = await getPortfolioConfigHoldings(
+      admin,
+      row.strategy_id,
+      riskLevel,
+      frequency,
+      weighting,
+      prevDate
+    );
 
-  let notionalPrev =
-    rebasedEndingEquityAtRunDate(cfgRows, userStart, investmentSize, previousRebalanceDate) ??
-    investmentSize;
-  let notionalCurr =
-    rebasedEndingEquityAtRunDate(cfgRows, userStart, investmentSize, lastRebalanceDate) ??
-    investmentSize;
+    let notionalPrev =
+      rebasedEndingEquityAtRunDate(cfgRows, userStart, investmentSize, prevDate) ?? investmentSize;
+    let notionalCurr =
+      rebasedEndingEquityAtRunDate(cfgRows, userStart, investmentSize, currDate) ?? investmentSize;
+    if (notionalPrev <= 0) notionalPrev = investmentSize;
+    if (notionalCurr <= 0) notionalCurr = investmentSize;
 
-  if (notionalPrev <= 0) notionalPrev = investmentSize;
-  if (notionalCurr <= 0) notionalCurr = investmentSize;
+    const movement = diffConfigHoldingsForRebalance(prevHoldings, currHoldings, notionalCurr);
+    if (Math.abs(movement.preReconciliationDeltaDollars) > TRADE_DELTA_TOLERANCE_DOLLARS) {
+      console.warn('[portfolio-movement] non-zero trade delta after reconciliation', {
+        profileId,
+        strategyId: row.strategy_id,
+        configId: row.config_id,
+        previousRebalanceDate: prevDate,
+        lastRebalanceDate: currDate,
+        preReconciliationDeltaDollars: movement.preReconciliationDeltaDollars,
+        totalTradeDeltaDollars: movement.totalTradeDeltaDollars,
+        residualAppliedDollars: movement.residualAppliedDollars,
+        rebalanceNotional: movement.rebalanceNotional,
+      });
+    }
+    if (
+      Math.abs(movement.previousWeightSum - 1) > WEIGHT_SUM_TOLERANCE ||
+      Math.abs(movement.targetWeightSum - 1) > WEIGHT_SUM_TOLERANCE
+    ) {
+      console.warn('[portfolio-movement] weight sum drift', {
+        profileId,
+        strategyId: row.strategy_id,
+        configId: row.config_id,
+        previousRebalanceDate: prevDate,
+        lastRebalanceDate: currDate,
+        previousWeightSum: movement.previousWeightSum,
+        targetWeightSum: movement.targetWeightSum,
+      });
+    }
 
-  const movement = diffConfigHoldingsForRebalance(
-    prevHoldings,
-    currHoldings,
-    notionalCurr
-  );
-  const { hold, buy, sell } = movement;
-  if (Math.abs(movement.preReconciliationDeltaDollars) > TRADE_DELTA_TOLERANCE_DOLLARS) {
-    console.warn('[portfolio-movement] non-zero trade delta after reconciliation', {
-      profileId,
-      strategyId: row.strategy_id,
-      configId: row.config_id,
-      previousRebalanceDate,
-      lastRebalanceDate,
+    return {
+      lastRebalanceDate: currDate,
+      previousRebalanceDate: prevDate,
+      notionalAtPrevRebalanceEnd: notionalPrev,
+      notionalAtCurrRebalanceEnd: movement.rebalanceNotional,
+      movementNotional: movement.rebalanceNotional,
+      previousWeightSum: movement.previousWeightSum,
+      targetWeightSum: movement.targetWeightSum,
       preReconciliationDeltaDollars: movement.preReconciliationDeltaDollars,
       totalTradeDeltaDollars: movement.totalTradeDeltaDollars,
       residualAppliedDollars: movement.residualAppliedDollars,
-      rebalanceNotional: movement.rebalanceNotional,
-    });
-  }
-  if (
-    Math.abs(movement.previousWeightSum - 1) > WEIGHT_SUM_TOLERANCE ||
-    Math.abs(movement.targetWeightSum - 1) > WEIGHT_SUM_TOLERANCE
-  ) {
-    console.warn('[portfolio-movement] weight sum drift', {
-      profileId,
-      strategyId: row.strategy_id,
-      configId: row.config_id,
-      previousRebalanceDate,
-      lastRebalanceDate,
-      previousWeightSum: movement.previousWeightSum,
-      targetWeightSum: movement.targetWeightSum,
-    });
+      hold: movement.hold,
+      buy: movement.buy,
+      sell: movement.sell,
+    };
+  };
+
+  const selectedMovement = await buildMovementAtIndex(currentIdx);
+  let byRebalanceDate:
+    | Record<string, Awaited<ReturnType<typeof buildMovementAtIndex>>>
+    | undefined;
+  if (includeAllDates) {
+    byRebalanceDate = {};
+    for (let idx = 0; idx < rebalanceDates.length - 1; idx += 1) {
+      const built = idx === currentIdx ? selectedMovement : await buildMovementAtIndex(idx);
+      byRebalanceDate[built.lastRebalanceDate] = built;
+    }
   }
 
-  return NextResponse.json({
+  const response = {
     profileId,
     status: 'ok' as const,
-    lastRebalanceDate,
-    previousRebalanceDate,
-    notionalAtPrevRebalanceEnd: notionalPrev,
-    notionalAtCurrRebalanceEnd: movement.rebalanceNotional,
-    movementNotional: movement.rebalanceNotional,
-    previousWeightSum: movement.previousWeightSum,
-    targetWeightSum: movement.targetWeightSum,
-    preReconciliationDeltaDollars: movement.preReconciliationDeltaDollars,
-    totalTradeDeltaDollars: movement.totalTradeDeltaDollars,
-    residualAppliedDollars: movement.residualAppliedDollars,
+    ...selectedMovement,
     rebalanceDates,
-    hold,
-    buy,
-    sell,
+    ...(includeAllDates ? { timelineVersion: 1, byRebalanceDate: byRebalanceDate ?? {} } : {}),
+  };
+  movementResponseCache.set(responseCacheKey, {
+    expiresAt: Date.now() + MOVEMENT_RESPONSE_TTL_MS,
+    data: response,
   });
+
+  return NextResponse.json(response);
 }

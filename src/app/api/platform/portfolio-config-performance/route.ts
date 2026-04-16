@@ -31,7 +31,7 @@ import {
 import { buildConfigPerformanceChart, buildMetricsFromSeries } from '@/lib/config-performance-chart';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
 import { triggerPortfolioConfigCompute } from '@/lib/trigger-config-compute';
-import { buildLatestLiveSeriesPointForConfig } from '@/lib/live-mark-to-market';
+import { buildDailyMarkedToMarketSeriesForConfig } from '@/lib/live-mark-to-market';
 
 function mapComputeStatusForClient(
   s: 'ready' | 'pending' | 'failed' | 'empty'
@@ -119,18 +119,16 @@ export async function GET(req: Request) {
     let fullMetrics = chartBuilt.fullMetrics;
 
     if (series.length > 0 && computeStatus === 'ready' && configMeta) {
-      const lastSeriesPoint = series[series.length - 1] ?? null;
-      const lastRow = rows[rows.length - 1];
-      const livePoint = await buildLatestLiveSeriesPointForConfig(supabase, {
+      const dailySeries = await buildDailyMarkedToMarketSeriesForConfig(supabase, {
         strategyId,
         riskLevel,
         rebalanceFrequency: frequency,
         weightingMethod: weighting,
-        rebalanceDateNotional: Number(lastRow?.ending_equity),
-        lastSeriesPoint,
+        notionalSeries: series,
+        startDate: series[0]?.date,
       });
-      if (livePoint && livePoint.date > (lastSeriesPoint?.date ?? '')) {
-        series = [...series, livePoint];
+      if (dailySeries && dailySeries.length >= 2) {
+        series = dailySeries;
         const fromSeries = buildMetricsFromSeries(series);
         metrics = fromSeries.metrics;
         fullMetrics = fromSeries.fullMetrics;

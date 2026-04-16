@@ -777,6 +777,21 @@ type PortfolioMovementApiPayload = {
   residualAppliedDollars?: number | null;
   /** Newest-first rebalance run dates (when holdings were computed). Present on `ok` / `no_prior_rebalance`. */
   rebalanceDates?: string[];
+  byRebalanceDate?: Record<
+    string,
+    {
+      lastRebalanceDate: string;
+      previousRebalanceDate: string | null;
+      notionalAtPrevRebalanceEnd?: number | null;
+      notionalAtCurrRebalanceEnd?: number | null;
+      movementNotional?: number | null;
+      totalTradeDeltaDollars?: number | null;
+      residualAppliedDollars?: number | null;
+      hold: PortfolioMovementLine[];
+      buy: PortfolioMovementLine[];
+      sell: PortfolioMovementLine[];
+    }
+  >;
   hold: PortfolioMovementLine[];
   buy: PortfolioMovementLine[];
   sell: PortfolioMovementLine[];
@@ -804,6 +819,7 @@ const portfolioMovementFetchLimit = createConcurrencyLimit(PORTFOLIO_MOVEMENT_MA
 
 const portfolioMovementFetchCache = new Map<string, PortfolioMovementResolved>();
 const portfolioMovementInflight = new Map<string, Promise<PortfolioMovementResolved>>();
+const portfolioMovementWarmSessionKeys = new Set<string>();
 
 function portfolioMovementCacheKey(profileId: string, rebalanceDate: string | null) {
   return `${profileId}\0${rebalanceDate ?? 'default'}`;
@@ -825,6 +841,7 @@ async function loadPortfolioMovementDeduped(
       try {
         const params = new URLSearchParams({ profileId });
         if (rebalanceDate) params.set('rebalanceDate', rebalanceDate);
+        if (!rebalanceDate) params.set('includeAllDates', '1');
         const r = await fetch(`/api/platform/portfolio-movement?${params}`, {
           cache: 'no-store',
         });
@@ -839,6 +856,26 @@ async function loadPortfolioMovementDeduped(
           };
         } else {
           result = { loading: false as const, data: raw };
+          const dates = raw.rebalanceDates ?? [];
+          const timeline = raw.byRebalanceDate;
+          if (timeline && typeof timeline === 'object' && dates.length > 0) {
+            const newest = dates[0] ?? null;
+            for (const d of dates.slice(0, -1)) {
+              const entry = timeline[d];
+              if (!entry) continue;
+              const entryParam = d === newest ? null : d;
+              const entryKey = portfolioMovementCacheKey(profileId, entryParam);
+              const entryData: PortfolioMovementApiPayload = {
+                ...raw,
+                ...entry,
+                byRebalanceDate: undefined,
+              };
+              portfolioMovementFetchCache.set(entryKey, {
+                loading: false as const,
+                data: entryData,
+              });
+            }
+          }
         }
         portfolioMovementFetchCache.set(key, result);
         return result;
@@ -868,6 +905,9 @@ function warmPortfolioMovementCacheForProfile(
   rebalanceDatesNewestFirst: readonly string[]
 ): void {
   if (rebalanceDatesNewestFirst.length < 2) return;
+  const warmKey = `${profileId}\0${rebalanceDatesNewestFirst.join('\0')}`;
+  if (portfolioMovementWarmSessionKeys.has(warmKey)) return;
+  portfolioMovementWarmSessionKeys.add(warmKey);
   const newest = rebalanceDatesNewestFirst[0] ?? null;
   const jobs: Array<Promise<PortfolioMovementResolved>> = [];
   for (const d of rebalanceDatesNewestFirst.slice(0, -1)) {
@@ -2049,6 +2089,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
       const d = (e as CustomEvent<UserPortfolioProfilesInvalidateDetail>).detail;
       portfolioMovementFetchCache.clear();
       portfolioMovementInflight.clear();
+      portfolioMovementWarmSessionKeys.clear();
       overviewMovementWarmStartedRef.current.clear();
       setMovementRefreshEpoch((x) => x + 1);
       if (!d?.entrySettingsOnly || !d.skipOverviewProfileRefetch) {
