@@ -1,5 +1,6 @@
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
 import { createPublicClient } from '@/utils/supabase/public';
+import { buildLatestLiveSeriesPointForConfig } from '@/lib/live-mark-to-market';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -332,10 +333,43 @@ export async function loadPortfolioConfigsRankedPayload(
     }
   }
 
-  const configsWithMetrics = (configs as ConfigRow[]).map((cfg) => {
+  const configsWithMetrics = await Promise.all((configs as ConfigRow[]).map(async (cfg) => {
     const rawRows = perfByConfigRaw.get(cfg.id) ?? [];
     const rows = perfByConfig.get(cfg.id) ?? [];
-    const metrics = metricsForConfig(rows);
+    let rowsForMetrics = rows;
+    const latest = rows[rows.length - 1];
+    if (latest) {
+      const livePoint = await buildLatestLiveSeriesPointForConfig(supabase, {
+        strategyId: strategy.id,
+        riskLevel: cfg.risk_level,
+        rebalanceFrequency: cfg.rebalance_frequency,
+        weightingMethod: cfg.weighting_method,
+        rebalanceDateNotional: toNum(latest.ending_equity, INITIAL_CAPITAL),
+        lastSeriesPoint: {
+          date: latest.run_date,
+          aiTop20: toNum(latest.ending_equity, INITIAL_CAPITAL),
+          nasdaq100CapWeight: toNum(latest.nasdaq100_cap_weight_equity, INITIAL_CAPITAL),
+          nasdaq100EqualWeight: toNum(latest.nasdaq100_equal_weight_equity, INITIAL_CAPITAL),
+          sp500: toNum(latest.sp500_equity, INITIAL_CAPITAL),
+        },
+        skipBenchmarkDrift: true,
+      });
+      if (livePoint && livePoint.date > latest.run_date) {
+        rowsForMetrics = [
+          ...rows,
+          {
+            config_id: cfg.id,
+            run_date: livePoint.date,
+            net_return: 0,
+            ending_equity: livePoint.aiTop20,
+            nasdaq100_cap_weight_equity: livePoint.nasdaq100CapWeight,
+            nasdaq100_equal_weight_equity: livePoint.nasdaq100EqualWeight,
+            sp500_equity: livePoint.sp500,
+          },
+        ];
+      }
+    }
+    const metrics = metricsForConfig(rowsForMetrics);
     const dataStatus: 'ready' | 'limited' | 'empty' =
       rawRows.length === 0
         ? 'empty'
@@ -343,7 +377,7 @@ export async function loadPortfolioConfigsRankedPayload(
           ? 'limited'
           : 'ready';
     return { cfg, metrics, dataStatus };
-  });
+  }));
 
   const eligible = configsWithMetrics.filter((c) => c.dataStatus === 'ready');
 

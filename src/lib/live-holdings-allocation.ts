@@ -25,13 +25,13 @@ function toFinitePositive(value: number | null | undefined): number | null {
  */
 export function buildLiveHoldingsAllocationResult(
   holdings: HoldingItem[],
-  investmentSize: number,
+  rebalanceDateNotional: number,
   asOfPriceBySymbol: SymbolPriceMap,
   latestPriceBySymbol: SymbolPriceMap
 ): LiveHoldingsAllocationResult {
   const bySymbol: Record<string, LiveHoldingAllocation> = {};
-  const inv = toFinitePositive(investmentSize);
-  if (inv == null || holdings.length === 0) {
+  const notional = toFinitePositive(rebalanceDateNotional);
+  if (notional == null || holdings.length === 0) {
     return { bySymbol, hasCompleteCoverage: false };
   }
 
@@ -42,7 +42,7 @@ export function buildLiveHoldingsAllocationResult(
   for (const h of holdings) {
     const key = h.symbol.toUpperCase();
     const targetWeight = Number.isFinite(h.weight) ? h.weight : 0;
-    const targetDollars = inv * targetWeight;
+    const targetDollars = notional * targetWeight;
     const asOfPrice = toFinitePositive(asOfPriceBySymbol[key]);
     const latestPrice = toFinitePositive(latestPriceBySymbol[key]);
 

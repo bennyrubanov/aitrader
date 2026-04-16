@@ -147,7 +147,7 @@ export function PortfolioEntryDatePicker({
         className={cn(
           'w-full rounded-lg border px-4 py-3 text-left transition-colors',
           valueYmd === maxYmd
-            ? 'border-primary bg-primary/10 ring-1 ring-primary'
+            ? 'border-primary bg-primary/10 ring-1 ring-inset ring-primary'
             : 'border-border hover:border-foreground/20 hover:bg-muted/30',
           disabled && 'pointer-events-none opacity-50'
         )}

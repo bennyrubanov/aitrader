@@ -1468,17 +1468,35 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   ]);
 
   const topN = selectedProfile?.portfolio_config?.top_n ?? 20;
+  const holdingsAsOfNotional = useMemo(() => {
+    const pts = (displaySeries as PerformanceSeriesPoint[]) ?? [];
+    const asOf = configHoldingsAsOf;
+    if (asOf && pts.length > 0) {
+      const exact = pts.find((p) => p.date === asOf)?.aiTop20;
+      if (exact != null && Number.isFinite(exact) && exact > 0) return exact;
+      let onOrBefore: number | null = null;
+      for (const p of pts) {
+        if (p.date <= asOf && Number.isFinite(p.aiTop20) && p.aiTop20 > 0) {
+          onOrBefore = p.aiTop20;
+        }
+      }
+      if (onOrBefore != null) return onOrBefore;
+    }
+    const latest = pts[pts.length - 1]?.aiTop20;
+    if (latest != null && Number.isFinite(latest) && latest > 0) return latest;
+    return num(selectedProfile?.investment_size);
+  }, [displaySeries, configHoldingsAsOf, selectedProfile?.investment_size]);
   const liveConfigHoldingsAllocation = useMemo(
     () =>
       buildLiveHoldingsAllocationResult(
         configHoldings,
-        num(selectedProfile?.investment_size),
+        holdingsAsOfNotional,
         configHoldingsAsOfPriceBySymbol,
         configHoldingsLatestPriceBySymbol
       ),
     [
       configHoldings,
-      selectedProfile?.investment_size,
+      holdingsAsOfNotional,
       configHoldingsAsOfPriceBySymbol,
       configHoldingsLatestPriceBySymbol,
     ]

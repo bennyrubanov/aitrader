@@ -128,6 +128,44 @@ function buildFullMetricsFromSeries(
   };
 }
 
+function netReturnsFromSeries(series: PerformanceSeriesPoint[]): number[] {
+  if (series.length < 2) return [];
+  const out: number[] = [];
+  for (let i = 1; i < series.length; i++) {
+    const prev = series[i - 1]!;
+    const curr = series[i]!;
+    if (prev.aiTop20 > 0) {
+      out.push(curr.aiTop20 / prev.aiTop20 - 1);
+    }
+  }
+  return out;
+}
+
+export function buildMetricsFromSeries(series: PerformanceSeriesPoint[]): {
+  metrics: ConfigChartMetrics | null;
+  fullMetrics: FullConfigPerformanceMetrics | null;
+} {
+  if (!series.length) {
+    return { metrics: null, fullMetrics: null };
+  }
+  const firstPoint = series[0];
+  const lastPoint = series[series.length - 1];
+  const firstDate = firstPoint?.date ?? '';
+  const lastDate = lastPoint?.date ?? '';
+  if (!firstPoint || !lastPoint) {
+    return { metrics: null, fullMetrics: null };
+  }
+  const netReturns = netReturnsFromSeries(series);
+  const metrics: ConfigChartMetrics = {
+    totalReturn: computeTotalReturn(firstPoint.aiTop20, lastPoint.aiTop20),
+    cagr: computeCagr(firstPoint.aiTop20, lastPoint.aiTop20, firstDate, lastDate),
+    maxDrawdown: computeMaxDrawdown(series.map((p) => p.aiTop20)),
+    sharpeRatio: computeSharpeWeekly(netReturns),
+  };
+  const fullMetrics = buildFullMetricsFromSeries(series, netReturns);
+  return { metrics, fullMetrics };
+}
+
 function scaleConfigEquities(row: ConfigPerfRow, scale: number): PerformanceSeriesPoint {
   return {
     date: row.run_date,

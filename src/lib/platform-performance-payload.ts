@@ -3,6 +3,7 @@ import { computePerformanceCagr as computeCagr } from '@/lib/performance-cagr';
 import { ACTIVE_STRATEGY_ENTRY } from '@/lib/ai-strategy-registry';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { createPublicClient } from '@/utils/supabase/public';
+import { buildLatestLiveSeriesPointForStrategy } from '@/lib/live-mark-to-market';
 
 const INITIAL_CAPITAL = 10_000;
 
@@ -490,7 +491,7 @@ const buildPayloadForStrategy = async (
   baseStrategy.startDate = perfRows[0]?.run_date ?? null;
   baseStrategy.runCount = perfRows.length;
 
-  const series: SeriesPoint[] = perfRows.map((row) => ({
+  let series: SeriesPoint[] = perfRows.map((row) => ({
     date: row.run_date,
     aiTop20: toNumber(row.ending_equity, INITIAL_CAPITAL),
     nasdaq100CapWeight: toNumber(row.nasdaq100_cap_weight_equity, INITIAL_CAPITAL),
@@ -498,12 +499,29 @@ const buildPayloadForStrategy = async (
     sp500: toNumber(row.sp500_equity, INITIAL_CAPITAL),
   }));
 
-  const netReturns = perfRows.map((row) => toNumber(row.net_return, 0));
+  const livePoint = await buildLatestLiveSeriesPointForStrategy(supabase, {
+    strategyId: strategy.id,
+    rebalanceDateNotional: series[series.length - 1]?.aiTop20 ?? INITIAL_CAPITAL,
+    lastSeriesPoint: series[series.length - 1] ?? null,
+  });
+  if (livePoint && livePoint.date > (series[series.length - 1]?.date ?? '')) {
+    series = [...series, livePoint];
+  }
+
+  const netReturns: number[] = [];
+  for (let i = 1; i < series.length; i++) {
+    const prev = series[i - 1]!;
+    const curr = series[i]!;
+    if (prev.aiTop20 > 0) {
+      netReturns.push(curr.aiTop20 / prev.aiTop20 - 1);
+    }
+  }
   const firstPoint = series[0];
   const lastPoint = series[series.length - 1];
   const firstDate = firstPoint?.date ?? '';
   const lastDate = lastPoint?.date ?? '';
   const latestRunDate = lastPoint?.date ?? null;
+  const latestStrategyRunDate = perfRows[perfRows.length - 1]?.run_date ?? null;
 
   // Use INITIAL_CAPITAL as the start value for all return calculations.
   // The first row's ending_equity already includes the first week's return,
@@ -574,7 +592,7 @@ const buildPayloadForStrategy = async (
             .from('strategy_rebalance_actions')
             .select('symbol, action_type, action_label, previous_weight, new_weight')
             .eq('strategy_id', strategy.id)
-            .eq('run_date', latestRunDate)
+            .eq('run_date', latestStrategyRunDate)
             .order('action_type', { ascending: true })
             .order('symbol', { ascending: true })
         : Promise.resolve({ data: [], error: null }),

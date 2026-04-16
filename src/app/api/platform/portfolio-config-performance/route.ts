@@ -28,9 +28,10 @@ import {
   enqueueConfigCompute,
   prependModelInceptionToConfigRows,
 } from '@/lib/portfolio-config-utils';
-import { buildConfigPerformanceChart } from '@/lib/config-performance-chart';
+import { buildConfigPerformanceChart, buildMetricsFromSeries } from '@/lib/config-performance-chart';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
 import { triggerPortfolioConfigCompute } from '@/lib/trigger-config-compute';
+import { buildLatestLiveSeriesPointForConfig } from '@/lib/live-mark-to-market';
 
 function mapComputeStatusForClient(
   s: 'ready' | 'pending' | 'failed' | 'empty'
@@ -112,7 +113,29 @@ export async function GET(req: Request) {
 
     const computeStatus = mapComputeStatusForClient(rawStatus);
 
-    const { series, metrics, fullMetrics } = buildConfigPerformanceChart(rows);
+    const chartBuilt = buildConfigPerformanceChart(rows);
+    let series = chartBuilt.series;
+    let metrics = chartBuilt.metrics;
+    let fullMetrics = chartBuilt.fullMetrics;
+
+    if (series.length > 0 && computeStatus === 'ready' && configMeta) {
+      const lastSeriesPoint = series[series.length - 1] ?? null;
+      const lastRow = rows[rows.length - 1];
+      const livePoint = await buildLatestLiveSeriesPointForConfig(supabase, {
+        strategyId,
+        riskLevel,
+        rebalanceFrequency: frequency,
+        weightingMethod: weighting,
+        rebalanceDateNotional: Number(lastRow?.ending_equity),
+        lastSeriesPoint,
+      });
+      if (livePoint && livePoint.date > (lastSeriesPoint?.date ?? '')) {
+        series = [...series, livePoint];
+        const fromSeries = buildMetricsFromSeries(series);
+        metrics = fromSeries.metrics;
+        fullMetrics = fromSeries.fullMetrics;
+      }
+    }
 
     const configPayload =
       configMeta &&

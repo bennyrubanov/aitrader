@@ -16,6 +16,7 @@ import {
   prependModelInceptionToConfigRows,
 } from '@/lib/portfolio-config-utils';
 import {
+  buildMetricsFromSeries,
   buildUserEntryConfigTrack,
 } from '@/lib/config-performance-chart';
 import { pickHoldingsRunDate } from '@/lib/user-portfolio-entry';
@@ -24,6 +25,7 @@ import {
   computeExcessReturnVsNasdaqEqual,
   computeWeeklyConsistencyVsNasdaqCap,
 } from '@/lib/user-entry-performance';
+import { buildLatestLiveSeriesPointForConfig } from '@/lib/live-mark-to-market';
 
 export const runtime = 'nodejs';
 
@@ -117,20 +119,43 @@ export async function GET(req: Request) {
   }
 
   const configTrack = buildUserEntryConfigTrack(cfgRows, userStart, investmentSize);
+  let userSeries = configTrack.series;
+  if (userSeries.length > 0) {
+    const { data: cfg } = await admin
+      .from('portfolio_configs')
+      .select('risk_level, rebalance_frequency, weighting_method')
+      .eq('id', row.config_id)
+      .maybeSingle();
+    if (cfg) {
+      const livePoint = await buildLatestLiveSeriesPointForConfig(admin, {
+        strategyId: row.strategy_id,
+        riskLevel: Number(cfg.risk_level),
+        rebalanceFrequency: String(cfg.rebalance_frequency),
+        weightingMethod: String(cfg.weighting_method),
+        rebalanceDateNotional: userSeries[userSeries.length - 1]!.aiTop20,
+        lastSeriesPoint: userSeries[userSeries.length - 1] ?? null,
+      });
+      if (livePoint && livePoint.date > userSeries[userSeries.length - 1]!.date) {
+        userSeries = [...userSeries, livePoint];
+      }
+    }
+  }
+  const userSeriesMetrics = buildMetricsFromSeries(userSeries).metrics;
+  const hasMultipleObservations = userSeries.length >= 2;
   const built = {
     anchorHoldingsRunDate,
-    hasMultipleObservations: configTrack.hasMultipleObservations,
-    series: configTrack.series,
+    hasMultipleObservations,
+    series: userSeries,
     metrics:
-      configTrack.hasMultipleObservations && configTrack.metrics
+      hasMultipleObservations && userSeriesMetrics
         ? {
-            sharpeRatio: configTrack.metrics.sharpeRatio,
-            totalReturn: configTrack.metrics.totalReturn,
-            cagr: configTrack.metrics.cagr,
-            maxDrawdown: configTrack.metrics.maxDrawdown,
-            consistency: computeWeeklyConsistencyVsNasdaqCap(configTrack.series),
-            excessReturnVsNasdaqCap: computeExcessReturnVsNasdaqCap(configTrack.series),
-            excessReturnVsNasdaqEqual: computeExcessReturnVsNasdaqEqual(configTrack.series),
+            sharpeRatio: userSeriesMetrics.sharpeRatio,
+            totalReturn: userSeriesMetrics.totalReturn,
+            cagr: userSeriesMetrics.cagr,
+            maxDrawdown: userSeriesMetrics.maxDrawdown,
+            consistency: computeWeeklyConsistencyVsNasdaqCap(userSeries),
+            excessReturnVsNasdaqCap: computeExcessReturnVsNasdaqCap(userSeries),
+            excessReturnVsNasdaqEqual: computeExcessReturnVsNasdaqEqual(userSeries),
           }
         : {
             sharpeRatio: null,

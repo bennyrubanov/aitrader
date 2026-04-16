@@ -2485,17 +2485,35 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
 
   const spotlightHoldingsTopN =
     topSpotlightOverview?.profile.portfolio_config?.top_n ?? 20;
+  const spotlightHoldingsAsOfNotional = useMemo(() => {
+    const pts = topSpotlightOverview?.state.series ?? [];
+    const asOf = topSpotlightHoldingsAsOf;
+    if (asOf && pts.length > 0) {
+      const exact = pts.find((p) => p.date === asOf)?.aiTop20;
+      if (exact != null && Number.isFinite(exact) && exact > 0) return exact;
+      let onOrBefore: number | null = null;
+      for (const p of pts) {
+        if (p.date <= asOf && Number.isFinite(p.aiTop20) && p.aiTop20 > 0) {
+          onOrBefore = p.aiTop20;
+        }
+      }
+      if (onOrBefore != null) return onOrBefore;
+    }
+    const latest = pts[pts.length - 1]?.aiTop20;
+    if (latest != null && Number.isFinite(latest) && latest > 0) return latest;
+    return Number(topSpotlightOverview?.profile.investment_size);
+  }, [topSpotlightOverview, topSpotlightHoldingsAsOf]);
   const liveTopSpotlightAllocation = useMemo(
     () =>
       buildLiveHoldingsAllocationResult(
         topSpotlightHoldings,
-        Number(topSpotlightOverview?.profile.investment_size),
+        spotlightHoldingsAsOfNotional,
         topSpotlightAsOfPriceBySymbol,
         topSpotlightLatestPriceBySymbol
       ),
     [
       topSpotlightHoldings,
-      topSpotlightOverview?.profile.investment_size,
+      spotlightHoldingsAsOfNotional,
       topSpotlightAsOfPriceBySymbol,
       topSpotlightLatestPriceBySymbol,
     ]
