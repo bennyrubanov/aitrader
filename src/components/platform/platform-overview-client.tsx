@@ -910,19 +910,19 @@ async function loadPortfolioMovementDeduped(
 
 /**
  * After the first successful movement load for a profile, prefetch every selectable rebalance
- * window (dropdown = newest-first, excluding oldest) so switching dates reads from session cache.
+ * date (including the oldest/initial) so switching dates reads from session cache.
  */
 function warmPortfolioMovementCacheForProfile(
   profileId: string,
   rebalanceDatesNewestFirst: readonly string[]
 ): void {
-  if (rebalanceDatesNewestFirst.length < 2) return;
+  if (rebalanceDatesNewestFirst.length < 1) return;
   const warmKey = `${profileId}\0${rebalanceDatesNewestFirst.join('\0')}`;
   if (portfolioMovementWarmSessionKeys.has(warmKey)) return;
   portfolioMovementWarmSessionKeys.add(warmKey);
   const newest = rebalanceDatesNewestFirst[0] ?? null;
   const jobs: Array<Promise<PortfolioMovementResolved>> = [];
-  for (const d of rebalanceDatesNewestFirst.slice(0, -1)) {
+  for (const d of rebalanceDatesNewestFirst) {
     const param = d === newest ? null : d;
     const key = portfolioMovementCacheKey(profileId, param);
     if (portfolioMovementFetchCache.has(key)) continue;
@@ -1248,7 +1248,7 @@ function TopPortfolioLatestRebalanceSection({
 
   return (
     <>
-      <h4 className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      <h4 className="mb-2.5 flex min-w-0 flex-wrap items-baseline gap-x-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         <span>Latest rebalance actions</span>
         {payload?.lastRebalanceDate ? (
           <>
@@ -1462,7 +1462,9 @@ function SinglePortfolioRebalanceMovementSection({
                     <p className="text-sm font-medium text-foreground">
                       {cd.rebalanceDates?.[0] === headerLastRebalance
                         ? 'Actions for most recent rebalance date: '
-                        : 'Rebalance date: '}
+                        : cd.rebalanceDates?.[cd.rebalanceDates.length - 1] === headerLastRebalance
+                          ? 'Initial rebalance date: '
+                          : 'Rebalance date: '}
                       <span className="tabular-nums">
                         {formatYmdDisplay(headerLastRebalance)}
                       </span>
@@ -1479,7 +1481,7 @@ function SinglePortfolioRebalanceMovementSection({
                     </p>
                   ) : null}
                 </div>
-                {cd.rebalanceDates && cd.rebalanceDates.length >= 2 ? (
+                {cd.rebalanceDates && cd.rebalanceDates.length >= 1 ? (
                   <div className="flex shrink-0 flex-col gap-1">
                     <Label
                       htmlFor={`rebalance-date-${profileId}`}
@@ -1509,9 +1511,11 @@ function SinglePortfolioRebalanceMovementSection({
                         <SelectValue placeholder="Choose date" />
                       </SelectTrigger>
                       <SelectContent>
-                        {cd.rebalanceDates.slice(0, -1).map((d) => (
+                        {cd.rebalanceDates.map((d, idx, arr) => (
                           <SelectItem key={d} value={d} className="text-xs">
-                            {formatYmdDisplay(d)}
+                            {idx === arr.length - 1
+                              ? `${formatYmdDisplay(d)} (initial)`
+                              : formatYmdDisplay(d)}
                           </SelectItem>
                         ))}
                       </SelectContent>

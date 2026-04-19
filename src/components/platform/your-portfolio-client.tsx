@@ -273,6 +273,69 @@ function YourPortfolioMainPerfSkeleton() {
   );
 }
 
+/** Full-page loading shell matching the loaded layout (sidebar + main) so auth → profiles does not swap shapes. */
+function YourPortfoliosSkeletonShell() {
+  return (
+    <div
+      className={cn(
+        'flex min-h-0 min-w-0 w-full flex-1 flex-col lg:h-full lg:max-h-full lg:flex-row lg:items-stretch lg:overflow-hidden lg:overscroll-y-contain'
+      )}
+      data-platform-tour="your-portfolios-page-root"
+    >
+      <aside className="hidden w-full shrink-0 flex-col lg:flex lg:h-full lg:min-h-0 lg:w-72 lg:max-h-full">
+        <div
+          className={cn(
+            'min-h-0 flex-1 space-y-0 px-4 pt-2 sm:px-6 lg:min-h-0 lg:flex-1 lg:overflow-x-hidden lg:overflow-y-auto lg:overscroll-y-contain lg:px-1 lg:pr-1 lg:pt-0'
+          )}
+        >
+          <div
+            className={cn(
+              'flex items-center justify-between gap-2 p-3 sm:px-6 lg:px-0 lg:pr-1 lg:pt-2'
+            )}
+          >
+            <Skeleton className="h-4 w-24 rounded-sm" />
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+              <Skeleton className="size-8 shrink-0 rounded-md" />
+              <Skeleton className="size-8 shrink-0 rounded-md" />
+              <Skeleton className="size-8 shrink-0 rounded-md" />
+            </div>
+          </div>
+          <nav className="flex gap-2 overflow-x-auto px-3 pb-3 sm:px-6 lg:flex-col lg:overflow-x-hidden lg:px-0 lg:pr-1 lg:pb-4">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton
+                key={`your-portfolios-sidebar-skel-${i}`}
+                className="h-16 w-[14rem] shrink-0 rounded-lg lg:h-16 lg:w-full"
+              />
+            ))}
+          </nav>
+        </div>
+      </aside>
+
+      <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-y-auto overscroll-y-contain px-1 py-1 lg:h-full lg:max-h-full lg:min-h-0 lg:pl-8">
+        <div className="flex min-h-0 w-full min-w-0 max-w-none flex-1 flex-col self-stretch">
+          <div className="shrink-0 border-b bg-background/95 px-5 py-3 sm:px-7 sm:py-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-1.5 gap-y-2">
+                  <Skeleton className="h-6 w-28 shrink-0 rounded-full" />
+                  <Skeleton className="h-6 w-48 max-w-full rounded-md" />
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Skeleton className="h-8 w-[7.5rem] rounded-md" />
+                <Skeleton className="h-8 w-[5.5rem] rounded-md" />
+              </div>
+            </div>
+          </div>
+          <div className="flex w-full min-w-0 max-w-full flex-1 flex-col space-y-4 py-4 sm:pb-10">
+            <YourPortfolioMainPerfSkeleton />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function benchmarkStatsFromYourPortfolioSeries(series: PerformanceSeriesPoint[] | undefined): {
   excessVsNasdaqCap: number | null;
   excessVsNasdaqEqual: number | null;
@@ -744,7 +807,8 @@ function PortfolioRebalanceActionsTimeline({
 
   const payload = !state.loading && 'data' in state ? state.data : null;
   const error = !state.loading && 'error' in state ? state.error : null;
-  const timelineDates = payload?.rebalanceDates?.slice(0, -1) ?? [];
+  const timelineDates = payload?.rebalanceDates ?? [];
+  const initialRebalanceDate = timelineDates.length > 0 ? timelineDates[timelineDates.length - 1]! : null;
   const selectedDate = selectedRebalanceDate ?? timelineDates[0] ?? null;
   const selectedDateRow =
     payload?.status === 'ok' && selectedDate != null
@@ -784,7 +848,7 @@ function PortfolioRebalanceActionsTimeline({
             <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Rebalance actions
             </h4>
-            {timelineDates.length >= 2 ? (
+            {timelineDates.length >= 1 ? (
               <Select
                 value={selectedDate ?? timelineDates[0]!}
                 onValueChange={(v) => {
@@ -805,7 +869,9 @@ function PortfolioRebalanceActionsTimeline({
                 <SelectContent>
                   {timelineDates.map((d) => (
                     <SelectItem key={d} value={d} className="text-xs">
-                      {formatYmdDisplay(d)}
+                      {d === initialRebalanceDate
+                        ? `${formatYmdDisplay(d)} (initial)`
+                        : formatYmdDisplay(d)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -822,7 +888,7 @@ function PortfolioRebalanceActionsTimeline({
             {payload?.message ?? 'Rebalance actions are not available yet.'}
           </p>
         ) : timelineDates.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No prior rebalance dates yet.</p>
+          <p className="text-sm text-muted-foreground">No rebalance dates yet.</p>
         ) : !showProfileSummary ? (
           <div className="relative min-h-0 w-full flex-1 overflow-hidden lg:min-h-0">
             <div
@@ -2482,13 +2548,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   ]);
 
   if (!authState.isLoaded) {
-    return (
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-6">
-        <Skeleton className="h-10 w-64" />
-        <Skeleton className="h-[200px] w-full" />
-        <Skeleton className="h-[300px] w-full" />
-      </div>
-    );
+    return <YourPortfoliosSkeletonShell />;
   }
 
   if (!authState.isAuthenticated) {
@@ -2505,13 +2565,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   }
 
   if (isLoadingProfiles) {
-    return (
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-6">
-        <Skeleton className="h-10 w-64" />
-        <Skeleton className="h-[200px] w-full" />
-        <Skeleton className="h-[300px] w-full" />
-      </div>
-    );
+    return <YourPortfoliosSkeletonShell />;
   }
 
   // Empty — point user to explore page

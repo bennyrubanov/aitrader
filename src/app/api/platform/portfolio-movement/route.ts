@@ -222,11 +222,11 @@ export async function GET(req: Request) {
     null
   );
 
-  if (rebalanceDates.length < 2) {
+  if (rebalanceDates.length < 1) {
     return NextResponse.json({
       profileId,
       status: 'no_prior_rebalance' as const,
-      message: 'Need at least two rebalance dates to show rebalance actions.',
+      message: 'No rebalance dates yet.',
       lastRebalanceDate: latestAsOf ?? rebalanceDates[0] ?? null,
       previousRebalanceDate: null,
       notionalAtPrevRebalanceEnd: null,
@@ -242,17 +242,18 @@ export async function GET(req: Request) {
   let currentIdx = 0;
   if (rebalanceDateParam && YMD.test(rebalanceDateParam)) {
     const found = rebalanceDates.indexOf(rebalanceDateParam);
-    if (found >= 0 && found < rebalanceDates.length - 1) {
+    if (found >= 0 && found < rebalanceDates.length) {
       currentIdx = found;
     }
   }
 
   const lastRebalanceDate = rebalanceDates[currentIdx]!;
-  const previousRebalanceDate = rebalanceDates[currentIdx + 1]!;
+  const previousRebalanceDate = rebalanceDates[currentIdx + 1] ?? null;
 
   const buildMovementAtIndex = async (idx: number) => {
     const currDate = rebalanceDates[idx]!;
-    const prevDate = rebalanceDates[idx + 1]!;
+    const prevDate = rebalanceDates[idx + 1] ?? null;
+    const isInitial = prevDate == null;
     const { holdings: currHoldings } = await getPortfolioConfigHoldings(
       admin,
       row.strategy_id,
@@ -261,21 +262,26 @@ export async function GET(req: Request) {
       weighting,
       currDate
     );
-    const { holdings: prevHoldings } = await getPortfolioConfigHoldings(
-      admin,
-      row.strategy_id,
-      riskLevel,
-      frequency,
-      weighting,
-      prevDate
-    );
+    const prevHoldings = isInitial
+      ? []
+      : (
+          await getPortfolioConfigHoldings(
+            admin,
+            row.strategy_id,
+            riskLevel,
+            frequency,
+            weighting,
+            prevDate
+          )
+        ).holdings;
 
-    let notionalPrev =
-      rebasedEndingEquityAtRunDate(cfgRows, userStart, investmentSize, prevDate) ?? investmentSize;
     let notionalCurr =
       rebasedEndingEquityAtRunDate(cfgRows, userStart, investmentSize, currDate) ?? investmentSize;
-    if (notionalPrev <= 0) notionalPrev = investmentSize;
     if (notionalCurr <= 0) notionalCurr = investmentSize;
+    let notionalPrev = isInitial
+      ? notionalCurr
+      : rebasedEndingEquityAtRunDate(cfgRows, userStart, investmentSize, prevDate!) ?? investmentSize;
+    if (notionalPrev <= 0) notionalPrev = investmentSize;
 
     const movement = diffConfigHoldingsForRebalance(prevHoldings, currHoldings, notionalCurr);
     if (Math.abs(movement.preReconciliationDeltaDollars) > TRADE_DELTA_TOLERANCE_DOLLARS) {
@@ -292,7 +298,7 @@ export async function GET(req: Request) {
       });
     }
     if (
-      Math.abs(movement.previousWeightSum - 1) > WEIGHT_SUM_TOLERANCE ||
+      (!isInitial && Math.abs(movement.previousWeightSum - 1) > WEIGHT_SUM_TOLERANCE) ||
       Math.abs(movement.targetWeightSum - 1) > WEIGHT_SUM_TOLERANCE
     ) {
       console.warn('[portfolio-movement] weight sum drift', {
@@ -329,7 +335,7 @@ export async function GET(req: Request) {
     | undefined;
   if (includeAllDates) {
     byRebalanceDate = {};
-    for (let idx = 0; idx < rebalanceDates.length - 1; idx += 1) {
+    for (let idx = 0; idx < rebalanceDates.length; idx += 1) {
       const built = idx === currentIdx ? selectedMovement : await buildMovementAtIndex(idx);
       byRebalanceDate[built.lastRebalanceDate] = built;
     }
