@@ -2,6 +2,8 @@ import type { HoldingItem } from '@/lib/platform-performance-payload';
 import type { ConfigPerfRow } from '@/lib/portfolio-config-utils';
 
 const INITIAL_CAPITAL = 10_000;
+/** Same as user-entry post-cost anchor in config-performance-chart (15 bps). */
+const USER_ENTRY_TRANSACTION_COST_RATE = 15 / 10_000;
 
 function toNum(value: unknown, fallback = 0): number {
   const n = Number(value);
@@ -10,7 +12,7 @@ function toNum(value: unknown, fallback = 0): number {
 
 /**
  * Strategy ending equity at a weekly `run_date`, rebased like {@link buildUserEntryConfigTrack}:
- * scale = investmentSize / ending_equity at the baseline row (latest ready row on/before user start).
+ * scale = (investmentSize × (1 − 15 bps)) / ending_equity at the baseline row (latest ready on/before user start).
  * Without `userStartDate`, scales from the model $10k baseline.
  */
 export function rebasedEndingEquityAtRunDate(
@@ -40,7 +42,8 @@ export function rebasedEndingEquityAtRunDate(
   if (baseIndex < 0) return null;
   const baseEnd = toNum(readyRows[baseIndex]!.ending_equity, INITIAL_CAPITAL);
   if (baseEnd <= 0) return null;
-  const scale = investmentSize / baseEnd;
+  const postCostNotional = investmentSize * (1 - USER_ENTRY_TRANSACTION_COST_RATE);
+  const scale = postCostNotional / baseEnd;
   return toNum(row.ending_equity, INITIAL_CAPITAL) * scale;
 }
 

@@ -77,11 +77,13 @@ export type ConfigPerfRow = {
 };
 
 const MODEL_INCEPTION_INITIAL = 10_000;
+/** Matches first-rebalance entry cost in portfolio-config-compute-core (15 bps on full turnover). */
+const MODEL_INCEPTION_POST_COST = MODEL_INCEPTION_INITIAL * (1 - 15 / 10_000);
 
 /**
- * Ensures every portfolio's first point is the strategy's first AI run date with $10k in
- * portfolio + benchmarks (aligned across weekly/monthly/etc.). No-op if data already starts
- * on or before that date (e.g. after compute core inception row or weekly backfill).
+ * Ensures every portfolio's first point is the strategy's first AI run date with post-cost
+ * notional (aligned with stored weekly sim day-0). No-op if data already starts on or before
+ * that date (e.g. after compute core inception row or weekly backfill).
  */
 export async function prependModelInceptionToConfigRows(
   supabase: ReturnType<typeof createPublicClient>,
@@ -109,16 +111,16 @@ export async function prependModelInceptionToConfigRows(
     run_date: inception,
     strategy_status: 'in_progress',
     compute_status: 'ready',
-    net_return: 0,
+    net_return: MODEL_INCEPTION_POST_COST / MODEL_INCEPTION_INITIAL - 1,
     gross_return: 0,
     starting_equity: MODEL_INCEPTION_INITIAL,
-    ending_equity: MODEL_INCEPTION_INITIAL,
+    ending_equity: MODEL_INCEPTION_POST_COST,
     holdings_count: head.holdings_count,
-    turnover: 0,
+    turnover: 1,
     transaction_cost_bps: head.transaction_cost_bps,
-    nasdaq100_cap_weight_equity: MODEL_INCEPTION_INITIAL,
-    nasdaq100_equal_weight_equity: MODEL_INCEPTION_INITIAL,
-    sp500_equity: MODEL_INCEPTION_INITIAL,
+    nasdaq100_cap_weight_equity: MODEL_INCEPTION_POST_COST,
+    nasdaq100_equal_weight_equity: MODEL_INCEPTION_POST_COST,
+    sp500_equity: MODEL_INCEPTION_POST_COST,
     is_eligible_for_comparison: false,
     first_rebalance_date: inception,
     next_rebalance_date: null,

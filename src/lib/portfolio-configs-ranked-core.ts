@@ -9,6 +9,7 @@ import type { ConfigPerfRow } from '@/lib/portfolio-config-utils';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { createPublicClient } from '@/utils/supabase/public';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
+import { computeWeeklyConsistencyVsNasdaqCap } from '@/lib/user-entry-performance';
 import { unstable_cache } from 'next/cache';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -155,6 +156,8 @@ function benchmarkEndingValuesFromSeriesPoint(p: PerformanceSeriesPoint): Benchm
 }
 
 const MODEL_INCEPTION_INITIAL = 10_000;
+/** Matches first-rebalance entry cost in portfolio-config-compute-core (15 bps on full turnover). */
+const MODEL_INCEPTION_POST_COST = MODEL_INCEPTION_INITIAL * (1 - 15 / 10_000);
 
 function ensureModelInceptionPrefix(inceptionDate: string | null, rows: ConfigPerfRow[]): ConfigPerfRow[] {
   if (!inceptionDate || !rows.length) return rows;
@@ -165,16 +168,16 @@ function ensureModelInceptionPrefix(inceptionDate: string | null, rows: ConfigPe
     run_date: inceptionDate,
     strategy_status: 'in_progress',
     compute_status: 'ready',
-    net_return: 0,
+    net_return: MODEL_INCEPTION_POST_COST / MODEL_INCEPTION_INITIAL - 1,
     gross_return: 0,
     starting_equity: MODEL_INCEPTION_INITIAL,
-    ending_equity: MODEL_INCEPTION_INITIAL,
+    ending_equity: MODEL_INCEPTION_POST_COST,
     holdings_count: head.holdings_count,
-    turnover: 0,
+    turnover: 1,
     transaction_cost_bps: head.transaction_cost_bps,
-    nasdaq100_cap_weight_equity: MODEL_INCEPTION_INITIAL,
-    nasdaq100_equal_weight_equity: MODEL_INCEPTION_INITIAL,
-    sp500_equity: MODEL_INCEPTION_INITIAL,
+    nasdaq100_cap_weight_equity: MODEL_INCEPTION_POST_COST,
+    nasdaq100_equal_weight_equity: MODEL_INCEPTION_POST_COST,
+    sp500_equity: MODEL_INCEPTION_POST_COST,
     is_eligible_for_comparison: false,
     first_rebalance_date: inceptionDate,
     next_rebalance_date: null,
@@ -187,39 +190,6 @@ type DbConfigPerfRow = ConfigPerfRow & { config_id: string };
 function stripConfigId(row: DbConfigPerfRow): ConfigPerfRow {
   const { config_id: _cid, ...rest } = row;
   return rest;
-}
-
-function configRowsToPerfRowsForConsistency(configId: string, rows: ConfigPerfRow[]): PerfRow[] {
-  return rows.map((r) => ({
-    config_id: configId,
-    run_date: r.run_date,
-    net_return: r.net_return ?? 0,
-    ending_equity: r.ending_equity ?? INITIAL_CAPITAL,
-    nasdaq100_cap_weight_equity: r.nasdaq100_cap_weight_equity ?? INITIAL_CAPITAL,
-    nasdaq100_equal_weight_equity: r.nasdaq100_equal_weight_equity ?? INITIAL_CAPITAL,
-    sp500_equity: r.sp500_equity ?? INITIAL_CAPITAL,
-  }));
-}
-
-function computeConsistency(rows: PerfRow[], sorted: PerfRow[]): number | null {
-  if (sorted.length < 4) return null;
-  if (sorted.length < 2) return null;
-  let total = 0;
-  let wins = 0;
-  for (let i = 1; i < sorted.length; i++) {
-    const prev = sorted[i - 1];
-    const curr = sorted[i];
-    const prevAi = toNum(prev.ending_equity, INITIAL_CAPITAL);
-    const currAi = toNum(curr.ending_equity, INITIAL_CAPITAL);
-    const prevBench = toNum(prev.nasdaq100_cap_weight_equity, INITIAL_CAPITAL);
-    const currBench = toNum(curr.nasdaq100_cap_weight_equity, INITIAL_CAPITAL);
-    if (prevAi <= 0 || prevBench <= 0) continue;
-    const aiRet = currAi / prevAi - 1;
-    const benchRet = currBench / prevBench - 1;
-    total++;
-    if (aiRet > benchRet) wins++;
-  }
-  return total === 0 ? null : wins / total;
 }
 
 function emptyConfigMetrics(weeksOfData: number): ConfigMetrics {
@@ -252,9 +222,6 @@ async function computeRankedConfigMetrics(
   }
 
   const sorted = [...rowsWithInception].sort((a, b) => a.run_date.localeCompare(b.run_date));
-  const forConsistency = configRowsToPerfRowsForConsistency(cfg.id, sorted);
-  const sortedForConsistency = [...forConsistency].sort((a, b) => a.run_date.localeCompare(b.run_date));
-  const consistency = computeConsistency(forConsistency, sortedForConsistency);
 
   const chartBuilt = buildConfigPerformanceChart(sorted);
   const latestRow = sorted[sorted.length - 1]!;
@@ -295,6 +262,11 @@ async function computeRankedConfigMetrics(
       }
     }
   }
+
+  const consistency =
+    chosenSeries && chosenSeries.length >= 2
+      ? computeWeeklyConsistencyVsNasdaqCap(chosenSeries)
+      : null;
 
   if (chosenSeries && chosenSeries.length >= 2) {
     const fromSeries = buildMetricsFromSeries(chosenSeries);
@@ -601,7 +573,7 @@ export async function getCachedRankedConfigsPayload(
 ): Promise<PortfolioConfigsRankedPayload | null> {
   const loadCached = unstable_cache(
     async () => loadPortfolioConfigsRankedPayload(slug),
-    [RANKED_CONFIGS_CACHE_TAG, slug, 'v4-self-consistent-mtm'],
+    [RANKED_CONFIGS_CACHE_TAG, slug, 'v5-unified-consistency'],
     {
       revalidate: 300,
       tags: [RANKED_CONFIGS_CACHE_TAG, `${RANKED_CONFIGS_CACHE_TAG}:${slug}`],

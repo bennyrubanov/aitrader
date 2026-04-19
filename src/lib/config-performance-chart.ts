@@ -14,6 +14,9 @@ import type { PlatformPerformancePayload } from '@/lib/platform-performance-payl
 
 const INITIAL_CAPITAL = 10_000;
 
+/** Matches `TRANSACTION_COST_RATE` in live-mark-to-market / entry turnover in portfolio-config-compute-core. */
+const USER_ENTRY_TRANSACTION_COST_RATE = 15 / 10_000;
+
 function toNumber(value: unknown, fallback = 0): number {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : fallback;
@@ -210,7 +213,8 @@ function scaleConfigEquities(row: ConfigPerfRow, scale: number): PerformanceSeri
  * Personal-track config series rebased to the user's entry date and investment size.
  * Uses the latest ready config row on or before the entry date as the baseline, then
  * applies all later ready config rows on the same scaled strategy path.
- * The inserted entry-date baseline becomes the capital base for all downstream stats.
+ * The inserted entry-date baseline is post-cost notional (investmentSize × (1 − 15 bps))
+ * so it matches stored weekly sim economics and Explore daily MTM.
  */
 export function buildUserEntryConfigTrack(
   rows: ConfigPerfRow[],
@@ -253,15 +257,16 @@ export function buildUserEntryConfigTrack(
     return empty;
   }
 
-  const scale = investmentSize / baseEnd;
+  const postCostNotional = investmentSize * (1 - USER_ENTRY_TRANSACTION_COST_RATE);
+  const scale = postCostNotional / baseEnd;
   const futureRows = readyRows.slice(baseIndex + 1);
   const series: PerformanceSeriesPoint[] = [
     {
       date: userStartDate,
-      aiTop20: investmentSize,
-      nasdaq100CapWeight: investmentSize,
-      nasdaq100EqualWeight: investmentSize,
-      sp500: investmentSize,
+      aiTop20: postCostNotional,
+      nasdaq100CapWeight: toNumber(baseRow.nasdaq100_cap_weight_equity, INITIAL_CAPITAL) * scale,
+      nasdaq100EqualWeight: toNumber(baseRow.nasdaq100_equal_weight_equity, INITIAL_CAPITAL) * scale,
+      sp500: toNumber(baseRow.sp500_equity, INITIAL_CAPITAL) * scale,
     },
     ...futureRows.map((row) => scaleConfigEquities(row, scale)),
   ];
@@ -286,7 +291,7 @@ export function buildUserEntryConfigTrack(
 
 /**
  * Rows on/after user_start_date, all equity columns scaled so the first row's strategy
- * ending equity equals investmentSize (late user entry; same returns, different notional).
+ * ending equity equals post-cost notional (same rule as {@link buildUserEntryConfigTrack}).
  */
 export function filterAndRebaseConfigRows(
   rows: ConfigPerfRow[],
@@ -300,7 +305,7 @@ export function filterAndRebaseConfigRows(
   const firstEnd = toNumber(from[0]!.ending_equity, INITIAL_CAPITAL);
   if (firstEnd <= 0) return from;
 
-  const k = investmentSize / firstEnd;
+  const k = (investmentSize * (1 - USER_ENTRY_TRANSACTION_COST_RATE)) / firstEnd;
   return from.map((r) => ({
     ...r,
     starting_equity: toNumber(r.starting_equity, INITIAL_CAPITAL) * k,

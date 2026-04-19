@@ -1103,41 +1103,36 @@ function RebalanceActionsTable({
     <div className="relative">
       <div
         ref={scrollRef}
-        className="max-h-[13.25rem] overflow-auto overscroll-y-contain rounded-md border [scrollbar-width:thin]"
+        className="max-h-[13.25rem] overflow-y-auto overflow-x-hidden overscroll-y-contain rounded-md border [scrollbar-width:thin]"
       >
-        <Table
-          ref={innerRef}
-          noScrollWrapper
-          className={cn('border-collapse text-left', !useAllocationOnly && 'table-fixed')}
-        >
-            {!useAllocationOnly ? (
-              <colgroup>
-                <col className="w-[5.25rem]" />
-                <col />
-                <col className="w-[30%]" />
-                <col className="w-[34%]" />
-              </colgroup>
-            ) : null}
+        <div className="min-w-0 w-full overflow-x-auto overflow-y-clip">
+          <Table
+            ref={innerRef}
+            noScrollWrapper
+            className="min-w-0 w-full border-collapse text-left text-[11px] table-auto"
+          >
             <TableHeader>
               <TableRow className="hover:bg-transparent">
-                <TableHead className="h-9 min-w-[5.25rem] py-1.5 pl-2 pr-1 text-left align-middle font-semibold whitespace-nowrap">
+                <TableHead className="h-9 w-[5.25rem] shrink-0 py-1.5 pl-2 pr-0.5 text-left align-middle whitespace-nowrap">
                   Action
                 </TableHead>
-                <TableHead className="h-9 min-w-0 px-1.5 py-1.5 text-left align-middle font-semibold">
+                <TableHead className="h-9 min-w-0 max-w-[10rem] px-1.5 py-1.5 text-left align-middle sm:max-w-[12rem] md:max-w-[14rem]">
                   Stock
                 </TableHead>
                 {useAllocationOnly ? (
-                  <TableHead className="h-9 py-1.5 pl-1 pr-3 text-right align-middle font-semibold whitespace-nowrap tabular-nums">
-                    Allocation
+                  <TableHead className="h-9 min-w-[7rem] px-1.5 py-1.5 text-center align-middle">
+                    <span className="inline-flex min-w-0 max-w-full items-center justify-center gap-1">
+                      <span className="truncate">Allocation</span>
+                    </span>
                   </TableHead>
                 ) : (
                   <>
-                    <TableHead className="h-9 py-1.5 pl-2 pr-3 text-right align-middle font-semibold whitespace-nowrap tabular-nums">
+                    <TableHead className="h-9 min-w-[6.5rem] px-1.5 py-1.5 text-right align-middle whitespace-nowrap tabular-nums">
                       Trade
                     </TableHead>
-                    <TableHead className="h-9 py-1.5 pl-3 pr-3 text-right align-middle font-semibold whitespace-nowrap tabular-nums sm:pr-14">
-                      <span className="inline-flex items-center justify-end gap-1">
-                        Target value
+                    <TableHead className="h-9 min-w-[9rem] py-1.5 pl-1.5 pr-3 text-right align-middle whitespace-nowrap tabular-nums sm:pr-14">
+                      <span className="inline-flex min-w-0 max-w-full items-center justify-end gap-1">
+                        <span className="truncate">Target value</span>
                         <InfoIconTooltip ariaLabel="How target value percent is calculated">
                           <p className="mb-1 font-semibold">Target %</p>
                           <p className="text-muted-foreground">
@@ -1153,15 +1148,17 @@ function RebalanceActionsTable({
             </TableHeader>
             <TableBody>
               {rows.map(({ kind, r }) => (
-                <TableRow key={`${kind}-${r.symbol}`} className="border-border/40">
-                  <TableCell className="py-1.5 pl-2 pr-1 align-middle">{actionBadge(kind)}</TableCell>
-                  <TableCell className="min-w-0 max-w-[10rem] px-1.5 py-1.5 align-middle sm:max-w-none">
-                    <div className="min-w-0">
+                <TableRow key={`${kind}-${r.symbol}`}>
+                  <TableCell className="w-[5.25rem] shrink-0 py-1.5 pl-2 pr-0.5 align-middle">
+                    {actionBadge(kind)}
+                  </TableCell>
+                  <TableCell className="min-w-0 max-w-[10rem] px-1.5 py-1.5 text-left align-middle sm:max-w-[12rem] md:max-w-[14rem]">
+                    <div className="min-w-0 max-w-full overflow-hidden">
                       <Link
                         href={`/stocks/${r.symbol.toLowerCase()}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="font-semibold text-foreground hover:underline"
+                        className="block truncate font-medium text-foreground hover:underline"
                       >
                         {r.symbol}
                       </Link>
@@ -1173,15 +1170,15 @@ function RebalanceActionsTable({
                     </div>
                   </TableCell>
                   {useAllocationOnly ? (
-                    <TableCell className="whitespace-nowrap py-1.5 pl-1 pr-3 text-right align-middle tabular-nums">
+                    <TableCell className="min-w-0 whitespace-normal px-1.5 py-1.5 text-center align-middle tabular-nums">
                       {allocationCell(kind, r)}
                     </TableCell>
                   ) : (
                     <>
-                      <TableCell className="whitespace-nowrap py-1.5 pl-2 pr-3 text-right align-middle tabular-nums">
+                      <TableCell className="whitespace-nowrap px-1.5 py-1.5 text-right align-middle tabular-nums">
                         {tradeCell(kind, r)}
                       </TableCell>
-                      <TableCell className="whitespace-nowrap py-1.5 pl-3 pr-3 text-right align-middle font-medium tabular-nums text-foreground sm:pr-14">
+                      <TableCell className="whitespace-nowrap py-1.5 pl-1.5 pr-3 text-right align-middle font-medium tabular-nums text-foreground sm:pr-14">
                         {targetValueCell(r)}
                       </TableCell>
                     </>
@@ -1189,7 +1186,8 @@ function RebalanceActionsTable({
                 </TableRow>
               ))}
             </TableBody>
-        </Table>
+          </Table>
+        </div>
       </div>
       {showScrollFade ? (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] flex h-10 items-end justify-center bg-gradient-to-t from-background/90 via-background/45 to-transparent pb-1 pt-5">

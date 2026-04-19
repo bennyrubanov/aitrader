@@ -17,6 +17,7 @@ export const revalidate = 300;
 export const maxDuration = 60;
 
 const INITIAL_CAPITAL = 10_000;
+const MODEL_INCEPTION_POST_COST = INITIAL_CAPITAL * (1 - 15 / 10_000);
 
 type PerfRow = {
   config_id: string;
@@ -125,16 +126,16 @@ async function loadExplorePortfoliosEquitySeriesPayload(
       run_date: inceptionDate,
       strategy_status: 'in_progress',
       compute_status: 'ready',
-      net_return: 0,
+      net_return: MODEL_INCEPTION_POST_COST / INITIAL_CAPITAL - 1,
       gross_return: 0,
       starting_equity: INITIAL_CAPITAL,
-      ending_equity: INITIAL_CAPITAL,
+      ending_equity: MODEL_INCEPTION_POST_COST,
       holdings_count: head.holdings_count,
-      turnover: 0,
+      turnover: 1,
       transaction_cost_bps: head.transaction_cost_bps,
-      nasdaq100_cap_weight_equity: INITIAL_CAPITAL,
-      nasdaq100_equal_weight_equity: INITIAL_CAPITAL,
-      sp500_equity: INITIAL_CAPITAL,
+      nasdaq100_cap_weight_equity: MODEL_INCEPTION_POST_COST,
+      nasdaq100_equal_weight_equity: MODEL_INCEPTION_POST_COST,
+      sp500_equity: MODEL_INCEPTION_POST_COST,
       is_eligible_for_comparison: false,
       first_rebalance_date: inceptionDate,
       next_rebalance_date: null,
@@ -285,7 +286,7 @@ async function getCachedExplorePortfoliosEquitySeriesPayload(
 ): Promise<ExplorePortfoliosEquitySeriesPayload | null> {
   const loadCached = unstable_cache(
     async () => loadExplorePortfoliosEquitySeriesPayload(slug),
-    ['explore-equity-series', slug, 'v5-self-consistent-mtm'],
+    ['explore-equity-series', slug, 'v6-unified-consistency'],
     {
       revalidate: 300,
       tags: [RANKED_CONFIGS_CACHE_TAG, `${RANKED_CONFIGS_CACHE_TAG}:${slug}`],
