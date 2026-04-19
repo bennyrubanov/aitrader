@@ -143,6 +143,11 @@ export default {
 						opacity: '0.8'
 					}
 				},
+				/** Soft blink for live-status dots (explore detail dialog, etc.) */
+				'live-dot-pulse': {
+					'0%, 100%': { opacity: '1' },
+					'50%': { opacity: '0.28' },
+				},
 				'scale-in': {
 					'0%': {
 						opacity: '0',
@@ -162,6 +167,7 @@ export default {
 				'fade-in-right': 'fade-in-right 0.7s ease-out',
 				'float': 'float 6s ease-in-out infinite',
 				'pulse-slow': 'pulse-slow 4s ease-in-out infinite',
+				'live-dot-pulse': 'live-dot-pulse 2.8s ease-in-out infinite',
 				'scale-in': 'scale-in 0.5s ease-out'
 			},
 			fontFamily: {

@@ -3,7 +3,7 @@
  *
  * Authenticated: config rebalance vs prior rebalance — hold / buy / sell with weights and
  * dollar targets using the same rebase as the personal config track.
- * Optional `rebalanceDate` (YYYY-MM-DD) must be in `rebalanceDates` and not the oldest batch;
+ * Optional `rebalanceDate` (YYYY-MM-DD) must be in the entry-scoped `rebalanceDates` list;
  * defaults to the newest rebalance when omitted.
  */
 import { NextResponse } from 'next/server';
@@ -213,7 +213,7 @@ export async function GET(req: Request) {
     });
   }
 
-  const { rebalanceDates, asOfDate: latestAsOf } = await getPortfolioConfigHoldings(
+  const { rebalanceDates: rebalanceDatesAll, asOfDate: latestAsOf } = await getPortfolioConfigHoldings(
     admin,
     row.strategy_id,
     riskLevel,
@@ -222,21 +222,42 @@ export async function GET(req: Request) {
     null
   );
 
-  if (rebalanceDates.length < 1) {
+  if (rebalanceDatesAll.length < 1) {
     return NextResponse.json({
       profileId,
       status: 'no_prior_rebalance' as const,
       message: 'No rebalance dates yet.',
-      lastRebalanceDate: latestAsOf ?? rebalanceDates[0] ?? null,
+      lastRebalanceDate: latestAsOf ?? rebalanceDatesAll[0] ?? null,
       previousRebalanceDate: null,
       notionalAtPrevRebalanceEnd: null,
       notionalAtCurrRebalanceEnd: null,
-      rebalanceDates,
+      rebalanceDates: rebalanceDatesAll,
       hold: [],
       buy: [],
       sell: [],
     });
   }
+
+  /** Latest config rebalance on-or-before user entry (newest-first list). */
+  const userAnchorIdx = rebalanceDatesAll.findIndex((d) => d <= userStart);
+  if (userAnchorIdx < 0) {
+    return NextResponse.json({
+      profileId,
+      status: 'no_prior_rebalance' as const,
+      message:
+        'Your entry date is before the first rebalance for this portfolio. Pick a later entry to see rebalance actions.',
+      lastRebalanceDate: latestAsOf ?? rebalanceDatesAll[0] ?? null,
+      previousRebalanceDate: null,
+      notionalAtPrevRebalanceEnd: null,
+      notionalAtCurrRebalanceEnd: null,
+      rebalanceDates: [],
+      hold: [],
+      buy: [],
+      sell: [],
+    });
+  }
+
+  const rebalanceDates = rebalanceDatesAll.slice(0, userAnchorIdx + 1);
 
   const rebalanceDateParam = searchParams.get('rebalanceDate')?.trim() ?? '';
   let currentIdx = 0;
@@ -247,13 +268,10 @@ export async function GET(req: Request) {
     }
   }
 
-  const lastRebalanceDate = rebalanceDates[currentIdx]!;
-  const previousRebalanceDate = rebalanceDates[currentIdx + 1] ?? null;
-
   const buildMovementAtIndex = async (idx: number) => {
     const currDate = rebalanceDates[idx]!;
     const prevDate = rebalanceDates[idx + 1] ?? null;
-    const isInitial = prevDate == null;
+    const isUserAnchor = idx === rebalanceDates.length - 1;
     const { holdings: currHoldings } = await getPortfolioConfigHoldings(
       admin,
       row.strategy_id,
@@ -262,7 +280,7 @@ export async function GET(req: Request) {
       weighting,
       currDate
     );
-    const prevHoldings = isInitial
+    const prevHoldings = isUserAnchor
       ? []
       : (
           await getPortfolioConfigHoldings(
@@ -271,17 +289,23 @@ export async function GET(req: Request) {
             riskLevel,
             frequency,
             weighting,
-            prevDate
+            prevDate!
           )
         ).holdings;
 
-    let notionalCurr =
-      rebasedEndingEquityAtRunDate(cfgRows, userStart, investmentSize, currDate) ?? investmentSize;
-    if (notionalCurr <= 0) notionalCurr = investmentSize;
-    let notionalPrev = isInitial
-      ? notionalCurr
-      : rebasedEndingEquityAtRunDate(cfgRows, userStart, investmentSize, prevDate!) ?? investmentSize;
-    if (notionalPrev <= 0) notionalPrev = investmentSize;
+    let notionalCurr: number;
+    let notionalPrev: number;
+    if (isUserAnchor) {
+      notionalCurr = investmentSize;
+      notionalPrev = investmentSize;
+    } else {
+      notionalCurr =
+        rebasedEndingEquityAtRunDate(cfgRows, userStart, investmentSize, currDate) ?? investmentSize;
+      if (notionalCurr <= 0) notionalCurr = investmentSize;
+      notionalPrev =
+        rebasedEndingEquityAtRunDate(cfgRows, userStart, investmentSize, prevDate!) ?? investmentSize;
+      if (notionalPrev <= 0) notionalPrev = investmentSize;
+    }
 
     const movement = diffConfigHoldingsForRebalance(prevHoldings, currHoldings, notionalCurr);
     if (Math.abs(movement.preReconciliationDeltaDollars) > TRADE_DELTA_TOLERANCE_DOLLARS) {
@@ -298,7 +322,7 @@ export async function GET(req: Request) {
       });
     }
     if (
-      (!isInitial && Math.abs(movement.previousWeightSum - 1) > WEIGHT_SUM_TOLERANCE) ||
+      (!isUserAnchor && Math.abs(movement.previousWeightSum - 1) > WEIGHT_SUM_TOLERANCE) ||
       Math.abs(movement.targetWeightSum - 1) > WEIGHT_SUM_TOLERANCE
     ) {
       console.warn('[portfolio-movement] weight sum drift', {

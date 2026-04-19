@@ -9,6 +9,7 @@
  * configs produce a full curve from inception.
  */
 
+import { revalidateTag } from 'next/cache';
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/utils/supabase/admin';
 import {
@@ -134,15 +135,32 @@ export async function POST(req: Request) {
     );
 
     const uniqueDates = [...new Set(allBatches.map((b) => b.run_date))];
-    const { data: rawData, error: rawErr } = await supabase
-      .from('nasdaq_100_daily_raw')
-      .select('run_date, symbol, last_sale_price, market_cap')
-      .in('run_date', uniqueDates);
+    const PAGE = 1000;
+    const rawData: Array<{
+      run_date: string;
+      symbol: string;
+      last_sale_price: string | null;
+      market_cap: string | null;
+    }> = [];
+    let from = 0;
+    for (;;) {
+      const { data, error: rawErr } = await supabase
+        .from('nasdaq_100_daily_raw')
+        .select('run_date, symbol, last_sale_price, market_cap')
+        .in('run_date', uniqueDates)
+        .order('run_date', { ascending: true })
+        .order('symbol', { ascending: true })
+        .range(from, from + PAGE - 1);
 
-    if (rawErr) throw new Error(`Price fetch failed: ${rawErr.message}`);
+      if (rawErr) throw new Error(`Price fetch failed: ${rawErr.message}`);
+      if (!data?.length) break;
+      rawData.push(...(data as typeof rawData));
+      if (data.length < PAGE) break;
+      from += PAGE;
+    }
 
     const { pricesByDate, capsByDate } = buildPricesAndCapsByDate(
-      (rawData ?? []) as Parameters<typeof buildPricesAndCapsByDate>[0]
+      rawData as Parameters<typeof buildPricesAndCapsByDate>[0]
     );
 
     const upsertRows = computeEquityUpsertRows({
@@ -175,6 +193,12 @@ export async function POST(req: Request) {
     }
 
     await upsertQueueStatus(supabase, strategy_id, config_id, 'done');
+
+    try {
+      revalidateTag('mtm-walk-inputs');
+    } catch {
+      /* revalidateTag only runs in Next.js server context */
+    }
 
     return NextResponse.json({
       ok: true,

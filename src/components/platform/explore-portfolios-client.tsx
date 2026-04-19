@@ -1339,29 +1339,20 @@ function ConfigCard({
         <div className="flex w-11 shrink-0 self-stretch border-r border-border/70 bg-muted/25 sm:w-12">
           <div className="flex w-full flex-1 flex-col items-center justify-center px-1 py-3">
             {config.rank != null ? (
-              config.rank === 1 ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      className="cursor-help border-0 bg-transparent p-0 text-xl font-bold tabular-nums leading-none text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                      aria-label={`Rank ${config.rank}, more info`}
-                    >
-                      {config.rank}
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="max-w-xs text-xs">
-                    <PortfolioRankingTooltipBody rank={config.rank} strategySlug={strategySlug} />
-                  </TooltipContent>
-                </Tooltip>
-              ) : (
-                <span
-                  className="text-xl font-bold tabular-nums leading-none text-foreground"
-                  aria-label={`Rank ${config.rank}`}
-                >
-                  {config.rank}
-                </span>
-              )
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="cursor-help border-0 bg-transparent p-0 text-xl font-bold tabular-nums leading-none text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    aria-label={`Rank ${config.rank}, more info`}
+                  >
+                    {config.rank}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-xs text-xs">
+                  <PortfolioRankingTooltipBody rank={config.rank} strategySlug={strategySlug} />
+                </TooltipContent>
+              </Tooltip>
             ) : (
               <span className="text-sm font-semibold tabular-nums text-muted-foreground/50">—</span>
             )}
@@ -1464,29 +1455,20 @@ function ConfigCard({
         {/* Rank badge — prominent left column */}
         <div className="flex w-14 shrink-0 flex-col items-center justify-center border-r bg-muted/20">
           {config.rank != null ? (
-            config.rank === 1 ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex h-full min-h-[3.25rem] w-full flex-col items-center justify-center border-0 bg-transparent p-0 text-lg font-bold tabular-nums text-foreground cursor-help hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                    aria-label={`Rank ${config.rank}, more info`}
-                  >
-                    {config.rank}
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="right" className="max-w-xs text-xs">
-                  <PortfolioRankingTooltipBody rank={config.rank} strategySlug={strategySlug} />
-                </TooltipContent>
-              </Tooltip>
-            ) : (
-              <div
-                className="flex h-full min-h-[3.25rem] w-full flex-col items-center justify-center text-lg font-bold tabular-nums text-foreground"
-                aria-label={`Rank ${config.rank}`}
-              >
-                {config.rank}
-              </div>
-            )
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="flex h-full min-h-[3.25rem] w-full flex-col items-center justify-center border-0 bg-transparent p-0 text-lg font-bold tabular-nums text-foreground cursor-help hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  aria-label={`Rank ${config.rank}, more info`}
+                >
+                  {config.rank}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right" className="max-w-xs text-xs">
+                <PortfolioRankingTooltipBody rank={config.rank} strategySlug={strategySlug} />
+              </TooltipContent>
+            </Tooltip>
           ) : (
             <span className="text-sm text-muted-foreground/50">—</span>
           )}

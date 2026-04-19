@@ -683,15 +683,27 @@ export function ExplorePortfolioDetailDialog({
           >
           {config && hasMetrics && m ? (
             <section className="space-y-2">
-              <div className="hidden flex-row flex-wrap items-center gap-x-2 gap-y-0.5 lg:flex">
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground shrink-0">
-                  Performance metrics
-                </h4>
-                <span className="text-muted-foreground/70 shrink-0 text-xs" aria-hidden>
-                  ·
-                </span>
-                <span className="text-[11px] tabular-nums text-muted-foreground whitespace-nowrap">
-                  {m.weeksOfData > 0 ? `${m.weeksOfData} weeks of data` : '—'}
+              <div className="hidden min-w-0 items-center justify-between gap-3 lg:flex">
+                <div className="flex min-w-0 flex-row flex-wrap items-center gap-x-2 gap-y-0.5">
+                  <h4 className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Performance metrics
+                  </h4>
+                  <span className="shrink-0 text-xs text-muted-foreground/70" aria-hidden>
+                    ·
+                  </span>
+                  <span className="whitespace-nowrap text-[11px] tabular-nums text-muted-foreground">
+                    {m.weeksOfData > 0 ? `${m.weeksOfData} weeks of data` : '—'}
+                  </span>
+                </div>
+                <span
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border/80 bg-muted/50 px-2 py-0.5 text-[11px] font-semibold text-foreground"
+                  title="Published performance through the latest data"
+                >
+                  <span
+                    className="size-1.5 shrink-0 rounded-full bg-emerald-500 animate-live-dot-pulse dark:bg-emerald-400"
+                    aria-hidden
+                  />
+                  Live
                 </span>
               </div>
 

@@ -285,7 +285,7 @@ async function getCachedExplorePortfoliosEquitySeriesPayload(
 ): Promise<ExplorePortfoliosEquitySeriesPayload | null> {
   const loadCached = unstable_cache(
     async () => loadExplorePortfoliosEquitySeriesPayload(slug),
-    ['explore-equity-series', slug, 'v3-daily-mtm-tail-sharpe'],
+    ['explore-equity-series', slug, 'v5-self-consistent-mtm'],
     {
       revalidate: 300,
       tags: [RANKED_CONFIGS_CACHE_TAG, `${RANKED_CONFIGS_CACHE_TAG}:${slug}`],

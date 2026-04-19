@@ -1,10 +1,40 @@
+import { cache } from 'react';
+import { unstable_cache } from 'next/cache';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getPortfolioConfigHoldings } from '@/lib/portfolio-config-holdings';
+import { createAdminClient } from '@/utils/supabase/admin';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
 import { getCloseOnOrBefore, STOOQ_BENCHMARK_SYMBOLS, type StooqCsvRow } from '@/lib/stooq-benchmark-weekly';
 import { parseNasdaqRawPrice } from '@/lib/user-portfolio-entry';
 
 type SymbolPriceMap = Record<string, number | null>;
+
+/** PostgREST default max-rows is 1000; page so daily MTM / benchmarks never silently truncate. */
+const SUPABASE_PAGE_SIZE = 1000;
+
+/** Matches `transactionCostBps` in portfolio-config-compute-core (multiplicative cost on rebalance). */
+const TRANSACTION_COST_RATE = 15 / 10_000;
+
+async function fetchPagedRows<T>(
+  fetchPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>
+): Promise<T[]> {
+  const out: T[] = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await fetchPage(from, from + SUPABASE_PAGE_SIZE - 1);
+    if (error || !data?.length) break;
+    out.push(...data);
+    if (data.length < SUPABASE_PAGE_SIZE) break;
+    from += SUPABASE_PAGE_SIZE;
+  }
+  return out;
+}
+
+function calendarDaysBetweenUtc(earlierIso: string, laterIso: string): number {
+  const a = new Date(`${earlierIso}T12:00:00.000Z`).getTime();
+  const b = new Date(`${laterIso}T12:00:00.000Z`).getTime();
+  return Math.round((b - a) / 86_400_000);
+}
 
 function toFinitePositive(value: unknown): number | null {
   const n = Number(value);
@@ -56,8 +86,135 @@ type Benchmarks = Pick<
 type SnapshotHolding = { symbol: string; weight: number };
 type RebalanceSnapshot = { date: string; notional: number; holdings: SnapshotHolding[] };
 
+function computeTurnoverSnapshotHoldings(prev: SnapshotHolding[], next: SnapshotHolding[]): number {
+  const prevMap = new Map(prev.map((h) => [h.symbol.toUpperCase(), h.weight]));
+  const currMap = new Map(next.map((h) => [h.symbol.toUpperCase(), h.weight]));
+  const ids = new Set([...prevMap.keys(), ...currMap.keys()]);
+  let sumAbs = 0;
+  for (const id of ids) {
+    sumAbs += Math.abs((currMap.get(id) ?? 0) - (prevMap.get(id) ?? 0));
+  }
+  return sumAbs / 2;
+}
+
+export type ConfigMtmWalkInputs = {
+  latestRunDate: string;
+  rebalanceDatesAsc: string[];
+  holdingsByDate: Map<string, SnapshotHolding[]>;
+  tradingDates: string[];
+  pricesByDate: Map<string, SymbolPriceMap>;
+};
+
+type ConfigMtmWalkInputsSerialized = {
+  latestRunDate: string;
+  rebalanceDatesAsc: string[];
+  holdingsEntries: Array<[string, SnapshotHolding[]]>;
+  tradingDates: string[];
+  priceEntries: Array<[string, SymbolPriceMap]>;
+};
+
+async function loadConfigWalkInputsUncached(
+  supabase: SupabaseClient,
+  strategyId: string,
+  riskLevel: number,
+  rebalanceFrequency: string,
+  weightingMethod: string
+): Promise<ConfigMtmWalkInputsSerialized | null> {
+  const { rebalanceDates } = await getPortfolioConfigHoldings(
+    supabase,
+    strategyId,
+    riskLevel,
+    rebalanceFrequency,
+    weightingMethod,
+    null
+  );
+  if (!rebalanceDates.length) return null;
+
+  const rebalanceDatesAsc = [...rebalanceDates].sort((a, b) => a.localeCompare(b));
+  const latestRunDate = await loadLatestRawRunDate(supabase);
+  if (!latestRunDate) return null;
+
+  const holdingsByDate = new Map<string, SnapshotHolding[]>();
+  await Promise.all(
+    rebalanceDatesAsc.map(async (d) => {
+      const { holdings } = await getPortfolioConfigHoldings(
+        supabase,
+        strategyId,
+        riskLevel,
+        rebalanceFrequency,
+        weightingMethod,
+        d
+      );
+      holdingsByDate.set(
+        d,
+        holdings
+          .map((h) => ({ symbol: h.symbol.toUpperCase(), weight: h.weight }))
+          .filter((h) => Number.isFinite(h.weight) && h.weight > 0)
+      );
+    })
+  );
+
+  const unionSymbols = uniqueSorted(
+    [...holdingsByDate.values()].flatMap((arr) => arr.map((h) => h.symbol))
+  );
+  const earliestRebal = rebalanceDatesAsc[0]!;
+  const { tradingDates, pricesByDate } = await loadRawPricesForSymbolsFromDate(
+    supabase,
+    earliestRebal,
+    unionSymbols
+  );
+
+  return {
+    latestRunDate,
+    rebalanceDatesAsc,
+    holdingsEntries: [...holdingsByDate.entries()],
+    tradingDates,
+    priceEntries: [...pricesByDate.entries()],
+  };
+}
+
+/**
+ * Shared holdings + raw prices for a config (same for all user entry dates). Per-request dedupe via
+ * `react` cache; cross-request via `unstable_cache`. Invalidate with `revalidateTag('mtm-walk-inputs')`.
+ */
+export const loadConfigWalkInputsForMtm = cache(
+  async (
+    strategyId: string,
+    riskLevel: number,
+    rebalanceFrequency: string,
+    weightingMethod: string
+  ): Promise<ConfigMtmWalkInputs | null> => {
+    const serialized = await unstable_cache(
+      async () => {
+        const supabase = createAdminClient();
+        return loadConfigWalkInputsUncached(
+          supabase,
+          strategyId,
+          riskLevel,
+          rebalanceFrequency,
+          weightingMethod
+        );
+      },
+      ['config-mtm-walk-inputs', strategyId, String(riskLevel), rebalanceFrequency, weightingMethod],
+      { revalidate: 7200, tags: ['mtm-walk-inputs', `mtm-walk-inputs:${strategyId}`] }
+    )();
+    if (!serialized) return null;
+    return {
+      latestRunDate: serialized.latestRunDate,
+      rebalanceDatesAsc: serialized.rebalanceDatesAsc,
+      holdingsByDate: toMap(serialized.holdingsEntries),
+      tradingDates: serialized.tradingDates,
+      pricesByDate: toMap(serialized.priceEntries),
+    };
+  }
+);
+
 function uniqueSorted(values: string[]): string[] {
   return [...new Set(values)].sort((a, b) => a.localeCompare(b));
+}
+
+function toMap<K, V>(entries: Array<[K, V]> | undefined | null): Map<K, V> {
+  return new Map(entries ?? []);
 }
 
 function pickNotionalAtOrBefore(series: PerformanceSeriesPoint[], date: string): number | null {
@@ -106,19 +263,23 @@ async function loadRawPricesForSymbolsFromDate(
   if (!symbols.length) {
     return { tradingDates: [], pricesByDate: new Map() };
   }
-  const { data } = await supabase
-    .from('nasdaq_100_daily_raw')
-    .select('run_date, symbol, last_sale_price')
-    .gte('run_date', startDate)
-    .in('symbol', symbols)
-    .order('run_date', { ascending: true });
-  const pricesByDate = new Map<string, SymbolPriceMap>();
-  const dates: string[] = [];
-  for (const row of (data ?? []) as Array<{
+  const rows = await fetchPagedRows<{
     run_date: string;
     symbol: string;
     last_sale_price: string | null;
-  }>) {
+  }>((from, to) =>
+    supabase
+      .from('nasdaq_100_daily_raw')
+      .select('run_date, symbol, last_sale_price')
+      .gte('run_date', startDate)
+      .in('symbol', symbols)
+      .order('run_date', { ascending: true })
+      .order('symbol', { ascending: true })
+      .range(from, to)
+  );
+  const pricesByDate = new Map<string, SymbolPriceMap>();
+  const dates: string[] = [];
+  for (const row of rows) {
     if (!pricesByDate.has(row.run_date)) {
       pricesByDate.set(row.run_date, {});
       dates.push(row.run_date);
@@ -148,38 +309,11 @@ async function buildBenchmarksByDate(
   const maxDate = dates.reduce((a, b) => (a > b ? a : b));
   const queryStart = isoDateMinusCalendarDays(minBound, 400);
 
-  const symbols = [
-    STOOQ_BENCHMARK_SYMBOLS.nasdaqCap,
-    STOOQ_BENCHMARK_SYMBOLS.nasdaqEqual,
-    STOOQ_BENCHMARK_SYMBOLS.sp500,
-  ];
-
-  const { data, error } = await supabase
-    .from('benchmark_daily_prices')
-    .select('symbol, run_date, close')
-    .in('symbol', symbols)
-    .gte('run_date', queryStart)
-    .lte('run_date', maxDate)
-    .order('run_date', { ascending: true });
-
-  if (error || !data?.length) return result;
-
-  const capSym = STOOQ_BENCHMARK_SYMBOLS.nasdaqCap;
-  const eqSym = STOOQ_BENCHMARK_SYMBOLS.nasdaqEqual;
-  const spSym = STOOQ_BENCHMARK_SYMBOLS.sp500;
-
-  const ndxRows: StooqCsvRow[] = [];
-  const eqqRows: StooqCsvRow[] = [];
-  const spxRows: StooqCsvRow[] = [];
-
-  for (const row of data as Array<{ symbol: string; run_date: string; close: number | string }>) {
-    const close = Number(row.close);
-    if (!Number.isFinite(close) || close <= 0) continue;
-    const entry: StooqCsvRow = { date: row.run_date, close };
-    if (row.symbol === capSym) ndxRows.push(entry);
-    else if (row.symbol === eqSym) eqqRows.push(entry);
-    else if (row.symbol === spSym) spxRows.push(entry);
-  }
+  const { ndxRows, eqqRows, spxRows } = await loadBenchmarkClosesWindow(
+    supabase,
+    queryStart,
+    maxDate
+  );
 
   if (!ndxRows.length || !eqqRows.length || !spxRows.length) return result;
 
@@ -202,6 +336,51 @@ async function buildBenchmarksByDate(
   return result;
 }
 
+type BenchmarkCloses = {
+  ndxRows: StooqCsvRow[];
+  eqqRows: StooqCsvRow[];
+  spxRows: StooqCsvRow[];
+};
+
+const loadBenchmarkClosesWindow = cache(
+  async (supabase: SupabaseClient, queryStart: string, maxDate: string): Promise<BenchmarkCloses> => {
+    const symbols = [
+      STOOQ_BENCHMARK_SYMBOLS.nasdaqCap,
+      STOOQ_BENCHMARK_SYMBOLS.nasdaqEqual,
+      STOOQ_BENCHMARK_SYMBOLS.sp500,
+    ];
+    const data = await fetchPagedRows<{ symbol: string; run_date: string; close: number | string }>(
+      (from, to) =>
+        supabase
+          .from('benchmark_daily_prices')
+          .select('symbol, run_date, close')
+          .in('symbol', symbols)
+          .gte('run_date', queryStart)
+          .lte('run_date', maxDate)
+          .order('run_date', { ascending: true })
+          .order('symbol', { ascending: true })
+          .range(from, to)
+    );
+
+    const capSym = STOOQ_BENCHMARK_SYMBOLS.nasdaqCap;
+    const eqSym = STOOQ_BENCHMARK_SYMBOLS.nasdaqEqual;
+    const spSym = STOOQ_BENCHMARK_SYMBOLS.sp500;
+
+    const ndxRows: StooqCsvRow[] = [];
+    const eqqRows: StooqCsvRow[] = [];
+    const spxRows: StooqCsvRow[] = [];
+    for (const row of data) {
+      const close = Number(row.close);
+      if (!Number.isFinite(close) || close <= 0) continue;
+      const entry: StooqCsvRow = { date: row.run_date, close };
+      if (row.symbol === capSym) ndxRows.push(entry);
+      else if (row.symbol === eqSym) eqqRows.push(entry);
+      else if (row.symbol === spSym) spxRows.push(entry);
+    }
+    return { ndxRows, eqqRows, spxRows };
+  }
+);
+
 function buildDailySeriesFromSnapshots(
   snapshotsAsc: RebalanceSnapshot[],
   tradingDates: string[],
@@ -217,12 +396,22 @@ function buildDailySeriesFromSnapshots(
   let unitsBySymbol = new Map<string, number>();
   const lastPriceBySymbol = new Map<string, number>();
 
-  const activateSnapshotAtDate = (snapshot: RebalanceSnapshot): boolean => {
+  const computeRunningValue = (): number | null => {
+    let total = 0;
+    for (const [symbol, units] of unitsBySymbol.entries()) {
+      const px = lastPriceBySymbol.get(symbol) ?? null;
+      if (px == null || !Number.isFinite(px) || px <= 0) return null;
+      total += units * px;
+    }
+    return Number.isFinite(total) && total > 0 ? total : null;
+  };
+
+  const seedUnits = (notional: number, holdings: SnapshotHolding[]): boolean => {
     const units = new Map<string, number>();
-    for (const h of snapshot.holdings) {
+    for (const h of holdings) {
       const px = lastPriceBySymbol.get(h.symbol.toUpperCase()) ?? null;
       if (px == null || !Number.isFinite(px) || px <= 0) return false;
-      const targetDollars = snapshot.notional * h.weight;
+      const targetDollars = notional * h.weight;
       const unitsForHolding = targetDollars / px;
       if (!Number.isFinite(unitsForHolding) || unitsForHolding < 0) return false;
       units.set(h.symbol.toUpperCase(), unitsForHolding);
@@ -239,13 +428,27 @@ function buildDailySeriesFromSnapshots(
     }
 
     while (snapshotIdx + 1 < snapshotsAsc.length && snapshotsAsc[snapshotIdx + 1]!.date <= date) {
+      const prevSnap = currentSnapshot;
       snapshotIdx += 1;
-      currentSnapshot = snapshotsAsc[snapshotIdx]!;
+      const sn = snapshotsAsc[snapshotIdx]!;
       nextSnapshotDate = snapshotsAsc[snapshotIdx + 1]?.date ?? null;
-      const activated = activateSnapshotAtDate(currentSnapshot);
-      if (!activated) {
-        currentSnapshot = null;
-        unitsBySymbol = new Map();
+
+      if (snapshotIdx === 0) {
+        const ok = seedUnits(sn.notional, sn.holdings);
+        currentSnapshot = ok ? sn : null;
+        if (!ok) unitsBySymbol = new Map();
+      } else {
+        const preValue = computeRunningValue();
+        if (preValue == null || prevSnap == null) {
+          currentSnapshot = null;
+          unitsBySymbol = new Map();
+        } else {
+          const turnover = computeTurnoverSnapshotHoldings(prevSnap.holdings, sn.holdings);
+          const postValue = preValue * (1 - turnover * TRANSACTION_COST_RATE);
+          const ok = seedUnits(postValue, sn.holdings);
+          currentSnapshot = ok ? sn : null;
+          if (!ok) unitsBySymbol = new Map();
+        }
       }
     }
     if (!currentSnapshot) continue;
@@ -253,19 +456,10 @@ function buildDailySeriesFromSnapshots(
     if (date < currentSnapshot.date) continue;
 
     let portfolioValue: number | null = null;
-    if (date === currentSnapshot.date) {
+    if (snapshotIdx === 0 && date === currentSnapshot.date) {
       portfolioValue = currentSnapshot.notional;
     } else {
-      let total = 0;
-      for (const [symbol, units] of unitsBySymbol.entries()) {
-        const px = lastPriceBySymbol.get(symbol) ?? null;
-        if (px == null || !Number.isFinite(px) || px <= 0) {
-          total = NaN;
-          break;
-        }
-        total += units * px;
-      }
-      if (Number.isFinite(total) && total > 0) portfolioValue = total;
+      portfolioValue = computeRunningValue();
     }
     if (portfolioValue == null) continue;
     const bench = benchmarksByDate.get(date) ?? fallbackBenchmarks;
@@ -293,57 +487,49 @@ export async function buildDailyMarkedToMarketSeriesForConfig(
   }
 ): Promise<PerformanceSeriesPoint[] | null> {
   if (params.notionalSeries.length === 0) return null;
-  const latestRunDate = await loadLatestRawRunDate(supabase);
-  if (!latestRunDate) return null;
 
-  const { rebalanceDates } = await getPortfolioConfigHoldings(
-    supabase,
+  const inputs = await loadConfigWalkInputsForMtm(
     params.strategyId,
     params.riskLevel,
     params.rebalanceFrequency,
-    params.weightingMethod,
-    null
+    params.weightingMethod
   );
-  if (!rebalanceDates.length) return null;
+  if (!inputs) return null;
+
+  const { latestRunDate, rebalanceDatesAsc, holdingsByDate, tradingDates: allTradingDates, pricesByDate: allPricesByDate } =
+    inputs;
 
   const minDate = params.startDate ?? params.notionalSeries[0]!.date;
-  const targetDatesAsc = [...rebalanceDates]
-    .filter((d) => d >= minDate && d <= latestRunDate)
-    .sort((a, b) => a.localeCompare(b));
-  if (!targetDatesAsc.length) return null;
-
-  const byDate = await Promise.all(
-    targetDatesAsc.map(async (d) => {
-      const { holdings } = await getPortfolioConfigHoldings(
-        supabase,
-        params.strategyId,
-        params.riskLevel,
-        params.rebalanceFrequency,
-        params.weightingMethod,
-        d
-      );
-      return { date: d, holdings };
-    })
-  );
+  const inRange = rebalanceDatesAsc.filter((d) => d >= minDate && d <= latestRunDate);
+  const preMin = rebalanceDatesAsc.filter((d) => d < minDate);
+  const latestPreMin = preMin.length ? preMin[preMin.length - 1]! : null;
+  const needsAnchor = latestPreMin != null && (inRange.length === 0 || inRange[0]! > minDate);
 
   const snapshots: RebalanceSnapshot[] = [];
-  for (const snap of byDate) {
-    const notional = pickNotionalAtOrBefore(params.notionalSeries, snap.date);
-    if (notional == null) continue;
-    const holdings = snap.holdings
-      .map((h) => ({ symbol: h.symbol.toUpperCase(), weight: h.weight }))
-      .filter((h) => Number.isFinite(h.weight) && h.weight > 0);
-    if (!holdings.length) continue;
-    snapshots.push({ date: snap.date, notional, holdings });
+  if (needsAnchor) {
+    const notional = pickNotionalAtOrBefore(params.notionalSeries, minDate);
+    const holdings = holdingsByDate.get(latestPreMin!) ?? [];
+    if (notional != null && holdings.length) {
+      snapshots.push({ date: minDate, notional, holdings });
+    }
+  }
+  for (const d of inRange) {
+    const notional = pickNotionalAtOrBefore(params.notionalSeries, d);
+    const holdings = holdingsByDate.get(d) ?? [];
+    if (notional == null || !holdings.length) continue;
+    snapshots.push({ date: d, notional, holdings });
   }
   if (!snapshots.length) return null;
 
-  const symbols = uniqueSorted(
-    snapshots.flatMap((s) => s.holdings.map((h) => h.symbol.toUpperCase()))
-  );
   const start = snapshots[0]!.date;
-  const { tradingDates, pricesByDate } = await loadRawPricesForSymbolsFromDate(supabase, start, symbols);
+  const tradingDates = allTradingDates.filter((d) => d >= start);
   if (!tradingDates.length) return null;
+
+  const pricesByDate = new Map<string, SymbolPriceMap>();
+  for (const d of tradingDates) {
+    const row = allPricesByDate.get(d);
+    if (row) pricesByDate.set(d, row);
+  }
 
   const baseBenchmarks =
     pickBenchmarksAtOrBefore(params.notionalSeries, start) ??
@@ -358,13 +544,32 @@ export async function buildDailyMarkedToMarketSeriesForConfig(
     ? new Map<string, Benchmarks>()
     : await buildBenchmarksByDate(supabase, tradingDates, start, baseBenchmarks);
 
-  return buildDailySeriesFromSnapshots(
+  let series = buildDailySeriesFromSnapshots(
     snapshots,
     tradingDates,
     pricesByDate,
     benchmarksByDate,
     baseBenchmarks
   );
+
+  if (needsAnchor && series.length > 0 && series[0]!.date > minDate) {
+    const n = pickNotionalAtOrBefore(params.notionalSeries, minDate);
+    if (n != null) {
+      const b = pickBenchmarksAtOrBefore(params.notionalSeries, minDate) ?? baseBenchmarks;
+      series = [
+        {
+          date: minDate,
+          aiTop20: n,
+          nasdaq100CapWeight: b.nasdaq100CapWeight,
+          nasdaq100EqualWeight: b.nasdaq100EqualWeight,
+          sp500: b.sp500,
+        },
+        ...series,
+      ];
+    }
+  }
+
+  return series;
 }
 
 /**
@@ -382,19 +587,27 @@ export async function buildLatestMtmPointFromLastSnapshot(
   }
 ): Promise<PerformanceSeriesPoint | null> {
   if (params.notionalSeries.length === 0) return null;
-  const latestRunDate = await loadLatestRawRunDate(supabase);
+  const walkInputs = await loadConfigWalkInputsForMtm(
+    params.strategyId,
+    params.riskLevel,
+    params.rebalanceFrequency,
+    params.weightingMethod
+  );
+  const latestRunDate = walkInputs?.latestRunDate ?? (await loadLatestRawRunDate(supabase));
   if (!latestRunDate) return null;
 
   const weeklyLastDate = params.notionalSeries[params.notionalSeries.length - 1]!.date;
 
-  const { rebalanceDates } = await getPortfolioConfigHoldings(
-    supabase,
-    params.strategyId,
-    params.riskLevel,
-    params.rebalanceFrequency,
-    params.weightingMethod,
-    null
-  );
+  const rebalanceDates = walkInputs?.rebalanceDatesAsc ?? (
+    await getPortfolioConfigHoldings(
+      supabase,
+      params.strategyId,
+      params.riskLevel,
+      params.rebalanceFrequency,
+      params.weightingMethod,
+      null
+    )
+  ).rebalanceDates;
   if (!rebalanceDates.length) return null;
 
   const candidates = rebalanceDates.filter((d) => d <= weeklyLastDate && d <= latestRunDate);
@@ -403,25 +616,37 @@ export async function buildLatestMtmPointFromLastSnapshot(
 
   if (snapshotDate === latestRunDate) return null;
 
-  const { holdings } = await getPortfolioConfigHoldings(
-    supabase,
-    params.strategyId,
-    params.riskLevel,
-    params.rebalanceFrequency,
-    params.weightingMethod,
-    snapshotDate
-  );
-  const snapshotHoldings = holdings
-    .map((h) => ({ symbol: h.symbol.toUpperCase(), weight: Number(h.weight) }))
-    .filter((h) => Number.isFinite(h.weight) && h.weight > 0);
+  const cachedSnapshotHoldings = walkInputs?.holdingsByDate.get(snapshotDate) ?? null;
+  const snapshotHoldings = cachedSnapshotHoldings
+    ? cachedSnapshotHoldings
+    : (
+        await getPortfolioConfigHoldings(
+          supabase,
+          params.strategyId,
+          params.riskLevel,
+          params.rebalanceFrequency,
+          params.weightingMethod,
+          snapshotDate
+        )
+      ).holdings
+          .map((h) => ({ symbol: h.symbol.toUpperCase(), weight: Number(h.weight) }))
+          .filter((h) => Number.isFinite(h.weight) && h.weight > 0);
   if (!snapshotHoldings.length) return null;
 
   const notional = pickNotionalAtOrBefore(params.notionalSeries, snapshotDate);
   if (notional == null || !Number.isFinite(notional) || notional <= 0) return null;
 
   const symbols = uniqueSorted(snapshotHoldings.map((h) => h.symbol));
-  const pricesAtSnapshot = await loadPricesForSymbolsOnDate(supabase, snapshotDate, symbols);
-  const pricesAtLatest = await loadPricesForSymbolsOnDate(supabase, latestRunDate, symbols);
+  const hasAllSymbols = (prices: SymbolPriceMap | undefined | null) =>
+    !!prices && symbols.every((symbol) => Object.prototype.hasOwnProperty.call(prices, symbol));
+  const cachedSnapshotPrices = walkInputs?.pricesByDate.get(snapshotDate);
+  const cachedLatestPrices = walkInputs?.pricesByDate.get(latestRunDate);
+  const pricesAtSnapshot = hasAllSymbols(cachedSnapshotPrices)
+    ? (cachedSnapshotPrices as SymbolPriceMap)
+    : await loadPricesForSymbolsOnDate(supabase, snapshotDate, symbols);
+  const pricesAtLatest = hasAllSymbols(cachedLatestPrices)
+    ? (cachedLatestPrices as SymbolPriceMap)
+    : await loadPricesForSymbolsOnDate(supabase, latestRunDate, symbols);
 
   let portfolioValue = 0;
   for (const h of snapshotHoldings) {
@@ -446,6 +671,13 @@ export async function buildLatestMtmPointFromLastSnapshot(
   const benchMap = await buildBenchmarksByDate(supabase, [latestRunDate], snapshotDate, baseBenchmarks);
   const bench = benchMap.get(latestRunDate);
   if (!bench) return null;
+
+  const gapDays = calendarDaysBetweenUtc(weeklyLastDate, latestRunDate);
+  if (gapDays > 7) {
+    console.warn(
+      `[live-mtm] Large gap between last notional date and latest raw run date (${gapDays}d): seriesLast=${weeklyLastDate} latestRaw=${latestRunDate} strategyId=${params.strategyId}`
+    );
+  }
 
   return {
     date: latestRunDate,

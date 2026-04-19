@@ -127,7 +127,10 @@ export function diffConfigHoldingsForRebalance(
   const preReconciliationDelta = roundCurrency(lines.reduce((sum, line) => sum + line.deltaDollars, 0));
   let totalDelta = preReconciliationDelta;
   let residualApplied = 0;
-  if (Math.abs(totalDelta) >= CENT_TOLERANCE) {
+  // Initial deployment from cash: every delta is target dollars, so totalDelta ≈ notional.
+  // Residual reconciliation is only for rounding drift when rebalancing an existing book.
+  const isInitialFromCash = prevHoldings.length === 0;
+  if (!isInitialFromCash && Math.abs(totalDelta) >= CENT_TOLERANCE) {
     const target = selectResidualTarget(lines);
     if (target) {
       residualApplied = roundCurrency(-totalDelta);

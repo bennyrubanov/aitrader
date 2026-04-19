@@ -317,8 +317,9 @@ export function computeEquityUpsertRows(params: {
       const entryTurnover = 1;
       const entryTransactionCost = entryTurnover * (transactionCostBps / 10_000);
       const entryGrossReturn = 0;
-      const entryNetReturn = entryGrossReturn - entryTransactionCost;
-      equity = Math.max(0.01, INITIAL_CAPITAL * (1 + entryNetReturn));
+      const entryNetFactor = (1 + entryGrossReturn) * (1 - entryTransactionCost);
+      const entryNetReturn = entryNetFactor - 1;
+      equity = Math.max(0.01, INITIAL_CAPITAL * entryNetFactor);
 
       upsertRows.push({
         strategy_id,
@@ -370,9 +371,11 @@ export function computeEquityUpsertRows(params: {
       }
     }
 
-    const netReturn = grossReturn - transactionCost;
+    const grossFactor = 1 + grossReturn;
+    const netFactor = grossFactor * (1 - transactionCost);
+    const netReturn = netFactor - 1;
     const startingEquity = equity;
-    equity = Math.max(0.01, equity * (1 + netReturn));
+    equity = Math.max(0.01, equity * netFactor);
 
     const strategyStatus = upsertRows.length < 2 ? 'in_progress' : 'active';
 

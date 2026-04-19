@@ -114,7 +114,7 @@ import {
   formatPortfolioConfigOverviewLine,
   formatPortfolioSpotlightConfigLine,
 } from '@/lib/portfolio-config-display';
-import { formatYmdDisplay } from '@/lib/format-ymd-display';
+import { formatYmdDisplay, ymdForInitialRebalanceDisplay } from '@/lib/format-ymd-display';
 import {
   buildHoldingMovementTableRows,
   getPreviousRebalanceDate,
@@ -1404,6 +1404,15 @@ function SinglePortfolioRebalanceMovementSection({
       ? 'Portfolio value after this rebalance:'
       : 'Portfolio value this date:';
 
+  const movementInitialAnchor =
+    cd?.rebalanceDates?.[cd.rebalanceDates.length - 1] ?? null;
+  const movementHeaderDisplayYmd =
+    headerLastRebalance != null &&
+    movementInitialAnchor != null &&
+    headerLastRebalance === movementInitialAnchor
+      ? ymdForInitialRebalanceDisplay(movementInitialAnchor, profile.user_start_date)
+      : headerLastRebalance;
+
   return (
     <div className="space-y-4">
       <div
@@ -1466,7 +1475,7 @@ function SinglePortfolioRebalanceMovementSection({
                           ? 'Initial rebalance date: '
                           : 'Rebalance date: '}
                       <span className="tabular-nums">
-                        {formatYmdDisplay(headerLastRebalance)}
+                        {formatYmdDisplay(movementHeaderDisplayYmd ?? headerLastRebalance)}
                       </span>
                     </p>
                   ) : (
@@ -1514,7 +1523,9 @@ function SinglePortfolioRebalanceMovementSection({
                         {cd.rebalanceDates.map((d, idx, arr) => (
                           <SelectItem key={d} value={d} className="text-xs">
                             {idx === arr.length - 1
-                              ? `${formatYmdDisplay(d)} (initial)`
+                              ? `${formatYmdDisplay(
+                                  ymdForInitialRebalanceDisplay(d, profile.user_start_date)
+                                )} (initial)`
                               : formatYmdDisplay(d)}
                           </SelectItem>
                         ))}
@@ -2745,9 +2756,34 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
 
   const spotlightHoldingsTopN =
     topSpotlightOverview?.profile.portfolio_config?.top_n ?? 20;
+
+  const topSpotlightUserStartYmd = topSpotlightOverview?.profile.user_start_date?.trim() ?? '';
+
+  const spotlightHoldingsRebalanceAnchorDate = useMemo(() => {
+    if (!topSpotlightUserStartYmd) return null;
+    return topSpotlightRebalanceDates.find((d) => d <= topSpotlightUserStartYmd) ?? null;
+  }, [topSpotlightRebalanceDates, topSpotlightUserStartYmd]);
+
+  const scopedTopSpotlightRebalanceDates = useMemo(() => {
+    if (!spotlightHoldingsRebalanceAnchorDate) return topSpotlightRebalanceDates;
+    const idx = topSpotlightRebalanceDates.indexOf(spotlightHoldingsRebalanceAnchorDate);
+    if (idx < 0) return topSpotlightRebalanceDates;
+    return topSpotlightRebalanceDates.slice(0, idx + 1);
+  }, [topSpotlightRebalanceDates, spotlightHoldingsRebalanceAnchorDate]);
+
   const spotlightHoldingsAsOfNotional = useMemo(() => {
+    const investmentSize = Number(topSpotlightOverview?.profile.investment_size);
     const pts = topSpotlightOverview?.state.series ?? [];
     const asOf = topSpotlightHoldingsAsOf;
+    if (
+      asOf &&
+      spotlightHoldingsRebalanceAnchorDate &&
+      asOf === spotlightHoldingsRebalanceAnchorDate &&
+      Number.isFinite(investmentSize) &&
+      investmentSize > 0
+    ) {
+      return investmentSize;
+    }
     if (asOf && pts.length > 0) {
       const exact = pts.find((p) => p.date === asOf)?.aiTop20;
       if (exact != null && Number.isFinite(exact) && exact > 0) return exact;
@@ -2761,28 +2797,50 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     }
     const latest = pts[pts.length - 1]?.aiTop20;
     if (latest != null && Number.isFinite(latest) && latest > 0) return latest;
-    return Number(topSpotlightOverview?.profile.investment_size);
-  }, [topSpotlightOverview, topSpotlightHoldingsAsOf]);
-  const liveTopSpotlightAllocation = useMemo(
-    () =>
-      buildLiveHoldingsAllocationResult(
-        topSpotlightHoldings,
-        spotlightHoldingsAsOfNotional,
-        topSpotlightAsOfPriceBySymbol,
-        topSpotlightLatestPriceBySymbol
-      ),
-    [
+    return Number.isFinite(investmentSize) && investmentSize > 0
+      ? investmentSize
+      : Number(topSpotlightOverview?.profile.investment_size);
+  }, [topSpotlightOverview, topSpotlightHoldingsAsOf, spotlightHoldingsRebalanceAnchorDate]);
+  const liveTopSpotlightAllocation = useMemo(() => {
+    if (
+      topSpotlightHoldingsAsOf &&
+      spotlightHoldingsRebalanceAnchorDate &&
+      topSpotlightHoldingsAsOf === spotlightHoldingsRebalanceAnchorDate
+    ) {
+      return { bySymbol: {}, hasCompleteCoverage: false as const };
+    }
+    return buildLiveHoldingsAllocationResult(
       topSpotlightHoldings,
       spotlightHoldingsAsOfNotional,
       topSpotlightAsOfPriceBySymbol,
-      topSpotlightLatestPriceBySymbol,
-    ]
-  );
+      topSpotlightLatestPriceBySymbol
+    );
+  }, [
+    topSpotlightHoldingsAsOf,
+    spotlightHoldingsRebalanceAnchorDate,
+    topSpotlightHoldings,
+    spotlightHoldingsAsOfNotional,
+    topSpotlightAsOfPriceBySymbol,
+    topSpotlightLatestPriceBySymbol,
+  ]);
 
   const spotlightHoldingsPrevRebalanceDate = useMemo(
-    () => getPreviousRebalanceDate(topSpotlightRebalanceDates, topSpotlightHoldingsAsOf),
-    [topSpotlightRebalanceDates, topSpotlightHoldingsAsOf]
+    () => getPreviousRebalanceDate(scopedTopSpotlightRebalanceDates, topSpotlightHoldingsAsOf),
+    [scopedTopSpotlightRebalanceDates, topSpotlightHoldingsAsOf]
   );
+
+  useEffect(() => {
+    if (!scopedTopSpotlightRebalanceDates.length) return;
+    if (!topSpotlightHoldingsAsOf) return;
+    if (!scopedTopSpotlightRebalanceDates.includes(topSpotlightHoldingsAsOf)) {
+      const newest = scopedTopSpotlightRebalanceDates[0];
+      if (newest) void fetchTopSpotlightHoldings(newest);
+    }
+  }, [
+    scopedTopSpotlightRebalanceDates,
+    topSpotlightHoldingsAsOf,
+    fetchTopSpotlightHoldings,
+  ]);
 
   useEffect(() => {
     if (
@@ -3574,12 +3632,12 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                   <h4 className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                                     Portfolio holdings
                                   </h4>
-                                  {overviewPaidHoldings && topSpotlightRebalanceDates.length > 0 ? (
+                                  {overviewPaidHoldings && scopedTopSpotlightRebalanceDates.length > 0 ? (
                                     <div className="flex flex-wrap items-center justify-start gap-x-2 gap-y-2 sm:gap-x-3">
                                       <Select
                                         value={
                                           topSpotlightHoldingsAsOf &&
-                                          topSpotlightRebalanceDates.includes(
+                                          scopedTopSpotlightRebalanceDates.includes(
                                             topSpotlightHoldingsAsOf
                                           )
                                             ? topSpotlightHoldingsAsOf
@@ -3601,13 +3659,28 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                           <SelectValue placeholder="Rebalance date" />
                                         </SelectTrigger>
                                         <SelectContent align="start">
-                                          {topSpotlightRebalanceDates.map((d) => (
+                                          {scopedTopSpotlightRebalanceDates.map((d) => {
+                                            const initialD =
+                                              scopedTopSpotlightRebalanceDates[
+                                                scopedTopSpotlightRebalanceDates.length - 1
+                                              ];
+                                            return (
                                             <SelectItem key={d} value={d} className="text-xs">
-                                              {spotlightHoldingsShortDateFmt.format(
-                                                new Date(`${d}T00:00:00Z`)
-                                              )}
+                                              {d === initialD
+                                                ? `${spotlightHoldingsShortDateFmt.format(
+                                                    new Date(
+                                                      `${ymdForInitialRebalanceDisplay(
+                                                        d,
+                                                        topSpotlightUserStartYmd
+                                                      )}T00:00:00Z`
+                                                    )
+                                                  )} (initial)`
+                                                : spotlightHoldingsShortDateFmt.format(
+                                                    new Date(`${d}T00:00:00Z`)
+                                                  )}
                                             </SelectItem>
-                                          ))}
+                                            );
+                                          })}
                                         </SelectContent>
                                       </Select>
                                       {spotlightHoldingsPrevRebalanceDate ? (
@@ -3638,7 +3711,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                     </div>
                                   ) : overviewPaidHoldings &&
                                     !topSpotlightHoldingsLoading &&
-                                    topSpotlightRebalanceDates.length === 0 ? (
+                                    scopedTopSpotlightRebalanceDates.length === 0 ? (
                                     <p className="shrink-0 text-left text-[11px] text-muted-foreground">
                                       No rebalance history yet.
                                     </p>

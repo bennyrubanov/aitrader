@@ -126,7 +126,7 @@ import { PORTFOLIO_EXPLORE_QUICK_PICKS } from '@/lib/portfolio-explore-quick-pic
 import { loadRankedConfigsClient } from '@/lib/portfolio-configs-ranked-client';
 import { loadUserPortfolioProfilesClient } from '@/lib/user-portfolio-profiles-client';
 import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
-import { formatYmdDisplay } from '@/lib/format-ymd-display';
+import { formatYmdDisplay, ymdForInitialRebalanceDisplay } from '@/lib/format-ymd-display';
 import {
   buildGuestLocalProfileRows,
   buildGuestUserEntryPerformancePayload,
@@ -870,7 +870,9 @@ function PortfolioRebalanceActionsTimeline({
                   {timelineDates.map((d) => (
                     <SelectItem key={d} value={d} className="text-xs">
                       {d === initialRebalanceDate
-                        ? `${formatYmdDisplay(d)} (initial)`
+                        ? `${formatYmdDisplay(
+                            ymdForInitialRebalanceDisplay(d, profile.user_start_date)
+                          )} (initial)`
                         : formatYmdDisplay(d)}
                     </SelectItem>
                   ))}
@@ -1976,6 +1978,20 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const selectedProfileConfigId =
     selectedProfile?.portfolio_config?.id ?? selectedProfile?.config_id ?? null;
 
+  const userStartForHoldingsYmd = selectedProfile?.user_start_date?.trim() ?? '';
+
+  const holdingsRebalanceAnchorDate = useMemo(() => {
+    if (!userStartForHoldingsYmd) return null;
+    return configHoldingsRebalanceDates.find((d) => d <= userStartForHoldingsYmd) ?? null;
+  }, [configHoldingsRebalanceDates, userStartForHoldingsYmd]);
+
+  const scopedConfigHoldingsRebalanceDates = useMemo(() => {
+    if (!holdingsRebalanceAnchorDate) return configHoldingsRebalanceDates;
+    const idx = configHoldingsRebalanceDates.indexOf(holdingsRebalanceAnchorDate);
+    if (idx < 0) return configHoldingsRebalanceDates;
+    return configHoldingsRebalanceDates.slice(0, idx + 1);
+  }, [configHoldingsRebalanceDates, holdingsRebalanceAnchorDate]);
+
   useLayoutEffect(() => {
     const hasProfile = Boolean(selectedProfile?.id);
     const hasEntryDate = Boolean(selectedProfile?.user_start_date?.trim());
@@ -2132,6 +2148,21 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   ]);
 
   useEffect(() => {
+    if (!scopedConfigHoldingsRebalanceDates.length) return;
+    const asOf = pendingHoldingsAsOf ?? configHoldingsAsOf;
+    if (!asOf) return;
+    if (!scopedConfigHoldingsRebalanceDates.includes(asOf)) {
+      const newest = scopedConfigHoldingsRebalanceDates[0];
+      if (newest) void fetchYourPortfolioConfigHoldings(newest);
+    }
+  }, [
+    scopedConfigHoldingsRebalanceDates,
+    configHoldingsAsOf,
+    pendingHoldingsAsOf,
+    fetchYourPortfolioConfigHoldings,
+  ]);
+
+  useEffect(() => {
     setHoldingsRowChartSymbol(null);
   }, [selectedProfile?.id, selectedProfileConfigId]);
 
@@ -2202,8 +2233,12 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
 
   const topN = selectedProfile?.portfolio_config?.top_n ?? 20;
   const holdingsAsOfNotional = useMemo(() => {
+    const investmentSize = num(selectedProfile?.investment_size);
     const pts = (displaySeries as PerformanceSeriesPoint[]) ?? [];
     const asOf = configHoldingsAsOf;
+    if (asOf && holdingsRebalanceAnchorDate && asOf === holdingsRebalanceAnchorDate) {
+      return investmentSize;
+    }
     if (asOf && pts.length > 0) {
       const exact = pts.find((p) => p.date === asOf)?.aiTop20;
       if (exact != null && Number.isFinite(exact) && exact > 0) return exact;
@@ -2217,29 +2252,41 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     }
     const latest = pts[pts.length - 1]?.aiTop20;
     if (latest != null && Number.isFinite(latest) && latest > 0) return latest;
-    return num(selectedProfile?.investment_size);
-  }, [displaySeries, configHoldingsAsOf, selectedProfile?.investment_size]);
-  const liveConfigHoldingsAllocation = useMemo(
-    () =>
-      buildLiveHoldingsAllocationResult(
-        configHoldings,
-        holdingsAsOfNotional,
-        configHoldingsAsOfPriceBySymbol,
-        configHoldingsLatestPriceBySymbol
-      ),
-    [
+    return investmentSize;
+  }, [
+    displaySeries,
+    configHoldingsAsOf,
+    selectedProfile?.investment_size,
+    holdingsRebalanceAnchorDate,
+  ]);
+  const liveConfigHoldingsAllocation = useMemo(() => {
+    if (
+      configHoldingsAsOf &&
+      holdingsRebalanceAnchorDate &&
+      configHoldingsAsOf === holdingsRebalanceAnchorDate
+    ) {
+      return { bySymbol: {}, hasCompleteCoverage: false as const };
+    }
+    return buildLiveHoldingsAllocationResult(
       configHoldings,
       holdingsAsOfNotional,
       configHoldingsAsOfPriceBySymbol,
-      configHoldingsLatestPriceBySymbol,
-    ]
-  );
+      configHoldingsLatestPriceBySymbol
+    );
+  }, [
+    configHoldingsAsOf,
+    holdingsRebalanceAnchorDate,
+    configHoldings,
+    holdingsAsOfNotional,
+    configHoldingsAsOfPriceBySymbol,
+    configHoldingsLatestPriceBySymbol,
+  ]);
 
   const effectiveHoldingsAsOf = pendingHoldingsAsOf ?? configHoldingsAsOf;
 
   const holdingsPrevRebalanceDate = useMemo(
-    () => getPreviousRebalanceDate(configHoldingsRebalanceDates, configHoldingsAsOf),
-    [configHoldingsRebalanceDates, configHoldingsAsOf]
+    () => getPreviousRebalanceDate(scopedConfigHoldingsRebalanceDates, configHoldingsAsOf),
+    [scopedConfigHoldingsRebalanceDates, configHoldingsAsOf]
   );
 
   useEffect(() => {
@@ -3291,12 +3338,12 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                     <h4 className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       Portfolio holdings
                     </h4>
-                    {yourPortfoliosHoldingsPaid && configHoldingsRebalanceDates.length > 0 ? (
+                    {yourPortfoliosHoldingsPaid && scopedConfigHoldingsRebalanceDates.length > 0 ? (
                       <div className="flex flex-wrap items-center justify-start gap-x-2 gap-y-2 sm:gap-x-3">
                         <Select
                           value={
                             effectiveHoldingsAsOf &&
-                            configHoldingsRebalanceDates.includes(effectiveHoldingsAsOf)
+                            scopedConfigHoldingsRebalanceDates.includes(effectiveHoldingsAsOf)
                               ? effectiveHoldingsAsOf
                               : undefined
                           }
@@ -3317,13 +3364,28 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                             <SelectValue placeholder="Rebalance date" />
                           </SelectTrigger>
                           <SelectContent align="start">
-                            {configHoldingsRebalanceDates.map((d) => (
+                            {scopedConfigHoldingsRebalanceDates.map((d) => {
+                              const initialD =
+                                scopedConfigHoldingsRebalanceDates[
+                                  scopedConfigHoldingsRebalanceDates.length - 1
+                                ];
+                              return (
                               <SelectItem key={d} value={d} className="text-xs">
-                                {yourPortfolioHoldingsShortDateFmt.format(
-                                  new Date(`${d}T00:00:00Z`)
-                                )}
+                                {d === initialD
+                                  ? `${yourPortfolioHoldingsShortDateFmt.format(
+                                      new Date(
+                                        `${ymdForInitialRebalanceDisplay(
+                                          d,
+                                          userStartForHoldingsYmd
+                                        )}T00:00:00Z`
+                                      )
+                                    )} (initial)`
+                                  : yourPortfolioHoldingsShortDateFmt.format(
+                                      new Date(`${d}T00:00:00Z`)
+                                    )}
                               </SelectItem>
-                            ))}
+                              );
+                            })}
                           </SelectContent>
                         </Select>
                         {holdingsPrevRebalanceDate ? (
@@ -3353,7 +3415,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                       </div>
                     ) : yourPortfoliosHoldingsPaid &&
                       !configHoldingsLoading &&
-                      configHoldingsRebalanceDates.length === 0 ? (
+                      scopedConfigHoldingsRebalanceDates.length === 0 ? (
                       <p className="shrink-0 text-left text-[11px] text-muted-foreground">
                         No rebalance history yet.
                       </p>

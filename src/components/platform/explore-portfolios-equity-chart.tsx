@@ -186,7 +186,7 @@ type Props = {
   /**
    * `performancePicker`: no vertical tooltip cursor, no pin/dots, no X-scrub; lines ↔ sidebar and
    * benchmark pills ↔ lines still highlight on hover. Pills and sidebar $ values stay at the latest
-   * run in the full series (nominal $), even when the chart range is zoomed or rebased.
+   * run in the full series (nominal $), even when the chart range is zoomed to a date subset.
    */
   variant?: 'explore' | 'performancePicker';
 };
@@ -216,7 +216,6 @@ export function ExplorePortfoliosEquityChart({
   const [hoveredLineKey, setHoveredLineKey] = useState<string | null>(null);
   const sidebarScrollRef = useRef<HTMLDivElement>(null);
   const hoverSourceRef = useRef<'chart' | 'sidebar' | null>(null);
-  const lastPortfolioLinePickAtRef = useRef(0);
 
   const visibleSeries = useMemo(
     () => series.filter((s) => visibleConfigIds.has(s.configId)),
@@ -265,7 +264,7 @@ export function ExplorePortfoliosEquityChart({
     const filteredDates = filterDates(dates, range);
     const dateIndex = new Map(dates.map((d, i) => [d, i]));
 
-    let rows = filteredDates.map((d) => {
+    const rows = filteredDates.map((d) => {
       const i = dateIndex.get(d) ?? 0;
       const row: Record<string, string | number> = {
         date: d,
@@ -283,28 +282,12 @@ export function ExplorePortfoliosEquityChart({
       return row;
     });
 
-    if (range !== 'All' && rows.length) {
-      const rebaseKeys = [...keys, ...bmKeys];
-      if (rebaseKeys.length) {
-        const first = rows[0]!;
-        rows = rows.map((row) => {
-          const out = { ...row };
-          for (const k of rebaseKeys) {
-            const base = Number(first[k]);
-            const v = Number(out[k]);
-            if (base > 0 && Number.isFinite(v)) out[k] = (v / base) * 10_000;
-          }
-          return out;
-        });
-      }
-    }
-
     return { chartData: rows, dataKeys: keys, chartConfig: chCfg, benchmarkKeys: bmKeys };
   }, [dates, range, visibleSeries, benchmarks, benchmarksValid, hiddenBenchmarkKeys]);
 
   const latestIdx = chartData.length > 0 ? chartData.length - 1 : null;
 
-  /** Picker pills/sidebar: nominal $ at last API date (unchanged when chart range is 1M/3M/rebased). */
+  /** Picker pills/sidebar: nominal $ at last API date (unchanged when chart range is zoomed). */
   const pickerLatestRow = useMemo(() => {
     if (!isPicker || !dates.length || !visibleSeries.length) return null;
     const i = dates.length - 1;
@@ -407,6 +390,12 @@ export function ExplorePortfoliosEquityChart({
 
   const clearPin = useCallback(() => setPinnedIndex(null), []);
 
+  /** New range = new slice; pinned index would not mean the same calendar date — drop pin/hover. */
+  useEffect(() => {
+    setPinnedIndex(null);
+    setHoverIndex(null);
+  }, [range]);
+
   useEffect(() => {
     if (isNarrowLayout) setPinnedIndex(null);
   }, [isNarrowLayout]);
@@ -459,18 +448,6 @@ export function ExplorePortfoliosEquityChart({
       setPinnedIndex(i);
     },
     [chartData.length, isNarrowLayout]
-  );
-
-  /** Touch scrubbing (mobile): update hovered date like mouse move; desktop mouse path unchanged. */
-  const pickPortfolioFromLine = useCallback(
-    (cfgId: string) => {
-      if (!cfgId) return;
-      const now = Date.now();
-      if (now - lastPortfolioLinePickAtRef.current < 450) return;
-      lastPortfolioLinePickAtRef.current = now;
-      onSelectConfig(cfgId);
-    },
-    [onSelectConfig]
   );
 
   const yDomain = useMemo<[number, number] | ['auto', 'auto']>(() => {
@@ -557,11 +534,6 @@ export function ExplorePortfoliosEquityChart({
             </button>
           ))}
         </div>
-        {range !== 'All' ? (
-          <p className="max-w-[240px] text-right text-[11px] leading-snug text-muted-foreground">
-            Shorter windows are rebased to $10,000 at the start of the range.
-          </p>
-        ) : null}
       </div>
 
       {benchmarksValid && displayValueRow ? (
@@ -745,10 +717,7 @@ export function ExplorePortfoliosEquityChart({
                       setHoveredLineKey((cur) => (cur === k ? null : cur));
                       hoverSourceRef.current = null;
                     }}
-                    onClick={
-                      isNarrowLayout || !cfgId ? undefined : () => pickPortfolioFromLine(cfgId)
-                    }
-                    style={{ cursor: isNarrowLayout ? 'default' : 'pointer' }}
+                    style={{ cursor: 'default' }}
                   />
                 );
               })}

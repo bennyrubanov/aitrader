@@ -601,7 +601,7 @@ export async function getCachedRankedConfigsPayload(
 ): Promise<PortfolioConfigsRankedPayload | null> {
   const loadCached = unstable_cache(
     async () => loadPortfolioConfigsRankedPayload(slug),
-    [RANKED_CONFIGS_CACHE_TAG, slug, 'v2-daily-mtm'],
+    [RANKED_CONFIGS_CACHE_TAG, slug, 'v4-self-consistent-mtm'],
     {
       revalidate: 300,
       tags: [RANKED_CONFIGS_CACHE_TAG, `${RANKED_CONFIGS_CACHE_TAG}:${slug}`],

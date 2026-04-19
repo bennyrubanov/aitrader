@@ -4,8 +4,8 @@ import { Button } from '@/components/ui/button';
 
 /**
  * Explains rank for a strategy model; links to methodology.
- * Pass `rankedTotal` for “N out of M portfolios” (e.g. onboarding). Omit it for the default
- * composite / total-return explanation (e.g. Explore list).
+ * Pass `rankedTotal` for “N out of M portfolios” (e.g. onboarding). Omit it for Explore-style
+ * copy: #1 highlights top composite score; other ranks note composite-score ordering.
  */
 export function PortfolioRankingTooltipBody({
   rank,
@@ -29,9 +29,7 @@ export function PortfolioRankingTooltipBody({
       ? `Ranked ${rank} out of ${rankedTotal} portfolio${rankedTotal === 1 ? '' : 's'} by composite score for this strategy model.`
       : rank <= 1
         ? 'This portfolio has the highest composite score among the ranked portfolios for this strategy model.'
-        : rank - 1 === 1
-          ? 'There is 1 portfolio that has better total return than this one.'
-          : `There are ${rank - 1} portfolios that have better total return than this one.`;
+        : 'This ranks portfolios by overall composite score for this strategy model.';
 
   return (
     <div className="space-y-2">
