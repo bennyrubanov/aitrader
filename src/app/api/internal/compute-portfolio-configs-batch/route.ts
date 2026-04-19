@@ -12,6 +12,7 @@ import { revalidatePath, revalidateTag } from 'next/cache';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { computeAllPortfolioConfigs } from '@/lib/compute-all-portfolio-configs';
 import { LANDING_TOP_PORTFOLIO_PERFORMANCE_CACHE_TAG } from '@/lib/landing-top-portfolio-performance';
+import { RANKED_CONFIGS_CACHE_TAG } from '@/lib/portfolio-configs-ranked-core';
 
 export const runtime = 'nodejs';
 /** Hobby plan caps non-cron routes at 60s; full inline run may need localhost backfill if this times out. */
@@ -42,6 +43,7 @@ export async function POST(req: Request) {
     const result = await computeAllPortfolioConfigs(supabase, strategy_id);
 
     revalidateTag(LANDING_TOP_PORTFOLIO_PERFORMANCE_CACHE_TAG);
+    revalidateTag(RANKED_CONFIGS_CACHE_TAG);
     revalidatePath('/', 'page');
 
     const configsTriggered = result.computedNonDefault + result.failedNonDefault;

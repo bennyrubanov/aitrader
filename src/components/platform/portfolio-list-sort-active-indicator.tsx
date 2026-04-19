@@ -18,12 +18,12 @@ export function PortfolioListSortActiveIndicator({
   return (
     <span
       className={cn(
-        'pointer-events-none absolute -right-0.5 -top-0.5 flex size-3 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm ring-1 ring-background',
+        'pointer-events-none absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground',
         className
       )}
       aria-hidden
     >
-      <Icon className="size-[5px] shrink-0" strokeWidth={2} />
+      <Icon style={{ width: 9, height: 9 }} strokeWidth={2.25} />
     </span>
   );
 }

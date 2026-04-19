@@ -15,6 +15,7 @@ import {
   resolveConfigId,
 } from '@/lib/portfolio-config-utils';
 import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
+import { createAdminClient } from '@/utils/supabase/admin';
 import { createPublicClient } from '@/utils/supabase/public';
 
 /** Use with `revalidateTag` after `strategy_portfolio_config_performance` / weekly benchmark updates (cron, backfill). */
@@ -92,7 +93,8 @@ async function loadLandingTopPortfolioPerformanceUncached(): Promise<LandingTopP
   let series = built.series;
   const isReady = mapComputeStatus(rawStatus) === 'ready';
   if (isReady && series.length >= 2) {
-    const dailySeries = await buildDailyMarkedToMarketSeriesForConfig(supabase, {
+    const adminSupabase = createAdminClient();
+    const dailySeries = await buildDailyMarkedToMarketSeriesForConfig(adminSupabase, {
       strategyId: ranked.strategyId,
       riskLevel: portfolioSlice.riskLevel,
       rebalanceFrequency: portfolioSlice.rebalanceFrequency,

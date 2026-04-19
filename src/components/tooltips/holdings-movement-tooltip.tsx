@@ -29,16 +29,6 @@ export function HoldingsMovementInfoTooltip() {
               <strong>Exited</strong>.
             </li>
           </ul>
-          <p className="text-muted-foreground">
-            For more detail, open the{' '}
-            <Link
-              href="/platform/your-portfolios#rebalance-actions"
-              className="font-medium text-foreground underline underline-offset-2 hover:no-underline"
-            >
-              Rebalance actions
-            </Link>{' '}
-            section in Your portfolios.
-          </p>
         </div>
       </InfoIconTooltip>
     </TooltipProvider>

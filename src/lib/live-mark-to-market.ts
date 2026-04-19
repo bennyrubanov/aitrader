@@ -26,7 +26,7 @@ function priceMapFromRows(rows: Array<{ symbol: string; last_sale_price: string 
   return out;
 }
 
-async function loadLatestRawRunDate(
+export async function loadLatestRawRunDate(
   supabase: SupabaseClient
 ): Promise<string | null> {
   const { data } = await supabase
@@ -329,6 +329,95 @@ export async function buildDailyMarkedToMarketSeriesForConfig(
     benchmarksByDate,
     baseBenchmarks
   );
+}
+
+/**
+ * One live point at `nasdaq_100_daily_raw` max run_date, using holdings as of the latest
+ * rebalance that has weekly/daily notional in `notionalSeries` (avoids batch/perf drift).
+ */
+export async function buildLatestMtmPointFromLastSnapshot(
+  supabase: SupabaseClient,
+  params: {
+    strategyId: string;
+    riskLevel: number;
+    rebalanceFrequency: string;
+    weightingMethod: string;
+    notionalSeries: PerformanceSeriesPoint[];
+  }
+): Promise<PerformanceSeriesPoint | null> {
+  if (params.notionalSeries.length === 0) return null;
+  const latestRunDate = await loadLatestRawRunDate(supabase);
+  if (!latestRunDate) return null;
+
+  const weeklyLastDate = params.notionalSeries[params.notionalSeries.length - 1]!.date;
+
+  const { rebalanceDates } = await getPortfolioConfigHoldings(
+    supabase,
+    params.strategyId,
+    params.riskLevel,
+    params.rebalanceFrequency,
+    params.weightingMethod,
+    null
+  );
+  if (!rebalanceDates.length) return null;
+
+  const candidates = rebalanceDates.filter((d) => d <= weeklyLastDate && d <= latestRunDate);
+  if (candidates.length === 0) return null;
+  const snapshotDate = candidates.reduce((a, b) => (a > b ? a : b));
+
+  if (snapshotDate === latestRunDate) return null;
+
+  const { holdings } = await getPortfolioConfigHoldings(
+    supabase,
+    params.strategyId,
+    params.riskLevel,
+    params.rebalanceFrequency,
+    params.weightingMethod,
+    snapshotDate
+  );
+  const snapshotHoldings = holdings
+    .map((h) => ({ symbol: h.symbol.toUpperCase(), weight: Number(h.weight) }))
+    .filter((h) => Number.isFinite(h.weight) && h.weight > 0);
+  if (!snapshotHoldings.length) return null;
+
+  const notional = pickNotionalAtOrBefore(params.notionalSeries, snapshotDate);
+  if (notional == null || !Number.isFinite(notional) || notional <= 0) return null;
+
+  const symbols = uniqueSorted(snapshotHoldings.map((h) => h.symbol));
+  const pricesAtSnapshot = await loadPricesForSymbolsOnDate(supabase, snapshotDate, symbols);
+  const pricesAtLatest = await loadPricesForSymbolsOnDate(supabase, latestRunDate, symbols);
+
+  let portfolioValue = 0;
+  for (const h of snapshotHoldings) {
+    const px0 = toFinitePositive(pricesAtSnapshot[h.symbol]);
+    const px1 = toFinitePositive(pricesAtLatest[h.symbol]);
+    if (px0 == null || px1 == null) return null;
+    const units = (notional * h.weight) / px0;
+    if (!Number.isFinite(units) || units < 0) return null;
+    portfolioValue += units * px1;
+  }
+  if (!Number.isFinite(portfolioValue) || portfolioValue <= 0) return null;
+
+  const baseBenchmarks =
+    pickBenchmarksAtOrBefore(params.notionalSeries, snapshotDate) ??
+    pickBenchmarksAtOrBefore(params.notionalSeries, params.notionalSeries[0]!.date) ??
+    {
+      nasdaq100CapWeight: params.notionalSeries[0]!.nasdaq100CapWeight,
+      nasdaq100EqualWeight: params.notionalSeries[0]!.nasdaq100EqualWeight,
+      sp500: params.notionalSeries[0]!.sp500,
+    };
+
+  const benchMap = await buildBenchmarksByDate([latestRunDate], snapshotDate, baseBenchmarks);
+  const bench = benchMap.get(latestRunDate);
+  if (!bench) return null;
+
+  return {
+    date: latestRunDate,
+    aiTop20: portfolioValue,
+    nasdaq100CapWeight: bench.nasdaq100CapWeight,
+    nasdaq100EqualWeight: bench.nasdaq100EqualWeight,
+    sp500: bench.sp500,
+  };
 }
 
 export async function buildDailyMarkedToMarketSeriesForStrategy(

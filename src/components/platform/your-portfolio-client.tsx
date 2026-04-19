@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
@@ -214,6 +214,64 @@ function computeYourPortfolioValue(
   return last;
 }
 
+/** Sidebar / mobile sheet: value + return from session cache (same as sort prefetch). */
+function getSidebarRowPerf(p: UserPortfolioProfileRow): {
+  showLoading: boolean;
+  valueStr: string | null;
+  returnFr: number | null;
+} {
+  const c = getCachedUserEntryPayload(p.id);
+  if (!c) {
+    return { showLoading: true, valueStr: null, returnFr: null };
+  }
+  const ready =
+    c.computeStatus === 'ready' &&
+    c.hasMultipleObservations === true &&
+    (c.series?.length ?? 0) > 0;
+  if (!ready) {
+    if (c.computeStatus === 'failed') {
+      return { showLoading: false, valueStr: null, returnFr: null };
+    }
+    return { showLoading: true, valueStr: null, returnFr: null };
+  }
+  const v = computeYourPortfolioValue(c.series, Number(p.investment_size), p.user_start_date);
+  const r = c.metrics?.totalReturn;
+  const valueStr = v != null && Number.isFinite(v) ? formatYourPortfolioCurrency(v) : null;
+  const returnFr = r != null && Number.isFinite(r) ? r : null;
+  return { showLoading: false, valueStr, returnFr };
+}
+
+function SidebarRowPerfLoadingSkeleton() {
+  return (
+    <span className="inline-flex flex-col items-end gap-1 pt-0.5">
+      <Skeleton className="h-2.5 w-20 rounded-sm" />
+      <Skeleton className="h-2.5 w-12 rounded-sm" />
+    </span>
+  );
+}
+
+function YourPortfolioMainPerfSkeleton() {
+  return (
+    <div className="px-5 sm:px-7">
+      <div className="space-y-4">
+        <div className="grid w-full grid-cols-1 gap-4 rounded-lg border border-border/70 bg-muted/20 p-3 sm:gap-5 sm:p-4 lg:grid-cols-[16rem_minmax(0,1fr)] lg:p-5">
+          <div className="space-y-2">
+            {Array.from({ length: 7 }).map((_, idx) => (
+              <Skeleton key={`metric-skel-${idx}`} className="h-12 w-full rounded-lg" />
+            ))}
+          </div>
+          <div className="space-y-3 rounded-xl border border-border/80 bg-background/80 p-3 sm:p-4">
+            <Skeleton className="h-4 w-36 rounded-sm" />
+            <Skeleton className="h-8 w-44 rounded-md" />
+            <Skeleton className="h-[230px] w-full rounded-md" />
+          </div>
+        </div>
+        <Skeleton className="h-[300px] w-full rounded-xl sm:h-[340px]" />
+      </div>
+    </div>
+  );
+}
+
 function benchmarkStatsFromYourPortfolioSeries(series: PerformanceSeriesPoint[] | undefined): {
   excessVsNasdaqCap: number | null;
   excessVsNasdaqEqual: number | null;
@@ -401,81 +459,81 @@ function PortfolioRebalanceActionsTable({
   if (rows.length === 0) return null;
 
   return (
-    <div className="overflow-hidden rounded-lg border border-border/70 bg-card/25">
-      <div className="max-h-[20rem] overflow-y-auto overscroll-y-contain">
-        <table className="w-full border-collapse text-left text-[11px]">
-          <thead>
-            <tr className="sticky top-0 z-[1] border-b border-border/70 bg-muted/90 backdrop-blur-sm">
-              <th className="whitespace-nowrap px-2 py-1.5 font-semibold text-muted-foreground">
-                Action
-              </th>
-              <th className="px-1 py-1.5 font-semibold text-muted-foreground">Stock</th>
-              <th className="whitespace-nowrap px-2 py-1.5 text-right font-semibold text-muted-foreground">
-                Trade
-              </th>
-              <th className="whitespace-nowrap px-2 py-1.5 text-right font-semibold text-muted-foreground">
-                Target
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map(({ kind, row }) => {
-              const actionClass =
-                kind === 'buy'
-                  ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200'
-                  : kind === 'sell'
-                    ? 'border-rose-500/35 bg-rose-500/10 text-rose-800 dark:text-rose-200'
-                    : 'border-border bg-muted/60 text-muted-foreground';
-              const trade =
-                kind === 'buy'
-                  ? `+${formatYourPortfolioCurrency(row.deltaDollars)}`
-                  : kind === 'sell'
-                    ? formatYourPortfolioCurrency(row.deltaDollars)
-                    : '—';
-              return (
-                <tr key={`${kind}-${row.symbol}`} className="border-b border-border/40 last:border-0">
-                  <td className="px-2 py-1 align-middle">
-                    <span
-                      className={cn(
-                        'inline-flex min-w-[2.75rem] justify-center rounded border px-1.5 py-0 text-[10px] font-semibold uppercase tracking-wide',
-                        actionClass
-                      )}
+    <div className="min-w-0 overflow-x-hidden overflow-y-visible rounded-lg border border-border/70 bg-card/25">
+      <table className="w-full table-fixed border-collapse text-left text-[11px]">
+        <thead>
+          <tr className="sticky top-0 z-[1] border-b border-border/70 bg-muted/90 backdrop-blur-sm">
+            <th className="w-[4.75rem] whitespace-nowrap px-2 py-1.5 font-semibold text-muted-foreground">
+              Action
+            </th>
+            <th className="min-w-0 px-1 py-1.5 font-semibold text-muted-foreground">Stock</th>
+            <th className="w-[5.25rem] whitespace-nowrap px-2 py-1.5 text-right font-semibold text-muted-foreground">
+              Trade
+            </th>
+            <th className="w-[34%] min-w-0 px-2 py-1.5 text-right font-semibold text-muted-foreground">
+              Target
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(({ kind, row }) => {
+            const actionClass =
+              kind === 'buy'
+                ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200'
+                : kind === 'sell'
+                  ? 'border-rose-500/35 bg-rose-500/10 text-rose-800 dark:text-rose-200'
+                  : 'border-border bg-muted/60 text-muted-foreground';
+            const trade =
+              kind === 'buy'
+                ? `+${formatYourPortfolioCurrency(row.deltaDollars)}`
+                : kind === 'sell'
+                  ? formatYourPortfolioCurrency(row.deltaDollars)
+                  : '—';
+            return (
+              <tr key={`${kind}-${row.symbol}`} className="border-b border-border/40 last:border-0">
+                <td className="px-2 py-1 align-middle">
+                  <span
+                    className={cn(
+                      'inline-flex min-w-[2.75rem] justify-center rounded border px-1.5 py-0 text-[10px] font-semibold uppercase tracking-wide',
+                      actionClass
+                    )}
+                  >
+                    {kind}
+                  </span>
+                </td>
+                <td className="min-w-0 px-1 py-1 align-middle">
+                  <div className="min-w-0">
+                    <Link
+                      href={`/stocks/${row.symbol.toLowerCase()}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block truncate font-semibold text-foreground hover:underline"
                     >
-                      {kind}
-                    </span>
-                  </td>
-                  <td className="min-w-0 max-w-[10rem] px-1 py-1 align-middle sm:max-w-none">
-                    <div className="min-w-0">
-                      <Link
-                        href={`/stocks/${row.symbol.toLowerCase()}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="font-semibold text-foreground hover:underline"
-                      >
-                        {row.symbol}
-                      </Link>
-                      {row.companyName && row.companyName !== row.symbol ? (
-                        <p className="truncate text-[10px] leading-tight text-muted-foreground">
-                          {row.companyName}
-                        </p>
-                      ) : null}
-                    </div>
-                  </td>
-                  <td className="whitespace-nowrap px-2 py-1 text-right align-middle tabular-nums">
-                    {trade}
-                  </td>
-                  <td className="whitespace-nowrap px-2 py-1 text-right align-middle tabular-nums">
+                      {row.symbol}
+                    </Link>
+                    {row.companyName && row.companyName !== row.symbol ? (
+                      <p className="truncate text-[10px] leading-tight text-muted-foreground">
+                        {row.companyName}
+                      </p>
+                    ) : null}
+                  </div>
+                </td>
+                <td className="whitespace-nowrap px-2 py-1 text-right align-middle tabular-nums">
+                  {trade}
+                </td>
+                <td className="min-w-0 px-2 py-1 text-right align-middle tabular-nums">
+                  <div className="min-w-0 truncate text-right">
                     {formatYourPortfolioCurrency(row.targetDollars)}{' '}
                     <span className="text-muted-foreground">
                       ({(row.targetWeight * 100).toFixed(1)}%)
                     </span>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -496,8 +554,13 @@ function PortfolioRebalanceActionsTimeline({
   const [state, setState] = useState<{ loading: true } | PortfolioMovementResolved>({
     loading: true,
   });
+  const [selectedRebalanceDate, setSelectedRebalanceDate] = useState<string | null>(null);
   const profileId = profile.id;
   const hasEntry = Boolean(profile.user_start_date?.trim());
+
+  useEffect(() => {
+    setSelectedRebalanceDate(null);
+  }, [profileId]);
 
   useEffect(() => {
     if (!hasEntry) {
@@ -535,6 +598,12 @@ function PortfolioRebalanceActionsTimeline({
   const payload = !state.loading && 'data' in state ? state.data : null;
   const error = !state.loading && 'error' in state ? state.error : null;
   const timelineDates = payload?.rebalanceDates?.slice(0, -1) ?? [];
+  const selectedDate = selectedRebalanceDate ?? timelineDates[0] ?? null;
+  const selectedDateRow =
+    payload?.status === 'ok' && selectedDate != null
+      ? payload.byRebalanceDate?.[selectedDate] ??
+        (payload.lastRebalanceDate === selectedDate ? payload : null)
+      : null;
 
   return (
     <div
@@ -542,7 +611,7 @@ function PortfolioRebalanceActionsTimeline({
       className={cn(
         showProfileSummary
           ? 'grid gap-3 rounded-xl border border-border bg-card/25 p-3 lg:grid-cols-[minmax(0,15rem)_minmax(0,1fr)] lg:items-start'
-          : 'space-y-2',
+          : 'flex h-full min-h-0 flex-col space-y-2',
         className
       )}
       {...(tourMarker ? { 'data-platform-tour': 'your-portfolios-rebalance-actions-first-portfolio' } : {})}
@@ -557,7 +626,43 @@ function PortfolioRebalanceActionsTimeline({
           </p>
         </div>
       ) : null}
-      <div className="min-w-0 space-y-2">
+      <div
+        className={cn(
+          'min-w-0 space-y-2',
+          !showProfileSummary && 'flex min-h-0 flex-1 flex-col'
+        )}
+      >
+        {!showProfileSummary ? (
+          <div className="flex shrink-0 items-center justify-between gap-2">
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Rebalance actions
+            </h4>
+            {timelineDates.length >= 2 ? (
+              <Select
+                value={selectedDate ?? timelineDates[0]!}
+                onValueChange={(v) => {
+                  const newest = timelineDates[0];
+                  setSelectedRebalanceDate(newest != null && v === newest ? null : v);
+                }}
+              >
+                <SelectTrigger
+                  id={`your-rebalance-date-${profileId}`}
+                  aria-label="Rebalance date"
+                  className="h-8 w-[9.5rem] border-border/70 text-xs outline-none focus:ring-0 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                >
+                  <SelectValue placeholder="Choose date" />
+                </SelectTrigger>
+                <SelectContent>
+                  {timelineDates.map((d) => (
+                    <SelectItem key={d} value={d} className="text-xs">
+                      {formatYmdDisplay(d)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : null}
+          </div>
+        ) : null}
         {state.loading ? (
           <Skeleton className="h-24 w-full rounded-md" />
         ) : error ? (
@@ -568,32 +673,46 @@ function PortfolioRebalanceActionsTimeline({
           </p>
         ) : timelineDates.length === 0 ? (
           <p className="text-sm text-muted-foreground">No prior rebalance dates yet.</p>
-        ) : (
-          timelineDates.map((d) => {
-            const byDate = payload.byRebalanceDate?.[d];
-            const row = byDate ?? (payload.lastRebalanceDate === d ? payload : null);
-            if (!row) return null;
-            const table = (
-              <PortfolioRebalanceActionsTable hold={row.hold} buy={row.buy} sell={row.sell} />
-            );
-            return (
-              <div key={`${profileId}-${d}`} className="space-y-1.5 rounded-md border border-border/60 p-2">
-                <p className="text-xs font-medium text-foreground">
-                  {formatYmdDisplay(d)}
-                  {row.notionalAtCurrRebalanceEnd != null ? (
-                    <span className="ml-2 text-muted-foreground">
-                      ({formatYourPortfolioCurrency(row.notionalAtCurrRebalanceEnd)})
-                    </span>
-                  ) : null}
-                </p>
-                {table ?? (
-                  <p className="text-xs text-muted-foreground">
+        ) : !showProfileSummary ? (
+          <div className="relative min-h-0 w-full flex-1 overflow-hidden lg:min-h-0">
+            <div className="max-h-[min(56vh,400px)] w-full min-h-0 overflow-y-auto overflow-x-hidden rounded-md border lg:max-h-none lg:h-full lg:flex-1">
+              <div className="min-w-0 space-y-2 p-1">
+                {selectedDateRow ? (
+                  <PortfolioRebalanceActionsTable
+                    hold={selectedDateRow.hold}
+                    buy={selectedDateRow.buy}
+                    sell={selectedDateRow.sell}
+                  />
+                ) : (
+                  <p className="px-1 text-xs text-muted-foreground">No actions for this rebalance date.</p>
+                )}
+                {selectedDateRow &&
+                selectedDateRow.buy.length === 0 &&
+                selectedDateRow.sell.length === 0 ? (
+                  <p className="px-1 text-xs text-muted-foreground">
                     No buy/sell actions versus the prior rebalance.
                   </p>
-                )}
+                ) : null}
               </div>
-            );
-          })
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {selectedDateRow ? (
+              <PortfolioRebalanceActionsTable
+                hold={selectedDateRow.hold}
+                buy={selectedDateRow.buy}
+                sell={selectedDateRow.sell}
+              />
+            ) : (
+              <p className="text-xs text-muted-foreground">No actions for this rebalance date.</p>
+            )}
+            {selectedDateRow && selectedDateRow.buy.length === 0 && selectedDateRow.sell.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                No buy/sell actions versus the prior rebalance.
+              </p>
+            ) : null}
+          </div>
         )}
       </div>
     </div>
@@ -1590,6 +1709,44 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const selectedProfileConfigId =
     selectedProfile?.portfolio_config?.id ?? selectedProfile?.config_id ?? null;
 
+  useLayoutEffect(() => {
+    const hasProfile = Boolean(selectedProfile?.id);
+    const hasEntryDate = Boolean(selectedProfile?.user_start_date?.trim());
+    const hasPerfConfig = Boolean(selectedProfile?.portfolio_config && strategySlug?.trim());
+    const shouldLoadHoldings = Boolean(
+      yourPortfoliosHoldingsPaid && selectedProfile?.id && selectedProfileConfigId && strategySlug?.trim()
+    );
+
+    setUserEntryPayload(null);
+    setPerfPayload(null);
+    setRawRows([]);
+
+    setConfigHoldings([]);
+    setConfigHoldingsAsOf(null);
+    setConfigHoldingsAsOfPriceBySymbol({});
+    setConfigHoldingsLatestPriceBySymbol({});
+    setConfigHoldingsRebalanceDates([]);
+    setConfigHoldingsRefreshing(false);
+    setPendingHoldingsAsOf(null);
+
+    setPrevMovementHoldings(null);
+    setPrevMovementLoading(false);
+    setPrevMovementError(false);
+    setHoldingsMovementView(false);
+    setHoldingsRowChartSymbol(null);
+
+    if (!hasProfile) {
+      setIsLoadingUserEntry(false);
+      setIsLoadingPerf(false);
+      setConfigHoldingsLoading(false);
+      return;
+    }
+
+    setIsLoadingUserEntry(hasEntryDate);
+    setIsLoadingPerf(!hasEntryDate && hasPerfConfig);
+    setConfigHoldingsLoading(shouldLoadHoldings);
+  }, [selectedProfile?.id, selectedProfileConfigId, strategySlug, yourPortfoliosHoldingsPaid]);
+
   const fetchYourPortfolioConfigHoldings = useCallback(
     async (asOf: string | null) => {
       const slug = strategySlug?.trim();
@@ -1765,21 +1922,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     selectedProfile?.user_start_date,
     userEntryMetricsFull?.excessReturnVsNasdaqCap,
     benchmarkBench.excessVsNasdaqCap,
-  ]);
-
-  const excessNdxEqualForSpotlight = useMemo(() => {
-    if (
-      selectedProfile?.user_start_date &&
-      userEntryMetricsFull?.excessReturnVsNasdaqEqual != null &&
-      Number.isFinite(userEntryMetricsFull.excessReturnVsNasdaqEqual)
-    ) {
-      return userEntryMetricsFull.excessReturnVsNasdaqEqual;
-    }
-    return benchmarkBench.excessVsNasdaqEqual;
-  }, [
-    selectedProfile?.user_start_date,
-    userEntryMetricsFull?.excessReturnVsNasdaqEqual,
-    benchmarkBench.excessVsNasdaqEqual,
   ]);
 
   const topN = selectedProfile?.portfolio_config?.top_n ?? 20;
@@ -2084,7 +2226,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     portfolioValueAmount,
     consistencyForSpotlight,
     excessNdxForSpotlight,
-    excessNdxEqualForSpotlight,
     benchmarkBench.excessVsSp500,
   ]);
 
@@ -2332,14 +2473,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
               const rowRiskDot = SIDEBAR_RISK_DOT[rowRisk] ?? 'bg-muted';
               const rowRanked = rankedConfigForProfile(p, rankedBySlug);
               const rowStrategySlug = p.strategy_models?.slug ?? strategySlug;
-              const rowStartAbbrev = p.user_start_date?.trim()
-                ? formatYmdDisplay(p.user_start_date.trim())
-                : null;
-              const rowInvestment = num(p.investment_size);
-              const rowInvestmentDigits =
-                Number.isFinite(rowInvestment) && rowInvestment > 0
-                  ? rowInvestment.toLocaleString('en-US', { maximumFractionDigits: 0 })
-                  : null;
+              const rowPerf = getSidebarRowPerf(p);
               return (
                 <div
                   key={p.id}
@@ -2368,23 +2502,37 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                       </span>
                       <div className="min-w-0 flex-1 flex flex-col gap-1">
                         <div className="flex items-start justify-between gap-2">
-                          <span className="min-w-0 text-sm font-semibold text-foreground line-clamp-2">
+                          <span className="min-w-0 truncate text-xs font-semibold text-foreground">
                             {pc?.label ?? 'Portfolio'}
                           </span>
-                          {rowStartAbbrev || rowInvestmentDigits ? (
-                            <div className="flex shrink-0 flex-col items-end gap-0.5 pt-0.5 text-right">
-                              {rowStartAbbrev ? (
-                                <span className="text-[10px] leading-snug text-muted-foreground tabular-nums">
-                                  {rowStartAbbrev}
-                                </span>
-                              ) : null}
-                              {rowInvestmentDigits ? (
-                                <span className="text-[10px] leading-snug text-muted-foreground tabular-nums">
-                                  {`$${rowInvestmentDigits}`}
-                                </span>
-                              ) : null}
-                            </div>
-                          ) : null}
+                          <div className="flex shrink-0 flex-col items-end justify-start gap-0.5 pt-0.5 text-right">
+                            {rowPerf.showLoading ? (
+                              <SidebarRowPerfLoadingSkeleton />
+                            ) : rowPerf.valueStr != null || rowPerf.returnFr != null ? (
+                              <span className="max-w-[9.5rem] text-[10px] leading-snug tabular-nums">
+                                {rowPerf.valueStr != null ? (
+                                  <span className="font-medium text-foreground">{rowPerf.valueStr}</span>
+                                ) : null}
+                                {rowPerf.returnFr != null ? (
+                                  <span
+                                    className={cn(
+                                      'font-semibold',
+                                      rowPerf.returnFr >= 0
+                                        ? 'text-green-600 dark:text-green-400'
+                                        : 'text-red-600 dark:text-red-400'
+                                    )}
+                                  >
+                                    {rowPerf.valueStr != null ? ' ' : ''}(
+                                    {spotlightFmt.pct(rowPerf.returnFr)})
+                                  </span>
+                                ) : null}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] leading-snug text-muted-foreground tabular-nums">
+                                —
+                              </span>
+                            )}
+                          </div>
                         </div>
                         {(rowRanked?.badges ?? []).length > 0 ? (
                           <div className="flex flex-wrap items-center gap-1.5">
@@ -2517,14 +2665,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                   const rowRiskDot = SIDEBAR_RISK_DOT[rowRisk] ?? 'bg-muted';
                   const rowRanked = rankedConfigForProfile(p, rankedBySlug);
                   const rowStrategySlug = p.strategy_models?.slug ?? strategySlug;
-                  const rowStartAbbrev = p.user_start_date?.trim()
-                    ? formatYmdDisplay(p.user_start_date.trim())
-                    : null;
-                  const rowInvestment = num(p.investment_size);
-                  const rowInvestmentDigits =
-                    Number.isFinite(rowInvestment) && rowInvestment > 0
-                      ? rowInvestment.toLocaleString('en-US', { maximumFractionDigits: 0 })
-                      : null;
+                  const rowPerf = getSidebarRowPerf(p);
                   return (
                     <div
                       key={p.id}
@@ -2556,23 +2697,37 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                           </span>
                           <div className="min-w-0 flex-1 flex flex-col gap-1">
                             <div className="flex items-start justify-between gap-2">
-                              <span className="min-w-0 text-sm font-semibold text-foreground line-clamp-2">
+                              <span className="min-w-0 truncate text-xs font-semibold text-foreground">
                                 {pc?.label ?? 'Portfolio'}
                               </span>
-                              {rowStartAbbrev || rowInvestmentDigits ? (
-                                <div className="flex shrink-0 flex-col items-end gap-0.5 pt-0.5 text-right">
-                                  {rowStartAbbrev ? (
-                                    <span className="text-[10px] leading-snug text-muted-foreground tabular-nums">
-                                      {rowStartAbbrev}
-                                    </span>
-                                  ) : null}
-                                  {rowInvestmentDigits ? (
-                                    <span className="text-[10px] leading-snug text-muted-foreground tabular-nums">
-                                      {`$${rowInvestmentDigits}`}
-                                    </span>
-                                  ) : null}
-                                </div>
-                              ) : null}
+                              <div className="flex shrink-0 flex-col items-end justify-start gap-0.5 pt-0.5 text-right">
+                                {rowPerf.showLoading ? (
+                                  <SidebarRowPerfLoadingSkeleton />
+                                ) : rowPerf.valueStr != null || rowPerf.returnFr != null ? (
+                                  <span className="max-w-[9.5rem] text-[10px] leading-snug tabular-nums">
+                                    {rowPerf.valueStr != null ? (
+                                      <span className="font-medium text-foreground">{rowPerf.valueStr}</span>
+                                    ) : null}
+                                    {rowPerf.returnFr != null ? (
+                                      <span
+                                        className={cn(
+                                          'font-semibold',
+                                          rowPerf.returnFr >= 0
+                                            ? 'text-green-600 dark:text-green-400'
+                                            : 'text-red-600 dark:text-red-400'
+                                        )}
+                                      >
+                                        {rowPerf.valueStr != null ? ' ' : ''}(
+                                        {spotlightFmt.pct(rowPerf.returnFr)})
+                                      </span>
+                                    ) : null}
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] leading-snug text-muted-foreground tabular-nums">
+                                    —
+                                  </span>
+                                )}
+                              </div>
                             </div>
                             {(rowRanked?.badges ?? []).length > 0 ? (
                               <div className="flex flex-wrap items-center gap-1.5">
@@ -2617,15 +2772,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                   <h2 className="min-w-0 text-base font-semibold text-foreground">Portfolio</h2>
                 )}
               </div>
-              {entryLabel && selectedProfile ? (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Investment: $
-                  {num(selectedProfile.investment_size).toLocaleString('en-US', {
-                    maximumFractionDigits: 0,
-                  })}{' '}
-                  · Entered on {entryLabel}
-                </p>
-              ) : null}
               {(selectedRanked?.badges ?? []).length > 0 ? (
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5 gap-y-1">
                   {(selectedRanked?.badges ?? []).map((b) => (
@@ -2652,7 +2798,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                   <Button
                     size="sm"
                     variant="outline"
-                    className="gap-1.5 text-muted-foreground hover:text-rose-600"
+                    className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-rose-600"
                     disabled={!selectedProfile || unfollowBusy}
                     onClick={() => void handleUnfollowSelected()}
                   >
@@ -2672,9 +2818,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
               (negative margins fight overflow-x-clip on the platform shell and often clip the right edge). */}
           <div className="flex w-full min-w-0 max-w-full flex-1 flex-col space-y-4 py-4 sm:pb-10">
             {perfLoading ? (
-              <div className="px-5 sm:px-7">
-                <Skeleton className="h-24 w-full" />
-              </div>
+              <YourPortfolioMainPerfSkeleton />
             ) : selectedProfile?.user_start_date && userEntryStatus === 'no_positions' ? (
               <div className="mx-5 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground sm:mx-7">
                 <p className="font-medium">No saved entry positions</p>
@@ -2745,16 +2889,64 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                       }
                     />
                     <SpotlightStatCard
-                      tooltipKey="return_pct"
-                      label="Performance (return %)"
-                      value={spotlightFmt.pct(displayMetrics?.totalReturn)}
+                      tooltipKey="vs_sp500"
+                      label="Performance vs S&P 500 (cap)"
+                      value={spotlightFmt.pct(benchmarkBench.excessVsSp500)}
                       positive={
-                        displayMetrics?.totalReturn != null &&
-                        Number.isFinite(displayMetrics.totalReturn)
-                          ? displayMetrics.totalReturn > 0
+                        benchmarkBench.excessVsSp500 != null &&
+                        Number.isFinite(benchmarkBench.excessVsSp500)
+                          ? benchmarkBench.excessVsSp500 > 0
                           : undefined
                       }
                     />
+                    <div className="rounded-lg border bg-card px-2 py-2">
+                      <div className="flex items-start justify-between gap-1">
+                        <p className="min-w-0 flex-1 text-[10px] font-medium uppercase leading-tight tracking-wide text-muted-foreground">
+                          Entry date
+                        </p>
+                        {selectedProfile ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="size-6 shrink-0 -mr-1 -mt-0.5 text-muted-foreground hover:text-foreground"
+                            aria-label="Entry settings"
+                            onClick={() => setEntrySettingsOpen(true)}
+                          >
+                            <Settings2 className="size-3.5" aria-hidden />
+                          </Button>
+                        ) : null}
+                      </div>
+                      <p className="text-sm font-semibold tabular-nums leading-tight text-foreground">
+                        {selectedProfile?.user_start_date?.trim()
+                          ? formatYmdDisplay(selectedProfile.user_start_date.trim())
+                          : '—'}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border bg-card px-2 py-2">
+                      <div className="flex items-start justify-between gap-1">
+                        <p className="min-w-0 flex-1 text-[10px] font-medium uppercase leading-tight tracking-wide text-muted-foreground">
+                          Initial investment
+                        </p>
+                        {selectedProfile ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="size-6 shrink-0 -mr-1 -mt-0.5 text-muted-foreground hover:text-foreground"
+                            aria-label="Entry settings"
+                            onClick={() => setEntrySettingsOpen(true)}
+                          >
+                            <Settings2 className="size-3.5" aria-hidden />
+                          </Button>
+                        ) : null}
+                      </div>
+                      <p className="text-sm font-semibold tabular-nums leading-tight text-foreground">
+                        {num(selectedProfile?.investment_size) > 0
+                          ? formatYourPortfolioCurrency(num(selectedProfile?.investment_size))
+                          : '—'}
+                      </p>
+                    </div>
                     <SpotlightStatCard
                       tooltipKey="cagr"
                       label="CAGR"
@@ -2811,28 +3003,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                           : undefined
                       }
                     />
-                    <SpotlightStatCard
-                      tooltipKey="vs_nasdaq_equal"
-                      label="Performance vs Nasdaq-100 (equal)"
-                      value={spotlightFmt.pct(excessNdxEqualForSpotlight)}
-                      positive={
-                        excessNdxEqualForSpotlight != null &&
-                        Number.isFinite(excessNdxEqualForSpotlight)
-                          ? excessNdxEqualForSpotlight > 0
-                          : undefined
-                      }
-                    />
-                    <SpotlightStatCard
-                      tooltipKey="vs_sp500"
-                      label="Performance vs S&P 500 (cap)"
-                      value={spotlightFmt.pct(benchmarkBench.excessVsSp500)}
-                      positive={
-                        benchmarkBench.excessVsSp500 != null &&
-                        Number.isFinite(benchmarkBench.excessVsSp500)
-                          ? benchmarkBench.excessVsSp500 > 0
-                          : undefined
-                      }
-                    />
                       </div>
                     </div>
                     {showYourPortfolioMetricsScrollFade ? (
@@ -2873,7 +3043,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                           }}
                           disabled={configHoldingsLoading}
                         >
-                          <SelectTrigger className="h-9 w-full max-w-[168px] shrink-0 border-0 bg-transparent px-1 text-left text-xs shadow-none hover:bg-muted/50 focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:ring-0 sm:w-[168px] sm:px-2">
+                          <SelectTrigger className="h-9 w-full max-w-[168px] shrink-0 rounded-md border border-input bg-background px-2 text-left text-xs shadow-none ring-0 hover:bg-muted/30 focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:ring-0 data-[state=open]:ring-offset-0 sm:w-[168px]">
                             <SelectValue placeholder="Rebalance date" />
                           </SelectTrigger>
                           <SelectContent align="start">
@@ -3058,7 +3228,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                           {showLive ? (
                                             <div className="leading-tight">
                                               <div>
-                                                Current:{' '}
                                                 {`${formatYourPortfolioCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
                                               </div>
                                               <div className="text-[11px] text-muted-foreground">
@@ -3233,7 +3402,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                         {showLive ? (
                                           <div className="leading-tight">
                                             <div>
-                                              Current:{' '}
                                               {`${formatYourPortfolioCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
                                             </div>
                                             <div className="text-[11px] text-muted-foreground">
@@ -3297,15 +3465,12 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                     ) : null}
                   </div>
                 </div>
-                <div className="flex min-h-0 w-full max-w-full min-w-0 flex-col gap-2 overflow-hidden rounded-xl border border-border/80 bg-background/80 p-3 shadow-sm sm:p-4 lg:flex-1 lg:basis-0">
-                  <div className="space-y-1">
+                <div className="relative flex min-h-0 w-full max-w-full min-w-0 flex-col gap-1.5 overflow-hidden rounded-xl border border-border/80 bg-background/80 p-3 shadow-sm sm:gap-2 sm:p-4 lg:flex-1 lg:basis-0">
+                  {!yourPortfoliosHoldingsPaid ? (
                     <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       Rebalance actions
                     </h4>
-                    <p className="text-[11px] text-muted-foreground">
-                      All rebalance dates for this portfolio.
-                    </p>
-                  </div>
+                  ) : null}
                   {!yourPortfoliosHoldingsPaid ? (
                     <div className="flex min-h-[10rem] flex-1 flex-col items-center justify-center gap-3 rounded-md border border-dashed px-4 py-6 text-center">
                       <Lock className="size-7 shrink-0 text-muted-foreground" aria-hidden />
@@ -3317,13 +3482,13 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                       </Button>
                     </div>
                   ) : selectedProfile ? (
-                    <div className="min-h-0 flex-1 overflow-auto">
+                    <div className="relative min-h-0 w-full flex-1 overflow-hidden lg:min-h-0">
                       <PortfolioRebalanceActionsTimeline
                         profile={selectedProfile}
                         tourMarker
                         showProfileSummary={false}
                         anchorId="rebalance-actions"
-                        className="rounded-md border border-border/70 bg-card/25 p-2"
+                        className="h-full min-h-0 bg-transparent p-0"
                       />
                     </div>
                   ) : (
@@ -3400,9 +3565,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
             >
               Filter portfolios
             </DialogTitle>
-            <DialogDescription>
-              Narrow the sidebar list the same way as the performance page portfolio picker.
-            </DialogDescription>
           </DialogHeader>
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-6 py-3">
             <ExplorePortfolioFilterControls
@@ -3428,7 +3590,10 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                     onClick={clearSidebarFilters}
                   >
                     <FilterX className="size-3.5 shrink-0" aria-hidden />
-                    Clear
+                    Clear filters
+                    <span className="rounded-full bg-primary/15 px-1.5 text-[10px] font-semibold tabular-nums text-foreground">
+                      {activeSidebarFilterCount}
+                    </span>
                   </Button>
                 ) : null
               }

@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { unstable_cache } from 'next/cache';
 import { buildConfigPerformanceChart } from '@/lib/config-performance-chart';
-import { buildDailyMarkedToMarketSeriesForConfig } from '@/lib/live-mark-to-market';
+import {
+  buildDailyMarkedToMarketSeriesForConfig,
+  buildLatestMtmPointFromLastSnapshot,
+  loadLatestRawRunDate,
+} from '@/lib/live-mark-to-market';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
 import type { ConfigPerfRow } from '@/lib/portfolio-config-utils';
+import { RANKED_CONFIGS_CACHE_TAG } from '@/lib/portfolio-configs-ranked-core';
+import { createAdminClient } from '@/utils/supabase/admin';
 import { createPublicClient } from '@/utils/supabase/public';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
 
@@ -44,12 +51,22 @@ const toNum = (v: unknown): number => {
   return Number.isFinite(n) ? n : INITIAL_CAPITAL;
 };
 
-export async function GET(req: NextRequest) {
-  const slug = req.nextUrl.searchParams.get('slug');
-  if (!slug) {
-    return NextResponse.json({ error: 'slug required' }, { status: 400 });
-  }
+export type ExplorePortfoliosEquitySeriesPayload = {
+  strategyId: string;
+  strategyName: string | null;
+  dates: string[];
+  series: Array<{ configId: string; label: string; equities: number[] }>;
+  benchmarks: {
+    nasdaq100Cap: number[];
+    nasdaq100Equal: number[];
+    sp500: number[];
+  };
+  latestRawRunDate: string | null;
+};
 
+async function loadExplorePortfoliosEquitySeriesPayload(
+  slug: string
+): Promise<ExplorePortfoliosEquitySeriesPayload | null> {
   const supabase = createPublicClient();
 
   const { data: strategy } = await supabase
@@ -59,8 +76,11 @@ export async function GET(req: NextRequest) {
     .maybeSingle();
 
   if (!strategy) {
-    return NextResponse.json({ error: 'strategy not found' }, { status: 404 });
+    return null;
   }
+
+  const adminSupabase = createAdminClient();
+  const latestRawRunDate = await loadLatestRawRunDate(adminSupabase);
 
   const { data: configs } = await supabase
     .from('portfolio_configs')
@@ -136,8 +156,8 @@ export async function GET(req: NextRequest) {
     const weeklySeries = buildConfigPerformanceChart(withInception).series;
     if (weeklySeries.length === 0) continue;
 
-    let series = weeklySeries;
-    const dailySeries = await buildDailyMarkedToMarketSeriesForConfig(supabase, {
+    let series: PerformanceSeriesPoint[] = weeklySeries;
+    const dailySeries = await buildDailyMarkedToMarketSeriesForConfig(adminSupabase, {
       strategyId: strategy.id,
       riskLevel: cfg.risk_level,
       rebalanceFrequency: cfg.rebalance_frequency,
@@ -147,6 +167,17 @@ export async function GET(req: NextRequest) {
     });
     if (dailySeries && dailySeries.length >= 2) {
       series = dailySeries;
+    }
+
+    const tailPoint = await buildLatestMtmPointFromLastSnapshot(adminSupabase, {
+      strategyId: strategy.id,
+      riskLevel: cfg.risk_level,
+      rebalanceFrequency: cfg.rebalance_frequency,
+      weightingMethod: cfg.weighting_method,
+      notionalSeries: series,
+    });
+    if (tailPoint && tailPoint.date > series[series.length - 1]!.date) {
+      series = [...series, tailPoint];
     }
 
     byConfigDailySeries.set(cfg.id, series);
@@ -165,17 +196,18 @@ export async function GET(req: NextRequest) {
   const dates = [...dateSet].sort((a, b) => a.localeCompare(b));
 
   if (dates.length === 0) {
-    return NextResponse.json({
+    return {
       strategyId: strategy.id,
       strategyName: strategy.name,
       dates: [],
-      series: [] as Array<{ configId: string; label: string; equities: number[] }>,
+      series: [],
       benchmarks: {
-        nasdaq100Cap: [] as number[],
-        nasdaq100Equal: [] as number[],
-        sp500: [] as number[],
+        nasdaq100Cap: [],
+        nasdaq100Equal: [],
+        sp500: [],
       },
-    });
+      latestRawRunDate,
+    };
   }
 
   let lc = INITIAL_CAPITAL;
@@ -196,7 +228,7 @@ export async function GET(req: NextRequest) {
     sp500.push(ls);
   }
 
-  const series: Array<{ configId: string; label: string; equities: number[] }> = [];
+  const seriesOut: Array<{ configId: string; label: string; equities: number[] }> = [];
 
   for (const cfg of (configs ?? []) as ConfigRow[]) {
     const points = byConfigDailySeries.get(cfg.id) ?? [];
@@ -219,18 +251,51 @@ export async function GET(req: NextRequest) {
             rebalanceFrequency: cfg.rebalance_frequency,
           });
 
-    series.push({ configId: cfg.id, label, equities });
+    seriesOut.push({ configId: cfg.id, label, equities });
   }
 
-  return NextResponse.json({
+  return {
     strategyId: strategy.id,
     strategyName: strategy.name,
     dates,
-    series,
+    series: seriesOut,
     benchmarks: {
       nasdaq100Cap,
       nasdaq100Equal,
       sp500,
+    },
+    latestRawRunDate,
+  };
+}
+
+async function getCachedExplorePortfoliosEquitySeriesPayload(
+  slug: string
+): Promise<ExplorePortfoliosEquitySeriesPayload | null> {
+  const loadCached = unstable_cache(
+    async () => loadExplorePortfoliosEquitySeriesPayload(slug),
+    ['explore-equity-series', slug],
+    {
+      revalidate: 300,
+      tags: [RANKED_CONFIGS_CACHE_TAG, `${RANKED_CONFIGS_CACHE_TAG}:${slug}`],
+    }
+  );
+  return loadCached();
+}
+
+export async function GET(req: NextRequest) {
+  const slug = req.nextUrl.searchParams.get('slug');
+  if (!slug) {
+    return NextResponse.json({ error: 'slug required' }, { status: 400 });
+  }
+
+  const payload = await getCachedExplorePortfoliosEquitySeriesPayload(slug);
+  if (!payload) {
+    return NextResponse.json({ error: 'strategy not found' }, { status: 404 });
+  }
+
+  return NextResponse.json(payload, {
+    headers: {
+      'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=1800',
     },
   });
 }

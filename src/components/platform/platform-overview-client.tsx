@@ -1561,37 +1561,27 @@ function StockMovementPanel({
 
 type OverviewProps = {
   strategies: StrategyListItem[];
-  workspaceView?: 'overview' | 'rebalance-actions';
 };
 
-export function PlatformOverviewClient({
-  strategies,
-  workspaceView = 'overview',
-}: OverviewProps) {
+export function PlatformOverviewClient({ strategies }: OverviewProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const isRebalanceWorkspace = workspaceView === 'rebalance-actions';
-  const urlTab = parsePlatformOverviewTab(searchParams.get(PLATFORM_OVERVIEW_TAB_PARAM));
+  const rawOverviewTab = searchParams.get(PLATFORM_OVERVIEW_TAB_PARAM);
+  const urlTab = parsePlatformOverviewTab(rawOverviewTab);
   /** Cleared whenever `urlTab` updates so the active indicator tracks clicks before `router.replace` finishes. */
   const [tabOverride, setTabOverride] = useState<PlatformOverviewTab | null>(null);
   useEffect(() => {
     setTabOverride(null);
   }, [urlTab]);
-  const overviewTab = isRebalanceWorkspace ? 'rebalance-actions' : (tabOverride ?? urlTab);
+  const overviewTab = tabOverride ?? urlTab;
   const setOverviewTab = useCallback(
     (v: string) => {
       const next = parsePlatformOverviewTab(v);
-      if (isRebalanceWorkspace) {
-        if (next !== 'rebalance-actions') {
-          router.replace(platformOverviewPath(next, pathname));
-        }
-        return;
-      }
       setTabOverride(next);
       router.replace(platformOverviewPath(next, pathname));
     },
-    [isRebalanceWorkspace, router, pathname]
+    [router, pathname]
   );
   const authState = useAuthState();
   const refreshAuthProfile = useRefreshAuthProfile();
@@ -1608,9 +1598,9 @@ export function PlatformOverviewClient({
   } = usePortfolioConfig();
 
   useEffect(() => {
-    if (isRebalanceWorkspace || overviewTab !== 'rebalance-actions') return;
+    if (rawOverviewTab !== 'rebalance-actions' && rawOverviewTab !== 'tracked-stocks') return;
     router.replace('/platform/your-portfolios#rebalance-actions');
-  }, [isRebalanceWorkspace, overviewTab, router]);
+  }, [rawOverviewTab, router]);
 
   /** One soft nudge per overview mount; skip while portfolio onboarding is active for guests. */
   /* eslint-disable react-hooks/exhaustive-deps -- pathname omitted: re-including it re-opened signup on every workspace tab switch */
@@ -3097,22 +3087,11 @@ export function PlatformOverviewClient({
             </>
           ) : (
             <Tabs value={overviewTab} onValueChange={setOverviewTab} className="w-full space-y-2">
-              {isRebalanceWorkspace || SHOW_OVERVIEW_TILES_TAB_IN_UI ? (
+              {SHOW_OVERVIEW_TILES_TAB_IN_UI ? (
                 <div className="space-y-2 pb-1">
                   <div className="rounded-xl border border-border/70 bg-muted/25 px-3 py-3 shadow-sm sm:px-4 sm:py-3.5 dark:bg-muted/15">
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                      {isRebalanceWorkspace ? (
-                        <div className="flex min-w-0 flex-1 flex-col gap-1.5 sm:flex-row sm:items-start sm:gap-4 lg:gap-6">
-                          <h1 className="shrink-0 text-2xl font-semibold tracking-tight text-foreground">
-                            Rebalance Actions
-                          </h1>
-                          <p className="min-w-0 max-w-2xl flex-1 text-sm leading-relaxed text-muted-foreground sm:pt-1">
-                            See the suggested buys and sells for your followed portfolios to stay
-                            aligned with the AI&apos;s latest ratings.
-                          </p>
-                        </div>
-                      ) : null}
-                      {!isRebalanceWorkspace && SHOW_OVERVIEW_TILES_TAB_IN_UI ? (
+                      {SHOW_OVERVIEW_TILES_TAB_IN_UI ? (
                         <TooltipProvider delayDuration={200}>
                           <TabsList
                             className={cn(
@@ -3145,16 +3124,15 @@ export function PlatformOverviewClient({
                 </div>
               ) : null}
 
-              {!isRebalanceWorkspace ? (
-                <TabsContent
-                  value="top-portfolio"
-                  forceMount
-                  data-platform-tour="overview-top-portfolio-panel"
-                  {...(!spotlightSectionLoading && !(topSpotlightOverview && topSpotlightHoldingsLoading)
-                    ? { 'data-platform-tour-overview-ready': '1' }
-                    : {})}
-                  className="mt-0 space-y-2 ring-offset-0 focus-visible:outline-none focus-visible:ring-0 data-[state=inactive]:hidden lg:min-h-0 lg:overflow-hidden"
-                >
+              <TabsContent
+                value="top-portfolio"
+                forceMount
+                data-platform-tour="overview-top-portfolio-panel"
+                {...(!spotlightSectionLoading && !(topSpotlightOverview && topSpotlightHoldingsLoading)
+                  ? { 'data-platform-tour-overview-ready': '1' }
+                  : {})}
+                className="mt-0 space-y-2 ring-offset-0 focus-visible:outline-none focus-visible:ring-0 data-[state=inactive]:hidden lg:min-h-0 lg:overflow-hidden"
+              >
                 <div className="space-y-2">
                   {spotlightSectionLoading ? (
                     <OverviewTopPortfolioSpotlightSkeleton />
@@ -3201,7 +3179,7 @@ export function PlatformOverviewClient({
                           <div className="mb-2 flex min-w-0 items-start justify-between gap-3">
                             <div className="min-w-0 flex flex-wrap items-center gap-x-1.5 gap-y-1">
                               <h2 className="shrink-0 text-sm font-semibold tracking-tight text-foreground">
-                                Your top portfolio by performance
+                                Your top portfolio by return
                               </h2>
                               <span className="shrink-0 text-muted-foreground/60" aria-hidden>
                                 ·
@@ -3295,15 +3273,49 @@ export function PlatformOverviewClient({
                                         : undefined
                                     }
                                   />
-                                  <div className="hidden rounded-lg border bg-card px-2 py-2 lg:col-span-1 lg:block">
-                                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                                      Entry date
-                                    </p>
-                                    <p className="text-sm font-semibold tabular-nums leading-tight text-foreground">
-                                      {bp.user_start_date?.trim()
-                                        ? formatYmdDisplay(bp.user_start_date.trim())
-                                        : '—'}
-                                    </p>
+                                  <div className="hidden flex-col gap-2 lg:col-span-1 lg:flex">
+                                    <div className="rounded-lg border bg-card px-2 py-2">
+                                      <div className="flex items-start justify-between gap-1">
+                                        <p className="min-w-0 flex-1 text-[10px] font-medium uppercase leading-tight tracking-wide text-muted-foreground">
+                                          Entry date
+                                        </p>
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="icon"
+                                          className="size-6 shrink-0 -mr-1 -mt-0.5 text-muted-foreground hover:text-foreground"
+                                          aria-label="Entry settings"
+                                          onClick={() => setEntrySettingsProfileId(bp.id)}
+                                        >
+                                          <Settings2 className="size-3.5" aria-hidden />
+                                        </Button>
+                                      </div>
+                                      <p className="text-sm font-semibold tabular-nums leading-tight text-foreground">
+                                        {bp.user_start_date?.trim()
+                                          ? formatYmdDisplay(bp.user_start_date.trim())
+                                          : '—'}
+                                      </p>
+                                    </div>
+                                    <div className="rounded-lg border bg-card px-2 py-2">
+                                      <div className="flex items-start justify-between gap-1">
+                                        <p className="min-w-0 flex-1 text-[10px] font-medium uppercase leading-tight tracking-wide text-muted-foreground">
+                                          Initial investment
+                                        </p>
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="icon"
+                                          className="size-6 shrink-0 -mr-1 -mt-0.5 text-muted-foreground hover:text-foreground"
+                                          aria-label="Entry settings"
+                                          onClick={() => setEntrySettingsProfileId(bp.id)}
+                                        >
+                                          <Settings2 className="size-3.5" aria-hidden />
+                                        </Button>
+                                      </div>
+                                      <p className="text-sm font-semibold tabular-nums leading-tight text-foreground">
+                                        {formatOverviewInvestmentSize(Number(bp.investment_size)) ?? '—'}
+                                      </p>
+                                    </div>
                                   </div>
                                 </div>
                                 <div className="hidden w-full gap-2 lg:grid">
@@ -3437,7 +3449,7 @@ export function PlatformOverviewClient({
                                         }}
                                         disabled={topSpotlightHoldingsLoading}
                                       >
-                                        <SelectTrigger className="h-9 w-full max-w-[168px] shrink-0 border-0 bg-transparent px-1 text-left text-xs shadow-none hover:bg-muted/50 focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:ring-0 sm:w-[168px] sm:px-2">
+                                        <SelectTrigger className="h-9 w-full max-w-[168px] shrink-0 rounded-md border border-input bg-background px-2 text-left text-xs shadow-none ring-0 hover:bg-muted/30 focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:ring-0 data-[state=open]:ring-offset-0 sm:w-[168px]">
                                           <SelectValue placeholder="Rebalance date" />
                                         </SelectTrigger>
                                         <SelectContent align="start">
@@ -3640,7 +3652,6 @@ export function PlatformOverviewClient({
                                                           {showLive ? (
                                                             <div className="leading-tight">
                                                               <div>
-                                                                Current:{' '}
                                                                 {`${formatOverviewCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
                                                               </div>
                                                               <div className="text-[11px] text-muted-foreground">
@@ -3829,7 +3840,6 @@ export function PlatformOverviewClient({
                                                       {showLive ? (
                                                         <div className="leading-tight">
                                                           <div>
-                                                            Current:{' '}
                                                             {`${formatOverviewCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
                                                           </div>
                                                           <div className="text-[11px] text-muted-foreground">
@@ -3883,15 +3893,49 @@ export function PlatformOverviewClient({
                                     Details
                                   </h4>
                                   <div className="grid grid-cols-2 gap-2 sm:gap-3">
-                                    <div className="rounded-lg border bg-card px-2 py-2">
-                                      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                                        Entry date
-                                      </p>
-                                      <p className="text-sm font-semibold tabular-nums leading-tight text-foreground">
-                                        {bp.user_start_date?.trim()
-                                          ? formatYmdDisplay(bp.user_start_date.trim())
-                                          : '—'}
-                                      </p>
+                                    <div className="flex flex-col gap-2">
+                                      <div className="rounded-lg border bg-card px-2 py-2">
+                                        <div className="flex items-start justify-between gap-1">
+                                          <p className="min-w-0 flex-1 text-[10px] font-medium uppercase leading-tight tracking-wide text-muted-foreground">
+                                            Entry date
+                                          </p>
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon"
+                                            className="size-6 shrink-0 -mr-1 -mt-0.5 text-muted-foreground hover:text-foreground"
+                                            aria-label="Entry settings"
+                                            onClick={() => setEntrySettingsProfileId(bp.id)}
+                                          >
+                                            <Settings2 className="size-3.5" aria-hidden />
+                                          </Button>
+                                        </div>
+                                        <p className="text-sm font-semibold tabular-nums leading-tight text-foreground">
+                                          {bp.user_start_date?.trim()
+                                            ? formatYmdDisplay(bp.user_start_date.trim())
+                                            : '—'}
+                                        </p>
+                                      </div>
+                                      <div className="rounded-lg border bg-card px-2 py-2">
+                                        <div className="flex items-start justify-between gap-1">
+                                          <p className="min-w-0 flex-1 text-[10px] font-medium uppercase leading-tight tracking-wide text-muted-foreground">
+                                            Initial investment
+                                          </p>
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon"
+                                            className="size-6 shrink-0 -mr-1 -mt-0.5 text-muted-foreground hover:text-foreground"
+                                            aria-label="Entry settings"
+                                            onClick={() => setEntrySettingsProfileId(bp.id)}
+                                          >
+                                            <Settings2 className="size-3.5" aria-hidden />
+                                          </Button>
+                                        </div>
+                                        <p className="text-sm font-semibold tabular-nums leading-tight text-foreground">
+                                          {formatOverviewInvestmentSize(Number(bp.investment_size)) ?? '—'}
+                                        </p>
+                                      </div>
                                     </div>
                                     <SpotlightStatCard
                                       tooltipKey="cagr"
@@ -3958,14 +4002,12 @@ export function PlatformOverviewClient({
                     </section>
                   )}
                 </div>
-                </TabsContent>
-              ) : null}
+              </TabsContent>
 
-              {!isRebalanceWorkspace ? (
-                <TabsContent
-                  value="overview-tiles"
-                  className="mt-0 ring-offset-0 focus-visible:outline-none focus-visible:ring-0"
-                >
+              <TabsContent
+                value="overview-tiles"
+                className="mt-0 ring-offset-0 focus-visible:outline-none focus-visible:ring-0"
+              >
                 <div className="space-y-3">
                   <div className="space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
@@ -4194,12 +4236,10 @@ export function PlatformOverviewClient({
                     </div>
                   </div>
                 </div>
-                </TabsContent>
-              ) : null}
+              </TabsContent>
 
               <TabsContent
                 value="rebalance-actions"
-                forceMount
                 data-platform-tour="overview-rebalance-actions-panel"
                 className="mt-0 ring-offset-0 focus-visible:outline-none focus-visible:ring-0 data-[state=inactive]:hidden"
               >
@@ -4269,9 +4309,7 @@ export function PlatformOverviewClient({
                         cardState={cardState}
                         onOpenEntrySettings={setEntrySettingsProfileId}
                         refreshEpoch={movementRefreshEpoch}
-                        fetchEnabled={
-                          isRebalanceWorkspace || overviewTab === 'rebalance-actions'
-                        }
+                        fetchEnabled={overviewTab === 'rebalance-actions'}
                       />
                     )}
                   </div>

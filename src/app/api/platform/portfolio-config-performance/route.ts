@@ -21,6 +21,7 @@
  */
 
 import { NextResponse } from 'next/server';
+import { createAdminClient } from '@/utils/supabase/admin';
 import { createPublicClient } from '@/utils/supabase/public';
 import {
   resolveConfigId,
@@ -119,7 +120,8 @@ export async function GET(req: Request) {
     let fullMetrics = chartBuilt.fullMetrics;
 
     if (series.length > 0 && computeStatus === 'ready' && configMeta) {
-      const dailySeries = await buildDailyMarkedToMarketSeriesForConfig(supabase, {
+      const adminSupabase = createAdminClient();
+      const dailySeries = await buildDailyMarkedToMarketSeriesForConfig(adminSupabase, {
         strategyId,
         riskLevel,
         rebalanceFrequency: frequency,

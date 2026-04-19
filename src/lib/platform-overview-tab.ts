@@ -13,8 +13,10 @@ const VALID = new Set<PlatformOverviewTab>([
 ]);
 
 export function parsePlatformOverviewTab(raw: string | null | undefined): PlatformOverviewTab {
-  if (raw === 'tracked-stocks') {
-    return 'rebalance-actions';
+  // Legacy aliases used before rebalance actions moved into "Your portfolios".
+  // Keep them non-breaking by falling back to the default overview tab.
+  if (raw === 'tracked-stocks' || raw === 'rebalance-actions') {
+    return 'top-portfolio';
   }
   if (raw && VALID.has(raw as PlatformOverviewTab)) {
     return raw as PlatformOverviewTab;

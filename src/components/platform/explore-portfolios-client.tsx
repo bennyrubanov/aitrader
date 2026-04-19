@@ -726,26 +726,8 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
             </StrategyModelSidebarDropdown>
           ) : null}
 
-          <div className={cn('space-y-3 pt-3', strategies.length > 0 && 'mt-4 border-t border-border')}>
-            <ExploreQuickPicksSection
-              layout="sheet"
-              configs={configs}
-              filterBeatNasdaq={filterBeatNasdaq}
-              filterBeatSp500={filterBeatSp500}
-              riskFilter={riskFilter}
-              freqFilter={freqFilter}
-              weightFilter={weightFilter}
-              setFilterBeatNasdaq={setFilterBeatNasdaq}
-              setFilterBeatSp500={setFilterBeatSp500}
-              setRiskFilter={setRiskFilter}
-              setFreqFilter={setFreqFilter}
-              setWeightFilter={setWeightFilter}
-              clearFilters={clearFilters}
-            />
-          </div>
-
           <div
-            className="mt-4 space-y-3 border-t border-border pt-3"
+            className={cn('space-y-3 pt-3', strategies.length > 0 && 'mt-4 border-t border-border')}
           >
             <div className="flex min-h-8 flex-wrap items-center justify-between gap-2">
               <p className="min-w-0 truncate text-xs font-semibold uppercase tracking-wider text-muted-foreground leading-none">
@@ -781,6 +763,25 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
               onFreqChange={setFreqFilter}
               onWeightChange={setWeightFilter}
               benchmarkOutperformanceAsOf={latestPerformanceDate}
+              betweenBenchmarkAndRisk={
+                <div className="border-t border-border/60 pt-4">
+                  <ExploreQuickPicksSection
+                    layout="sheet"
+                    configs={configs}
+                    filterBeatNasdaq={filterBeatNasdaq}
+                    filterBeatSp500={filterBeatSp500}
+                    riskFilter={riskFilter}
+                    freqFilter={freqFilter}
+                    weightFilter={weightFilter}
+                    setFilterBeatNasdaq={setFilterBeatNasdaq}
+                    setFilterBeatSp500={setFilterBeatSp500}
+                    setRiskFilter={setRiskFilter}
+                    setFreqFilter={setFreqFilter}
+                    setWeightFilter={setWeightFilter}
+                    clearFilters={clearFilters}
+                  />
+                </div>
+              }
             />
           </div>
           </div>
@@ -805,14 +806,58 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
         </aside>
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-y-contain px-1 py-1 lg:h-full lg:max-h-full lg:min-h-0 lg:pl-8">
-          {/* Header */}
-          <div className="border-b px-4 pb-2 -mt-1 sm:px-6 sm:pb-2.5">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h2 className="text-base font-semibold leading-tight">Explore Portfolios</h2>
-                <p className="text-xs text-muted-foreground">
-                  Pick between any portfolio, and follow it to track its performance.
-                </p>
+          {/* Toolbar: list/chart + sort / chart context (no title — filters live in sidebar) */}
+          <div className="px-4 py-2 sm:px-6 sm:py-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2 gap-y-2">
+              <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
+                {!isLoading && filteredConfigs.length > 0 ? (
+                  browseMode === 'list' ? (
+                    <>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="relative h-8 shrink-0 gap-1.5 overflow-visible pr-2.5 text-xs"
+                        onClick={() => setSortDialogOpen(true)}
+                      >
+                        <ArrowUpDown className="size-3.5 shrink-0" aria-hidden />
+                        Sort
+                        <PortfolioListSortActiveIndicator metric={sortMetric} className="-right-1.5 -top-1.5" />
+                      </Button>
+                      {activeFilterCount > 0 ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                          onClick={clearFilters}
+                        >
+                          <FilterX className="size-3.5 shrink-0" aria-hidden />
+                          Clear filters
+                          <span className="rounded-full bg-primary/15 px-1.5 text-[10px] font-semibold tabular-nums text-foreground">
+                            {activeFilterCount}
+                          </span>
+                        </Button>
+                      ) : null}
+                      <span className="text-xs text-muted-foreground">
+                        {filteredConfigs.length} portfolio{filteredConfigs.length !== 1 ? 's' : ''}
+                        {activeFilterCount > 0 ? ' matching filters' : ''}
+                      </span>
+                    </>
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-2 min-w-0">
+                      <LineChart
+                        className="size-4 shrink-0 text-trader-blue dark:text-trader-blue-light"
+                        aria-hidden
+                      />
+                      <span className="text-sm font-semibold text-foreground">Portfolio values</span>
+                      <span className="text-xs text-muted-foreground">
+                        {filteredConfigs.length} portfolio{filteredConfigs.length !== 1 ? 's' : ''}
+                        {activeFilterCount > 0 ? ' matching filters' : ''}
+                      </span>
+                    </div>
+                  )
+                ) : null}
               </div>
               {!isLoading && filteredConfigs.length > 0 ? (
                 <div className="inline-flex max-w-full flex-wrap items-center justify-center gap-1 rounded-md border bg-muted/30 p-0.5">
@@ -853,43 +898,6 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
               <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-300 flex items-center gap-2">
                 <Info className="size-4 shrink-0" />
                 {rankingNote}
-              </div>
-            )}
-
-            {/* Active view title row */}
-            {!isLoading && filteredConfigs.length > 0 && (
-              <div className="space-y-3">
-                {browseMode === 'list' ? (
-                  <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="relative h-8 shrink-0 gap-1.5 overflow-visible pr-2.5 text-xs"
-                      onClick={() => setSortDialogOpen(true)}
-                    >
-                      <ArrowUpDown className="size-3.5 shrink-0" aria-hidden />
-                      Sort
-                      <PortfolioListSortActiveIndicator metric={sortMetric} />
-                    </Button>
-                    <span className="text-xs text-muted-foreground">
-                      {filteredConfigs.length} portfolio{filteredConfigs.length !== 1 ? 's' : ''}
-                      {activeFilterCount > 0 ? ' matching filters' : ''}
-                    </span>
-                  </div>
-                ) : (
-                  <div className="flex flex-wrap items-center gap-2 min-w-0">
-                    <LineChart
-                      className="size-4 shrink-0 text-trader-blue dark:text-trader-blue-light"
-                      aria-hidden
-                    />
-                    <h3 className="text-sm font-semibold">Portfolio Values</h3>
-                    <span className="text-xs text-muted-foreground">
-                      {filteredConfigs.length} portfolio{filteredConfigs.length !== 1 ? 's' : ''}
-                      {activeFilterCount > 0 ? ' matching filters' : ''}
-                    </span>
-                  </div>
-                )}
               </div>
             )}
 
@@ -1033,21 +1041,23 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
                     onWeightChange={setWeightFilter}
                     benchmarkOutperformanceAsOf={latestPerformanceDate}
                     betweenBenchmarkAndRisk={
-                      <ExploreQuickPicksSection
-                        layout="sheet"
-                        configs={configs}
-                        filterBeatNasdaq={filterBeatNasdaq}
-                        filterBeatSp500={filterBeatSp500}
-                        riskFilter={riskFilter}
-                        freqFilter={freqFilter}
-                        weightFilter={weightFilter}
-                        setFilterBeatNasdaq={setFilterBeatNasdaq}
-                        setFilterBeatSp500={setFilterBeatSp500}
-                        setRiskFilter={setRiskFilter}
-                        setFreqFilter={setFreqFilter}
-                        setWeightFilter={setWeightFilter}
-                        clearFilters={clearFilters}
-                      />
+                      <div className="border-t border-border/60 pt-4">
+                        <ExploreQuickPicksSection
+                          layout="sheet"
+                          configs={configs}
+                          filterBeatNasdaq={filterBeatNasdaq}
+                          filterBeatSp500={filterBeatSp500}
+                          riskFilter={riskFilter}
+                          freqFilter={freqFilter}
+                          weightFilter={weightFilter}
+                          setFilterBeatNasdaq={setFilterBeatNasdaq}
+                          setFilterBeatSp500={setFilterBeatSp500}
+                          setRiskFilter={setRiskFilter}
+                          setFreqFilter={setFreqFilter}
+                          setWeightFilter={setWeightFilter}
+                          clearFilters={clearFilters}
+                        />
+                      </div>
                     }
                   />
                 </div>

@@ -1,7 +1,12 @@
 import { buildConfigPerformanceChart, buildMetricsFromSeries } from '@/lib/config-performance-chart';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
-import { buildDailyMarkedToMarketSeriesForConfig } from '@/lib/live-mark-to-market';
+import {
+  buildDailyMarkedToMarketSeriesForConfig,
+  buildLatestMtmPointFromLastSnapshot,
+  loadLatestRawRunDate,
+} from '@/lib/live-mark-to-market';
 import type { ConfigPerfRow } from '@/lib/portfolio-config-utils';
+import { createAdminClient } from '@/utils/supabase/admin';
 import { createPublicClient } from '@/utils/supabase/public';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
 import { unstable_cache } from 'next/cache';
@@ -72,6 +77,8 @@ export type PortfolioConfigsRankedPayload = {
   modelInceptionDate: string | null;
   eligibleCount: number;
   latestPerformanceDate: string | null;
+  /** Max `nasdaq_100_daily_raw.run_date` (ingested prices). */
+  latestRawRunDate: string | null;
   rankingNote: string | null;
   benchmarkEndingValues: BenchmarkEndingValues | null;
   configs: RankedConfig[];
@@ -234,7 +241,7 @@ function emptyConfigMetrics(weeksOfData: number): ConfigMetrics {
 type LiveTail = { date: string; benchmark: BenchmarkEndingValues };
 
 async function computeRankedConfigMetrics(
-  supabase: ReturnType<typeof createPublicClient>,
+  adminSupabase: ReturnType<typeof createAdminClient>,
   strategyId: string,
   cfg: ConfigRow,
   rowsWithInception: ConfigPerfRow[],
@@ -257,8 +264,9 @@ async function computeRankedConfigMetrics(
   let full = chartBuilt.fullMetrics;
   let liveTail: LiveTail | null = null;
 
+  let dailySeries: PerformanceSeriesPoint[] | null = null;
   if (weeklySeries.length >= 2 && computeReady) {
-    const dailySeries = await buildDailyMarkedToMarketSeriesForConfig(supabase, {
+    dailySeries = await buildDailyMarkedToMarketSeriesForConfig(adminSupabase, {
       strategyId,
       riskLevel: cfg.risk_level,
       rebalanceFrequency: cfg.rebalance_frequency,
@@ -266,13 +274,34 @@ async function computeRankedConfigMetrics(
       notionalSeries: weeklySeries,
       startDate: weeklySeries[0]?.date,
     });
-    if (dailySeries && dailySeries.length >= 2) {
-      const fromSeries = buildMetricsFromSeries(dailySeries);
-      headline = fromSeries.metrics;
-      full = fromSeries.fullMetrics;
-      const last = dailySeries[dailySeries.length - 1]!;
-      liveTail = { date: last.date, benchmark: benchmarkEndingValuesFromSeriesPoint(last) };
+  }
+
+  let chosenSeries: PerformanceSeriesPoint[] | null = null;
+  if (dailySeries && dailySeries.length >= 2) chosenSeries = dailySeries;
+
+  if (computeReady && weeklySeries.length >= 1) {
+    const tailPoint = await buildLatestMtmPointFromLastSnapshot(adminSupabase, {
+      strategyId,
+      riskLevel: cfg.risk_level,
+      rebalanceFrequency: cfg.rebalance_frequency,
+      weightingMethod: cfg.weighting_method,
+      notionalSeries: chosenSeries ?? weeklySeries,
+    });
+    if (tailPoint) {
+      const base = chosenSeries ?? weeklySeries;
+      const baseLastDate = base[base.length - 1]!.date;
+      if (tailPoint.date > baseLastDate) {
+        chosenSeries = [...base, tailPoint];
+      }
     }
+  }
+
+  if (chosenSeries && chosenSeries.length >= 2) {
+    const fromSeries = buildMetricsFromSeries(chosenSeries);
+    headline = fromSeries.metrics;
+    full = fromSeries.fullMetrics;
+    const last = chosenSeries[chosenSeries.length - 1]!;
+    liveTail = { date: last.date, benchmark: benchmarkEndingValuesFromSeriesPoint(last) };
   }
 
   const metrics: ConfigMetrics = {
@@ -329,6 +358,9 @@ export async function loadPortfolioConfigsRankedPayload(
     return null;
   }
 
+  const adminSupabase = createAdminClient();
+  const latestRawRunDate = await loadLatestRawRunDate(adminSupabase);
+
   const { data: configs } = await supabase
     .from('portfolio_configs')
     .select('id, risk_level, rebalance_frequency, weighting_method, top_n, label, risk_label, is_default')
@@ -343,6 +375,7 @@ export async function loadPortfolioConfigsRankedPayload(
       modelInceptionDate: null,
       eligibleCount: 0,
       latestPerformanceDate: null,
+      latestRawRunDate,
       rankingNote: null,
       benchmarkEndingValues: null,
       configs: [],
@@ -389,7 +422,7 @@ export async function loadPortfolioConfigsRankedPayload(
     const rawList = perfByConfigRaw.get(cfg.id) ?? [];
     const rawCount = rawList.length;
     const rows = ensureModelInceptionPrefix(inceptionDate, rawList);
-    const { metrics, liveTail } = await computeRankedConfigMetrics(supabase, strategy.id, cfg, rows, rawCount);
+    const { metrics, liveTail } = await computeRankedConfigMetrics(adminSupabase, strategy.id, cfg, rows, rawCount);
     const dataStatus: 'ready' | 'limited' | 'empty' =
       rawCount === 0 ? 'empty' : rawCount < MIN_WEEKS_FOR_RANKING ? 'limited' : 'ready';
     return { cfg, metrics, dataStatus, liveTail };
@@ -551,6 +584,7 @@ export async function loadPortfolioConfigsRankedPayload(
     modelInceptionDate: inceptionDate ?? null,
     eligibleCount: eligible.length,
     latestPerformanceDate,
+    latestRawRunDate,
     rankingNote:
       eligible.length === 0
         ? 'Performance data is being computed — metrics will appear shortly.'
