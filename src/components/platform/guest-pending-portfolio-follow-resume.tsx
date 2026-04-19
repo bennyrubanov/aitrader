@@ -3,7 +3,13 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthState } from '@/components/auth/auth-state-context';
-import { usePortfolioConfig } from '@/components/portfolio-config';
+import {
+  RISK_TOP_N,
+  usePortfolioConfig,
+  type RebalanceFrequency,
+  type RiskLevel,
+  type WeightingMethod,
+} from '@/components/portfolio-config';
 import {
   clearGuestPortfolioResumeUILock,
   clearGuestResumeGlobalLock,
@@ -21,6 +27,7 @@ import {
 } from '@/components/platform/portfolio-unfollow-toast';
 import { useToast } from '@/hooks/use-toast';
 import { formatYmdDisplay } from '@/lib/format-ymd-display';
+import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
 import { queuePlatformPostOnboardingTour } from '@/lib/platform-post-onboarding-tour';
 
 let guestPortfolioResumeInFlight: Promise<void> | null = null;
@@ -139,9 +146,22 @@ export function GuestPendingPortfolioFollowResume() {
 
         if (!j.deduplicated) {
           const entryLabel = formatYmdDisplay(pending.userStartDate);
+          const risk = Math.min(6, Math.max(1, Math.round(Number(pending.riskLevel)))) as RiskLevel;
+          const frequency = (
+            ['weekly', 'monthly', 'quarterly', 'yearly'] as const
+          ).includes(pending.frequency as RebalanceFrequency)
+            ? (pending.frequency as RebalanceFrequency)
+            : 'monthly';
+          const weightingMethod: WeightingMethod = pending.weighting === 'cap' ? 'cap' : 'equal';
+          const portfolioLabel = formatPortfolioConfigLabel({
+            topN: RISK_TOP_N[risk],
+            weightingMethod,
+            rebalanceFrequency: frequency,
+          });
           showPortfolioFollowToast({
             profileId,
-            title: 'You’re following this portfolio',
+            title: `You’re following ${portfolioLabel}`,
+            portfolioLabel,
             description: `Added to your overview — tracking with ${formatUsdWhole(pending.investmentSize)} from ${entryLabel}.`,
             onAfterUndo: () => {
               router.refresh();

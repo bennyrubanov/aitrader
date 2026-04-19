@@ -118,9 +118,9 @@ import {
 } from '@/lib/portfolio-config-badges';
 import {
   buildCompositeMapFromUserEntryCache,
-  type PortfolioListSortMetric,
   sortProfilesByUserEntryCache,
 } from '@/lib/portfolio-profile-list-sort';
+import { usePersistedYourPortfoliosSortMetric } from '@/lib/portfolio-list-sort-preference-local';
 import { PORTFOLIO_EXPLORE_QUICK_PICKS } from '@/lib/portfolio-explore-quick-picks';
 import { loadRankedConfigsClient } from '@/lib/portfolio-configs-ranked-client';
 import { loadUserPortfolioProfilesClient } from '@/lib/user-portfolio-profiles-client';
@@ -132,6 +132,7 @@ import {
   fetchGuestPortfolioConfigPerformanceJson,
   isGuestLocalProfileId,
 } from '@/lib/guest-local-profile';
+import { PORTFOLIO_REBALANCE_DATE_SELECT_WIDTH_CLASSES } from '@/lib/portfolio-rebalance-date-select-ui';
 import { cn } from '@/lib/utils';
 import type { ConfigPerfRow } from '@/lib/portfolio-config-utils';
 import { buildConfigPerformanceChart } from '@/lib/config-performance-chart';
@@ -243,9 +244,8 @@ function getSidebarRowPerf(p: UserPortfolioProfileRow): {
 
 function SidebarRowPerfLoadingSkeleton() {
   return (
-    <span className="inline-flex flex-col items-end gap-1 pt-0.5">
-      <Skeleton className="h-2.5 w-20 rounded-sm" />
-      <Skeleton className="h-2.5 w-12 rounded-sm" />
+    <span className="inline-flex max-w-[9.5rem] items-center justify-end pt-0.5">
+      <Skeleton className="h-2.5 w-[9rem] shrink-0 rounded-sm" />
     </span>
   );
 }
@@ -706,7 +706,10 @@ function PortfolioRebalanceActionsTimeline({
                 <SelectTrigger
                   id={`your-rebalance-date-${profileId}`}
                   aria-label="Rebalance date"
-                  className="h-8 w-[9.5rem] border-border/70 text-xs outline-none focus:ring-0 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                  className={cn(
+                    'h-8 border-border/70 text-xs outline-none focus:ring-0 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0',
+                    PORTFOLIO_REBALANCE_DATE_SELECT_WIDTH_CLASSES
+                  )}
                 >
                   <SelectValue placeholder="Choose date" />
                 </SelectTrigger>
@@ -1214,8 +1217,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const [sidebarSortDialogOpen, setSidebarSortDialogOpen] = useState(false);
   const filterDialogBenchmarkNasdaqRef = useRef<HTMLButtonElement>(null);
   const filterDialogTitleRef = useRef<HTMLHeadingElement>(null);
-  const [sidebarSortMetric, setSidebarSortMetric] =
-    useState<PortfolioListSortMetric>('follow_order');
+  const [sidebarSortMetric, setSidebarSortMetric] = usePersistedYourPortfoliosSortMetric();
   const [filterBeatNasdaq, setFilterBeatNasdaq] = useState(false);
   const [filterBeatSp500, setFilterBeatSp500] = useState(false);
   const [riskFilter, setRiskFilter] = useState<RiskLevel | null>(null);
@@ -1356,7 +1358,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
 
       portfolioTimelineCache.clear();
       portfolioTimelineInflight.clear();
-      void loadProfiles();
+      void loadProfiles({ silent: true });
     };
     window.addEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, handler);
     return () => window.removeEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, handler);
@@ -2177,6 +2179,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         showPortfolioFollowToast({
           profileId: createdId,
           title: `Following "${preset.label}"`,
+          portfolioLabel: preset.label,
           onAfterUndo: () => {
             const sp = new URLSearchParams(window.location.search);
             if (sp.get('profile') === createdId) {
@@ -2950,7 +2953,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
               <div className="mx-5 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground sm:mx-7">
                 <p className="font-medium">Performance data computing…</p>
                 <p className="text-xs mt-1">
-                  Historical performance for this configuration is being calculated. This page refreshes automatically.
+                  Historical performance for this portfolio is being calculated. This page refreshes automatically.
                 </p>
               </div>
             ) : activeComputeStatus === 'in_progress' ? (
@@ -2959,7 +2962,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
               </div>
             ) : activeComputeStatus === 'failed' ? (
               <div className="mx-5 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive sm:mx-7">
-                Couldn&apos;t load performance for this configuration. Try again later.
+                Couldn&apos;t load performance for this portfolio. Try again later.
               </div>
             ) : activeComputeStatus === 'unsupported' ? (
               <div className="mx-5 rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground sm:mx-7">
@@ -3160,7 +3163,12 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                           }}
                           disabled={configHoldingsLoading}
                         >
-                          <SelectTrigger className="h-9 w-full max-w-[168px] shrink-0 rounded-md border border-input bg-background px-2 text-left text-xs shadow-none ring-0 hover:bg-muted/30 focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:ring-0 data-[state=open]:ring-offset-0 sm:w-[168px]">
+                          <SelectTrigger
+                            className={cn(
+                              'h-9 rounded-md border border-input bg-background px-2 text-left text-xs shadow-none ring-0 hover:bg-muted/30 focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:ring-0 data-[state=open]:ring-offset-0',
+                              PORTFOLIO_REBALANCE_DATE_SELECT_WIDTH_CLASSES
+                            )}
+                          >
                             <SelectValue placeholder="Rebalance date" />
                           </SelectTrigger>
                           <SelectContent align="start">
@@ -3813,6 +3821,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                 id: selectedProfile.id,
                 investment_size: selectedProfile.investment_size,
                 user_start_date: selectedProfile.user_start_date,
+                portfolioLabel: selectedProfile.portfolio_config?.label ?? null,
                 strategySlug: selectedProfile.strategy_models?.slug ?? null,
                 strategyModelName: selectedProfile.strategy_models?.name ?? null,
                 portfolioConfig: selectedProfile.portfolio_config

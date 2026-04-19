@@ -42,6 +42,7 @@ drop table if exists public.ai_run_batches cascade;
 drop table if exists public.strategy_models cascade;
 
 -- Universe/raw/reference data for experiment
+drop table if exists public.benchmark_daily_prices cascade;
 drop table if exists public.nasdaq_100_daily_raw cascade;
 drop table if exists public.nasdaq100_snapshot_stocks cascade;
 drop table if exists public.nasdaq100_snapshots cascade;

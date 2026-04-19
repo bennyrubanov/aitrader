@@ -12,7 +12,12 @@ const MODEL_INITIAL = 10_000;
 export type PortfolioListSortMetric =
   /** Preserve API / follow order (Your portfolios sidebar default). */
   | 'follow_order'
+  /** Explore / overview: return first, then estimated value when returns tie. */
   | 'portfolio_value_performance'
+  /** Your portfolios sidebar: sort by return only. */
+  | 'portfolio_return'
+  /** Your portfolios sidebar: sort by estimated value only. */
+  | 'portfolio_value'
   | 'composite_score'
   | 'consistency'
   | 'sharpe_ratio'
@@ -33,7 +38,7 @@ export const PORTFOLIO_LIST_FOLLOW_ORDER_DETAIL: PortfolioListSortOptionDetail =
   value: 'follow_order',
   label: 'Order followed',
   description:
-    'Keep portfolios in the order you followed them. Switch to a metric below to rank by performance instead.',
+    'Keep portfolios in the order you followed them.',
 };
 
 type PortfolioListMetricOptionDetail = Omit<PortfolioListSortOptionDetail, 'value'> & {
@@ -52,7 +57,7 @@ export const PORTFOLIO_LIST_METRIC_OPTION_DETAILS: PortfolioListMetricOptionDeta
     value: 'composite_score',
     label: 'Composite score',
     description:
-      'Blend of return, Sharpe, consistency, drawdown, and vs Nasdaq-100 cap within this list. Higher ranks first.',
+      'Blend of return, Sharpe, consistency, drawdown, and vs Nasdaq-100 cap within this list.',
     inlineDetailsLink: {
       href: `/strategy-models/${STRATEGY_CONFIG.slug}#portfolio-ranking-how`,
       label: 'More details',
@@ -62,24 +67,41 @@ export const PORTFOLIO_LIST_METRIC_OPTION_DETAILS: PortfolioListMetricOptionDeta
     value: 'consistency',
     label: 'Consistency',
     description:
-      'How steady your track was versus Nasdaq-100 cap over your window, when that series is available.',
+      'How consistenly your portfolio was beating the Nasdaq-100 (cap-weight) benchmark.',
   },
   {
     value: 'sharpe_ratio',
     label: 'Sharpe ratio',
-    description: 'Risk-adjusted return on your track; higher suggests more return per unit of volatility.',
+    description: 'Risk-adjusted return; higher suggests more return per unit of volatility.',
   },
   {
     value: 'cagr',
     label: 'CAGR',
-    description: 'Compound annual growth rate on your track for the available history.',
+    description: 'Compound annual growth rate.',
   },
   {
     value: 'max_drawdown',
     label: 'Drawdown (steadiness)',
     description:
-      'Worst peak-to-trough loss on your track. Values closer to zero (smaller loss) rank higher.',
+      'Worst peak-to-trough loss. Values closer to zero (smaller loss) rank higher.',
   },
+];
+
+/** Your portfolios sidebar + guest preview: separate return vs value; no combined row. */
+export const PORTFOLIO_LIST_SIDEBAR_METRIC_OPTION_DETAILS: PortfolioListMetricOptionDetail[] = [
+  {
+    value: 'portfolio_return',
+    label: 'Portfolio return',
+    description:
+      'Total return since you entered this portfolio.',
+  },
+  {
+    value: 'portfolio_value',
+    label: 'Portfolio value',
+    description:
+      'Estimated current portfolio value since you entered; reflects the amount you chose to invest.',
+  },
+  ...PORTFOLIO_LIST_METRIC_OPTION_DETAILS.slice(1),
 ];
 
 export const PORTFOLIO_LIST_METRIC_OPTIONS: {
@@ -87,13 +109,18 @@ export const PORTFOLIO_LIST_METRIC_OPTIONS: {
   label: string;
 }[] = PORTFOLIO_LIST_METRIC_OPTION_DETAILS.map(({ value, label }) => ({ value, label }));
 
+export const PORTFOLIO_LIST_SIDEBAR_METRIC_OPTIONS: {
+  value: Exclude<PortfolioListSortMetric, 'follow_order'>;
+  label: string;
+}[] = PORTFOLIO_LIST_SIDEBAR_METRIC_OPTION_DETAILS.map(({ value, label }) => ({ value, label }));
+
 /** Your portfolios: “Order followed” first, then metrics (labels only). */
 export const PORTFOLIO_LIST_SORT_OPTIONS_WITH_FOLLOW_FIRST: {
   value: PortfolioListSortMetric;
   label: string;
 }[] = [
   { value: PORTFOLIO_LIST_FOLLOW_ORDER_DETAIL.value, label: PORTFOLIO_LIST_FOLLOW_ORDER_DETAIL.label },
-  ...PORTFOLIO_LIST_METRIC_OPTIONS,
+  ...PORTFOLIO_LIST_SIDEBAR_METRIC_OPTIONS,
 ];
 
 export type PortfolioListSortCardState = {
@@ -174,7 +201,10 @@ export function overviewCardSortValue(
     case 'follow_order':
       return null;
     case 'portfolio_value_performance':
+    case 'portfolio_return':
       return overviewReturnAndValue(profile, st).ret;
+    case 'portfolio_value':
+      return overviewReturnAndValue(profile, st).val;
     case 'cagr':
     case 'max_drawdown':
     case 'consistency':
@@ -261,7 +291,10 @@ function userEntryCacheSortValue(
     case 'follow_order':
       return null;
     case 'portfolio_value_performance':
+    case 'portfolio_return':
       return userEntryReturnAndValue(profile).ret;
+    case 'portfolio_value':
+      return userEntryReturnAndValue(profile).val;
     case 'cagr':
     case 'max_drawdown':
     case 'consistency':

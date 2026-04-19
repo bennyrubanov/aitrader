@@ -16,6 +16,7 @@
 -- drop table if exists public.ai_analysis_runs cascade;
 -- drop table if exists public.ai_run_batches cascade;
 -- drop table if exists public.strategy_models cascade;
+-- drop table if exists public.benchmark_daily_prices cascade;
 -- drop table if exists public.nasdaq_100_daily_raw cascade;
 -- drop table if exists public.nasdaq100_snapshot_stocks cascade;
 -- drop table if exists public.nasdaq100_snapshots cascade;
@@ -461,6 +462,24 @@ create index if not exists idx_nasdaq_100_daily_raw_run_date
 
 create index if not exists idx_nasdaq_100_daily_raw_symbol
   on public.nasdaq_100_daily_raw(symbol);
+
+-- Stooq daily closes for benchmark drift in mark-to-market (NDX cap, Nasdaq equal proxy, S&P 500).
+-- Populated every weekday by the daily cron; consumed by `buildBenchmarksByDate` in live-mark-to-market.
+create table if not exists public.benchmark_daily_prices (
+  symbol text not null,
+  run_date date not null,
+  close numeric not null,
+  source text not null default 'stooq',
+  updated_at timestamptz not null default now(),
+  primary key (symbol, run_date),
+  constraint benchmark_daily_prices_symbol_valid
+    check (symbol in ('^ndx', 'qqew.us', '^spx')),
+  constraint benchmark_daily_prices_close_valid check (close > 0),
+  constraint benchmark_daily_prices_source_valid check (source in ('stooq', 'yahoo'))
+);
+
+create index if not exists idx_benchmark_daily_prices_symbol_date
+  on public.benchmark_daily_prices (symbol, run_date desc);
 
 -- =========================
 -- 6) Strategy versions (treat each as a separate fund)

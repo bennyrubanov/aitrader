@@ -99,14 +99,14 @@ export function SpotlightAllocationHeaderTooltip() {
         <p className="mb-1.5 font-semibold leading-snug text-foreground">Dollar allocation</p>
         <p className="mb-2 text-muted-foreground leading-snug">
           Each amount is your investment size multiplied by that holding’s target weight for this
-          configuration. Equal weight spreads the same dollar share across every name; cap weight
+          portfolio. Equal weight spreads the same dollar share across every name; cap weight
           tilts toward larger index constituents—so allocations depend on the weighting you chose
           for this portfolio.
         </p>
         <p className="mb-2 text-muted-foreground leading-snug">
           Cap-weighted portfolios mirror how major indices work: bigger companies receive larger
           positions because they represent a larger share of the benchmark. You can compare and
-          follow cap-weight configurations on Explore Portfolios.
+          follow cap-weight portfolios on Explore Portfolios.
         </p>
         <Link
           href="/platform/explore-portfolios"

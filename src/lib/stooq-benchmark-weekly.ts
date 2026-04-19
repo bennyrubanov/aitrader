@@ -151,6 +151,18 @@ export const fetchStooqRowsWithMeta = async (symbol: string): Promise<StooqFetch
           error: 'Stooq requires STOOQ_API_KEY (see https://stooq.com/q/d/?s=^ndx&get_apikey)',
         };
       }
+      if (csv.includes('Exceeded the daily hits limit')) {
+        return {
+          ok: false,
+          symbol,
+          httpStatus,
+          rowCount: 0,
+          firstDate: null,
+          lastDate: null,
+          rows: null,
+          error: 'Stooq daily API hits limit exceeded for this key; retry tomorrow or reduce parallel fetches',
+        };
+      }
 
       const lines = csv.trim().split('\n');
       if (lines.length < 2) {

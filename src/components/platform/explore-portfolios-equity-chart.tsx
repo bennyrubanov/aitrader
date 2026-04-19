@@ -46,10 +46,10 @@ const EXPLORE_BM_CONFIG: Record<ExploreBenchmarkKey, { label: string; color: str
     color: CHART_INDEX_SERIES_COLORS.nasdaq100CapWeight,
   },
   [EXPLORE_BM_KEYS.eq]: {
-    label: 'Nasdaq-100 (equal-weighted)',
+    label: 'Nasdaq-100 (equal)',
     color: CHART_INDEX_SERIES_COLORS.nasdaq100EqualWeight,
   },
-  [EXPLORE_BM_KEYS.sp]: { label: 'S&P 500 (cap-weighted)', color: CHART_INDEX_SERIES_COLORS.sp500 },
+  [EXPLORE_BM_KEYS.sp]: { label: 'S&P 500 (cap)', color: CHART_INDEX_SERIES_COLORS.sp500 },
 };
 
 type ExploreSidebarListRow =
@@ -570,7 +570,8 @@ export function ExplorePortfoliosEquityChart({
             const cfg = EXPLORE_BM_CONFIG[k];
             const raw = displayValueRow[k];
             const num = Number(raw);
-            const valueStr = Number.isFinite(num) ? formatEquityTooltipValue(num) : '—';
+            const valueStr =
+              isPicker && Number.isFinite(num) ? formatEquityTooltipValue(num) : null;
             const hidden = hiddenBenchmarkKeys.has(k);
             const lineHover = !hidden && hoveredLineKey === k;
             return (
@@ -603,7 +604,9 @@ export function ExplorePortfoliosEquityChart({
                 <span className="min-w-0 truncate font-medium text-foreground" title={cfg.label}>
                   {cfg.label}
                 </span>
-                <span className="shrink-0 tabular-nums text-muted-foreground">{valueStr}</span>
+                {valueStr != null ? (
+                  <span className="shrink-0 tabular-nums text-muted-foreground">{valueStr}</span>
+                ) : null}
               </button>
             );
           })}

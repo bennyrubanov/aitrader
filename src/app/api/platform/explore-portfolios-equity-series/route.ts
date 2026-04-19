@@ -14,6 +14,7 @@ import { createPublicClient } from '@/utils/supabase/public';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
 
 export const revalidate = 300;
+export const maxDuration = 60;
 
 const INITIAL_CAPITAL = 10_000;
 
@@ -145,41 +146,55 @@ async function loadExplorePortfoliosEquitySeriesPayload(
   const benchmarkByDate = new Map<string, { cap: number; eq: number; sp: number }>();
   const dateSet = new Set<string>();
 
-  for (const cfg of (configs ?? []) as ConfigRow[]) {
-    const rawRows = perfByConfigRaw.get(cfg.id) ?? [];
-    if (rawRows.length === 0) continue;
-    const readyRows = rawRows.filter((r) => r.compute_status === 'ready');
-    const rowsForSeries = (readyRows.length > 0 ? readyRows : rawRows).sort((a, b) =>
-      a.run_date.localeCompare(b.run_date)
-    );
-    const withInception = ensureInceptionPrefix(rowsForSeries);
-    const weeklySeries = buildConfigPerformanceChart(withInception).series;
-    if (weeklySeries.length === 0) continue;
+  const configRows = (configs ?? []) as ConfigRow[];
+  const perConfigSeries = await Promise.all(
+    configRows.map(async (cfg) => {
+      const rawRows = perfByConfigRaw.get(cfg.id) ?? [];
+      if (rawRows.length === 0) return null;
+      const readyRows = rawRows.filter((r) => r.compute_status === 'ready');
+      const rowsForSeries = (readyRows.length > 0 ? readyRows : rawRows).sort((a, b) =>
+        a.run_date.localeCompare(b.run_date)
+      );
+      const withInception = ensureInceptionPrefix(rowsForSeries);
+      const weeklySeries = buildConfigPerformanceChart(withInception).series;
+      if (weeklySeries.length === 0) return null;
 
-    let series: PerformanceSeriesPoint[] = weeklySeries;
-    const dailySeries = await buildDailyMarkedToMarketSeriesForConfig(adminSupabase, {
-      strategyId: strategy.id,
-      riskLevel: cfg.risk_level,
-      rebalanceFrequency: cfg.rebalance_frequency,
-      weightingMethod: cfg.weighting_method,
-      notionalSeries: weeklySeries,
-      startDate: weeklySeries[0]?.date,
-    });
-    if (dailySeries && dailySeries.length >= 2) {
-      series = dailySeries;
-    }
+      let series: PerformanceSeriesPoint[] = weeklySeries;
+      const dailySeries = await buildDailyMarkedToMarketSeriesForConfig(adminSupabase, {
+        strategyId: strategy.id,
+        riskLevel: cfg.risk_level,
+        rebalanceFrequency: cfg.rebalance_frequency,
+        weightingMethod: cfg.weighting_method,
+        notionalSeries: weeklySeries,
+        startDate: weeklySeries[0]?.date,
+      });
+      if (dailySeries && dailySeries.length >= 2) {
+        series = dailySeries;
+      }
 
-    const tailPoint = await buildLatestMtmPointFromLastSnapshot(adminSupabase, {
-      strategyId: strategy.id,
-      riskLevel: cfg.risk_level,
-      rebalanceFrequency: cfg.rebalance_frequency,
-      weightingMethod: cfg.weighting_method,
-      notionalSeries: series,
-    });
-    if (tailPoint && tailPoint.date > series[series.length - 1]!.date) {
-      series = [...series, tailPoint];
-    }
+      const tailPoint = await buildLatestMtmPointFromLastSnapshot(adminSupabase, {
+        strategyId: strategy.id,
+        riskLevel: cfg.risk_level,
+        rebalanceFrequency: cfg.rebalance_frequency,
+        weightingMethod: cfg.weighting_method,
+        notionalSeries: series,
+      });
+      if (tailPoint && tailPoint.date > series[series.length - 1]!.date) {
+        series = [...series, tailPoint];
+      }
 
+      return { configId: cfg.id, series } as const;
+    })
+  );
+
+  const seriesByConfigId = new Map<string, PerformanceSeriesPoint[]>();
+  for (const row of perConfigSeries) {
+    if (row) seriesByConfigId.set(row.configId, row.series);
+  }
+
+  for (const cfg of configRows) {
+    const series = seriesByConfigId.get(cfg.id);
+    if (!series) continue;
     byConfigDailySeries.set(cfg.id, series);
     for (const p of series) {
       dateSet.add(p.date);
@@ -273,7 +288,7 @@ async function getCachedExplorePortfoliosEquitySeriesPayload(
 ): Promise<ExplorePortfoliosEquitySeriesPayload | null> {
   const loadCached = unstable_cache(
     async () => loadExplorePortfoliosEquitySeriesPayload(slug),
-    ['explore-equity-series', slug],
+    ['explore-equity-series', slug, 'v2-daily-mtm'],
     {
       revalidate: 300,
       tags: [RANKED_CONFIGS_CACHE_TAG, `${RANKED_CONFIGS_CACHE_TAG}:${slug}`],

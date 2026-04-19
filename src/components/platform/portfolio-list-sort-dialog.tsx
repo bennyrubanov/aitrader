@@ -13,6 +13,7 @@ import {
 import {
   PORTFOLIO_LIST_FOLLOW_ORDER_DETAIL,
   PORTFOLIO_LIST_METRIC_OPTION_DETAILS,
+  PORTFOLIO_LIST_SIDEBAR_METRIC_OPTION_DETAILS,
   type PortfolioListSortMetric,
   type PortfolioListSortOptionDetail,
 } from '@/lib/portfolio-profile-list-sort';
@@ -21,7 +22,7 @@ import { cn } from '@/lib/utils';
 
 const SIDEBAR_ROWS: PortfolioListSortOptionDetail[] = [
   PORTFOLIO_LIST_FOLLOW_ORDER_DETAIL,
-  ...PORTFOLIO_LIST_METRIC_OPTION_DETAILS,
+  ...PORTFOLIO_LIST_SIDEBAR_METRIC_OPTION_DETAILS,
 ];
 
 export type PortfolioListSortDialogProps = {

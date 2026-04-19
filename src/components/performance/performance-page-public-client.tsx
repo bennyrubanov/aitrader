@@ -76,6 +76,7 @@ import {
 import type { ConfigHoldingsSummary } from '@/lib/portfolio-config-holdings';
 import { formatStrategyDescriptionForDisplay } from '@/lib/format-strategy-description';
 import { formatPortfolioHoldingsSubtitle } from '@/lib/portfolio-config-display';
+import { PORTFOLIO_REBALANCE_DATE_SELECT_WIDTH_CLASSES } from '@/lib/portfolio-rebalance-date-select-ui';
 import { cn } from '@/lib/utils';
 import { SectionHeadingAnchor } from '@/components/section-heading-anchor';
 import { useAuthState } from '@/components/auth/auth-state-context';
@@ -1294,7 +1295,7 @@ function PerformancePagePublicClientInner({
                 </p>
               </div>
               {holdingsRebalanceDates.length > 1 ? (
-                <div className="flex w-full max-w-[220px] flex-col gap-1 sm:shrink-0 sm:items-end">
+                <div className="flex w-full max-w-[9rem] flex-col gap-1 sm:shrink-0 sm:items-end">
                   <Label
                     htmlFor="holdings-rebalance-date"
                     className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:text-right"
@@ -1307,7 +1308,10 @@ function PerformancePagePublicClientInner({
                   >
                     <SelectTrigger
                       id="holdings-rebalance-date"
-                      className="h-8 min-h-8 w-full rounded-md border border-input bg-background px-2 text-left text-xs shadow-none ring-0 hover:bg-muted/30 focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:ring-0 data-[state=open]:ring-offset-0 [&_svg]:size-3.5"
+                      className={cn(
+                        'h-8 min-h-8 rounded-md border border-input bg-background px-2 text-left text-xs shadow-none ring-0 hover:bg-muted/30 focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:ring-0 data-[state=open]:ring-offset-0 [&_svg]:size-3.5',
+                        PORTFOLIO_REBALANCE_DATE_SELECT_WIDTH_CLASSES
+                      )}
                     >
                       <SelectValue placeholder="Choose date" />
                     </SelectTrigger>

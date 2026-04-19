@@ -391,7 +391,7 @@ export function PortfolioAtAGlanceCard({
           ) : metricRows.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               {perf?.computeStatus === 'in_progress'
-                ? 'Computing performance for this configuration…'
+                ? 'Computing performance for this portfolio...'
                 : 'Metrics appear when performance is ready.'}
             </p>
           ) : (

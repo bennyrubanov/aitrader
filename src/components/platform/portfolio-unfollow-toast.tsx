@@ -90,7 +90,7 @@ export function showPortfolioUnfollowToast({
             const ok = await setUserPortfolioProfileActive(profileId, true);
             if (ok) {
               onAfterUndo();
-              toast({ title: 'Follow restored' });
+              toast({ title: `Following ${label} again` });
             } else {
               toast({
                 title: 'Could not undo',
@@ -111,6 +111,7 @@ export type PortfolioFollowToastOptions = {
   profileId: string;
   title: string;
   description?: string;
+  portfolioLabel?: string;
   /** Extra work after profiles are invalidated (e.g. Explore list, router.refresh). */
   onAfterUndo?: () => void | Promise<void>;
   /** Optional primary navigation CTA stacked above Undo (e.g. open Your portfolios). */
@@ -122,9 +123,12 @@ export function showPortfolioFollowToast({
   profileId,
   title,
   description,
+  portfolioLabel,
   onAfterUndo,
   viewAction,
 }: PortfolioFollowToastOptions): void {
+  const label = portfolioLabel?.trim() || 'this portfolio';
+
   const renderUndo = (actionClassName?: string) => (
     <ToastAction
       altText="Undo follow"
@@ -134,7 +138,7 @@ export function showPortfolioFollowToast({
           const ok = await setUserPortfolioProfileActive(profileId, false);
           if (ok) {
             await onAfterUndo?.();
-            toast({ title: 'Follow removed' });
+            toast({ title: `Stopped following ${label}` });
           } else {
             toast({
               title: 'Could not undo',

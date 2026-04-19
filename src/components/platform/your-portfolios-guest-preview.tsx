@@ -70,6 +70,7 @@ import {
   CHART_INDEX_SERIES_COLORS,
   CHART_PORTFOLIO_SERIES_COLOR,
 } from '@/lib/chart-index-series-colors';
+import { PORTFOLIO_REBALANCE_DATE_SELECT_WIDTH_CLASSES } from '@/lib/portfolio-rebalance-date-select-ui';
 import { cn } from '@/lib/utils';
 import { CartesianGrid, LineChart, XAxis, YAxis } from 'recharts';
 
@@ -747,7 +748,10 @@ export function YourPortfoliosGuestPreview({ signInHref, signUpHref }: Props) {
                         <Button
                           type="button"
                           variant="outline"
-                          className="h-9 w-full max-w-[168px] shrink-0 justify-between text-xs font-normal sm:w-[168px]"
+                          className={cn(
+                            'h-9 justify-between text-xs font-normal',
+                            PORTFOLIO_REBALANCE_DATE_SELECT_WIDTH_CLASSES
+                          )}
                           onClick={promptSignup}
                         >
                           <span className="truncate tabular-nums text-muted-foreground">

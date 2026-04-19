@@ -258,8 +258,7 @@ export default async function StrategyModelDetailPage({ params }: Props) {
             <p>
               We order strategy models with a <strong className="text-foreground">composite score</strong>{' '}
               so the headline reflects both{' '}
-              <strong className="text-foreground">how broadly</strong> the model&apos;s portfolio
-              configs are working (not just one lucky configuration) and{' '}
+              <strong className="text-foreground">how broadly</strong> the model&apos;s portfolios are working (not just one lucky portfolio) and{' '}
               <strong className="text-foreground">how strong risk-adjusted results</strong> look in the
               middle and at the top of the config set.
             </p>

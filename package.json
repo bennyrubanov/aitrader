@@ -11,6 +11,7 @@
     "migrate:stripe-users": "node scripts/migrate-stripe-users.mjs",
     "migrate:stripe-subscriptions": "node scripts/migrate-stripe-subscriptions.mjs",
     "migrate:billing-finalize": "node scripts/finalize-migrated-billing.mjs",
+    "backfill-benchmark-daily-prices": "tsx scripts/backfill-benchmark-daily-prices.ts",
     "backfill-configs": "node scripts/backfill-all-configs.mjs",
     "repair-weekly-benchmarks": "tsx scripts/repair-weekly-benchmarks.ts"
   },

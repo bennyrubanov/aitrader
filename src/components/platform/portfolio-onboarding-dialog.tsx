@@ -824,7 +824,8 @@ export function PortfolioOnboardingDialog({
       if (!j.deduplicated) {
         showPortfolioFollowToast({
           profileId,
-          title: 'You’re following this portfolio',
+          title: `You’re following ${celebratePortfolioLabel}`,
+          portfolioLabel: celebratePortfolioLabel,
           description: synced
             ? `Added to your overview and tracking with ${formatCurrency(draft.investmentSize)} from ${entryYmd === localTodayYmd() ? 'today' : formatYmdDisplay(entryYmd)}.`
             : `Your portfolio is saved. If it doesn’t appear on the overview yet, refresh the page — tracking with ${formatCurrency(draft.investmentSize)} from ${entryYmd === localTodayYmd() ? 'today' : formatYmdDisplay(entryYmd)}.`,

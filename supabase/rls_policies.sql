@@ -123,6 +123,16 @@ alter table public.nasdaq_100_daily_raw enable row level security;
 -- No policies = no access except via service role key.
 
 -- -------------------------------------------------------
+-- 7b) benchmark_daily_prices – daily closes (^ndx, qqew.us, ^spx; source stooq|yahoo); public read, cron upserts via service role
+-- -------------------------------------------------------
+alter table public.benchmark_daily_prices enable row level security;
+
+drop policy if exists "Public read benchmark daily prices" on public.benchmark_daily_prices;
+create policy "Public read benchmark daily prices"
+  on public.benchmark_daily_prices for select
+  using (true);
+
+-- -------------------------------------------------------
 -- 8) ai_prompts – public read for transparency
 -- -------------------------------------------------------
 alter table public.ai_prompts enable row level security;
@@ -355,9 +365,8 @@ grant select on public.nasdaq100_latest_snapshot to anon, authenticated;
 --   which bypasses RLS entirely, so all INSERT/UPDATE/DELETE
 --   operations from the cron continue to work unchanged.
 --
--- * nasdaq_100_daily_raw has RLS enabled with zero policies,
---   meaning it is locked to service role only. This is intentional
---   — raw API data doesn't need frontend exposure.
+-- * nasdaq_100_daily_raw has RLS enabled with zero policies (service role only).
+-- * benchmark_daily_prices: public SELECT (index closes for MTM charts); writes via service role only.
 --
 -- * Strategy performance/research aggregates (weekly performance, quintiles,
 --   cross-sectional regressions) remain public read for marketing pages.

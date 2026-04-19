@@ -25,6 +25,7 @@ export type UserPortfolioEntrySettingsProfile = {
   id: string;
   investment_size: number | string;
   user_start_date: string | null;
+  portfolioLabel?: string | null;
   /** Used to load model inception for the same calendar bounds as onboarding. */
   strategySlug?: string | null;
   strategyModelName?: string | null;
@@ -144,6 +145,7 @@ export function UserPortfolioEntrySettingsDialog({
 
   const handleSave = async () => {
     if (!profile) return;
+    const portfolioLabel = profile.portfolioLabel?.trim() || 'this portfolio';
     const inv = parseFloat(investment.replace(/,/g, ''));
     if (!Number.isFinite(inv) || inv <= 0) {
       toast({ title: 'Invalid investment', description: 'Enter a positive amount.', variant: 'destructive' });
@@ -184,7 +186,7 @@ export function UserPortfolioEntrySettingsDialog({
             ? `${window.location.pathname}${window.location.search}`
             : '/platform/overview';
         toast({
-          title: 'Portfolio settings updated',
+          title: `Updated ${portfolioLabel} entry settings`,
           description:
             'Saved locally to your guest profile. Sign up for a free account to keep your portfolio saved across devices.',
           action: (
@@ -227,7 +229,7 @@ export function UserPortfolioEntrySettingsDialog({
         return;
       }
       toast({
-        title: 'Portfolio settings updated',
+        title: `Updated ${portfolioLabel} entry settings`,
         description:
           'Performance now reflects your updated entry date and investment amount.',
       });

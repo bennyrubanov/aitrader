@@ -1,11 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getPortfolioConfigHoldings } from '@/lib/portfolio-config-holdings';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
-import {
-  fetchStooqRowsWithMeta,
-  getCloseOnOrBefore,
-  STOOQ_BENCHMARK_SYMBOLS,
-} from '@/lib/stooq-benchmark-weekly';
+import { getCloseOnOrBefore, STOOQ_BENCHMARK_SYMBOLS, type StooqCsvRow } from '@/lib/stooq-benchmark-weekly';
 import { parseNasdaqRawPrice } from '@/lib/user-portfolio-entry';
 
 type SymbolPriceMap = Record<string, number | null>;
@@ -133,29 +129,69 @@ async function loadRawPricesForSymbolsFromDate(
   return { tradingDates: dates, pricesByDate };
 }
 
+function isoDateMinusCalendarDays(iso: string, calendarDays: number): string {
+  const d = new Date(`${iso}T12:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() - calendarDays);
+  return d.toISOString().slice(0, 10);
+}
+
 async function buildBenchmarksByDate(
+  supabase: SupabaseClient,
   dates: string[],
   baseDate: string,
   baseBenchmarks: Benchmarks
 ): Promise<Map<string, Benchmarks>> {
   const result = new Map<string, Benchmarks>();
   if (dates.length === 0) return result;
-  const [ndx, eqq, spx] = await Promise.all([
-    fetchStooqRowsWithMeta(STOOQ_BENCHMARK_SYMBOLS.nasdaqCap),
-    fetchStooqRowsWithMeta(STOOQ_BENCHMARK_SYMBOLS.nasdaqEqual),
-    fetchStooqRowsWithMeta(STOOQ_BENCHMARK_SYMBOLS.sp500),
-  ]);
-  if (!ndx.ok || !eqq.ok || !spx.ok || !ndx.rows || !eqq.rows || !spx.rows) return result;
 
-  const ndxBase = getCloseOnOrBefore(ndx.rows, baseDate).close;
-  const eqqBase = getCloseOnOrBefore(eqq.rows, baseDate).close;
-  const spxBase = getCloseOnOrBefore(spx.rows, baseDate).close;
+  const minBound = [baseDate, ...dates].reduce((a, b) => (a < b ? a : b));
+  const maxDate = dates.reduce((a, b) => (a > b ? a : b));
+  const queryStart = isoDateMinusCalendarDays(minBound, 400);
+
+  const symbols = [
+    STOOQ_BENCHMARK_SYMBOLS.nasdaqCap,
+    STOOQ_BENCHMARK_SYMBOLS.nasdaqEqual,
+    STOOQ_BENCHMARK_SYMBOLS.sp500,
+  ];
+
+  const { data, error } = await supabase
+    .from('benchmark_daily_prices')
+    .select('symbol, run_date, close')
+    .in('symbol', symbols)
+    .gte('run_date', queryStart)
+    .lte('run_date', maxDate)
+    .order('run_date', { ascending: true });
+
+  if (error || !data?.length) return result;
+
+  const capSym = STOOQ_BENCHMARK_SYMBOLS.nasdaqCap;
+  const eqSym = STOOQ_BENCHMARK_SYMBOLS.nasdaqEqual;
+  const spSym = STOOQ_BENCHMARK_SYMBOLS.sp500;
+
+  const ndxRows: StooqCsvRow[] = [];
+  const eqqRows: StooqCsvRow[] = [];
+  const spxRows: StooqCsvRow[] = [];
+
+  for (const row of data as Array<{ symbol: string; run_date: string; close: number | string }>) {
+    const close = Number(row.close);
+    if (!Number.isFinite(close) || close <= 0) continue;
+    const entry: StooqCsvRow = { date: row.run_date, close };
+    if (row.symbol === capSym) ndxRows.push(entry);
+    else if (row.symbol === eqSym) eqqRows.push(entry);
+    else if (row.symbol === spSym) spxRows.push(entry);
+  }
+
+  if (!ndxRows.length || !eqqRows.length || !spxRows.length) return result;
+
+  const ndxBase = getCloseOnOrBefore(ndxRows, baseDate).close;
+  const eqqBase = getCloseOnOrBefore(eqqRows, baseDate).close;
+  const spxBase = getCloseOnOrBefore(spxRows, baseDate).close;
   if (!ndxBase || !eqqBase || !spxBase) return result;
 
   for (const d of dates) {
-    const ndxClose = getCloseOnOrBefore(ndx.rows, d).close;
-    const eqqClose = getCloseOnOrBefore(eqq.rows, d).close;
-    const spxClose = getCloseOnOrBefore(spx.rows, d).close;
+    const ndxClose = getCloseOnOrBefore(ndxRows, d).close;
+    const eqqClose = getCloseOnOrBefore(eqqRows, d).close;
+    const spxClose = getCloseOnOrBefore(spxRows, d).close;
     if (!ndxClose || !eqqClose || !spxClose) continue;
     result.set(d, {
       nasdaq100CapWeight: baseBenchmarks.nasdaq100CapWeight * (ndxClose / ndxBase),
@@ -320,7 +356,7 @@ export async function buildDailyMarkedToMarketSeriesForConfig(
 
   const benchmarksByDate = params.skipBenchmarkDrift
     ? new Map<string, Benchmarks>()
-    : await buildBenchmarksByDate(tradingDates, start, baseBenchmarks);
+    : await buildBenchmarksByDate(supabase, tradingDates, start, baseBenchmarks);
 
   return buildDailySeriesFromSnapshots(
     snapshots,
@@ -407,7 +443,7 @@ export async function buildLatestMtmPointFromLastSnapshot(
       sp500: params.notionalSeries[0]!.sp500,
     };
 
-  const benchMap = await buildBenchmarksByDate([latestRunDate], snapshotDate, baseBenchmarks);
+  const benchMap = await buildBenchmarksByDate(supabase, [latestRunDate], snapshotDate, baseBenchmarks);
   const bench = benchMap.get(latestRunDate);
   if (!bench) return null;
 
@@ -475,7 +511,7 @@ export async function buildDailyMarkedToMarketSeriesForStrategy(
       nasdaq100EqualWeight: params.notionalSeries[0]!.nasdaq100EqualWeight,
       sp500: params.notionalSeries[0]!.sp500,
     };
-  const benchmarksByDate = await buildBenchmarksByDate(tradingDates, start, baseBenchmarks);
+  const benchmarksByDate = await buildBenchmarksByDate(supabase, tradingDates, start, baseBenchmarks);
 
   return buildDailySeriesFromSnapshots(
     snapshots,

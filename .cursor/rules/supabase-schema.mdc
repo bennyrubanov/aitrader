@@ -14,7 +14,7 @@ Schema files live in `supabase/`:
 
 **Migrations filenames:** Always-applied `.cursor/rules/supabase-migrations.mdc` — prefix = real creation `YYYYMMDDHHMMSS` (user-stated date/time or `date +%Y%m%d%H%M%S`); never invented future dates.
 
-The daily cron job is at `src/app/api/cron/daily/route.ts` (runs every weekday; AI ratings + portfolio only execute on rebalance day, prices saved daily). When `CRON_ERROR_EMAIL` is set it emails a digest every run: price-only days get a short digest (NASDAQ list source, `nasdaq_100_daily_raw` row count, last-sale price coverage); rebalance days include the full rating/portfolio section. Recorded issues and fatals appear in the same email.
+The daily cron job is at `src/app/api/cron/daily/route.ts` (runs every weekday; AI ratings + portfolio only execute on rebalance day, prices saved daily). Every weekday run also upserts recent benchmark closes into `benchmark_daily_prices` (^ndx, qqew.us, ^spx): Stooq first, Yahoo Finance v8 chart as per-symbol fallback when Stooq fails. When `CRON_ERROR_EMAIL` is set it emails a digest every run: price-only days get a short digest (NASDAQ list source, `nasdaq_100_daily_raw` row count, last-sale price coverage); rebalance days include the full rating/portfolio section. Recorded issues and fatals appear in the same email.
 The AI prompt template and JSON schema are at `src/lib/aiPrompt.ts`.
 
 ## Versioning
@@ -47,6 +47,8 @@ You must also keep this file up to date.
 **Reference data**: `stocks` (includes `is_premium_stock` and **`is_guest_visible`** — subset of non-premium names for signed-out marketing surfaces; must satisfy `not is_guest_visible or not is_premium_stock`), `ai_prompts`, `ai_models`.
 
 **NASDAQ-100 membership**: `nasdaq100_snapshots`, `nasdaq100_snapshot_stocks`, `nasdaq_100_daily_raw`.
+
+**Benchmark daily closes**: `benchmark_daily_prices` (`symbol` in `^ndx`, `qqew.us`, `^spx`; `run_date`, `close`, `source` `stooq`|`yahoo`) — daily bars for server-side MTM (`buildBenchmarksByDate` in `src/lib/live-mark-to-market.ts`). Writers try Stooq then Yahoo per symbol; `source` records which provider wrote the row. **RLS**: public `SELECT` (index closes); inserts/updates only via service role (cron / `scripts/backfill-benchmark-daily-prices.ts`). One-time / repair: `npm run backfill-benchmark-daily-prices`.
 
 **Strategy/version control (Layer A)**: `strategy_models` (canonical slug + AIT identity fields `ait_code` + `robot_name`; structural params define the rating engine; no `unique(name, version)` — slug is the sole identity; **`minimum_plan_tier`** `supporter` | `outperformer` = minimum subscription required for that strategy’s premium-scoped data such as per-stock `ai_analysis_runs` history — default **`outperformer`** for new rows; the default model (`is_default`) should be **`supporter`** so Supporter plans stay on one model only), `ai_run_batches`, `ai_analysis_runs`.
 

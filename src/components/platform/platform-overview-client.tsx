@@ -18,6 +18,7 @@ import {
   ArrowRight,
   ArrowUpDown,
   ArrowUpRight,
+  ChevronDown,
   Compass,
   FilterX,
   Folders,
@@ -153,6 +154,7 @@ import {
   isGuestLocalProfileId,
 } from '@/lib/guest-local-profile';
 import { loadUserEntryPayloadCached } from '@/lib/your-portfolio-data-cache';
+import { PORTFOLIO_REBALANCE_DATE_SELECT_WIDTH_CLASSES } from '@/lib/portfolio-rebalance-date-select-ui';
 import { cn } from '@/lib/utils';
 import { buildLiveHoldingsAllocationResult } from '@/lib/live-holdings-allocation';
 
@@ -683,7 +685,7 @@ function OverviewPortfolioTile({
                   ) : null}
                 </>
               ) : (
-                <span className="text-xs text-muted-foreground">Configuration</span>
+                <span className="text-xs text-muted-foreground">Portfolio</span>
               )}
             </div>
             {startDateLabel || investmentLabel ? (
@@ -961,6 +963,59 @@ function RebalanceActionsTable({
     sell,
     includeHoldsInTable ? hold : []
   );
+
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const innerRef = useRef<HTMLDivElement | null>(null);
+  const [showScrollFade, setShowScrollFade] = useState(false);
+  const [chevronDismissed, setChevronDismissed] = useState(false);
+
+  useEffect(() => {
+    setChevronDismissed(false);
+  }, [rows.length]);
+
+  const nudgeScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setChevronDismissed(true);
+    const delta = Math.min(180, Math.max(80, Math.round(el.clientHeight * 0.6)));
+    el.scrollBy({ top: delta, behavior: 'smooth' });
+  }, []);
+
+  useEffect(() => {
+    const scrollEl = scrollRef.current;
+    if (!scrollEl) return;
+
+    const updateScrollUi = () => {
+      const canScroll = scrollEl.scrollHeight > scrollEl.clientHeight + 2;
+      const isAtTop = scrollEl.scrollTop <= 2;
+      setShowScrollFade(canScroll && isAtTop);
+      if (scrollEl.scrollTop > 2) {
+        setChevronDismissed(true);
+      }
+    };
+
+    updateScrollUi();
+    const raf = requestAnimationFrame(updateScrollUi);
+    scrollEl.addEventListener('scroll', updateScrollUi, { passive: true });
+    window.addEventListener('resize', updateScrollUi);
+    const roScroll = new ResizeObserver(updateScrollUi);
+    roScroll.observe(scrollEl);
+    const inner = innerRef.current;
+    let roInner: ResizeObserver | null = null;
+    if (inner) {
+      roInner = new ResizeObserver(updateScrollUi);
+      roInner.observe(inner);
+    }
+
+    return () => {
+      cancelAnimationFrame(raf);
+      scrollEl.removeEventListener('scroll', updateScrollUi);
+      window.removeEventListener('resize', updateScrollUi);
+      roScroll.disconnect();
+      roInner?.disconnect();
+    };
+  }, [rows.length]);
+
   if (rows.length === 0) return null;
 
   /** Hold-only table (no buy/sell rows): single Allocation column. Otherwise Trade + Target value. */
@@ -1045,8 +1100,12 @@ function RebalanceActionsTable({
   const targetWeightingLabel = weightingMethod === 'cap' ? 'cap-weighted' : 'equal-weighted';
 
   return (
-    <div className="overflow-hidden rounded-lg border border-border/70 bg-card/30">
-      <div className="max-h-[min(22rem,50vh)] overflow-y-auto overscroll-y-contain px-1 py-1 [scrollbar-width:thin]">
+    <div className="relative overflow-hidden rounded-lg border border-border/70 bg-card/30">
+      <div
+        ref={scrollRef}
+        className="max-h-[11.5rem] overflow-y-auto overscroll-y-contain px-1 py-1 [scrollbar-width:thin]"
+      >
+        <div ref={innerRef}>
         <table
           className={cn(
             'w-full border-collapse text-left text-[11px]',
@@ -1148,7 +1207,22 @@ function RebalanceActionsTable({
             ))}
           </tbody>
         </table>
+        </div>
       </div>
+      {showScrollFade ? (
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] flex h-10 items-end justify-center bg-gradient-to-t from-background/90 via-background/45 to-transparent pb-1 pt-5">
+          {!chevronDismissed ? (
+            <button
+              type="button"
+              className="pointer-events-auto inline-flex size-8 items-center justify-center rounded-full border border-trader-blue/35 bg-background/90 shadow-sm ring-offset-background transition-colors hover:border-trader-blue/55 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-trader-blue/40 focus-visible:ring-offset-2"
+              onClick={nudgeScroll}
+              aria-label="Scroll down to see more rebalance actions"
+            >
+              <ChevronDown className="size-5 animate-bounce text-trader-blue" aria-hidden />
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1448,7 +1522,7 @@ function SinglePortfolioRebalanceMovementSection({
                     >
                       <SelectTrigger
                         id={`rebalance-date-${profileId}`}
-                        className="h-8 w-[min(100%,13rem)] text-xs"
+                        className={cn('h-8 text-xs', PORTFOLIO_REBALANCE_DATE_SELECT_WIDTH_CLASSES)}
                       >
                         <SelectValue placeholder="Choose date" />
                       </SelectTrigger>
@@ -1761,6 +1835,11 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   const spotlightHoldingsRequestIdRef = useRef(0);
   const spotlightHoldingsLenRef = useRef(0);
   spotlightHoldingsLenRef.current = topSpotlightHoldings.length;
+  const spotlightHoldingsScrollRef = useRef<HTMLDivElement | null>(null);
+  const spotlightHoldingsInnerRef = useRef<HTMLDivElement | null>(null);
+  const [showSpotlightHoldingsScrollFade, setShowSpotlightHoldingsScrollFade] = useState(false);
+  const [spotlightHoldingsChevronDismissed, setSpotlightHoldingsChevronDismissed] =
+    useState(false);
   const [spotlightStockChartSymbol, setSpotlightStockChartSymbol] = useState<string | null>(null);
   const [spotlightHoldingsMovementView, setSpotlightHoldingsMovementView] = useState(false);
   const [prevSpotlightMovementHoldings, setPrevSpotlightMovementHoldings] = useState<
@@ -1923,6 +2002,26 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
       }),
     [profiles, cardState]
   );
+
+  /**
+   * Drop cardState entries for profiles that are no longer followed so the top-portfolio
+   * useMemo only ever scores the current set (unfollow → recompute top; new follow → fresh load).
+   */
+  useEffect(() => {
+    const activeIds = new Set(profiles.map((p) => p.id));
+    setCardState((prev) => {
+      let changed = false;
+      const next: Record<string, OverviewCardPerfState> = {};
+      for (const id of Object.keys(prev)) {
+        if (activeIds.has(id)) {
+          next[id] = prev[id]!;
+        } else {
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [profiles]);
 
   const overviewUserCompositeByProfileId = useMemo(() => {
     const rows = profiles
@@ -2605,6 +2704,59 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     setPrevSpotlightMovementLoading(false);
   }, [topSpotlightProfileId, topSpotlightConfigId]);
 
+  useEffect(() => {
+    setSpotlightHoldingsChevronDismissed(false);
+  }, [topSpotlightProfileId, topSpotlightConfigId, topSpotlightHoldingsAsOf]);
+
+  const nudgeSpotlightHoldingsScroll = useCallback(() => {
+    const el = spotlightHoldingsScrollRef.current;
+    if (!el) return;
+    setSpotlightHoldingsChevronDismissed(true);
+    const delta = Math.min(180, Math.max(80, Math.round(el.clientHeight * 0.6)));
+    el.scrollBy({ top: delta, behavior: 'smooth' });
+  }, []);
+
+  useEffect(() => {
+    const scrollEl = spotlightHoldingsScrollRef.current;
+    if (!scrollEl) return;
+
+    const updateScrollUi = () => {
+      const canScroll = scrollEl.scrollHeight > scrollEl.clientHeight + 2;
+      const isAtTop = scrollEl.scrollTop <= 2;
+      setShowSpotlightHoldingsScrollFade(canScroll && isAtTop);
+      if (scrollEl.scrollTop > 2) {
+        setSpotlightHoldingsChevronDismissed(true);
+      }
+    };
+
+    updateScrollUi();
+    const raf = requestAnimationFrame(updateScrollUi);
+    scrollEl.addEventListener('scroll', updateScrollUi, { passive: true });
+    window.addEventListener('resize', updateScrollUi);
+    const roScroll = new ResizeObserver(updateScrollUi);
+    roScroll.observe(scrollEl);
+    const inner = spotlightHoldingsInnerRef.current;
+    let roInner: ResizeObserver | null = null;
+    if (inner) {
+      roInner = new ResizeObserver(updateScrollUi);
+      roInner.observe(inner);
+    }
+
+    return () => {
+      cancelAnimationFrame(raf);
+      scrollEl.removeEventListener('scroll', updateScrollUi);
+      window.removeEventListener('resize', updateScrollUi);
+      roScroll.disconnect();
+      roInner?.disconnect();
+    };
+  }, [
+    topSpotlightProfileId,
+    topSpotlightHoldings,
+    topSpotlightHoldingsLoading,
+    topSpotlightHoldingsRefreshing,
+    spotlightHoldingsMovementView,
+  ]);
+
   const spotlightHoldingsTopN =
     topSpotlightOverview?.profile.portfolio_config?.top_n ?? 20;
   const spotlightHoldingsAsOfNotional = useMemo(() => {
@@ -2819,6 +2971,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                 id: entrySettingsProfile.id,
                 investment_size: entrySettingsProfile.investment_size,
                 user_start_date: entrySettingsProfile.user_start_date,
+                portfolioLabel: entrySettingsProfile.portfolio_config?.label ?? null,
                 strategySlug: entrySettingsProfile.strategy_models?.slug ?? null,
                 strategyModelName: entrySettingsProfile.strategy_models?.name ?? null,
                 portfolioConfig: entrySettingsProfile.portfolio_config
@@ -3226,7 +3379,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                     ·
                                   </span>
                                   <span className="text-sm text-muted-foreground">
-                                    Configuration
+                                    Portfolio
                                   </span>
                                 </>
                               ) : null}
@@ -3453,7 +3606,12 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                         }}
                                         disabled={topSpotlightHoldingsLoading}
                                       >
-                                        <SelectTrigger className="h-9 w-full max-w-[168px] shrink-0 rounded-md border border-input bg-background px-2 text-left text-xs shadow-none ring-0 hover:bg-muted/30 focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:ring-0 data-[state=open]:ring-offset-0 sm:w-[168px]">
+                                        <SelectTrigger
+                                          className={cn(
+                                            'h-9 rounded-md border border-input bg-background px-2 text-left text-xs shadow-none ring-0 hover:bg-muted/30 focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:ring-0 data-[state=open]:ring-offset-0',
+                                            PORTFOLIO_REBALANCE_DATE_SELECT_WIDTH_CLASSES
+                                          )}
+                                        >
                                           <SelectValue placeholder="Rebalance date" />
                                         </SelectTrigger>
                                         <SelectContent align="start">
@@ -3563,7 +3721,12 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                           topSpotlightHoldingsRefreshing && 'opacity-[0.65]'
                                         )}
                                       >
-                                    <div className="max-h-[14.5rem] overflow-auto rounded-md border lg:max-h-[min(44vh,340px)]">
+                                    <div className="relative">
+                                    <div
+                                      ref={spotlightHoldingsScrollRef}
+                                      className="max-h-[11.5rem] overflow-auto overscroll-y-contain rounded-md border [scrollbar-width:thin]"
+                                    >
+                                      <div ref={spotlightHoldingsInnerRef}>
                                       <Table>
                                         <TableHeader>
                                           <TableRow className="hover:bg-transparent">
@@ -3880,6 +4043,22 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                               })}
                                         </TableBody>
                                       </Table>
+                                      </div>
+                                    </div>
+                                    {showSpotlightHoldingsScrollFade ? (
+                                      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] flex h-10 items-end justify-center bg-gradient-to-t from-background/90 via-background/45 to-transparent pb-1 pt-5">
+                                        {!spotlightHoldingsChevronDismissed ? (
+                                          <button
+                                            type="button"
+                                            className="pointer-events-auto inline-flex size-8 items-center justify-center rounded-full border border-trader-blue/35 bg-background/90 shadow-sm ring-offset-background transition-colors hover:border-trader-blue/55 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-trader-blue/40 focus-visible:ring-offset-2"
+                                            onClick={nudgeSpotlightHoldingsScroll}
+                                            aria-label="Scroll down to see more holdings"
+                                          >
+                                            <ChevronDown className="size-5 animate-bounce text-trader-blue" aria-hidden />
+                                          </button>
+                                        ) : null}
+                                      </div>
+                                    ) : null}
                                     </div>
                                       </div>
                                     </div>

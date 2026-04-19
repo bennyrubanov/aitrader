@@ -23,6 +23,10 @@ import {
   STOOQ_STALE_WARNING_MAX_WEEKDAY_DAYS,
   type BenchmarkReturnDetail,
 } from '@/lib/stooq-benchmark-weekly';
+import {
+  upsertBenchmarkDailyPricesFromStooq,
+  type BenchmarkDailyPriceIngestRow,
+} from '@/lib/benchmark-daily-prices-ingest';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { sendEmailByGmail } from '@/lib/sendEmailByGmail';
 
@@ -133,6 +137,8 @@ type CronRatingDigestMeta = {
   benchmarkStooqCriteria?: string;
   /** Equal-weight benchmark quality summary for keep/switch decisions. */
   benchmarkEqualProxyQuality?: string;
+  /** Stooq (primary) / Yahoo (fallback) → `benchmark_daily_prices` upsert summary (weekday step after raw quotes). */
+  benchmarkDailyPricesIngest?: BenchmarkDailyPriceIngestRow[];
   /** Top holdings count written to `strategy_portfolio_holdings`. */
   holdingsCount?: number;
 };
@@ -1258,6 +1264,18 @@ const handleRequest = async (req: Request) => {
       const statusLabel = hadFatal ? 'Failed' : hadRecordedErrors ? 'Completed with warnings' : 'Completed';
 
       const isPricesOnly = digestMeta.runMode === 'prices_only';
+      const benchmarkDailyPricesSummary =
+        digestMeta.benchmarkDailyPricesIngest?.length
+          ? digestMeta.benchmarkDailyPricesIngest.map((r) =>
+              `${r.symbol}: ${
+                r.ok
+                  ? `${r.source} · ${r.upserted} rows · latest ${r.latestDate ?? '—'}${
+                      r.fellBackToYahoo ? ' (Yahoo fallback)' : ''
+                    }`
+                  : `failed (${r.error ?? '?'})`
+              }`
+            ).join(' | ')
+          : 'not run';
       const sectionRows = isPricesOnly
         ? [
             [
@@ -1345,6 +1363,7 @@ const handleRequest = async (req: Request) => {
         <ul>
           <li><strong>Strategy metadata:</strong> <code>ai_prompts</code>, <code>ai_models</code>, <code>strategy_models</code> upserted.</li>
           <li><strong>Universe ingest:</strong> <code>stocks</code> upserted ${escapeHtml(formatMeta(digestMeta.stocksRowsUpserted))}; <code>nasdaq_100_daily_raw</code> upserted ${escapeHtml(formatMeta(digestMeta.nasdaqRawRowsUpserted))}.</li>
+          <li><strong>Benchmark daily closes:</strong> <code>benchmark_daily_prices</code> — ${escapeHtml(benchmarkDailyPricesSummary)}</li>
           <li><strong>Snapshot:</strong> <code>nasdaq100_snapshots</code> ${escapeHtml(
             digestMeta.snapshotIsNew === undefined
               ? 'status unavailable'
@@ -1359,6 +1378,7 @@ const handleRequest = async (req: Request) => {
         <ul>
           <li><strong>Strategy metadata:</strong> <code>ai_prompts</code>, <code>ai_models</code>, <code>strategy_models</code> upserted.</li>
           <li><strong>Universe ingest:</strong> <code>stocks</code> upserted ${escapeHtml(formatMeta(digestMeta.stocksRowsUpserted))}; <code>nasdaq_100_daily_raw</code> upserted ${escapeHtml(formatMeta(digestMeta.nasdaqRawRowsUpserted))}.</li>
+          <li><strong>Benchmark daily closes:</strong> <code>benchmark_daily_prices</code> — ${escapeHtml(benchmarkDailyPricesSummary)}</li>
           <li><strong>Snapshot + run id:</strong> <code>nasdaq100_snapshots</code> ${escapeHtml(
             digestMeta.snapshotIsNew === undefined
               ? 'status unavailable'
@@ -1737,6 +1757,25 @@ const handleRequest = async (req: Request) => {
       );
     }
 
+    // ----- Step 4b: Persist benchmark daily closes (Stooq primary, Yahoo per-symbol fallback) -----
+    const benchmarkIngestResults = await upsertBenchmarkDailyPricesFromStooq(supabase);
+    digestMeta.benchmarkDailyPricesIngest = benchmarkIngestResults;
+    for (const r of benchmarkIngestResults) {
+      if (!r.ok) {
+        recordCronError(
+          'benchmark_daily_prices ingest failed',
+          new Error(r.error ?? 'unknown'),
+          `symbol=${r.symbol}`
+        );
+      }
+    }
+    log(
+      'BENCHMARK DAILY PRICES',
+      benchmarkIngestResults
+        .map((r) => `${r.symbol}:${r.ok ? `${r.source}:${r.upserted}` : 'fail'}`)
+        .join(' ')
+    );
+
     // On non-rebalance days, we only save price data and snapshot membership
     if (!isRebalanceDay) {
       // Still update snapshot membership daily
@@ -1775,6 +1814,7 @@ const handleRequest = async (req: Request) => {
         pricesSaved: rawPayload.length,
         snapshotUpdated: true,
         aiRatings: false,
+        benchmarkDailyPricesIngest: digestMeta.benchmarkDailyPricesIngest,
         elapsedSeconds: Number(totalSeconds),
       });
     }

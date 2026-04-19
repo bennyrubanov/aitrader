@@ -70,7 +70,7 @@ import { PortfolioIdentitySummaryRow } from '@/components/platform/portfolio-ide
 import { PortfolioListSortActiveIndicator } from '@/components/platform/portfolio-list-sort-active-indicator';
 import { PortfolioListSortDialog } from '@/components/platform/portfolio-list-sort-dialog';
 import { sharpeRatioValueClass } from '@/lib/sharpe-value-class';
-import type { PortfolioListSortMetric } from '@/lib/portfolio-profile-list-sort';
+import { usePersistedExplorePortfoliosSortMetric } from '@/lib/portfolio-list-sort-preference-local';
 import { type StrategyListItem } from '@/lib/platform-performance-payload';
 import {
   EXPLORE_PORTFOLIOS_BROWSE_PARAM,
@@ -305,7 +305,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
     },
     [pathname, router, searchParams]
   );
-  const [sortMetric, setSortMetric] = useState<PortfolioListSortMetric>('composite_score');
+  const [sortMetric, setSortMetric] = usePersistedExplorePortfoliosSortMetric();
   const [sortDialogOpen, setSortDialogOpen] = useState(false);
   const [equitySeriesPayload, setEquitySeriesPayload] = useState<{
     dates: string[];
@@ -474,7 +474,15 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
         case 'composite_score':
           return -((c.rank ?? 999) + (c.rank == null ? 1_000 : 0));
         case 'portfolio_value_performance':
+        case 'portfolio_return':
           return safeValue(c.metrics.totalReturn);
+        case 'portfolio_value':
+          return safeValue(
+            c.metrics.endingValuePortfolio ??
+              (c.metrics.totalReturn != null
+                ? INITIAL_CAPITAL * (1 + c.metrics.totalReturn)
+                : null)
+          );
         case 'consistency':
           return safeValue(c.metrics.consistency);
         case 'sharpe_ratio':
@@ -686,6 +694,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
         profileId: newProfileId,
         title: `Following: ${addTarget.label}`,
         description: 'Added to Your portfolios.',
+        portfolioLabel: addTarget.label,
         onAfterUndo: () => void loadFollowedProfiles(),
         viewAction: {
           label: 'See portfolio',
