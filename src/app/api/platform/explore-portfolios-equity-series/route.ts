@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { buildConfigPerformanceChart } from '@/lib/config-performance-chart';
+import { buildDailyMarkedToMarketSeriesForConfig } from '@/lib/live-mark-to-market';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
+import type { ConfigPerfRow } from '@/lib/portfolio-config-utils';
 import { createPublicClient } from '@/utils/supabase/public';
+import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
 
 export const revalidate = 300;
 
@@ -9,7 +13,21 @@ const INITIAL_CAPITAL = 10_000;
 type PerfRow = {
   config_id: string;
   run_date: string;
-  ending_equity: number | string;
+  strategy_status: string;
+  compute_status: string;
+  net_return: number | null;
+  gross_return: number | null;
+  starting_equity: number | null;
+  ending_equity: number | null;
+  holdings_count: number | null;
+  turnover: number | null;
+  transaction_cost_bps: number | null;
+  nasdaq100_cap_weight_equity: number | null;
+  nasdaq100_equal_weight_equity: number | null;
+  sp500_equity: number | null;
+  is_eligible_for_comparison: boolean;
+  first_rebalance_date: string | null;
+  next_rebalance_date: string | null;
 };
 
 type ConfigRow = {
@@ -53,14 +71,17 @@ export async function GET(req: NextRequest) {
 
   const { data: perfRows } = await supabase
     .from('strategy_portfolio_config_performance')
-    .select('config_id, run_date, ending_equity')
+    .select(
+      'config_id, run_date, strategy_status, compute_status, net_return, gross_return, starting_equity, ending_equity, holdings_count, turnover, transaction_cost_bps, nasdaq100_cap_weight_equity, nasdaq100_equal_weight_equity, sp500_equity, is_eligible_for_comparison, first_rebalance_date, next_rebalance_date'
+    )
     .eq('strategy_id', strategy.id)
     .order('run_date', { ascending: true });
 
-  const perfByConfigRaw = new Map<string, PerfRow[]>();
+  const perfByConfigRaw = new Map<string, ConfigPerfRow[]>();
   for (const row of (perfRows ?? []) as PerfRow[]) {
     const list = perfByConfigRaw.get(row.config_id) ?? [];
-    list.push(row);
+    const { config_id: _configId, ...rest } = row;
+    list.push(rest);
     perfByConfigRaw.set(row.config_id, list);
   }
 
@@ -74,27 +95,73 @@ export async function GET(req: NextRequest) {
 
   const inceptionDate = (inceptionBatch as { run_date: string } | null)?.run_date;
 
-  const perfByConfig = new Map(perfByConfigRaw);
-  if (inceptionDate) {
-    for (const [configId, list] of [...perfByConfig.entries()]) {
-      if (!list.length) continue;
-      const firstDate = list[0]!.run_date;
-      if (firstDate <= inceptionDate) continue;
-      perfByConfig.set(configId, [
-        {
-          config_id: configId,
-          run_date: inceptionDate,
-          ending_equity: INITIAL_CAPITAL,
-        },
-        ...list,
-      ]);
+  const ensureInceptionPrefix = (rows: ConfigPerfRow[]): ConfigPerfRow[] => {
+    if (!inceptionDate || rows.length === 0) return rows;
+    const firstDate = rows[0]!.run_date;
+    if (firstDate <= inceptionDate) return rows;
+    const head = rows[0]!;
+    const synthetic: ConfigPerfRow = {
+      run_date: inceptionDate,
+      strategy_status: 'in_progress',
+      compute_status: 'ready',
+      net_return: 0,
+      gross_return: 0,
+      starting_equity: INITIAL_CAPITAL,
+      ending_equity: INITIAL_CAPITAL,
+      holdings_count: head.holdings_count,
+      turnover: 0,
+      transaction_cost_bps: head.transaction_cost_bps,
+      nasdaq100_cap_weight_equity: INITIAL_CAPITAL,
+      nasdaq100_equal_weight_equity: INITIAL_CAPITAL,
+      sp500_equity: INITIAL_CAPITAL,
+      is_eligible_for_comparison: false,
+      first_rebalance_date: inceptionDate,
+      next_rebalance_date: null,
+    };
+    return [synthetic, ...rows];
+  };
+
+  const byConfigDailySeries = new Map<string, PerformanceSeriesPoint[]>();
+  const benchmarkByDate = new Map<string, { cap: number; eq: number; sp: number }>();
+  const dateSet = new Set<string>();
+
+  for (const cfg of (configs ?? []) as ConfigRow[]) {
+    const rawRows = perfByConfigRaw.get(cfg.id) ?? [];
+    if (rawRows.length === 0) continue;
+    const readyRows = rawRows.filter((r) => r.compute_status === 'ready');
+    const rowsForSeries = (readyRows.length > 0 ? readyRows : rawRows).sort((a, b) =>
+      a.run_date.localeCompare(b.run_date)
+    );
+    const withInception = ensureInceptionPrefix(rowsForSeries);
+    const weeklySeries = buildConfigPerformanceChart(withInception).series;
+    if (weeklySeries.length === 0) continue;
+
+    let series = weeklySeries;
+    const dailySeries = await buildDailyMarkedToMarketSeriesForConfig(supabase, {
+      strategyId: strategy.id,
+      riskLevel: cfg.risk_level,
+      rebalanceFrequency: cfg.rebalance_frequency,
+      weightingMethod: cfg.weighting_method,
+      notionalSeries: weeklySeries,
+      startDate: weeklySeries[0]?.date,
+    });
+    if (dailySeries && dailySeries.length >= 2) {
+      series = dailySeries;
+    }
+
+    byConfigDailySeries.set(cfg.id, series);
+    for (const p of series) {
+      dateSet.add(p.date);
+      if (!benchmarkByDate.has(p.date)) {
+        benchmarkByDate.set(p.date, {
+          cap: toNum(p.nasdaq100CapWeight),
+          eq: toNum(p.nasdaq100EqualWeight),
+          sp: toNum(p.sp500),
+        });
+      }
     }
   }
 
-  const dateSet = new Set<string>();
-  for (const rows of perfByConfig.values()) {
-    for (const r of rows) dateSet.add(r.run_date);
-  }
   const dates = [...dateSet].sort((a, b) => a.localeCompare(b));
 
   if (dates.length === 0) {
@@ -111,29 +178,6 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  const { data: benchRows } = await supabase
-    .from('strategy_portfolio_config_performance')
-    .select('run_date, nasdaq100_cap_weight_equity, nasdaq100_equal_weight_equity, sp500_equity')
-    .eq('strategy_id', strategy.id)
-    .order('run_date', { ascending: true });
-
-  type BenchRow = {
-    run_date: string;
-    nasdaq100_cap_weight_equity: number | string;
-    nasdaq100_equal_weight_equity: number | string;
-    sp500_equity: number | string;
-  };
-
-  const benchByDate = new Map<string, { cap: number; eq: number; sp: number }>();
-  for (const row of (benchRows ?? []) as BenchRow[]) {
-    if (benchByDate.has(row.run_date)) continue;
-    benchByDate.set(row.run_date, {
-      cap: toNum(row.nasdaq100_cap_weight_equity),
-      eq: toNum(row.nasdaq100_equal_weight_equity),
-      sp: toNum(row.sp500_equity),
-    });
-  }
-
   let lc = INITIAL_CAPITAL;
   let le = INITIAL_CAPITAL;
   let ls = INITIAL_CAPITAL;
@@ -141,7 +185,7 @@ export async function GET(req: NextRequest) {
   const nasdaq100Equal: number[] = [];
   const sp500: number[] = [];
   for (const d of dates) {
-    const b = benchByDate.get(d);
+    const b = benchmarkByDate.get(d);
     if (b) {
       lc = b.cap;
       le = b.eq;
@@ -155,13 +199,10 @@ export async function GET(req: NextRequest) {
   const series: Array<{ configId: string; label: string; equities: number[] }> = [];
 
   for (const cfg of (configs ?? []) as ConfigRow[]) {
-    const rows = perfByConfig.get(cfg.id) ?? [];
-    if (rows.length === 0) continue;
-
+    const points = byConfigDailySeries.get(cfg.id) ?? [];
+    if (points.length === 0) continue;
     const byDate = new Map<string, number>();
-    for (const r of [...rows].sort((a, b) => a.run_date.localeCompare(b.run_date))) {
-      byDate.set(r.run_date, toNum(r.ending_equity));
-    }
+    for (const p of points) byDate.set(p.date, toNum(p.aiTop20));
 
     let last = INITIAL_CAPITAL;
     const equities = dates.map((d) => {

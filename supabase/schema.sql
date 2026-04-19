@@ -297,6 +297,27 @@ create trigger on_user_profiles_protect_billing
   for each row
   execute procedure public.user_profiles_protect_billing_columns();
 
+-- Resolve auth user id by normalized email (service_role only; Stripe webhook email fallback).
+create or replace function public.auth_user_id_by_email(p_email text)
+returns uuid
+language sql
+stable
+security definer
+set search_path = auth, public
+as $$
+  select u.id
+  from auth.users u
+  where u.email is not null
+    and lower(trim(u.email)) = lower(trim(p_email))
+  limit 1;
+$$;
+
+comment on function public.auth_user_id_by_email(text) is
+  'Returns auth.users.id for a case-insensitive email match; Stripe webhook email fallback. service_role execute only.';
+
+revoke all on function public.auth_user_id_by_email(text) from public;
+grant execute on function public.auth_user_id_by_email(text) to service_role;
+
 -- Signed-in client: last context + atomic per-device sign-in counts (POST /api/auth/record-sign-in-context).
 create or replace function public.record_user_sign_in_context(
   p_device_class text,

@@ -20,6 +20,7 @@ import {
   portfolioSliceMatchesRankedRow,
   portfolioSliceMatchesRankOne,
 } from '@/lib/performance-portfolio-url';
+import { loadRankedConfigsClient } from '@/lib/portfolio-configs-ranked-client';
 
 export type PublicPortfolioPerfApiPayload = {
   computeStatus: 'ready' | 'in_progress' | 'failed' | 'empty' | 'unsupported';
@@ -99,14 +100,10 @@ export function usePublicPortfolioConfigPerformance({
     setPerf(null);
 
     let cancelled = false;
-    void fetch(`/api/platform/portfolio-configs-ranked?slug=${encodeURIComponent(slug)}`)
-      .then((r) => r.json())
-      .then(
-        (d: {
-          configs?: RankedConfig[];
-          benchmarkEndingValues?: BenchmarkEndingValues | null;
-        }) => {
+    void loadRankedConfigsClient(slug)
+      .then((d) => {
         if (cancelled) return;
+        if (!d) throw new Error('missing ranked payload');
         const list = d.configs ?? [];
         setRankedConfigs(list);
         setBenchmarkEndingValues(d.benchmarkEndingValues ?? null);

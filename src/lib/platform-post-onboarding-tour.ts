@@ -80,12 +80,11 @@ export const PLATFORM_POST_ONBOARDING_TOUR_STEPS: PlatformPostOnboardingTourStep
   {
     id: 'overview-rebalance-actions',
     title: 'Rebalance actions',
-    body: 'Use this tab to see suggested buys and sells so you can align with the latest AI ratings on your schedule.',
+    body: 'Use this section to see suggested buys and sells so you can align with the latest AI ratings on your schedule.',
     path: '',
     anchors: [
-      '[data-platform-tour="nav-overview"]',
-      '[data-platform-tour="overview-rebalance-tab"]',
-      '[data-platform-tour="overview-rebalance-actions-first-portfolio"]',
+      '[data-platform-tour="nav-your-portfolios"]',
+      '[data-platform-tour="your-portfolios-rebalance-actions-first-portfolio"]',
     ],
   },
   {
@@ -125,8 +124,18 @@ export function getPlatformPostOnboardingTourNavigationPath(
   pathname: string | null
 ): string {
   if (step.id === 'overview-top-portfolio') return platformOverviewPath('top-portfolio', pathname);
-  if (step.id === 'overview-rebalance-actions') return platformOverviewPath('rebalance-actions', pathname);
+  if (step.id === 'overview-rebalance-actions') return '/platform/your-portfolios#rebalance-actions';
   return step.path;
+}
+
+/** True when the area tour is queued but not yet consumed (same-tab read for UI suppression). */
+export function isPostOnboardingTourQueuePending(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return sessionStorage.getItem(PLATFORM_POST_ONBOARDING_TOUR_QUEUE_KEY) === '1';
+  } catch {
+    return false;
+  }
 }
 
 export function queuePlatformPostOnboardingTour(): void {

@@ -40,16 +40,16 @@ const displayDateFormatter = new Intl.DateTimeFormat('en-US', {
 const SERIES_CONFIG: Record<string, { label: string; color: string; defaultVisible: boolean }> = {
   aiTop20: { label: 'AI Strategy', color: CHART_PORTFOLIO_SERIES_COLOR, defaultVisible: true },
   nasdaq100CapWeight: {
-    label: 'Nasdaq-100 (cap-weighted)',
+    label: 'Nasdaq-100 (cap)',
     color: CHART_INDEX_SERIES_COLORS.nasdaq100CapWeight,
     defaultVisible: true,
   },
   nasdaq100EqualWeight: {
-    label: 'Nasdaq-100 (equal-weighted)',
+    label: 'Nasdaq-100 (equal)',
     color: CHART_INDEX_SERIES_COLORS.nasdaq100EqualWeight,
     defaultVisible: true,
   },
-  sp500: { label: 'S&P 500 (cap-weighted)', color: CHART_INDEX_SERIES_COLORS.sp500, defaultVisible: true },
+  sp500: { label: 'S&P 500 (cap)', color: CHART_INDEX_SERIES_COLORS.sp500, defaultVisible: true },
 };
 
 export type PerformanceChartSeriesKey =
@@ -209,6 +209,13 @@ export function PerformanceChart({
     setEmphasizedSeriesKey(null);
   }, [range, view]);
 
+  useEffect(() => {
+    if (emphasizedSeriesKey == null) return;
+    if (hidden.has(emphasizedSeriesKey)) {
+      setEmphasizedSeriesKey(null);
+    }
+  }, [emphasizedSeriesKey, hidden]);
+
   const toggleSeries = (key: SeriesKey) => {
     setHidden((prev) => {
       const next = new Set(prev);
@@ -351,28 +358,29 @@ export function PerformanceChart({
         {/* Series toggle chips — hover emphasizes matching line (no SVG pointer handlers). */}
         <div className="flex flex-wrap gap-1.5">
           {(Object.entries(config) as [SeriesKey, { label: string; color: string }][]).map(
-            ([key, cfg]) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => toggleSeries(key)}
-                onMouseEnter={() => setEmphasizedSeriesKey(key)}
-                className={cn(
-                  'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs transition-opacity',
-                  hidden.has(key) ? 'opacity-40' : '',
-                  emphasizedSeriesKey != null &&
-                    emphasizedSeriesKey !== key &&
-                    !hidden.has(key) &&
-                    'opacity-50'
-                )}
-              >
-                <span
-                  className="size-2 rounded-full shrink-0"
-                  style={{ background: cfg.color }}
-                />
-                {cfg.label}
-              </button>
-            )
+            ([key, cfg]) => {
+              const chipEmphasized = emphasizedSeriesKey === key && !hidden.has(key);
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => toggleSeries(key)}
+                  onMouseEnter={() => setEmphasizedSeriesKey(key)}
+                  className={cn(
+                    'inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-background/80 px-2.5 py-0.5 text-xs transition-[box-shadow,background-color,border-color,opacity]',
+                    hidden.has(key) ? 'opacity-40' : '',
+                    chipEmphasized &&
+                      'border-primary/45 bg-primary/[0.07] shadow-sm ring-2 ring-primary/25'
+                  )}
+                >
+                  <span
+                    className="size-2 rounded-full shrink-0"
+                    style={{ background: cfg.color }}
+                  />
+                  {cfg.label}
+                </button>
+              );
+            }
           )}
         </div>
 
@@ -381,10 +389,6 @@ export function PerformanceChart({
           config={Object.fromEntries(
             Object.entries(config).map(([key, cfg]) => [key, { label: cfg.label, color: cfg.color }])
           )}
-          onPointerEnter={() => {
-            setHidden(new Set());
-            setEmphasizedSeriesKey(null);
-          }}
         >
         <LineChart data={chartData} margin={{ top: 8, right: 8, left: 8, bottom: 4 }}>
           <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.4} />
@@ -426,19 +430,15 @@ export function PerformanceChart({
           />
           {chartSeriesKeys.map((key) => {
             const baseStroke = key === 'aiTop20' ? 2.5 : 1.75;
-            const emphasized = emphasizedSeriesKey === key;
-            const dimOthers =
-              emphasizedSeriesKey != null &&
-              emphasizedSeriesKey !== key &&
-              !hidden.has(key);
+            const emphasized = emphasizedSeriesKey === key && !hidden.has(key);
             return (
               <Line
                 key={key}
                 type="monotone"
                 dataKey={key}
                 stroke={config[key]!.color}
-                strokeWidth={emphasized ? baseStroke + 0.75 : baseStroke}
-                strokeOpacity={dimOthers ? 0.6 : 1}
+                strokeWidth={emphasized ? baseStroke + 0.55 : baseStroke}
+                strokeOpacity={1}
                 dot={usePointMarkers ? { r: key === 'aiTop20' ? 5 : 3.5, strokeWidth: 1 } : false}
                 hide={hidden.has(key)}
                 connectNulls

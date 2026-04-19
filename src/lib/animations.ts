@@ -28,6 +28,30 @@ export function useIsVisible(ref: RefObject<HTMLElement>): boolean {
   return isIntersecting;
 }
 
+/** True after the element has intersected the viewport at least once (stays true when scrolling away). */
+export function useHasBeenVisible(ref: RefObject<Element | null>): boolean {
+  const [hasBeenVisible, setHasBeenVisible] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || hasBeenVisible) return;
+
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        setHasBeenVisible(true);
+      }
+    }, {
+      rootMargin: '0px',
+      threshold: 0.1,
+    });
+
+    observer.observe(el);
+    return () => observer.unobserve(el);
+  }, [ref, hasBeenVisible]);
+
+  return hasBeenVisible;
+}
+
 export function useAnimatedCounter(
   targetValue: number,
   duration: number = 2000,

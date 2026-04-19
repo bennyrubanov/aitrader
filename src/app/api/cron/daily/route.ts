@@ -10,6 +10,7 @@ import {
   type StockRatingParsed,
 } from '@/lib/aiPrompt';
 import { LANDING_TOP_PORTFOLIO_PERFORMANCE_CACHE_TAG } from '@/lib/landing-top-portfolio-performance';
+import { RANKED_CONFIGS_CACHE_TAG } from '@/lib/portfolio-configs-ranked-core';
 import { STRATEGY_CONFIG, GIT_COMMIT_SHA } from '@/lib/strategyConfig';
 import {
   INITIAL_CAPITAL,
@@ -2604,6 +2605,8 @@ const handleRequest = async (req: Request) => {
     revalidatePath('/performance', 'page');
     revalidatePath('/', 'page');
     revalidateTag(LANDING_TOP_PORTFOLIO_PERFORMANCE_CACHE_TAG);
+    revalidateTag(RANKED_CONFIGS_CACHE_TAG);
+    revalidateTag(`${RANKED_CONFIGS_CACHE_TAG}:${strategy.slug}`);
     revalidatePath('/strategy-models');
     // Revalidate per-slug performance and model detail pages
     revalidatePath('/performance/[slug]', 'page');

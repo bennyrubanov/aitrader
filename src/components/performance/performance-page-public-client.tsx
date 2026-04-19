@@ -1307,7 +1307,7 @@ function PerformancePagePublicClientInner({
                   >
                     <SelectTrigger
                       id="holdings-rebalance-date"
-                      className="h-8 min-h-8 w-full px-2 text-left text-xs [&_svg]:size-3.5"
+                      className="h-8 min-h-8 w-full border-0 bg-transparent px-1 text-left text-xs shadow-none hover:bg-muted/50 focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:ring-0 sm:px-2 [&_svg]:size-3.5"
                     >
                       <SelectValue placeholder="Choose date" />
                     </SelectTrigger>

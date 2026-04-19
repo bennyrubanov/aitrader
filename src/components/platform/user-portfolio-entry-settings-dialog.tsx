@@ -16,6 +16,7 @@ import { Label } from '@/components/ui/label';
 import { ToastAction } from '@/components/ui/toast';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { loadRankedConfigsClient } from '@/lib/portfolio-configs-ranked-client';
 import { PortfolioEntryDatePicker } from '@/components/platform/portfolio-entry-date-picker';
 import { portfolioEntryDateBounds } from '@/components/platform/portfolio-entry-date-utils';
 import { PortfolioIdentitySummaryRow } from '@/components/platform/portfolio-identity-summary-row';
@@ -96,9 +97,8 @@ export function UserPortfolioEntrySettingsDialog({
       return;
     }
     let cancelled = false;
-    void fetch(`/api/platform/portfolio-configs-ranked?slug=${encodeURIComponent(slug)}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: { modelInceptionDate?: string | null } | null) => {
+    void loadRankedConfigsClient(slug)
+      .then((data) => {
         if (cancelled || !data) return;
         setModelInceptionYmd(data.modelInceptionDate ?? null);
       })

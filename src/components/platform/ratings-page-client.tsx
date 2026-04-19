@@ -114,8 +114,16 @@ function BlurredRankCellPlaceholder() {
 
 const PAID_PLAN_TOOLTIP_DESCRIPTION = 'Sign up for a paid plan to unlock AI ratings';
 
-const RATINGS_TABLE_PADDING_PAID = '[&_th]:!px-3 [&_th]:!py-2.5 [&_td]:!px-3 [&_td]:!py-3';
-const RATINGS_TABLE_PADDING_FREE = '[&_th]:px-3 [&_th]:!py-2.5 [&_td]:px-3 [&_td]:!py-3';
+const RATINGS_TABLE_PADDING_PAID =
+  '[&_th]:!px-2 sm:[&_th]:!px-3 [&_th]:!py-2.5 [&_td]:!px-2 sm:[&_td]:!px-3 [&_td]:!py-3';
+const RATINGS_TABLE_PADDING_FREE =
+  '[&_th]:!px-2 sm:[&_th]:!px-3 [&_th]:!py-2.5 [&_td]:!px-2 sm:[&_td]:!px-3 [&_td]:!py-3';
+const STICKY_RANK_CELL = 'sticky left-0 bg-background [tr:hover_&]:bg-muted/50';
+const STICKY_SYMBOL_CELL =
+  'sticky bg-background border-r border-border/70 [tr:hover_&]:bg-muted/50 left-[var(--ratings-rank-width)]';
+const STICKY_RANK_HEAD = 'sticky left-0 !z-30 !bg-background';
+const STICKY_SYMBOL_HEAD =
+  'sticky left-[var(--ratings-rank-width)] !z-30 !bg-background border-r border-border/70';
 
 /** Lock + “Paid plan” trigger; tooltip explains upgrade with primary CTA (premium rows, free tier). */
 function PaidPlanLockTooltip({
@@ -863,19 +871,24 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                 </div>
               </div>
 
-              <div className="px-4 sm:px-6">
-                <div className="w-fit min-w-full rounded-lg border px-3 py-2.5 sm:px-5 sm:py-3">
+              <div className="px-0 sm:px-6">
+                <div className="w-fit min-w-full border-y border-border/70 py-2 sm:rounded-lg sm:border sm:px-5 sm:py-3">
                 {topRatedStocksActive ? (
                   <Table
                     noScrollWrapper
                     className={cn(
-                      'w-full min-w-[920px] border-separate border-spacing-0 table-auto',
+                      'w-full min-w-[920px] border-separate border-spacing-0 table-auto [--ratings-rank-width:4.25rem] sm:[--ratings-rank-width:5.75rem]',
                       rankColumnBlurred ? RATINGS_TABLE_PADDING_FREE : RATINGS_TABLE_PADDING_PAID
                     )}
                   >
                     <TableHeader className={ratingsTableStickyHeaderClass} style={ratingsTheadStickyStyle}>
                       <TableRow>
-                        <TableHead className="min-w-[5.75rem] max-w-[7.5rem] whitespace-nowrap">
+                        <TableHead
+                          className={cn(
+                            'w-[4.25rem] min-w-[4.25rem] max-w-[4.25rem] sm:w-[5.75rem] sm:min-w-[5.75rem] sm:max-w-[5.75rem] whitespace-nowrap',
+                            STICKY_RANK_HEAD
+                          )}
+                        >
                           <span className="inline-flex items-center gap-1">
                             Rank
                             <Tooltip>
@@ -900,7 +913,14 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                             </Tooltip>
                           </span>
                         </TableHead>
-                        <TableHead className="min-w-[3.75rem] max-w-[5.5rem] whitespace-nowrap">Symbol</TableHead>
+                        <TableHead
+                          className={cn(
+                            'w-[4.5rem] min-w-[4.5rem] max-w-[4.5rem] sm:w-[5rem] sm:min-w-[5rem] sm:max-w-[5rem] whitespace-nowrap',
+                            STICKY_SYMBOL_HEAD
+                          )}
+                        >
+                          Symbol
+                        </TableHead>
                         <TableHead className="min-w-0 max-w-[7rem] whitespace-nowrap">Company</TableHead>
                         <TableHead className="min-w-[5.5rem] whitespace-nowrap">Price</TableHead>
                         <TableHead
@@ -934,7 +954,7 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                         const cumulativeBucket = bucketFromScore(row.cumulativeAvgScore);
                         return (
                           <TableRow key={row.stockId}>
-                            <TableCell className="min-w-0 font-medium">
+                            <TableCell className={cn('min-w-0 font-medium z-20', STICKY_RANK_CELL)}>
                               {rankColumnBlurred ? (
                                 <>
                                   <BlurredRankCellPlaceholder />
@@ -949,7 +969,7 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                                 />
                               )}
                             </TableCell>
-                            <TableCell className="min-w-0">
+                            <TableCell className={cn('min-w-0 z-20', STICKY_SYMBOL_CELL)}>
                               {companyFull ? (
                                 <Tooltip>
                                   <TooltipTrigger asChild>
@@ -1038,13 +1058,18 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                   <Table
                     noScrollWrapper
                     className={cn(
-                      'w-full min-w-[1100px] border-separate border-spacing-0 table-auto',
+                      'w-full min-w-[1100px] border-separate border-spacing-0 table-auto [--ratings-rank-width:4.25rem] sm:[--ratings-rank-width:5.75rem]',
                       rankColumnBlurred ? RATINGS_TABLE_PADDING_FREE : RATINGS_TABLE_PADDING_PAID
                     )}
                   >
                     <TableHeader className={ratingsTableStickyHeaderClass} style={ratingsTheadStickyStyle}>
                       <TableRow>
-                        <TableHead className="min-w-[5.75rem] whitespace-nowrap">
+                        <TableHead
+                          className={cn(
+                            'w-[4.25rem] min-w-[4.25rem] max-w-[4.25rem] sm:w-[5.75rem] sm:min-w-[5.75rem] sm:max-w-[5.75rem] whitespace-nowrap',
+                            STICKY_RANK_HEAD
+                          )}
+                        >
                           {rankColumnBlurred ? (
                             <span className="inline-flex items-center gap-1">
                               Rank
@@ -1067,7 +1092,14 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                             'Rank'
                           )}
                         </TableHead>
-                        <TableHead className="min-w-[3.75rem] max-w-[5.5rem] whitespace-nowrap">Symbol</TableHead>
+                        <TableHead
+                          className={cn(
+                            'w-[4.5rem] min-w-[4.5rem] max-w-[4.5rem] sm:w-[5rem] sm:min-w-[5rem] sm:max-w-[5rem] whitespace-nowrap',
+                            STICKY_SYMBOL_HEAD
+                          )}
+                        >
+                          Symbol
+                        </TableHead>
                         <TableHead className="hidden min-w-0 max-w-[7rem] whitespace-nowrap lg:table-cell">
                           Company
                         </TableHead>
@@ -1117,7 +1149,7 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
 
                         return (
                           <TableRow key={row.stockId}>
-                            <TableCell className="min-w-0 font-medium">
+                            <TableCell className={cn('min-w-0 font-medium z-20', STICKY_RANK_CELL)}>
                               {rankColumnBlurred ? (
                                 <>
                                   <BlurredRankCellPlaceholder />
@@ -1129,7 +1161,7 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                                 <HoldingRankWithChange rank={row.rank} rankChange={row.rankChange} />
                               )}
                             </TableCell>
-                            <TableCell className="min-w-0">
+                            <TableCell className={cn('min-w-0 z-20', STICKY_SYMBOL_CELL)}>
                               <div className="flex min-w-0 items-center gap-1.5">
                                 {companyFull ? (
                                   <Tooltip>
@@ -1149,7 +1181,7 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                                     className="shrink-0 gap-0.5 px-1 py-0 text-[9px] font-semibold uppercase tracking-wide"
                                   >
                                     <Lock className="size-2.5 shrink-0" aria-hidden />
-                                    Premium
+                                    <span className="hidden sm:inline">Premium</span>
                                   </Badge>
                                 ) : null}
                               </div>

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
-  loadPortfolioConfigsRankedPayload,
+  getCachedRankedConfigsPayload,
   type BenchmarkEndingValues,
   type ConfigMetrics,
   type RankedConfig,
@@ -16,10 +16,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'slug required' }, { status: 400 });
   }
 
-  const payload = await loadPortfolioConfigsRankedPayload(slug);
+  const payload = await getCachedRankedConfigsPayload(slug);
   if (!payload) {
     return NextResponse.json({ error: 'strategy not found' }, { status: 404 });
   }
 
-  return NextResponse.json(payload);
+  return NextResponse.json(payload, {
+    headers: {
+      'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=1800',
+    },
+  });
 }

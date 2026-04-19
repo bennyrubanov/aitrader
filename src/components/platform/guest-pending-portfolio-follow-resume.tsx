@@ -25,6 +25,14 @@ import { queuePlatformPostOnboardingTour } from '@/lib/platform-post-onboarding-
 
 let guestPortfolioResumeInFlight: Promise<void> | null = null;
 
+/** Session + global lock before paint so sibling UI (e.g. onboarding dialog) does not flash for one frame. */
+function armGuestPortfolioResumeLocks(): string {
+  const lockOwnerId = ensureGuestResumeLockOwnerId();
+  setGuestResumeGlobalLock(lockOwnerId);
+  setGuestPortfolioResumeUILock();
+  return lockOwnerId;
+}
+
 function formatUsdWhole(n: number): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -42,6 +50,19 @@ export function GuestPendingPortfolioFollowResume() {
   const auth = useAuthState();
   const { markOnboardingDone, portfolioConfigHydrated } = usePortfolioConfig();
 
+  const shouldArmResumeLocksPrePaint =
+    typeof window !== 'undefined' &&
+    auth.isLoaded &&
+    auth.isAuthenticated &&
+    portfolioConfigHydrated &&
+    !auth.portfolioOnboardingDone &&
+    readPendingGuestPortfolioFollow() != null &&
+    !guestPortfolioResumeInFlight;
+
+  if (shouldArmResumeLocksPrePaint) {
+    armGuestPortfolioResumeLocks();
+  }
+
   useEffect(() => {
     if (!auth.isLoaded || !auth.isAuthenticated || !portfolioConfigHydrated) return;
 
@@ -58,9 +79,7 @@ export function GuestPendingPortfolioFollowResume() {
 
     if (guestPortfolioResumeInFlight) return;
 
-    const lockOwnerId = ensureGuestResumeLockOwnerId();
-    setGuestResumeGlobalLock(lockOwnerId);
-    setGuestPortfolioResumeUILock();
+    const lockOwnerId = armGuestPortfolioResumeLocks();
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new Event(GUEST_PORTFOLIO_RESUME_STARTED_EVENT));
     }

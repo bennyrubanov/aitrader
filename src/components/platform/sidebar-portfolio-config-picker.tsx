@@ -38,6 +38,7 @@ import {
 } from '@/components/portfolio-config';
 import { PORTFOLIO_EXPLORE_QUICK_PICKS } from '@/lib/portfolio-explore-quick-picks';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
+import { loadRankedConfigsClient } from '@/lib/portfolio-configs-ranked-client';
 import { cn } from '@/lib/utils';
 
 function fmtUsd(n: number | null | undefined): string {
@@ -435,16 +436,8 @@ export function SidebarPortfolioConfigPicker({
     setModelInceptionDate(null);
     setLatestPerformanceDate(null);
     try {
-      const res = await fetch(
-        `/api/platform/portfolio-configs-ranked?slug=${encodeURIComponent(slug)}`
-      );
-      if (res.ok) {
-        const data = (await res.json()) as {
-          configs?: RankedConfig[];
-          benchmarkEndingValues?: BenchmarkEndingValues | null;
-          latestPerformanceDate?: string | null;
-          modelInceptionDate?: string | null;
-        };
+      const data = await loadRankedConfigsClient(slug);
+      if (data) {
         setRankedConfigs(data.configs ?? []);
         setBenchmarkEndingValues(data.benchmarkEndingValues ?? null);
         setModelInceptionDate(data.modelInceptionDate ?? null);

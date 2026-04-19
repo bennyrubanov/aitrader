@@ -2,7 +2,7 @@
 
 import React, { useRef } from 'react';
 import Image from 'next/image';
-import { useIsVisible } from '@/lib/animations';
+import { useHasBeenVisible } from '@/lib/animations';
 import { FileText, ExternalLink, CheckCircle, BarChart, Info, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -22,13 +22,13 @@ interface ResearchSectionProps {
 const ResearchSection: React.FC<ResearchSectionProps> = ({ parentDivRef, landingPerformance }) => {
   const router = useRouter();
   const sectionRef = useRef<HTMLDivElement>(null);
-  const isVisible = useIsVisible(sectionRef);
+  const isVisible = useHasBeenVisible(sectionRef);
 
   const paperRef = useRef<HTMLDivElement>(null);
-  const isPaperVisible = useIsVisible(paperRef);
+  const isPaperVisible = useHasBeenVisible(paperRef);
 
   const followUpRef = useRef<HTMLDivElement>(null);
-  const isFollowUpVisible = useIsVisible(followUpRef);
+  const isFollowUpVisible = useHasBeenVisible(followUpRef);
 
   const perfRef = useRef<HTMLDivElement>(null);
   const { hasPremiumAccess, isAuthenticated } = useAuthState();

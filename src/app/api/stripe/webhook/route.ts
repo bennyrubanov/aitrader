@@ -12,6 +12,8 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+/** Stripe handler may perform several Stripe API round-trips; avoid edge timeouts on busy events. */
+export const maxDuration = 60;
 
 const getStripeClient = () => {
   const secretKey = process.env.STRIPE_SECRET_KEY;
@@ -108,30 +110,51 @@ const applyBillingToUserId = async (
   }
 };
 
-const resolveAuthUserIdByEmail = async (email: string) => {
-  const normalizedEmail = email.trim().toLowerCase();
-  const perPage = 1000;
+const resolveAuthUserIdByEmailListUsersFallback = async (normalizedEmail: string) => {
+  const perPage = 200;
+  const maxPages = 10;
   let page = 1;
-
-  while (true) {
+  while (page <= maxPages) {
     const { data, error } = await createAdminClient().auth.admin.listUsers({ page, perPage });
     if (error) {
       throw new Error(error.message);
     }
-
     const users = data?.users ?? [];
     const match = users.find((user) => user.email?.trim().toLowerCase() === normalizedEmail);
     if (match) {
       return match.id;
     }
-
     if (users.length < perPage) {
       break;
     }
     page += 1;
   }
-
   return null;
+};
+
+const resolveAuthUserIdByEmail = async (email: string) => {
+  const normalizedEmail = email.trim().toLowerCase();
+  const supabase = createAdminClient();
+  const { data, error } = await supabase.rpc("auth_user_id_by_email", {
+    p_email: normalizedEmail,
+  });
+  if (!error) {
+    return typeof data === "string" ? data : null;
+  }
+  const msg = error.message.toLowerCase();
+  const rpcMissing =
+    msg.includes("auth_user_id_by_email") ||
+    msg.includes("could not find") ||
+    msg.includes("schema cache") ||
+    error.code === "PGRST202";
+  if (!rpcMissing) {
+    throw new Error(error.message);
+  }
+  console.warn("Stripe webhook: auth_user_id_by_email RPC unavailable, using capped listUsers fallback", {
+    code: error.code,
+    message: error.message,
+  });
+  return resolveAuthUserIdByEmailListUsersFallback(normalizedEmail);
 };
 
 const updateTierByEmail = async (

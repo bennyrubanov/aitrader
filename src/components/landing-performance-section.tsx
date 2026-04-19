@@ -18,7 +18,7 @@ import { seriesHasMinimumPointsForCagrOverTimeChart } from '@/lib/performance-ca
 import type { LandingTopPortfolioPerformance } from '@/lib/landing-top-portfolio-performance';
 import { portfolioSliceToConfigSlug } from '@/lib/performance-portfolio-url';
 import type { PortfolioConfigSlice } from '@/components/platform/portfolio-config-controls';
-import { useIsVisible } from '@/lib/animations';
+import { useHasBeenVisible, useIsVisible } from '@/lib/animations';
 
 type SlideDef = {
   key: string;
@@ -93,6 +93,7 @@ type Props = {
 export function LandingPerformanceSection({ perf, visibleRef }: Props) {
   const localRef = useRef<HTMLDivElement>(null);
   const ref = visibleRef ?? localRef;
+  const hasRevealed = useHasBeenVisible(ref);
   const isVisible = useIsVisible(ref);
   const [activeSlide, setActiveSlide] = useState(0);
   const [isChartHovered, setIsChartHovered] = useState(false);
@@ -158,7 +159,7 @@ export function LandingPerformanceSection({ perf, visibleRef }: Props) {
       id="performance"
       ref={ref}
       className={`max-w-4xl mx-auto transition-all duration-700 ${
-        isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'
+        hasRevealed ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'
       }`}
     >
       <div className="text-center mb-10">

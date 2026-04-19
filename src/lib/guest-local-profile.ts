@@ -6,7 +6,7 @@
 import type { PortfolioConfig } from '@/components/portfolio-config/portfolio-config-shared';
 import type { PerformanceSeriesPoint, StrategyListItem } from '@/lib/platform-performance-payload';
 import type { ConfigPerfRow } from '@/lib/portfolio-config-utils';
-import { buildUserEntryConfigTrack } from '@/lib/config-performance-chart';
+import { buildMetricsFromSeries, buildUserEntryConfigTrack } from '@/lib/config-performance-chart';
 import {
   computeExcessReturnVsNasdaqCap,
   computeExcessReturnVsNasdaqEqual,
@@ -23,6 +23,7 @@ type ConfigPerfApiJson = {
   configId?: string | null;
   computeStatus?: string;
   rows?: ConfigPerfRow[];
+  series?: PerformanceSeriesPoint[];
   config?: Record<string, unknown> | null;
 };
 
@@ -150,12 +151,51 @@ export type GuestUserEntryApiLike = {
   userStartDate?: string;
 };
 
+function buildUserEntryTrackFromModelSeries(
+  modelSeries: PerformanceSeriesPoint[],
+  userStart: string,
+  investmentSize: number
+): { series: PerformanceSeriesPoint[]; hasMultipleObservations: boolean } {
+  if (!modelSeries.length || !Number.isFinite(investmentSize) || investmentSize <= 0) {
+    return { series: [], hasMultipleObservations: false };
+  }
+  const sorted = [...modelSeries].sort((a, b) => a.date.localeCompare(b.date));
+  let base: PerformanceSeriesPoint | null = null;
+  for (const p of sorted) {
+    if (p.date <= userStart) base = p;
+    else break;
+  }
+  if (!base || base.aiTop20 <= 0) {
+    return { series: [], hasMultipleObservations: false };
+  }
+  const scale = investmentSize / base.aiTop20;
+  const future = sorted.filter((p) => p.date > userStart);
+  const rebased: PerformanceSeriesPoint[] = [
+    {
+      date: userStart,
+      aiTop20: investmentSize,
+      nasdaq100CapWeight: investmentSize,
+      nasdaq100EqualWeight: investmentSize,
+      sp500: investmentSize,
+    },
+    ...future.map((p) => ({
+      date: p.date,
+      aiTop20: p.aiTop20 * scale,
+      nasdaq100CapWeight: p.nasdaq100CapWeight * scale,
+      nasdaq100EqualWeight: p.nasdaq100EqualWeight * scale,
+      sp500: p.sp500 * scale,
+    })),
+  ];
+  return { series: rebased, hasMultipleObservations: rebased.length >= 2 };
+}
+
 /**
  * Same math as `/api/platform/user-portfolio-performance` for the guest synthetic profile,
  * using public config performance rows (no DB profile).
  */
 export function buildGuestUserEntryPerformancePayload(
   rows: ConfigPerfRow[] | undefined,
+  modelSeries: PerformanceSeriesPoint[] | undefined,
   configComputeStatus: string | undefined,
   userStart: string,
   investmentSize: number
@@ -171,27 +211,36 @@ export function buildGuestUserEntryPerformancePayload(
   };
 
   const cfgRows = Array.isArray(rows) ? rows : [];
-  const track = buildUserEntryConfigTrack(cfgRows, userStart, investmentSize);
+  const modelTrack =
+    Array.isArray(modelSeries) && modelSeries.length
+      ? buildUserEntryTrackFromModelSeries(modelSeries, userStart, investmentSize)
+      : null;
+  const fallbackTrack = buildUserEntryConfigTrack(cfgRows, userStart, investmentSize);
+  const series = modelTrack?.series.length ? modelTrack.series : fallbackTrack.series;
+  const hasMultipleObservations = modelTrack
+    ? modelTrack.hasMultipleObservations
+    : fallbackTrack.hasMultipleObservations;
+  const metricsFromSeries = buildMetricsFromSeries(series).metrics;
   const st = configComputeStatus ?? 'empty';
   const clientStatus =
     st !== 'ready' && !cfgRows.length
       ? 'pending'
-      : track.series.length === 0
+      : series.length === 0
         ? 'empty'
-        : !track.hasMultipleObservations
+        : !hasMultipleObservations
           ? 'gathering_data'
           : 'ready';
 
   const metrics =
-    track.hasMultipleObservations && track.series.length > 0 && track.metrics
+    hasMultipleObservations && series.length > 0 && metricsFromSeries
       ? {
-          sharpeRatio: track.metrics.sharpeRatio,
-          totalReturn: track.metrics.totalReturn,
-          cagr: track.metrics.cagr,
-          maxDrawdown: track.metrics.maxDrawdown,
-          consistency: computeWeeklyConsistencyVsNasdaqCap(track.series),
-          excessReturnVsNasdaqCap: computeExcessReturnVsNasdaqCap(track.series),
-          excessReturnVsNasdaqEqual: computeExcessReturnVsNasdaqEqual(track.series),
+          sharpeRatio: metricsFromSeries.sharpeRatio,
+          totalReturn: metricsFromSeries.totalReturn,
+          cagr: metricsFromSeries.cagr,
+          maxDrawdown: metricsFromSeries.maxDrawdown,
+          consistency: computeWeeklyConsistencyVsNasdaqCap(series),
+          excessReturnVsNasdaqCap: computeExcessReturnVsNasdaqCap(series),
+          excessReturnVsNasdaqEqual: computeExcessReturnVsNasdaqEqual(series),
         }
       : emptyMetrics;
 
@@ -199,8 +248,8 @@ export function buildGuestUserEntryPerformancePayload(
     profileId: GUEST_LOCAL_PROFILE_ID,
     computeStatus: clientStatus,
     configComputeStatus: st,
-    hasMultipleObservations: track.hasMultipleObservations,
-    series: track.series,
+    hasMultipleObservations,
+    series,
     metrics: clientStatus === 'ready' ? metrics : emptyMetrics,
     userStartDate: userStart,
   };

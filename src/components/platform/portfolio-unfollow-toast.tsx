@@ -45,6 +45,9 @@ export async function setUserPortfolioProfileActive(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ profileId, isActive }),
   });
+  if (res.ok) {
+    invalidateUserPortfolioProfiles();
+  }
   return res.ok;
 }
 
@@ -117,7 +120,6 @@ export function showPortfolioFollowToast({
         void (async () => {
           const ok = await setUserPortfolioProfileActive(profileId, false);
           if (ok) {
-            invalidateUserPortfolioProfiles();
             await onAfterUndo?.();
             toast({ title: 'Follow removed' });
           } else {

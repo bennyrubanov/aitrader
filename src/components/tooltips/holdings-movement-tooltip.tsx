@@ -1,16 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
 import { InfoIconTooltip } from '@/components/tooltips/info-icon-tooltip';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { platformOverviewPath } from '@/lib/platform-overview-tab';
 
-/** Info icon + tooltip for portfolio holdings “Movement” switch (colors + exited section + link to overview tab). */
+/** Info icon + tooltip for portfolio holdings “Movement” switch (colors + exited section + link to rebalance page). */
 export function HoldingsMovementInfoTooltip() {
-  const pathname = usePathname();
-  const rebalanceActionsHref = platformOverviewPath('rebalance-actions', pathname);
-
   return (
     <TooltipProvider delayDuration={200}>
       <InfoIconTooltip ariaLabel="How Movement colors work">
@@ -37,12 +32,12 @@ export function HoldingsMovementInfoTooltip() {
           <p className="text-muted-foreground">
             For more detail, open the{' '}
             <Link
-              href={rebalanceActionsHref}
+              href="/platform/your-portfolios#rebalance-actions"
               className="font-medium text-foreground underline underline-offset-2 hover:no-underline"
             >
               Rebalance actions
             </Link>{' '}
-            tab on the Overview page.
+            section in Your portfolios.
           </p>
         </div>
       </InfoIconTooltip>

@@ -22,8 +22,10 @@ import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config
 import { StrategyModelSidebarDropdown } from '@/components/platform/strategy-model-sidebar-dropdown';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
+import { loadRankedConfigsClient } from '@/lib/portfolio-configs-ranked-client';
+import { loadUserPortfolioProfilesClient } from '@/lib/user-portfolio-profiles-client';
 import {
-  ArrowUpRight,
+  ArrowUpDown,
   Calendar as CalendarIcon,
   ChevronDown,
   ExternalLink,
@@ -33,7 +35,6 @@ import {
   LineChart,
   ListFilter,
   Plus,
-  Trophy,
   UserMinus,
   X,
 } from 'lucide-react';
@@ -66,7 +67,10 @@ import { useAuthState } from '@/components/auth/auth-state-context';
 import { useAccountSignupPrompt } from '@/components/platform/account-signup-prompt-context';
 import { PORTFOLIO_EXPLORE_QUICK_PICKS } from '@/lib/portfolio-explore-quick-picks';
 import { PortfolioIdentitySummaryRow } from '@/components/platform/portfolio-identity-summary-row';
+import { PortfolioListSortActiveIndicator } from '@/components/platform/portfolio-list-sort-active-indicator';
+import { PortfolioListSortDialog } from '@/components/platform/portfolio-list-sort-dialog';
 import { sharpeRatioValueClass } from '@/lib/sharpe-value-class';
+import type { PortfolioListSortMetric } from '@/lib/portfolio-profile-list-sort';
 import { type StrategyListItem } from '@/lib/platform-performance-payload';
 import { cn } from '@/lib/utils';
 
@@ -273,6 +277,8 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
   const [detailConfig, setDetailConfig] = useState<RankedConfig | null>(null);
 
   const [browseMode, setBrowseMode] = useState<'list' | 'chart'>('list');
+  const [sortMetric, setSortMetric] = useState<PortfolioListSortMetric>('composite_score');
+  const [sortDialogOpen, setSortDialogOpen] = useState(false);
   const [equitySeriesPayload, setEquitySeriesPayload] = useState<{
     dates: string[];
     series: ExploreEquitySeriesRow[];
@@ -283,19 +289,12 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
   const loadConfigs = useCallback(async () => {
     setIsLoading(true);
     try {
-      const res = await fetch(`/api/platform/portfolio-configs-ranked?slug=${strategySlug}`);
-      if (res.ok) {
-        const data = (await res.json()) as {
-          configs?: RankedConfig[];
-          rankingNote?: string | null;
-          latestPerformanceDate?: string | null;
-          modelInceptionDate?: string | null;
-        };
-        setConfigs(data.configs ?? []);
-        setRankingNote(data.rankingNote ?? null);
-        setLatestPerformanceDate(data.latestPerformanceDate ?? null);
-        setModelInceptionDate(data.modelInceptionDate ?? null);
-      }
+      const data = await loadRankedConfigsClient(strategySlug);
+      if (!data) return;
+      setConfigs(data.configs ?? []);
+      setRankingNote(data.rankingNote ?? null);
+      setLatestPerformanceDate(data.latestPerformanceDate ?? null);
+      setModelInceptionDate(data.modelInceptionDate ?? null);
     } catch {
       /* silent */
     } finally {
@@ -313,9 +312,8 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
       return;
     }
     try {
-      const r = await fetch('/api/platform/user-portfolio-profile');
-      if (!r.ok) return;
-      const data = (await r.json()) as { profiles?: UserProfileFollowRow[] };
+      const data = (await loadUserPortfolioProfilesClient()) as { profiles?: UserProfileFollowRow[] } | null;
+      if (!data) return;
       const map: Record<string, string> = {};
       for (const p of data.profiles ?? []) {
         if (p.strategy_models?.slug !== strategySlug) continue;
@@ -441,9 +439,51 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
     if (riskFilter != null) out = out.filter((c) => c.riskLevel === riskFilter);
     if (freqFilter != null) out = out.filter((c) => c.rebalanceFrequency === freqFilter);
     if (weightFilter != null) out = out.filter((c) => c.weightingMethod === weightFilter);
-    out.sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999));
+    const safeValue = (v: number | null | undefined) =>
+      v != null && Number.isFinite(v) ? v : Number.NEGATIVE_INFINITY;
+    const valueByMetric = (c: RankedConfig): number => {
+      switch (sortMetric) {
+        case 'composite_score':
+          return -((c.rank ?? 999) + (c.rank == null ? 1_000 : 0));
+        case 'portfolio_value_performance':
+          return safeValue(c.metrics.totalReturn);
+        case 'consistency':
+          return safeValue(c.metrics.consistency);
+        case 'sharpe_ratio':
+          return safeValue(c.metrics.sharpeRatio);
+        case 'cagr':
+          return safeValue(c.metrics.cagr);
+        case 'max_drawdown':
+          return safeValue(c.metrics.maxDrawdown);
+        case 'follow_order':
+          return -((c.rank ?? 999) + (c.rank == null ? 1_000 : 0));
+        default:
+          return -((c.rank ?? 999) + (c.rank == null ? 1_000 : 0));
+      }
+    };
+    out.sort((a, b) => {
+      if (sortMetric === 'portfolio_value_performance') {
+        const ra = safeValue(a.metrics.totalReturn);
+        const rb = safeValue(b.metrics.totalReturn);
+        if (rb !== ra) return rb - ra;
+        const pa = safeValue(
+          a.metrics.endingValuePortfolio ??
+            (a.metrics.totalReturn != null ? INITIAL_CAPITAL * (1 + a.metrics.totalReturn) : null)
+        );
+        const pb = safeValue(
+          b.metrics.endingValuePortfolio ??
+            (b.metrics.totalReturn != null ? INITIAL_CAPITAL * (1 + b.metrics.totalReturn) : null)
+        );
+        if (pb !== pa) return pb - pa;
+        return (a.rank ?? 999) - (b.rank ?? 999);
+      }
+      const va = valueByMetric(a);
+      const vb = valueByMetric(b);
+      if (vb !== va) return vb - va;
+      return (a.rank ?? 999) - (b.rank ?? 999);
+    });
     return out;
-  }, [configs, filterBeatNasdaq, filterBeatSp500, riskFilter, freqFilter, weightFilter]);
+  }, [configs, filterBeatNasdaq, filterBeatSp500, riskFilter, freqFilter, weightFilter, sortMetric]);
 
   const visibleConfigIds = useMemo(
     () => new Set(filteredConfigs.map((c) => c.id)),
@@ -686,8 +726,26 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
             </StrategyModelSidebarDropdown>
           ) : null}
 
+          <div className={cn('space-y-3 pt-3', strategies.length > 0 && 'mt-4 border-t border-border')}>
+            <ExploreQuickPicksSection
+              layout="sheet"
+              configs={configs}
+              filterBeatNasdaq={filterBeatNasdaq}
+              filterBeatSp500={filterBeatSp500}
+              riskFilter={riskFilter}
+              freqFilter={freqFilter}
+              weightFilter={weightFilter}
+              setFilterBeatNasdaq={setFilterBeatNasdaq}
+              setFilterBeatSp500={setFilterBeatSp500}
+              setRiskFilter={setRiskFilter}
+              setFreqFilter={setFreqFilter}
+              setWeightFilter={setWeightFilter}
+              clearFilters={clearFilters}
+            />
+          </div>
+
           <div
-            className={cn('space-y-3 pt-3', strategies.length > 0 && 'mt-4 border-t border-border')}
+            className="mt-4 space-y-3 border-t border-border pt-3"
           >
             <div className="flex min-h-8 flex-wrap items-center justify-between gap-2">
               <p className="min-w-0 truncate text-xs font-semibold uppercase tracking-wider text-muted-foreground leading-none">
@@ -749,32 +807,47 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-y-contain px-1 py-1 lg:h-full lg:max-h-full lg:min-h-0 lg:pl-8">
           {/* Header */}
           <div className="border-b px-4 pb-2 -mt-1 sm:px-6 sm:pb-2.5">
-            <h2 className="text-base font-semibold leading-tight">Explore Portfolios</h2>
-            <p className="text-xs text-muted-foreground">
-              Pick between any portfolio, and follow it to track its performance.
-            </p>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold leading-tight">Explore Portfolios</h2>
+                <p className="text-xs text-muted-foreground">
+                  Pick between any portfolio, and follow it to track its performance.
+                </p>
+              </div>
+              {!isLoading && filteredConfigs.length > 0 ? (
+                <div className="inline-flex max-w-full flex-wrap items-center justify-center gap-1 rounded-md border bg-muted/30 p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setBrowseMode('list')}
+                    className={cn(
+                      'inline-flex min-h-9 items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-center text-[11px] font-medium transition-colors sm:px-3 sm:text-xs',
+                      browseMode === 'list'
+                        ? 'bg-background text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    )}
+                  >
+                    <LayoutList className="size-3.5 shrink-0" aria-hidden />
+                    Rankings list
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBrowseMode('chart')}
+                    className={cn(
+                      'inline-flex min-h-9 items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-center text-[11px] font-medium transition-colors sm:px-3 sm:text-xs',
+                      browseMode === 'chart'
+                        ? 'bg-background text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    )}
+                  >
+                    <LineChart className="size-3.5 shrink-0" aria-hidden />
+                    Values chart
+                  </button>
+                </div>
+              ) : null}
+            </div>
           </div>
 
           <div className="flex-1 space-y-4 px-4 pb-8 pt-2.5 sm:px-6 sm:pb-10 sm:pt-3">
-            {/* Quick picks — desktop/tablet only; mobile uses filter sheet (performance-style) */}
-            <div className="hidden lg:block">
-              <ExploreQuickPicksSection
-                layout="main"
-                configs={configs}
-                filterBeatNasdaq={filterBeatNasdaq}
-                filterBeatSp500={filterBeatSp500}
-                riskFilter={riskFilter}
-                freqFilter={freqFilter}
-                weightFilter={weightFilter}
-                setFilterBeatNasdaq={setFilterBeatNasdaq}
-                setFilterBeatSp500={setFilterBeatSp500}
-                setRiskFilter={setRiskFilter}
-                setFreqFilter={setFreqFilter}
-                setWeightFilter={setWeightFilter}
-                clearFilters={clearFilters}
-              />
-            </div>
-
             {/* Early data notice */}
             {rankingNote && (
               <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-300 flex items-center gap-2">
@@ -783,56 +856,26 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
               </div>
             )}
 
-            {/* View mode (list vs chart); section titles match the active view */}
+            {/* Active view title row */}
             {!isLoading && filteredConfigs.length > 0 && (
               <div className="space-y-3">
-                <div className="flex justify-center">
-                  <div className="inline-flex max-w-full flex-wrap items-center justify-center gap-1 rounded-md border bg-muted/30 p-0.5">
-                    <button
-                      type="button"
-                      onClick={() => setBrowseMode('list')}
-                      className={cn(
-                        'inline-flex min-h-9 items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-center text-[11px] font-medium transition-colors sm:px-3 sm:text-xs',
-                        browseMode === 'list'
-                          ? 'bg-background text-foreground shadow-sm'
-                          : 'text-muted-foreground hover:text-foreground'
-                      )}
-                    >
-                      <LayoutList className="size-3.5 shrink-0" aria-hidden />
-                      Portfolio rankings list
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setBrowseMode('chart')}
-                      className={cn(
-                        'inline-flex min-h-9 items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-center text-[11px] font-medium transition-colors sm:px-3 sm:text-xs',
-                        browseMode === 'chart'
-                          ? 'bg-background text-foreground shadow-sm'
-                          : 'text-muted-foreground hover:text-foreground'
-                      )}
-                    >
-                      <LineChart className="size-3.5 shrink-0" aria-hidden />
-                      Portfolio values chart
-                    </button>
-                  </div>
-                </div>
                 {browseMode === 'list' ? (
-                  <div className="flex min-w-0 flex-col gap-1">
-                    <div className="flex min-w-0 flex-wrap items-center gap-2">
-                      <Trophy className="size-4 text-amber-500 shrink-0" aria-hidden />
-                      <h3 className="text-sm font-semibold">Ranked by composite score</h3>
-                      <span className="text-xs text-muted-foreground">
-                        {filteredConfigs.length} portfolio{filteredConfigs.length !== 1 ? 's' : ''}
-                        {activeFilterCount > 0 ? ' matching filters' : ''}
-                      </span>
-                      <Link
-                        href={`/strategy-models/${strategySlug}#portfolio-ranking-how`}
-                        className="inline-flex items-center gap-1 text-xs font-medium text-trader-blue underline-offset-2 hover:underline dark:text-trader-blue-light shrink-0"
-                      >
-                        How portfolios are ranked
-                        <ArrowUpRight className="size-3.5 shrink-0 opacity-80" aria-hidden />
-                      </Link>
-                    </div>
+                  <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="relative h-8 shrink-0 gap-1.5 overflow-visible pr-2.5 text-xs"
+                      onClick={() => setSortDialogOpen(true)}
+                    >
+                      <ArrowUpDown className="size-3.5 shrink-0" aria-hidden />
+                      Sort
+                      <PortfolioListSortActiveIndicator metric={sortMetric} />
+                    </Button>
+                    <span className="text-xs text-muted-foreground">
+                      {filteredConfigs.length} portfolio{filteredConfigs.length !== 1 ? 's' : ''}
+                      {activeFilterCount > 0 ? ' matching filters' : ''}
+                    </span>
                   </div>
                 ) : (
                   <div className="flex flex-wrap items-center gap-2 min-w-0">
@@ -1135,6 +1178,13 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
           setDetailConfig(null);
           openAddDialog(c);
         }}
+      />
+      <PortfolioListSortDialog
+        open={sortDialogOpen}
+        onOpenChange={setSortDialogOpen}
+        value={sortMetric}
+        onValueChange={setSortMetric}
+        includeFollowOrder={false}
       />
     </TooltipProvider>
   );

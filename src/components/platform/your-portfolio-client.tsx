@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { useAuthState } from '@/components/auth/auth-state-context';
 import { ExplorePortfolioFilterControls } from '@/components/platform/explore-portfolio-filter-controls';
+import { PortfolioListSortActiveIndicator } from '@/components/platform/portfolio-list-sort-active-indicator';
 import { PortfolioListSortDialog } from '@/components/platform/portfolio-list-sort-dialog';
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
 import { StrategyModelSidebarDropdown } from '@/components/platform/strategy-model-sidebar-dropdown';
@@ -121,6 +122,8 @@ import {
   sortProfilesByUserEntryCache,
 } from '@/lib/portfolio-profile-list-sort';
 import { PORTFOLIO_EXPLORE_QUICK_PICKS } from '@/lib/portfolio-explore-quick-picks';
+import { loadRankedConfigsClient } from '@/lib/portfolio-configs-ranked-client';
+import { loadUserPortfolioProfilesClient } from '@/lib/user-portfolio-profiles-client';
 import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import { formatYmdDisplay } from '@/lib/format-ymd-display';
 import {
@@ -133,6 +136,8 @@ import { cn } from '@/lib/utils';
 import type { ConfigPerfRow } from '@/lib/portfolio-config-utils';
 import { buildConfigPerformanceChart } from '@/lib/config-performance-chart';
 import { buildLiveHoldingsAllocationResult } from '@/lib/live-holdings-allocation';
+import type { PortfolioMovementLine } from '@/lib/portfolio-movement';
+import { createConcurrencyLimit } from '@/lib/concurrency-limit';
 import {
   getCachedConfigPerfPayload,
   getCachedUserEntryPayload,
@@ -279,6 +284,321 @@ export type UserPortfolioProfileRow = {
   portfolio_config: PortfolioConfigEmbed;
   user_portfolio_positions: PositionRow[] | null;
 };
+
+type PortfolioMovementApiPayload = {
+  status:
+    | 'ok'
+    | 'no_start_date'
+    | 'no_prior_rebalance'
+    | 'config_pending'
+    | 'error'
+    | string;
+  message?: string;
+  lastRebalanceDate: string | null;
+  previousRebalanceDate: string | null;
+  notionalAtPrevRebalanceEnd?: number | null;
+  notionalAtCurrRebalanceEnd?: number | null;
+  movementNotional?: number | null;
+  totalTradeDeltaDollars?: number | null;
+  residualAppliedDollars?: number | null;
+  rebalanceDates?: string[];
+  byRebalanceDate?: Record<
+    string,
+    {
+      lastRebalanceDate: string;
+      previousRebalanceDate: string | null;
+      notionalAtPrevRebalanceEnd?: number | null;
+      notionalAtCurrRebalanceEnd?: number | null;
+      movementNotional?: number | null;
+      totalTradeDeltaDollars?: number | null;
+      residualAppliedDollars?: number | null;
+      hold: PortfolioMovementLine[];
+      buy: PortfolioMovementLine[];
+      sell: PortfolioMovementLine[];
+    }
+  >;
+  hold: PortfolioMovementLine[];
+  buy: PortfolioMovementLine[];
+  sell: PortfolioMovementLine[];
+};
+
+type PortfolioMovementResolved =
+  | { loading: false; error: string }
+  | { loading: false; data: PortfolioMovementApiPayload };
+
+const PORTFOLIO_TIMELINE_MAX_PARALLEL = 4;
+const portfolioTimelineFetchLimit = createConcurrencyLimit(PORTFOLIO_TIMELINE_MAX_PARALLEL);
+const portfolioTimelineCache = new Map<string, PortfolioMovementResolved>();
+const portfolioTimelineInflight = new Map<string, Promise<PortfolioMovementResolved>>();
+
+function portfolioTimelineCacheKey(profileId: string): string {
+  return `${profileId}\0timeline`;
+}
+
+async function loadPortfolioMovementTimeline(profileId: string): Promise<PortfolioMovementResolved> {
+  const key = portfolioTimelineCacheKey(profileId);
+  const cached = portfolioTimelineCache.get(key);
+  if (cached) return cached;
+
+  const inflight = portfolioTimelineInflight.get(key);
+  if (inflight) return inflight;
+
+  const promise = portfolioTimelineFetchLimit(() =>
+    (async (): Promise<PortfolioMovementResolved> => {
+      try {
+        const params = new URLSearchParams({ profileId, includeAllDates: '1' });
+        const r = await fetch(`/api/platform/portfolio-movement?${params}`, { cache: 'no-store' });
+        const raw = (await r.json().catch(() => ({}))) as PortfolioMovementApiPayload & {
+          error?: string;
+        };
+        const result: PortfolioMovementResolved = r.ok
+          ? { loading: false, data: raw }
+          : {
+              loading: false,
+              error: typeof raw.error === 'string' ? raw.error : 'Could not load rebalance actions.',
+            };
+        portfolioTimelineCache.set(key, result);
+        return result;
+      } catch {
+        const result: PortfolioMovementResolved = { loading: false, error: 'Network error.' };
+        portfolioTimelineCache.set(key, result);
+        return result;
+      }
+    })()
+  ).finally(() => {
+    portfolioTimelineInflight.delete(key);
+  });
+
+  portfolioTimelineInflight.set(key, promise);
+  return promise;
+}
+
+type RebalanceAction = 'buy' | 'sell' | 'hold';
+
+function rebalanceActionRows(
+  buy: PortfolioMovementLine[],
+  sell: PortfolioMovementLine[],
+  hold: PortfolioMovementLine[]
+): { kind: RebalanceAction; row: PortfolioMovementLine }[] {
+  return [
+    ...sell.map((row) => ({ kind: 'sell' as const, row })),
+    ...buy.map((row) => ({ kind: 'buy' as const, row })),
+    ...hold.map((row) => ({ kind: 'hold' as const, row })),
+  ];
+}
+
+function PortfolioRebalanceActionsTable({
+  hold,
+  buy,
+  sell,
+}: {
+  hold: PortfolioMovementLine[];
+  buy: PortfolioMovementLine[];
+  sell: PortfolioMovementLine[];
+}) {
+  const includeHolds = buy.length === 0 && sell.length === 0;
+  const rows = rebalanceActionRows(buy, sell, includeHolds ? hold : []);
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-border/70 bg-card/25">
+      <div className="max-h-[20rem] overflow-y-auto overscroll-y-contain">
+        <table className="w-full border-collapse text-left text-[11px]">
+          <thead>
+            <tr className="sticky top-0 z-[1] border-b border-border/70 bg-muted/90 backdrop-blur-sm">
+              <th className="whitespace-nowrap px-2 py-1.5 font-semibold text-muted-foreground">
+                Action
+              </th>
+              <th className="px-1 py-1.5 font-semibold text-muted-foreground">Stock</th>
+              <th className="whitespace-nowrap px-2 py-1.5 text-right font-semibold text-muted-foreground">
+                Trade
+              </th>
+              <th className="whitespace-nowrap px-2 py-1.5 text-right font-semibold text-muted-foreground">
+                Target
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(({ kind, row }) => {
+              const actionClass =
+                kind === 'buy'
+                  ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200'
+                  : kind === 'sell'
+                    ? 'border-rose-500/35 bg-rose-500/10 text-rose-800 dark:text-rose-200'
+                    : 'border-border bg-muted/60 text-muted-foreground';
+              const trade =
+                kind === 'buy'
+                  ? `+${formatYourPortfolioCurrency(row.deltaDollars)}`
+                  : kind === 'sell'
+                    ? formatYourPortfolioCurrency(row.deltaDollars)
+                    : '—';
+              return (
+                <tr key={`${kind}-${row.symbol}`} className="border-b border-border/40 last:border-0">
+                  <td className="px-2 py-1 align-middle">
+                    <span
+                      className={cn(
+                        'inline-flex min-w-[2.75rem] justify-center rounded border px-1.5 py-0 text-[10px] font-semibold uppercase tracking-wide',
+                        actionClass
+                      )}
+                    >
+                      {kind}
+                    </span>
+                  </td>
+                  <td className="min-w-0 max-w-[10rem] px-1 py-1 align-middle sm:max-w-none">
+                    <div className="min-w-0">
+                      <Link
+                        href={`/stocks/${row.symbol.toLowerCase()}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-semibold text-foreground hover:underline"
+                      >
+                        {row.symbol}
+                      </Link>
+                      {row.companyName && row.companyName !== row.symbol ? (
+                        <p className="truncate text-[10px] leading-tight text-muted-foreground">
+                          {row.companyName}
+                        </p>
+                      ) : null}
+                    </div>
+                  </td>
+                  <td className="whitespace-nowrap px-2 py-1 text-right align-middle tabular-nums">
+                    {trade}
+                  </td>
+                  <td className="whitespace-nowrap px-2 py-1 text-right align-middle tabular-nums">
+                    {formatYourPortfolioCurrency(row.targetDollars)}{' '}
+                    <span className="text-muted-foreground">
+                      ({(row.targetWeight * 100).toFixed(1)}%)
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function PortfolioRebalanceActionsTimeline({
+  profile,
+  tourMarker,
+  showProfileSummary = true,
+  anchorId,
+  className,
+}: {
+  profile: UserPortfolioProfileRow;
+  tourMarker?: boolean;
+  showProfileSummary?: boolean;
+  anchorId?: string;
+  className?: string;
+}) {
+  const [state, setState] = useState<{ loading: true } | PortfolioMovementResolved>({
+    loading: true,
+  });
+  const profileId = profile.id;
+  const hasEntry = Boolean(profile.user_start_date?.trim());
+
+  useEffect(() => {
+    if (!hasEntry) {
+      setState({
+        loading: false,
+        data: {
+          status: 'no_start_date',
+          message: 'Set an entry on this portfolio to see rebalance actions.',
+          lastRebalanceDate: null,
+          previousRebalanceDate: null,
+          hold: [],
+          buy: [],
+          sell: [],
+        },
+      });
+      return;
+    }
+    let cancelled = false;
+    setState({ loading: true });
+    void loadPortfolioMovementTimeline(profileId).then((result) => {
+      if (!cancelled) setState(result);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [profileId, hasEntry]);
+
+  const riskLevel = (profile.portfolio_config?.risk_level ?? 3) as RiskLevel;
+  const riskLabel =
+    profile.portfolio_config?.risk_label?.trim() || RISK_LABELS[riskLevel] || 'Risk';
+  const entryLabel = profile.user_start_date?.trim()
+    ? formatYmdDisplay(profile.user_start_date.trim())
+    : 'No entry';
+
+  const payload = !state.loading && 'data' in state ? state.data : null;
+  const error = !state.loading && 'error' in state ? state.error : null;
+  const timelineDates = payload?.rebalanceDates?.slice(0, -1) ?? [];
+
+  return (
+    <div
+      id={anchorId}
+      className={cn(
+        showProfileSummary
+          ? 'grid gap-3 rounded-xl border border-border bg-card/25 p-3 lg:grid-cols-[minmax(0,15rem)_minmax(0,1fr)] lg:items-start'
+          : 'space-y-2',
+        className
+      )}
+      {...(tourMarker ? { 'data-platform-tour': 'your-portfolios-rebalance-actions-first-portfolio' } : {})}
+    >
+      {showProfileSummary ? (
+        <div className="space-y-1">
+          <p className="text-sm font-semibold text-foreground">
+            {profile.portfolio_config?.label ?? 'Portfolio'}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {riskLabel} · Entered on {entryLabel}
+          </p>
+        </div>
+      ) : null}
+      <div className="min-w-0 space-y-2">
+        {state.loading ? (
+          <Skeleton className="h-24 w-full rounded-md" />
+        ) : error ? (
+          <p className="text-sm text-muted-foreground">{error}</p>
+        ) : payload?.status !== 'ok' ? (
+          <p className="text-sm text-muted-foreground">
+            {payload?.message ?? 'Rebalance actions are not available yet.'}
+          </p>
+        ) : timelineDates.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No prior rebalance dates yet.</p>
+        ) : (
+          timelineDates.map((d) => {
+            const byDate = payload.byRebalanceDate?.[d];
+            const row = byDate ?? (payload.lastRebalanceDate === d ? payload : null);
+            if (!row) return null;
+            const table = (
+              <PortfolioRebalanceActionsTable hold={row.hold} buy={row.buy} sell={row.sell} />
+            );
+            return (
+              <div key={`${profileId}-${d}`} className="space-y-1.5 rounded-md border border-border/60 p-2">
+                <p className="text-xs font-medium text-foreground">
+                  {formatYmdDisplay(d)}
+                  {row.notionalAtCurrRebalanceEnd != null ? (
+                    <span className="ml-2 text-muted-foreground">
+                      ({formatYourPortfolioCurrency(row.notionalAtCurrRebalanceEnd)})
+                    </span>
+                  ) : null}
+                </p>
+                {table ?? (
+                  <p className="text-xs text-muted-foreground">
+                    No buy/sell actions versus the prior rebalance.
+                  </p>
+                )}
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
 
 type ConfigPerfChartPoint = {
   date: string;
@@ -725,17 +1045,16 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const loadProfiles = useCallback(async () => {
     setIsLoadingProfiles(true);
     try {
-      const res = await fetch('/api/platform/user-portfolio-profile', { cache: 'no-store' });
-      if (res.ok) {
-        const data = (await res.json()) as { profiles?: UserPortfolioProfileRow[] };
-        const list = data.profiles ?? [];
-        setProfiles(
-          list.map((p) => ({
-            ...p,
-            is_starting_portfolio: Boolean(p.is_starting_portfolio),
-          }))
-        );
-      }
+      const data = (await loadUserPortfolioProfilesClient()) as {
+        profiles?: UserPortfolioProfileRow[];
+      } | null;
+      const list = data?.profiles ?? [];
+      setProfiles(
+        list.map((p) => ({
+          ...p,
+          is_starting_portfolio: Boolean(p.is_starting_portfolio),
+        }))
+      );
     } catch {
       // silent
     } finally {
@@ -808,6 +1127,8 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       if (d?.profileId) {
         invalidateUserEntryPerformanceCache(d.profileId);
       }
+      portfolioTimelineCache.clear();
+      portfolioTimelineInflight.clear();
       void loadProfiles();
     };
     window.addEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, handler);
@@ -1048,10 +1369,8 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     void Promise.all(
       slugs.map(async (slug) => {
         try {
-          const res = await fetch(
-            `/api/platform/portfolio-configs-ranked?slug=${encodeURIComponent(slug)}`
-          );
-          if (!res.ok) {
+          const data = await loadRankedConfigsClient(slug);
+          if (!data) {
             return {
               slug,
               configs: [] as RankedConfig[],
@@ -1059,11 +1378,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
               inception: null as string | null,
             };
           }
-          const data = (await res.json()) as {
-            configs?: RankedConfig[];
-            latestPerformanceDate?: string | null;
-            modelInceptionDate?: string | null;
-          };
           return {
             slug,
             configs: data.configs ?? [],
@@ -1191,6 +1505,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         }
         const built = buildGuestUserEntryPerformancePayload(
           raw.rows,
+          raw.series,
           raw.computeStatus,
           userStart,
           num(selectedProfile.investment_size)
@@ -1399,9 +1714,9 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const userEntrySeries = userEntryPayload?.series ?? [];
   const userEntryMetrics = userEntryPayload?.metrics ?? null;
 
-  const modelDisplayMetrics = modelChart.metrics ?? perfPayload?.metrics ?? null;
+  const modelDisplayMetrics = perfPayload?.metrics ?? modelChart.metrics ?? null;
   const modelDisplaySeries =
-    modelChart.series.length > 0 ? modelChart.series : (perfPayload?.series ?? []);
+    perfPayload?.series && perfPayload.series.length > 0 ? perfPayload.series : modelChart.series;
 
   const displayMetrics = selectedProfile?.user_start_date
     ? userEntryMetrics
@@ -1879,7 +2194,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     ? formatYmdDisplay(String(selectedProfile.user_start_date).trim())
     : null;
 
-  const chartStrategyName = selectedProfile?.strategy_models?.name ?? 'AI Strategy';
+  const chartStrategyName = 'Your portfolio';
   const chartInitialNotional =
     num(selectedProfile?.investment_size) > 0
       ? num(selectedProfile?.investment_size)
@@ -1972,11 +2287,12 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="size-8 shrink-0"
+                className="relative size-8 shrink-0"
                 aria-label="Sort portfolios"
                 onClick={() => setSidebarSortDialogOpen(true)}
               >
                 <ArrowUpDown className="size-4" />
+                <PortfolioListSortActiveIndicator metric={sidebarSortMetric} />
               </Button>
               <Button
                 type="button"
@@ -2156,11 +2472,12 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="size-8 shrink-0"
+                    className="relative size-8 shrink-0"
                     aria-label="Sort portfolios"
                     onClick={() => setSidebarSortDialogOpen(true)}
                   >
                     <ArrowUpDown className="size-4" />
+                    <PortfolioListSortActiveIndicator metric={sidebarSortMetric} />
                   </Button>
                   <Button
                     type="button"
@@ -2556,7 +2873,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                           }}
                           disabled={configHoldingsLoading}
                         >
-                          <SelectTrigger className="h-9 w-full max-w-[168px] shrink-0 text-left text-xs sm:w-[168px]">
+                          <SelectTrigger className="h-9 w-full max-w-[168px] shrink-0 border-0 bg-transparent px-1 text-left text-xs shadow-none hover:bg-muted/50 focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:ring-0 sm:w-[168px] sm:px-2">
                             <SelectValue placeholder="Rebalance date" />
                           </SelectTrigger>
                           <SelectContent align="start">
@@ -2979,6 +3296,39 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                       </div>
                     ) : null}
                   </div>
+                </div>
+                <div className="flex min-h-0 w-full max-w-full min-w-0 flex-col gap-2 overflow-hidden rounded-xl border border-border/80 bg-background/80 p-3 shadow-sm sm:p-4 lg:flex-1 lg:basis-0">
+                  <div className="space-y-1">
+                    <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Rebalance actions
+                    </h4>
+                    <p className="text-[11px] text-muted-foreground">
+                      All rebalance dates for this portfolio.
+                    </p>
+                  </div>
+                  {!yourPortfoliosHoldingsPaid ? (
+                    <div className="flex min-h-[10rem] flex-1 flex-col items-center justify-center gap-3 rounded-md border border-dashed px-4 py-6 text-center">
+                      <Lock className="size-7 shrink-0 text-muted-foreground" aria-hidden />
+                      <p className="max-w-md text-sm text-muted-foreground">
+                        Rebalance actions are available on the Supporter or Outperformer plans.
+                      </p>
+                      <Button size="sm" asChild>
+                        <Link href="/pricing">View plans</Link>
+                      </Button>
+                    </div>
+                  ) : selectedProfile ? (
+                    <div className="min-h-0 flex-1 overflow-auto">
+                      <PortfolioRebalanceActionsTimeline
+                        profile={selectedProfile}
+                        tourMarker
+                        showProfileSummary={false}
+                        anchorId="rebalance-actions"
+                        className="rounded-md border border-border/70 bg-card/25 p-2"
+                      />
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Select a portfolio to view actions.</p>
+                  )}
                 </div>
                 </div>
 

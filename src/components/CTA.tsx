@@ -6,6 +6,7 @@ import { ArrowRight } from 'lucide-react';
 import StockCard from '@/components/ui/stock-card';
 import type { Stock } from '@/types/stock';
 import Link from 'next/link';
+import { loadStocksListClient } from '@/lib/stocks-client';
 
 import { useAuthState } from '@/components/auth/auth-state-context';
 
@@ -25,9 +26,8 @@ const CTA: React.FC = () => {
   const [stocks, setStocks] = useState<Stock[]>([]);
 
   useEffect(() => {
-    fetch('/api/stocks')
-      .then((res) => res.json())
-      .then((data: Stock[]) => {
+    void loadStocksListClient()
+      .then((data) => {
         if (Array.isArray(data)) setStocks(data);
       })
       .catch(() => {});

@@ -12,8 +12,7 @@ const MODEL_INITIAL = 10_000;
 export type PortfolioListSortMetric =
   /** Preserve API / follow order (Your portfolios sidebar default). */
   | 'follow_order'
-  | 'portfolio_value'
-  | 'total_return'
+  | 'portfolio_value_performance'
   | 'composite_score'
   | 'consistency'
   | 'sharpe_ratio'
@@ -41,18 +40,13 @@ type PortfolioListMetricOptionDetail = Omit<PortfolioListSortOptionDetail, 'valu
   value: Exclude<PortfolioListSortMetric, 'follow_order'>;
 };
 
-/** Metrics only — Overview rebalance tab (default sort: total return). Dialog + compact labels. */
+/** Metrics only — Overview rebalance tab (default sort: return, then value). Dialog + compact labels. */
 export const PORTFOLIO_LIST_METRIC_OPTION_DETAILS: PortfolioListMetricOptionDetail[] = [
   {
-    value: 'total_return',
-    label: 'Performance (return %)',
-    description: 'Total return on your portfolio since you entered.',
-  },
-  {
-    value: 'portfolio_value',
-    label: 'Portfolio value',
+    value: 'portfolio_value_performance',
+    label: 'Portfolio value/performance',
     description:
-      'Estimated current value on your track, using your entry and investment size.',
+      'Total return since you entered, then estimated current portfolio value when returns tie.',
   },
   {
     value: 'composite_score',
@@ -139,6 +133,36 @@ function userEntryMetricsReady(payload: ReturnType<typeof getCachedUserEntryPayl
   );
 }
 
+function overviewReturnAndValue(
+  profile: { id: string; investment_size: number; user_start_date: string | null },
+  st: PortfolioListSortCardState | undefined
+): { ret: number | null; val: number | null } {
+  if (!st || st.loading) return { ret: null, val: null };
+  return {
+    ret: st.totalReturn,
+    val: portfolioValueFromSeries(
+      st.series,
+      Number(profile.investment_size),
+      profile.user_start_date
+    ),
+  };
+}
+
+function userEntryReturnAndValue(profile: {
+  id: string;
+  investment_size: number | string;
+  user_start_date: string | null;
+}): { ret: number | null; val: number | null } {
+  const c = getCachedUserEntryPayload(profile.id);
+  const m = c?.metrics;
+  const series = c?.series ?? [];
+  if (!userEntryMetricsReady(c)) return { ret: null, val: null };
+  return {
+    ret: m?.totalReturn ?? null,
+    val: portfolioValueFromSeries(series, Number(profile.investment_size), profile.user_start_date),
+  };
+}
+
 /** Sort key from overview `cardState` (user entry track). */
 export function overviewCardSortValue(
   metric: PortfolioListSortMetric,
@@ -149,20 +173,13 @@ export function overviewCardSortValue(
   switch (metric) {
     case 'follow_order':
       return null;
-    case 'portfolio_value':
-      if (!st || st.loading) return null;
-      return portfolioValueFromSeries(
-        st.series,
-        Number(profile.investment_size),
-        profile.user_start_date
-      );
-    case 'total_return':
+    case 'portfolio_value_performance':
+      return overviewReturnAndValue(profile, st).ret;
     case 'cagr':
     case 'max_drawdown':
     case 'consistency':
     case 'sharpe_ratio': {
       if (!st || st.loading) return null;
-      if (metric === 'total_return') return st.totalReturn;
       if (metric === 'cagr') return st.cagr;
       if (metric === 'max_drawdown') return st.maxDrawdown;
       if (metric === 'consistency') return st.consistency;
@@ -187,6 +204,27 @@ export function sortProfilesByOverviewCardMetric<T extends { id: string }>(
 ): T[] {
   if (metric === 'follow_order') {
     return [...profiles];
+  }
+  if (metric === 'portfolio_value_performance') {
+    return [...profiles].sort((a, b) => {
+      const pa = profileForSort(a);
+      const pb = profileForSort(b);
+      const ta = overviewReturnAndValue(
+        { id: a.id, investment_size: pa.investment_size, user_start_date: pa.user_start_date },
+        cardState[a.id]
+      );
+      const tb = overviewReturnAndValue(
+        { id: b.id, investment_size: pb.investment_size, user_start_date: pb.user_start_date },
+        cardState[b.id]
+      );
+      const na = ta.ret == null || !Number.isFinite(ta.ret) ? -Infinity : ta.ret;
+      const nb = tb.ret == null || !Number.isFinite(tb.ret) ? -Infinity : tb.ret;
+      if (nb !== na) return nb - na;
+      const nva = ta.val == null || !Number.isFinite(ta.val) ? -Infinity : ta.val;
+      const nvb = tb.val == null || !Number.isFinite(tb.val) ? -Infinity : tb.val;
+      if (nvb !== nva) return nvb - nva;
+      return a.id.localeCompare(b.id);
+    });
   }
   return [...profiles].sort((a, b) => {
     const pa = profileForSort(a);
@@ -217,24 +255,18 @@ function userEntryCacheSortValue(
 ): number | null {
   const c = getCachedUserEntryPayload(profile.id);
   const m = c?.metrics;
-  const series = c?.series ?? [];
   const ready = userEntryMetricsReady(c);
-
-  const inv = Number(profile.investment_size);
 
   switch (metric) {
     case 'follow_order':
       return null;
-    case 'portfolio_value':
-      if (!ready) return null;
-      return portfolioValueFromSeries(series, inv, profile.user_start_date);
-    case 'total_return':
+    case 'portfolio_value_performance':
+      return userEntryReturnAndValue(profile).ret;
     case 'cagr':
     case 'max_drawdown':
     case 'consistency':
     case 'sharpe_ratio': {
       if (!ready) return null;
-      if (metric === 'total_return') return m?.totalReturn ?? null;
       if (metric === 'cagr') return m?.cagr ?? null;
       if (metric === 'max_drawdown') return m?.maxDrawdown ?? null;
       if (metric === 'consistency') return m?.consistency ?? null;
@@ -273,6 +305,19 @@ export function sortProfilesByUserEntryCache<
 >(profiles: T[], metric: PortfolioListSortMetric, compositeByProfileId: Map<string, number | null>): T[] {
   if (metric === 'follow_order') {
     return [...profiles];
+  }
+  if (metric === 'portfolio_value_performance') {
+    return [...profiles].sort((a, b) => {
+      const ta = userEntryReturnAndValue(a);
+      const tb = userEntryReturnAndValue(b);
+      const na = ta.ret == null || !Number.isFinite(ta.ret) ? -Infinity : ta.ret;
+      const nb = tb.ret == null || !Number.isFinite(tb.ret) ? -Infinity : tb.ret;
+      if (nb !== na) return nb - na;
+      const nva = ta.val == null || !Number.isFinite(ta.val) ? -Infinity : ta.val;
+      const nvb = tb.val == null || !Number.isFinite(tb.val) ? -Infinity : tb.val;
+      if (nvb !== nva) return nvb - nva;
+      return a.id.localeCompare(b.id);
+    });
   }
   return [...profiles].sort((a, b) => {
     const va = userEntryCacheSortValue(metric, a, compositeByProfileId.get(a.id) ?? null);

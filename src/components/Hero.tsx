@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Search, ArrowRight, TrendingUp, TrendingDown, Lock } from 'lucide-react';
 import { useAnimatedCounter } from '@/lib/animations';
+import { invalidateStocksListClient, loadStocksListClient } from '@/lib/stocks-client';
 import type { Stock } from '@/types/stock';
 import StockCard from '@/components/ui/stock-card';
 import Link from 'next/link';
@@ -59,11 +60,18 @@ const Hero: React.FC = () => {
 
   useEffect(() => {
     if (!authLoaded) return;
+    invalidateStocksListClient();
     let cancelled = false;
-    fetch('/api/stocks')
-      .then((res) => res.json())
-      .then((data: HeroStock[]) => {
-        if (!cancelled && Array.isArray(data) && data.length) setStocks(data);
+    void loadStocksListClient({ bypassCache: true })
+      .then((data) => {
+        if (!cancelled && Array.isArray(data) && data.length) {
+          setStocks(
+            data.map((stock) => ({
+              ...stock,
+              currentRating: stock.currentRating ?? null,
+            }))
+          );
+        }
       })
       .catch(() => {});
     return () => {

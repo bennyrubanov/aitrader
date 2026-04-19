@@ -1,6 +1,7 @@
 import { unstable_cache } from 'next/cache';
 import { RISK_TOP_N } from '@/components/portfolio-config';
 import { buildConfigPerformanceChart } from '@/lib/config-performance-chart';
+import { buildDailyMarkedToMarketSeriesForConfig } from '@/lib/live-mark-to-market';
 import { loadPortfolioConfigsRankedPayload } from '@/lib/portfolio-configs-ranked-core';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
@@ -87,7 +88,22 @@ async function loadLandingTopPortfolioPerformanceUncached(): Promise<LandingTopP
   let rows = initialRows;
   rows = await prependModelInceptionToConfigRows(supabase, ranked.strategyId, rows);
 
-  const { series } = buildConfigPerformanceChart(rows);
+  const built = buildConfigPerformanceChart(rows);
+  let series = built.series;
+  const isReady = mapComputeStatus(rawStatus) === 'ready';
+  if (isReady && series.length >= 2) {
+    const dailySeries = await buildDailyMarkedToMarketSeriesForConfig(supabase, {
+      strategyId: ranked.strategyId,
+      riskLevel: portfolioSlice.riskLevel,
+      rebalanceFrequency: portfolioSlice.rebalanceFrequency,
+      weightingMethod: portfolioSlice.weightingMethod,
+      notionalSeries: series,
+      startDate: series[0]?.date,
+    });
+    if (dailySeries && dailySeries.length >= 2) {
+      series = dailySeries;
+    }
+  }
 
   return {
     series,

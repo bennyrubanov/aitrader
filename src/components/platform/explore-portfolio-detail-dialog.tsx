@@ -791,7 +791,7 @@ export function ExplorePortfolioDetailDialog({
                     }}
                     disabled={holdingsLoading}
                   >
-                    <SelectTrigger className="h-9 min-w-0 flex-1 text-left text-xs sm:w-[168px] sm:flex-none sm:max-w-[168px]">
+                    <SelectTrigger className="h-9 min-w-0 flex-1 border-0 bg-transparent px-1 text-left text-xs shadow-none hover:bg-muted/50 focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:ring-0 sm:w-[168px] sm:flex-none sm:max-w-[168px] sm:px-2">
                       <SelectValue placeholder="Rebalance date" />
                     </SelectTrigger>
                     <SelectContent align="start">

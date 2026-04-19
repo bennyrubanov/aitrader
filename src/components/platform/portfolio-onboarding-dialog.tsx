@@ -1,7 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useReducer, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -85,8 +85,13 @@ import {
 import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
 import type { FullConfigPerformanceMetrics } from '@/lib/config-performance-chart';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
+import { loadRankedConfigsClient } from '@/lib/portfolio-configs-ranked-client';
 import { setGuestDeclinedAccountNudgeThisSession } from '@/lib/guest-account-nudge-session';
-import { queuePlatformPostOnboardingTour } from '@/lib/platform-post-onboarding-tour';
+import {
+  isPostOnboardingTourQueuePending,
+  PLATFORM_POST_ONBOARDING_TOUR_QUEUED_EVENT,
+  queuePlatformPostOnboardingTour,
+} from '@/lib/platform-post-onboarding-tour';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
 import type { LucideIcon } from 'lucide-react';
 
@@ -439,6 +444,8 @@ export function PortfolioOnboardingDialog({
   const [guestResumeEventsActive, setGuestResumeEventsActive] = useState(false);
   /** Cross-tab: another tab holds the guest resume global lock (localStorage). */
   const [crossTabGuestResumeLock, setCrossTabGuestResumeLock] = useState(false);
+  /** Re-read session tour queue after same-tab {@link PLATFORM_POST_ONBOARDING_TOUR_QUEUED_EVENT}. */
+  const [, bumpPostTourQueuedRender] = useReducer((n: number) => n + 1, 0);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -453,14 +460,29 @@ export function PortfolioOnboardingDialog({
     return () => window.removeEventListener('storage', onStorage);
   }, []);
 
+  const hasPendingGuestFollow =
+    typeof window !== 'undefined' && readPendingGuestPortfolioFollow() != null;
+
   const pendingGuestFollowOrResumeLock =
     typeof window !== 'undefined' &&
-    authState.isAuthenticated &&
-    (readPendingGuestPortfolioFollow() != null ||
-      isGuestPortfolioResumeUILocked() ||
-      crossTabGuestResumeLock);
+    ((hasPendingGuestFollow && (!authState.isLoaded || authState.isAuthenticated)) ||
+      (authState.isAuthenticated &&
+        (isGuestPortfolioResumeUILocked() || crossTabGuestResumeLock)));
 
-  const suppressForGuestResume = guestResumeEventsActive || pendingGuestFollowOrResumeLock;
+  const suppressForPostTourQueue =
+    typeof window !== 'undefined' && isPostOnboardingTourQueuePending();
+
+  const suppressForGuestResume =
+    guestResumeEventsActive ||
+    pendingGuestFollowOrResumeLock ||
+    suppressForPostTourQueue;
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onTourQueued = () => bumpPostTourQueuedRender();
+    window.addEventListener(PLATFORM_POST_ONBOARDING_TOUR_QUEUED_EVENT, onTourQueued);
+    return () => window.removeEventListener(PLATFORM_POST_ONBOARDING_TOUR_QUEUED_EVENT, onTourQueued);
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -550,15 +572,11 @@ export function PortfolioOnboardingDialog({
     setFinaleLoading(true);
     setFinaleRanked(null);
     const slug = draft.strategySlug;
-    void fetch(`/api/platform/portfolio-configs-ranked?slug=${encodeURIComponent(slug)}`)
-      .then((r) => r.json())
+    void loadRankedConfigsClient(slug)
       .then(
-        (data: {
-          configs?: RankedConfig[];
-          modelInceptionDate?: string | null;
-          latestPerformanceDate?: string | null;
-        }) => {
+        (data) => {
           if (cancelled) return;
+          if (!data) throw new Error('missing ranked payload');
           const configs = data.configs ?? [];
           const matched =
             configs.find(

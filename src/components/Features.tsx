@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useRef } from 'react';
-import { useIsVisible } from '@/lib/animations';
+import { useHasBeenVisible } from '@/lib/animations';
 import { BarChart3, TrendingUp, BrainCircuit, Eye, Clock, ShieldCheck } from 'lucide-react';
 
 interface FeatureProps {
@@ -13,7 +13,7 @@ interface FeatureProps {
 
 const Feature: React.FC<FeatureProps> = ({ icon, title, description, delay }) => {
   const ref = useRef<HTMLDivElement>(null);
-  const isVisible = useIsVisible(ref);
+  const isVisible = useHasBeenVisible(ref);
 
   return (
     <div
@@ -84,7 +84,7 @@ const Features: React.FC = () => {
   ];
 
   const titleRef = useRef<HTMLHeadingElement>(null);
-  const isTitleVisible = useIsVisible(titleRef);
+  const isTitleVisible = useHasBeenVisible(titleRef);
 
   return (
     <section id="protocol" className="py-20 bg-muted/40">

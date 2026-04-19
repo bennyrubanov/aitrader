@@ -1,18 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import {
-  Activity,
-  ArrowDownRight,
-  ArrowUpRight,
-  LineChart,
-  ListOrdered,
-  Scale,
-  Sparkles,
-  TrendingUp,
-  Wallet,
-  type LucideIcon,
-} from 'lucide-react';
+import { ArrowUpRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -27,18 +16,8 @@ import {
   type PortfolioListSortMetric,
   type PortfolioListSortOptionDetail,
 } from '@/lib/portfolio-profile-list-sort';
+import { PORTFOLIO_LIST_SORT_OPTION_ICONS } from '@/lib/portfolio-list-sort-icons';
 import { cn } from '@/lib/utils';
-
-const SORT_OPTION_ICONS: Record<PortfolioListSortMetric, LucideIcon> = {
-  follow_order: ListOrdered,
-  portfolio_value: Wallet,
-  total_return: TrendingUp,
-  composite_score: Sparkles,
-  consistency: Activity,
-  sharpe_ratio: Scale,
-  cagr: LineChart,
-  max_drawdown: ArrowDownRight,
-};
 
 const SIDEBAR_ROWS: PortfolioListSortOptionDetail[] = [
   PORTFOLIO_LIST_FOLLOW_ORDER_DETAIL,
@@ -73,7 +52,7 @@ export function PortfolioListSortDialog({
           <ul className="space-y-1.5" role="listbox" aria-label="Sort portfolios">
             {rows.map((opt) => {
               const selected = value === opt.value;
-              const Icon = SORT_OPTION_ICONS[opt.value];
+              const Icon = PORTFOLIO_LIST_SORT_OPTION_ICONS[opt.value];
               return (
                 <li key={opt.value}>
                   <div

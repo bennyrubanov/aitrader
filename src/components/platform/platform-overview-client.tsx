@@ -13,6 +13,7 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
+  ArrowLeftRight,
   ArrowDownRight,
   ArrowRight,
   ArrowUpDown,
@@ -40,6 +41,7 @@ import {
 import { ENTRY_DATE_KEY } from '@/components/portfolio-config/portfolio-config-storage';
 import { ExplorePortfolioFilterControls } from '@/components/platform/explore-portfolio-filter-controls';
 import { ExplorePortfolioDetailDialog } from '@/components/platform/explore-portfolio-detail-dialog';
+import { PortfolioListSortActiveIndicator } from '@/components/platform/portfolio-list-sort-active-indicator';
 import { PortfolioListSortDialog } from '@/components/platform/portfolio-list-sort-dialog';
 import { HoldingRankWithChange } from '@/components/platform/holding-rank-with-change';
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
@@ -126,6 +128,8 @@ import {
   prefetchExploreHoldingsDates,
   sleepMs,
 } from '@/lib/portfolio-config-holdings-cache';
+import { loadRankedConfigsClient } from '@/lib/portfolio-configs-ranked-client';
+import { loadUserPortfolioProfilesClient } from '@/lib/user-portfolio-profiles-client';
 import {
   parsePlatformOverviewTab,
   platformOverviewPath,
@@ -148,6 +152,7 @@ import {
   fetchGuestPortfolioConfigPerformanceJson,
   isGuestLocalProfileId,
 } from '@/lib/guest-local-profile';
+import { loadUserEntryPayloadCached } from '@/lib/your-portfolio-data-cache';
 import { cn } from '@/lib/utils';
 import { buildLiveHoldingsAllocationResult } from '@/lib/live-holdings-allocation';
 
@@ -171,6 +176,11 @@ const OVERVIEW_PAGE_QUICK_LINKS: {
   label: string;
   icon: typeof Sparkles;
 }[] = [
+  {
+    href: '/platform/your-portfolios#rebalance-actions',
+    label: 'Rebalance actions',
+    icon: ArrowLeftRight,
+  },
   { href: '/platform/ratings', label: 'Stock Ratings', icon: Sparkles },
   { href: '/platform/your-portfolios', label: 'Your portfolios', icon: Folders },
   { href: '/platform/explore-portfolios', label: 'Explore portfolios', icon: Compass },
@@ -280,7 +290,7 @@ type OverviewCardPerfState = {
   loading: boolean;
 };
 
-const TOP_SPOTLIGHT_SORT_METRIC: PortfolioListSortMetric = 'total_return';
+const TOP_SPOTLIGHT_SORT_METRIC: PortfolioListSortMetric = 'portfolio_value_performance';
 
 function emptyOverviewCardPerfState(loading: boolean): OverviewCardPerfState {
   return {
@@ -1143,6 +1153,81 @@ function RebalanceActionsTable({
   );
 }
 
+function TopPortfolioLatestRebalanceSection({
+  profileId,
+  weightingMethod,
+  enabled,
+}: {
+  profileId: string;
+  weightingMethod?: string | null;
+  enabled: boolean;
+}) {
+  const [state, setState] = useState<ProfileMovementFetchState | null>(null);
+
+  useEffect(() => {
+    if (!enabled) {
+      setState(null);
+      return;
+    }
+    let cancelled = false;
+    const cacheKey = portfolioMovementCacheKey(profileId, null);
+    const cached = portfolioMovementFetchCache.get(cacheKey);
+    if (cached) {
+      setState(cached);
+      return;
+    }
+    setState({ loading: true });
+    void loadPortfolioMovementDeduped(profileId, null).then((result) => {
+      if (!cancelled) setState(result);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, profileId]);
+
+  if (!enabled) return null;
+
+  const payload = state && !state.loading && 'data' in state ? state.data : null;
+  const error = state && !state.loading && 'error' in state ? state.error : null;
+
+  return (
+    <div className="space-y-2 rounded-xl border border-border/70 bg-background/40 p-3 sm:p-4">
+      <div className="space-y-1">
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Latest rebalance actions
+        </h4>
+        {payload?.lastRebalanceDate ? (
+          <p className="text-sm font-medium text-foreground">
+            Rebalance date:{' '}
+            <span className="tabular-nums">{formatYmdDisplay(payload.lastRebalanceDate)}</span>
+          </p>
+        ) : null}
+      </div>
+      {!state || state.loading ? (
+        <Skeleton className="h-24 w-full rounded-md" />
+      ) : error ? (
+        <p className="text-sm text-muted-foreground">{error}</p>
+      ) : payload?.status === 'ok' ? (
+        <div className="space-y-2">
+          <RebalanceActionsTable
+            hold={payload.hold}
+            buy={payload.buy}
+            sell={payload.sell}
+            weightingMethod={weightingMethod}
+          />
+          {payload.buy.length === 0 && payload.sell.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No buy or sell actions on the latest rebalance.</p>
+          ) : null}
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          {payload?.message ?? 'Rebalance actions are not available yet.'}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function SinglePortfolioRebalanceMovementSection({
   profile,
   rankedBySlug,
@@ -1476,26 +1561,37 @@ function StockMovementPanel({
 
 type OverviewProps = {
   strategies: StrategyListItem[];
+  workspaceView?: 'overview' | 'rebalance-actions';
 };
 
-export function PlatformOverviewClient({ strategies }: OverviewProps) {
+export function PlatformOverviewClient({
+  strategies,
+  workspaceView = 'overview',
+}: OverviewProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const isRebalanceWorkspace = workspaceView === 'rebalance-actions';
   const urlTab = parsePlatformOverviewTab(searchParams.get(PLATFORM_OVERVIEW_TAB_PARAM));
   /** Cleared whenever `urlTab` updates so the active indicator tracks clicks before `router.replace` finishes. */
   const [tabOverride, setTabOverride] = useState<PlatformOverviewTab | null>(null);
   useEffect(() => {
     setTabOverride(null);
   }, [urlTab]);
-  const overviewTab = tabOverride ?? urlTab;
+  const overviewTab = isRebalanceWorkspace ? 'rebalance-actions' : (tabOverride ?? urlTab);
   const setOverviewTab = useCallback(
     (v: string) => {
       const next = parsePlatformOverviewTab(v);
+      if (isRebalanceWorkspace) {
+        if (next !== 'rebalance-actions') {
+          router.replace(platformOverviewPath(next, pathname));
+        }
+        return;
+      }
       setTabOverride(next);
       router.replace(platformOverviewPath(next, pathname));
     },
-    [router, pathname]
+    [isRebalanceWorkspace, router, pathname]
   );
   const authState = useAuthState();
   const refreshAuthProfile = useRefreshAuthProfile();
@@ -1512,10 +1608,9 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   } = usePortfolioConfig();
 
   useEffect(() => {
-    if (!overviewPaidHoldings && overviewTab === 'rebalance-actions') {
-      setOverviewTab('top-portfolio');
-    }
-  }, [overviewPaidHoldings, overviewTab, setOverviewTab]);
+    if (isRebalanceWorkspace || overviewTab !== 'rebalance-actions') return;
+    router.replace('/platform/your-portfolios#rebalance-actions');
+  }, [isRebalanceWorkspace, overviewTab, router]);
 
   /** One soft nudge per overview mount; skip while portfolio onboarding is active for guests. */
   /* eslint-disable react-hooks/exhaustive-deps -- pathname omitted: re-including it re-opened signup on every workspace tab switch */
@@ -1617,15 +1712,17 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
       const delayMs = 150;
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         try {
-          const r = await fetch('/api/platform/user-portfolio-profile', { cache: 'no-store' });
-          if (!r.ok) {
+          const d = (await loadUserPortfolioProfilesClient({
+            bypassCache: true,
+            noStore: true,
+          })) as {
+            profiles?: ProfileRow[];
+            overviewSlotAssignments?: Record<string, string>;
+          } | null;
+          if (!d) {
             await new Promise((res) => setTimeout(res, delayMs));
             continue;
           }
-          const d = (await r.json()) as {
-            profiles?: ProfileRow[];
-            overviewSlotAssignments?: Record<string, string>;
-          };
           const raw = d.profiles ?? [];
           const next = raw.map((p) => normalizeOverviewProfile({ ...p } as ProfileRow));
           const slots = parseOverviewSlotAssignments(d.overviewSlotAssignments);
@@ -2020,24 +2117,16 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     setRankedLoading(true);
     void Promise.all(
       slugs.map((slug) =>
-        fetch(`/api/platform/portfolio-configs-ranked?slug=${encodeURIComponent(slug)}`)
-          .then((r) => r.json())
-          .then(
-            (d: {
-              configs?: RankedConfig[];
-              modelInceptionDate?: string | null;
-              strategyName?: string;
-              latestPerformanceDate?: string | null;
-            }) => ({
-              slug,
-              bundle: {
-                configs: d.configs ?? [],
-                modelInceptionDate: d.modelInceptionDate ?? null,
-                strategyName: d.strategyName ?? slug,
-              },
-              latestPerformanceDate: d.latestPerformanceDate ?? null,
-            })
-          )
+        loadRankedConfigsClient(slug)
+          .then((d) => ({
+            slug,
+            bundle: {
+              configs: d?.configs ?? [],
+              modelInceptionDate: d?.modelInceptionDate ?? null,
+              strategyName: d?.strategyName ?? slug,
+            },
+            latestPerformanceDate: d?.latestPerformanceDate ?? null,
+          }))
           .catch(() => ({
             slug,
             bundle: {
@@ -2068,12 +2157,14 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   const refreshOverviewProfiles = useCallback(async () => {
     if (!authState.isAuthenticated) return;
     try {
-      const r = await fetch('/api/platform/user-portfolio-profile', { cache: 'no-store' });
-      if (!r.ok) return;
-      const d = (await r.json()) as {
+      const d = (await loadUserPortfolioProfilesClient({
+        bypassCache: true,
+        noStore: true,
+      })) as {
         profiles?: ProfileRow[];
         overviewSlotAssignments?: Record<string, string>;
-      };
+      } | null;
+      if (!d) return;
       setProfiles((d.profiles ?? []).map((p) => normalizeOverviewProfile({ ...p } as ProfileRow)));
       setOverviewSlotAssignments(parseOverviewSlotAssignments(d.overviewSlotAssignments));
     } catch {
@@ -2144,7 +2235,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   }, []);
 
   const [rebalanceListSortMetric, setRebalanceListSortMetric] =
-    useState<PortfolioListSortMetric>('total_return');
+    useState<PortfolioListSortMetric>('portfolio_value_performance');
 
   /** Same ordering as overview card loads — stable while tiles finish so the rebalance list does not reshuffle. */
   const profilesSortedForRebalance = useMemo(
@@ -2390,6 +2481,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                   }
                   const payload = buildGuestUserEntryPerformancePayload(
                     raw.rows,
+                    raw.series,
                     raw.computeStatus,
                     start,
                     Number(p.investment_size)
@@ -2404,10 +2496,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                 .catch(onUserEntryFetchError);
             }
 
-            return fetch(
-              `/api/platform/user-portfolio-performance?profileId=${encodeURIComponent(p.id)}`
-            )
-              .then((r) => r.json())
+            return loadUserEntryPayloadCached(p.id)
               .then(applyUserEntryPayload)
               .catch(onUserEntryFetchError);
           })
@@ -3008,94 +3097,64 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
             </>
           ) : (
             <Tabs value={overviewTab} onValueChange={setOverviewTab} className="w-full space-y-2">
-              <div className="space-y-2 pb-1">
-                <div className="rounded-xl border border-border/70 bg-muted/25 px-3 py-3 shadow-sm sm:px-4 sm:py-3.5 dark:bg-muted/15">
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                    <div className="flex min-w-0 flex-1 flex-col gap-1.5 sm:flex-row sm:items-start sm:gap-4 lg:gap-6">
-                      <h1 className="shrink-0 text-2xl font-semibold tracking-tight text-foreground">
-                        Overview
-                      </h1>
-                      <p className="min-w-0 max-w-2xl flex-1 text-sm leading-relaxed text-muted-foreground sm:pt-1">
-                        Your top portfolio by performance, and how to
-                        rebalance to keep up with the AI's ratings.
-                      </p>
-                    </div>
-                    <TooltipProvider delayDuration={200}>
-                      <TabsList
-                        className={cn(
-                          'grid h-auto w-full max-w-md shrink-0 gap-1 rounded-lg bg-muted p-1 text-muted-foreground lg:h-9 lg:w-auto lg:max-w-none lg:inline-flex lg:shrink-0',
-                          SHOW_OVERVIEW_TILES_TAB_IN_UI ? 'grid-cols-3' : 'grid-cols-2'
-                        )}
-                      >
-                        <TabsTrigger
-                          value="top-portfolio"
-                          className="rounded-md px-3 py-2 text-xs font-medium data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm sm:py-1.5 sm:text-sm"
-                        >
-                          Top portfolio
-                        </TabsTrigger>
-                        {!overviewPaidHoldings ? (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span className="inline-flex min-w-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background">
-                                <TabsTrigger
-                                  value="rebalance-actions"
-                                  disabled
-                                  data-platform-tour="overview-rebalance-tab"
-                                  className="w-full rounded-md px-3 py-2 text-xs font-medium data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm sm:py-1.5 sm:text-sm"
-                                >
-                                  <span className="inline-flex items-center gap-1.5">
-                                    Rebalance Actions
-                                    <Lock className="size-3 shrink-0 opacity-70" aria-hidden />
-                                  </span>
-                                </TabsTrigger>
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent side="bottom" className="max-w-xs text-xs">
-                              <p className="mb-2 leading-snug">
-                                To see the stocks you need to buy and sell to stay invested, you need a paid plan — Supporter or Outperformer.
-                              </p>
-                              <div className="flex justify-center">
-                                <Button size="sm" className="h-8" asChild>
-                                  <Link href="/pricing">View plans</Link>
-                                </Button>
-                              </div>
-                            </TooltipContent>
-                          </Tooltip>
-                        ) : (
-                          <TabsTrigger
-                            value="rebalance-actions"
-                            data-platform-tour="overview-rebalance-tab"
-                            className="rounded-md px-3 py-2 text-xs font-medium data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm sm:py-1.5 sm:text-sm"
+              {isRebalanceWorkspace || SHOW_OVERVIEW_TILES_TAB_IN_UI ? (
+                <div className="space-y-2 pb-1">
+                  <div className="rounded-xl border border-border/70 bg-muted/25 px-3 py-3 shadow-sm sm:px-4 sm:py-3.5 dark:bg-muted/15">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                      {isRebalanceWorkspace ? (
+                        <div className="flex min-w-0 flex-1 flex-col gap-1.5 sm:flex-row sm:items-start sm:gap-4 lg:gap-6">
+                          <h1 className="shrink-0 text-2xl font-semibold tracking-tight text-foreground">
+                            Rebalance Actions
+                          </h1>
+                          <p className="min-w-0 max-w-2xl flex-1 text-sm leading-relaxed text-muted-foreground sm:pt-1">
+                            See the suggested buys and sells for your followed portfolios to stay
+                            aligned with the AI&apos;s latest ratings.
+                          </p>
+                        </div>
+                      ) : null}
+                      {!isRebalanceWorkspace && SHOW_OVERVIEW_TILES_TAB_IN_UI ? (
+                        <TooltipProvider delayDuration={200}>
+                          <TabsList
+                            className={cn(
+                              'grid h-auto w-full max-w-md shrink-0 gap-1 rounded-lg bg-muted p-1 text-muted-foreground lg:h-9 lg:w-auto lg:max-w-none lg:inline-flex lg:shrink-0',
+                              'grid-cols-2'
+                            )}
                           >
-                            <span className="inline-flex items-center gap-1.5">Rebalance Actions</span>
-                          </TabsTrigger>
-                        )}
-                        <TabsTrigger
-                          value="overview-tiles"
-                          className={cn(
-                            'rounded-md px-3 py-2 text-xs font-medium data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm sm:py-1.5 sm:text-sm',
-                            !SHOW_OVERVIEW_TILES_TAB_IN_UI && 'hidden'
-                          )}
-                          tabIndex={SHOW_OVERVIEW_TILES_TAB_IN_UI ? 0 : -1}
-                          aria-hidden={!SHOW_OVERVIEW_TILES_TAB_IN_UI}
-                        >
-                          Overview tiles
-                        </TabsTrigger>
-                      </TabsList>
-                    </TooltipProvider>
+                            <TabsTrigger
+                              value="top-portfolio"
+                              className="rounded-md px-3 py-2 text-xs font-medium data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm sm:py-1.5 sm:text-sm"
+                            >
+                              Top portfolio
+                            </TabsTrigger>
+                            <TabsTrigger
+                              value="overview-tiles"
+                              className={cn(
+                                'rounded-md px-3 py-2 text-xs font-medium data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm sm:py-1.5 sm:text-sm',
+                                !SHOW_OVERVIEW_TILES_TAB_IN_UI && 'hidden'
+                              )}
+                              tabIndex={SHOW_OVERVIEW_TILES_TAB_IN_UI ? 0 : -1}
+                              aria-hidden={!SHOW_OVERVIEW_TILES_TAB_IN_UI}
+                            >
+                              Overview tiles
+                            </TabsTrigger>
+                          </TabsList>
+                        </TooltipProvider>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
-              </div>
+              ) : null}
 
-              <TabsContent
-                value="top-portfolio"
-                forceMount
-                data-platform-tour="overview-top-portfolio-panel"
-                {...(!spotlightSectionLoading && !(topSpotlightOverview && topSpotlightHoldingsLoading)
-                  ? { 'data-platform-tour-overview-ready': '1' }
-                  : {})}
-                className="mt-0 space-y-2 ring-offset-0 focus-visible:outline-none focus-visible:ring-0 data-[state=inactive]:hidden"
-              >
+              {!isRebalanceWorkspace ? (
+                <TabsContent
+                  value="top-portfolio"
+                  forceMount
+                  data-platform-tour="overview-top-portfolio-panel"
+                  {...(!spotlightSectionLoading && !(topSpotlightOverview && topSpotlightHoldingsLoading)
+                    ? { 'data-platform-tour-overview-ready': '1' }
+                    : {})}
+                  className="mt-0 space-y-2 ring-offset-0 focus-visible:outline-none focus-visible:ring-0 data-[state=inactive]:hidden lg:min-h-0 lg:overflow-hidden"
+                >
                 <div className="space-y-2">
                   {spotlightSectionLoading ? (
                     <OverviewTopPortfolioSpotlightSkeleton />
@@ -3138,7 +3197,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                           ? st.excessReturnVsNasdaqCap
                           : excessVsNasdaqCap;
                       return (
-                        <section className="rounded-xl border border-border bg-card/50 p-4 sm:p-5">
+                        <section className="rounded-xl border border-border bg-card/50 p-4 sm:p-5 lg:h-[calc(100svh-14.75rem)] lg:overflow-hidden">
                           <div className="mb-2 flex min-w-0 items-start justify-between gap-3">
                             <div className="min-w-0 flex flex-wrap items-center gap-x-1.5 gap-y-1">
                               <h2 className="shrink-0 text-sm font-semibold tracking-tight text-foreground">
@@ -3189,24 +3248,6 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                   </span>
                                 </>
                               ) : null}
-                              <>
-                                <span className="shrink-0 text-muted-foreground/60" aria-hidden>
-                                  ·
-                                </span>
-                                <span className="min-w-0 text-sm text-muted-foreground">
-                                  Investment:{' '}
-                                  {formatOverviewInvestmentSize(investmentSize) ?? '—'}
-                                </span>
-                                <span className="shrink-0 text-muted-foreground/60" aria-hidden>
-                                  ·
-                                </span>
-                                <span className="min-w-0 text-sm text-muted-foreground">
-                                  Entry on{' '}
-                                  {bp.user_start_date?.trim()
-                                    ? formatYmdDisplay(bp.user_start_date.trim())
-                                    : '—'}
-                                </span>
-                              </>
                             </div>
                             {bp.user_start_date ? (
                               <Button
@@ -3226,105 +3267,111 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                               Data still gathering — returns update after more market closes.
                             </p>
                           ) : null}
-                          <div className="grid gap-4 lg:grid-cols-[minmax(0,11rem)_minmax(0,1.25fr)_minmax(0,0.75fr)] lg:items-start">
-                              <div className="mx-auto grid w-full max-w-full grid-cols-2 gap-2 sm:gap-3 lg:mx-0 lg:max-w-[11rem] lg:grid-cols-1 lg:gap-2 lg:max-h-[min(70vh,520px)] lg:overflow-y-auto lg:pr-1">
-                                <SpotlightStatCard
-                                  tooltipKey="portfolio_value"
-                                  label="Portfolio value"
-                                  value={val != null ? formatOverviewCurrency(val) : '—'}
-                                  valueSuffix={
-                                    val != null ? ` (${fmt.pct(st.totalReturn)})` : undefined
-                                  }
-                                  suffixPositive={
-                                    val != null &&
-                                    st.totalReturn != null &&
-                                    Number.isFinite(st.totalReturn)
-                                      ? st.totalReturn > 0
-                                      : undefined
-                                  }
-                                />
-                                <SpotlightStatCard
-                                  tooltipKey="return_pct"
-                                  label="Performance (return %)"
-                                  value={fmt.pct(st.totalReturn)}
-                                  positive={
-                                    st.totalReturn != null && Number.isFinite(st.totalReturn)
-                                      ? st.totalReturn > 0
-                                      : undefined
-                                  }
-                                />
-                                <SpotlightStatCard
-                                  tooltipKey="cagr"
-                                  label="CAGR"
-                                  value={fmt.pct(st.cagr)}
-                                  positive={
-                                    st.cagr != null && Number.isFinite(st.cagr)
-                                      ? st.cagr > 0
-                                      : undefined
-                                  }
-                                />
-                                <SpotlightStatCard
-                                  tooltipKey="sharpe_ratio"
-                                  label="Sharpe ratio"
-                                  value={fmt.num(st.sharpeRatio)}
-                                  valueClassName={
-                                    st.sharpeRatio != null && Number.isFinite(st.sharpeRatio)
-                                      ? sharpeRatioValueClass(st.sharpeRatio)
-                                      : undefined
-                                  }
-                                />
-                                <SpotlightStatCard
-                                  tooltipKey="max_drawdown"
-                                  label="Max drawdown"
-                                  value={fmt.pct(st.maxDrawdown)}
-                                  positive={
-                                    st.maxDrawdown != null && Number.isFinite(st.maxDrawdown)
-                                      ? st.maxDrawdown > -0.2
-                                      : undefined
-                                  }
-                                />
-                                <SpotlightStatCard
-                                  tooltipKey="consistency"
-                                  label="Consistency (weekly vs NDX cap)"
-                                  value={st.consistency != null ? fmt.pct(st.consistency, 0) : '—'}
-                                  positive={
-                                    st.consistency != null ? st.consistency > 0.5 : undefined
-                                  }
-                                />
-                                <SpotlightStatCard
-                                  tooltipKey="vs_nasdaq_cap"
-                                  label="Performance vs Nasdaq-100 (cap)"
-                                  value={fmt.pct(excessNdxForDisplay)}
-                                  positive={
-                                    excessNdxForDisplay != null &&
-                                    Number.isFinite(excessNdxForDisplay)
-                                      ? excessNdxForDisplay > 0
-                                      : undefined
-                                  }
-                                />
-                                <SpotlightStatCard
-                                  tooltipKey="vs_sp500"
-                                  label="Performance vs S&P 500 (cap)"
-                                  value={fmt.pct(excessVsSp500)}
-                                  positive={
-                                    excessVsSp500 != null && Number.isFinite(excessVsSp500)
-                                      ? excessVsSp500 > 0
-                                      : undefined
-                                  }
-                                />
-                              </div>
-                              <div className="min-w-0 rounded-xl border bg-background/60 p-3 sm:p-4">
-                                {series.length > 1 ? (
-                                  <PerformanceChart
-                                    series={series}
-                                    strategyName={bp.strategy_models?.name ?? 'Portfolio'}
-                                    hideDrawdown
-                                    hideFootnote
-                                    initialNotional={initialNotional}
-                                    chartContainerClassName="h-[288px] sm:h-[328px]"
+                          <div className="grid gap-4 lg:h-full lg:min-h-0 lg:grid-cols-[minmax(0,11rem)_minmax(0,1.25fr)_minmax(0,0.8fr)] lg:items-start">
+                              <div className="mx-auto flex w-full max-w-full flex-col gap-2 sm:gap-3 lg:mx-0 lg:max-w-[11rem] lg:gap-2 lg:max-h-[min(68vh,520px)] lg:overflow-y-auto lg:pr-1">
+                                <div className="grid w-full grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-1 lg:gap-2">
+                                  <SpotlightStatCard
+                                    tooltipKey="portfolio_value"
+                                    label="Portfolio value"
+                                    value={val != null ? formatOverviewCurrency(val) : '—'}
+                                    valueSuffix={
+                                      val != null ? ` (${fmt.pct(st.totalReturn)})` : undefined
+                                    }
+                                    suffixPositive={
+                                      val != null &&
+                                      st.totalReturn != null &&
+                                      Number.isFinite(st.totalReturn)
+                                        ? st.totalReturn > 0
+                                        : undefined
+                                    }
                                   />
+                                  <SpotlightStatCard
+                                    tooltipKey="vs_sp500"
+                                    label="Performance vs S&P 500 (cap)"
+                                    value={fmt.pct(excessVsSp500)}
+                                    positive={
+                                      excessVsSp500 != null && Number.isFinite(excessVsSp500)
+                                        ? excessVsSp500 > 0
+                                        : undefined
+                                    }
+                                  />
+                                  <div className="hidden rounded-lg border bg-card px-2 py-2 lg:col-span-1 lg:block">
+                                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                      Entry date
+                                    </p>
+                                    <p className="text-sm font-semibold tabular-nums leading-tight text-foreground">
+                                      {bp.user_start_date?.trim()
+                                        ? formatYmdDisplay(bp.user_start_date.trim())
+                                        : '—'}
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="hidden w-full gap-2 lg:grid">
+                                  <SpotlightStatCard
+                                    tooltipKey="cagr"
+                                    label="CAGR"
+                                    value={fmt.pct(st.cagr)}
+                                    positive={
+                                      st.cagr != null && Number.isFinite(st.cagr)
+                                        ? st.cagr > 0
+                                        : undefined
+                                    }
+                                  />
+                                  <SpotlightStatCard
+                                    tooltipKey="sharpe_ratio"
+                                    label="Sharpe ratio"
+                                    value={fmt.num(st.sharpeRatio)}
+                                    valueClassName={
+                                      st.sharpeRatio != null && Number.isFinite(st.sharpeRatio)
+                                        ? sharpeRatioValueClass(st.sharpeRatio)
+                                        : undefined
+                                    }
+                                  />
+                                  <SpotlightStatCard
+                                    tooltipKey="max_drawdown"
+                                    label="Max drawdown"
+                                    value={fmt.pct(st.maxDrawdown)}
+                                    positive={
+                                      st.maxDrawdown != null && Number.isFinite(st.maxDrawdown)
+                                        ? st.maxDrawdown > -0.2
+                                        : undefined
+                                    }
+                                  />
+                                  <SpotlightStatCard
+                                    tooltipKey="consistency"
+                                    label="Consistency (weekly vs NDX cap)"
+                                    value={st.consistency != null ? fmt.pct(st.consistency, 0) : '—'}
+                                    positive={
+                                      st.consistency != null ? st.consistency > 0.5 : undefined
+                                    }
+                                  />
+                                  <SpotlightStatCard
+                                    tooltipKey="vs_nasdaq_cap"
+                                    label="Performance vs Nasdaq-100 (cap)"
+                                    value={fmt.pct(excessNdxForDisplay)}
+                                    positive={
+                                      excessNdxForDisplay != null &&
+                                      Number.isFinite(excessNdxForDisplay)
+                                        ? excessNdxForDisplay > 0
+                                        : undefined
+                                    }
+                                  />
+                                </div>
+                              </div>
+                              <div className="relative min-w-0 rounded-xl border bg-background/60 p-3 sm:p-4">
+                                {series.length > 1 ? (
+                                  <div className="pb-11">
+                                    <PerformanceChart
+                                      series={series}
+                                      strategyName="Your top portfolio"
+                                      hideDrawdown
+                                      hideFootnote
+                                      initialNotional={initialNotional}
+                                      chartContainerClassName="h-[288px] sm:h-[328px]"
+                                    />
+                                  </div>
                                 ) : (
-                                  <div className="flex h-[272px] flex-col items-center justify-center gap-2 px-4 text-center text-sm text-muted-foreground lg:h-[328px]">
+                                  <div className="flex h-[272px] flex-col items-center justify-center gap-2 px-4 pb-10 text-center text-sm text-muted-foreground lg:h-[328px]">
                                     <p>Not enough history to chart yet.</p>
                                     {bp.user_start_date ? (
                                       <>
@@ -3347,8 +3394,27 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                     ) : null}
                                   </div>
                                 )}
+                                <Button
+                                  asChild
+                                  variant="secondary"
+                                  size="sm"
+                                  className="absolute bottom-3 right-3 z-10 h-8 gap-1.5 border border-border/80 bg-background/95 text-xs shadow-sm backdrop-blur-sm hover:bg-muted/80"
+                                >
+                                  <Link
+                                    href={`/platform/your-portfolios?profile=${encodeURIComponent(bp.id)}`}
+                                    prefetch
+                                    onMouseEnter={() =>
+                                      router.prefetch(
+                                        `/platform/your-portfolios?profile=${encodeURIComponent(bp.id)}`
+                                      )
+                                    }
+                                  >
+                                    Go to portfolio
+                                    <ArrowRight className="size-3.5 shrink-0" aria-hidden />
+                                  </Link>
+                                </Button>
                               </div>
-                              <div className="min-w-0 space-y-2">
+                              <div className="min-w-0 space-y-2 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
                                 <div className="flex flex-col gap-2">
                                   <h4 className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                                     Portfolio holdings
@@ -3371,7 +3437,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                         }}
                                         disabled={topSpotlightHoldingsLoading}
                                       >
-                                        <SelectTrigger className="h-9 w-full max-w-[168px] shrink-0 text-left text-xs sm:w-[168px]">
+                                        <SelectTrigger className="h-9 w-full max-w-[168px] shrink-0 border-0 bg-transparent px-1 text-left text-xs shadow-none hover:bg-muted/50 focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:ring-0 sm:w-[168px] sm:px-2">
                                           <SelectValue placeholder="Rebalance date" />
                                         </SelectTrigger>
                                         <SelectContent align="start">
@@ -3481,7 +3547,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                           topSpotlightHoldingsRefreshing && 'opacity-[0.65]'
                                         )}
                                       >
-                                    <div className="max-h-[min(56vh,400px)] overflow-auto rounded-md border">
+                                    <div className="max-h-[14.5rem] overflow-auto rounded-md border lg:max-h-[min(44vh,340px)]">
                                       <Table>
                                         <TableHeader>
                                           <TableRow className="hover:bg-transparent">
@@ -3807,6 +3873,77 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                 )}
                                   </>
                                 )}
+                                <TopPortfolioLatestRebalanceSection
+                                  profileId={bp.id}
+                                  weightingMethod={pc?.weighting_method}
+                                  enabled={overviewPaidHoldings}
+                                />
+                                <div className="space-y-2 lg:hidden">
+                                  <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                    Details
+                                  </h4>
+                                  <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                                    <div className="rounded-lg border bg-card px-2 py-2">
+                                      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                        Entry date
+                                      </p>
+                                      <p className="text-sm font-semibold tabular-nums leading-tight text-foreground">
+                                        {bp.user_start_date?.trim()
+                                          ? formatYmdDisplay(bp.user_start_date.trim())
+                                          : '—'}
+                                      </p>
+                                    </div>
+                                    <SpotlightStatCard
+                                      tooltipKey="cagr"
+                                      label="CAGR"
+                                      value={fmt.pct(st.cagr)}
+                                      positive={
+                                        st.cagr != null && Number.isFinite(st.cagr)
+                                          ? st.cagr > 0
+                                          : undefined
+                                      }
+                                    />
+                                    <SpotlightStatCard
+                                      tooltipKey="sharpe_ratio"
+                                      label="Sharpe ratio"
+                                      value={fmt.num(st.sharpeRatio)}
+                                      valueClassName={
+                                        st.sharpeRatio != null && Number.isFinite(st.sharpeRatio)
+                                          ? sharpeRatioValueClass(st.sharpeRatio)
+                                          : undefined
+                                      }
+                                    />
+                                    <SpotlightStatCard
+                                      tooltipKey="max_drawdown"
+                                      label="Max drawdown"
+                                      value={fmt.pct(st.maxDrawdown)}
+                                      positive={
+                                        st.maxDrawdown != null && Number.isFinite(st.maxDrawdown)
+                                          ? st.maxDrawdown > -0.2
+                                          : undefined
+                                      }
+                                    />
+                                    <SpotlightStatCard
+                                      tooltipKey="consistency"
+                                      label="Consistency (weekly vs NDX cap)"
+                                      value={st.consistency != null ? fmt.pct(st.consistency, 0) : '—'}
+                                      positive={
+                                        st.consistency != null ? st.consistency > 0.5 : undefined
+                                      }
+                                    />
+                                    <SpotlightStatCard
+                                      tooltipKey="vs_nasdaq_cap"
+                                      label="Performance vs Nasdaq-100 (cap)"
+                                      value={fmt.pct(excessNdxForDisplay)}
+                                      positive={
+                                        excessNdxForDisplay != null &&
+                                        Number.isFinite(excessNdxForDisplay)
+                                          ? excessNdxForDisplay > 0
+                                          : undefined
+                                      }
+                                    />
+                                  </div>
+                                </div>
                               </div>
                             </div>
                         </section>
@@ -3821,12 +3958,14 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                     </section>
                   )}
                 </div>
-              </TabsContent>
+                </TabsContent>
+              ) : null}
 
-              <TabsContent
-                value="overview-tiles"
-                className="mt-0 ring-offset-0 focus-visible:outline-none focus-visible:ring-0"
-              >
+              {!isRebalanceWorkspace ? (
+                <TabsContent
+                  value="overview-tiles"
+                  className="mt-0 ring-offset-0 focus-visible:outline-none focus-visible:ring-0"
+                >
                 <div className="space-y-3">
                   <div className="space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
@@ -4055,7 +4194,8 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                     </div>
                   </div>
                 </div>
-              </TabsContent>
+                </TabsContent>
+              ) : null}
 
               <TabsContent
                 value="rebalance-actions"
@@ -4088,11 +4228,12 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="size-8 shrink-0"
+                        className="relative size-8 shrink-0"
                         aria-label="Sort portfolios"
                         onClick={() => setRebalanceSortDialogOpen(true)}
                       >
                         <ArrowUpDown className="size-4" />
+                        <PortfolioListSortActiveIndicator metric={rebalanceListSortMetric} />
                       </Button>
                       <Button
                         type="button"
@@ -4128,7 +4269,9 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                         cardState={cardState}
                         onOpenEntrySettings={setEntrySettingsProfileId}
                         refreshEpoch={movementRefreshEpoch}
-                        fetchEnabled={overviewTab === 'rebalance-actions'}
+                        fetchEnabled={
+                          isRebalanceWorkspace || overviewTab === 'rebalance-actions'
+                        }
                       />
                     )}
                   </div>
@@ -4136,7 +4279,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
               </TabsContent>
 
               <div className="!mt-3 flex justify-end">
-                <div className="inline-flex max-w-full flex-wrap justify-end gap-1.5 rounded-2xl border border-border/80 bg-card/95 p-1.5 shadow-lg shadow-black/[0.06] ring-1 ring-black/[0.04] backdrop-blur-sm dark:bg-card/90 dark:shadow-black/20 dark:ring-white/[0.06]">
+                <div className="inline-flex max-w-full flex-col items-end gap-1.5 rounded-2xl border border-border/80 bg-card/95 p-1.5 shadow-lg shadow-black/[0.06] ring-1 ring-black/[0.04] backdrop-blur-sm sm:flex-row sm:flex-wrap sm:justify-end dark:bg-card/90 dark:shadow-black/20 dark:ring-white/[0.06]">
                   {OVERVIEW_PAGE_QUICK_LINKS.map(({ href, label, icon: Icon }) => (
                     <Link
                       key={href}

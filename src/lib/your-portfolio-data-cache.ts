@@ -1,5 +1,6 @@
 import type { ConfigPerfRow } from '@/lib/portfolio-config-utils';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
+import { USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT } from '@/components/platform/portfolio-unfollow-toast';
 
 /** Mirrors client usage of `/api/platform/portfolio-config-performance`. */
 export type CachedConfigPerfPayload = {
@@ -48,6 +49,16 @@ const configPerfInflight = new Map<string, Promise<CachedConfigPerfPayload | nul
 
 const userEntryStore = new Map<string, CachedUserEntryPayload>();
 const userEntryInflight = new Map<string, Promise<CachedUserEntryPayload>>();
+
+let userProfilesInvalidateListenerBound = false;
+function bindUserProfilesInvalidateListener() {
+  if (userProfilesInvalidateListenerBound || typeof window === 'undefined') return;
+  userProfilesInvalidateListenerBound = true;
+  window.addEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, () => {
+    userEntryStore.clear();
+    userEntryInflight.clear();
+  });
+}
 
 export function getCachedConfigPerfPayload(
   slug: string,
@@ -119,6 +130,8 @@ export async function loadUserEntryPayloadCached(
   profileId: string,
   opts?: { bypassCache?: boolean }
 ): Promise<CachedUserEntryPayload> {
+  bindUserProfilesInvalidateListener();
+
   if (opts?.bypassCache) {
     userEntryStore.delete(profileId);
     userEntryInflight.delete(profileId);

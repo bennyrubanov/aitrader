@@ -42,7 +42,7 @@ const EXPLORE_BM_ORDER: ExploreBenchmarkKey[] = [
 
 const EXPLORE_BM_CONFIG: Record<ExploreBenchmarkKey, { label: string; color: string }> = {
   [EXPLORE_BM_KEYS.cap]: {
-    label: 'Nasdaq-100 (cap-weighted)',
+    label: 'Nasdaq-100 (cap)',
     color: CHART_INDEX_SERIES_COLORS.nasdaq100CapWeight,
   },
   [EXPLORE_BM_KEYS.eq]: {

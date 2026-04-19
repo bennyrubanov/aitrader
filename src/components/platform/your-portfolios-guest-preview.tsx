@@ -42,6 +42,7 @@ import {
 } from '@/components/portfolio-config';
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
 import { ExplorePortfolioFilterControls } from '@/components/platform/explore-portfolio-filter-controls';
+import { PortfolioListSortActiveIndicator } from '@/components/platform/portfolio-list-sort-active-indicator';
 import { PortfolioListSortDialog } from '@/components/platform/portfolio-list-sort-dialog';
 import { StrategyModelSidebarDropdown } from '@/components/platform/strategy-model-sidebar-dropdown';
 import {
@@ -523,11 +524,12 @@ export function YourPortfoliosGuestPreview({ signInHref, signUpHref }: Props) {
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="size-8 shrink-0"
+                className="relative size-8 shrink-0"
                 aria-label="Sort portfolios"
                 onClick={() => setSidebarSortDialogOpen(true)}
               >
                 <ArrowUpDown className="size-4" />
+                <PortfolioListSortActiveIndicator metric={sidebarSortMetric} />
               </Button>
               <Button
                 type="button"

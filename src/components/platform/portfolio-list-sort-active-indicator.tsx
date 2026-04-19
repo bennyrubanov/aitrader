@@ -1,0 +1,29 @@
+'use client';
+
+import { PORTFOLIO_LIST_SORT_OPTION_ICONS } from '@/lib/portfolio-list-sort-icons';
+import type { PortfolioListSortMetric } from '@/lib/portfolio-profile-list-sort';
+import { cn } from '@/lib/utils';
+
+export type PortfolioListSortActiveIndicatorProps = {
+  metric: PortfolioListSortMetric;
+  className?: string;
+};
+
+/** Corner badge (same placement as active filter count on the filter control). */
+export function PortfolioListSortActiveIndicator({
+  metric,
+  className,
+}: PortfolioListSortActiveIndicatorProps) {
+  const Icon = PORTFOLIO_LIST_SORT_OPTION_ICONS[metric];
+  return (
+    <span
+      className={cn(
+        'pointer-events-none absolute -right-0.5 -top-0.5 flex size-3 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm ring-1 ring-background',
+        className
+      )}
+      aria-hidden
+    >
+      <Icon className="size-[5px] shrink-0" strokeWidth={2} />
+    </span>
+  );
+}
