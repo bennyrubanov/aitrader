@@ -965,13 +965,13 @@ function RebalanceActionsTable({
   );
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const innerRef = useRef<HTMLDivElement | null>(null);
+  const innerRef = useRef<HTMLTableElement | null>(null);
   const [showScrollFade, setShowScrollFade] = useState(false);
   const [chevronDismissed, setChevronDismissed] = useState(false);
 
   useEffect(() => {
     setChevronDismissed(false);
-  }, [rows.length]);
+  }, [rows.length, includeHoldsInTable]);
 
   const nudgeScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -1014,7 +1014,7 @@ function RebalanceActionsTable({
       roScroll.disconnect();
       roInner?.disconnect();
     };
-  }, [rows.length]);
+  }, [rows.length, includeHoldsInTable]);
 
   if (rows.length === 0) return null;
 
@@ -1100,114 +1100,96 @@ function RebalanceActionsTable({
   const targetWeightingLabel = weightingMethod === 'cap' ? 'cap-weighted' : 'equal-weighted';
 
   return (
-    <div className="relative overflow-hidden rounded-lg border border-border/70 bg-card/30">
+    <div className="relative">
       <div
         ref={scrollRef}
-        className="max-h-[11.5rem] overflow-y-auto overscroll-y-contain px-1 py-1 [scrollbar-width:thin]"
+        className="max-h-[13.25rem] overflow-auto overscroll-y-contain rounded-md border [scrollbar-width:thin]"
       >
-        <div ref={innerRef}>
-        <table
-          className={cn(
-            'w-full border-collapse text-left text-[11px]',
-            !useAllocationOnly && 'table-fixed'
-          )}
+        <Table
+          ref={innerRef}
+          noScrollWrapper
+          className={cn('border-collapse text-left', !useAllocationOnly && 'table-fixed')}
         >
-          {!useAllocationOnly ? (
-            <colgroup>
-              <col className="w-[5.25rem]" />
-              <col />
-              <col className="w-[30%]" />
-              <col className="w-[34%]" />
-            </colgroup>
-          ) : null}
-          <thead>
-            <tr className="sticky top-0 z-[1] border-b border-border/70 bg-muted/90 backdrop-blur-sm">
-              <th
-                scope="col"
-                className="whitespace-nowrap py-1.5 pl-2 pr-1 font-semibold text-muted-foreground"
-              >
-                Action
-              </th>
-              <th scope="col" className="py-1.5 pl-1 pr-3 font-semibold text-muted-foreground">
-                Stock
-              </th>
-              {useAllocationOnly ? (
-                <th
-                  scope="col"
-                  className="whitespace-nowrap py-1.5 pl-1 pr-2 text-right font-semibold text-muted-foreground"
-                >
-                  Allocation
-                </th>
-              ) : (
-                <>
-                  <th
-                    scope="col"
-                    className="whitespace-nowrap py-1.5 pl-2 pr-3 text-right font-semibold text-muted-foreground"
-                  >
-                    Trade
-                  </th>
-                  <th
-                    scope="col"
-                    className="whitespace-nowrap py-1.5 pl-3 pr-3 text-right font-semibold text-muted-foreground sm:pr-14"
-                  >
-                    <span className="inline-flex items-center justify-end gap-1">
-                      Target value
-                      <InfoIconTooltip ariaLabel="How target value percent is calculated">
-                        <p className="mb-1 font-semibold">Target %</p>
-                        <p className="text-muted-foreground">
-                          The percentage beside target value is this rebalance&apos;s{' '}
-                          {targetWeightingLabel} target allocation for the holding.
-                        </p>
-                      </InfoIconTooltip>
-                    </span>
-                  </th>
-                </>
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map(({ kind, r }) => (
-              <tr
-                key={`${kind}-${r.symbol}`}
-                className="border-b border-border/40 last:border-0 hover:bg-muted/25"
-              >
-                <td className="align-middle py-1 pl-2 pr-1">{actionBadge(kind)}</td>
-                <td className="min-w-0 max-w-[10rem] py-1 pl-1 pr-3 align-middle sm:max-w-none">
-                  <div className="min-w-0">
-                    <Link
-                      href={`/stocks/${r.symbol.toLowerCase()}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-semibold text-foreground hover:underline"
-                    >
-                      {r.symbol}
-                    </Link>
-                    {r.companyName && r.companyName !== r.symbol ? (
-                      <p className="truncate text-[10px] leading-tight text-muted-foreground">
-                        {r.companyName}
-                      </p>
-                    ) : null}
-                  </div>
-                </td>
+            {!useAllocationOnly ? (
+              <colgroup>
+                <col className="w-[5.25rem]" />
+                <col />
+                <col className="w-[30%]" />
+                <col className="w-[34%]" />
+              </colgroup>
+            ) : null}
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="h-9 min-w-[5.25rem] py-1.5 pl-2 pr-1 text-left align-middle font-semibold whitespace-nowrap">
+                  Action
+                </TableHead>
+                <TableHead className="h-9 min-w-0 px-1.5 py-1.5 text-left align-middle font-semibold">
+                  Stock
+                </TableHead>
                 {useAllocationOnly ? (
-                  <td className="whitespace-nowrap py-1 pl-1 pr-2 text-right align-middle tabular-nums">
-                    {allocationCell(kind, r)}
-                  </td>
+                  <TableHead className="h-9 py-1.5 pl-1 pr-3 text-right align-middle font-semibold whitespace-nowrap tabular-nums">
+                    Allocation
+                  </TableHead>
                 ) : (
                   <>
-                    <td className="whitespace-nowrap py-1 pl-2 pr-3 text-right align-middle tabular-nums">
-                      {tradeCell(kind, r)}
-                    </td>
-                    <td className="whitespace-nowrap py-1 pl-3 pr-3 text-right align-middle font-medium tabular-nums text-foreground sm:pr-14">
-                      {targetValueCell(r)}
-                    </td>
+                    <TableHead className="h-9 py-1.5 pl-2 pr-3 text-right align-middle font-semibold whitespace-nowrap tabular-nums">
+                      Trade
+                    </TableHead>
+                    <TableHead className="h-9 py-1.5 pl-3 pr-3 text-right align-middle font-semibold whitespace-nowrap tabular-nums sm:pr-14">
+                      <span className="inline-flex items-center justify-end gap-1">
+                        Target value
+                        <InfoIconTooltip ariaLabel="How target value percent is calculated">
+                          <p className="mb-1 font-semibold">Target %</p>
+                          <p className="text-muted-foreground">
+                            The percentage beside target value is this rebalance&apos;s{' '}
+                            {targetWeightingLabel} target allocation for the holding.
+                          </p>
+                        </InfoIconTooltip>
+                      </span>
+                    </TableHead>
                   </>
                 )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        </div>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map(({ kind, r }) => (
+                <TableRow key={`${kind}-${r.symbol}`} className="border-border/40">
+                  <TableCell className="py-1.5 pl-2 pr-1 align-middle">{actionBadge(kind)}</TableCell>
+                  <TableCell className="min-w-0 max-w-[10rem] px-1.5 py-1.5 align-middle sm:max-w-none">
+                    <div className="min-w-0">
+                      <Link
+                        href={`/stocks/${r.symbol.toLowerCase()}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-semibold text-foreground hover:underline"
+                      >
+                        {r.symbol}
+                      </Link>
+                      {r.companyName && r.companyName !== r.symbol ? (
+                        <p className="truncate text-[10px] leading-tight text-muted-foreground">
+                          {r.companyName}
+                        </p>
+                      ) : null}
+                    </div>
+                  </TableCell>
+                  {useAllocationOnly ? (
+                    <TableCell className="whitespace-nowrap py-1.5 pl-1 pr-3 text-right align-middle tabular-nums">
+                      {allocationCell(kind, r)}
+                    </TableCell>
+                  ) : (
+                    <>
+                      <TableCell className="whitespace-nowrap py-1.5 pl-2 pr-3 text-right align-middle tabular-nums">
+                        {tradeCell(kind, r)}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap py-1.5 pl-3 pr-3 text-right align-middle font-medium tabular-nums text-foreground sm:pr-14">
+                        {targetValueCell(r)}
+                      </TableCell>
+                    </>
+                  )}
+                </TableRow>
+              ))}
+            </TableBody>
+        </Table>
       </div>
       {showScrollFade ? (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] flex h-10 items-end justify-center bg-gradient-to-t from-background/90 via-background/45 to-transparent pb-1 pt-5">
@@ -1265,7 +1247,7 @@ function TopPortfolioLatestRebalanceSection({
   const error = state && !state.loading && 'error' in state ? state.error : null;
 
   return (
-    <div className="space-y-2 rounded-xl border border-border/70 bg-background/40 p-3 sm:p-4">
+    <>
       <h4 className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         <span>Latest rebalance actions</span>
         {payload?.lastRebalanceDate ? (
@@ -1284,7 +1266,7 @@ function TopPortfolioLatestRebalanceSection({
       ) : error ? (
         <p className="text-sm text-muted-foreground">{error}</p>
       ) : payload?.status === 'ok' ? (
-        <div className="space-y-2">
+        <>
           <RebalanceActionsTable
             hold={payload.hold}
             buy={payload.buy}
@@ -1294,13 +1276,13 @@ function TopPortfolioLatestRebalanceSection({
           {payload.buy.length === 0 && payload.sell.length === 0 ? (
             <p className="text-xs text-muted-foreground">No buy or sell actions on the latest rebalance.</p>
           ) : null}
-        </div>
+        </>
       ) : (
         <p className="text-sm text-muted-foreground">
           {payload?.message ?? 'Rebalance actions are not available yet.'}
         </p>
       )}
-    </div>
+    </>
   );
 }
 
@@ -1836,7 +1818,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   const spotlightHoldingsLenRef = useRef(0);
   spotlightHoldingsLenRef.current = topSpotlightHoldings.length;
   const spotlightHoldingsScrollRef = useRef<HTMLDivElement | null>(null);
-  const spotlightHoldingsInnerRef = useRef<HTMLDivElement | null>(null);
+  const spotlightHoldingsInnerRef = useRef<HTMLTableElement | null>(null);
   const [showSpotlightHoldingsScrollFade, setShowSpotlightHoldingsScrollFade] = useState(false);
   const [spotlightHoldingsChevronDismissed, setSpotlightHoldingsChevronDismissed] =
     useState(false);
@@ -3650,11 +3632,9 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                         </div>
                                       ) : null}
                                     </div>
-                                  ) : overviewPaidHoldings && topSpotlightHoldingsLoading ? (
-                                    <span className="shrink-0 text-[11px] text-muted-foreground">
-                                      Loading…
-                                    </span>
-                                  ) : overviewPaidHoldings ? (
+                                  ) : overviewPaidHoldings &&
+                                    !topSpotlightHoldingsLoading &&
+                                    topSpotlightRebalanceDates.length === 0 ? (
                                     <p className="shrink-0 text-left text-[11px] text-muted-foreground">
                                       No rebalance history yet.
                                     </p>
@@ -3724,10 +3704,9 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                     <div className="relative">
                                     <div
                                       ref={spotlightHoldingsScrollRef}
-                                      className="max-h-[11.5rem] overflow-auto overscroll-y-contain rounded-md border [scrollbar-width:thin]"
+                                      className="max-h-[13.25rem] overflow-auto overscroll-y-contain rounded-md border [scrollbar-width:thin]"
                                     >
-                                      <div ref={spotlightHoldingsInnerRef}>
-                                      <Table>
+                                      <Table ref={spotlightHoldingsInnerRef} noScrollWrapper>
                                         <TableHeader>
                                           <TableRow className="hover:bg-transparent">
                                             <TableHead className="h-9 min-w-[4.25rem] py-1.5 pl-2 pr-0.5 text-left align-middle tabular-nums">
@@ -4043,7 +4022,6 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                               })}
                                         </TableBody>
                                       </Table>
-                                      </div>
                                     </div>
                                     {showSpotlightHoldingsScrollFade ? (
                                       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] flex h-10 items-end justify-center bg-gradient-to-t from-background/90 via-background/45 to-transparent pb-1 pt-5">
@@ -4066,11 +4044,13 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                 )}
                                   </>
                                 )}
-                                <TopPortfolioLatestRebalanceSection
-                                  profileId={bp.id}
-                                  weightingMethod={pc?.weighting_method}
-                                  enabled={overviewPaidHoldings}
-                                />
+                                <div className="pt-4 sm:pt-5">
+                                  <TopPortfolioLatestRebalanceSection
+                                    profileId={bp.id}
+                                    weightingMethod={pc?.weighting_method}
+                                    enabled={overviewPaidHoldings}
+                                  />
+                                </div>
                                 <div className="space-y-2 lg:hidden">
                                   <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                                     Details

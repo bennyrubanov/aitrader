@@ -25,7 +25,10 @@ import {
   computeExcessReturnVsNasdaqEqual,
   computeWeeklyConsistencyVsNasdaqCap,
 } from '@/lib/user-entry-performance';
-import { buildDailyMarkedToMarketSeriesForConfig } from '@/lib/live-mark-to-market';
+import {
+  buildDailyMarkedToMarketSeriesForConfig,
+  buildLatestMtmPointFromLastSnapshot,
+} from '@/lib/live-mark-to-market';
 
 export const runtime = 'nodejs';
 
@@ -137,6 +140,19 @@ export async function GET(req: Request) {
       });
       if (dailySeries && dailySeries.length >= 2) {
         userSeries = dailySeries;
+      }
+
+      if (computeStatus === 'ready' && userSeries.length >= 1) {
+        const tailPoint = await buildLatestMtmPointFromLastSnapshot(admin, {
+          strategyId: row.strategy_id,
+          riskLevel: Number(cfg.risk_level),
+          rebalanceFrequency: String(cfg.rebalance_frequency),
+          weightingMethod: String(cfg.weighting_method),
+          notionalSeries: userSeries,
+        });
+        if (tailPoint && tailPoint.date > userSeries[userSeries.length - 1]!.date) {
+          userSeries = [...userSeries, tailPoint];
+        }
       }
     }
   }

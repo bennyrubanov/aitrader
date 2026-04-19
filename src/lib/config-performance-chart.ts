@@ -36,13 +36,37 @@ function computeMaxDrawdown(values: number[]): number | null {
   return maxDrawdown;
 }
 
-function computeSharpeWeekly(returns: number[]): number | null {
+function computeSharpeAnnualized(returns: number[], periodsPerYear: number): number | null {
   if (returns.length < 2) return null;
   const mean = returns.reduce((sum, v) => sum + v, 0) / returns.length;
   const variance = returns.reduce((sum, v) => sum + (v - mean) ** 2, 0) / (returns.length - 1);
   const stdDev = Math.sqrt(variance);
   if (!Number.isFinite(stdDev) || stdDev <= 0) return null;
-  return (mean / stdDev) * Math.sqrt(52);
+  if (!Number.isFinite(periodsPerYear) || periodsPerYear <= 0) return null;
+  return (mean / stdDev) * Math.sqrt(periodsPerYear);
+}
+
+function medianCalendarDayGap(dates: string[]): number | null {
+  if (dates.length < 2) return null;
+  const gaps: number[] = [];
+  for (let i = 1; i < dates.length; i++) {
+    const prev = new Date(`${dates[i - 1]!}T00:00:00Z`).getTime();
+    const curr = new Date(`${dates[i]!}T00:00:00Z`).getTime();
+    if (!Number.isFinite(prev) || !Number.isFinite(curr) || curr <= prev) continue;
+    gaps.push((curr - prev) / (1000 * 60 * 60 * 24));
+  }
+  if (gaps.length === 0) return null;
+  gaps.sort((a, b) => a - b);
+  const mid = Math.floor(gaps.length / 2);
+  return gaps.length % 2 === 0 ? (gaps[mid - 1]! + gaps[mid]!) / 2 : gaps[mid]!;
+}
+
+function inferPeriodsPerYearFromDates(dates: string[]): number {
+  const median = medianCalendarDayGap(dates);
+  if (median == null) return 52;
+  if (median <= 3) return 252;
+  if (median <= 8) return 52;
+  return 12;
 }
 
 export type ConfigChartMetrics = {
@@ -91,7 +115,10 @@ function buildFullMetricsFromSeries(
     totalReturn: totalReturnAi,
     cagr: computeCagr(aiStart, lastPoint.aiTop20, firstDate, lastDate),
     maxDrawdown: computeMaxDrawdown(series.map((p) => p.aiTop20)),
-    sharpeRatio: computeSharpeWeekly(netReturns),
+    sharpeRatio: computeSharpeAnnualized(
+      netReturns,
+      inferPeriodsPerYearFromDates(series.map((p) => p.date))
+    ),
     pctWeeksBeatingNasdaq100: computePctWeeksBeatingNasdaq100(
       series.map((p) => ({ aiValue: p.aiTop20, benchmarkValue: p.nasdaq100CapWeight }))
     ),
@@ -160,7 +187,10 @@ export function buildMetricsFromSeries(series: PerformanceSeriesPoint[]): {
     totalReturn: computeTotalReturn(firstPoint.aiTop20, lastPoint.aiTop20),
     cagr: computeCagr(firstPoint.aiTop20, lastPoint.aiTop20, firstDate, lastDate),
     maxDrawdown: computeMaxDrawdown(series.map((p) => p.aiTop20)),
-    sharpeRatio: computeSharpeWeekly(netReturns),
+    sharpeRatio: computeSharpeAnnualized(
+      netReturns,
+      inferPeriodsPerYearFromDates(series.map((p) => p.date))
+    ),
   };
   const fullMetrics = buildFullMetricsFromSeries(series, netReturns);
   return { metrics, fullMetrics };
@@ -314,7 +344,7 @@ export function buildConfigPerformanceChart(rows: ConfigPerfRow[]): {
     totalReturn: computeTotalReturn(INITIAL_CAPITAL, lastPoint.aiTop20),
     cagr: computeCagr(INITIAL_CAPITAL, lastPoint.aiTop20, firstDate, lastDate),
     maxDrawdown: computeMaxDrawdown(series.map((p) => p.aiTop20)),
-    sharpeRatio: computeSharpeWeekly(netReturns),
+    sharpeRatio: computeSharpeAnnualized(netReturns, 52),
   };
 
   const fullMetrics = buildFullMetricsFromSeries(series, netReturns);

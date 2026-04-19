@@ -32,7 +32,10 @@ import {
 import { buildConfigPerformanceChart, buildMetricsFromSeries } from '@/lib/config-performance-chart';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
 import { triggerPortfolioConfigCompute } from '@/lib/trigger-config-compute';
-import { buildDailyMarkedToMarketSeriesForConfig } from '@/lib/live-mark-to-market';
+import {
+  buildDailyMarkedToMarketSeriesForConfig,
+  buildLatestMtmPointFromLastSnapshot,
+} from '@/lib/live-mark-to-market';
 
 function mapComputeStatusForClient(
   s: 'ready' | 'pending' | 'failed' | 'empty'
@@ -131,10 +134,22 @@ export async function GET(req: Request) {
       });
       if (dailySeries && dailySeries.length >= 2) {
         series = dailySeries;
-        const fromSeries = buildMetricsFromSeries(series);
-        metrics = fromSeries.metrics;
-        fullMetrics = fromSeries.fullMetrics;
       }
+
+      const tailPoint = await buildLatestMtmPointFromLastSnapshot(adminSupabase, {
+        strategyId,
+        riskLevel,
+        rebalanceFrequency: frequency,
+        weightingMethod: weighting,
+        notionalSeries: series,
+      });
+      if (tailPoint && tailPoint.date > series[series.length - 1]!.date) {
+        series = [...series, tailPoint];
+      }
+
+      const fromSeries = buildMetricsFromSeries(series);
+      metrics = fromSeries.metrics;
+      fullMetrics = fromSeries.fullMetrics;
     }
 
     const configPayload =

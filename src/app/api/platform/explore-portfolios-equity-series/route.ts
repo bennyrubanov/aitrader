@@ -151,10 +151,7 @@ async function loadExplorePortfoliosEquitySeriesPayload(
     configRows.map(async (cfg) => {
       const rawRows = perfByConfigRaw.get(cfg.id) ?? [];
       if (rawRows.length === 0) return null;
-      const readyRows = rawRows.filter((r) => r.compute_status === 'ready');
-      const rowsForSeries = (readyRows.length > 0 ? readyRows : rawRows).sort((a, b) =>
-        a.run_date.localeCompare(b.run_date)
-      );
+      const rowsForSeries = [...rawRows].sort((a, b) => a.run_date.localeCompare(b.run_date));
       const withInception = ensureInceptionPrefix(rowsForSeries);
       const weeklySeries = buildConfigPerformanceChart(withInception).series;
       if (weeklySeries.length === 0) return null;
@@ -288,7 +285,7 @@ async function getCachedExplorePortfoliosEquitySeriesPayload(
 ): Promise<ExplorePortfoliosEquitySeriesPayload | null> {
   const loadCached = unstable_cache(
     async () => loadExplorePortfoliosEquitySeriesPayload(slug),
-    ['explore-equity-series', slug, 'v2-daily-mtm'],
+    ['explore-equity-series', slug, 'v3-daily-mtm-tail-sharpe'],
     {
       revalidate: 300,
       tags: [RANKED_CONFIGS_CACHE_TAG, `${RANKED_CONFIGS_CACHE_TAG}:${slug}`],

@@ -70,6 +70,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import {
   HoldingsAllocationColumnTooltip,
   HoldingsMovementInfoTooltip,
+  InfoIconTooltip,
 } from '@/components/tooltips';
 import { SpotlightStatCard } from '@/components/tooltips/spotlight-overview-tooltips';
 import { useToast } from '@/hooks/use-toast';
@@ -437,11 +438,11 @@ function rebalanceActionRows(
   buy: PortfolioMovementLine[],
   sell: PortfolioMovementLine[],
   hold: PortfolioMovementLine[]
-): { kind: RebalanceAction; row: PortfolioMovementLine }[] {
+): { kind: RebalanceAction; r: PortfolioMovementLine }[] {
   return [
-    ...sell.map((row) => ({ kind: 'sell' as const, row })),
-    ...buy.map((row) => ({ kind: 'buy' as const, row })),
-    ...hold.map((row) => ({ kind: 'hold' as const, row })),
+    ...sell.map((r) => ({ kind: 'sell' as const, r })),
+    ...buy.map((r) => ({ kind: 'buy' as const, r })),
+    ...hold.map((r) => ({ kind: 'hold' as const, r })),
   ];
 }
 
@@ -449,92 +450,180 @@ function PortfolioRebalanceActionsTable({
   hold,
   buy,
   sell,
+  weightingMethod,
 }: {
   hold: PortfolioMovementLine[];
   buy: PortfolioMovementLine[];
   sell: PortfolioMovementLine[];
+  weightingMethod?: string | null;
 }) {
-  const includeHolds = buy.length === 0 && sell.length === 0;
-  const rows = rebalanceActionRows(buy, sell, includeHolds ? hold : []);
+  const includeHoldsInTable = buy.length === 0 && sell.length === 0;
+  const rows = rebalanceActionRows(buy, sell, includeHoldsInTable ? hold : []);
   if (rows.length === 0) return null;
 
+  const useAllocationOnly = includeHoldsInTable;
+  const targetWeightingLabel = weightingMethod === 'cap' ? 'cap-weighted' : 'equal-weighted';
+
+  const actionBadge = (kind: RebalanceAction) => {
+    if (kind === 'hold') {
+      return (
+        <span
+          className={cn(
+            'inline-flex min-w-[2.75rem] justify-center rounded border px-1.5 py-0 text-[10px] font-semibold uppercase tracking-wide',
+            'border-border bg-muted/60 text-muted-foreground'
+          )}
+        >
+          Hold
+        </span>
+      );
+    }
+    const label = kind === 'buy' ? 'Buy' : 'Sell';
+    const cls =
+      kind === 'buy'
+        ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200'
+        : 'border-rose-500/35 bg-rose-500/10 text-rose-800 dark:text-rose-200';
+    return (
+      <span
+        className={cn(
+          'inline-flex min-w-[2.75rem] justify-center rounded border px-1.5 py-0 text-[10px] font-semibold uppercase tracking-wide',
+          cls
+        )}
+      >
+        {label}
+      </span>
+    );
+  };
+
+  const allocationCell = (kind: RebalanceAction, r: PortfolioMovementLine) => {
+    if (kind === 'hold') {
+      const pct = (r.targetWeight * 100).toFixed(1);
+      return (
+        <span className="font-medium tabular-nums text-foreground">
+          {formatYourPortfolioCurrency(r.targetDollars)}{' '}
+          <span className="whitespace-nowrap font-normal text-muted-foreground">({pct}%)</span>
+        </span>
+      );
+    }
+    return <span className="tabular-nums text-muted-foreground">—</span>;
+  };
+
+  const tradeCell = (kind: RebalanceAction, r: PortfolioMovementLine) => {
+    const d = r.deltaDollars;
+    if (kind === 'buy') {
+      return (
+        <span className="font-medium tabular-nums text-emerald-600 dark:text-emerald-400">
+          +{formatYourPortfolioCurrency(d)}
+        </span>
+      );
+    }
+    if (kind === 'sell') {
+      return (
+        <span className="font-medium tabular-nums text-rose-600 dark:text-rose-400">
+          {formatYourPortfolioCurrency(d)}
+        </span>
+      );
+    }
+    return (
+      <span className="font-medium tabular-nums text-muted-foreground">
+        {d >= 0 ? '+' : ''}
+        {formatYourPortfolioCurrency(d)}
+      </span>
+    );
+  };
+
+  const targetValueCell = (r: PortfolioMovementLine) => {
+    const pct = (r.targetWeight * 100).toFixed(1);
+    return (
+      <span className="font-medium tabular-nums text-foreground">
+        {formatYourPortfolioCurrency(r.targetDollars)}{' '}
+        <span className="whitespace-nowrap font-normal text-muted-foreground">({pct}%)</span>
+      </span>
+    );
+  };
+
   return (
-    <div className="min-w-0 overflow-x-auto overflow-y-clip rounded-lg border border-border/70 bg-card/25">
-      <table className="w-full min-w-[22rem] table-fixed border-collapse text-left text-[11px]">
-        <thead>
-          <tr className="sticky top-0 z-[1] border-b border-border/70 bg-muted/90 backdrop-blur-sm">
-            <th className="w-[4.75rem] whitespace-nowrap px-2 py-1.5 font-semibold text-muted-foreground">
-              Action
-            </th>
-            <th className="w-[5.5rem] px-1 py-1.5 font-semibold text-muted-foreground">Stock</th>
-            <th className="w-[5.25rem] whitespace-nowrap px-2 py-1.5 text-right font-semibold text-muted-foreground">
-              Trade
-            </th>
-            <th className="px-2 py-1.5 text-right font-semibold text-muted-foreground">
-              Target
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map(({ kind, row }) => {
-            const actionClass =
-              kind === 'buy'
-                ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200'
-                : kind === 'sell'
-                  ? 'border-rose-500/35 bg-rose-500/10 text-rose-800 dark:text-rose-200'
-                  : 'border-border bg-muted/60 text-muted-foreground';
-            const trade =
-              kind === 'buy'
-                ? `+${formatYourPortfolioCurrency(row.deltaDollars)}`
-                : kind === 'sell'
-                  ? formatYourPortfolioCurrency(row.deltaDollars)
-                  : '—';
-            return (
-              <tr key={`${kind}-${row.symbol}`} className="border-b border-border/40 last:border-0">
-                <td className="px-2 py-1 align-middle">
-                  <span
-                    className={cn(
-                      'inline-flex min-w-[2.75rem] justify-center rounded border px-1.5 py-0 text-[10px] font-semibold uppercase tracking-wide',
-                      actionClass
-                    )}
-                  >
-                    {kind}
-                  </span>
-                </td>
-                <td className="px-1 py-1 align-middle">
-                  <div className="overflow-hidden">
-                    <Link
-                      href={`/stocks/${row.symbol.toLowerCase()}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="block truncate font-semibold text-foreground hover:underline"
-                    >
-                      {row.symbol}
-                    </Link>
-                    {row.companyName && row.companyName !== row.symbol ? (
-                      <p className="truncate text-[10px] leading-tight text-muted-foreground">
-                        {row.companyName}
-                      </p>
-                    ) : null}
-                  </div>
-                </td>
-                <td className="whitespace-nowrap px-2 py-1 text-right align-middle tabular-nums">
-                  {trade}
-                </td>
-                <td className="min-w-0 px-2 py-1 text-right align-middle tabular-nums">
-                  <div className="min-w-0 truncate text-right">
-                    {formatYourPortfolioCurrency(row.targetDollars)}{' '}
-                    <span className="text-muted-foreground">
-                      ({(row.targetWeight * 100).toFixed(1)}%)
-                    </span>
-                  </div>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    <Table
+      noScrollWrapper
+      className={cn('min-w-0 w-full border-collapse text-left', !useAllocationOnly && 'table-fixed')}
+    >
+      {!useAllocationOnly ? (
+        <colgroup>
+          <col className="w-[5.25rem]" />
+          <col />
+          <col className="w-[30%]" />
+          <col className="w-[34%]" />
+        </colgroup>
+      ) : null}
+      <TableHeader>
+        <TableRow className="hover:bg-transparent">
+          <TableHead className="h-9 min-w-[5.25rem] py-1.5 pl-2 pr-1 text-left align-middle font-semibold whitespace-nowrap">
+            Action
+          </TableHead>
+          <TableHead className="h-9 min-w-0 px-1.5 py-1.5 text-left align-middle font-semibold">
+            Stock
+          </TableHead>
+          {useAllocationOnly ? (
+            <TableHead className="h-9 py-1.5 pl-1 pr-3 text-right align-middle font-semibold whitespace-nowrap tabular-nums">
+              Allocation
+            </TableHead>
+          ) : (
+            <>
+              <TableHead className="h-9 py-1.5 pl-2 pr-3 text-right align-middle font-semibold whitespace-nowrap tabular-nums">
+                Trade
+              </TableHead>
+              <TableHead className="h-9 py-1.5 pl-3 pr-3 text-right align-middle font-semibold whitespace-nowrap tabular-nums sm:pr-14">
+                <span className="inline-flex items-center justify-end gap-1">
+                  Target value
+                  <InfoIconTooltip ariaLabel="How target value percent is calculated">
+                    <p className="mb-1 font-semibold">Target %</p>
+                    <p className="text-muted-foreground">
+                      The percentage beside target value is this rebalance&apos;s{' '}
+                      {targetWeightingLabel} target allocation for the holding.
+                    </p>
+                  </InfoIconTooltip>
+                </span>
+              </TableHead>
+            </>
+          )}
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {rows.map(({ kind, r }) => (
+          <TableRow key={`${kind}-${r.symbol}`} className="border-border/40">
+            <TableCell className="py-1.5 pl-2 pr-1 align-middle">{actionBadge(kind)}</TableCell>
+            <TableCell className="min-w-0 max-w-[10rem] px-1.5 py-1.5 align-middle sm:max-w-none">
+              <div className="min-w-0">
+                <Link
+                  href={`/stocks/${r.symbol.toLowerCase()}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-semibold text-foreground hover:underline"
+                >
+                  {r.symbol}
+                </Link>
+                {r.companyName && r.companyName !== r.symbol ? (
+                  <p className="truncate text-[10px] leading-tight text-muted-foreground">{r.companyName}</p>
+                ) : null}
+              </div>
+            </TableCell>
+            {useAllocationOnly ? (
+              <TableCell className="whitespace-nowrap py-1.5 pl-1 pr-3 text-right align-middle tabular-nums">
+                {allocationCell(kind, r)}
+              </TableCell>
+            ) : (
+              <>
+                <TableCell className="whitespace-nowrap py-1.5 pl-2 pr-3 text-right align-middle tabular-nums">
+                  {tradeCell(kind, r)}
+                </TableCell>
+                <TableCell className="whitespace-nowrap py-1.5 pl-3 pr-3 text-right align-middle font-medium tabular-nums text-foreground sm:pr-14">
+                  {targetValueCell(r)}
+                </TableCell>
+              </>
+            )}
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   );
 }
 
@@ -738,7 +827,7 @@ function PortfolioRebalanceActionsTimeline({
           <div className="relative min-h-0 w-full flex-1 overflow-hidden lg:min-h-0">
             <div
               ref={rebalanceActionsScrollRef}
-              className="max-h-[min(56vh,400px)] w-full min-h-0 overflow-y-auto overflow-x-hidden rounded-md border lg:max-h-none lg:h-full lg:flex-1"
+              className="max-h-[min(56vh,400px)] w-full min-h-0 overflow-y-auto overflow-x-hidden rounded-md border [scrollbar-width:thin] lg:max-h-none lg:h-full lg:flex-1"
             >
               <div ref={rebalanceActionsInnerRef} className="min-w-0 space-y-2 p-1">
                 {selectedDateRow ? (
@@ -746,6 +835,7 @@ function PortfolioRebalanceActionsTimeline({
                     hold={selectedDateRow.hold}
                     buy={selectedDateRow.buy}
                     sell={selectedDateRow.sell}
+                    weightingMethod={profile.portfolio_config?.weighting_method}
                   />
                 ) : (
                   <p className="px-1 text-xs text-muted-foreground">No actions for this rebalance date.</p>
@@ -781,6 +871,7 @@ function PortfolioRebalanceActionsTimeline({
                 hold={selectedDateRow.hold}
                 buy={selectedDateRow.buy}
                 sell={selectedDateRow.sell}
+                weightingMethod={profile.portfolio_config?.weighting_method}
               />
             ) : (
               <p className="text-xs text-muted-foreground">No actions for this rebalance date.</p>
@@ -3206,9 +3297,9 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                           </div>
                         ) : null}
                       </div>
-                    ) : yourPortfoliosHoldingsPaid && configHoldingsLoading ? (
-                      <span className="shrink-0 text-[11px] text-muted-foreground">Loading…</span>
-                    ) : yourPortfoliosHoldingsPaid ? (
+                    ) : yourPortfoliosHoldingsPaid &&
+                      !configHoldingsLoading &&
+                      configHoldingsRebalanceDates.length === 0 ? (
                       <p className="shrink-0 text-left text-[11px] text-muted-foreground">
                         No rebalance history yet.
                       </p>
