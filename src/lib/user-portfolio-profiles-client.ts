@@ -1,6 +1,9 @@
 'use client';
 
-import { USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT } from '@/components/platform/portfolio-unfollow-toast';
+import {
+  USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT,
+  type UserPortfolioProfilesInvalidateDetail,
+} from '@/components/platform/portfolio-unfollow-toast';
 
 export type UserPortfolioProfilesPayload = {
   profiles?: unknown[];
@@ -18,7 +21,14 @@ function cacheKey(): string {
 function bindInvalidateListener() {
   if (invalidateListenerBound || typeof window === 'undefined') return;
   invalidateListenerBound = true;
-  window.addEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, () => {
+  window.addEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, (e: Event) => {
+    const d = (e as CustomEvent<UserPortfolioProfilesInvalidateDetail>).detail;
+    if (d?.entrySettingsOnly) {
+      const key = cacheKey();
+      inflight.delete(key);
+      resolved.delete(key);
+      return;
+    }
     inflight.clear();
     resolved.clear();
   });

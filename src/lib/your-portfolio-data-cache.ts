@@ -1,6 +1,9 @@
 import type { ConfigPerfRow } from '@/lib/portfolio-config-utils';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
-import { USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT } from '@/components/platform/portfolio-unfollow-toast';
+import {
+  USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT,
+  type UserPortfolioProfilesInvalidateDetail,
+} from '@/components/platform/portfolio-unfollow-toast';
 
 /** Mirrors client usage of `/api/platform/portfolio-config-performance`. */
 export type CachedConfigPerfPayload = {
@@ -54,7 +57,14 @@ let userProfilesInvalidateListenerBound = false;
 function bindUserProfilesInvalidateListener() {
   if (userProfilesInvalidateListenerBound || typeof window === 'undefined') return;
   userProfilesInvalidateListenerBound = true;
-  window.addEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, () => {
+  window.addEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, (e: Event) => {
+    const d = (e as CustomEvent<UserPortfolioProfilesInvalidateDetail>).detail;
+    if (d?.entrySettingsOnly && typeof d.profileId === 'string' && d.profileId.trim()) {
+      const id = d.profileId.trim();
+      userEntryStore.delete(id);
+      userEntryInflight.delete(id);
+      return;
+    }
     userEntryStore.clear();
     userEntryInflight.clear();
   });

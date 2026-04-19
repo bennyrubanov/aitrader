@@ -20,7 +20,7 @@ import { ExplorePortfolioFilterControls } from '@/components/platform/explore-po
 import { PortfolioRankingTooltipBody } from '@/components/tooltips';
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
 import { StrategyModelSidebarDropdown } from '@/components/platform/strategy-model-sidebar-dropdown';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { format } from 'date-fns';
 import { loadRankedConfigsClient } from '@/lib/portfolio-configs-ranked-client';
 import { loadUserPortfolioProfilesClient } from '@/lib/user-portfolio-profiles-client';
@@ -72,6 +72,12 @@ import { PortfolioListSortDialog } from '@/components/platform/portfolio-list-so
 import { sharpeRatioValueClass } from '@/lib/sharpe-value-class';
 import type { PortfolioListSortMetric } from '@/lib/portfolio-profile-list-sort';
 import { type StrategyListItem } from '@/lib/platform-performance-payload';
+import {
+  EXPLORE_PORTFOLIOS_BROWSE_PARAM,
+  explorePortfoliosBrowseUrl,
+  parseExplorePortfoliosBrowseMode,
+  type ExplorePortfoliosBrowseMode,
+} from '@/lib/platform-explore-portfolios-browse';
 import { cn } from '@/lib/utils';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -229,6 +235,8 @@ type ExploreProps = {
 
 export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { toast } = useToast();
   const authState = useAuthState();
   const { openSignupPrompt } = useAccountSignupPrompt();
@@ -276,7 +284,27 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailConfig, setDetailConfig] = useState<RankedConfig | null>(null);
 
-  const [browseMode, setBrowseMode] = useState<'list' | 'chart'>('list');
+  const urlBrowseMode = useMemo(
+    () => parseExplorePortfoliosBrowseMode(searchParams.get(EXPLORE_PORTFOLIOS_BROWSE_PARAM)),
+    [searchParams]
+  );
+  /** Cleared when the URL updates so the toggle matches `router.replace` completion. */
+  const [browseModeOverride, setBrowseModeOverride] = useState<ExplorePortfoliosBrowseMode | null>(
+    null
+  );
+  useEffect(() => {
+    setBrowseModeOverride(null);
+  }, [urlBrowseMode]);
+  const browseMode = browseModeOverride ?? urlBrowseMode;
+
+  const setBrowseMode = useCallback(
+    (mode: ExplorePortfoliosBrowseMode) => {
+      setBrowseModeOverride(mode);
+      const base = pathname ?? '/platform/explore-portfolios';
+      router.replace(explorePortfoliosBrowseUrl(base, searchParams.toString(), mode));
+    },
+    [pathname, router, searchParams]
+  );
   const [sortMetric, setSortMetric] = useState<PortfolioListSortMetric>('composite_score');
   const [sortDialogOpen, setSortDialogOpen] = useState(false);
   const [equitySeriesPayload, setEquitySeriesPayload] = useState<{
@@ -851,6 +879,21 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
                         aria-hidden
                       />
                       <span className="text-sm font-semibold text-foreground">Portfolio values</span>
+                      {activeFilterCount > 0 ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                          onClick={clearFilters}
+                        >
+                          <FilterX className="size-3.5 shrink-0" aria-hidden />
+                          Clear filters
+                          <span className="rounded-full bg-primary/15 px-1.5 text-[10px] font-semibold tabular-nums text-foreground">
+                            {activeFilterCount}
+                          </span>
+                        </Button>
+                      ) : null}
                       <span className="text-xs text-muted-foreground">
                         {filteredConfigs.length} portfolio{filteredConfigs.length !== 1 ? 's' : ''}
                         {activeFilterCount > 0 ? ' matching filters' : ''}

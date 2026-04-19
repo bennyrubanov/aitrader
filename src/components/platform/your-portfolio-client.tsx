@@ -254,7 +254,7 @@ function YourPortfolioMainPerfSkeleton() {
   return (
     <div className="px-5 sm:px-7">
       <div className="space-y-4">
-        <div className="grid w-full grid-cols-1 gap-4 rounded-lg border border-border/70 bg-muted/20 p-3 sm:gap-5 sm:p-4 lg:grid-cols-[16rem_minmax(0,1fr)] lg:p-5">
+        <div className="grid w-full grid-cols-1 gap-4 rounded-lg border border-border/70 bg-muted/20 p-3 sm:gap-5 sm:p-4 lg:grid-cols-[11rem_minmax(0,1fr)] lg:p-5">
           <div className="space-y-2">
             {Array.from({ length: 7 }).map((_, idx) => (
               <Skeleton key={`metric-skel-${idx}`} className="h-12 w-full rounded-lg" />
@@ -459,18 +459,18 @@ function PortfolioRebalanceActionsTable({
   if (rows.length === 0) return null;
 
   return (
-    <div className="min-w-0 overflow-x-hidden overflow-y-visible rounded-lg border border-border/70 bg-card/25">
-      <table className="w-full table-fixed border-collapse text-left text-[11px]">
+    <div className="min-w-0 overflow-x-auto overflow-y-clip rounded-lg border border-border/70 bg-card/25">
+      <table className="w-full min-w-[22rem] table-fixed border-collapse text-left text-[11px]">
         <thead>
           <tr className="sticky top-0 z-[1] border-b border-border/70 bg-muted/90 backdrop-blur-sm">
             <th className="w-[4.75rem] whitespace-nowrap px-2 py-1.5 font-semibold text-muted-foreground">
               Action
             </th>
-            <th className="min-w-0 px-1 py-1.5 font-semibold text-muted-foreground">Stock</th>
+            <th className="w-[5.5rem] px-1 py-1.5 font-semibold text-muted-foreground">Stock</th>
             <th className="w-[5.25rem] whitespace-nowrap px-2 py-1.5 text-right font-semibold text-muted-foreground">
               Trade
             </th>
-            <th className="w-[34%] min-w-0 px-2 py-1.5 text-right font-semibold text-muted-foreground">
+            <th className="px-2 py-1.5 text-right font-semibold text-muted-foreground">
               Target
             </th>
           </tr>
@@ -501,8 +501,8 @@ function PortfolioRebalanceActionsTable({
                     {kind}
                   </span>
                 </td>
-                <td className="min-w-0 px-1 py-1 align-middle">
-                  <div className="min-w-0">
+                <td className="px-1 py-1 align-middle">
+                  <div className="overflow-hidden">
                     <Link
                       href={`/stocks/${row.symbol.toLowerCase()}`}
                       target="_blank"
@@ -555,12 +555,70 @@ function PortfolioRebalanceActionsTimeline({
     loading: true,
   });
   const [selectedRebalanceDate, setSelectedRebalanceDate] = useState<string | null>(null);
+  const rebalanceActionsScrollRef = useRef<HTMLDivElement | null>(null);
+  const rebalanceActionsInnerRef = useRef<HTMLDivElement | null>(null);
+  const [showRebalanceActionsScrollFade, setShowRebalanceActionsScrollFade] = useState(false);
+  const [rebalanceActionsChevronDismissed, setRebalanceActionsChevronDismissed] = useState(false);
   const profileId = profile.id;
   const hasEntry = Boolean(profile.user_start_date?.trim());
 
   useEffect(() => {
     setSelectedRebalanceDate(null);
   }, [profileId]);
+
+  useEffect(() => {
+    setRebalanceActionsChevronDismissed(false);
+  }, [profileId, selectedRebalanceDate]);
+
+  const nudgeRebalanceActionsScroll = useCallback(() => {
+    const el = rebalanceActionsScrollRef.current;
+    if (!el) return;
+    setRebalanceActionsChevronDismissed(true);
+    const delta = Math.min(220, Math.max(96, Math.round(el.clientHeight * 0.38)));
+    el.scrollBy({ top: delta, behavior: 'smooth' });
+  }, []);
+
+  useEffect(() => {
+    if (showProfileSummary) {
+      setShowRebalanceActionsScrollFade(false);
+      return;
+    }
+    const scrollEl = rebalanceActionsScrollRef.current;
+    if (!scrollEl) {
+      setShowRebalanceActionsScrollFade(false);
+      return;
+    }
+
+    const updateScrollUi = () => {
+      const canScroll = scrollEl.scrollHeight > scrollEl.clientHeight + 2;
+      const isAtTop = scrollEl.scrollTop <= 2;
+      setShowRebalanceActionsScrollFade(canScroll && isAtTop);
+      if (scrollEl.scrollTop > 2) {
+        setRebalanceActionsChevronDismissed(true);
+      }
+    };
+
+    updateScrollUi();
+    const raf = requestAnimationFrame(updateScrollUi);
+    scrollEl.addEventListener('scroll', updateScrollUi, { passive: true });
+    window.addEventListener('resize', updateScrollUi);
+    const roScroll = new ResizeObserver(updateScrollUi);
+    roScroll.observe(scrollEl);
+    const inner = rebalanceActionsInnerRef.current;
+    let roInner: ResizeObserver | null = null;
+    if (inner) {
+      roInner = new ResizeObserver(updateScrollUi);
+      roInner.observe(inner);
+    }
+
+    return () => {
+      cancelAnimationFrame(raf);
+      scrollEl.removeEventListener('scroll', updateScrollUi);
+      window.removeEventListener('resize', updateScrollUi);
+      roScroll.disconnect();
+      roInner?.disconnect();
+    };
+  }, [showProfileSummary, profileId, selectedRebalanceDate, state]);
 
   useEffect(() => {
     if (!hasEntry) {
@@ -675,8 +733,11 @@ function PortfolioRebalanceActionsTimeline({
           <p className="text-sm text-muted-foreground">No prior rebalance dates yet.</p>
         ) : !showProfileSummary ? (
           <div className="relative min-h-0 w-full flex-1 overflow-hidden lg:min-h-0">
-            <div className="max-h-[min(56vh,400px)] w-full min-h-0 overflow-y-auto overflow-x-hidden rounded-md border lg:max-h-none lg:h-full lg:flex-1">
-              <div className="min-w-0 space-y-2 p-1">
+            <div
+              ref={rebalanceActionsScrollRef}
+              className="max-h-[min(56vh,400px)] w-full min-h-0 overflow-y-auto overflow-x-hidden rounded-md border lg:max-h-none lg:h-full lg:flex-1"
+            >
+              <div ref={rebalanceActionsInnerRef} className="min-w-0 space-y-2 p-1">
                 {selectedDateRow ? (
                   <PortfolioRebalanceActionsTable
                     hold={selectedDateRow.hold}
@@ -695,6 +756,20 @@ function PortfolioRebalanceActionsTimeline({
                 ) : null}
               </div>
             </div>
+            {showRebalanceActionsScrollFade ? (
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] flex h-10 items-end justify-center bg-gradient-to-t from-background/90 via-background/45 to-transparent pb-1 pt-5">
+                {!rebalanceActionsChevronDismissed ? (
+                  <button
+                    type="button"
+                    className="pointer-events-auto inline-flex size-8 items-center justify-center rounded-full border border-trader-blue/35 bg-background/90 shadow-sm ring-offset-background transition-colors hover:border-trader-blue/55 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-trader-blue/40 focus-visible:ring-offset-2"
+                    onClick={nudgeRebalanceActionsScroll}
+                    aria-label="Scroll down to see more rebalance actions"
+                  >
+                    <ChevronDown className="size-5 animate-bounce text-trader-blue" aria-hidden />
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         ) : (
           <div className="space-y-2">
@@ -1161,10 +1236,13 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   /** Keeps the rebalance Select on the chosen date while holdings fetch runs (controlled value otherwise snaps back). */
   const [pendingHoldingsAsOf, setPendingHoldingsAsOf] = useState<string | null>(null);
 
-  const loadProfiles = useCallback(async () => {
-    setIsLoadingProfiles(true);
+  const loadProfiles = useCallback(async (opts?: { silent?: boolean }) => {
+    const showLoader = opts?.silent !== true;
+    if (showLoader) setIsLoadingProfiles(true);
     try {
-      const data = (await loadUserPortfolioProfilesClient()) as {
+      const data = (await loadUserPortfolioProfilesClient(
+        opts?.silent ? { bypassCache: true } : undefined
+      )) as {
         profiles?: UserPortfolioProfileRow[];
       } | null;
       const list = data?.profiles ?? [];
@@ -1177,7 +1255,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     } catch {
       // silent
     } finally {
-      setIsLoadingProfiles(false);
+      if (showLoader) setIsLoadingProfiles(false);
     }
   }, []);
 
@@ -1246,6 +1324,36 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       if (d?.profileId) {
         invalidateUserEntryPerformanceCache(d.profileId);
       }
+
+      const ymd = typeof d?.userStartDate === 'string' ? d.userStartDate.trim() : '';
+      const entryMerge =
+        d?.entrySettingsOnly === true &&
+        typeof d.profileId === 'string' &&
+        d.profileId.trim().length > 0 &&
+        typeof d.investmentSize === 'number' &&
+        Number.isFinite(d.investmentSize) &&
+        d.investmentSize > 0 &&
+        /^\d{4}-\d{2}-\d{2}$/.test(ymd);
+
+      if (entryMerge) {
+        const pid = d.profileId!.trim();
+        const inv = d.investmentSize!;
+        setProfiles((prev) =>
+          prev.map((p) =>
+            p.id === pid ? { ...p, investment_size: inv, user_start_date: ymd } : p
+          )
+        );
+        const tk = portfolioTimelineCacheKey(pid);
+        portfolioTimelineCache.delete(tk);
+        portfolioTimelineInflight.delete(tk);
+        return;
+      }
+
+      if (d?.entrySettingsOnly) {
+        void loadProfiles({ silent: true });
+        return;
+      }
+
       portfolioTimelineCache.clear();
       portfolioTimelineInflight.clear();
       void loadProfiles();
@@ -1831,7 +1939,14 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         }
       }
     },
-    [selectedProfile?.id, selectedProfileConfigId, strategySlug, yourPortfoliosHoldingsPaid]
+    [
+      selectedProfile?.id,
+      selectedProfileConfigId,
+      strategySlug,
+      yourPortfoliosHoldingsPaid,
+      selectedProfile?.user_start_date,
+      selectedProfile?.investment_size,
+    ]
   );
 
   useEffect(() => {
@@ -1852,6 +1967,8 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     selectedProfile?.id,
     selectedProfileConfigId,
     strategySlug,
+    selectedProfile?.user_start_date,
+    selectedProfile?.investment_size,
     fetchYourPortfolioConfigHoldings,
   ]);
 
@@ -2861,7 +2978,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
 
               <div className="grid w-full min-w-0 grid-cols-1 gap-4 rounded-lg border border-border/70 bg-muted/20 p-3 sm:gap-5 sm:p-4 lg:p-5">
                 <div className="flex w-full max-w-full min-w-0 flex-col gap-4 lg:max-h-[min(48vh,340px)] lg:min-h-0 lg:flex-row lg:items-stretch lg:gap-5 lg:overflow-hidden">
-                  <div className="relative flex w-full min-w-0 shrink-0 flex-col lg:min-h-0 lg:w-[16rem] lg:max-w-[16rem] lg:shrink-0 lg:basis-auto lg:flex-none">
+                  <div className="relative flex w-full min-w-0 shrink-0 flex-col lg:min-h-0 lg:w-[11rem] lg:max-w-[11rem] lg:shrink-0 lg:basis-auto lg:flex-none">
                     <div
                       ref={yourPortfolioMetricsScrollRef}
                       className="flex max-h-[min(42vh,300px)] min-h-0 flex-col gap-2 overflow-y-auto lg:max-h-none lg:flex-1"
@@ -3097,7 +3214,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                   <div className="relative min-h-0 w-full flex-1 overflow-hidden lg:min-h-0">
                     <div
                       ref={yourPortfolioHoldingsScrollRef}
-                      className="max-h-[min(56vh,400px)] w-full min-h-0 overflow-auto rounded-md border lg:max-h-none lg:h-full lg:flex-1"
+                      className="max-h-[min(56vh,400px)] w-full min-h-0 overflow-y-auto overflow-x-hidden rounded-md border lg:max-h-none lg:h-full lg:flex-1"
                     >
                   {!yourPortfoliosHoldingsPaid ? (
                     <div className="flex min-h-[12rem] flex-col items-center justify-center gap-3 px-4 py-8 text-center">
@@ -3135,21 +3252,21 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                         <div
                           className={cn(
                             configHoldingsRefreshing && 'opacity-[0.65]',
-                            'w-full min-w-0'
+                            'min-w-0 w-full overflow-x-auto overflow-y-clip'
                           )}
                         >
-                        <Table>
+                        <Table noScrollWrapper className="w-full table-auto text-[11px]">
                           <TableHeader>
                             <TableRow className="hover:bg-transparent">
-                              <TableHead className="h-9 min-w-[4.25rem] py-1.5 pl-2 pr-0.5 text-left align-middle tabular-nums">
+                              <TableHead className="h-9 w-[4.25rem] shrink-0 py-1.5 pl-2 pr-0.5 text-left align-middle tabular-nums">
                                 #
                               </TableHead>
-                              <TableHead className="h-9 w-16 px-1.5 py-1.5 text-left align-middle">
+                              <TableHead className="h-9 min-w-[4rem] px-1.5 py-1.5 text-left align-middle">
                                 Stock
                               </TableHead>
-                              <TableHead className="h-9 px-1.5 py-1.5 text-center align-middle whitespace-nowrap">
-                                <span className="inline-flex items-center justify-center gap-1">
-                                  Allocation
+                              <TableHead className="h-9 min-w-[7rem] px-1.5 py-1.5 text-center align-middle">
+                                <span className="inline-flex min-w-0 max-w-full items-center justify-center gap-1">
+                                  <span className="truncate">Allocation</span>
                                   <HoldingsAllocationColumnTooltip
                                     weightingMethod={
                                       selectedProfile?.portfolio_config?.weighting_method
@@ -3159,7 +3276,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                   />
                                 </span>
                               </TableHead>
-                              <TableHead className="h-9 py-1.5 pl-1.5 pr-3 text-right align-middle whitespace-nowrap">
+                              <TableHead className="h-9 min-w-[5.5rem] py-1.5 pl-1.5 pr-3 text-right align-middle">
                                 AI rating
                               </TableHead>
                             </TableRow>
@@ -3197,13 +3314,13 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                           }
                                         }}
                                       >
-                                        <TableCell className="py-1.5 pl-2 pr-0.5 text-muted-foreground">
+                                        <TableCell className="w-[4.25rem] shrink-0 py-1.5 pl-2 pr-0.5 text-muted-foreground">
                                           <HoldingRankWithChange
                                             rank={h.rank}
                                             rankChange={h.rankChange}
                                           />
                                         </TableCell>
-                                        <TableCell className="px-1.5 py-1.5 text-left">
+                                        <TableCell className="min-w-0 px-1.5 py-1.5 text-left">
                                           {company ? (
                                             <Tooltip>
                                               <TooltipTrigger asChild>
@@ -3224,39 +3341,43 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                             </span>
                                           )}
                                         </TableCell>
-                                        <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap">
+                                        <TableCell className="min-w-0 px-1.5 py-1.5 text-center tabular-nums">
                                           {showLive ? (
-                                            <div className="leading-tight">
-                                              <div>
+                                            <div className="min-w-0 space-y-0.5 leading-tight">
+                                              <div className="truncate">
                                                 {`${formatYourPortfolioCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
                                               </div>
-                                              <div className="text-[11px] text-muted-foreground">
+                                              <div className="truncate text-[11px] text-muted-foreground">
                                                 Target: {(h.weight * 100).toFixed(1)}%
                                               </div>
                                             </div>
                                           ) : Number.isFinite(inv) && inv > 0 ? (
-                                            `${formatYourPortfolioCurrency(h.weight * inv)} (${(h.weight * 100).toFixed(1)}%)`
+                                            <span className="block min-w-0 truncate">
+                                              {`${formatYourPortfolioCurrency(h.weight * inv)} (${(h.weight * 100).toFixed(1)}%)`}
+                                            </span>
                                           ) : (
-                                            `— (${(h.weight * 100).toFixed(1)}%)`
+                                            <span className="block min-w-0 truncate">
+                                              {`— (${(h.weight * 100).toFixed(1)}%)`}
+                                            </span>
                                           )}
                                         </TableCell>
-                                        <TableCell className="py-1.5 pl-1.5 pr-3 text-right">
-                                          <span className="inline-flex items-center justify-end gap-1">
+                                        <TableCell className="min-w-0 py-1.5 pl-1.5 pr-3 text-right">
+                                          <div className="flex min-w-0 items-center justify-end gap-1">
                                             <Badge
                                               variant="outline"
                                               className={cn(
-                                                'px-1.5 py-0 text-[10px] font-normal leading-tight shrink-0',
+                                                'shrink-0 px-1.5 py-0 text-[10px] font-normal leading-tight',
                                                 yourPortfolioHoldingScoreBucketClass(h.bucket)
                                               )}
                                             >
                                               {yourPortfolioHoldingScoreBucketLabel(h.bucket)}
                                             </Badge>
-                                            <span className="tabular-nums font-medium">
+                                            <span className="min-w-0 truncate tabular-nums font-medium">
                                               {h.score != null && Number.isFinite(h.score)
                                                 ? h.score.toFixed(1)
                                                 : '—'}
                                             </span>
-                                          </span>
+                                          </div>
                                         </TableCell>
                                       </TableRow>
                                     );
@@ -3293,10 +3414,10 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                           }
                                         }}
                                       >
-                                        <TableCell className="py-1.5 pl-2 pr-0.5 text-muted-foreground">
+                                        <TableCell className="w-[4.25rem] shrink-0 py-1.5 pl-2 pr-0.5 text-muted-foreground">
                                           <HoldingRankWithChange rank={h.rank} rankChange={null} />
                                         </TableCell>
-                                        <TableCell className="px-1.5 py-1.5 text-left">
+                                        <TableCell className="min-w-0 px-1.5 py-1.5 text-left">
                                           {company ? (
                                             <Tooltip>
                                               <TooltipTrigger asChild>
@@ -3317,28 +3438,28 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                             </span>
                                           )}
                                         </TableCell>
-                                        <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap text-muted-foreground">
-                                          <span className="text-[11px]">
+                                        <TableCell className="min-w-0 px-1.5 py-1.5 text-center tabular-nums text-muted-foreground">
+                                          <span className="block min-w-0 truncate text-[11px]">
                                             Was {(h.weight * 100).toFixed(1)}%
                                           </span>
                                         </TableCell>
-                                        <TableCell className="py-1.5 pl-1.5 pr-3 text-right">
-                                          <span className="inline-flex items-center justify-end gap-1">
+                                        <TableCell className="min-w-0 py-1.5 pl-1.5 pr-3 text-right">
+                                          <div className="flex min-w-0 items-center justify-end gap-1">
                                             <Badge
                                               variant="outline"
                                               className={cn(
-                                                'px-1.5 py-0 text-[10px] font-normal leading-tight shrink-0 opacity-90',
+                                                'shrink-0 px-1.5 py-0 text-[10px] font-normal leading-tight opacity-90',
                                                 yourPortfolioHoldingScoreBucketClass(h.bucket)
                                               )}
                                             >
                                               {yourPortfolioHoldingScoreBucketLabel(h.bucket)}
                                             </Badge>
-                                            <span className="tabular-nums font-medium text-muted-foreground">
+                                            <span className="min-w-0 truncate tabular-nums font-medium text-muted-foreground">
                                               {h.score != null && Number.isFinite(h.score)
                                                 ? h.score.toFixed(1)
                                                 : '—'}
                                             </span>
-                                          </span>
+                                          </div>
                                         </TableCell>
                                       </TableRow>
                                     );
@@ -3371,13 +3492,13 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                         }
                                       }}
                                     >
-                                      <TableCell className="py-1.5 pl-2 pr-0.5 text-muted-foreground">
+                                      <TableCell className="w-[4.25rem] shrink-0 py-1.5 pl-2 pr-0.5 text-muted-foreground">
                                         <HoldingRankWithChange
                                           rank={h.rank}
                                           rankChange={h.rankChange}
                                         />
                                       </TableCell>
-                                      <TableCell className="px-1.5 py-1.5 text-left">
+                                      <TableCell className="min-w-0 px-1.5 py-1.5 text-left">
                                         {company ? (
                                           <Tooltip>
                                             <TooltipTrigger asChild>
@@ -3398,39 +3519,43 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                           </span>
                                         )}
                                       </TableCell>
-                                      <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap">
+                                      <TableCell className="min-w-0 px-1.5 py-1.5 text-center tabular-nums">
                                         {showLive ? (
-                                          <div className="leading-tight">
-                                            <div>
+                                          <div className="min-w-0 space-y-0.5 leading-tight">
+                                            <div className="truncate">
                                               {`${formatYourPortfolioCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
                                             </div>
-                                            <div className="text-[11px] text-muted-foreground">
+                                            <div className="truncate text-[11px] text-muted-foreground">
                                               Target: {(h.weight * 100).toFixed(1)}%
                                             </div>
                                           </div>
                                         ) : Number.isFinite(inv) && inv > 0 ? (
-                                          `${formatYourPortfolioCurrency(h.weight * inv)} (${(h.weight * 100).toFixed(1)}%)`
+                                          <span className="block min-w-0 truncate">
+                                            {`${formatYourPortfolioCurrency(h.weight * inv)} (${(h.weight * 100).toFixed(1)}%)`}
+                                          </span>
                                         ) : (
-                                          `— (${(h.weight * 100).toFixed(1)}%)`
+                                          <span className="block min-w-0 truncate">
+                                            {`— (${(h.weight * 100).toFixed(1)}%)`}
+                                          </span>
                                         )}
                                       </TableCell>
-                                      <TableCell className="py-1.5 pl-1.5 pr-3 text-right">
-                                        <span className="inline-flex items-center justify-end gap-1">
+                                      <TableCell className="min-w-0 py-1.5 pl-1.5 pr-3 text-right">
+                                        <div className="flex min-w-0 items-center justify-end gap-1">
                                           <Badge
                                             variant="outline"
                                             className={cn(
-                                              'px-1.5 py-0 text-[10px] font-normal leading-tight shrink-0',
+                                              'shrink-0 px-1.5 py-0 text-[10px] font-normal leading-tight',
                                               yourPortfolioHoldingScoreBucketClass(h.bucket)
                                             )}
                                           >
                                             {yourPortfolioHoldingScoreBucketLabel(h.bucket)}
                                           </Badge>
-                                          <span className="tabular-nums font-medium">
+                                          <span className="min-w-0 truncate tabular-nums font-medium">
                                             {h.score != null && Number.isFinite(h.score)
                                               ? h.score.toFixed(1)
                                               : '—'}
                                           </span>
-                                        </span>
+                                        </div>
                                       </TableCell>
                                     </TableRow>
                                   );
@@ -3709,9 +3834,12 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
           setEntryDate(userStartDate);
           updateConfig({ investmentSize });
         }}
-        onSaved={({ profileId }) => {
+        onSaved={({ profileId, investmentSize, userStartDate }) => {
           if (authState.isAuthenticated) {
-            invalidateUserPortfolioProfilesEntrySave(profileId);
+            invalidateUserPortfolioProfilesEntrySave(profileId, {
+              investmentSize,
+              userStartDate,
+            });
             return;
           }
           if (selectedProfile?.id) {

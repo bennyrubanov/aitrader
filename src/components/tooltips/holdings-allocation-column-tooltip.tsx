@@ -30,8 +30,8 @@ export function HoldingsAllocationColumnTooltip({
   const title = w === 'cap' ? 'Cap weighting' : 'Equal weighting';
   const detail =
     w === 'cap'
-      ? 'Weights are proportional to market cap among this portfolio’s top positions.'
-      : 'Weights are spread evenly across this portfolio’s top positions.';
+      ? 'Weights are proportional to market cap among this portfolio’s positions.'
+      : 'Weights are spread evenly across this portfolio’s positions.';
 
   const exploreBlurb = (
     <p className="text-muted-foreground">

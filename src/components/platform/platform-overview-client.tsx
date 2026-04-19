@@ -1192,17 +1192,19 @@ function TopPortfolioLatestRebalanceSection({
 
   return (
     <div className="space-y-2 rounded-xl border border-border/70 bg-background/40 p-3 sm:p-4">
-      <div className="space-y-1">
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Latest rebalance actions
-        </h4>
+      <h4 className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <span>Latest rebalance actions</span>
         {payload?.lastRebalanceDate ? (
-          <p className="text-sm font-medium text-foreground">
-            Rebalance date:{' '}
-            <span className="tabular-nums">{formatYmdDisplay(payload.lastRebalanceDate)}</span>
-          </p>
+          <>
+            <span className="select-none font-normal text-muted-foreground/50" aria-hidden>
+              ·
+            </span>
+            <span className="font-medium normal-case tabular-nums text-muted-foreground">
+              {formatYmdDisplay(payload.lastRebalanceDate)}
+            </span>
+          </>
         ) : null}
-      </div>
+      </h4>
       {!state || state.loading ? (
         <Skeleton className="h-24 w-full rounded-md" />
       ) : error ? (
@@ -2840,12 +2842,14 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
           setEntryDate(userStartDate);
           updateConfig({ investmentSize });
         }}
-        onSaved={({ profileId }) => {
+        onSaved={({ profileId, investmentSize, userStartDate }) => {
           if (!authState.isAuthenticated) return;
           void (async () => {
             await refreshOverviewProfiles();
             invalidateUserPortfolioProfilesEntrySave(profileId, {
               skipOverviewProfileRefetch: true,
+              investmentSize,
+              userStartDate,
             });
           })();
         }}

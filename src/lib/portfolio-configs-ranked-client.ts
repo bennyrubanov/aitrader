@@ -1,7 +1,10 @@
 'use client';
 
 import type { PortfolioConfigsRankedPayload } from '@/lib/portfolio-configs-ranked-core';
-import { USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT } from '@/components/platform/portfolio-unfollow-toast';
+import {
+  USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT,
+  type UserPortfolioProfilesInvalidateDetail,
+} from '@/components/platform/portfolio-unfollow-toast';
 
 const inflight = new Map<string, Promise<PortfolioConfigsRankedPayload | null>>();
 const resolved = new Map<string, PortfolioConfigsRankedPayload | null>();
@@ -11,7 +14,9 @@ let invalidateListenerBound = false;
 function bindInvalidateListener() {
   if (invalidateListenerBound || typeof window === 'undefined') return;
   invalidateListenerBound = true;
-  window.addEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, () => {
+  window.addEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, (e: Event) => {
+    const d = (e as CustomEvent<UserPortfolioProfilesInvalidateDetail>).detail;
+    if (d?.entrySettingsOnly) return;
     inflight.clear();
     resolved.clear();
   });

@@ -12,6 +12,9 @@ export type UserPortfolioProfilesInvalidateDetail = {
   entrySettingsOnly?: boolean;
   /** When true, overview already refetched profiles; skip profileFetchNonce to avoid duplicate GET. */
   skipOverviewProfileRefetch?: boolean;
+  /** Present after entry settings save so listeners can merge state without a full profile list refetch. */
+  userStartDate?: string;
+  investmentSize?: number;
 };
 
 export function invalidateUserPortfolioProfiles(): void {
@@ -22,7 +25,11 @@ export function invalidateUserPortfolioProfiles(): void {
 /** After entry date / investment PATCH — same event; set `skipOverviewProfileRefetch` when overview already called GET. */
 export function invalidateUserPortfolioProfilesEntrySave(
   profileId: string,
-  opts?: { skipOverviewProfileRefetch?: boolean }
+  opts?: {
+    skipOverviewProfileRefetch?: boolean;
+    userStartDate?: string;
+    investmentSize?: number;
+  }
 ): void {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(
@@ -31,6 +38,12 @@ export function invalidateUserPortfolioProfilesEntrySave(
         profileId,
         entrySettingsOnly: true,
         skipOverviewProfileRefetch: opts?.skipOverviewProfileRefetch === true,
+        ...(typeof opts?.userStartDate === 'string' && opts.userStartDate.trim()
+          ? { userStartDate: opts.userStartDate.trim() }
+          : {}),
+        ...(typeof opts?.investmentSize === 'number' && Number.isFinite(opts.investmentSize) && opts.investmentSize > 0
+          ? { investmentSize: opts.investmentSize }
+          : {}),
       },
     })
   );
