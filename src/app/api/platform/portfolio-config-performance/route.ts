@@ -117,10 +117,12 @@ export async function GET(req: Request) {
 
     const computeStatus = mapComputeStatusForClient(rawStatus);
 
-    const chartBuilt = buildConfigPerformanceChart(rows);
+    const chartBuilt = buildConfigPerformanceChart(rows, frequency);
     let series = chartBuilt.series;
     let metrics = chartBuilt.metrics;
     let fullMetrics = chartBuilt.fullMetrics;
+    const sortedRows = [...rows].sort((a, b) => a.run_date.localeCompare(b.run_date));
+    const sharpeReturnsFromRows = sortedRows.map((r) => Number(r.net_return ?? 0));
 
     if (series.length > 0 && computeStatus === 'ready' && configMeta) {
       const adminSupabase = createAdminClient();
@@ -147,7 +149,7 @@ export async function GET(req: Request) {
         series = [...series, tailPoint];
       }
 
-      const fromSeries = buildMetricsFromSeries(series);
+      const fromSeries = buildMetricsFromSeries(series, frequency, sharpeReturnsFromRows);
       metrics = fromSeries.metrics;
       fullMetrics = fromSeries.fullMetrics;
     }

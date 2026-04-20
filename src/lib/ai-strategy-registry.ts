@@ -79,7 +79,7 @@ export const AI_STRATEGIES: AIStrategyEntry[] = [
       transactionCostBps: 15,
     },
     description:
-      'Weekly Top-20 Nasdaq-100 portfolio: stocks ranked by AI, equal weight, rebalanced every week, with trading costs included.',
+      "Nasdaq-100 stocks rated and ranked by OpenAI's GPT-5.2 every week using a live web search on news, earnings, guidance, analyst revisions, and market reactions.",
   },
 ];
 

@@ -5,7 +5,7 @@
 
 export const PORTFOLIO_CONFIG_BADGE_TOOLTIPS: Record<string, string> = {
   'Top ranked':
-    'Ranked #1 by composite score among portfolios with enough history (2+ weeks). The score blends normalized peers: 30% Sharpe, 25% CAGR, 15% consistency (% of weeks beating Nasdaq-100 cap-weight), 10% drawdown (shallower is better), 10% total return, and 10% excess return vs Nasdaq-100 cap over the same period.',
+    'Ranked #1 by composite score among portfolios with enough data for all inputs. The score blends normalized peers: 30% Sharpe, 35% total return, 15% consistency (% of weeks beating Nasdaq-100 cap-weight), 10% drawdown (shallower is better), and 10% excess return vs Nasdaq-100 cap over the same period.',
   'Best risk-adjusted':
     'Highest Sharpe ratio among ranked portfolios — weekly returns vs volatility, annualized. Ties go to the first match in our sort order.',
   'Most consistent':

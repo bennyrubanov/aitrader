@@ -1,5 +1,6 @@
 export * from './benchmark-outperformance';
 export * from './holdings-allocation-column-tooltip';
+export * from './holdings-cost-basis-column-tooltip';
 export * from './holdings-movement-tooltip';
 export * from './info-icon-tooltip';
 export * from './portfolio-ending-value-rank-tooltip-body';

@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ExplorePortfoliosEquityChart } from '@/components/platform/explore-portfolios-equity-chart';
 import type {
   ExploreBenchmarkSeries,
@@ -17,6 +17,7 @@ import {
 import { PortfolioEntryDatePicker } from '@/components/platform/portfolio-entry-date-picker';
 import { portfolioEntryDateBounds } from '@/components/platform/portfolio-entry-date-utils';
 import { ExplorePortfolioFilterControls } from '@/components/platform/explore-portfolio-filter-controls';
+import { MetricReadinessPill } from '@/components/platform/metric-readiness-pill';
 import { PortfolioRankingTooltipBody } from '@/components/tooltips';
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
 import { StrategyModelSidebarDropdown } from '@/components/platform/strategy-model-sidebar-dropdown';
@@ -307,6 +308,10 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
   );
   const [sortMetric, setSortMetric] = usePersistedExplorePortfoliosSortMetric();
   const [sortDialogOpen, setSortDialogOpen] = useState(false);
+  const compositeScoreAvailableCount = useMemo(
+    () => configs.filter((c) => c.compositeScore != null && Number.isFinite(c.compositeScore)).length,
+    [configs]
+  );
   const [equitySeriesPayload, setEquitySeriesPayload] = useState<{
     dates: string[];
     series: ExploreEquitySeriesRow[];
@@ -472,7 +477,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
     const valueByMetric = (c: RankedConfig): number => {
       switch (sortMetric) {
         case 'composite_score':
-          return -((c.rank ?? 999) + (c.rank == null ? 1_000 : 0));
+          return safeValue(c.compositeScore);
         case 'portfolio_value_performance':
         case 'portfolio_return':
           return safeValue(c.metrics.totalReturn);
@@ -1247,6 +1252,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
         value={sortMetric}
         onValueChange={setSortMetric}
         includeFollowOrder={false}
+        compositeScoreDisabled={compositeScoreAvailableCount === 0}
       />
     </TooltipProvider>
   );
@@ -1275,19 +1281,20 @@ function ConfigCard({
   onAdd: () => void;
   onUnfollow: () => void;
 }) {
-  const hasMetrics = config.dataStatus === 'ready';
-  const isLimited = config.dataStatus === 'limited';
+  const showMetricBlock = config.dataStatus !== 'empty';
+  const isLimited = config.dataStatus === 'early';
+  const weeklyObservations = config.metrics.weeklyObservations;
   const riskColor = CONFIG_CARD_RISK_DOT[config.riskLevel as RiskLevel] ?? 'bg-muted';
   const riskTitle =
     (config.riskLabel && config.riskLabel.trim()) || RISK_LABELS[config.riskLevel as RiskLevel];
 
-  const benchNasdaqTotalReturn =
-    config.metrics.endingValueMarket != null
-      ? config.metrics.endingValueMarket / INITIAL_CAPITAL - 1
+  const benchSp500TotalReturn =
+    config.metrics.endingValueSp500 != null
+      ? config.metrics.endingValueSp500 / INITIAL_CAPITAL - 1
       : null;
-  const outperformanceVsNasdaqCap =
-    config.metrics.totalReturn != null && benchNasdaqTotalReturn != null
-      ? config.metrics.totalReturn - benchNasdaqTotalReturn
+  const outperformanceVsSp500Cap =
+    config.metrics.totalReturn != null && benchSp500TotalReturn != null
+      ? config.metrics.totalReturn - benchSp500TotalReturn
       : null;
 
   const followUnfollowButtons = (
@@ -1380,68 +1387,89 @@ function ConfigCard({
               ))}
             </div>
           ) : null}
-        {hasMetrics ? (
+        {showMetricBlock ? (
           <div className="flex min-w-0 flex-col gap-2 border-t border-border/60 pt-2">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="min-w-0 cursor-default">
-                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Value</p>
-                  <p className="mt-0.5 text-xs font-semibold tabular-nums text-foreground">
-                    {fmtUsd(
-                      config.metrics.endingValuePortfolio ??
-                        (config.metrics.totalReturn != null
-                          ? INITIAL_CAPITAL * (1 + config.metrics.totalReturn)
-                          : null)
-                    )}{' '}
-                    <span
-                      className={cn(
-                        'font-semibold',
-                        (config.metrics.totalReturn ?? 0) >= 0
-                          ? 'text-green-600 dark:text-green-400'
-                          : 'text-red-600 dark:text-red-400'
-                      )}
-                    >
-                      ({fmt(config.metrics.totalReturn, 'pct')})
-                    </span>
-                  </p>
-                </div>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-xs text-xs">
-                Hypothetical portfolio value from $10,000 at inception through the latest performance
-                date. Parentheses show total return over that period.
-              </TooltipContent>
-            </Tooltip>
-            <MetricPill
-              label="Sharpe"
-              value={fmt(config.metrics.sharpeRatio, 'num')}
-              valueClassName={
-                config.metrics.sharpeRatio != null && Number.isFinite(config.metrics.sharpeRatio)
-                  ? sharpeRatioValueClass(config.metrics.sharpeRatio)
-                  : undefined
-              }
-            />
-            <MetricPill
-              label="CAGR"
-              value={fmt(config.metrics.cagr, 'pct')}
-              positive={(config.metrics.cagr ?? 0) >= 0}
-            />
-            <MetricPill
-              label="Max drawdown"
-              value={fmt(config.metrics.maxDrawdown, 'pct')}
-              positive={false}
-            />
-            <MetricPill
-              label="Performance vs NDX-100 (cap)"
-              value={fmt(outperformanceVsNasdaqCap, 'pct')}
-              positive={(outperformanceVsNasdaqCap ?? 0) > 0}
-              title="Portfolio cumulative return minus Nasdaq-100 cap-weight benchmark cumulative return over the same period ($10k start)."
-              labelClassName="whitespace-normal"
-            />
+            {isLimited ? (
+              <>
+                <p className="text-[10px] text-amber-700 dark:text-amber-300">
+                  Early data — metrics refine as history builds
+                </p>
+                <ConfigCardMetricsSkeletonMobile />
+              </>
+            ) : (
+              <>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="min-w-0 cursor-default">
+                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Value</p>
+                      <p className="mt-0.5 text-xs font-semibold tabular-nums text-foreground">
+                        {fmtUsd(
+                          config.metrics.endingValuePortfolio ??
+                            (config.metrics.totalReturn != null
+                              ? INITIAL_CAPITAL * (1 + config.metrics.totalReturn)
+                              : null)
+                        )}{' '}
+                        <span
+                          className={cn(
+                            'font-semibold',
+                            (config.metrics.totalReturn ?? 0) >= 0
+                              ? 'text-green-600 dark:text-green-400'
+                              : 'text-red-600 dark:text-red-400'
+                          )}
+                        >
+                          ({fmt(config.metrics.totalReturn, 'pct')})
+                        </span>
+                      </p>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs text-xs">
+                    Hypothetical portfolio value from $10,000 at inception through the latest performance
+                    date. Parentheses show total return over that period.
+                  </TooltipContent>
+                </Tooltip>
+                <MetricPill
+                  label="Performance vs S&P 500"
+                  value={fmt(outperformanceVsSp500Cap, 'pct')}
+                  positive={(outperformanceVsSp500Cap ?? 0) > 0}
+                  title="Portfolio cumulative return minus S&P 500 cap-weight benchmark cumulative return over the same period ($10k start)."
+                  labelClassName="whitespace-normal"
+                />
+                <MetricPill
+                  label="Sharpe"
+                  value={fmt(config.metrics.sharpeRatio, 'num')}
+                  valueClassName={
+                    config.metrics.sharpeRatio != null && Number.isFinite(config.metrics.sharpeRatio)
+                      ? sharpeRatioValueClass(config.metrics.sharpeRatio)
+                      : undefined
+                  }
+                  afterLabel={
+                    <MetricReadinessPill
+                      kind="sharpe"
+                      value={config.metrics.sharpeRatio}
+                      weeksOfData={weeklyObservations}
+                    />
+                  }
+                />
+                <MetricPill
+                  label="CAGR"
+                  value={fmt(config.metrics.cagr, 'pct')}
+                  positive={(config.metrics.cagr ?? 0) >= 0}
+                  afterLabel={
+                    <MetricReadinessPill
+                      kind="cagr"
+                      value={config.metrics.cagr}
+                      weeksOfData={weeklyObservations}
+                    />
+                  }
+                />
+                <MetricPill
+                  label="Max drawdown"
+                  value={fmt(config.metrics.maxDrawdown, 'pct')}
+                  positive={false}
+                />
+              </>
+            )}
           </div>
-        ) : isLimited ? (
-          <p className="text-[11px] text-amber-600 dark:text-amber-400">
-            Limited data — building track record
-          </p>
         ) : (
           <p className="text-[11px] text-muted-foreground">Performance computing…</p>
         )}
@@ -1499,16 +1527,33 @@ function ConfigCard({
           </div>
 
           {/* Highlight metrics — first four columns share space; last column fits label in one line */}
-          {hasMetrics ? (
+          {showMetricBlock ? (
             <div className="w-full overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch] sm:overflow-visible">
-              <div className="grid w-full min-w-[28rem] grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] gap-x-2 pl-1 pr-6 sm:min-w-0 sm:gap-x-3 sm:pl-2 sm:pr-8 sm:items-end">
+              {isLimited ? (
+                <div className="space-y-1.5">
+                  <p className="text-[10px] text-amber-700 dark:text-amber-300">
+                    Early data — metrics refine as history builds
+                  </p>
+                  <ConfigCardMetricsSkeletonDesktop />
+                </div>
+              ) : null}
+              {!isLimited ? (
+                <div className="grid w-full min-w-[28rem] grid-cols-[minmax(0,1.35fr)_repeat(4,minmax(0,1fr))] gap-x-2 pl-1 pr-6 sm:min-w-0 sm:gap-x-3 sm:pl-2 sm:pr-8 sm:items-start">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <div className="min-w-0 cursor-default">
                       <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
                         Value
                       </p>
-                      <p className="text-xs font-semibold tabular-nums mt-0.5 text-foreground">
+                      <p
+                        className="text-xs font-semibold tabular-nums mt-0.5 text-foreground truncate"
+                        title={`${fmtUsd(
+                          config.metrics.endingValuePortfolio ??
+                            (config.metrics.totalReturn != null
+                              ? INITIAL_CAPITAL * (1 + config.metrics.totalReturn)
+                              : null)
+                        )} (${fmt(config.metrics.totalReturn, 'pct')})`}
+                      >
                         {fmtUsd(
                           config.metrics.endingValuePortfolio ??
                             (config.metrics.totalReturn != null
@@ -1535,6 +1580,14 @@ function ConfigCard({
                 </Tooltip>
                 <MetricPill
                   className="min-w-0"
+                  label="Performance vs S&P 500"
+                  value={fmt(outperformanceVsSp500Cap, 'pct')}
+                  positive={(outperformanceVsSp500Cap ?? 0) > 0}
+                  title="Portfolio cumulative return minus S&P 500 cap-weight benchmark cumulative return over the same period ($10k start)."
+                  labelClassName="leading-tight"
+                />
+                <MetricPill
+                  className="min-w-0"
                   label="Sharpe"
                   value={fmt(config.metrics.sharpeRatio, 'num')}
                   valueClassName={
@@ -1543,12 +1596,26 @@ function ConfigCard({
                       ? sharpeRatioValueClass(config.metrics.sharpeRatio)
                       : undefined
                   }
+                  afterLabel={
+                    <MetricReadinessPill
+                      kind="sharpe"
+                      value={config.metrics.sharpeRatio}
+                      weeksOfData={weeklyObservations}
+                    />
+                  }
                 />
                 <MetricPill
                   className="min-w-0"
                   label="CAGR"
                   value={fmt(config.metrics.cagr, 'pct')}
                   positive={(config.metrics.cagr ?? 0) >= 0}
+                  afterLabel={
+                    <MetricReadinessPill
+                      kind="cagr"
+                      value={config.metrics.cagr}
+                      weeksOfData={weeklyObservations}
+                    />
+                  }
                 />
                 <MetricPill
                   className="min-w-0"
@@ -1556,24 +1623,44 @@ function ConfigCard({
                   value={fmt(config.metrics.maxDrawdown, 'pct')}
                   positive={false}
                 />
-                <MetricPill
-                  label="Performance vs NDX-100 (cap)"
-                  value={fmt(outperformanceVsNasdaqCap, 'pct')}
-                  positive={(outperformanceVsNasdaqCap ?? 0) > 0}
-                  title="Portfolio cumulative return minus Nasdaq-100 cap-weight benchmark cumulative return over the same period ($10k start)."
-                  labelClassName="whitespace-nowrap"
-                />
-              </div>
+                </div>
+              ) : null}
             </div>
-          ) : isLimited ? (
-            <p className="text-[11px] text-amber-600 dark:text-amber-400">
-              Limited data — building track record
-            </p>
           ) : (
             <p className="text-[11px] text-muted-foreground">Performance computing…</p>
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function ConfigCardMetricsSkeletonMobile() {
+  return (
+    <div className="space-y-2">
+      <div className="space-y-1">
+        <Skeleton className="h-2.5 w-12" />
+        <Skeleton className="h-4 w-40" />
+      </div>
+      {Array.from({ length: 4 }).map((_, i) => (
+        <div key={i} className="space-y-1">
+          <Skeleton className="h-2.5 w-28" />
+          <Skeleton className="h-4 w-24" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ConfigCardMetricsSkeletonDesktop() {
+  return (
+    <div className="grid w-full min-w-[28rem] grid-cols-5 gap-x-2 pl-1 pr-6 sm:min-w-0 sm:gap-x-3 sm:pl-2 sm:pr-8 sm:items-end">
+      {Array.from({ length: 5 }).map((_, i) => (
+        <div key={i} className="space-y-1">
+          <Skeleton className="h-2.5 w-24" />
+          <Skeleton className="h-4 w-20" />
+        </div>
+      ))}
     </div>
   );
 }
@@ -1586,6 +1673,7 @@ function MetricPill({
   className,
   title,
   labelClassName,
+  afterLabel,
 }: {
   label: string;
   value: string;
@@ -1595,6 +1683,8 @@ function MetricPill({
   className?: string;
   title?: string;
   labelClassName?: string;
+  /** e.g. readiness pill beside the label */
+  afterLabel?: ReactNode;
 }) {
   const valueToneClass =
     valueClassName ??
@@ -1605,16 +1695,19 @@ function MetricPill({
       : 'text-muted-foreground');
 
   return (
-    <div className={className} title={title}>
+    <div className={cn('min-w-0', className)} title={title}>
       <p
         className={cn(
-          'text-[10px] uppercase tracking-wide text-muted-foreground',
+          'flex flex-wrap items-center gap-x-1 gap-y-0.5 text-[10px] uppercase tracking-wide text-muted-foreground',
           labelClassName
         )}
       >
-        {label}
+        <span>{label}</span>
+        {afterLabel}
       </p>
-      <p className={cn('text-xs font-semibold tabular-nums mt-0.5', valueToneClass)}>{value}</p>
+      <p className={cn('mt-0.5 truncate text-xs font-semibold tabular-nums', valueToneClass)} title={value}>
+        {value}
+      </p>
     </div>
   );
 }

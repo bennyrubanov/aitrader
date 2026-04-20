@@ -8,25 +8,30 @@ function isoWeekBucketKey(isoYmd: string): string {
   return `${y}-W${String(w).padStart(2, '0')}`;
 }
 
+export type WeeklyBenchmarkKey = 'nasdaq100CapWeight' | 'nasdaq100EqualWeight' | 'sp500';
+
 /**
- * Weekly consistency vs Nasdaq-100 cap: bucket daily points by ISO week, keep last date per week,
- * then count weeks where portfolio week-over-week return exceeded the benchmark’s.
+ * Bucket points by ISO week (last observation per week), then share of week-to-week periods where
+ * the portfolio return beat the chosen benchmark (same definition as legacy Nasdaq cap “consistency”).
  */
-export function computeWeeklyConsistencyVsNasdaqCap(
-  series: PerformanceSeriesPoint[]
+export function computeWeeklyPctBeatingBenchmark(
+  series: PerformanceSeriesPoint[],
+  benchmarkKey: WeeklyBenchmarkKey
 ): number | null {
   if (series.length < 2) return null;
-  type WeekSnap = { weekKey: string; lastDate: string; port: number; cap: number };
+  type WeekSnap = { weekKey: string; lastDate: string; port: number; bench: number };
   const byWeek = new Map<string, WeekSnap>();
   for (const p of series) {
     const weekKey = isoWeekBucketKey(p.date);
+    const bench = p[benchmarkKey];
+    if (typeof bench !== 'number' || !Number.isFinite(bench)) continue;
     const ex = byWeek.get(weekKey);
     if (!ex || p.date > ex.lastDate) {
       byWeek.set(weekKey, {
         weekKey,
         lastDate: p.date,
         port: p.aiTop20,
-        cap: p.nasdaq100CapWeight,
+        bench,
       });
     }
   }
@@ -37,14 +42,24 @@ export function computeWeeklyConsistencyVsNasdaqCap(
   for (let i = 1; i < weeks.length; i++) {
     const prev = weeks[i - 1]!;
     const curr = weeks[i]!;
-    if (prev.port <= 0 || prev.cap <= 0) continue;
+    if (prev.port <= 0 || prev.bench <= 0) continue;
     const pr = curr.port / prev.port - 1;
-    const cr = curr.cap / prev.cap - 1;
-    if (!Number.isFinite(pr) || !Number.isFinite(cr)) continue;
+    const br = curr.bench / prev.bench - 1;
+    if (!Number.isFinite(pr) || !Number.isFinite(br)) continue;
     total += 1;
-    if (pr > cr) wins += 1;
+    if (pr > br) wins += 1;
   }
   return total === 0 ? null : wins / total;
+}
+
+/**
+ * Weekly consistency vs Nasdaq-100 cap: bucket daily points by ISO week, keep last date per week,
+ * then count weeks where portfolio week-over-week return exceeded the benchmark’s.
+ */
+export function computeWeeklyConsistencyVsNasdaqCap(
+  series: PerformanceSeriesPoint[]
+): number | null {
+  return computeWeeklyPctBeatingBenchmark(series, 'nasdaq100CapWeight');
 }
 
 export function computeExcessReturnVsNasdaqCap(series: PerformanceSeriesPoint[]): number | null {

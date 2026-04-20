@@ -89,7 +89,7 @@ async function loadLandingTopPortfolioPerformanceUncached(): Promise<LandingTopP
   let rows = initialRows;
   rows = await prependModelInceptionToConfigRows(supabase, ranked.strategyId, rows);
 
-  const built = buildConfigPerformanceChart(rows);
+  const built = buildConfigPerformanceChart(rows, portfolioSlice.rebalanceFrequency);
   let series = built.series;
   const isReady = mapComputeStatus(rawStatus) === 'ready';
   if (isReady && series.length >= 2) {

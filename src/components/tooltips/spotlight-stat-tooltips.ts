@@ -14,7 +14,11 @@ export const SPOTLIGHT_STAT_TOOLTIPS = {
   },
   sharpe_ratio: {
     title: 'Sharpe ratio',
-    body: 'Return per unit of risk: average return divided by volatility of daily returns since your entry (annualized). Higher is better; above about 1.0 is often considered strong for equity strategies.',
+    body: 'Return per unit of risk: weekly holding-period returns (last close in each calendar week) divided by their week-to-week volatility, annualized at sqrt(52). Ready after about 8 weeks of history. Higher is better; above about 1.0 is often considered strong for equity strategies.',
+  },
+  sharpe_ratio_decision_cadence: {
+    title: 'Decision-cadence Sharpe',
+    body: "Sharpe computed from the portfolio's rebalance-period net returns, annualized at its rebalance cadence. This complements primary Sharpe by isolating decision-process edge from intra-period holding risk. Ready after 8 completed rebalance periods.",
   },
   max_drawdown: {
     title: 'Max drawdown',
@@ -22,7 +26,15 @@ export const SPOTLIGHT_STAT_TOOLTIPS = {
   },
   consistency: {
     title: '% weeks beating Nasdaq-100 (cap)',
-    body: 'Takes the last trading day in each week for portfolio and the Nasdaq-100 (cap-weight) benchmark, then counts week-to-week periods where the portfolio return beat the benchmark’s. Above 50% means this portfolio beat the benchmark more weeks than it lost.',
+    body: 'Uses the last portfolio and benchmark level in each calendar week, then counts week-to-week periods where your return beat the benchmark’s. Above 50% means you won more weeks than you lost.',
+  },
+  weeks_beating_sp500: {
+    title: '% weeks beating S&P 500 (cap)',
+    body: 'Same weekly cadence as the Nasdaq cap stat: last level each calendar week, then week-to-week returns versus the S&P 500 cap-weight benchmark. Above 50% means you beat the S&P more weeks than not.',
+  },
+  weeks_beating_nasdaq_equal: {
+    title: '% weeks beating Nasdaq-100 (equal)',
+    body: 'Same weekly cadence versus the Nasdaq-100 equal-weight benchmark (equal dollars in each index name each period). Above 50% means you beat that benchmark in more weeks than you trailed.',
   },
   vs_nasdaq_cap: {
     title: 'Performance vs Nasdaq-100 (cap)',

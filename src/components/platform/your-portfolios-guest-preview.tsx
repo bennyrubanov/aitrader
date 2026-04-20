@@ -103,6 +103,8 @@ const GUEST_PREVIEW_STRATEGY_MODELS: StrategyListItem[] = [
     startDate: '2020-06-15',
     runCount: 240,
     sharpeRatio: 1.12,
+    sharpeRatioDecisionCadence: 1.12,
+    weeklyObservations: 240,
     totalReturn: 0.38,
     cagr: 0.105,
     maxDrawdown: -0.26,
@@ -122,6 +124,8 @@ const GUEST_PREVIEW_STRATEGY_MODELS: StrategyListItem[] = [
     startDate: '2023-01-01',
     runCount: 88,
     sharpeRatio: 0.94,
+    sharpeRatioDecisionCadence: 0.94,
+    weeklyObservations: 88,
     totalReturn: 0.26,
     cagr: 0.088,
     maxDrawdown: -0.32,
@@ -688,15 +692,9 @@ export function YourPortfoliosGuestPreview({ signInHref, signUpHref }: Props) {
                           onActivate={promptSignup}
                         />
                         <GuestSpotlightStatButton
-                          tooltipKey="return_pct"
-                          label="Performance (return %)"
-                          maskSample="+3.4%"
-                          onActivate={promptSignup}
-                        />
-                        <GuestSpotlightStatButton
-                          tooltipKey="cagr"
-                          label="CAGR"
-                          maskSample="+11.2%"
+                          tooltipKey="vs_sp500"
+                          label="Performance vs S&P 500 (cap)"
+                          maskSample="+2.0%"
                           onActivate={promptSignup}
                         />
                         <GuestSpotlightStatButton
@@ -706,15 +704,15 @@ export function YourPortfoliosGuestPreview({ signInHref, signUpHref }: Props) {
                           onActivate={promptSignup}
                         />
                         <GuestSpotlightStatButton
-                          tooltipKey="max_drawdown"
-                          label="Max drawdown"
-                          maskSample="−8.2%"
+                          tooltipKey="cagr"
+                          label="CAGR"
+                          maskSample="+11.2%"
                           onActivate={promptSignup}
                         />
                         <GuestSpotlightStatButton
-                          tooltipKey="consistency"
-                          label="% weeks beating Nasdaq-100 (cap)"
-                          maskSample="58%"
+                          tooltipKey="max_drawdown"
+                          label="Max drawdown"
+                          maskSample="−8.2%"
                           onActivate={promptSignup}
                         />
                         <GuestSpotlightStatButton
@@ -730,9 +728,21 @@ export function YourPortfoliosGuestPreview({ signInHref, signUpHref }: Props) {
                           onActivate={promptSignup}
                         />
                         <GuestSpotlightStatButton
-                          tooltipKey="vs_sp500"
-                          label="Performance vs S&P 500 (cap)"
-                          maskSample="+2.0%"
+                          tooltipKey="consistency"
+                          label="% weeks beating Nasdaq-100 (cap)"
+                          maskSample="58%"
+                          onActivate={promptSignup}
+                        />
+                        <GuestSpotlightStatButton
+                          tooltipKey="weeks_beating_sp500"
+                          label="% weeks beating S&P 500 (cap)"
+                          maskSample="54%"
+                          onActivate={promptSignup}
+                        />
+                        <GuestSpotlightStatButton
+                          tooltipKey="weeks_beating_nasdaq_equal"
+                          label="% weeks beating Nasdaq-100 (equal)"
+                          maskSample="52%"
                           onActivate={promptSignup}
                         />
                       </div>

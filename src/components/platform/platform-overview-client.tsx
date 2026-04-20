@@ -42,6 +42,7 @@ import {
 import { ENTRY_DATE_KEY } from '@/components/portfolio-config/portfolio-config-storage';
 import { ExplorePortfolioFilterControls } from '@/components/platform/explore-portfolio-filter-controls';
 import { ExplorePortfolioDetailDialog } from '@/components/platform/explore-portfolio-detail-dialog';
+import { MetricReadinessPill } from '@/components/platform/metric-readiness-pill';
 import { PortfolioListSortActiveIndicator } from '@/components/platform/portfolio-list-sort-active-indicator';
 import { PortfolioListSortDialog } from '@/components/platform/portfolio-list-sort-dialog';
 import { HoldingRankWithChange } from '@/components/platform/holding-rank-with-change';
@@ -98,10 +99,12 @@ import {
 } from '@/components/ui/tooltip';
 import {
   HoldingsAllocationColumnTooltip,
+  HoldingsCostBasisColumnTooltip,
   HoldingsMovementInfoTooltip,
   InfoIconTooltip,
   SpotlightStatCard,
 } from '@/components/tooltips';
+import { HoldingsPortfolioValueLine } from '@/components/platform/holdings-portfolio-value-line';
 import { StockChartDialog } from '@/components/platform/stock-chart-dialog';
 import { computeOverviewUserCompositeScores } from '@/lib/overview-user-composite';
 import type {
@@ -154,13 +157,21 @@ import {
   isGuestLocalProfileId,
 } from '@/lib/guest-local-profile';
 import { loadUserEntryPayloadCached } from '@/lib/your-portfolio-data-cache';
-import { computeWeeklyConsistencyVsNasdaqCap } from '@/lib/user-entry-performance';
+import {
+  computeWeeklyConsistencyVsNasdaqCap,
+  computeWeeklyPctBeatingBenchmark,
+} from '@/lib/user-entry-performance';
 import {
   PORTFOLIO_HOLDINGS_DATE_SELECT_WIDTH_CLASSES,
   PORTFOLIO_REBALANCE_DATE_SELECT_WIDTH_CLASSES,
 } from '@/lib/portfolio-rebalance-date-select-ui';
 import { cn } from '@/lib/utils';
 import { buildLiveHoldingsAllocationResult } from '@/lib/live-holdings-allocation';
+import {
+  buildCostBasisSnapshotsFromMovementTimeline,
+  costBasisIncompleteTooltip,
+  type CostBasisDateSnapshot,
+} from '@/lib/portfolio-holdings-cost-basis';
 
 const PerformanceChart = dynamic(
   () => import('@/components/platform/performance-chart').then((m) => m.PerformanceChart),
@@ -291,6 +302,7 @@ type OverviewCardPerfState = {
   cagr: number | null;
   maxDrawdown: number | null;
   sharpeRatio: number | null;
+  weeklyObservations: number;
   consistency: number | null;
   excessReturnVsNasdaqCap: number | null;
   loading: boolean;
@@ -306,6 +318,7 @@ function emptyOverviewCardPerfState(loading: boolean): OverviewCardPerfState {
     cagr: null,
     maxDrawdown: null,
     sharpeRatio: null,
+    weeklyObservations: 0,
     consistency: null,
     excessReturnVsNasdaqCap: null,
     loading,
@@ -366,11 +379,14 @@ function resolveRankedConfigForProfile(
     isDefault: false,
     metrics: {
       sharpeRatio: null,
+      sharpeRatioDecisionCadence: null,
       cagr: null,
       totalReturn: null,
       maxDrawdown: null,
       consistency: null,
       weeksOfData: 0,
+      weeklyObservations: 0,
+      decisionObservations: 0,
       endingValuePortfolio: null,
       endingValueMarket: null,
       endingValueSp500: null,
@@ -437,6 +453,38 @@ function formatOverviewCurrency(amount: number): string {
   }).format(amount);
 }
 
+function SpotlightCostBasisCell({
+  symbol,
+  snapshot,
+  exited,
+}: {
+  symbol: string;
+  snapshot: CostBasisDateSnapshot | null;
+  exited?: boolean;
+}) {
+  if (exited) {
+    return <span className="tabular-nums text-muted-foreground">—</span>;
+  }
+  const sym = symbol.toUpperCase();
+  const gap = snapshot?.incompleteFirstDateBySymbol[sym];
+  if (gap) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="cursor-help tabular-nums text-muted-foreground">—</span>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-xs text-xs">
+          {costBasisIncompleteTooltip(gap)}
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+  const total = snapshot?.costBasisBySymbol[sym] ?? 0;
+  return (
+    <span className="tabular-nums font-medium">{formatOverviewCurrency(total)}</span>
+  );
+}
+
 /**
  * Latest model-track equity for this tile (`series` from config performance). After user rebase, last point is
  * portfolio value in dollars; otherwise scale model ending equity by `investment_size` vs model initial.
@@ -461,18 +509,24 @@ function computeOverviewPortfolioValue(
 /** Portfolio vs cap benchmarks over the same series window (both series rebased together). */
 function benchmarkStatsFromSeries(series: PerformanceSeriesPoint[] | undefined): {
   excessVsNasdaqCap: number | null;
+  excessVsNasdaqEqual: number | null;
   excessVsSp500: number | null;
 } {
   if (!series || series.length < 2) {
-    return { excessVsNasdaqCap: null, excessVsSp500: null };
+    return { excessVsNasdaqCap: null, excessVsNasdaqEqual: null, excessVsSp500: null };
   }
   const f = series[0]!;
   const l = series[series.length - 1]!;
   if (f.aiTop20 <= 0 || f.nasdaq100CapWeight <= 0 || l.nasdaq100CapWeight <= 0) {
-    return { excessVsNasdaqCap: null, excessVsSp500: null };
+    return { excessVsNasdaqCap: null, excessVsNasdaqEqual: null, excessVsSp500: null };
   }
   const portRet = l.aiTop20 / f.aiTop20 - 1;
   const benchRet = l.nasdaq100CapWeight / f.nasdaq100CapWeight - 1;
+  let excessVsNasdaqEqual: number | null = null;
+  if (f.nasdaq100EqualWeight > 0 && l.nasdaq100EqualWeight > 0) {
+    const eqRet = l.nasdaq100EqualWeight / f.nasdaq100EqualWeight - 1;
+    if (Number.isFinite(eqRet)) excessVsNasdaqEqual = portRet - eqRet;
+  }
   let excessVsSp500: number | null = null;
   if (f.sp500 > 0 && l.sp500 > 0) {
     const spRet = l.sp500 / f.sp500 - 1;
@@ -480,6 +534,7 @@ function benchmarkStatsFromSeries(series: PerformanceSeriesPoint[] | undefined):
   }
   return {
     excessVsNasdaqCap: portRet - benchRet,
+    excessVsNasdaqEqual,
     excessVsSp500,
   };
 }
@@ -1840,6 +1895,8 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   >(null);
   const [prevSpotlightMovementLoading, setPrevSpotlightMovementLoading] = useState(false);
   const [prevSpotlightMovementError, setPrevSpotlightMovementError] = useState(false);
+  const [spotlightHoldingsMovementTimeline, setSpotlightHoldingsMovementTimeline] =
+    useState<PortfolioMovementResolved | null>(null);
   const [entrySettingsProfileId, setEntrySettingsProfileId] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailProfileId, setDetailProfileId] = useState<string | null>(null);
@@ -2499,6 +2556,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                 cagr: number | null;
                 maxDrawdown: number | null;
                 sharpeRatio: number | null;
+                weeklyObservations?: number | null;
                 consistency: number | null;
                 excessReturnVsNasdaqCap: number | null;
               } | null;
@@ -2524,6 +2582,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                   cagr: okFull ? (d.metrics?.cagr ?? null) : null,
                   maxDrawdown: okFull ? (d.metrics?.maxDrawdown ?? null) : null,
                   sharpeRatio: okFull ? (d.metrics?.sharpeRatio ?? null) : null,
+                  weeklyObservations: okFull ? Number(d.metrics?.weeklyObservations ?? 0) : 0,
                   consistency: okFull
                     ? (consistencyFromSeries ?? d.metrics?.consistency ?? null)
                     : null,
@@ -2572,7 +2631,8 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                     raw.series,
                     raw.computeStatus,
                     start,
-                    Number(p.investment_size)
+                    Number(p.investment_size),
+                    cfg.rebalance_frequency
                   );
                   applyUserEntryPayload({
                     series: payload.series,
@@ -2699,6 +2759,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     setPrevSpotlightMovementHoldings(null);
     setPrevSpotlightMovementError(false);
     setPrevSpotlightMovementLoading(false);
+    setSpotlightHoldingsMovementTimeline(null);
   }, [topSpotlightProfileId, topSpotlightConfigId]);
 
   useEffect(() => {
@@ -2823,6 +2884,65 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     topSpotlightAsOfPriceBySymbol,
     topSpotlightLatestPriceBySymbol,
   ]);
+
+  useEffect(() => {
+    if (!topSpotlightProfileId || !topSpotlightUserStartYmd) {
+      setSpotlightHoldingsMovementTimeline(null);
+      return;
+    }
+    let cancelled = false;
+    void loadPortfolioMovementDeduped(topSpotlightProfileId, null).then((r) => {
+      if (cancelled) return;
+      if ('data' in r && r.data.status === 'ok' && r.data.byRebalanceDate) {
+        setSpotlightHoldingsMovementTimeline(r);
+      } else {
+        setSpotlightHoldingsMovementTimeline(null);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [topSpotlightProfileId, topSpotlightUserStartYmd]);
+
+  const spotlightCostBasisSnapshotsByDate = useMemo(() => {
+    if (!topSpotlightSlug?.trim() || !topSpotlightConfigId || !topSpotlightUserStartYmd) return {};
+    if (!spotlightHoldingsMovementTimeline || !('data' in spotlightHoldingsMovementTimeline)) {
+      return {};
+    }
+    const data = spotlightHoldingsMovementTimeline.data;
+    if (data.status !== 'ok' || !data.byRebalanceDate) return {};
+    const slug = topSpotlightSlug.trim();
+    const cfgId = topSpotlightConfigId;
+    return buildCostBasisSnapshotsFromMovementTimeline({
+      rebalanceDatesNewestFirst: scopedTopSpotlightRebalanceDates,
+      byRebalanceDate: data.byRebalanceDate,
+      getAsOfPriceBySymbol: (d) => getCachedExploreHoldings(slug, cfgId, d)?.asOfPriceBySymbol,
+    });
+  }, [
+    topSpotlightSlug,
+    topSpotlightConfigId,
+    topSpotlightUserStartYmd,
+    spotlightHoldingsMovementTimeline,
+    scopedTopSpotlightRebalanceDates,
+  ]);
+
+  const selectedSpotlightCostBasisSnapshot = useMemo(() => {
+    const d = topSpotlightHoldingsAsOf;
+    if (!d) return null;
+    return spotlightCostBasisSnapshotsByDate[d] ?? null;
+  }, [topSpotlightHoldingsAsOf, spotlightCostBasisSnapshotsByDate]);
+
+  const spotlightPortfolioValueLineAmount = useMemo(() => {
+    if (spotlightHoldingsMovementTimeline && 'data' in spotlightHoldingsMovementTimeline) {
+      const pl = spotlightHoldingsMovementTimeline.data;
+      if (pl.status === 'ok' && topSpotlightHoldingsAsOf) {
+        const row = pl.byRebalanceDate?.[topSpotlightHoldingsAsOf];
+        const n = row?.notionalAtCurrRebalanceEnd;
+        if (n != null && Number.isFinite(n) && n > 0) return n;
+      }
+    }
+    return spotlightHoldingsAsOfNotional;
+  }, [spotlightHoldingsMovementTimeline, topSpotlightHoldingsAsOf, spotlightHoldingsAsOfNotional]);
 
   const spotlightHoldingsPrevRebalanceDate = useMemo(
     () => getPreviousRebalanceDate(scopedTopSpotlightRebalanceDates, topSpotlightHoldingsAsOf),
@@ -3369,12 +3489,22 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                           })
                         : null;
                       const investmentSize = Number(bp.investment_size);
-                      const { excessVsNasdaqCap, excessVsSp500 } = benchmarkStatsFromSeries(series);
+                      const { excessVsNasdaqCap, excessVsNasdaqEqual, excessVsSp500 } =
+                        benchmarkStatsFromSeries(series);
                       const excessNdxForDisplay =
                         st.excessReturnVsNasdaqCap != null &&
                         Number.isFinite(st.excessReturnVsNasdaqCap)
                           ? st.excessReturnVsNasdaqCap
                           : excessVsNasdaqCap;
+                      const weeksVsNasdaqCap = computeWeeklyPctBeatingBenchmark(
+                        series,
+                        'nasdaq100CapWeight'
+                      );
+                      const weeksVsSp500 = computeWeeklyPctBeatingBenchmark(series, 'sp500');
+                      const weeksVsNasdaqEqual = computeWeeklyPctBeatingBenchmark(
+                        series,
+                        'nasdaq100EqualWeight'
+                      );
                       return (
                         <section className="rounded-xl border border-border bg-card/50 p-4 sm:p-5 lg:h-[calc(100svh-14.75rem)] lg:overflow-hidden">
                           <div className="mb-2 flex min-w-0 items-start justify-between gap-3">
@@ -3521,22 +3651,36 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                 </div>
                                 <div className="hidden w-full gap-2 lg:grid">
                                   <SpotlightStatCard
-                                    tooltipKey="cagr"
-                                    label="CAGR"
-                                    value={fmt.pct(st.cagr)}
-                                    positive={
-                                      st.cagr != null && Number.isFinite(st.cagr)
-                                        ? st.cagr > 0
-                                        : undefined
-                                    }
-                                  />
-                                  <SpotlightStatCard
                                     tooltipKey="sharpe_ratio"
                                     label="Sharpe ratio"
+                                    afterLabel={
+                                      <MetricReadinessPill
+                                        kind="sharpe"
+                                        value={st.sharpeRatio}
+                                        weeksOfData={st.weeklyObservations}
+                                      />
+                                    }
                                     value={fmt.num(st.sharpeRatio)}
                                     valueClassName={
                                       st.sharpeRatio != null && Number.isFinite(st.sharpeRatio)
                                         ? sharpeRatioValueClass(st.sharpeRatio)
+                                        : undefined
+                                    }
+                                  />
+                                  <SpotlightStatCard
+                                    tooltipKey="cagr"
+                                    label="CAGR"
+                                    afterLabel={
+                                      <MetricReadinessPill
+                                        kind="cagr"
+                                        value={st.cagr}
+                                        weeksOfData={st.series.length}
+                                      />
+                                    }
+                                    value={fmt.pct(st.cagr)}
+                                    positive={
+                                      st.cagr != null && Number.isFinite(st.cagr)
+                                        ? st.cagr > 0
                                         : undefined
                                     }
                                   />
@@ -3551,14 +3695,6 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                     }
                                   />
                                   <SpotlightStatCard
-                                    tooltipKey="consistency"
-                                    label="% weeks beating Nasdaq-100 (cap)"
-                                    value={st.consistency != null ? fmt.pct(st.consistency, 0) : '—'}
-                                    positive={
-                                      st.consistency != null ? st.consistency > 0.5 : undefined
-                                    }
-                                  />
-                                  <SpotlightStatCard
                                     tooltipKey="vs_nasdaq_cap"
                                     label="Performance vs Nasdaq-100 (cap)"
                                     value={fmt.pct(excessNdxForDisplay)}
@@ -3566,6 +3702,47 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                       excessNdxForDisplay != null &&
                                       Number.isFinite(excessNdxForDisplay)
                                         ? excessNdxForDisplay > 0
+                                        : undefined
+                                    }
+                                  />
+                                  <SpotlightStatCard
+                                    tooltipKey="vs_nasdaq_equal"
+                                    label="Performance vs Nasdaq-100 (equal)"
+                                    value={fmt.pct(excessVsNasdaqEqual)}
+                                    positive={
+                                      excessVsNasdaqEqual != null &&
+                                      Number.isFinite(excessVsNasdaqEqual)
+                                        ? excessVsNasdaqEqual > 0
+                                        : undefined
+                                    }
+                                  />
+                                  <SpotlightStatCard
+                                    tooltipKey="consistency"
+                                    label="% weeks beating Nasdaq-100 (cap)"
+                                    value={
+                                      weeksVsNasdaqCap != null ? fmt.pct(weeksVsNasdaqCap, 0) : '—'
+                                    }
+                                    positive={
+                                      weeksVsNasdaqCap != null ? weeksVsNasdaqCap > 0.5 : undefined
+                                    }
+                                  />
+                                  <SpotlightStatCard
+                                    tooltipKey="weeks_beating_sp500"
+                                    label="% weeks beating S&P 500 (cap)"
+                                    value={weeksVsSp500 != null ? fmt.pct(weeksVsSp500, 0) : '—'}
+                                    positive={weeksVsSp500 != null ? weeksVsSp500 > 0.5 : undefined}
+                                  />
+                                  <SpotlightStatCard
+                                    tooltipKey="weeks_beating_nasdaq_equal"
+                                    label="% weeks beating Nasdaq-100 (equal)"
+                                    value={
+                                      weeksVsNasdaqEqual != null
+                                        ? fmt.pct(weeksVsNasdaqEqual, 0)
+                                        : '—'
+                                    }
+                                    positive={
+                                      weeksVsNasdaqEqual != null
+                                        ? weeksVsNasdaqEqual > 0.5
                                         : undefined
                                     }
                                   />
@@ -3580,6 +3757,11 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                       hideDrawdown
                                       hideFootnote
                                       initialNotional={initialNotional}
+                                      firstPointDisplayNotional={
+                                        bp.user_start_date && Number(bp.investment_size) > 0
+                                          ? Number(bp.investment_size)
+                                          : undefined
+                                      }
                                       chartContainerClassName="h-[288px] sm:h-[328px]"
                                     />
                                   </div>
@@ -3716,6 +3898,12 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                       No rebalance history yet.
                                     </p>
                                   ) : null}
+                                  {overviewPaidHoldings && scopedTopSpotlightRebalanceDates.length > 0 ? (
+                                    <HoldingsPortfolioValueLine
+                                      value={spotlightPortfolioValueLineAmount}
+                                      formatCurrency={formatOverviewCurrency}
+                                    />
+                                  ) : null}
                                 </div>
                                 {!overviewPaidHoldings ? (
                                   <div className="space-y-3">
@@ -3803,7 +3991,10 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                               </span>
                                             </TableHead>
                                             <TableHead className="h-9 py-1.5 pl-1.5 pr-3 text-right align-middle whitespace-nowrap">
-                                              AI rating
+                                              <span className="inline-flex min-w-0 max-w-full items-center justify-end gap-1">
+                                                <span className="truncate">Cost basis</span>
+                                                <HoldingsCostBasisColumnTooltip variant="user" />
+                                              </span>
                                             </TableHead>
                                           </TableRow>
                                         </TableHeader>
@@ -3888,25 +4079,11 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                                             `— (${(h.weight * 100).toFixed(1)}%)`
                                                           )}
                                                         </TableCell>
-                                                        <TableCell className="py-1.5 pl-1.5 pr-3 text-right">
-                                                          <span className="inline-flex items-center justify-end gap-1">
-                                                            <Badge
-                                                              variant="outline"
-                                                              className={cn(
-                                                                'px-1.5 py-0 text-[10px] font-normal leading-tight shrink-0',
-                                                                spotlightHoldingScoreBucketClass(
-                                                                  h.bucket
-                                                                )
-                                                              )}
-                                                            >
-                                                              {spotlightHoldingScoreBucketLabel(h.bucket)}
-                                                            </Badge>
-                                                            <span className="tabular-nums font-medium">
-                                                              {h.score != null && Number.isFinite(h.score)
-                                                                ? h.score.toFixed(1)
-                                                                : '—'}
-                                                            </span>
-                                                          </span>
+                                                        <TableCell className="py-1.5 pl-1.5 pr-3 text-right align-top">
+                                                          <SpotlightCostBasisCell
+                                                            symbol={h.symbol}
+                                                            snapshot={selectedSpotlightCostBasisSnapshot}
+                                                          />
                                                         </TableCell>
                                                       </TableRow>
                                                     );
@@ -3978,25 +4155,12 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                                           Was {(h.weight * 100).toFixed(1)}%
                                                         </span>
                                                       </TableCell>
-                                                      <TableCell className="py-1.5 pl-1.5 pr-3 text-right">
-                                                        <span className="inline-flex items-center justify-end gap-1">
-                                                          <Badge
-                                                            variant="outline"
-                                                            className={cn(
-                                                              'px-1.5 py-0 text-[10px] font-normal leading-tight shrink-0 opacity-90',
-                                                              spotlightHoldingScoreBucketClass(
-                                                                h.bucket
-                                                              )
-                                                            )}
-                                                          >
-                                                            {spotlightHoldingScoreBucketLabel(h.bucket)}
-                                                          </Badge>
-                                                          <span className="tabular-nums font-medium text-muted-foreground">
-                                                            {h.score != null && Number.isFinite(h.score)
-                                                              ? h.score.toFixed(1)
-                                                              : '—'}
-                                                          </span>
-                                                        </span>
+                                                      <TableCell className="py-1.5 pl-1.5 pr-3 text-right align-top">
+                                                        <SpotlightCostBasisCell
+                                                          symbol={h.symbol}
+                                                          snapshot={selectedSpotlightCostBasisSnapshot}
+                                                          exited
+                                                        />
                                                       </TableCell>
                                                     </TableRow>
                                                   );
@@ -4076,23 +4240,11 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                                         `— (${(h.weight * 100).toFixed(1)}%)`
                                                       )}
                                                     </TableCell>
-                                                    <TableCell className="py-1.5 pl-1.5 pr-3 text-right">
-                                                      <span className="inline-flex items-center justify-end gap-1">
-                                                        <Badge
-                                                          variant="outline"
-                                                          className={cn(
-                                                            'px-1.5 py-0 text-[10px] font-normal leading-tight shrink-0',
-                                                            spotlightHoldingScoreBucketClass(h.bucket)
-                                                          )}
-                                                        >
-                                                          {spotlightHoldingScoreBucketLabel(h.bucket)}
-                                                        </Badge>
-                                                        <span className="tabular-nums font-medium">
-                                                          {h.score != null && Number.isFinite(h.score)
-                                                            ? h.score.toFixed(1)
-                                                            : '—'}
-                                                        </span>
-                                                      </span>
+                                                    <TableCell className="py-1.5 pl-1.5 pr-3 text-right align-top">
+                                                      <SpotlightCostBasisCell
+                                                        symbol={h.symbol}
+                                                        snapshot={selectedSpotlightCostBasisSnapshot}
+                                                      />
                                                     </TableCell>
                                                   </TableRow>
                                                 );
@@ -4178,22 +4330,36 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                       </div>
                                     </div>
                                     <SpotlightStatCard
-                                      tooltipKey="cagr"
-                                      label="CAGR"
-                                      value={fmt.pct(st.cagr)}
-                                      positive={
-                                        st.cagr != null && Number.isFinite(st.cagr)
-                                          ? st.cagr > 0
-                                          : undefined
-                                      }
-                                    />
-                                    <SpotlightStatCard
                                       tooltipKey="sharpe_ratio"
                                       label="Sharpe ratio"
+                                      afterLabel={
+                                        <MetricReadinessPill
+                                          kind="sharpe"
+                                          value={st.sharpeRatio}
+                                          weeksOfData={st.weeklyObservations}
+                                        />
+                                      }
                                       value={fmt.num(st.sharpeRatio)}
                                       valueClassName={
                                         st.sharpeRatio != null && Number.isFinite(st.sharpeRatio)
                                           ? sharpeRatioValueClass(st.sharpeRatio)
+                                          : undefined
+                                      }
+                                    />
+                                    <SpotlightStatCard
+                                      tooltipKey="cagr"
+                                      label="CAGR"
+                                      afterLabel={
+                                        <MetricReadinessPill
+                                          kind="cagr"
+                                          value={st.cagr}
+                                          weeksOfData={st.series.length}
+                                        />
+                                      }
+                                      value={fmt.pct(st.cagr)}
+                                      positive={
+                                        st.cagr != null && Number.isFinite(st.cagr)
+                                          ? st.cagr > 0
                                           : undefined
                                       }
                                     />
@@ -4208,14 +4374,6 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                       }
                                     />
                                     <SpotlightStatCard
-                                      tooltipKey="consistency"
-                                      label="% weeks beating Nasdaq-100 (cap)"
-                                      value={st.consistency != null ? fmt.pct(st.consistency, 0) : '—'}
-                                      positive={
-                                        st.consistency != null ? st.consistency > 0.5 : undefined
-                                      }
-                                    />
-                                    <SpotlightStatCard
                                       tooltipKey="vs_nasdaq_cap"
                                       label="Performance vs Nasdaq-100 (cap)"
                                       value={fmt.pct(excessNdxForDisplay)}
@@ -4223,6 +4381,53 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                         excessNdxForDisplay != null &&
                                         Number.isFinite(excessNdxForDisplay)
                                           ? excessNdxForDisplay > 0
+                                          : undefined
+                                      }
+                                    />
+                                    <SpotlightStatCard
+                                      tooltipKey="vs_nasdaq_equal"
+                                      label="Performance vs Nasdaq-100 (equal)"
+                                      value={fmt.pct(excessVsNasdaqEqual)}
+                                      positive={
+                                        excessVsNasdaqEqual != null &&
+                                        Number.isFinite(excessVsNasdaqEqual)
+                                          ? excessVsNasdaqEqual > 0
+                                          : undefined
+                                      }
+                                    />
+                                    <SpotlightStatCard
+                                      tooltipKey="consistency"
+                                      label="% weeks beating Nasdaq-100 (cap)"
+                                      value={
+                                        weeksVsNasdaqCap != null
+                                          ? fmt.pct(weeksVsNasdaqCap, 0)
+                                          : '—'
+                                      }
+                                      positive={
+                                        weeksVsNasdaqCap != null
+                                          ? weeksVsNasdaqCap > 0.5
+                                          : undefined
+                                      }
+                                    />
+                                    <SpotlightStatCard
+                                      tooltipKey="weeks_beating_sp500"
+                                      label="% weeks beating S&P 500 (cap)"
+                                      value={weeksVsSp500 != null ? fmt.pct(weeksVsSp500, 0) : '—'}
+                                      positive={
+                                        weeksVsSp500 != null ? weeksVsSp500 > 0.5 : undefined
+                                      }
+                                    />
+                                    <SpotlightStatCard
+                                      tooltipKey="weeks_beating_nasdaq_equal"
+                                      label="% weeks beating Nasdaq-100 (equal)"
+                                      value={
+                                        weeksVsNasdaqEqual != null
+                                          ? fmt.pct(weeksVsNasdaqEqual, 0)
+                                          : '—'
+                                      }
+                                      positive={
+                                        weeksVsNasdaqEqual != null
+                                          ? weeksVsNasdaqEqual > 0.5
                                           : undefined
                                       }
                                     />

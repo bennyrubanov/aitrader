@@ -10,6 +10,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
 } from 'react';
 import {
   ArrowRight,
@@ -23,7 +24,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { HoldingRankWithChange } from '@/components/platform/holding-rank-with-change';
-import { Badge } from '@/components/ui/badge';
+import { MetricReadinessPill } from '@/components/platform/metric-readiness-pill';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -78,6 +79,24 @@ import { formatStrategyDescriptionForDisplay } from '@/lib/format-strategy-descr
 import { formatPortfolioHoldingsSubtitle } from '@/lib/portfolio-config-display';
 import { PORTFOLIO_REBALANCE_DATE_SELECT_WIDTH_CLASSES } from '@/lib/portfolio-rebalance-date-select-ui';
 import { cn } from '@/lib/utils';
+import {
+  loadExplorePortfolioConfigHoldings,
+  prefetchExploreHoldingsDates,
+  getCachedExploreHoldings,
+} from '@/lib/portfolio-config-holdings-cache';
+import { buildLiveHoldingsAllocationResult } from '@/lib/live-holdings-allocation';
+import { rebasedEndingEquityAtRunDate } from '@/lib/portfolio-movement';
+import {
+  buildPublicModelCostBasisSnapshotsFromHoldings,
+  chartSeriesToPerfRowsForRebase,
+  costBasisIncompleteTooltip,
+  type CostBasisDateSnapshot,
+} from '@/lib/portfolio-holdings-cost-basis';
+import { HoldingsPortfolioValueLine } from '@/components/platform/holdings-portfolio-value-line';
+import {
+  HoldingsAllocationColumnTooltip,
+  HoldingsCostBasisColumnTooltip,
+} from '@/components/tooltips';
 import { SectionHeadingAnchor } from '@/components/section-heading-anchor';
 import { useAuthState } from '@/components/auth/auth-state-context';
 import { getAppAccessState, canViewPerformanceHoldingsForStrategy } from '@/lib/app-access';
@@ -168,22 +187,47 @@ const fmt = {
   },
 };
 
-function holdingScoreBucketClass(bucket: HoldingItem['bucket']) {
-  if (bucket === 'buy') {
-    return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300';
-  }
-  if (bucket === 'sell') {
-    return 'border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300';
-  }
-  if (bucket === 'hold') {
-    return 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300';
-  }
-  return 'border-muted-foreground/25 bg-muted/40 text-muted-foreground';
+/** e.g. "Feb 17, 2026" for model inception (UTC calendar date). */
+function formatInvestedOnCalendarDate(ymd: string | null | undefined): string | null {
+  if (!ymd) return null;
+  const parsed = new Date(`${ymd}T12:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(parsed);
 }
 
-function holdingScoreBucketLabel(bucket: HoldingItem['bucket']) {
-  if (!bucket) return '—';
-  return bucket.charAt(0).toUpperCase() + bucket.slice(1);
+const PERFORMANCE_MODEL_INITIAL = 10_000;
+
+function perfFormatUsd(amount: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
+
+function PerformanceHoldingsCostBasisCell({
+  symbol,
+  snapshot,
+}: {
+  symbol: string;
+  snapshot: CostBasisDateSnapshot | null;
+}) {
+  const sym = symbol.toUpperCase();
+  const gap = snapshot?.incompleteFirstDateBySymbol[sym];
+  if (gap) {
+    return (
+      <span className="tabular-nums text-muted-foreground" title={costBasisIncompleteTooltip(gap)}>
+        —
+      </span>
+    );
+  }
+  const total = snapshot?.costBasisBySymbol[sym] ?? 0;
+  return <span className="tabular-nums">{perfFormatUsd(total)}</span>;
 }
 
 /** YYYY-MM → short label for regression month picker */
@@ -207,6 +251,7 @@ function FlipCard({
   positive,
   neutral,
   positiveTone = 'default',
+  afterLabel,
 }: {
   label: string;
   value: string;
@@ -215,6 +260,7 @@ function FlipCard({
   neutral?: boolean;
   /** `brand` uses trader-blue for positive (e.g. Sharpe) to match site theme */
   positiveTone?: 'default' | 'brand';
+  afterLabel?: ReactNode;
 }) {
   const [flipped, setFlipped] = useState(false);
   const [showScrollHint, setShowScrollHint] = useState(false);
@@ -277,8 +323,9 @@ function FlipCard({
           className="absolute inset-0 rounded-xl border bg-card p-4 flex flex-col justify-between"
           style={{ backfaceVisibility: 'hidden' }}
         >
-          <p className="text-xs uppercase tracking-wide text-muted-foreground font-medium">
+          <p className="flex flex-wrap items-center gap-1 text-xs uppercase tracking-wide text-muted-foreground font-medium">
             {label}
+            {afterLabel}
           </p>
           <p className={`text-2xl font-bold ${colorClass}`}>{value}</p>
           <p className="text-[10px] text-muted-foreground">tap to explain</p>
@@ -288,8 +335,9 @@ function FlipCard({
           className="absolute inset-0 rounded-xl border bg-trader-blue/5 border-trader-blue/20 p-3 flex flex-col"
           style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}
         >
-          <p className="text-[10px] uppercase tracking-wide text-trader-blue font-semibold mb-1 shrink-0">
+          <p className="mb-1 flex shrink-0 flex-wrap items-center gap-1 text-[10px] uppercase tracking-wide text-trader-blue font-semibold">
             {label}
+            {afterLabel}
           </p>
           <div ref={backScrollRef} className="relative overflow-y-auto flex-1 min-h-0 px-1 py-1">
             <p className="text-xs text-foreground/80 leading-relaxed">{explanation}</p>
@@ -356,6 +404,12 @@ function PerformancePagePublicClientInner({
 
   const [holdings, setHoldings] = useState<HoldingItem[]>([]);
   const [holdingsAsOfDate, setHoldingsAsOfDate] = useState<string | null>(null);
+  const [holdingsAsOfPriceBySymbol, setHoldingsAsOfPriceBySymbol] = useState<
+    Record<string, number | null>
+  >({});
+  const [holdingsLatestPriceBySymbol, setHoldingsLatestPriceBySymbol] = useState<
+    Record<string, number | null>
+  >({});
   const [holdingsConfigSummary, setHoldingsConfigSummary] = useState<ConfigHoldingsSummary | null>(
     null
   );
@@ -463,6 +517,22 @@ function PerformancePagePublicClientInner({
 
   const holdingsPortfolioConfig = portfolioPerf.portfolioConfig;
 
+  const performanceHoldingsRankedRow = useMemo(() => {
+    const pc = holdingsPortfolioConfig;
+    const ranked = portfolioPerf.rankedConfigs;
+    if (!pc || !ranked.length) return null;
+    return (
+      ranked.find(
+        (r) =>
+          r.riskLevel === pc.riskLevel &&
+          r.rebalanceFrequency === pc.rebalanceFrequency &&
+          r.weightingMethod === pc.weightingMethod
+      ) ?? null
+    );
+  }, [holdingsPortfolioConfig, portfolioPerf.rankedConfigs]);
+
+  const performanceHoldingsConfigId = performanceHoldingsRankedRow?.id ?? null;
+
   useEffect(() => {
     setHoldingsAsOfDate(null);
   }, [slug, holdingsPortfolioConfig]);
@@ -482,6 +552,18 @@ function PerformancePagePublicClientInner({
       setHoldings([]);
       setHoldingsConfigSummary(null);
       setHoldingsRebalanceDates([]);
+      setHoldingsAsOfPriceBySymbol({});
+      setHoldingsLatestPriceBySymbol({});
+      setHoldingsLoading(false);
+      return;
+    }
+
+    if (!performanceHoldingsConfigId) {
+      setHoldings([]);
+      setHoldingsConfigSummary(null);
+      setHoldingsRebalanceDates([]);
+      setHoldingsAsOfPriceBySymbol({});
+      setHoldingsLatestPriceBySymbol({});
       setHoldingsLoading(false);
       return;
     }
@@ -489,52 +571,111 @@ function PerformancePagePublicClientInner({
     let cancelled = false;
     setHoldingsLoading(true);
 
-    const params = new URLSearchParams({
-      slug,
-      risk: String(holdingsPortfolioConfig.riskLevel),
-      frequency: holdingsPortfolioConfig.rebalanceFrequency,
-      weighting: holdingsPortfolioConfig.weightingMethod,
-    });
-    if (holdingsAsOfDate) {
-      params.set('asOfDate', holdingsAsOfDate);
-    }
+    const s = slug.trim();
+    const cid = performanceHoldingsConfigId;
 
-    void (async () => {
-      try {
-        const res = await fetch(`/api/platform/holdings?${params}`);
-        if (cancelled) return;
-        if (res.ok) {
-          const data = (await res.json()) as {
-            holdings?: HoldingItem[];
-            asOfDate?: string | null;
-            configSummary?: ConfigHoldingsSummary | null;
-            rebalanceDates?: string[];
-          };
-          setHoldings(Array.isArray(data.holdings) ? data.holdings : []);
-          setHoldingsConfigSummary(data.configSummary ?? null);
-          setHoldingsRebalanceDates(Array.isArray(data.rebalanceDates) ? data.rebalanceDates : []);
-        } else {
-          setHoldings([]);
-          setHoldingsConfigSummary(null);
-          setHoldingsRebalanceDates([]);
-        }
-      } catch {
-        if (!cancelled) {
-          setHoldings([]);
-          setHoldingsConfigSummary(null);
-          setHoldingsRebalanceDates([]);
-        }
-      } finally {
-        if (!cancelled) {
-          setHoldingsLoading(false);
-        }
+    void loadExplorePortfolioConfigHoldings(s, cid, holdingsAsOfDate).then((data) => {
+      if (cancelled) return;
+      if (!data) {
+        setHoldings([]);
+        setHoldingsConfigSummary(null);
+        setHoldingsRebalanceDates([]);
+        setHoldingsAsOfPriceBySymbol({});
+        setHoldingsLatestPriceBySymbol({});
+      } else {
+        setHoldings(data.holdings);
+        setHoldingsAsOfPriceBySymbol(data.asOfPriceBySymbol);
+        setHoldingsLatestPriceBySymbol(data.latestPriceBySymbol);
+        setHoldingsRebalanceDates(data.rebalanceDates);
+        const row = performanceHoldingsRankedRow;
+        setHoldingsConfigSummary(
+          row
+            ? {
+                topN: row.topN,
+                weightingMethod: row.weightingMethod,
+                rebalanceFrequency: row.rebalanceFrequency,
+                label: row.label ?? null,
+              }
+            : null
+        );
+        prefetchExploreHoldingsDates(s, cid, data.rebalanceDates);
       }
-    })();
+      setHoldingsLoading(false);
+    });
 
     return () => {
       cancelled = true;
     };
-  }, [slug, holdingsPortfolioConfig, holdingsAsOfDate, entitledToHoldings]);
+  }, [
+    slug,
+    holdingsPortfolioConfig,
+    holdingsAsOfDate,
+    entitledToHoldings,
+    performanceHoldingsConfigId,
+    performanceHoldingsRankedRow,
+  ]);
+
+  const performanceHoldingsAsOfYmd =
+    holdingsAsOfDate ?? (holdingsRebalanceDates[0] ?? null);
+
+  const performanceCfgRowsForCostBasis = useMemo(
+    () => chartSeriesToPerfRowsForRebase(configPerfSlice?.series ?? []),
+    [configPerfSlice?.series]
+  );
+
+  const performancePublicCostBasisByDate = useMemo(() => {
+    if (!slug?.trim() || !performanceHoldingsConfigId || !holdingsRebalanceDates.length) return {};
+    if (!performanceCfgRowsForCostBasis.length) return {};
+    const s = slug.trim();
+    const cid = performanceHoldingsConfigId;
+    return buildPublicModelCostBasisSnapshotsFromHoldings({
+      rebalanceDatesNewestFirst: holdingsRebalanceDates,
+      cfgRows: performanceCfgRowsForCostBasis,
+      getHoldingsAndPrices: (d) => {
+        const hit = getCachedExploreHoldings(s, cid, d);
+        if (!hit) return null;
+        return { holdings: hit.holdings, asOfPriceBySymbol: hit.asOfPriceBySymbol };
+      },
+    });
+  }, [
+    slug,
+    performanceHoldingsConfigId,
+    holdingsRebalanceDates,
+    performanceCfgRowsForCostBasis,
+  ]);
+
+  const performanceSelectedCostBasis = useMemo(() => {
+    const d = performanceHoldingsAsOfYmd;
+    if (!d) return null;
+    return performancePublicCostBasisByDate[d] ?? null;
+  }, [performanceHoldingsAsOfYmd, performancePublicCostBasisByDate]);
+
+  const performanceHoldingsModelNotional = useMemo(() => {
+    if (!performanceHoldingsAsOfYmd || performanceCfgRowsForCostBasis.length === 0) {
+      return PERFORMANCE_MODEL_INITIAL;
+    }
+    return (
+      rebasedEndingEquityAtRunDate(
+        performanceCfgRowsForCostBasis,
+        null,
+        PERFORMANCE_MODEL_INITIAL,
+        performanceHoldingsAsOfYmd
+      ) ?? PERFORMANCE_MODEL_INITIAL
+    );
+  }, [performanceHoldingsAsOfYmd, performanceCfgRowsForCostBasis]);
+
+  const performanceLiveHoldingsAllocation = useMemo(() => {
+    return buildLiveHoldingsAllocationResult(
+      holdings,
+      performanceHoldingsModelNotional,
+      holdingsAsOfPriceBySymbol,
+      holdingsLatestPriceBySymbol
+    );
+  }, [holdings, performanceHoldingsModelNotional, holdingsAsOfPriceBySymbol, holdingsLatestPriceBySymbol]);
+
+  const performanceHoldingsPortfolioValue = useMemo(() => {
+    return performanceSelectedCostBasis?.portfolioValue ?? performanceHoldingsModelNotional;
+  }, [performanceSelectedCostBasis, performanceHoldingsModelNotional]);
 
   const effectiveStrategy = payload.strategy ?? null;
   const series = payload.series ?? [];
@@ -613,6 +754,11 @@ function PerformancePagePublicClientInner({
       : slug && portfolioPerf.portfolioConfig != null
         ? []
         : series;
+  const displayMetricWeeklyObservations =
+    performanceHoldingsRankedRow?.metrics.weeklyObservations ?? null;
+  const displayMetricDecisionObservations =
+    performanceHoldingsRankedRow?.metrics.decisionObservations ?? null;
+  const displayMetricWeeksOfData = performanceHoldingsRankedRow?.metrics.weeksOfData ?? null;
 
   const latestDisplayDate =
     displaySeries.length > 0
@@ -1133,16 +1279,84 @@ function PerformancePagePublicClientInner({
             ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               <FlipCard
+                label="Portfolio value"
+                value={
+                  displayMetrics.endingValue != null && Number.isFinite(displayMetrics.endingValue)
+                    ? new Intl.NumberFormat('en-US', {
+                        style: 'currency',
+                        currency: 'USD',
+                        maximumFractionDigits: 0,
+                      }).format(displayMetrics.endingValue)
+                    : 'N/A'
+                }
+                explanation={(() => {
+                  const invested =
+                    effectiveStrategy?.startDate != null
+                      ? formatInvestedOnCalendarDate(effectiveStrategy.startDate)
+                      : null;
+                  return `Simulated value of the $10,000 model portfolio${
+                    invested ? ` ($10k invested on ${invested})` : ''
+                  } through the latest rebalance, net of trading costs. The strategy’s cumulative return is ${fmt.pct(displayMetrics.totalReturn)}.`;
+                })()}
+                positive={(displayMetrics.totalReturn ?? 0) > 0}
+              />
+              <FlipCard
+                label="Performance vs S&P 500 (cap)"
+                value={fmt.pct(
+                  displayMetrics.totalReturn != null &&
+                    displayMetrics.benchmarks.sp500.totalReturn != null
+                    ? displayMetrics.totalReturn - displayMetrics.benchmarks.sp500.totalReturn
+                    : null
+                )}
+                explanation="Cumulative portfolio return minus the S&P 500 cap-weight benchmark over the same dates. Positive means the model added more percentage points than the index."
+                positive={
+                  displayMetrics.totalReturn != null &&
+                  displayMetrics.benchmarks.sp500.totalReturn != null
+                    ? displayMetrics.totalReturn - displayMetrics.benchmarks.sp500.totalReturn > 0
+                    : undefined
+                }
+              />
+              <FlipCard
+                label="Sharpe ratio"
+                afterLabel={
+                  <MetricReadinessPill
+                    kind="sharpe"
+                    value={displayMetrics.sharpeRatio}
+                    weeksOfData={displayMetricWeeklyObservations}
+                  />
+                }
+                value={fmt.num(displayMetrics.sharpeRatio)}
+                explanation="Return per unit of risk. It divides the strategy's average return by how much the returns fluctuate week to week. Above 1.0 is generally considered good for a stock strategy. Higher is better."
+                positive={(displayMetrics.sharpeRatio ?? 0) > 1}
+                positiveTone="brand"
+              />
+              <FlipCard
+                label="Decision-cadence Sharpe"
+                afterLabel={
+                  <MetricReadinessPill
+                    kind="sharpe-decision"
+                    value={displayMetrics.sharpeRatioDecisionCadence}
+                    weeksOfData={displayMetricDecisionObservations}
+                    rebalanceFrequency={effectiveStrategy?.rebalanceFrequency}
+                  />
+                }
+                value={fmt.num(displayMetrics.sharpeRatioDecisionCadence)}
+                explanation="Sharpe computed from rebalance-period net returns, annualized at the strategy's rebalance cadence. This complements the primary Sharpe by isolating decision-process edge from intra-period holding risk."
+                positive={(displayMetrics.sharpeRatioDecisionCadence ?? 0) > 1}
+                positiveTone="brand"
+              />
+              <FlipCard
                 label="CAGR"
+                afterLabel={
+                  <MetricReadinessPill
+                    kind="cagr"
+                    value={displayMetrics.cagr}
+                    weeksOfData={displayMetricWeeksOfData}
+                  />
+                }
                 value={fmt.pct(displayMetrics.cagr)}
                 explanation="Annualized compound growth rate. If the strategy grew at this exact pace every calendar year since inception, this is the annual return you would have seen."
                 positive={(displayMetrics.cagr ?? 0) > 0}
-              />
-              <FlipCard
-                label="Total return"
-                value={fmt.pct(displayMetrics.totalReturn)}
-                explanation="How much the $10,000 starting capital has grown in total since inception. This is the raw cumulative gain, before any annualization."
-                positive={(displayMetrics.totalReturn ?? 0) > 0}
               />
               <FlipCard
                 label="Max drawdown"
@@ -1151,28 +1365,24 @@ function PerformancePagePublicClientInner({
                 positive={(displayMetrics.maxDrawdown ?? 0) > -0.2}
               />
               <FlipCard
-                label="Sharpe ratio"
-                value={fmt.num(displayMetrics.sharpeRatio)}
-                explanation="Return per unit of risk. It divides the strategy's average return by how much the returns fluctuate week to week. Above 1.0 is generally considered good for a stock strategy. Higher is better."
-                positive={(displayMetrics.sharpeRatio ?? 0) > 1}
-                positiveTone="brand"
+                label="Performance vs Nasdaq-100 (cap)"
+                value={fmt.pct(
+                  displayMetrics.totalReturn != null &&
+                    displayMetrics.benchmarks.nasdaq100CapWeight.totalReturn != null
+                    ? displayMetrics.totalReturn -
+                        displayMetrics.benchmarks.nasdaq100CapWeight.totalReturn
+                    : null
+                )}
+                explanation="Cumulative portfolio return minus the Nasdaq-100 cap-weight benchmark over the same dates. Positive means the model beat the index in percentage points."
+                positive={
+                  displayMetrics.totalReturn != null &&
+                  displayMetrics.benchmarks.nasdaq100CapWeight.totalReturn != null
+                    ? displayMetrics.totalReturn -
+                        displayMetrics.benchmarks.nasdaq100CapWeight.totalReturn >
+                      0
+                    : undefined
+                }
               />
-              {displayMetrics.pctWeeksBeatingNasdaq100 != null && (
-                <FlipCard
-                  label="% weeks outperforming Nasdaq-100"
-                  value={fmt.pct(displayMetrics.pctWeeksBeatingNasdaq100, 0)}
-                  explanation="Share of rebalance-to-rebalance weeks where the portfolio return beat the Nasdaq-100 cap-weighted index. Above 50% means it wins more weeks than it loses."
-                  positive={(displayMetrics.pctWeeksBeatingNasdaq100 ?? 0) > 0.5}
-                />
-              )}
-              {displayMetrics.pctWeeksBeatingSp500 != null && (
-                <FlipCard
-                  label="% weeks outperforming S&P 500"
-                  value={fmt.pct(displayMetrics.pctWeeksBeatingSp500, 0)}
-                  explanation="Share of rebalance-to-rebalance weeks where the portfolio return beat the S&P 500 cap-weighted index. Above 50% means it wins more weeks than it loses."
-                  positive={(displayMetrics.pctWeeksBeatingSp500 ?? 0) > 0.5}
-                />
-              )}
             </div>
             )}
           </div>
@@ -1246,7 +1456,7 @@ function PerformancePagePublicClientInner({
                 <li className="flex items-start gap-2">
                   <CheckCircle2 className="size-4 text-trader-blue mt-0.5 shrink-0" />
                   <span>
-                    <strong>No retroactive edits.</strong> Once a week closes, the results are locked.
+                    <strong>No retroactive edits.</strong> Once a week closes, the AI's rating results are locked.
                   </span>
                 </li>
               </ul>
@@ -1328,58 +1538,87 @@ function PerformancePagePublicClientInner({
                   </Select>
                 </div>
               ) : null}
+              {holdingsRebalanceDates.length > 0 ? (
+                <HoldingsPortfolioValueLine
+                  value={performanceHoldingsPortfolioValue}
+                  formatCurrency={perfFormatUsd}
+                  className="sm:ml-auto"
+                />
+              ) : null}
             </div>
             {holdings.length > 0 ? (
               <div className="rounded-lg border overflow-hidden">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="min-w-[4.25rem]">Rank</TableHead>
+                      <TableHead className="min-w-[4.25rem]">#</TableHead>
                       <TableHead>Stock</TableHead>
-                      <TableHead className="text-right">Weight</TableHead>
-                      <TableHead className="text-right">AI score</TableHead>
+                      <TableHead className="text-center">
+                        <span className="inline-flex items-center justify-center gap-1">
+                          Value
+                          <HoldingsAllocationColumnTooltip
+                            weightingMethod={holdingsPortfolioConfig.weightingMethod}
+                            topN={holdingsConfigSummary?.topN ?? whatYouSeeTopN}
+                          />
+                        </span>
+                      </TableHead>
+                      <TableHead className="text-right">
+                        <span className="inline-flex items-center justify-end gap-1">
+                          Cost basis
+                          <HoldingsCostBasisColumnTooltip variant="publicModel" />
+                        </span>
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {holdings.map((holding) => (
-                      <TableRow key={`${holding.symbol}-${holding.rank}`}>
-                        <TableCell className="text-muted-foreground">
-                          <HoldingRankWithChange
-                            rank={holding.rank}
-                            rankChange={holding.rankChange}
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <span className="font-medium">{holding.symbol}</span>
-                          {holding.companyName && holding.companyName !== holding.symbol && (
-                            <span className="text-xs text-muted-foreground ml-1.5">
-                              {holding.companyName}
-                            </span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {(holding.weight * 100).toFixed(1)}%
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <span className="inline-flex items-center justify-end gap-1.5 font-mono">
-                            <span>
-                              {holding.score != null
-                                ? (holding.score > 0 ? '+' : '') + holding.score
-                                : 'N/A'}
-                            </span>
-                            <Badge
-                              variant="outline"
-                              className={cn(
-                                'px-1.5 py-0 text-[10px] font-normal leading-tight',
-                                holdingScoreBucketClass(holding.bucket)
-                              )}
-                            >
-                              {holdingScoreBucketLabel(holding.bucket)}
-                            </Badge>
-                          </span>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {holdings.map((holding) => {
+                      const liveRow =
+                        performanceLiveHoldingsAllocation.bySymbol[holding.symbol.toUpperCase()];
+                      const showLive =
+                        performanceLiveHoldingsAllocation.hasCompleteCoverage &&
+                        liveRow?.currentValue != null &&
+                        liveRow.currentWeight != null;
+                      return (
+                        <TableRow key={`${holding.symbol}-${holding.rank}`}>
+                          <TableCell className="text-muted-foreground">
+                            <HoldingRankWithChange
+                              rank={holding.rank}
+                              rankChange={holding.rankChange}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <span className="font-medium">{holding.symbol}</span>
+                            {holding.companyName && holding.companyName !== holding.symbol && (
+                              <span className="text-xs text-muted-foreground ml-1.5">
+                                {holding.companyName}
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-center tabular-nums">
+                            {showLive ? (
+                              <div className="space-y-0.5 leading-tight">
+                                <div>
+                                  {`${perfFormatUsd(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  Target: {(holding.weight * 100).toFixed(1)}%
+                                </div>
+                              </div>
+                            ) : (
+                              <span>
+                                {`${perfFormatUsd(holding.weight * performanceHoldingsModelNotional)} (${(holding.weight * 100).toFixed(1)}%)`}
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right align-top">
+                            <PerformanceHoldingsCostBasisCell
+                              symbol={holding.symbol}
+                              snapshot={performanceSelectedCostBasis}
+                            />
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>
@@ -1401,10 +1640,10 @@ function PerformancePagePublicClientInner({
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Rank</TableHead>
+                    <TableHead>#</TableHead>
                     <TableHead>Stock</TableHead>
-                    <TableHead className="text-right">Weight</TableHead>
-                    <TableHead className="text-right">AI score</TableHead>
+                    <TableHead className="text-right">Value</TableHead>
+                    <TableHead className="text-right">Cost basis</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1415,8 +1654,8 @@ function PerformancePagePublicClientInner({
                         <span className="font-medium">XXXX</span>
                         <span className="text-xs text-muted-foreground ml-1.5">Company Name</span>
                       </TableCell>
-                      <TableCell className="text-right">5.0%</TableCell>
-                      <TableCell className="text-right font-mono">+{5 - i}</TableCell>
+                      <TableCell className="text-right tabular-nums">$1,000 (5.0%)</TableCell>
+                      <TableCell className="text-right tabular-nums">$950</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -1476,6 +1715,13 @@ function PerformancePagePublicClientInner({
               />
               <FlipCard
                 label="CAGR"
+                afterLabel={
+                  <MetricReadinessPill
+                    kind="cagr"
+                    value={displayMetrics.cagr}
+                    weeksOfData={displayMetricWeeksOfData}
+                  />
+                }
                 value={fmt.pct(displayMetrics.cagr)}
                 explanation="Annualized compound growth rate — what the portfolio's growth would look like if it grew at this pace every year."
                 positive={(displayMetrics.cagr ?? 0) > 0}
@@ -1638,9 +1884,31 @@ function PerformancePagePublicClientInner({
               />
               <FlipCard
                 label="Sharpe ratio"
+                afterLabel={
+                  <MetricReadinessPill
+                    kind="sharpe"
+                    value={displayMetrics.sharpeRatio}
+                    weeksOfData={displayMetricWeeklyObservations}
+                  />
+                }
                 value={fmt.num(displayMetrics.sharpeRatio)}
                 explanation="Return per unit of risk. Average weekly return divided by the standard deviation of weekly returns, then annualized. Above 1.0 is generally considered good for a stock strategy."
                 positive={(displayMetrics.sharpeRatio ?? 0) > 1}
+                positiveTone="brand"
+              />
+              <FlipCard
+                label="Decision-cadence Sharpe"
+                afterLabel={
+                  <MetricReadinessPill
+                    kind="sharpe-decision"
+                    value={displayMetrics.sharpeRatioDecisionCadence}
+                    weeksOfData={displayMetricDecisionObservations}
+                    rebalanceFrequency={effectiveStrategy?.rebalanceFrequency}
+                  />
+                }
+                value={fmt.num(displayMetrics.sharpeRatioDecisionCadence)}
+                explanation="Sharpe computed from rebalance-period net returns, annualized at the strategy's rebalance cadence. This complements the primary Sharpe by isolating decision-process edge from intra-period holding risk."
+                positive={(displayMetrics.sharpeRatioDecisionCadence ?? 0) > 1}
                 positiveTone="brand"
               />
             </div>
@@ -1673,7 +1941,8 @@ function PerformancePagePublicClientInner({
             <Skeleton className="h-[220px] w-full rounded-lg" />
           </div>
         ) : displayMetrics?.pctWeeksBeatingNasdaq100 != null ||
-          displayMetrics?.pctWeeksBeatingSp500 != null ? (
+          displayMetrics?.pctWeeksBeatingSp500 != null ||
+          displayMetrics?.pctWeeksBeatingNasdaq100EqualWeight != null ? (
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               {displayMetrics.pctWeeksBeatingNasdaq100 != null && (
@@ -1692,6 +1961,14 @@ function PerformancePagePublicClientInner({
                   positive={(displayMetrics.pctWeeksBeatingSp500 ?? 0) > 0.5}
                 />
               )}
+              {displayMetrics.pctWeeksBeatingNasdaq100EqualWeight != null && (
+                <FlipCard
+                  label="% weeks outperforming Nasdaq-100 (equal-weighted)"
+                  value={fmt.pct(displayMetrics.pctWeeksBeatingNasdaq100EqualWeight, 0)}
+                  explanation="Share of weeks where the portfolio beat the Nasdaq-100 equal-weight benchmark. Above 50% means it wins more weeks than it loses."
+                  positive={(displayMetrics.pctWeeksBeatingNasdaq100EqualWeight ?? 0) > 0.5}
+                />
+              )}
             </div>
             {displaySeries.length > 2 && (
               <RelativeOutperformanceChart
@@ -1703,7 +1980,7 @@ function PerformancePagePublicClientInner({
         ) : (
           <p className="text-muted-foreground text-sm">
             Consistency stats will appear once there are enough weekly data points to compare against
-            both benchmarks.
+            the benchmarks.
           </p>
         )}
       </section>

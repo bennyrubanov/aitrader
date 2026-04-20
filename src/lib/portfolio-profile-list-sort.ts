@@ -57,7 +57,7 @@ export const PORTFOLIO_LIST_METRIC_OPTION_DETAILS: PortfolioListMetricOptionDeta
     value: 'composite_score',
     label: 'Composite score',
     description:
-      'Blend of return, Sharpe, consistency, drawdown, and vs Nasdaq-100 cap within this list.',
+      'Blend of Sharpe, total return, consistency, drawdown, and excess vs Nasdaq-100 cap within this list (CAGR is shown separately).',
     inlineDetailsLink: {
       href: `/strategy-models/${STRATEGY_CONFIG.slug}#portfolio-ranking-how`,
       label: 'More details',

@@ -49,7 +49,7 @@ export function HoldingsAllocationColumnTooltip({
   return (
     <TooltipProvider delayDuration={200}>
       <InfoIconTooltip
-        ariaLabel="How value and percentages are calculated"
+        ariaLabel="How holdings value and percentages are calculated"
         contentClassName="p-3 leading-relaxed"
       >
         {topN === 1 ? (

@@ -28,8 +28,8 @@ export function PortfolioRankingTooltipBody({
     rankedTotal != null && rankedTotal > 0
       ? `Ranked ${rank} out of ${rankedTotal} portfolio${rankedTotal === 1 ? '' : 's'} by composite score for this strategy model.`
       : rank <= 1
-        ? 'This portfolio has the highest composite score among the ranked portfolios for this strategy model.'
-        : 'This ranks portfolios by overall composite score for this strategy model.';
+        ? 'This portfolio has the highest composite score among portfolios that have all composite inputs (Sharpe, total return, consistency, drawdown, excess vs Nasdaq-100 cap).'
+        : 'Composite blends those normalized metrics for this strategy model; portfolios still building history may not have a rank yet.';
 
   return (
     <div className="space-y-2">

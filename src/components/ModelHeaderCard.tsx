@@ -16,6 +16,7 @@ export type { ModelHeaderQuintileInsight };
 export type ModelHeaderStat = {
   label: string;
   value: string;
+  afterLabel?: ReactNode;
   note?: string;
   /** When set, value color matches overview FlipCard rules (green / red / brand Sharpe). */
   positive?: boolean;
@@ -162,11 +163,12 @@ function StatGrid({ stats }: { stats: ModelHeaderStat[] }) {
             <div key={stat.label} className="px-4 py-3 text-center">
               <p
                 className={cn(
-                  'text-[10px] uppercase tracking-wider text-muted-foreground font-medium',
+                  'flex flex-wrap items-center justify-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground font-medium',
                   isSharpe && stat.positive === undefined && 'text-trader-blue dark:text-trader-blue-light'
                 )}
               >
                 {stat.label}
+                {stat.afterLabel}
               </p>
               <p className={cn('text-sm font-semibold mt-0.5 tabular-nums', valueColor)}>
                 {stat.value}

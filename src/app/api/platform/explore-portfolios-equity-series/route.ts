@@ -154,7 +154,10 @@ async function loadExplorePortfoliosEquitySeriesPayload(
       if (rawRows.length === 0) return null;
       const rowsForSeries = [...rawRows].sort((a, b) => a.run_date.localeCompare(b.run_date));
       const withInception = ensureInceptionPrefix(rowsForSeries);
-      const weeklySeries = buildConfigPerformanceChart(withInception).series;
+      const weeklySeries = buildConfigPerformanceChart(
+        withInception,
+        cfg.rebalance_frequency
+      ).series;
       if (weeklySeries.length === 0) return null;
 
       let series: PerformanceSeriesPoint[] = weeklySeries;

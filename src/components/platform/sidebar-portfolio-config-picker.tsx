@@ -361,7 +361,7 @@ function PortfolioPickerTableRow({
             <div className="shrink-0 space-y-0.5 text-right text-[11px] leading-tight tabular-nums">
               {c.dataStatus === 'empty' ? (
                 <span className="block text-muted-foreground">Computing…</span>
-              ) : c.dataStatus === 'limited' ? (
+              ) : c.dataStatus === 'early' ? (
                 <span className="block text-amber-700 dark:text-amber-400">Limited data</span>
               ) : (
                 <>

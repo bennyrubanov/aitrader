@@ -69,9 +69,12 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   HoldingsAllocationColumnTooltip,
+  HoldingsCostBasisColumnTooltip,
   HoldingsMovementInfoTooltip,
   InfoIconTooltip,
 } from '@/components/tooltips';
+import { HoldingsPortfolioValueLine } from '@/components/platform/holdings-portfolio-value-line';
+import { MetricReadinessPill } from '@/components/platform/metric-readiness-pill';
 import { SpotlightStatCard } from '@/components/tooltips/spotlight-overview-tooltips';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -112,7 +115,7 @@ import {
   holdingMovementRowCn,
 } from '@/lib/holdings-rebalance-movement';
 import { sharpeRatioValueClass } from '@/lib/sharpe-value-class';
-import { computeWeeklyConsistencyVsNasdaqCap } from '@/lib/user-entry-performance';
+import { computeWeeklyPctBeatingBenchmark } from '@/lib/user-entry-performance';
 import {
   portfolioConfigBadgeClassName,
   portfolioConfigBadgeTooltip,
@@ -142,6 +145,11 @@ import type { ConfigPerfRow } from '@/lib/portfolio-config-utils';
 import { buildConfigPerformanceChart } from '@/lib/config-performance-chart';
 import { buildLiveHoldingsAllocationResult } from '@/lib/live-holdings-allocation';
 import type { PortfolioMovementLine } from '@/lib/portfolio-movement';
+import {
+  buildCostBasisSnapshotsFromMovementTimeline,
+  costBasisIncompleteTooltip,
+  type CostBasisDateSnapshot,
+} from '@/lib/portfolio-holdings-cost-basis';
 import { createConcurrencyLimit } from '@/lib/concurrency-limit';
 import {
   getCachedConfigPerfPayload,
@@ -181,6 +189,47 @@ function formatYourPortfolioCurrency(amount: number): string {
     currency: 'USD',
     maximumFractionDigits: 0,
   }).format(amount);
+}
+
+function YourPortfolioCostBasisCell({
+  symbol,
+  snapshot,
+  loading,
+  exited,
+}: {
+  symbol: string;
+  snapshot: CostBasisDateSnapshot | null;
+  loading?: boolean;
+  exited?: boolean;
+}) {
+  if (exited) {
+    return <span className="tabular-nums text-muted-foreground">—</span>;
+  }
+  if (loading) {
+    return (
+      <span className="inline-flex w-full justify-end">
+        <Skeleton className="h-3.5 w-16 rounded-sm" />
+      </span>
+    );
+  }
+  const sym = symbol.toUpperCase();
+  const gap = snapshot?.incompleteFirstDateBySymbol[sym];
+  if (gap) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="cursor-help tabular-nums text-muted-foreground">—</span>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-xs text-xs">
+          {costBasisIncompleteTooltip(gap)}
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+  const total = snapshot?.costBasisBySymbol[sym] ?? 0;
+  return (
+    <span className="tabular-nums font-medium">{formatYourPortfolioCurrency(total)}</span>
+  );
 }
 
 /** Aligned with overview spotlight holdings table (`platform-overview-client`). */
@@ -612,7 +661,7 @@ function PortfolioRebalanceActionsTable({
     >
       <TableHeader>
         <TableRow className="hover:bg-transparent">
-          <TableHead className="h-9 w-[5.25rem] shrink-0 py-1.5 pl-2 pr-2 text-left align-middle whitespace-nowrap">
+          <TableHead className="h-9 w-[4.5rem] shrink-0 py-1.5 pl-2 pr-2 text-left align-middle whitespace-nowrap">
             Action
           </TableHead>
           <TableHead className="h-9 w-0 min-w-[4rem] px-1.5 py-1.5 text-left align-middle whitespace-nowrap">
@@ -629,7 +678,7 @@ function PortfolioRebalanceActionsTable({
               <TableHead className="h-9 w-0 px-1.5 py-1.5 text-right align-middle whitespace-nowrap tabular-nums">
                 Trade
               </TableHead>
-              <TableHead className="h-9 w-full min-w-[9rem] py-1.5 pl-1.5 pr-3 text-right align-middle whitespace-nowrap tabular-nums sm:pr-14">
+              <TableHead className="h-9 w-full min-w-[6rem] py-1.5 pl-1.5 pr-2 text-right align-middle whitespace-nowrap tabular-nums">
                 <span className="inline-flex min-w-0 max-w-full items-center justify-end gap-1">
                   <span className="truncate">Target value</span>
                   <InfoIconTooltip ariaLabel="How target value percent is calculated">
@@ -648,7 +697,7 @@ function PortfolioRebalanceActionsTable({
       <TableBody>
         {rows.map(({ kind, r }) => (
           <TableRow key={`${kind}-${r.symbol}`}>
-            <TableCell className="w-[5.25rem] shrink-0 py-1.5 pl-2 pr-2 align-middle">
+            <TableCell className="w-[4.5rem] shrink-0 py-1.5 pl-2 pr-2 align-middle">
               {actionBadge(kind)}
             </TableCell>
             <TableCell className="w-0 min-w-[4rem] px-1.5 py-1.5 text-left align-middle whitespace-nowrap">
@@ -688,7 +737,7 @@ function PortfolioRebalanceActionsTable({
                 <TableCell className="whitespace-nowrap px-1.5 py-1.5 text-right align-middle tabular-nums">
                   {tradeCell(kind, r)}
                 </TableCell>
-                <TableCell className="whitespace-nowrap py-1.5 pl-1.5 pr-3 text-right align-middle font-medium tabular-nums text-foreground sm:pr-14">
+                <TableCell className="whitespace-nowrap py-1.5 pl-1.5 pr-2 text-right align-middle font-medium tabular-nums text-foreground">
                   {targetValueCell(kind, r)}
                 </TableCell>
               </>
@@ -970,6 +1019,8 @@ type ConfigPerfApiResponse = {
   series?: ConfigPerfChartPoint[];
   metrics?: {
     sharpeRatio: number | null;
+    sharpeRatioDecisionCadence?: number | null;
+    weeklyObservations?: number;
     totalReturn: number | null;
     cagr: number | null;
     maxDrawdown: number | null;
@@ -983,6 +1034,8 @@ type UserEntryPerfApiResponse = {
   series?: ConfigPerfChartPoint[];
   metrics?: {
     sharpeRatio: number | null;
+    sharpeRatioDecisionCadence?: number | null;
+    weeklyObservations?: number;
     totalReturn: number | null;
     cagr: number | null;
     maxDrawdown: number | null;
@@ -1398,6 +1451,9 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const [prevMovementError, setPrevMovementError] = useState(false);
   /** Keeps the rebalance Select on the chosen date while holdings fetch runs (controlled value otherwise snaps back). */
   const [pendingHoldingsAsOf, setPendingHoldingsAsOf] = useState<string | null>(null);
+  /** Entry-scoped movement timeline (same cache as rebalance actions) for cost-basis replay. */
+  const [holdingsMovementTimeline, setHoldingsMovementTimeline] =
+    useState<PortfolioMovementResolved | null>(null);
 
   const loadProfiles = useCallback(async (opts?: { silent?: boolean }) => {
     const showLoader = opts?.silent !== true;
@@ -1898,7 +1954,8 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
           raw.series,
           raw.computeStatus,
           userStart,
-          num(selectedProfile.investment_size)
+          num(selectedProfile.investment_size),
+          cfg.rebalance_frequency
         );
         setUserEntryPayload({
           computeStatus: built.computeStatus,
@@ -1954,6 +2011,21 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     void loadUserEntry();
   }, [loadUserEntry]);
 
+  useEffect(() => {
+    const pid = selectedProfile?.id;
+    if (!pid || !selectedProfile?.user_start_date?.trim()) {
+      setHoldingsMovementTimeline(null);
+      return;
+    }
+    let cancelled = false;
+    void loadPortfolioMovementTimeline(pid).then((r) => {
+      if (!cancelled) setHoldingsMovementTimeline(r);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProfile?.id, selectedProfile?.user_start_date]);
+
   // Poll while compute is in progress
   useEffect(() => {
     const st = perfPayload?.computeStatus;
@@ -1994,6 +2066,26 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     return configHoldingsRebalanceDates.slice(0, idx + 1);
   }, [configHoldingsRebalanceDates, holdingsRebalanceAnchorDate]);
 
+  const holdingsCostBasisSnapshotsByDate = useMemo(() => {
+    const slug = strategySlug?.trim();
+    const cfgId = selectedProfileConfigId;
+    if (!slug || !cfgId || !userStartForHoldingsYmd) return {};
+    if (!holdingsMovementTimeline || 'error' in holdingsMovementTimeline) return {};
+    const data = holdingsMovementTimeline.data;
+    if (data.status !== 'ok' || !data.byRebalanceDate) return {};
+    return buildCostBasisSnapshotsFromMovementTimeline({
+      rebalanceDatesNewestFirst: scopedConfigHoldingsRebalanceDates,
+      byRebalanceDate: data.byRebalanceDate,
+      getAsOfPriceBySymbol: (d) => getCachedExploreHoldings(slug, cfgId, d)?.asOfPriceBySymbol,
+    });
+  }, [
+    strategySlug,
+    selectedProfileConfigId,
+    userStartForHoldingsYmd,
+    holdingsMovementTimeline,
+    scopedConfigHoldingsRebalanceDates,
+  ]);
+
   useLayoutEffect(() => {
     const hasProfile = Boolean(selectedProfile?.id);
     const hasEntryDate = Boolean(selectedProfile?.user_start_date?.trim());
@@ -2019,6 +2111,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     setPrevMovementError(false);
     setHoldingsMovementView(false);
     setHoldingsRowChartSymbol(null);
+    setHoldingsMovementTimeline(null);
 
     if (!hasProfile) {
       setIsLoadingUserEntry(false);
@@ -2175,7 +2268,14 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     setPrevMovementLoading(false);
   }, [selectedProfile?.id, selectedProfileConfigId]);
 
-  const modelChart = useMemo(() => buildConfigPerformanceChart(rawRows), [rawRows]);
+  const modelChart = useMemo(
+    () =>
+      buildConfigPerformanceChart(
+        rawRows,
+        selectedProfile?.portfolio_config?.rebalance_frequency ?? 'weekly'
+      ),
+    [rawRows, selectedProfile?.portfolio_config?.rebalance_frequency]
+  );
 
   const userEntrySeries = userEntryPayload?.series ?? [];
   const userEntryMetrics = userEntryPayload?.metrics ?? null;
@@ -2206,17 +2306,14 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     return benchmarkStatsFromYourPortfolioSeries(displaySeries as PerformanceSeriesPoint[]);
   }, [displaySeries]);
 
-  const consistencyForSpotlight = useMemo(() => {
+  const weeklyBeatRates = useMemo(() => {
     const pts = displaySeries as PerformanceSeriesPoint[];
-    if (
-      selectedProfile?.user_start_date &&
-      userEntryMetricsFull?.consistency != null &&
-      Number.isFinite(userEntryMetricsFull.consistency)
-    ) {
-      return userEntryMetricsFull.consistency;
-    }
-    return computeWeeklyConsistencyVsNasdaqCap(pts);
-  }, [displaySeries, selectedProfile?.user_start_date, userEntryMetricsFull?.consistency]);
+    return {
+      ndxCap: computeWeeklyPctBeatingBenchmark(pts, 'nasdaq100CapWeight'),
+      sp500: computeWeeklyPctBeatingBenchmark(pts, 'sp500'),
+      ndxEq: computeWeeklyPctBeatingBenchmark(pts, 'nasdaq100EqualWeight'),
+    };
+  }, [displaySeries]);
 
   const excessNdxForSpotlight = useMemo(() => {
     if (
@@ -2286,6 +2383,38 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
 
   const effectiveHoldingsAsOf = pendingHoldingsAsOf ?? configHoldingsAsOf;
 
+  const selectedHoldingsCostBasisSnapshot = useMemo(() => {
+    const d = effectiveHoldingsAsOf;
+    if (!d) return null;
+    return holdingsCostBasisSnapshotsByDate[d] ?? null;
+  }, [effectiveHoldingsAsOf, holdingsCostBasisSnapshotsByDate]);
+  const holdingsCostBasisLoading = useMemo(() => {
+    if (!yourPortfoliosHoldingsPaid) return false;
+    if (!selectedProfile?.user_start_date?.trim()) return false;
+    if (configHoldings.length === 0) return false;
+    if (!holdingsMovementTimeline) return true;
+    if ('error' in holdingsMovementTimeline) return false;
+    const status = holdingsMovementTimeline.data.status;
+    return status === 'pending' || status === 'in_progress';
+  }, [
+    yourPortfoliosHoldingsPaid,
+    selectedProfile?.user_start_date,
+    configHoldings.length,
+    holdingsMovementTimeline,
+  ]);
+
+  const holdingsPortfolioValueLineAmount = useMemo(() => {
+    if (holdingsMovementTimeline && 'data' in holdingsMovementTimeline) {
+      const pl = holdingsMovementTimeline.data;
+      if (pl.status === 'ok' && effectiveHoldingsAsOf) {
+        const row = pl.byRebalanceDate?.[effectiveHoldingsAsOf];
+        const n = row?.notionalAtCurrRebalanceEnd;
+        if (n != null && Number.isFinite(n) && n > 0) return n;
+      }
+    }
+    return holdingsAsOfNotional;
+  }, [holdingsMovementTimeline, effectiveHoldingsAsOf, holdingsAsOfNotional]);
+
   const holdingsPrevRebalanceDate = useMemo(
     () => getPreviousRebalanceDate(scopedConfigHoldingsRebalanceDates, configHoldingsAsOf),
     [scopedConfigHoldingsRebalanceDates, configHoldingsAsOf]
@@ -2353,6 +2482,8 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     configHoldings,
     topN,
   ]);
+  const holdingsMovementRowsLoading =
+    holdingsMovementView && Boolean(holdingsPrevRebalanceDate) && prevMovementLoading;
 
   const handleCreatePreset = async (preset: PresetConfig) => {
     setPresetBusyKey(preset.key);
@@ -2550,9 +2681,10 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     perfLoading,
     displayMetrics,
     portfolioValueAmount,
-    consistencyForSpotlight,
+    weeklyBeatRates,
     excessNdxForSpotlight,
     benchmarkBench.excessVsSp500,
+    benchmarkBench.excessVsNasdaqEqual,
   ]);
 
   useEffect(() => {
@@ -2650,10 +2782,15 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     : null;
 
   const chartStrategyName = 'Your portfolio';
-  const chartInitialNotional =
-    num(selectedProfile?.investment_size) > 0
+  const chartInitialNotional = (() => {
+    const firstSeriesValue = (displaySeries as PerformanceSeriesPoint[] | undefined)?.[0]?.aiTop20;
+    if (firstSeriesValue != null && Number.isFinite(firstSeriesValue) && firstSeriesValue > 0) {
+      return firstSeriesValue;
+    }
+    return num(selectedProfile?.investment_size) > 0
       ? num(selectedProfile?.investment_size)
       : YOUR_PORTFOLIOS_MODEL_INITIAL;
+  })();
 
   return (
     <div
@@ -3173,7 +3310,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                 </div>
               ) : null}
 
-              <div className="grid w-full min-w-0 grid-cols-1 gap-4 rounded-lg border border-border/70 bg-muted/20 p-3 sm:gap-5 sm:p-4 lg:p-5">
                 <div className="flex w-full max-w-full min-w-0 flex-col gap-4 lg:max-h-[min(48vh,340px)] lg:min-h-0 lg:flex-row lg:items-stretch lg:gap-5 lg:overflow-hidden">
                   <div className="relative flex w-full min-w-0 shrink-0 flex-col lg:min-h-0 lg:w-[11rem] lg:max-w-[11rem] lg:shrink-0 lg:basis-auto lg:flex-none">
                     <div
@@ -3262,16 +3398,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                       </p>
                     </div>
                     <SpotlightStatCard
-                      tooltipKey="cagr"
-                      label="CAGR"
-                      value={spotlightFmt.pct(displayMetrics?.cagr)}
-                      positive={
-                        displayMetrics?.cagr != null && Number.isFinite(displayMetrics.cagr)
-                          ? displayMetrics.cagr > 0
-                          : undefined
-                      }
-                    />
-                    <SpotlightStatCard
                       tooltipKey="sharpe_ratio"
                       label="Sharpe ratio"
                       value={spotlightFmt.num(displayMetrics?.sharpeRatio)}
@@ -3280,6 +3406,36 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                         Number.isFinite(displayMetrics.sharpeRatio)
                           ? sharpeRatioValueClass(displayMetrics.sharpeRatio)
                           : undefined
+                      }
+                      afterLabel={
+                        <MetricReadinessPill
+                          kind="sharpe"
+                          value={displayMetrics?.sharpeRatio ?? null}
+                          weeksOfData={
+                            displayMetrics?.weeklyObservations ??
+                            (selectedProfile?.user_start_date ? undefined : rawRows.length)
+                          }
+                        />
+                      }
+                    />
+                    <SpotlightStatCard
+                      tooltipKey="cagr"
+                      label="CAGR"
+                      value={spotlightFmt.pct(displayMetrics?.cagr)}
+                      positive={
+                        displayMetrics?.cagr != null && Number.isFinite(displayMetrics.cagr)
+                          ? displayMetrics.cagr > 0
+                          : undefined
+                      }
+                      afterLabel={
+                        <MetricReadinessPill
+                          kind="cagr"
+                          value={displayMetrics?.cagr ?? null}
+                          weeksOfData={
+                            displayMetrics?.weeklyObservations ??
+                            (selectedProfile?.user_start_date ? undefined : rawRows.length)
+                          }
+                        />
                       }
                     />
                     <SpotlightStatCard
@@ -3294,20 +3450,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                       }
                     />
                     <SpotlightStatCard
-                      tooltipKey="consistency"
-                      label="% weeks beating Nasdaq-100 (cap)"
-                      value={
-                        consistencyForSpotlight != null
-                          ? spotlightFmt.pct(consistencyForSpotlight, 0)
-                          : '—'
-                      }
-                      positive={
-                        consistencyForSpotlight != null
-                          ? consistencyForSpotlight > 0.5
-                          : undefined
-                      }
-                    />
-                    <SpotlightStatCard
                       tooltipKey="vs_nasdaq_cap"
                       label="Performance vs Nasdaq-100 (cap)"
                       value={spotlightFmt.pct(excessNdxForSpotlight)}
@@ -3315,6 +3457,53 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                         excessNdxForSpotlight != null && Number.isFinite(excessNdxForSpotlight)
                           ? excessNdxForSpotlight > 0
                           : undefined
+                      }
+                    />
+                    <SpotlightStatCard
+                      tooltipKey="vs_nasdaq_equal"
+                      label="Performance vs Nasdaq-100 (equal)"
+                      value={spotlightFmt.pct(benchmarkBench.excessVsNasdaqEqual)}
+                      positive={
+                        benchmarkBench.excessVsNasdaqEqual != null &&
+                        Number.isFinite(benchmarkBench.excessVsNasdaqEqual)
+                          ? benchmarkBench.excessVsNasdaqEqual > 0
+                          : undefined
+                      }
+                    />
+                    <SpotlightStatCard
+                      tooltipKey="consistency"
+                      label="% weeks beating Nasdaq-100 (cap)"
+                      value={
+                        weeklyBeatRates.ndxCap != null
+                          ? spotlightFmt.pct(weeklyBeatRates.ndxCap, 0)
+                          : '—'
+                      }
+                      positive={
+                        weeklyBeatRates.ndxCap != null ? weeklyBeatRates.ndxCap > 0.5 : undefined
+                      }
+                    />
+                    <SpotlightStatCard
+                      tooltipKey="weeks_beating_sp500"
+                      label="% weeks beating S&P 500 (cap)"
+                      value={
+                        weeklyBeatRates.sp500 != null
+                          ? spotlightFmt.pct(weeklyBeatRates.sp500, 0)
+                          : '—'
+                      }
+                      positive={
+                        weeklyBeatRates.sp500 != null ? weeklyBeatRates.sp500 > 0.5 : undefined
+                      }
+                    />
+                    <SpotlightStatCard
+                      tooltipKey="weeks_beating_nasdaq_equal"
+                      label="% weeks beating Nasdaq-100 (equal)"
+                      value={
+                        weeklyBeatRates.ndxEq != null
+                          ? spotlightFmt.pct(weeklyBeatRates.ndxEq, 0)
+                          : '—'
+                      }
+                      positive={
+                        weeklyBeatRates.ndxEq != null ? weeklyBeatRates.ndxEq > 0.5 : undefined
                       }
                     />
                       </div>
@@ -3422,6 +3611,13 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                         No rebalance history yet.
                       </p>
                     ) : null}
+                    {yourPortfoliosHoldingsPaid && scopedConfigHoldingsRebalanceDates.length > 0 ? (
+                      <HoldingsPortfolioValueLine
+                        value={holdingsPortfolioValueLineAmount}
+                        formatCurrency={formatYourPortfolioCurrency}
+                        className="shrink-0"
+                      />
+                    ) : null}
                     {holdingsMovementView && prevMovementError ? (
                       <p className="w-full text-[11px] text-destructive">
                         Could not load the prior rebalance to compare.
@@ -3472,16 +3668,16 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                             'min-w-0 w-full overflow-x-auto overflow-y-clip'
                           )}
                         >
-                        <Table noScrollWrapper className="w-full table-auto text-[11px]">
+                        <Table noScrollWrapper className="min-w-0 w-full table-auto text-[11px]">
                           <TableHeader>
                             <TableRow className="hover:bg-transparent">
-                              <TableHead className="h-9 w-[4.25rem] shrink-0 py-1.5 pl-2 pr-0.5 text-left align-middle tabular-nums">
+                              <TableHead className="h-9 w-[4.75rem] shrink-0 py-1.5 pl-2 pr-0.5 text-left align-middle tabular-nums">
                                 #
                               </TableHead>
-                              <TableHead className="h-9 min-w-[4rem] px-1.5 py-1.5 text-left align-middle">
+                              <TableHead className="h-9 w-0 min-w-[4rem] px-1.5 py-1.5 text-left align-middle">
                                 Stock
                               </TableHead>
-                              <TableHead className="h-9 min-w-[7rem] px-1.5 py-1.5 text-center align-middle">
+                              <TableHead className="h-9 w-0 min-w-[7rem] px-1.5 py-1.5 text-center align-middle whitespace-nowrap">
                                 <span className="inline-flex min-w-0 max-w-full items-center justify-center gap-1">
                                   <span className="truncate">Value</span>
                                   <HoldingsAllocationColumnTooltip
@@ -3493,13 +3689,42 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                   />
                                 </span>
                               </TableHead>
-                              <TableHead className="h-9 min-w-[5.5rem] py-1.5 pl-1.5 pr-3 text-right align-middle">
-                                AI rating
+                              <TableHead className="h-9 w-full min-w-[5.5rem] py-1.5 pl-1.5 pr-2 text-right align-middle whitespace-nowrap">
+                                <span className="inline-flex min-w-0 max-w-full items-center justify-end gap-1">
+                                  <span className="truncate">Cost basis</span>
+                                  <HoldingsCostBasisColumnTooltip variant="user" />
+                                </span>
                               </TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
-                            {holdingsMovementModel
+                            {holdingsMovementRowsLoading
+                              ? configHoldings.slice(0, Math.min(topN, 8)).map((h, idx) => (
+                                  <TableRow
+                                    key={`holdings-movement-loading-${h.symbol}-${idx}`}
+                                    className="pointer-events-none"
+                                  >
+                                    <TableCell className="w-[4.75rem] shrink-0 py-1.5 pl-2 pr-0.5 text-muted-foreground">
+                                      <Skeleton className="h-3.5 w-11 rounded-sm" />
+                                    </TableCell>
+                                    <TableCell className="min-w-0 px-1.5 py-1.5 text-left">
+                                      <Skeleton className="h-3.5 w-14 rounded-sm" />
+                                    </TableCell>
+                                    <TableCell className="min-w-0 px-1.5 py-1.5 text-center tabular-nums">
+                                      <span className="inline-flex w-full justify-center">
+                                        <Skeleton className="h-3.5 w-24 rounded-sm" />
+                                      </span>
+                                    </TableCell>
+                                    <TableCell className="min-w-0 py-1.5 pl-1.5 pr-2 text-right align-top">
+                                      <YourPortfolioCostBasisCell
+                                        symbol={h.symbol}
+                                        snapshot={selectedHoldingsCostBasisSnapshot}
+                                        loading={holdingsCostBasisLoading}
+                                      />
+                                    </TableCell>
+                                  </TableRow>
+                                ))
+                              : holdingsMovementModel
                               ? (
                                 <>
                                   {holdingsMovementModel.active.map(({ holding: h, kind }) => {
@@ -3531,7 +3756,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                           }
                                         }}
                                       >
-                                        <TableCell className="w-[4.25rem] shrink-0 py-1.5 pl-2 pr-0.5 text-muted-foreground">
+                                        <TableCell className="w-[4.75rem] shrink-0 py-1.5 pl-2 pr-0.5 text-muted-foreground">
                                           <HoldingRankWithChange
                                             rank={h.rank}
                                             rankChange={h.rankChange}
@@ -3578,23 +3803,12 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                             </span>
                                           )}
                                         </TableCell>
-                                        <TableCell className="min-w-0 py-1.5 pl-1.5 pr-3 text-right">
-                                          <div className="flex min-w-0 items-center justify-end gap-1">
-                                            <Badge
-                                              variant="outline"
-                                              className={cn(
-                                                'shrink-0 px-1.5 py-0 text-[10px] font-normal leading-tight',
-                                                yourPortfolioHoldingScoreBucketClass(h.bucket)
-                                              )}
-                                            >
-                                              {yourPortfolioHoldingScoreBucketLabel(h.bucket)}
-                                            </Badge>
-                                            <span className="min-w-0 truncate tabular-nums font-medium">
-                                              {h.score != null && Number.isFinite(h.score)
-                                                ? h.score.toFixed(1)
-                                                : '—'}
-                                            </span>
-                                          </div>
+                                        <TableCell className="min-w-0 py-1.5 pl-1.5 pr-2 text-right align-top">
+                                          <YourPortfolioCostBasisCell
+                                            symbol={h.symbol}
+                                            snapshot={selectedHoldingsCostBasisSnapshot}
+                                            loading={holdingsCostBasisLoading}
+                                          />
                                         </TableCell>
                                       </TableRow>
                                     );
@@ -3631,7 +3845,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                           }
                                         }}
                                       >
-                                        <TableCell className="w-[4.25rem] shrink-0 py-1.5 pl-2 pr-0.5 text-muted-foreground">
+                                        <TableCell className="w-[4.75rem] shrink-0 py-1.5 pl-2 pr-0.5 text-muted-foreground">
                                           <HoldingRankWithChange rank={h.rank} rankChange={null} />
                                         </TableCell>
                                         <TableCell className="min-w-0 px-1.5 py-1.5 text-left">
@@ -3660,23 +3874,13 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                             Was {(h.weight * 100).toFixed(1)}%
                                           </span>
                                         </TableCell>
-                                        <TableCell className="min-w-0 py-1.5 pl-1.5 pr-3 text-right">
-                                          <div className="flex min-w-0 items-center justify-end gap-1">
-                                            <Badge
-                                              variant="outline"
-                                              className={cn(
-                                                'shrink-0 px-1.5 py-0 text-[10px] font-normal leading-tight opacity-90',
-                                                yourPortfolioHoldingScoreBucketClass(h.bucket)
-                                              )}
-                                            >
-                                              {yourPortfolioHoldingScoreBucketLabel(h.bucket)}
-                                            </Badge>
-                                            <span className="min-w-0 truncate tabular-nums font-medium text-muted-foreground">
-                                              {h.score != null && Number.isFinite(h.score)
-                                                ? h.score.toFixed(1)
-                                                : '—'}
-                                            </span>
-                                          </div>
+                                        <TableCell className="min-w-0 py-1.5 pl-1.5 pr-2 text-right align-top">
+                                          <YourPortfolioCostBasisCell
+                                            symbol={h.symbol}
+                                            snapshot={selectedHoldingsCostBasisSnapshot}
+                                            loading={holdingsCostBasisLoading}
+                                            exited
+                                          />
                                         </TableCell>
                                       </TableRow>
                                     );
@@ -3709,7 +3913,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                         }
                                       }}
                                     >
-                                      <TableCell className="w-[4.25rem] shrink-0 py-1.5 pl-2 pr-0.5 text-muted-foreground">
+                                      <TableCell className="w-[4.75rem] shrink-0 py-1.5 pl-2 pr-0.5 text-muted-foreground">
                                         <HoldingRankWithChange
                                           rank={h.rank}
                                           rankChange={h.rankChange}
@@ -3756,23 +3960,12 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                           </span>
                                         )}
                                       </TableCell>
-                                      <TableCell className="min-w-0 py-1.5 pl-1.5 pr-3 text-right">
-                                        <div className="flex min-w-0 items-center justify-end gap-1">
-                                          <Badge
-                                            variant="outline"
-                                            className={cn(
-                                              'shrink-0 px-1.5 py-0 text-[10px] font-normal leading-tight',
-                                              yourPortfolioHoldingScoreBucketClass(h.bucket)
-                                            )}
-                                          >
-                                            {yourPortfolioHoldingScoreBucketLabel(h.bucket)}
-                                          </Badge>
-                                          <span className="min-w-0 truncate tabular-nums font-medium">
-                                            {h.score != null && Number.isFinite(h.score)
-                                              ? h.score.toFixed(1)
-                                              : '—'}
-                                          </span>
-                                        </div>
+                                      <TableCell className="min-w-0 py-1.5 pl-1.5 pr-2 text-right align-top">
+                                        <YourPortfolioCostBasisCell
+                                          symbol={h.symbol}
+                                          snapshot={selectedHoldingsCostBasisSnapshot}
+                                          loading={holdingsCostBasisLoading}
+                                        />
                                       </TableCell>
                                     </TableRow>
                                   );
@@ -3851,6 +4044,11 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                       strategyName={chartStrategyName}
                       hideDrawdown
                       initialNotional={chartInitialNotional}
+                      firstPointDisplayNotional={
+                        selectedProfile?.user_start_date && num(selectedProfile?.investment_size) > 0
+                          ? num(selectedProfile?.investment_size)
+                          : undefined
+                      }
                       chartContainerClassName="h-[300px] sm:h-[340px]"
                     />
                   ) : (
@@ -3877,7 +4075,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                     </div>
                   )}
                 </div>
-              </div>
               </div>
             )}
           </div>

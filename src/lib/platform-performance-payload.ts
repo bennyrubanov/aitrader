@@ -1,5 +1,15 @@
 import { unstable_cache } from 'next/cache';
-import { computePerformanceCagr as computeCagr } from '@/lib/performance-cagr';
+import {
+  computePerformanceCagr as computeCagr,
+  MIN_YEARS_FOR_CAGR_OVER_TIME_POINT,
+  yearsBetweenUtcDates,
+} from '@/lib/performance-cagr';
+import {
+  computeSharpeAnnualized,
+  computeWeeklyMtmSharpe,
+  downsampleSeriesToIsoWeek,
+  periodsPerYearFromRebalanceFrequency,
+} from '@/lib/metrics-annualization';
 import { ACTIVE_STRATEGY_ENTRY } from '@/lib/ai-strategy-registry';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { createPublicClient } from '@/utils/supabase/public';
@@ -25,6 +35,8 @@ export type StrategyListItem = {
   /** Count of weekly performance rows (AI run weeks with saved performance). */
   runCount: number;
   sharpeRatio: number | null;
+  sharpeRatioDecisionCadence: number | null;
+  weeklyObservations: number;
   totalReturn: number | null;
   cagr: number | null;
   maxDrawdown: number | null;
@@ -174,8 +186,11 @@ export type PlatformPerformancePayload = {
     cagr: number | null;
     maxDrawdown: number | null;
     sharpeRatio: number | null;
+    sharpeRatioDecisionCadence: number | null;
+    weeklyObservations: number;
     pctWeeksBeatingNasdaq100: number | null;
     pctWeeksBeatingSp500: number | null;
+    pctWeeksBeatingNasdaq100EqualWeight: number | null;
     pctMonthsBeatingNasdaq100: number | null;
     benchmarks: {
       nasdaq100CapWeight: {
@@ -267,14 +282,16 @@ const computeMaxDrawdown = (values: number[]) => {
   return maxDrawdown;
 };
 
-const computeSharpeWeekly = (returns: number[]) => {
-  if (returns.length < 2) return null;
-  const mean = returns.reduce((sum, v) => sum + v, 0) / returns.length;
-  const variance = returns.reduce((sum, v) => sum + (v - mean) ** 2, 0) / (returns.length - 1);
-  const stdDev = Math.sqrt(variance);
-  if (!Number.isFinite(stdDev) || stdDev <= 0) return null;
-  return (mean / stdDev) * Math.sqrt(52);
-};
+function cagrGated(
+  startValue: number,
+  endValue: number,
+  startDate: string,
+  endDate: string
+): number | null {
+  const years = yearsBetweenUtcDates(startDate, endDate);
+  if (years == null || years < MIN_YEARS_FOR_CAGR_OVER_TIME_POINT) return null;
+  return computeCagr(startValue, endValue, startDate, endDate);
+}
 
 /** Month-over-month: % of month transitions where AI return beat Nasdaq-100 cap return. */
 export const computePctMonthsBeating = (
@@ -508,14 +525,11 @@ const buildPayloadForStrategy = async (
     series = dailySeries;
   }
 
-  const netReturns: number[] = [];
-  for (let i = 1; i < series.length; i++) {
-    const prev = series[i - 1]!;
-    const curr = series[i]!;
-    if (prev.aiTop20 > 0) {
-      netReturns.push(curr.aiTop20 / prev.aiTop20 - 1);
-    }
-  }
+  const weeklyNetReturns = perfRows.map((r) => toNumber(r.net_return, 0));
+  const sharpePeriods = periodsPerYearFromRebalanceFrequency(strategy.rebalance_frequency);
+  const weeklySeriesForPct = downsampleSeriesToIsoWeek(series);
+  const weeklyMtm = computeWeeklyMtmSharpe(series);
+
   const firstPoint = series[0];
   const lastPoint = series[series.length - 1];
   const firstDate = firstPoint?.date ?? '';
@@ -541,17 +555,22 @@ const buildPayloadForStrategy = async (
           startingCapital: INITIAL_CAPITAL,
           endingValue: lastPoint.aiTop20,
           totalReturn: totalReturnAi,
-          cagr: computeCagr(INITIAL_CAPITAL, lastPoint.aiTop20, firstDate, lastDate),
+          cagr: cagrGated(INITIAL_CAPITAL, lastPoint.aiTop20, firstDate, lastDate),
           maxDrawdown: computeMaxDrawdown(series.map((p) => p.aiTop20)),
-          sharpeRatio: computeSharpeWeekly(netReturns),
+          sharpeRatio: weeklyMtm.sharpe,
+          sharpeRatioDecisionCadence: computeSharpeAnnualized(weeklyNetReturns, sharpePeriods),
+          weeklyObservations: weeklyMtm.weeklyObservations,
           pctWeeksBeatingNasdaq100: computePctWeeksBeatingNasdaq100(
-            series.map((p) => ({ aiValue: p.aiTop20, benchmarkValue: p.nasdaq100CapWeight }))
+            weeklySeriesForPct.map((p) => ({ aiValue: p.aiTop20, benchmarkValue: p.nasdaq100CapWeight }))
           ),
           pctWeeksBeatingSp500: computePctWeeksBeatingNasdaq100(
-            series.map((p) => ({ aiValue: p.aiTop20, benchmarkValue: p.sp500 }))
+            weeklySeriesForPct.map((p) => ({ aiValue: p.aiTop20, benchmarkValue: p.sp500 }))
+          ),
+          pctWeeksBeatingNasdaq100EqualWeight: computePctWeeksBeatingNasdaq100(
+            weeklySeriesForPct.map((p) => ({ aiValue: p.aiTop20, benchmarkValue: p.nasdaq100EqualWeight }))
           ),
           pctMonthsBeatingNasdaq100: computePctMonthsBeating(
-            series.map((p) => ({
+            weeklySeriesForPct.map((p) => ({
               date: p.date,
               aiValue: p.aiTop20,
               benchmarkValue: p.nasdaq100CapWeight,
@@ -561,13 +580,13 @@ const buildPayloadForStrategy = async (
             nasdaq100CapWeight: {
               endingValue: lastPoint.nasdaq100CapWeight,
               totalReturn: totalReturnCap,
-              cagr: computeCagr(INITIAL_CAPITAL, lastPoint.nasdaq100CapWeight, firstDate, lastDate),
+              cagr: cagrGated(INITIAL_CAPITAL, lastPoint.nasdaq100CapWeight, firstDate, lastDate),
               maxDrawdown: computeMaxDrawdown(series.map((p) => p.nasdaq100CapWeight)),
             },
             nasdaq100EqualWeight: {
               endingValue: lastPoint.nasdaq100EqualWeight,
               totalReturn: totalReturnEqual,
-              cagr: computeCagr(
+              cagr: cagrGated(
                 INITIAL_CAPITAL,
                 lastPoint.nasdaq100EqualWeight,
                 firstDate,
@@ -578,7 +597,7 @@ const buildPayloadForStrategy = async (
             sp500: {
               endingValue: lastPoint.sp500,
               totalReturn: totalReturnSp,
-              cagr: computeCagr(INITIAL_CAPITAL, lastPoint.sp500, firstDate, lastDate),
+              cagr: cagrGated(INITIAL_CAPITAL, lastPoint.sp500, firstDate, lastDate),
               maxDrawdown: computeMaxDrawdown(series.map((p) => p.sp500)),
             },
           },
@@ -865,6 +884,8 @@ const getStrategiesListCached = unstable_cache(
         startDate: null,
         runCount: 0,
         sharpeRatio: null,
+        sharpeRatioDecisionCadence: null,
+        weeklyObservations: 0,
         totalReturn: null,
         cagr: null,
         maxDrawdown: null,
@@ -933,6 +954,12 @@ const getStrategiesListCached = unstable_cache(
           }>;
 
           const netReturns = rows.map((r) => toNumber(r.net_return, 0));
+          const weeklyMtm = computeWeeklyMtmSharpe(
+            rows.map((r) => ({
+              date: r.run_date,
+              aiTop20: toNumber(r.ending_equity, INITIAL_CAPITAL),
+            }))
+          );
           const firstRow = rows[0];
           const lastRow = rows[rows.length - 1];
           const endEquity = lastRow
@@ -953,11 +980,16 @@ const getStrategiesListCached = unstable_cache(
             isDefault: strategy.is_default,
             startDate: firstRow?.run_date ?? null,
             runCount: rows.length,
-            sharpeRatio: computeSharpeWeekly(netReturns),
+            sharpeRatio: weeklyMtm.sharpe,
+            sharpeRatioDecisionCadence: computeSharpeAnnualized(
+              netReturns,
+              periodsPerYearFromRebalanceFrequency(strategy.rebalance_frequency)
+            ),
+            weeklyObservations: weeklyMtm.weeklyObservations,
             totalReturn: rows.length >= 2 ? computeTotalReturn(INITIAL_CAPITAL, endEquity) : null,
             cagr:
               firstRow && lastRow && rows.length >= 2
-                ? computeCagr(INITIAL_CAPITAL, endEquity, firstRow.run_date, lastRow.run_date)
+                ? cagrGated(INITIAL_CAPITAL, endEquity, firstRow.run_date, lastRow.run_date)
                 : null,
             maxDrawdown:
               rows.length >= 2
@@ -1017,6 +1049,8 @@ export type StrategyDetail = {
   createdAt: string;
   startDate: string | null;
   sharpeRatio: number | null;
+  sharpeRatioDecisionCadence: number | null;
+  weeklyObservations: number;
   totalReturn: number | null;
   cagr: number | null;
   maxDrawdown: number | null;
@@ -1109,6 +1143,12 @@ const getStrategyDetailCached = (slug: string) =>
         }>;
 
         const netReturns = perfRows.map((r) => toNumber(r.net_return, 0));
+        const weeklyMtm = computeWeeklyMtmSharpe(
+          perfRows.map((r) => ({
+            date: r.run_date,
+            aiTop20: toNumber(r.ending_equity, INITIAL_CAPITAL),
+          }))
+        );
         const firstRow = perfRows[0];
         const lastRow = perfRows[perfRows.length - 1];
         const endEquity = lastRow
@@ -1172,7 +1212,12 @@ const getStrategyDetailCached = (slug: string) =>
           modelVersion: model?.version ?? null,
           createdAt: row.created_at,
           startDate: firstRow?.run_date ?? null,
-          sharpeRatio: computeSharpeWeekly(netReturns),
+          sharpeRatio: weeklyMtm.sharpe,
+          sharpeRatioDecisionCadence: computeSharpeAnnualized(
+            netReturns,
+            periodsPerYearFromRebalanceFrequency(row.rebalance_frequency)
+          ),
+          weeklyObservations: weeklyMtm.weeklyObservations,
           totalReturn: perfRows.length >= 2 ? computeTotalReturn(INITIAL_CAPITAL, endEquity) : null,
           cagr:
             firstRow && lastRow && perfRows.length >= 2

@@ -121,14 +121,24 @@ export async function GET(req: Request) {
     });
   }
 
-  const configTrack = buildUserEntryConfigTrack(cfgRows, userStart, investmentSize);
+  const { data: cfgMeta } = await admin
+    .from('portfolio_configs')
+    .select('risk_level, rebalance_frequency, weighting_method')
+    .eq('id', row.config_id)
+    .maybeSingle();
+  const rebalanceFrequency = cfgMeta
+    ? String((cfgMeta as { rebalance_frequency: string }).rebalance_frequency)
+    : 'weekly';
+
+  const configTrack = buildUserEntryConfigTrack(
+    cfgRows,
+    userStart,
+    investmentSize,
+    rebalanceFrequency
+  );
   let userSeries = configTrack.series;
   if (userSeries.length > 0) {
-    const { data: cfg } = await admin
-      .from('portfolio_configs')
-      .select('risk_level, rebalance_frequency, weighting_method')
-      .eq('id', row.config_id)
-      .maybeSingle();
+    const cfg = cfgMeta;
     if (cfg) {
       const dailySeries = await buildDailyMarkedToMarketSeriesForConfig(admin, {
         strategyId: row.strategy_id,
@@ -156,7 +166,11 @@ export async function GET(req: Request) {
       }
     }
   }
-  const userSeriesMetrics = buildMetricsFromSeries(userSeries).metrics;
+  const userSeriesMetrics = buildMetricsFromSeries(
+    userSeries,
+    rebalanceFrequency,
+    configTrack.sharpeReturns
+  ).metrics;
   const hasMultipleObservations = userSeries.length >= 2;
   const built = {
     anchorHoldingsRunDate,

@@ -1,8 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
 import { useAuthState } from '@/components/auth/auth-state-context';
+import { MetricReadinessPill } from '@/components/platform/metric-readiness-pill';
 import { HoldingRankWithChange } from '@/components/platform/holding-rank-with-change';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -46,10 +47,25 @@ import {
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
 import {
   HoldingsAllocationColumnTooltip,
+  HoldingsCostBasisColumnTooltip,
   HoldingsMovementInfoTooltip,
 } from '@/components/tooltips';
+import { HoldingsPortfolioValueLine } from '@/components/platform/holdings-portfolio-value-line';
+import { PerformanceChart } from '@/components/platform/performance-chart';
 import { StockChartDialog } from '@/components/platform/stock-chart-dialog';
-import type { HoldingItem } from '@/lib/platform-performance-payload';
+import type {
+  HoldingItem,
+  PerformanceSeriesPoint,
+  PlatformPerformancePayload,
+} from '@/lib/platform-performance-payload';
+import type { ConfigPerfRow } from '@/lib/portfolio-config-utils';
+import { rebasedEndingEquityAtRunDate } from '@/lib/portfolio-movement';
+import { buildLiveHoldingsAllocationResult } from '@/lib/live-holdings-allocation';
+import {
+  buildPublicModelCostBasisSnapshotsFromHoldings,
+  costBasisIncompleteTooltip,
+  type CostBasisDateSnapshot,
+} from '@/lib/portfolio-holdings-cost-basis';
 import {
   buildHoldingMovementTableRows,
   getPreviousRebalanceDate,
@@ -81,6 +97,7 @@ import {
 import { cn } from '@/lib/utils';
 
 const INITIAL_CAPITAL = 10_000;
+type ExploreFullMetrics = NonNullable<PlatformPerformancePayload['metrics']>;
 
 const CONFIG_CARD_RISK_DOT: Record<RiskLevel, string> = {
   1: 'bg-emerald-500',
@@ -124,22 +141,34 @@ function fmtUsd(n: number | null | undefined): string {
   }).format(n);
 }
 
-function holdingScoreBucketClass(bucket: HoldingItem['bucket']) {
-  if (bucket === 'buy') {
-    return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300';
+function ExploreCostBasisCell({
+  symbol,
+  snapshot,
+  exited,
+}: {
+  symbol: string;
+  snapshot: CostBasisDateSnapshot | null;
+  exited?: boolean;
+}) {
+  if (exited) {
+    return <span className="tabular-nums text-muted-foreground">—</span>;
   }
-  if (bucket === 'sell') {
-    return 'border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300';
+  const sym = symbol.toUpperCase();
+  const gap = snapshot?.incompleteFirstDateBySymbol[sym];
+  if (gap) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="cursor-help tabular-nums text-muted-foreground">—</span>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-xs text-xs">
+          {costBasisIncompleteTooltip(gap)}
+        </TooltipContent>
+      </Tooltip>
+    );
   }
-  if (bucket === 'hold') {
-    return 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300';
-  }
-  return 'border-muted-foreground/25 bg-muted/40 text-muted-foreground';
-}
-
-function holdingScoreBucketLabel(bucket: HoldingItem['bucket']) {
-  if (!bucket) return '—';
-  return bucket.charAt(0).toUpperCase() + bucket.slice(1);
+  const total = snapshot?.costBasisBySymbol[sym] ?? 0;
+  return <span className="tabular-nums font-medium">{fmtUsd(total)}</span>;
 }
 
 // ─── Flip card (aligned with performance page overview stats) ───────────────
@@ -152,6 +181,7 @@ function FlipCard({
   neutral,
   positiveTone = 'default',
   valueClassName,
+  afterLabel,
 }: {
   label: string;
   value: string;
@@ -161,6 +191,7 @@ function FlipCard({
   positiveTone?: 'default' | 'brand';
   /** When set, overrides positive/neutral/brand coloring for the value line. */
   valueClassName?: string;
+  afterLabel?: ReactNode;
 }) {
   const [flipped, setFlipped] = useState(false);
   const [showScrollHint, setShowScrollHint] = useState(false);
@@ -220,8 +251,9 @@ function FlipCard({
           className="absolute inset-0 rounded-lg border bg-card px-2.5 py-2 flex flex-col justify-between"
           style={{ backfaceVisibility: 'hidden' }}
         >
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium leading-tight line-clamp-2">
-            {label}
+          <p className="flex flex-wrap items-center gap-x-1 gap-y-0.5 text-[10px] uppercase tracking-wide text-muted-foreground font-medium leading-tight line-clamp-2">
+            <span>{label}</span>
+            {afterLabel}
           </p>
           <p className={`text-lg font-bold leading-tight truncate ${colorClass}`}>{value}</p>
           <p className="text-[9px] text-muted-foreground">tap to explain</p>
@@ -301,7 +333,16 @@ export function ExplorePortfolioDetailDialog({
   const [prevExploreLoading, setPrevExploreLoading] = useState(false);
   const [prevExploreError, setPrevExploreError] = useState(false);
   const [stockChartSymbol, setStockChartSymbol] = useState<string | null>(null);
-  const [mobileDetailTab, setMobileDetailTab] = useState<'metrics' | 'holdings'>('metrics');
+  const [detailTab, setDetailTab] = useState<'overview' | 'metrics' | 'holdings'>('overview');
+  const [holdingsAsOfPriceBySymbol, setHoldingsAsOfPriceBySymbol] = useState<
+    Record<string, number | null>
+  >({});
+  const [holdingsLatestPriceBySymbol, setHoldingsLatestPriceBySymbol] = useState<
+    Record<string, number | null>
+  >({});
+  const [explorePerfRows, setExplorePerfRows] = useState<ConfigPerfRow[]>([]);
+  const [explorePerfSeries, setExplorePerfSeries] = useState<PerformanceSeriesPoint[]>([]);
+  const [exploreFullMetrics, setExploreFullMetrics] = useState<ExploreFullMetrics | null>(null);
 
   const authState = useAuthState();
   const appAccess = useMemo(() => getAppAccessState(authState), [authState]);
@@ -324,6 +365,8 @@ export function ExplorePortfolioDetailDialog({
         setHoldings([]);
         setRebalanceDates([]);
         setSelectedAsOf(null);
+        setHoldingsAsOfPriceBySymbol({});
+        setHoldingsLatestPriceBySymbol({});
         setHoldingsLoading(false);
         setHoldingsRefreshing(false);
         return;
@@ -339,6 +382,8 @@ export function ExplorePortfolioDetailDialog({
         setHoldings(syncHit.holdings);
         if (syncHit.asOfDate) setSelectedAsOf(syncHit.asOfDate);
         setRebalanceDates(syncHit.rebalanceDates);
+        setHoldingsAsOfPriceBySymbol(syncHit.asOfPriceBySymbol);
+        setHoldingsLatestPriceBySymbol(syncHit.latestPriceBySymbol);
         setHoldingsLoading(false);
         setHoldingsRefreshing(false);
         prefetchExploreHoldingsDates(slug, config.id, syncHit.rebalanceDates);
@@ -359,6 +404,8 @@ export function ExplorePortfolioDetailDialog({
           setHoldings([]);
           setSelectedAsOf(null);
           setRebalanceDates([]);
+          setHoldingsAsOfPriceBySymbol({});
+          setHoldingsLatestPriceBySymbol({});
         } else {
           if (useRefreshChrome) {
             const elapsed = Date.now() - started;
@@ -370,6 +417,8 @@ export function ExplorePortfolioDetailDialog({
           setHoldings(data.holdings);
           if (data.asOfDate) setSelectedAsOf(data.asOfDate);
           setRebalanceDates(data.rebalanceDates);
+          setHoldingsAsOfPriceBySymbol(data.asOfPriceBySymbol);
+          setHoldingsLatestPriceBySymbol(data.latestPriceBySymbol);
           prefetchExploreHoldingsDates(slug, config.id, data.rebalanceDates);
         }
       } finally {
@@ -394,6 +443,11 @@ export function ExplorePortfolioDetailDialog({
       setPrevExploreLoading(false);
       setHoldingsLoading(false);
       setHoldingsRefreshing(false);
+      setHoldingsAsOfPriceBySymbol({});
+      setHoldingsLatestPriceBySymbol({});
+      setExplorePerfRows([]);
+      setExplorePerfSeries([]);
+      setExploreFullMetrics(null);
       return;
     }
     setSelectedAsOf(null);
@@ -405,7 +459,7 @@ export function ExplorePortfolioDetailDialog({
   }, [open, config?.id, strategySlug]);
 
   useEffect(() => {
-    if (open) setMobileDetailTab('metrics');
+    if (open) setDetailTab('overview');
   }, [open, config?.id]);
 
   const stockHistoryStrategySlug = strategyIsTop ? null : strategySlug;
@@ -478,17 +532,113 @@ export function ExplorePortfolioDetailDialog({
     exploreHoldingsTopN,
   ]);
 
+  useEffect(() => {
+    if (!open || !config) {
+      setExplorePerfRows([]);
+      setExplorePerfSeries([]);
+      setExploreFullMetrics(null);
+      return;
+    }
+    const slug = strategySlug.trim();
+    if (!slug) {
+      setExplorePerfRows([]);
+      setExplorePerfSeries([]);
+      setExploreFullMetrics(null);
+      return;
+    }
+    let cancelled = false;
+    const params = new URLSearchParams({
+      slug,
+      risk: String(config.riskLevel),
+      frequency: config.rebalanceFrequency,
+      weighting: config.weightingMethod,
+    });
+    void fetch(`/api/platform/portfolio-config-performance?${params}`)
+      .then((r) => r.json())
+      .then(
+        (j: {
+          rows?: ConfigPerfRow[];
+          series?: PerformanceSeriesPoint[];
+          fullMetrics?: ExploreFullMetrics | null;
+        }) => {
+        if (cancelled) return;
+        setExplorePerfRows(Array.isArray(j.rows) ? j.rows : []);
+        setExplorePerfSeries(Array.isArray(j.series) ? j.series : []);
+        setExploreFullMetrics(j.fullMetrics ?? null);
+      }
+      )
+      .catch(() => {
+        if (!cancelled) {
+          setExplorePerfRows([]);
+          setExplorePerfSeries([]);
+          setExploreFullMetrics(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, config, strategySlug]);
+
+  const exploreHoldingsAsOfYmd = selectedAsOf ?? rebalanceDates[0] ?? null;
+
+  const exploreHoldingsModelNotional = useMemo(() => {
+    if (!exploreHoldingsAsOfYmd || explorePerfRows.length === 0) return INITIAL_CAPITAL;
+    return (
+      rebasedEndingEquityAtRunDate(explorePerfRows, null, INITIAL_CAPITAL, exploreHoldingsAsOfYmd) ??
+      INITIAL_CAPITAL
+    );
+  }, [exploreHoldingsAsOfYmd, explorePerfRows]);
+
+  const exploreLiveHoldingsAllocation = useMemo(() => {
+    return buildLiveHoldingsAllocationResult(
+      holdings,
+      exploreHoldingsModelNotional,
+      holdingsAsOfPriceBySymbol,
+      holdingsLatestPriceBySymbol
+    );
+  }, [holdings, exploreHoldingsModelNotional, holdingsAsOfPriceBySymbol, holdingsLatestPriceBySymbol]);
+
+  const explorePublicCostBasisByDate = useMemo(() => {
+    if (!config?.id || !strategySlug?.trim() || !rebalanceDates.length || !explorePerfRows.length) {
+      return {};
+    }
+    const slug = strategySlug.trim();
+    const cid = config.id;
+    return buildPublicModelCostBasisSnapshotsFromHoldings({
+      rebalanceDatesNewestFirst: rebalanceDates,
+      cfgRows: explorePerfRows,
+      getHoldingsAndPrices: (d) => {
+        const hit = getCachedExploreHoldings(slug, cid, d);
+        if (!hit) return null;
+        return { holdings: hit.holdings, asOfPriceBySymbol: hit.asOfPriceBySymbol };
+      },
+    });
+  }, [config?.id, strategySlug, rebalanceDates, explorePerfRows]);
+
+  const exploreSelectedCostBasis = useMemo(() => {
+    if (!exploreHoldingsAsOfYmd) return null;
+    return explorePublicCostBasisByDate[exploreHoldingsAsOfYmd] ?? null;
+  }, [exploreHoldingsAsOfYmd, explorePublicCostBasisByDate]);
+
+  const explorePortfolioValueLineAmount = useMemo(() => {
+    return exploreSelectedCostBasis?.portfolioValue ?? exploreHoldingsModelNotional;
+  }, [exploreSelectedCostBasis, exploreHoldingsModelNotional]);
+
   const onPickRebalance = (date: string) => {
     if (date === selectedAsOf) return;
     void fetchExploreHoldings(date);
   };
 
-  const hasMetrics = config?.dataStatus === 'ready';
+  const showPerfMetrics = Boolean(config && config.dataStatus !== 'empty' && config.metrics);
   const m = config?.metrics;
 
   const endingVal =
     m?.endingValuePortfolio ??
     (m?.totalReturn != null ? INITIAL_CAPITAL * (1 + m.totalReturn) : null);
+  const headlinePortfolioValue =
+    endingVal != null && Number.isFinite(endingVal)
+      ? `${fmtUsd(endingVal)} (${fmtPct(m?.totalReturn)})`
+      : '—';
 
   const benchNasdaqTotalReturn =
     m?.endingValueMarket != null ? m.endingValueMarket / INITIAL_CAPITAL - 1 : null;
@@ -502,6 +652,10 @@ export function ExplorePortfolioDetailDialog({
   const outperformanceVsSp500 =
     m?.totalReturn != null && benchSp500TotalReturn != null
       ? m.totalReturn - benchSp500TotalReturn
+      : null;
+  const outperformanceVsNasdaqEqual =
+    m?.totalReturn != null && exploreFullMetrics?.benchmarks.nasdaq100EqualWeight.totalReturn != null
+      ? m.totalReturn - exploreFullMetrics.benchmarks.nasdaq100EqualWeight.totalReturn
       : null;
 
   const riskTitle =
@@ -543,7 +697,7 @@ export function ExplorePortfolioDetailDialog({
         />
       ) : null}
       <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[min(82dvh,640px)] w-[calc(100vw-1.5rem)] max-w-3xl flex-col gap-0 overflow-hidden p-0 sm:max-h-[min(90vh,880px)] sm:max-w-3xl">
+      <DialogContent className="flex h-[75dvh] max-h-[75dvh] w-[calc(100vw-1.5rem)] max-w-3xl flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
         <DialogHeader className="sr-only">
           <DialogTitle>
             {config ? `${config.label} — ${strategyName}` : 'Portfolio details'}
@@ -637,51 +791,90 @@ export function ExplorePortfolioDetailDialog({
             </div>
 
             <div
-              className="grid shrink-0 grid-cols-2 gap-0 border-b border-border lg:hidden"
+              className="grid shrink-0 grid-cols-3 gap-0 border-b border-border"
               role="tablist"
               aria-label="Portfolio details sections"
             >
               <button
                 type="button"
                 role="tab"
-                aria-selected={mobileDetailTab === 'metrics'}
+                aria-selected={detailTab === 'overview'}
                 className={cn(
                   'border-b-2 py-2.5 text-center text-xs font-semibold transition-colors',
-                  mobileDetailTab === 'metrics'
+                  detailTab === 'overview'
                     ? 'border-trader-blue text-foreground'
                     : 'border-transparent text-muted-foreground'
                 )}
-                onClick={() => setMobileDetailTab('metrics')}
+                onClick={() => setDetailTab('overview')}
               >
-                Performance metrics
+                Overview
               </button>
               <button
                 type="button"
                 role="tab"
-                aria-selected={mobileDetailTab === 'holdings'}
+                aria-selected={detailTab === 'metrics'}
                 className={cn(
                   'border-b-2 py-2.5 text-center text-xs font-semibold transition-colors',
-                  mobileDetailTab === 'holdings'
+                  detailTab === 'metrics'
                     ? 'border-trader-blue text-foreground'
                     : 'border-transparent text-muted-foreground'
                 )}
-                onClick={() => setMobileDetailTab('holdings')}
+                onClick={() => setDetailTab('metrics')}
               >
-                Portfolio holdings
+                Detailed metrics
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={detailTab === 'holdings'}
+                className={cn(
+                  'border-b-2 py-2.5 text-center text-xs font-semibold transition-colors',
+                  detailTab === 'holdings'
+                    ? 'border-trader-blue text-foreground'
+                    : 'border-transparent text-muted-foreground'
+                )}
+                onClick={() => setDetailTab('holdings')}
+              >
+                Holdings and actions
               </button>
             </div>
           </>
         ) : null}
 
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4 space-y-6">
-          <div
-            className={cn(
-              'space-y-6',
-              mobileDetailTab !== 'metrics' && 'max-lg:hidden',
-              'lg:contents'
-            )}
-          >
-          {config && hasMetrics && m ? (
+          {detailTab === 'overview' ? (
+            <section className="space-y-3">
+              <div className="flex min-w-0 flex-row flex-wrap items-center gap-x-2 gap-y-0.5">
+                <h4 className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Portfolio vs benchmarks
+                </h4>
+                <span className="shrink-0 text-xs text-muted-foreground/70" aria-hidden>
+                  ·
+                </span>
+                <span className="whitespace-nowrap text-[11px] tabular-nums text-muted-foreground">
+                  {explorePerfSeries.length > 0 ? `${explorePerfSeries.length} points` : '—'}
+                </span>
+              </div>
+              {explorePerfSeries.length >= 1 ? (
+                <PerformanceChart
+                  series={explorePerfSeries}
+                  strategyName={strategyName}
+                  hideDrawdown
+                  chartContainerClassName="h-[300px] sm:h-[340px]"
+                  disableLineAnimation
+                />
+              ) : (
+                <div className="flex min-h-[220px] flex-col items-center justify-center rounded-lg border bg-muted/20 px-4 py-6 text-center text-sm text-muted-foreground">
+                  {config?.dataStatus === 'empty'
+                    ? 'Performance data computing…'
+                    : 'Not enough history to plot this portfolio yet.'}
+                </div>
+              )}
+            </section>
+          ) : null}
+
+          <div className={cn('space-y-6', detailTab !== 'metrics' && 'hidden')}>
+          {config && showPerfMetrics && m ? (
             <section className="space-y-2">
               <div className="hidden min-w-0 items-center justify-between gap-3 lg:flex">
                 <div className="flex min-w-0 flex-row flex-wrap items-center gap-x-2 gap-y-0.5">
@@ -709,16 +902,16 @@ export function ExplorePortfolioDetailDialog({
 
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <FlipCard
-                  label="Portfolio value"
-                  value={fmtUsd(endingVal)}
-                  explanation="Current value for the model portfolio if you had invested $10,000 at inception."
-                  neutral
+                  label="Portfolio value (return%)"
+                  value={headlinePortfolioValue}
+                  explanation="Current value for the model portfolio if you had invested $10,000 at inception, with total cumulative return shown in parentheses."
+                  positive={(m.totalReturn ?? 0) > 0}
                 />
                 <FlipCard
-                  label="Total return"
-                  value={fmtPct(m.totalReturn)}
-                  explanation="How much the $10,000 starting capital has grown in total since inception. This is the raw cumulative gain over the full tracked period, before any annualization."
-                  positive={(m.totalReturn ?? 0) > 0}
+                  label="Outperformance vs S&P 500 (cap)"
+                  value={fmtPct(outperformanceVsSp500)}
+                  explanation="Cumulative return on the portfolio minus the cumulative return on the S&P 500 cap-weight benchmark over the full tracked period—both starting from the same $10,000. Positive means the strategy added more percentage points than the S&P 500 over that span."
+                  positive={(outperformanceVsSp500 ?? 0) > 0}
                 />
               </div>
 
@@ -726,11 +919,18 @@ export function ExplorePortfolioDetailDialog({
                 <FlipCard
                   label="Sharpe ratio"
                   value={fmtNum(m.sharpeRatio)}
-                  explanation="Return per unit of risk. It divides the strategy's average return by how much the returns fluctuate week to week. Above 1.0 is generally considered good for a stock strategy. Higher is better."
+                  explanation="Return per unit of risk: mean weekly holding-period return divided by its volatility, annualized at sqrt(52). Above 1.0 is generally considered good for a stock strategy. Higher is better."
                   valueClassName={
                     m.sharpeRatio != null && Number.isFinite(m.sharpeRatio)
                       ? sharpeRatioValueClass(m.sharpeRatio)
                       : undefined
+                  }
+                  afterLabel={
+                    <MetricReadinessPill
+                      kind="sharpe"
+                      value={m.sharpeRatio}
+                      weeksOfData={m.weeklyObservations}
+                    />
                   }
                 />
                 <FlipCard
@@ -738,6 +938,32 @@ export function ExplorePortfolioDetailDialog({
                   value={fmtPct(m.cagr)}
                   explanation="Annualized compound growth rate. If the strategy grew at this exact pace every calendar year since inception, this is the annual return you would have seen."
                   positive={(m.cagr ?? 0) > 0}
+                  afterLabel={
+                    <MetricReadinessPill
+                      kind="cagr"
+                      value={m.cagr}
+                      weeksOfData={m.weeklyObservations}
+                    />
+                  }
+                />
+                <FlipCard
+                  label="Decision-cadence Sharpe"
+                  value={fmtNum(m.sharpeRatioDecisionCadence)}
+                  explanation="Sharpe computed from rebalance-period net returns, annualized at this portfolio's rebalance cadence. It measures whether the decision process is earning its volatility independent of intra-period holding risk."
+                  valueClassName={
+                    m.sharpeRatioDecisionCadence != null &&
+                    Number.isFinite(m.sharpeRatioDecisionCadence)
+                      ? sharpeRatioValueClass(m.sharpeRatioDecisionCadence)
+                      : undefined
+                  }
+                  afterLabel={
+                    <MetricReadinessPill
+                      kind="sharpe-decision"
+                      value={m.sharpeRatioDecisionCadence}
+                      weeksOfData={m.decisionObservations}
+                      rebalanceFrequency={config?.rebalanceFrequency}
+                    />
+                  }
                 />
                 <FlipCard
                   label="Max drawdown"
@@ -745,9 +971,6 @@ export function ExplorePortfolioDetailDialog({
                   explanation="The worst peak-to-trough decline since inception. If you had invested at the peak and sold at the worst point, this is how much you would have lost. Closer to zero is better."
                   positive={(m.maxDrawdown ?? 0) > -0.2}
                 />
-              </div>
-
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                 <FlipCard
                   label="% weeks beating Nasdaq-100 (cap)"
                   value={
@@ -763,17 +986,39 @@ export function ExplorePortfolioDetailDialog({
                   positive={(outperformanceVsNasdaq ?? 0) > 0}
                 />
                 <FlipCard
-                  label="Performance vs S&P 500 (cap)"
-                  value={fmtPct(outperformanceVsSp500)}
-                  explanation="Cumulative return on the portfolio minus the cumulative return on the S&P 500 cap-weight benchmark over the full tracked period—both starting from the same $10,000. Positive means the strategy added more percentage points than the S&P 500 over that span."
-                  positive={(outperformanceVsSp500 ?? 0) > 0}
+                  label="Performance vs Nasdaq-100 (equal)"
+                  value={fmtPct(outperformanceVsNasdaqEqual)}
+                  explanation="Cumulative return on the portfolio minus the cumulative return on the Nasdaq-100 equal-weight benchmark over the full tracked period. Positive means the strategy added more percentage points than the equal-weight index."
+                  positive={(outperformanceVsNasdaqEqual ?? 0) > 0}
+                />
+                <FlipCard
+                  label="% weeks beating S&P 500 (cap)"
+                  value={
+                    exploreFullMetrics?.pctWeeksBeatingSp500 != null
+                      ? fmtPct(exploreFullMetrics.pctWeeksBeatingSp500, 0)
+                      : '—'
+                  }
+                  explanation="How often this portfolio's weekly return exceeded the S&P 500 cap-weighted benchmark's weekly return. Above 50% means it wins more weeks than it loses."
+                  positive={(exploreFullMetrics?.pctWeeksBeatingSp500 ?? 0) > 0.5}
+                />
+                <FlipCard
+                  label="% weeks beating Nasdaq-100 (equal)"
+                  value={
+                    exploreFullMetrics?.pctWeeksBeatingNasdaq100EqualWeight != null
+                      ? fmtPct(exploreFullMetrics.pctWeeksBeatingNasdaq100EqualWeight, 0)
+                      : '—'
+                  }
+                  explanation="How often this portfolio's weekly return exceeded the Nasdaq-100 equal-weight benchmark's weekly return. Above 50% means it wins more weeks than it loses."
+                  positive={
+                    (exploreFullMetrics?.pctWeeksBeatingNasdaq100EqualWeight ?? 0) > 0.5
+                  }
                 />
               </div>
             </section>
-          ) : config?.dataStatus === 'limited' ? (
+          ) : config?.dataStatus === 'early' ? (
             <p className="text-sm text-amber-600 dark:text-amber-400">
-              Limited data — building track record. Holdings below reflect the latest rebalance when
-              available.
+              Early data — some headline metrics may still be filling in. Holdings below reflect the
+              latest rebalance when available.
             </p>
           ) : config ? (
             <p className="text-sm text-muted-foreground">Performance computing…</p>
@@ -783,7 +1028,7 @@ export function ExplorePortfolioDetailDialog({
           <section
             className={cn(
               'space-y-2',
-              mobileDetailTab !== 'holdings' && 'max-lg:hidden'
+              detailTab !== 'holdings' && 'hidden'
             )}
           >
             <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between sm:gap-x-3 sm:gap-y-2">
@@ -845,6 +1090,12 @@ export function ExplorePortfolioDetailDialog({
                 <p className="shrink-0 text-right text-[11px] text-muted-foreground">
                   No rebalance history yet.
                 </p>
+              ) : null}
+              {exploreHoldingsUnlocked && rebalanceDates.length > 0 ? (
+                <HoldingsPortfolioValueLine
+                  value={explorePortfolioValueLineAmount}
+                  formatCurrency={(n) => fmtUsd(n)}
+                />
               ) : null}
             </div>
             {!exploreHoldingsPaidTier ? (
@@ -924,7 +1175,10 @@ export function ExplorePortfolioDetailDialog({
                               </span>
                             </TableHead>
                             <TableHead className="h-9 py-1.5 pl-1.5 pr-3 text-right align-middle whitespace-nowrap">
-                              AI rating
+                              <span className="inline-flex items-center justify-end gap-1">
+                                <span className="truncate">Cost basis</span>
+                                <HoldingsCostBasisColumnTooltip variant="publicModel" />
+                              </span>
                             </TableHead>
                           </TableRow>
                         </TableHeader>
@@ -937,6 +1191,12 @@ export function ExplorePortfolioDetailDialog({
                                   h.companyName.trim().length > 0
                                     ? h.companyName.trim()
                                     : null;
+                                const liveRow =
+                                  exploreLiveHoldingsAllocation.bySymbol[h.symbol.toUpperCase()];
+                                const showLive =
+                                  exploreLiveHoldingsAllocation.hasCompleteCoverage &&
+                                  liveRow?.currentValue != null &&
+                                  liveRow.currentWeight != null;
                                 return (
                                   <TableRow
                                     key={`${h.symbol}-${h.rank}-m`}
@@ -978,26 +1238,27 @@ export function ExplorePortfolioDetailDialog({
                                         <span className="block truncate font-medium">{h.symbol}</span>
                                       )}
                                     </TableCell>
-                                    <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap">
-                                      {(h.weight * 100).toFixed(1)}%
-                                    </TableCell>
-                                    <TableCell className="py-1.5 pl-1.5 pr-3 text-right">
-                                      <span className="inline-flex items-center justify-end gap-1">
-                                        <Badge
-                                          variant="outline"
-                                          className={cn(
-                                            'shrink-0 px-1.5 py-0 text-[10px] font-normal leading-tight',
-                                            holdingScoreBucketClass(h.bucket)
-                                          )}
-                                        >
-                                          {holdingScoreBucketLabel(h.bucket)}
-                                        </Badge>
-                                        <span className="font-medium tabular-nums">
-                                          {h.score != null && Number.isFinite(h.score)
-                                            ? h.score.toFixed(1)
-                                            : '—'}
+                                    <TableCell className="min-w-0 px-1.5 py-1.5 text-center tabular-nums">
+                                      {showLive ? (
+                                        <div className="min-w-0 space-y-0.5 leading-tight">
+                                          <div className="truncate">
+                                            {`${fmtUsd(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
+                                          </div>
+                                          <div className="truncate text-[11px] text-muted-foreground">
+                                            Target: {(h.weight * 100).toFixed(1)}%
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <span className="block min-w-0 truncate">
+                                          {`${fmtUsd(h.weight * exploreHoldingsModelNotional)} (${(h.weight * 100).toFixed(1)}%)`}
                                         </span>
-                                      </span>
+                                      )}
+                                    </TableCell>
+                                    <TableCell className="py-1.5 pl-1.5 pr-3 text-right align-top">
+                                      <ExploreCostBasisCell
+                                        symbol={h.symbol}
+                                        snapshot={exploreSelectedCostBasis}
+                                      />
                                     </TableCell>
                                   </TableRow>
                                 );
@@ -1061,23 +1322,12 @@ export function ExplorePortfolioDetailDialog({
                                         Was {(h.weight * 100).toFixed(1)}%
                                       </span>
                                     </TableCell>
-                                    <TableCell className="py-1.5 pl-1.5 pr-3 text-right">
-                                      <span className="inline-flex items-center justify-end gap-1">
-                                        <Badge
-                                          variant="outline"
-                                          className={cn(
-                                            'shrink-0 px-1.5 py-0 text-[10px] font-normal leading-tight opacity-90',
-                                            holdingScoreBucketClass(h.bucket)
-                                          )}
-                                        >
-                                          {holdingScoreBucketLabel(h.bucket)}
-                                        </Badge>
-                                        <span className="font-medium tabular-nums text-muted-foreground">
-                                          {h.score != null && Number.isFinite(h.score)
-                                            ? h.score.toFixed(1)
-                                            : '—'}
-                                        </span>
-                                      </span>
+                                    <TableCell className="py-1.5 pl-1.5 pr-3 text-right align-top">
+                                      <ExploreCostBasisCell
+                                        symbol={h.symbol}
+                                        snapshot={exploreSelectedCostBasis}
+                                        exited
+                                      />
                                     </TableCell>
                                   </TableRow>
                                 );
@@ -1090,6 +1340,12 @@ export function ExplorePortfolioDetailDialog({
                                 h.companyName.trim().length > 0
                                   ? h.companyName.trim()
                                   : null;
+                              const liveRow =
+                                exploreLiveHoldingsAllocation.bySymbol[h.symbol.toUpperCase()];
+                              const showLive =
+                                exploreLiveHoldingsAllocation.hasCompleteCoverage &&
+                                liveRow?.currentValue != null &&
+                                liveRow.currentWeight != null;
                               return (
                                 <TableRow
                                   key={`${h.symbol}-${h.rank}`}
@@ -1128,26 +1384,27 @@ export function ExplorePortfolioDetailDialog({
                                       <span className="block truncate font-medium">{h.symbol}</span>
                                     )}
                                   </TableCell>
-                                  <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap">
-                                    {(h.weight * 100).toFixed(1)}%
-                                  </TableCell>
-                                  <TableCell className="py-1.5 pl-1.5 pr-3 text-right">
-                                    <span className="inline-flex items-center justify-end gap-1">
-                                      <Badge
-                                        variant="outline"
-                                        className={cn(
-                                          'shrink-0 px-1.5 py-0 text-[10px] font-normal leading-tight',
-                                          holdingScoreBucketClass(h.bucket)
-                                        )}
-                                      >
-                                        {holdingScoreBucketLabel(h.bucket)}
-                                      </Badge>
-                                      <span className="font-medium tabular-nums">
-                                        {h.score != null && Number.isFinite(h.score)
-                                          ? h.score.toFixed(1)
-                                          : '—'}
+                                  <TableCell className="min-w-0 px-1.5 py-1.5 text-center tabular-nums">
+                                    {showLive ? (
+                                      <div className="min-w-0 space-y-0.5 leading-tight">
+                                        <div className="truncate">
+                                          {`${fmtUsd(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
+                                        </div>
+                                        <div className="truncate text-[11px] text-muted-foreground">
+                                          Target: {(h.weight * 100).toFixed(1)}%
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <span className="block min-w-0 truncate">
+                                        {`${fmtUsd(h.weight * exploreHoldingsModelNotional)} (${(h.weight * 100).toFixed(1)}%)`}
                                       </span>
-                                    </span>
+                                    )}
+                                  </TableCell>
+                                  <TableCell className="py-1.5 pl-1.5 pr-3 text-right align-top">
+                                    <ExploreCostBasisCell
+                                      symbol={h.symbol}
+                                      snapshot={exploreSelectedCostBasis}
+                                    />
                                   </TableCell>
                                 </TableRow>
                               );

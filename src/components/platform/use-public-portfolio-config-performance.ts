@@ -24,9 +24,12 @@ import { loadRankedConfigsClient } from '@/lib/portfolio-configs-ranked-client';
 
 export type PublicPortfolioPerfApiPayload = {
   computeStatus: 'ready' | 'in_progress' | 'failed' | 'empty' | 'unsupported';
+  rows?: Array<{ run_date: string; [key: string]: unknown }>;
   series: PerformanceSeriesPoint[];
   metrics: {
     sharpeRatio: number | null;
+    sharpeRatioDecisionCadence: number | null;
+    weeklyObservations: number;
     totalReturn: number | null;
     cagr: number | null;
     maxDrawdown: number | null;
@@ -140,6 +143,7 @@ export function usePublicPortfolioConfigPerformance({
         const j = (await res.json()) as Partial<PublicPortfolioPerfApiPayload>;
         setPerf({
           computeStatus: j.computeStatus ?? 'empty',
+          rows: j.rows ?? [],
           series: j.series ?? [],
           metrics: j.metrics ?? null,
           fullMetrics: j.fullMetrics ?? null,

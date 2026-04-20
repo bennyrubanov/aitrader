@@ -157,6 +157,11 @@ type PerformanceChartProps = {
    * Defaults to $10,000 to match model performance data.
    */
   initialNotional?: number;
+  /**
+   * Optional display-only override for the very first plotted equity point.
+   * Useful when entry costs are applied to economics but UX should show full invested dollars at t0.
+   */
+  firstPointDisplayNotional?: number;
   /** Series keys to exclude from the chart and legend chips entirely */
   omitSeriesKeys?: PerformanceChartSeriesKey[];
   /** Per-series label overrides (e.g. shorter benchmark names) */
@@ -175,6 +180,7 @@ export function PerformanceChart({
   hideFootnote = false,
   tightStartingInvestmentLabel = false,
   initialNotional = DEFAULT_INITIAL_NOTIONAL,
+  firstPointDisplayNotional,
   omitSeriesKeys = [],
   seriesLabelOverrides,
   chartContainerClassName,
@@ -227,13 +233,31 @@ export function PerformanceChart({
 
   const notional =
     Number.isFinite(initialNotional) && initialNotional > 0 ? initialNotional : DEFAULT_INITIAL_NOTIONAL;
+  const firstPointDisplay =
+    Number.isFinite(firstPointDisplayNotional) && (firstPointDisplayNotional ?? 0) > 0
+      ? (firstPointDisplayNotional as number)
+      : null;
 
   const chartData = useMemo(() => {
     const filtered = filterByRange(series, hideTimeRangeControls ? 'All' : range);
     const rebased = rebaseSeries(filtered, notional);
     const data = view === 'drawdown' ? toDrawdownPercentSeries(filtered) : rebased;
-    return data.map((p) => ({ ...p, shortDate: formatDisplayDate(p.date as string) }));
-  }, [series, range, view, notional, hideTimeRangeControls]);
+    const withDisplayStart =
+      view === 'equity' && firstPointDisplay != null && data.length > 0
+        ? data.map((p, idx) =>
+            idx === 0
+              ? {
+                  ...p,
+                  aiTop20: firstPointDisplay,
+                  nasdaq100CapWeight: firstPointDisplay,
+                  nasdaq100EqualWeight: firstPointDisplay,
+                  sp500: firstPointDisplay,
+                }
+              : p
+          )
+        : data;
+    return withDisplayStart.map((p) => ({ ...p, shortDate: formatDisplayDate(p.date as string) }));
+  }, [series, range, view, notional, hideTimeRangeControls, firstPointDisplay]);
 
   const yDomain = useMemo<[number, number] | ['auto', 'auto']>(() => {
     if (!chartData.length) return ['auto', 'auto'];

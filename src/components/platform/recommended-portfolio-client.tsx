@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import {
   AlertTriangle,
@@ -10,6 +10,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { usePortfolioConfig } from '@/components/portfolio-config';
+import { MetricReadinessPill } from '@/components/platform/metric-readiness-pill';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -232,8 +233,28 @@ export function RecommendedPortfolioClient() {
         {/* Strategy summary cards */}
         <div className="grid grid-cols-2 gap-3 px-4 pt-4 sm:grid-cols-4 sm:px-6">
           <MetricCard label="Total return" value={pctStr(strategy.totalReturn)} />
-          <MetricCard label="CAGR" value={pctStr(strategy.cagr)} />
-          <MetricCard label="Sharpe ratio" value={strategy.sharpeRatio?.toFixed(2) ?? '-'} />
+          <MetricCard
+            label="CAGR"
+            value={pctStr(strategy.cagr)}
+            afterLabel={
+              <MetricReadinessPill
+                kind="cagr"
+                value={strategy.cagr}
+                weeksOfData={strategy.weeklyObservations ?? null}
+              />
+            }
+          />
+          <MetricCard
+            label="Sharpe ratio"
+            value={strategy.sharpeRatio?.toFixed(2) ?? '-'}
+            afterLabel={
+              <MetricReadinessPill
+                kind="sharpe"
+                value={strategy.sharpeRatio}
+                weeksOfData={strategy.weeklyObservations ?? null}
+              />
+            }
+          />
           <MetricCard label="Max drawdown" value={pctStr(strategy.maxDrawdown)} />
         </div>
 
@@ -306,10 +327,21 @@ export function RecommendedPortfolioClient() {
   );
 }
 
-function MetricCard({ label, value }: { label: string; value: string }) {
+function MetricCard({
+  label,
+  value,
+  afterLabel,
+}: {
+  label: string;
+  value: string;
+  afterLabel?: ReactNode;
+}) {
   return (
     <div className="rounded-lg border p-3">
-      <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
+      <p className="flex flex-wrap items-center gap-1 text-[11px] font-medium text-muted-foreground">
+        {label}
+        {afterLabel}
+      </p>
       <p className="mt-0.5 text-lg font-semibold tabular-nums">{value}</p>
     </div>
   );

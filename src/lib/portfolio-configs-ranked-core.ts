@@ -5,6 +5,10 @@ import {
   buildLatestMtmPointFromLastSnapshot,
   loadLatestRawRunDate,
 } from '@/lib/live-mark-to-market';
+import {
+  computeSharpeAnnualized,
+  periodsPerYearFromRebalanceFrequency,
+} from '@/lib/metrics-annualization';
 import type { ConfigPerfRow } from '@/lib/portfolio-config-utils';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { createPublicClient } from '@/utils/supabase/public';
@@ -38,11 +42,14 @@ type ConfigRow = {
 
 export type ConfigMetrics = {
   sharpeRatio: number | null;
+  sharpeRatioDecisionCadence: number | null;
   cagr: number | null;
   totalReturn: number | null;
   maxDrawdown: number | null;
   consistency: number | null;
   weeksOfData: number;
+  weeklyObservations: number;
+  decisionObservations: number;
   endingValuePortfolio: number | null;
   endingValueMarket: number | null;
   endingValueSp500: number | null;
@@ -63,7 +70,7 @@ export type RankedConfig = {
   compositeScore: number | null;
   rank: number | null;
   badges: string[];
-  dataStatus: 'ready' | 'limited' | 'empty';
+  dataStatus: 'ready' | 'early' | 'empty';
 };
 
 export type BenchmarkEndingValues = {
@@ -90,13 +97,11 @@ export const RANKED_CONFIGS_CACHE_TAG = 'ranked-configs';
 // ── Math helpers ──────────────────────────────────────────────────────────────
 
 const INITIAL_CAPITAL = 10_000;
-const MIN_WEEKS_FOR_RANKING = 2;
 
 const W_SHARPE = 0.3;
-const W_CAGR = 0.25;
+const W_TOTAL_RETURN = 0.35;
 const W_CONSISTENCY = 0.15;
 const W_DRAWDOWN = 0.1;
-const W_TOTAL_RETURN = 0.1;
 const W_EXCESS_VS_NDX_CAP = 0.1;
 
 function excessReturnVsNasdaqCap(m: ConfigMetrics): number | null {
@@ -106,6 +111,22 @@ function excessReturnVsNasdaqCap(m: ConfigMetrics): number | null {
   const benchRet = mkt / INITIAL_CAPITAL - 1;
   if (!Number.isFinite(benchRet)) return null;
   return tr - benchRet;
+}
+
+/** All inputs present so composite can be computed (CAGR excluded from composite). */
+function compositeInputsReady(m: ConfigMetrics): boolean {
+  return (
+    m.sharpeRatio != null &&
+    Number.isFinite(m.sharpeRatio) &&
+    m.consistency != null &&
+    Number.isFinite(m.consistency) &&
+    m.maxDrawdown != null &&
+    Number.isFinite(m.maxDrawdown) &&
+    m.totalReturn != null &&
+    Number.isFinite(m.totalReturn) &&
+    excessReturnVsNasdaqCap(m) != null &&
+    Number.isFinite(excessReturnVsNasdaqCap(m)!)
+  );
 }
 
 const toNum = (v: unknown, fallback = 0): number => {
@@ -195,11 +216,14 @@ function stripConfigId(row: DbConfigPerfRow): ConfigPerfRow {
 function emptyConfigMetrics(weeksOfData: number): ConfigMetrics {
   return {
     sharpeRatio: null,
+    sharpeRatioDecisionCadence: null,
     cagr: null,
     totalReturn: null,
     maxDrawdown: null,
     consistency: null,
     weeksOfData,
+    weeklyObservations: 0,
+    decisionObservations: weeksOfData,
     endingValuePortfolio: null,
     endingValueMarket: null,
     endingValueSp500: null,
@@ -223,7 +247,10 @@ async function computeRankedConfigMetrics(
 
   const sorted = [...rowsWithInception].sort((a, b) => a.run_date.localeCompare(b.run_date));
 
-  const chartBuilt = buildConfigPerformanceChart(sorted);
+  const sharpeReturns = sorted
+    .slice(sorted.length - rawObservationCount)
+    .map((r) => toNum(r.net_return, 0));
+  const chartBuilt = buildConfigPerformanceChart(sorted, cfg.rebalance_frequency);
   const latestRow = sorted[sorted.length - 1]!;
   const computeReady = latestRow.compute_status === 'ready';
   const weeklySeries = chartBuilt.series;
@@ -269,7 +296,11 @@ async function computeRankedConfigMetrics(
       : null;
 
   if (chosenSeries && chosenSeries.length >= 2) {
-    const fromSeries = buildMetricsFromSeries(chosenSeries);
+    const fromSeries = buildMetricsFromSeries(
+      chosenSeries,
+      cfg.rebalance_frequency,
+      sharpeReturns
+    );
     headline = fromSeries.metrics;
     full = fromSeries.fullMetrics;
     const last = chosenSeries[chosenSeries.length - 1]!;
@@ -278,11 +309,17 @@ async function computeRankedConfigMetrics(
 
   const metrics: ConfigMetrics = {
     sharpeRatio: headline?.sharpeRatio ?? null,
+    sharpeRatioDecisionCadence: computeSharpeAnnualized(
+      sharpeReturns,
+      periodsPerYearFromRebalanceFrequency(cfg.rebalance_frequency)
+    ),
     cagr: headline?.cagr ?? null,
     totalReturn: headline?.totalReturn ?? null,
     maxDrawdown: headline?.maxDrawdown ?? null,
     consistency,
     weeksOfData: rawObservationCount,
+    weeklyObservations: headline?.weeklyObservations ?? 0,
+    decisionObservations: rawObservationCount,
     endingValuePortfolio: full?.endingValue ?? null,
     endingValueMarket: full?.benchmarks.nasdaq100CapWeight.endingValue ?? null,
     endingValueSp500: full?.benchmarks.sp500.endingValue ?? null,
@@ -395,65 +432,69 @@ export async function loadPortfolioConfigsRankedPayload(
     const rawCount = rawList.length;
     const rows = ensureModelInceptionPrefix(inceptionDate, rawList);
     const { metrics, liveTail } = await computeRankedConfigMetrics(adminSupabase, strategy.id, cfg, rows, rawCount);
-    const dataStatus: 'ready' | 'limited' | 'empty' =
-      rawCount === 0 ? 'empty' : rawCount < MIN_WEEKS_FOR_RANKING ? 'limited' : 'ready';
+    const dataStatus: 'ready' | 'early' | 'empty' =
+      rawCount === 0 ? 'empty' : compositeInputsReady(metrics) ? 'ready' : 'early';
     return { cfg, metrics, dataStatus, liveTail };
   }));
 
-  const eligible = configsWithMetrics.filter((c) => c.dataStatus === 'ready');
+  const forRanking = configsWithMetrics.filter((c) => c.dataStatus !== 'empty');
 
-  const sharpes = eligible.map((c) => c.metrics.sharpeRatio);
-  const cagrs = eligible.map((c) => c.metrics.cagr);
-  const consistencies = eligible.map((c) => c.metrics.consistency);
-  const drawdowns = eligible.map((c) => c.metrics.maxDrawdown);
-  const totalReturns = eligible.map((c) => c.metrics.totalReturn);
-  const excessVsNdx = eligible.map((c) => excessReturnVsNasdaqCap(c.metrics));
+  const sharpes = forRanking.map((c) => c.metrics.sharpeRatio);
+  const consistencies = forRanking.map((c) => c.metrics.consistency);
+  const drawdowns = forRanking.map((c) => c.metrics.maxDrawdown);
+  const totalReturns = forRanking.map((c) => c.metrics.totalReturn);
+  const excessVsNdx = forRanking.map((c) => excessReturnVsNasdaqCap(c.metrics));
 
   const normSharpes = normalize(sharpes, true);
-  const normCagrs = normalize(cagrs, true);
   const normConsistencies = normalize(consistencies, true);
   const normDrawdowns = normalize(drawdowns, false);
   const normTotalReturns = normalize(totalReturns, true);
   const normExcessVsNdx = normalize(excessVsNdx, true);
 
-  const scores = eligible.map((c, i) => {
-    const s = normSharpes[i];
-    const ca = normCagrs[i];
-    const co = normConsistencies[i];
-    const d = normDrawdowns[i];
-    const tr = normTotalReturns[i];
-    const ex = normExcessVsNdx[i];
-    if (s === null && ca === null && co === null && d === null && tr === null && ex === null) {
-      return null;
-    }
-    return (
-      (s ?? 0) * W_SHARPE +
-      (ca ?? 0) * W_CAGR +
-      (co ?? 0) * W_CONSISTENCY +
-      (d ?? 0) * W_DRAWDOWN +
-      (tr ?? 0) * W_TOTAL_RETURN +
-      (ex ?? 0) * W_EXCESS_VS_NDX_CAP
-    );
+  const scores = forRanking.map((c, i) => {
+    const parts = [
+      { n: normSharpes[i], w: W_SHARPE },
+      { n: normTotalReturns[i], w: W_TOTAL_RETURN },
+      { n: normConsistencies[i], w: W_CONSISTENCY },
+      { n: normDrawdowns[i], w: W_DRAWDOWN },
+      { n: normExcessVsNdx[i], w: W_EXCESS_VS_NDX_CAP },
+    ];
+    if (parts.some((p) => p.n === null)) return null;
+    return parts.reduce((acc, p) => acc + p.n! * p.w, 0);
   });
 
-  const rankedEligible = eligible
-    .map((c, i) => ({ ...c, compositeScore: scores[i] }))
-    .sort((a, b) => (b.compositeScore ?? 0) - (a.compositeScore ?? 0));
+  const compositeCount = scores.filter((s) => s !== null).length;
+
+  const rankedWithComposite = forRanking
+    .map((c, i) => ({ entry: c, compositeScore: scores[i] }))
+    .filter((x): x is { entry: (typeof forRanking)[0]; compositeScore: number } => x.compositeScore !== null)
+    .sort((a, b) => b.compositeScore - a.compositeScore);
 
   const rankMap = new Map<string, number>();
-  rankedEligible.forEach((c, i) => rankMap.set(c.cfg.id, i + 1));
+  rankedWithComposite.forEach((x, i) => rankMap.set(x.entry.cfg.id, i + 1));
 
-  const topRankedId = rankedEligible[0]?.cfg.id;
-  const bestSharpeId = eligible.reduce<string | null>((best, c) => {
-    if (!best) return c.cfg.id;
-    const bestVal = configsWithMetrics.find((x) => x.cfg.id === best)?.metrics.sharpeRatio ?? -Infinity;
-    return (c.metrics.sharpeRatio ?? -Infinity) > bestVal ? c.cfg.id : best;
-  }, null);
-  const mostConsistentId = eligible.reduce<string | null>((best, c) => {
-    if (!best) return c.cfg.id;
-    const bestVal = configsWithMetrics.find((x) => x.cfg.id === best)?.metrics.consistency ?? -Infinity;
-    return (c.metrics.consistency ?? -Infinity) > bestVal ? c.cfg.id : best;
-  }, null);
+  const scoreByConfigId = new Map<string, number | null>();
+  forRanking.forEach((c, i) => scoreByConfigId.set(c.cfg.id, scores[i] ?? null));
+
+  const topRankedId = rankedWithComposite[0]?.entry.cfg.id ?? null;
+  const bestSharpeId =
+    forRanking.length > 0
+      ? forRanking.reduce<string | null>((best, c) => {
+          if (!best) return c.cfg.id;
+          const bestVal =
+            configsWithMetrics.find((x) => x.cfg.id === best)?.metrics.sharpeRatio ?? -Infinity;
+          return (c.metrics.sharpeRatio ?? -Infinity) > bestVal ? c.cfg.id : best;
+        }, null)
+      : null;
+  const mostConsistentId =
+    forRanking.length > 0
+      ? forRanking.reduce<string | null>((best, c) => {
+          if (!best) return c.cfg.id;
+          const bestVal =
+            configsWithMetrics.find((x) => x.cfg.id === best)?.metrics.consistency ?? -Infinity;
+          return (c.metrics.consistency ?? -Infinity) > bestVal ? c.cfg.id : best;
+        }, null)
+      : null;
 
   let bestCagrId: string | null = null;
   let bestCagrVal = -Infinity;
@@ -461,7 +502,7 @@ export async function loadPortfolioConfigsRankedPayload(
   let bestTotalReturnVal = -Infinity;
   let steadiestId: string | null = null;
   let steadiestDrawdown = -Infinity;
-  for (const row of eligible) {
+  for (const row of forRanking) {
     const cg = row.metrics.cagr;
     if (cg != null && Number.isFinite(cg) && cg > bestCagrVal) {
       bestCagrVal = cg;
@@ -481,16 +522,16 @@ export async function loadPortfolioConfigsRankedPayload(
 
   const result: RankedConfig[] = configsWithMetrics.map(({ cfg, metrics, dataStatus }) => {
     const rank = rankMap.get(cfg.id) ?? null;
-    const eligible_ = dataStatus === 'ready';
+    const hasComposite = scoreByConfigId.get(cfg.id) != null;
 
     const badges: string[] = [];
-    if (eligible_ && cfg.id === topRankedId && rank === 1) badges.push('Top ranked');
+    if (hasComposite && cfg.id === topRankedId && rank === 1) badges.push('Top ranked');
     if (cfg.is_default) badges.push('Default');
-    if (eligible_ && cfg.id === bestSharpeId) badges.push('Best risk-adjusted');
-    if (eligible_ && cfg.id === mostConsistentId) badges.push('Most consistent');
-    if (eligible_ && bestCagrId && cfg.id === bestCagrId) badges.push('Best CAGR');
-    if (eligible_ && bestTotalReturnId && cfg.id === bestTotalReturnId) badges.push('Best total return');
-    if (eligible_ && steadiestId && cfg.id === steadiestId) badges.push('Steadiest');
+    if (hasComposite && cfg.id === bestSharpeId) badges.push('Best risk-adjusted');
+    if (hasComposite && cfg.id === mostConsistentId) badges.push('Most consistent');
+    if (hasComposite && bestCagrId && cfg.id === bestCagrId) badges.push('Best CAGR');
+    if (hasComposite && bestTotalReturnId && cfg.id === bestTotalReturnId) badges.push('Best total return');
+    if (hasComposite && steadiestId && cfg.id === steadiestId) badges.push('Steadiest');
 
     return {
       id: cfg.id,
@@ -509,11 +550,7 @@ export async function loadPortfolioConfigsRankedPayload(
       riskLabel: cfg.risk_label,
       isDefault: cfg.is_default,
       metrics,
-      compositeScore: dataStatus === 'ready'
-        ? rankMap.has(cfg.id)
-          ? (scores[eligible.findIndex((c) => c.cfg.id === cfg.id)] ?? null)
-          : null
-        : null,
+      compositeScore: scoreByConfigId.get(cfg.id) ?? null,
       rank,
       badges,
       dataStatus,
@@ -524,12 +561,12 @@ export async function loadPortfolioConfigsRankedPayload(
     if (a.rank !== null && b.rank !== null) return a.rank - b.rank;
     if (a.rank !== null) return -1;
     if (b.rank !== null) return 1;
-    if (a.dataStatus === 'limited' && b.dataStatus !== 'limited') return -1;
-    if (b.dataStatus === 'limited' && a.dataStatus !== 'limited') return 1;
+    if (a.dataStatus === 'early' && b.dataStatus === 'empty') return -1;
+    if (b.dataStatus === 'early' && a.dataStatus === 'empty') return 1;
     return a.riskLevel - b.riskLevel;
   });
 
-  if (eligible.length === 0 && configs.length > 0) {
+  if (forRanking.length === 0 && configs.length > 0) {
     try {
       const { triggerPortfolioConfigsBatch } = await import('@/lib/trigger-config-compute');
       triggerPortfolioConfigsBatch(strategy.id);
@@ -554,14 +591,14 @@ export async function loadPortfolioConfigsRankedPayload(
     strategyId: strategy.id,
     strategyName: strategy.name ?? null,
     modelInceptionDate: inceptionDate ?? null,
-    eligibleCount: eligible.length,
+    eligibleCount: compositeCount,
     latestPerformanceDate,
     latestRawRunDate,
     rankingNote:
-      eligible.length === 0
-        ? 'Performance data is being computed — metrics will appear shortly.'
-        : eligible.length < 3
-          ? 'Early performance — rankings will improve as more historical data accumulates.'
+      compositeCount === 0 && configs.length > 0
+        ? 'Composite ranking will appear once Sharpe, consistency, and other inputs have enough history.'
+        : compositeCount > 0 && compositeCount < 3
+          ? 'Early rankings — composite scores will stabilise as more historical data accumulates.'
           : null,
     benchmarkEndingValues,
     configs: result,
@@ -573,7 +610,7 @@ export async function getCachedRankedConfigsPayload(
 ): Promise<PortfolioConfigsRankedPayload | null> {
   const loadCached = unstable_cache(
     async () => loadPortfolioConfigsRankedPayload(slug),
-    [RANKED_CONFIGS_CACHE_TAG, slug, 'v5-unified-consistency'],
+    [RANKED_CONFIGS_CACHE_TAG, slug, 'v7-weekly-mtm-sharpe'],
     {
       revalidate: 300,
       tags: [RANKED_CONFIGS_CACHE_TAG, `${RANKED_CONFIGS_CACHE_TAG}:${slug}`],

@@ -17,6 +17,7 @@ import { headerStatSentiment } from '@/lib/header-stat-sentiment';
 import { PlatformPerformancePayload } from '@/lib/platform-performance-payload';
 import { cn } from '@/lib/utils';
 import { Disclaimer } from '@/components/Disclaimer';
+import { MetricReadinessPill } from '@/components/platform/metric-readiness-pill';
 
 const PerformanceChart = dynamic(
   () => import('@/components/platform/performance-chart').then((module) => module.PerformanceChart),
@@ -38,6 +39,18 @@ const formatPercent = (value: number | null | undefined, digits = 2) =>
 
 const formatNullable = (value: number | null | undefined, digits = 2) =>
   typeof value === 'number' && Number.isFinite(value) ? value.toFixed(digits) : 'N/A';
+
+function formatInvestedOnCalendarDate(ymd: string | null | undefined): string | null {
+  if (!ymd?.trim()) return null;
+  const parsed = new Date(`${ymd.trim()}T12:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(parsed);
+}
 
 const weekdayLabel = (day: number) =>
   ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][day] ?? 'N/A';
@@ -88,10 +101,23 @@ export function PerformancePageClient({ payload }: PerformancePageClientProps) {
     return aiTotal - capTotal;
   }, [metrics]);
 
-  const outperformanceClass =
-    outperformanceVsCap === null
+  const outperformanceVsSp500 = useMemo(() => {
+    if (!metrics) return null;
+    const aiTotal = metrics.totalReturn;
+    const spTotal = metrics.benchmarks.sp500.totalReturn;
+    if (aiTotal === null || spTotal === null) return null;
+    return aiTotal - spTotal;
+  }, [metrics]);
+
+  const investedOnCalendarLabel = useMemo(
+    () => (strategy?.startDate ? formatInvestedOnCalendarDate(strategy.startDate) : null),
+    [strategy?.startDate]
+  );
+
+  const signedPerfClass = (v: number | null) =>
+    v === null || !Number.isFinite(v)
       ? ''
-      : outperformanceVsCap >= 0
+      : v >= 0
         ? 'text-green-600 dark:text-green-400'
         : 'text-red-600 dark:text-red-400';
 
@@ -190,16 +216,10 @@ export function PerformancePageClient({ payload }: PerformancePageClientProps) {
         </CardHeader>
         <CardContent>
           {metrics ? (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3 lg:grid-cols-7">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
               <div className="rounded-lg border bg-background p-4">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                  Ending value
-                </p>
-                <p className="mt-2 text-xl font-semibold">{formatCurrency(metrics.endingValue)}</p>
-              </div>
-              <div className="rounded-lg border bg-background p-4">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                  Total return
+                  Portfolio value
                 </p>
                 <p
                   className={cn(
@@ -207,11 +227,60 @@ export function PerformancePageClient({ payload }: PerformancePageClientProps) {
                     metricValueClass(headerStatSentiment('Total return', metrics.totalReturn))
                   )}
                 >
-                  {formatPercent(metrics.totalReturn)}
+                  {formatCurrency(metrics.endingValue)}
+                </p>
+                {investedOnCalendarLabel ? (
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    $10k invested on {investedOnCalendarLabel}
+                  </p>
+                ) : (
+                  <p className="mt-1 text-[11px] text-muted-foreground">$10k starting capital</p>
+                )}
+              </div>
+              <div className="rounded-lg border bg-background p-4">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  vs S&amp;P 500 (cap)
+                </p>
+                <p
+                  className={cn(
+                    'mt-2 text-xl font-semibold',
+                    signedPerfClass(outperformanceVsSp500)
+                  )}
+                >
+                  {formatPercent(outperformanceVsSp500)}
                 </p>
               </div>
               <div className="rounded-lg border bg-background p-4">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">CAGR</p>
+                <p className="flex flex-wrap items-center gap-x-1 gap-y-0.5 text-xs uppercase tracking-wide text-muted-foreground">
+                  <span>Sharpe ratio</span>
+                  {strategy ? (
+                    <MetricReadinessPill
+                      kind="sharpe"
+                      value={metrics.sharpeRatio}
+                      weeksOfData={metrics.weeklyObservations}
+                    />
+                  ) : null}
+                </p>
+                <p
+                  className={cn(
+                    'mt-2 text-xl font-semibold',
+                    metricValueClass(headerStatSentiment('Sharpe', metrics.sharpeRatio))
+                  )}
+                >
+                  {formatNullable(metrics.sharpeRatio)}
+                </p>
+              </div>
+              <div className="rounded-lg border bg-background p-4">
+                <p className="flex flex-wrap items-center gap-x-1 gap-y-0.5 text-xs uppercase tracking-wide text-muted-foreground">
+                  <span>CAGR</span>
+                  {strategy ? (
+                    <MetricReadinessPill
+                      kind="cagr"
+                      value={metrics.cagr}
+                      weeksOfData={strategy.runCount}
+                    />
+                  ) : null}
+                </p>
                 <p
                   className={cn(
                     'mt-2 text-xl font-semibold',
@@ -236,64 +305,20 @@ export function PerformancePageClient({ payload }: PerformancePageClientProps) {
               </div>
               <div className="rounded-lg border bg-background p-4">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                  Sharpe ratio
+                  vs Nasdaq-100 (cap)
                 </p>
                 <p
                   className={cn(
                     'mt-2 text-xl font-semibold',
-                    metricValueClass(headerStatSentiment('Sharpe', metrics.sharpeRatio))
+                    signedPerfClass(outperformanceVsCap)
                   )}
                 >
-                  {formatNullable(metrics.sharpeRatio)}
-                </p>
-              </div>
-              <div className="rounded-lg border bg-background p-4">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                  % weeks outperforming Nasdaq-100
-                </p>
-                <p
-                  className={cn(
-                    'mt-2 text-xl font-semibold',
-                    metricValueClass(
-                      headerStatSentiment(
-                        '% weeks outperforming Nasdaq-100',
-                        metrics.pctWeeksBeatingNasdaq100
-                      )
-                    )
-                  )}
-                >
-                  {formatPercent(metrics.pctWeeksBeatingNasdaq100, 1)}
-                </p>
-              </div>
-              <div className="rounded-lg border bg-background p-4">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                  % weeks outperforming S&P 500
-                </p>
-                <p
-                  className={cn(
-                    'mt-2 text-xl font-semibold',
-                    metricValueClass(
-                      headerStatSentiment('% weeks outperforming S&P 500', metrics.pctWeeksBeatingSp500)
-                    )
-                  )}
-                >
-                  {formatPercent(metrics.pctWeeksBeatingSp500, 1)}
+                  {formatPercent(outperformanceVsCap)}
                 </p>
               </div>
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">No performance metrics available yet.</p>
-          )}
-
-          {metrics && (
-            <div className="mt-4 rounded-lg border bg-background p-4">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                Outperformance vs Nasdaq-100 (cap-weight)
-              </p>
-              <p className={`mt-2 text-2xl font-semibold ${outperformanceClass}`}>
-                {formatPercent(outperformanceVsCap)}
-              </p>
-            </div>
           )}
         </CardContent>
       </Card>

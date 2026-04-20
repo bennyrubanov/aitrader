@@ -5,7 +5,7 @@ import {
   getStripeClients,
 } from "./_migration-common.mjs";
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://tryaitrader.com";
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://www.tryaitrader.com";
 const dryRun = envFlag("MIGRATION_DRY_RUN", true);
 const applySourceCancelAtPeriodEnd = envFlag("APPLY_SOURCE_CANCEL_AT_PERIOD_END", false);
 const { sourceStripe: source, targetStripe: target } = getStripeClients();

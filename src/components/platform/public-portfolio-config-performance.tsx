@@ -20,6 +20,7 @@ import {
 } from '@/components/portfolio-config';
 import type { PortfolioConfigSlice } from '@/components/platform/portfolio-config-controls';
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
+import { MetricReadinessPill } from '@/components/platform/metric-readiness-pill';
 import type { PublicPortfolioPerfApiPayload } from '@/components/platform/use-public-portfolio-config-performance';
 import {
   InfoIconTooltip,
@@ -29,6 +30,16 @@ import {
 } from '@/components/tooltips';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
 import { headerStatSentiment } from '@/lib/header-stat-sentiment';
+import { isoWeekBucketKey } from '@/lib/metrics-annualization';
+
+const currency0 = (v: number | null | undefined) =>
+  v == null || !Number.isFinite(v)
+    ? 'N/A'
+    : new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        maximumFractionDigits: 0,
+      }).format(v);
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
 import { CalendarDays, Hash, Scale, Shield, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -116,13 +127,18 @@ export function PortfolioAtAGlanceCard({
 }) {
   const m = perf?.metrics;
   const fm = perf?.fullMetrics;
-  const pctWeeksNasdaq = fm?.pctWeeksBeatingNasdaq100 ?? null;
-  const pctWeeksSp500 = fm?.pctWeeksBeatingSp500 ?? null;
-
+  // `perf.series` can be either weekly net-return points or daily mark-to-market
+  // (the API swaps in daily when available), so count unique ISO weeks to get a
+  // cadence-independent weeks-of-history value for the readiness pill.
+  const metricWeeklyObservations = perf?.series?.length
+    ? new Set(perf.series.map((p) => isoWeekBucketKey(p.date))).size
+    : null;
+  const metricDecisionObservations = perf?.rows?.length ?? null;
   const metricRows: {
     label: string;
     value: string;
     hint?: string;
+    afterLabel?: ReactNode;
     positive?: boolean;
     positiveTone?: 'default' | 'brand';
   }[] = [];
@@ -130,23 +146,70 @@ export function PortfolioAtAGlanceCard({
   const metricsPeriodNote =
     'Tracked from inception through the latest AI ratings day, net of trading costs.';
 
-  if (m && perf?.computeStatus === 'ready') {
+  if (m && fm && perf?.computeStatus === 'ready') {
+    const vsSp =
+      fm.totalReturn != null && fm.benchmarks.sp500.totalReturn != null
+        ? fm.totalReturn - fm.benchmarks.sp500.totalReturn
+        : null;
+    const vsNdxCap =
+      fm.totalReturn != null && fm.benchmarks.nasdaq100CapWeight.totalReturn != null
+        ? fm.totalReturn - fm.benchmarks.nasdaq100CapWeight.totalReturn
+        : null;
+    const portfolioValueLine =
+      fm.endingValue != null && Number.isFinite(fm.endingValue)
+        ? `${currency0(fm.endingValue)}${m.totalReturn != null ? ` (${fmt.pct(m.totalReturn)})` : ''}`
+        : fmt.pct(m.totalReturn);
+
     metricRows.push(
       {
-        label: 'Total return',
-        value: fmt.pct(m.totalReturn),
-        hint: `Cumulative gain or loss so far. ${metricsPeriodNote}`,
+        label: 'Portfolio value',
+        value: portfolioValueLine,
+        hint: `Simulated dollar value of the $10,000 model portfolio from inception through the latest AI ratings day (parentheses: cumulative return). ${metricsPeriodNote}`,
         ...headerStatSentiment('Total return', m.totalReturn),
+      },
+      {
+        label: 'Performance vs S&P 500 (cap)',
+        value: fmt.pct(vsSp),
+        hint: `Cumulative model return minus the S&P 500 cap-weight benchmark over the same window. ${metricsPeriodNote}`,
+        positive: vsSp == null || !Number.isFinite(vsSp) ? undefined : vsSp > 0,
       },
       {
         label: 'Sharpe ratio',
         value: fmt.num(m.sharpeRatio),
-        hint: `Excess return per unit of risk (volatility), annualized (higher is better, above 1 is good). ${metricsPeriodNote}`,
+        afterLabel: (
+          <MetricReadinessPill
+            kind="sharpe"
+            value={m.sharpeRatio}
+            weeksOfData={metricWeeklyObservations}
+          />
+        ),
+        hint: `Excess return per unit of risk (volatility) from weekly holding-period returns, annualized at sqrt(52) (higher is better, above 1 is good). ${metricsPeriodNote}`,
         ...headerStatSentiment('Sharpe', m.sharpeRatio),
+      },
+      {
+        label: 'Decision-cadence Sharpe',
+        value: fmt.num(m.sharpeRatioDecisionCadence),
+        afterLabel: (
+          <MetricReadinessPill
+            kind="sharpe-decision"
+            value={m.sharpeRatioDecisionCadence}
+            weeksOfData={metricDecisionObservations}
+            rebalanceFrequency={perf?.config?.rebalance_frequency}
+          />
+        ),
+        hint: `Sharpe of rebalance-period net returns, annualized at the portfolio's rebalance cadence. ${metricsPeriodNote}`,
+        ...headerStatSentiment('Sharpe', m.sharpeRatioDecisionCadence),
       },
       {
         label: 'CAGR',
         value: fmt.pct(m.cagr),
+        afterLabel: (
+          <MetricReadinessPill
+            kind="cagr"
+            value={m.cagr}
+            weeksOfData={metricWeeklyObservations}
+          />
+        ),
         hint: `Compound annual growth rate: the yearly returns implied by the growth rate thus far. ${metricsPeriodNote}`,
         ...headerStatSentiment('CAGR', m.cagr),
       },
@@ -155,24 +218,14 @@ export function PortfolioAtAGlanceCard({
         value: fmt.pct(m.maxDrawdown),
         hint: `Largest peak-to-trough percentage decline (more negative is deeper drawdown). ${metricsPeriodNote}`,
         ...headerStatSentiment('Max drawdown', m.maxDrawdown),
+      },
+      {
+        label: 'Performance vs Nasdaq-100 (cap)',
+        value: fmt.pct(vsNdxCap),
+        hint: `Cumulative model return minus the Nasdaq-100 cap-weight benchmark over the same window. ${metricsPeriodNote}`,
+        positive: vsNdxCap == null || !Number.isFinite(vsNdxCap) ? undefined : vsNdxCap > 0,
       }
     );
-    if (pctWeeksNasdaq != null && Number.isFinite(pctWeeksNasdaq)) {
-      metricRows.push({
-        label: '% weeks outperforming Nasdaq-100',
-        value: fmt.pct(pctWeeksNasdaq, 0),
-        hint: `Share of weekly periods where this portfolio's return beat the Nasdaq-100 cap-weight benchmark that same week. Tracked from inception through the latest AI ratings day, net of trading costs.`,
-        ...headerStatSentiment('% weeks outperforming Nasdaq-100', pctWeeksNasdaq),
-      });
-    }
-    if (pctWeeksSp500 != null && Number.isFinite(pctWeeksSp500)) {
-      metricRows.push({
-        label: '% weeks outperforming S&P 500',
-        value: fmt.pct(pctWeeksSp500, 0),
-        hint: `Share of weekly periods where this portfolio's return beat the S&P 500 cap-weight benchmark that same week. Tracked from inception through the latest AI ratings day, net of trading costs.`,
-        ...headerStatSentiment('% weeks outperforming S&P 500', pctWeeksSp500),
-      });
-    }
   }
 
   const apiLabel = perf?.config?.label?.trim() || null;
@@ -413,6 +466,7 @@ export function PortfolioAtAGlanceCard({
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-1">
                         <p className="text-xs text-muted-foreground">{row.label}</p>
+                        {row.afterLabel}
                         {row.hint ? (
                           <InfoIconTooltip ariaLabel={`About ${row.label}`}>{row.hint}</InfoIconTooltip>
                         ) : null}

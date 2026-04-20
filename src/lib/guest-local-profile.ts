@@ -198,7 +198,8 @@ export function buildGuestUserEntryPerformancePayload(
   modelSeries: PerformanceSeriesPoint[] | undefined,
   configComputeStatus: string | undefined,
   userStart: string,
-  investmentSize: number
+  investmentSize: number,
+  rebalanceFrequency = 'weekly'
 ): GuestUserEntryApiLike {
   const emptyMetrics = {
     sharpeRatio: null,
@@ -215,12 +216,21 @@ export function buildGuestUserEntryPerformancePayload(
     Array.isArray(modelSeries) && modelSeries.length
       ? buildUserEntryTrackFromModelSeries(modelSeries, userStart, investmentSize)
       : null;
-  const fallbackTrack = buildUserEntryConfigTrack(cfgRows, userStart, investmentSize);
+  const fallbackTrack = buildUserEntryConfigTrack(
+    cfgRows,
+    userStart,
+    investmentSize,
+    rebalanceFrequency
+  );
   const series = modelTrack?.series.length ? modelTrack.series : fallbackTrack.series;
   const hasMultipleObservations = modelTrack
     ? modelTrack.hasMultipleObservations
     : fallbackTrack.hasMultipleObservations;
-  const metricsFromSeries = buildMetricsFromSeries(series).metrics;
+  const metricsFromSeries = buildMetricsFromSeries(
+    series,
+    rebalanceFrequency,
+    fallbackTrack.sharpeReturns
+  ).metrics;
   const st = configComputeStatus ?? 'empty';
   const clientStatus =
     st !== 'ready' && !cfgRows.length

@@ -4,7 +4,17 @@
  */
 
 import type { ConfigPerfRow } from '@/lib/portfolio-config-utils';
-import { computePerformanceCagr as computeCagr } from '@/lib/performance-cagr';
+import {
+  computePerformanceCagr as computeCagr,
+  MIN_YEARS_FOR_CAGR_OVER_TIME_POINT,
+  yearsBetweenUtcDates,
+} from '@/lib/performance-cagr';
+import {
+  computeSharpeAnnualized,
+  computeWeeklyMtmSharpe,
+  downsampleSeriesToIsoWeek,
+  periodsPerYearFromRebalanceFrequency,
+} from '@/lib/metrics-annualization';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
 import {
   computePctMonthsBeating,
@@ -39,63 +49,27 @@ function computeMaxDrawdown(values: number[]): number | null {
   return maxDrawdown;
 }
 
-function computeSharpeAnnualized(returns: number[], periodsPerYear: number): number | null {
-  if (returns.length < 2) return null;
-  const mean = returns.reduce((sum, v) => sum + v, 0) / returns.length;
-  const variance = returns.reduce((sum, v) => sum + (v - mean) ** 2, 0) / (returns.length - 1);
-  const stdDev = Math.sqrt(variance);
-  if (!Number.isFinite(stdDev) || stdDev <= 0) return null;
-  if (!Number.isFinite(periodsPerYear) || periodsPerYear <= 0) return null;
-  return (mean / stdDev) * Math.sqrt(periodsPerYear);
+function cagrGated(
+  startValue: number,
+  endValue: number,
+  startDate: string,
+  endDate: string
+): number | null {
+  const years = yearsBetweenUtcDates(startDate, endDate);
+  if (years == null || years < MIN_YEARS_FOR_CAGR_OVER_TIME_POINT) return null;
+  return computeCagr(startValue, endValue, startDate, endDate);
 }
-
-function medianCalendarDayGap(dates: string[]): number | null {
-  if (dates.length < 2) return null;
-  const gaps: number[] = [];
-  for (let i = 1; i < dates.length; i++) {
-    const prev = new Date(`${dates[i - 1]!}T00:00:00Z`).getTime();
-    const curr = new Date(`${dates[i]!}T00:00:00Z`).getTime();
-    if (!Number.isFinite(prev) || !Number.isFinite(curr) || curr <= prev) continue;
-    gaps.push((curr - prev) / (1000 * 60 * 60 * 24));
-  }
-  if (gaps.length === 0) return null;
-  gaps.sort((a, b) => a - b);
-  const mid = Math.floor(gaps.length / 2);
-  return gaps.length % 2 === 0 ? (gaps[mid - 1]! + gaps[mid]!) / 2 : gaps[mid]!;
-}
-
-function inferPeriodsPerYearFromDates(dates: string[]): number {
-  const median = medianCalendarDayGap(dates);
-  if (median == null) return 52;
-  if (median <= 3) return 252;
-  if (median <= 8) return 52;
-  return 12;
-}
-
-export type ConfigChartMetrics = {
-  sharpeRatio: number | null;
-  totalReturn: number | null;
-  cagr: number | null;
-  maxDrawdown: number | null;
-};
-
-export type FullConfigPerformanceMetrics = NonNullable<PlatformPerformancePayload['metrics']>;
-
-export type UserEntryConfigTrack = {
-  series: PerformanceSeriesPoint[];
-  metrics: ConfigChartMetrics | null;
-  fullMetrics: FullConfigPerformanceMetrics | null;
-  hasMultipleObservations: boolean;
-};
 
 /**
- * Derive metrics from the series exactly as displayed.
- * Important: the first plotted point is the true capital base for return/CAGR math,
- * so this works for both canonical $10k model series and user-rebased series.
+ * Full metrics for chart + API.
+ * Headline Sharpe uses weekly-MTM returns from `series`.
+ * Decision-cadence Sharpe uses rebalance-period `sharpeReturns`.
+ * Equity path metrics use `series` (may be daily MTM). Pct-weeks uses ISO-week downsampling.
  */
 function buildFullMetricsFromSeries(
   series: PerformanceSeriesPoint[],
-  netReturns: number[]
+  sharpeReturns: number[],
+  rebalanceFrequency: string
 ): FullConfigPerformanceMetrics | null {
   if (!series.length) return null;
   const firstPoint = series[0]!;
@@ -112,24 +86,33 @@ function buildFullMetricsFromSeries(
   const totalReturnEqual = computeTotalReturn(eqStart, lastPoint.nasdaq100EqualWeight);
   const totalReturnSp = computeTotalReturn(spStart, lastPoint.sp500);
 
+  const weeklySeries = downsampleSeriesToIsoWeek(series);
+  const weeklyMtm = computeWeeklyMtmSharpe(series);
+  const decisionSharpe = computeSharpeAnnualized(
+    sharpeReturns,
+    periodsPerYearFromRebalanceFrequency(rebalanceFrequency)
+  );
+
   return {
     startingCapital: aiStart,
     endingValue: lastPoint.aiTop20,
     totalReturn: totalReturnAi,
-    cagr: computeCagr(aiStart, lastPoint.aiTop20, firstDate, lastDate),
+    cagr: cagrGated(aiStart, lastPoint.aiTop20, firstDate, lastDate),
     maxDrawdown: computeMaxDrawdown(series.map((p) => p.aiTop20)),
-    sharpeRatio: computeSharpeAnnualized(
-      netReturns,
-      inferPeriodsPerYearFromDates(series.map((p) => p.date))
-    ),
+    sharpeRatio: weeklyMtm.sharpe,
+    sharpeRatioDecisionCadence: decisionSharpe,
+    weeklyObservations: weeklyMtm.weeklyObservations,
     pctWeeksBeatingNasdaq100: computePctWeeksBeatingNasdaq100(
-      series.map((p) => ({ aiValue: p.aiTop20, benchmarkValue: p.nasdaq100CapWeight }))
+      weeklySeries.map((p) => ({ aiValue: p.aiTop20, benchmarkValue: p.nasdaq100CapWeight }))
     ),
     pctWeeksBeatingSp500: computePctWeeksBeatingNasdaq100(
-      series.map((p) => ({ aiValue: p.aiTop20, benchmarkValue: p.sp500 }))
+      weeklySeries.map((p) => ({ aiValue: p.aiTop20, benchmarkValue: p.sp500 }))
+    ),
+    pctWeeksBeatingNasdaq100EqualWeight: computePctWeeksBeatingNasdaq100(
+      weeklySeries.map((p) => ({ aiValue: p.aiTop20, benchmarkValue: p.nasdaq100EqualWeight }))
     ),
     pctMonthsBeatingNasdaq100: computePctMonthsBeating(
-      series.map((p) => ({
+      weeklySeries.map((p) => ({
         date: p.date,
         aiValue: p.aiTop20,
         benchmarkValue: p.nasdaq100CapWeight,
@@ -139,39 +122,53 @@ function buildFullMetricsFromSeries(
       nasdaq100CapWeight: {
         endingValue: lastPoint.nasdaq100CapWeight,
         totalReturn: totalReturnCap,
-        cagr: computeCagr(capStart, lastPoint.nasdaq100CapWeight, firstDate, lastDate),
+        cagr: cagrGated(capStart, lastPoint.nasdaq100CapWeight, firstDate, lastDate),
         maxDrawdown: computeMaxDrawdown(series.map((p) => p.nasdaq100CapWeight)),
       },
       nasdaq100EqualWeight: {
         endingValue: lastPoint.nasdaq100EqualWeight,
         totalReturn: totalReturnEqual,
-        cagr: computeCagr(eqStart, lastPoint.nasdaq100EqualWeight, firstDate, lastDate),
+        cagr: cagrGated(eqStart, lastPoint.nasdaq100EqualWeight, firstDate, lastDate),
         maxDrawdown: computeMaxDrawdown(series.map((p) => p.nasdaq100EqualWeight)),
       },
       sp500: {
         endingValue: lastPoint.sp500,
         totalReturn: totalReturnSp,
-        cagr: computeCagr(spStart, lastPoint.sp500, firstDate, lastDate),
+        cagr: cagrGated(spStart, lastPoint.sp500, firstDate, lastDate),
         maxDrawdown: computeMaxDrawdown(series.map((p) => p.sp500)),
       },
     },
   };
 }
 
-function netReturnsFromSeries(series: PerformanceSeriesPoint[]): number[] {
-  if (series.length < 2) return [];
-  const out: number[] = [];
-  for (let i = 1; i < series.length; i++) {
-    const prev = series[i - 1]!;
-    const curr = series[i]!;
-    if (prev.aiTop20 > 0) {
-      out.push(curr.aiTop20 / prev.aiTop20 - 1);
-    }
-  }
-  return out;
-}
+export type ConfigChartMetrics = {
+  sharpeRatio: number | null;
+  sharpeRatioDecisionCadence: number | null;
+  weeklyObservations: number;
+  totalReturn: number | null;
+  cagr: number | null;
+  maxDrawdown: number | null;
+};
 
-export function buildMetricsFromSeries(series: PerformanceSeriesPoint[]): {
+export type FullConfigPerformanceMetrics = NonNullable<PlatformPerformancePayload['metrics']>;
+
+export type UserEntryConfigTrack = {
+  series: PerformanceSeriesPoint[];
+  metrics: ConfigChartMetrics | null;
+  fullMetrics: FullConfigPerformanceMetrics | null;
+  hasMultipleObservations: boolean;
+  /** Rebalance-cadence net_return values after user entry (same source as Sharpe). */
+  sharpeReturns: number[];
+};
+
+/**
+ * Headline metrics from a displayed equity path + rebalance-cadence returns for decision Sharpe.
+ */
+export function buildMetricsFromSeries(
+  series: PerformanceSeriesPoint[],
+  rebalanceFrequency: string,
+  sharpeReturns: number[]
+): {
   metrics: ConfigChartMetrics | null;
   fullMetrics: FullConfigPerformanceMetrics | null;
 } {
@@ -185,17 +182,20 @@ export function buildMetricsFromSeries(series: PerformanceSeriesPoint[]): {
   if (!firstPoint || !lastPoint) {
     return { metrics: null, fullMetrics: null };
   }
-  const netReturns = netReturnsFromSeries(series);
+  const weeklyMtm = computeWeeklyMtmSharpe(series);
+  const decisionSharpe = computeSharpeAnnualized(
+    sharpeReturns,
+    periodsPerYearFromRebalanceFrequency(rebalanceFrequency)
+  );
   const metrics: ConfigChartMetrics = {
     totalReturn: computeTotalReturn(firstPoint.aiTop20, lastPoint.aiTop20),
-    cagr: computeCagr(firstPoint.aiTop20, lastPoint.aiTop20, firstDate, lastDate),
+    cagr: cagrGated(firstPoint.aiTop20, lastPoint.aiTop20, firstDate, lastDate),
     maxDrawdown: computeMaxDrawdown(series.map((p) => p.aiTop20)),
-    sharpeRatio: computeSharpeAnnualized(
-      netReturns,
-      inferPeriodsPerYearFromDates(series.map((p) => p.date))
-    ),
+    sharpeRatio: weeklyMtm.sharpe,
+    sharpeRatioDecisionCadence: decisionSharpe,
+    weeklyObservations: weeklyMtm.weeklyObservations,
   };
-  const fullMetrics = buildFullMetricsFromSeries(series, netReturns);
+  const fullMetrics = buildFullMetricsFromSeries(series, sharpeReturns, rebalanceFrequency);
   return { metrics, fullMetrics };
 }
 
@@ -219,13 +219,15 @@ function scaleConfigEquities(row: ConfigPerfRow, scale: number): PerformanceSeri
 export function buildUserEntryConfigTrack(
   rows: ConfigPerfRow[],
   userStartDate: string,
-  investmentSize: number
+  investmentSize: number,
+  rebalanceFrequency: string
 ): UserEntryConfigTrack {
   const empty: UserEntryConfigTrack = {
     series: [],
     metrics: null,
     fullMetrics: null,
     hasMultipleObservations: false,
+    sharpeReturns: [],
   };
 
   if (!userStartDate || !Number.isFinite(investmentSize) || investmentSize <= 0) {
@@ -272,13 +274,15 @@ export function buildUserEntryConfigTrack(
   ];
 
   const metricReturns = futureRows.map((row) => toNumber(row.net_return, 0));
-  const fullMetrics = buildFullMetricsFromSeries(series, metricReturns);
+  const fullMetrics = buildFullMetricsFromSeries(series, metricReturns, rebalanceFrequency);
 
   return {
     series,
     metrics: fullMetrics
       ? {
           sharpeRatio: fullMetrics.sharpeRatio,
+          sharpeRatioDecisionCadence: fullMetrics.sharpeRatioDecisionCadence,
+          weeklyObservations: fullMetrics.weeklyObservations,
           totalReturn: fullMetrics.totalReturn,
           cagr: fullMetrics.cagr,
           maxDrawdown: fullMetrics.maxDrawdown,
@@ -286,6 +290,7 @@ export function buildUserEntryConfigTrack(
       : null,
     fullMetrics,
     hasMultipleObservations: series.length >= 2,
+    sharpeReturns: metricReturns,
   };
 }
 
@@ -316,7 +321,10 @@ export function filterAndRebaseConfigRows(
   }));
 }
 
-export function buildConfigPerformanceChart(rows: ConfigPerfRow[]): {
+export function buildConfigPerformanceChart(
+  rows: ConfigPerfRow[],
+  rebalanceFrequency: string
+): {
   series: PerformanceSeriesPoint[];
   metrics: ConfigChartMetrics | null;
   fullMetrics: FullConfigPerformanceMetrics | null;
@@ -345,14 +353,20 @@ export function buildConfigPerformanceChart(rows: ConfigPerfRow[]): {
     return { series, metrics: null, fullMetrics: null };
   }
 
+  const weeklyMtm = computeWeeklyMtmSharpe(series);
   const metrics: ConfigChartMetrics = {
     totalReturn: computeTotalReturn(INITIAL_CAPITAL, lastPoint.aiTop20),
-    cagr: computeCagr(INITIAL_CAPITAL, lastPoint.aiTop20, firstDate, lastDate),
+    cagr: cagrGated(INITIAL_CAPITAL, lastPoint.aiTop20, firstDate, lastDate),
     maxDrawdown: computeMaxDrawdown(series.map((p) => p.aiTop20)),
-    sharpeRatio: computeSharpeAnnualized(netReturns, 52),
+    sharpeRatio: weeklyMtm.sharpe,
+    sharpeRatioDecisionCadence: computeSharpeAnnualized(
+      netReturns,
+      periodsPerYearFromRebalanceFrequency(rebalanceFrequency)
+    ),
+    weeklyObservations: weeklyMtm.weeklyObservations,
   };
 
-  const fullMetrics = buildFullMetricsFromSeries(series, netReturns);
+  const fullMetrics = buildFullMetricsFromSeries(series, netReturns, rebalanceFrequency);
 
   return { series, metrics, fullMetrics };
 }

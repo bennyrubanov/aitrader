@@ -32,6 +32,8 @@ export type PortfolioListSortDialogProps = {
   onValueChange: (next: PortfolioListSortMetric) => void;
   /** Your portfolios sidebar includes “Order followed”. Overview rebalance uses metrics only. */
   includeFollowOrder?: boolean;
+  /** When no portfolio has a composite score yet, composite sort is disabled with a tooltip. */
+  compositeScoreDisabled?: boolean;
 };
 
 export function PortfolioListSortDialog({
@@ -40,6 +42,7 @@ export function PortfolioListSortDialog({
   value,
   onValueChange,
   includeFollowOrder = false,
+  compositeScoreDisabled = false,
 }: PortfolioListSortDialogProps) {
   const rows = includeFollowOrder ? SIDEBAR_ROWS : PORTFOLIO_LIST_METRIC_OPTION_DETAILS;
 
@@ -54,18 +57,28 @@ export function PortfolioListSortDialog({
             {rows.map((opt) => {
               const selected = value === opt.value;
               const Icon = PORTFOLIO_LIST_SORT_OPTION_ICONS[opt.value];
+              const disabled =
+                compositeScoreDisabled && opt.value === 'composite_score';
               return (
                 <li key={opt.value}>
                   <div
                     role="option"
-                    tabIndex={0}
+                    tabIndex={disabled ? -1 : 0}
                     aria-selected={selected}
+                    aria-disabled={disabled}
+                    title={
+                      disabled
+                        ? 'No portfolios have a composite score yet — need enough history for Sharpe, consistency, and other inputs.'
+                        : undefined
+                    }
                     onClick={(e) => {
+                      if (disabled) return;
                       if ((e.target as HTMLElement).closest('a[href]')) return;
                       onValueChange(opt.value);
                       onOpenChange(false);
                     }}
                     onKeyDown={(e) => {
+                      if (disabled) return;
                       if (e.key === 'Enter' || e.key === ' ') {
                         if ((e.target as HTMLElement).closest('a[href]')) return;
                         e.preventDefault();
@@ -74,10 +87,13 @@ export function PortfolioListSortDialog({
                       }
                     }}
                     className={cn(
-                      'cursor-pointer rounded-lg border text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-                      selected
+                      'rounded-lg border text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+                      disabled
+                        ? 'cursor-not-allowed border-transparent opacity-50'
+                        : 'cursor-pointer',
+                      selected && !disabled
                         ? 'border-primary bg-primary/5 ring-1 ring-primary/20'
-                        : 'border-transparent hover:bg-muted/60'
+                        : !disabled && 'border-transparent hover:bg-muted/60'
                     )}
                   >
                     <div className="flex gap-3 px-3 py-2.5">

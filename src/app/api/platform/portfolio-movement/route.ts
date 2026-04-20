@@ -268,30 +268,35 @@ export async function GET(req: Request) {
     }
   }
 
-  const buildMovementAtIndex = async (idx: number) => {
-    const currDate = rebalanceDates[idx]!;
-    const prevDate = rebalanceDates[idx + 1] ?? null;
-    const isUserAnchor = idx === rebalanceDates.length - 1;
-    const { holdings: currHoldings } = await getPortfolioConfigHoldings(
+  // Per-request memo so the includeAllDates loop doesn't rebuild holdings for
+  // the same run_date twice (prevDate at index i == currDate at index i+1).
+  const holdingsByDate = new Map<
+    string,
+    Promise<Awaited<ReturnType<typeof getPortfolioConfigHoldings>>>
+  >();
+  const loadHoldingsForDate = (date: string) => {
+    const cached = holdingsByDate.get(date);
+    if (cached) return cached;
+    const promise = getPortfolioConfigHoldings(
       admin,
       row.strategy_id,
       riskLevel,
       frequency,
       weighting,
-      currDate
+      date
     );
+    holdingsByDate.set(date, promise);
+    return promise;
+  };
+
+  const buildMovementAtIndex = async (idx: number) => {
+    const currDate = rebalanceDates[idx]!;
+    const prevDate = rebalanceDates[idx + 1] ?? null;
+    const isUserAnchor = idx === rebalanceDates.length - 1;
+    const { holdings: currHoldings } = await loadHoldingsForDate(currDate);
     const prevHoldings = isUserAnchor
       ? []
-      : (
-          await getPortfolioConfigHoldings(
-            admin,
-            row.strategy_id,
-            riskLevel,
-            frequency,
-            weighting,
-            prevDate!
-          )
-        ).holdings;
+      : (await loadHoldingsForDate(prevDate!)).holdings;
 
     let notionalCurr: number;
     let notionalPrev: number;
@@ -308,7 +313,12 @@ export async function GET(req: Request) {
     }
 
     const movement = diffConfigHoldingsForRebalance(prevHoldings, currHoldings, notionalCurr);
-    if (Math.abs(movement.preReconciliationDeltaDollars) > TRADE_DELTA_TOLERANCE_DOLLARS) {
+    // Skip the anchor iteration: prevHoldings is empty by design (initial
+    // deployment from cash), so totalDelta ≈ notional is expected, not drift.
+    if (
+      !isUserAnchor &&
+      Math.abs(movement.preReconciliationDeltaDollars) > TRADE_DELTA_TOLERANCE_DOLLARS
+    ) {
       console.warn('[portfolio-movement] non-zero trade delta after reconciliation', {
         profileId,
         strategyId: row.strategy_id,

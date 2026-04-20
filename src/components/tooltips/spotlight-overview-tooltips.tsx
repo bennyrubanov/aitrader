@@ -1,5 +1,6 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { CircleHelp } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -17,6 +18,7 @@ export function SpotlightStatCard({
   suffixPositive,
   valueClassName,
   positive,
+  afterLabel,
 }: {
   tooltipKey: SpotlightStatTooltipKey;
   label: string;
@@ -26,6 +28,8 @@ export function SpotlightStatCard({
   suffixPositive?: boolean;
   valueClassName?: string;
   positive?: boolean;
+  /** e.g. readiness pill next to the label */
+  afterLabel?: ReactNode;
 }) {
   const tip = SPOTLIGHT_STAT_TOOLTIPS[tooltipKey];
   const valueLine = (
@@ -53,8 +57,9 @@ export function SpotlightStatCard({
   );
   return (
     <div className="flex w-full flex-col gap-0.5 rounded-lg border bg-card px-2 py-2 text-left transition-colors hover:bg-muted/30">
-      <p className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+      <p className="flex flex-wrap items-center gap-x-1 gap-y-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
         <span className="min-w-0 flex-1 leading-tight">{label}</span>
+        {afterLabel}
         <Tooltip>
           <TooltipTrigger asChild>
             <button
