@@ -14,7 +14,7 @@ function normalizeWeighting(w: string | null | undefined): 'equal' | 'cap' {
   return w === 'cap' ? 'cap' : 'equal';
 }
 
-/** Info icon beside the holdings “Allocation” column — equal vs cap + link to Explore portfolios. */
+/** Info icon beside the holdings “Value” column — equal vs cap + link to Explore portfolios. */
 export function HoldingsAllocationColumnTooltip({
   weightingMethod,
   topN,
@@ -49,7 +49,7 @@ export function HoldingsAllocationColumnTooltip({
   return (
     <TooltipProvider delayDuration={200}>
       <InfoIconTooltip
-        ariaLabel="How allocation percentages are calculated"
+        ariaLabel="How value and percentages are calculated"
         contentClassName="p-3 leading-relaxed"
       >
         {topN === 1 ? (

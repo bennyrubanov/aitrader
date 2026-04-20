@@ -70,7 +70,7 @@ import {
   CHART_INDEX_SERIES_COLORS,
   CHART_PORTFOLIO_SERIES_COLOR,
 } from '@/lib/chart-index-series-colors';
-import { PORTFOLIO_REBALANCE_DATE_SELECT_WIDTH_CLASSES } from '@/lib/portfolio-rebalance-date-select-ui';
+import { PORTFOLIO_HOLDINGS_DATE_SELECT_WIDTH_CLASSES } from '@/lib/portfolio-rebalance-date-select-ui';
 import { cn } from '@/lib/utils';
 import { CartesianGrid, LineChart, XAxis, YAxis } from 'recharts';
 
@@ -713,7 +713,7 @@ export function YourPortfoliosGuestPreview({ signInHref, signUpHref }: Props) {
                         />
                         <GuestSpotlightStatButton
                           tooltipKey="consistency"
-                          label="Consistency (weekly vs NDX cap)"
+                          label="% weeks beating Nasdaq-100 (cap)"
                           maskSample="58%"
                           onActivate={promptSignup}
                         />
@@ -750,7 +750,7 @@ export function YourPortfoliosGuestPreview({ signInHref, signUpHref }: Props) {
                           variant="outline"
                           className={cn(
                             'h-9 justify-between text-xs font-normal',
-                            PORTFOLIO_REBALANCE_DATE_SELECT_WIDTH_CLASSES
+                            PORTFOLIO_HOLDINGS_DATE_SELECT_WIDTH_CLASSES
                           )}
                           onClick={promptSignup}
                         >
@@ -792,7 +792,7 @@ export function YourPortfoliosGuestPreview({ signInHref, signUpHref }: Props) {
                                 </TableHead>
                                 <TableHead className="h-9 px-1.5 py-1.5 text-center align-middle whitespace-nowrap">
                                   <span className="inline-flex items-center justify-center gap-1">
-                                    Allocation
+                                    Value
                                     <HoldingsAllocationColumnTooltip weightingMethod="equal" topN={1} />
                                   </span>
                                 </TableHead>

@@ -21,8 +21,8 @@ export const SPOTLIGHT_STAT_TOOLTIPS = {
     body: 'The worst peak-to-trough decline since your entry. If you had bought at the peak and sold at the worst point, this is the loss you would have realized. Closer to zero is better.',
   },
   consistency: {
-    title: 'Consistency (weekly vs NDX cap)',
-    body: 'Share of weeks since your entry where your portfolio’s week-over-week return beat the Nasdaq-100 cap-weight benchmark for the same week. 50% means you matched the index half the time; above 50% means you won more weeks than you lost.',
+    title: '% weeks beating Nasdaq-100 (cap)',
+    body: 'Takes the last trading day in each week for portfolio and the Nasdaq-100 (cap-weight) benchmark, then counts week-to-week periods where the portfolio return beat the benchmark’s. Above 50% means this portfolio beat the benchmark more weeks than it lost.',
   },
   vs_nasdaq_cap: {
     title: 'Performance vs Nasdaq-100 (cap)',

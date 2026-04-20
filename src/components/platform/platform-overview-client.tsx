@@ -154,7 +154,11 @@ import {
   isGuestLocalProfileId,
 } from '@/lib/guest-local-profile';
 import { loadUserEntryPayloadCached } from '@/lib/your-portfolio-data-cache';
-import { PORTFOLIO_REBALANCE_DATE_SELECT_WIDTH_CLASSES } from '@/lib/portfolio-rebalance-date-select-ui';
+import { computeWeeklyConsistencyVsNasdaqCap } from '@/lib/user-entry-performance';
+import {
+  PORTFOLIO_HOLDINGS_DATE_SELECT_WIDTH_CLASSES,
+  PORTFOLIO_REBALANCE_DATE_SELECT_WIDTH_CLASSES,
+} from '@/lib/portfolio-rebalance-date-select-ui';
 import { cn } from '@/lib/utils';
 import { buildLiveHoldingsAllocationResult } from '@/lib/live-holdings-allocation';
 
@@ -956,13 +960,9 @@ function RebalanceActionsTable({
   sell: PortfolioMovementLine[];
   weightingMethod?: string | null;
 }) {
-  /** Holds list only when there are no buy/sell name changes; otherwise table is buys + sells only. */
-  const includeHoldsInTable = buy.length === 0 && sell.length === 0;
-  const rows = rebalanceMovementRowsFlat(
-    buy,
-    sell,
-    includeHoldsInTable ? hold : []
-  );
+  /** Single Value column only when every row is a hold (no buy/sell turnover). */
+  const useAllocationOnly = buy.length === 0 && sell.length === 0;
+  const rows = rebalanceMovementRowsFlat(buy, sell, hold);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const innerRef = useRef<HTMLTableElement | null>(null);
@@ -971,7 +971,7 @@ function RebalanceActionsTable({
 
   useEffect(() => {
     setChevronDismissed(false);
-  }, [rows.length, includeHoldsInTable]);
+  }, [rows.length, useAllocationOnly]);
 
   const nudgeScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -1014,12 +1014,9 @@ function RebalanceActionsTable({
       roScroll.disconnect();
       roInner?.disconnect();
     };
-  }, [rows.length, includeHoldsInTable]);
+  }, [rows.length, useAllocationOnly]);
 
   if (rows.length === 0) return null;
-
-  /** Hold-only table (no buy/sell rows): single Allocation column. Otherwise Trade + Target value. */
-  const useAllocationOnly = includeHoldsInTable;
 
   const actionBadge = (kind: RebalanceMovementAction) => {
     if (kind === 'hold') {
@@ -1065,6 +1062,9 @@ function RebalanceActionsTable({
   };
 
   const tradeCell = (kind: RebalanceMovementAction, r: PortfolioMovementLine) => {
+    if (kind === 'hold') {
+      return <span className="tabular-nums text-muted-foreground">—</span>;
+    }
     const d = r.deltaDollars;
     if (kind === 'buy') {
       return (
@@ -1073,22 +1073,17 @@ function RebalanceActionsTable({
         </span>
       );
     }
-    if (kind === 'sell') {
-      return (
-        <span className="font-medium tabular-nums text-rose-600 dark:text-rose-400">
-          {formatOverviewCurrency(d)}
-        </span>
-      );
-    }
     return (
-      <span className="font-medium tabular-nums text-muted-foreground">
-        {d >= 0 ? '+' : ''}
+      <span className="font-medium tabular-nums text-rose-600 dark:text-rose-400">
         {formatOverviewCurrency(d)}
       </span>
     );
   };
 
-  const targetValueCell = (r: PortfolioMovementLine) => {
+  const targetValueCell = (kind: RebalanceMovementAction, r: PortfolioMovementLine) => {
+    if (kind === 'hold') {
+      return <span className="tabular-nums text-muted-foreground">—</span>;
+    }
     const pct = (r.targetWeight * 100).toFixed(1);
     return (
       <span className="font-medium tabular-nums text-foreground">
@@ -1113,24 +1108,24 @@ function RebalanceActionsTable({
           >
             <TableHeader>
               <TableRow className="hover:bg-transparent">
-                <TableHead className="h-9 w-[5.25rem] shrink-0 py-1.5 pl-2 pr-0.5 text-left align-middle whitespace-nowrap">
+                <TableHead className="h-9 w-[5.25rem] shrink-0 py-1.5 pl-2 pr-2 text-left align-middle whitespace-nowrap">
                   Action
                 </TableHead>
-                <TableHead className="h-9 min-w-0 max-w-[10rem] px-1.5 py-1.5 text-left align-middle sm:max-w-[12rem] md:max-w-[14rem]">
+                <TableHead className="h-9 w-0 min-w-[4rem] px-1.5 py-1.5 text-left align-middle whitespace-nowrap">
                   Stock
                 </TableHead>
                 {useAllocationOnly ? (
-                  <TableHead className="h-9 min-w-[7rem] px-1.5 py-1.5 text-center align-middle">
+                  <TableHead className="h-9 w-full min-w-[7rem] px-1.5 py-1.5 text-center align-middle">
                     <span className="inline-flex min-w-0 max-w-full items-center justify-center gap-1">
-                      <span className="truncate">Allocation</span>
+                      <span className="truncate">Value</span>
                     </span>
                   </TableHead>
                 ) : (
                   <>
-                    <TableHead className="h-9 min-w-[6.5rem] px-1.5 py-1.5 text-right align-middle whitespace-nowrap tabular-nums">
+                    <TableHead className="h-9 w-0 px-1.5 py-1.5 text-right align-middle whitespace-nowrap tabular-nums">
                       Trade
                     </TableHead>
-                    <TableHead className="h-9 min-w-[9rem] py-1.5 pl-1.5 pr-3 text-right align-middle whitespace-nowrap tabular-nums sm:pr-14">
+                    <TableHead className="h-9 w-full min-w-[9rem] py-1.5 pl-1.5 pr-3 text-right align-middle whitespace-nowrap tabular-nums sm:pr-14">
                       <span className="inline-flex min-w-0 max-w-full items-center justify-end gap-1">
                         <span className="truncate">Target value</span>
                         <InfoIconTooltip ariaLabel="How target value percent is calculated">
@@ -1149,11 +1144,27 @@ function RebalanceActionsTable({
             <TableBody>
               {rows.map(({ kind, r }) => (
                 <TableRow key={`${kind}-${r.symbol}`}>
-                  <TableCell className="w-[5.25rem] shrink-0 py-1.5 pl-2 pr-0.5 align-middle">
+                  <TableCell className="w-[5.25rem] shrink-0 py-1.5 pl-2 pr-2 align-middle">
                     {actionBadge(kind)}
                   </TableCell>
-                  <TableCell className="min-w-0 max-w-[10rem] px-1.5 py-1.5 text-left align-middle sm:max-w-[12rem] md:max-w-[14rem]">
-                    <div className="min-w-0 max-w-full overflow-hidden">
+                  <TableCell className="w-0 min-w-[4rem] px-1.5 py-1.5 text-left align-middle whitespace-nowrap">
+                    {r.companyName && r.companyName !== r.symbol ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Link
+                            href={`/stocks/${r.symbol.toLowerCase()}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="block truncate font-medium text-foreground hover:underline"
+                          >
+                            {r.symbol}
+                          </Link>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-xs text-left">
+                          {r.companyName}
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : (
                       <Link
                         href={`/stocks/${r.symbol.toLowerCase()}`}
                         target="_blank"
@@ -1162,12 +1173,7 @@ function RebalanceActionsTable({
                       >
                         {r.symbol}
                       </Link>
-                      {r.companyName && r.companyName !== r.symbol ? (
-                        <p className="truncate text-[10px] leading-tight text-muted-foreground">
-                          {r.companyName}
-                        </p>
-                      ) : null}
-                    </div>
+                    )}
                   </TableCell>
                   {useAllocationOnly ? (
                     <TableCell className="min-w-0 whitespace-normal px-1.5 py-1.5 text-center align-middle tabular-nums">
@@ -1179,7 +1185,7 @@ function RebalanceActionsTable({
                         {tradeCell(kind, r)}
                       </TableCell>
                       <TableCell className="whitespace-nowrap py-1.5 pl-1.5 pr-3 text-right align-middle font-medium tabular-nums text-foreground sm:pr-14">
-                        {targetValueCell(r)}
+                        {targetValueCell(kind, r)}
                       </TableCell>
                     </>
                   )}
@@ -1271,9 +1277,6 @@ function TopPortfolioLatestRebalanceSection({
             sell={payload.sell}
             weightingMethod={weightingMethod}
           />
-          {payload.buy.length === 0 && payload.sell.length === 0 ? (
-            <p className="text-xs text-muted-foreground">No buy or sell actions on the latest rebalance.</p>
-          ) : null}
         </>
       ) : (
         <p className="text-sm text-muted-foreground">
@@ -1545,11 +1548,6 @@ function SinglePortfolioRebalanceMovementSection({
                     sell={actionsTablePayload.sell}
                     weightingMethod={profile.portfolio_config?.weighting_method}
                   />
-                  {actionsTablePayload.buy.length === 0 && actionsTablePayload.sell.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      No buy or sell actions vs prior rebalance.
-                    </p>
-                  ) : null}
                 </>
               ) : null}
             </div>
@@ -2514,6 +2512,8 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                 d.computeStatus === 'ready' &&
                 series.length > 0 &&
                 d.hasMultipleObservations === true;
+              const consistencyFromSeries =
+                series.length >= 2 ? computeWeeklyConsistencyVsNasdaqCap(series) : null;
               overviewUserEntryTerminalFpRef.current.set(key, fp);
               setCardState((s) => ({
                 ...s,
@@ -2524,7 +2524,9 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                   cagr: okFull ? (d.metrics?.cagr ?? null) : null,
                   maxDrawdown: okFull ? (d.metrics?.maxDrawdown ?? null) : null,
                   sharpeRatio: okFull ? (d.metrics?.sharpeRatio ?? null) : null,
-                  consistency: okFull ? (d.metrics?.consistency ?? null) : null,
+                  consistency: okFull
+                    ? (consistencyFromSeries ?? d.metrics?.consistency ?? null)
+                    : null,
                   excessReturnVsNasdaqCap: okFull
                     ? (d.metrics?.excessReturnVsNasdaqCap ?? null)
                     : null,
@@ -3550,7 +3552,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                   />
                                   <SpotlightStatCard
                                     tooltipKey="consistency"
-                                    label="Consistency (weekly vs NDX cap)"
+                                    label="% weeks beating Nasdaq-100 (cap)"
                                     value={st.consistency != null ? fmt.pct(st.consistency, 0) : '—'}
                                     positive={
                                       st.consistency != null ? st.consistency > 0.5 : undefined
@@ -3631,7 +3633,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                     Portfolio holdings
                                   </h4>
                                   {overviewPaidHoldings && scopedTopSpotlightRebalanceDates.length > 0 ? (
-                                    <div className="flex flex-wrap items-center justify-start gap-x-2 gap-y-2 sm:gap-x-3">
+                                    <div className="flex min-w-0 flex-nowrap items-center justify-start gap-x-1.5 overflow-x-auto sm:gap-x-2">
                                       <Select
                                         value={
                                           topSpotlightHoldingsAsOf &&
@@ -3651,7 +3653,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                         <SelectTrigger
                                           className={cn(
                                             'h-9 rounded-md border border-input bg-background px-2 text-left text-xs shadow-none ring-0 hover:bg-muted/30 focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:ring-0 data-[state=open]:ring-offset-0',
-                                            PORTFOLIO_REBALANCE_DATE_SELECT_WIDTH_CLASSES
+                                            PORTFOLIO_HOLDINGS_DATE_SELECT_WIDTH_CLASSES
                                           )}
                                         >
                                           <SelectValue placeholder="Rebalance date" />
@@ -3682,7 +3684,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                         </SelectContent>
                                       </Select>
                                       {spotlightHoldingsPrevRebalanceDate ? (
-                                        <div className="flex items-center gap-2 shrink-0">
+                                        <div className="flex shrink-0 items-center gap-1.5">
                                           <Switch
                                             id="overview-spotlight-holdings-movement"
                                             checked={spotlightHoldingsMovementView}
@@ -3792,7 +3794,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                             </TableHead>
                                             <TableHead className="h-9 px-1.5 py-1.5 text-center align-middle whitespace-nowrap">
                                               <span className="inline-flex items-center justify-center gap-1">
-                                                Allocation
+                                                Value
                                                 <HoldingsAllocationColumnTooltip
                                                   weightingMethod={pc?.weighting_method}
                                                   topN={pc?.top_n}
@@ -4207,7 +4209,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                     />
                                     <SpotlightStatCard
                                       tooltipKey="consistency"
-                                      label="Consistency (weekly vs NDX cap)"
+                                      label="% weeks beating Nasdaq-100 (cap)"
                                       value={st.consistency != null ? fmt.pct(st.consistency, 0) : '—'}
                                       positive={
                                         st.consistency != null ? st.consistency > 0.5 : undefined

@@ -916,7 +916,7 @@ export function ExplorePortfolioDetailDialog({
                             </TableHead>
                             <TableHead className="h-9 px-1.5 py-1.5 text-center align-middle whitespace-nowrap">
                               <span className="inline-flex items-center justify-center gap-1">
-                                Allocation
+                                Value
                                 <HoldingsAllocationColumnTooltip
                                   weightingMethod={config?.weightingMethod}
                                   topN={config?.topN}
