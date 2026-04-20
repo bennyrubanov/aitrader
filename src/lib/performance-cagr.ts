@@ -28,11 +28,11 @@ export function yearsBetweenUtcDates(startDate: string, endDate: string): number
 }
 
 /**
- * CAGR over a short window annualizes to extreme percentages. Values become visible once this
- * much calendar time has passed since the first observation (~8 weeks, matching Sharpe readiness).
- * Between 8 and 12 weeks UI should present this as early data.
+ * CAGR over a short window annualizes to extreme percentages. Chart points become visible once
+ * this much calendar time has passed since inception (~4 weeks). Between ~4 and ~12 weeks UI
+ * should present this as preliminary / early data (see CAGR_PRELIMINARY_NOTE_MAX_YEARS in charts).
  */
-export const MIN_YEARS_FOR_CAGR_OVER_TIME_POINT = 8 / 52;
+export const MIN_YEARS_FOR_CAGR_OVER_TIME_POINT = 4 / 52;
 
 /** Whether the series can produce at least two CAGR-over-time points (for carousel / section gates). */
 export function seriesHasMinimumPointsForCagrOverTimeChart(dates: readonly string[]): boolean {

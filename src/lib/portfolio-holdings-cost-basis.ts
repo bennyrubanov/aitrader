@@ -20,6 +20,8 @@ export type CostBasisDateSnapshot = {
   portfolioValue: number | null;
   costBasisBySymbol: Record<string, number>;
   unitsBySymbol: Record<string, number>;
+  /** Date the current open lot for this symbol began (resets after full exit). */
+  openedDateBySymbol: Record<string, string>;
   /** First rebalance date where a required price leg was missing for this symbol. */
   incompleteFirstDateBySymbol: Record<string, string>;
 };
@@ -97,16 +99,27 @@ export function applyMovementLineAvgCost(
 function snapshotFromLots(
   lots: Map<string, Lot>,
   portfolioValue: number | null,
-  incomplete: Record<string, string>
+  incomplete: Record<string, string>,
+  openedDateBySymbol: Record<string, string>
 ): CostBasisDateSnapshot {
   const costBasisBySymbol: Record<string, number> = {};
   const unitsBySymbol: Record<string, number> = {};
+  const openedDates: Record<string, string> = {};
   for (const [sym, l] of lots) {
     if (l.units <= EPS && l.totalCost <= EPS) continue;
     costBasisBySymbol[sym] = roundCurrency(l.totalCost);
     unitsBySymbol[sym] = l.units;
+    if (openedDateBySymbol[sym]) {
+      openedDates[sym] = openedDateBySymbol[sym]!;
+    }
   }
-  return { portfolioValue, costBasisBySymbol, unitsBySymbol, incompleteFirstDateBySymbol: { ...incomplete } };
+  return {
+    portfolioValue,
+    costBasisBySymbol,
+    unitsBySymbol,
+    openedDateBySymbol: openedDates,
+    incompleteFirstDateBySymbol: { ...incomplete },
+  };
 }
 
 export type MovementSlice = {
@@ -128,6 +141,7 @@ export function buildCostBasisSnapshotsFromMovementTimeline(params: {
   const dates = [...params.rebalanceDatesNewestFirst].reverse();
   const lots = new Map<string, Lot>();
   const incomplete: Record<string, string> = {};
+  const openedDateBySymbol: Record<string, string> = {};
   const out: Record<string, CostBasisDateSnapshot> = {};
 
   for (const d of dates) {
@@ -137,7 +151,8 @@ export function buildCostBasisSnapshotsFromMovementTimeline(params: {
       out[d] = snapshotFromLots(
         lots,
         params.byRebalanceDate?.[d]?.notionalAtCurrRebalanceEnd ?? null,
-        incomplete
+        incomplete,
+        openedDateBySymbol
       );
       continue;
     }
@@ -145,14 +160,19 @@ export function buildCostBasisSnapshotsFromMovementTimeline(params: {
     for (const line of lines) {
       const sym = line.symbol.toUpperCase();
       const prevLot = lots.get(sym) ?? { units: 0, totalCost: 0 };
+      const hadOpenLot = prevLot.units > EPS && prevLot.totalCost > EPS;
       const px = priceForSymbol(prices, sym);
       const res = applyMovementLineAvgCost(prevLot, line, px);
       if (!res.ok) {
         if (!incomplete[sym]) incomplete[sym] = d;
         continue;
       }
+      if (line.deltaDollars > 0 && !hadOpenLot) {
+        openedDateBySymbol[sym] = d;
+      }
       if (res.lot.units <= EPS && res.lot.totalCost <= EPS) {
         lots.delete(sym);
+        delete openedDateBySymbol[sym];
       } else {
         lots.set(sym, res.lot);
       }
@@ -161,7 +181,7 @@ export function buildCostBasisSnapshotsFromMovementTimeline(params: {
       slice.notionalAtCurrRebalanceEnd != null && Number.isFinite(slice.notionalAtCurrRebalanceEnd)
         ? slice.notionalAtCurrRebalanceEnd
         : null;
-    out[d] = snapshotFromLots(lots, pv, incomplete);
+    out[d] = snapshotFromLots(lots, pv, incomplete, openedDateBySymbol);
   }
   return out;
 }
@@ -180,6 +200,7 @@ export function buildPublicModelCostBasisSnapshotsFromHoldings(params: {
   let prevHoldings: HoldingItem[] = [];
   const lots = new Map<string, Lot>();
   const incomplete: Record<string, string> = {};
+  const openedDateBySymbol: Record<string, string> = {};
   const out: Record<string, CostBasisDateSnapshot> = {};
 
   for (const d of dates) {
@@ -195,20 +216,25 @@ export function buildPublicModelCostBasisSnapshotsFromHoldings(params: {
     for (const line of mergeMovementLines(diff.hold, diff.buy, diff.sell)) {
       const sym = line.symbol.toUpperCase();
       const prevLot = lots.get(sym) ?? { units: 0, totalCost: 0 };
+      const hadOpenLot = prevLot.units > EPS && prevLot.totalCost > EPS;
       const px = priceForSymbol(prices, sym);
       const res = applyMovementLineAvgCost(prevLot, line, px);
       if (!res.ok) {
         if (!incomplete[sym]) incomplete[sym] = d;
         continue;
       }
+      if (line.deltaDollars > 0 && !hadOpenLot) {
+        openedDateBySymbol[sym] = d;
+      }
       if (res.lot.units <= EPS && res.lot.totalCost <= EPS) {
         lots.delete(sym);
+        delete openedDateBySymbol[sym];
       } else {
         lots.set(sym, res.lot);
       }
     }
     prevHoldings = curr;
-    out[d] = snapshotFromLots(lots, diff.rebalanceNotional, incomplete);
+    out[d] = snapshotFromLots(lots, diff.rebalanceNotional, incomplete, openedDateBySymbol);
   }
   return out;
 }

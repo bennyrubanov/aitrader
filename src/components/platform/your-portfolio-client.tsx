@@ -108,6 +108,7 @@ import {
   loadExplorePortfolioConfigHoldings,
   prefetchExploreHoldingsDates,
   sleepMs,
+  useExploreHoldingsCacheVersion,
 } from '@/lib/portfolio-config-holdings-cache';
 import {
   buildHoldingMovementTableRows,
@@ -191,6 +192,13 @@ function formatYourPortfolioCurrency(amount: number): string {
   }).format(amount);
 }
 
+function formatYourPortfolioOpenedDate(ymd: string | null | undefined): string | null {
+  if (!ymd) return null;
+  const parsed = new Date(`${ymd}T12:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return yourPortfolioHoldingsShortDateFmt.format(parsed);
+}
+
 function YourPortfolioCostBasisCell({
   symbol,
   snapshot,
@@ -227,8 +235,12 @@ function YourPortfolioCostBasisCell({
     );
   }
   const total = snapshot?.costBasisBySymbol[sym] ?? 0;
+  const openedOn = formatYourPortfolioOpenedDate(snapshot?.openedDateBySymbol[sym] ?? null);
   return (
-    <span className="tabular-nums font-medium">{formatYourPortfolioCurrency(total)}</span>
+    <span className="inline-flex flex-col leading-tight">
+      <span className="tabular-nums font-medium">{formatYourPortfolioCurrency(total)}</span>
+      {openedOn ? <span className="text-[11px] text-muted-foreground">{openedOn}</span> : null}
+    </span>
   );
 }
 
@@ -668,8 +680,8 @@ function PortfolioRebalanceActionsTable({
             Stock
           </TableHead>
           {useAllocationOnly ? (
-            <TableHead className="h-9 w-full min-w-[7rem] px-1.5 py-1.5 text-center align-middle">
-              <span className="inline-flex min-w-0 max-w-full items-center justify-center gap-1">
+            <TableHead className="h-9 w-full min-w-[7rem] px-1.5 py-1.5 text-left align-middle">
+              <span className="inline-flex min-w-0 max-w-full items-center justify-start gap-1">
                 <span className="truncate">Value</span>
               </span>
             </TableHead>
@@ -729,7 +741,7 @@ function PortfolioRebalanceActionsTable({
               )}
             </TableCell>
             {useAllocationOnly ? (
-              <TableCell className="min-w-0 whitespace-normal px-1.5 py-1.5 text-center align-middle tabular-nums">
+              <TableCell className="min-w-0 whitespace-normal px-1.5 py-1.5 text-left align-middle tabular-nums">
                 {allocationCell(kind, r)}
               </TableCell>
             ) : (
@@ -2051,6 +2063,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
 
   const selectedProfileConfigId =
     selectedProfile?.portfolio_config?.id ?? selectedProfile?.config_id ?? null;
+  const holdingsCacheVersion = useExploreHoldingsCacheVersion();
 
   const userStartForHoldingsYmd = selectedProfile?.user_start_date?.trim() ?? '';
 
@@ -2084,6 +2097,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     userStartForHoldingsYmd,
     holdingsMovementTimeline,
     scopedConfigHoldingsRebalanceDates,
+    holdingsCacheVersion,
   ]);
 
   useLayoutEffect(() => {
@@ -3703,8 +3717,8 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                               <TableHead className="h-9 w-0 min-w-[4rem] px-1.5 py-1.5 text-left align-middle">
                                 Stock
                               </TableHead>
-                              <TableHead className="h-9 w-0 min-w-[5.5rem] px-1.5 py-1.5 text-right align-middle whitespace-nowrap">
-                                <span className="inline-flex min-w-0 max-w-full items-center justify-end gap-1">
+                              <TableHead className="h-9 w-0 min-w-[5.5rem] px-1.5 py-1.5 text-left align-middle whitespace-nowrap">
+                                <span className="inline-flex min-w-0 max-w-full items-center justify-start gap-1">
                                   <span className="truncate">Value</span>
                                   <HoldingsAllocationColumnTooltip
                                     weightingMethod={
@@ -3736,8 +3750,8 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                     <TableCell className="min-w-0 px-1.5 py-1.5 text-left">
                                       <Skeleton className="h-3.5 w-14 rounded-sm" />
                                     </TableCell>
-                                    <TableCell className="min-w-0 px-1.5 py-1.5 text-right tabular-nums">
-                                      <span className="inline-flex w-full justify-end">
+                                    <TableCell className="min-w-0 px-1.5 py-1.5 text-left tabular-nums">
+                                      <span className="inline-flex w-full justify-start">
                                         <Skeleton className="h-3.5 w-24 rounded-sm" />
                                       </span>
                                     </TableCell>
@@ -3810,7 +3824,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                             </span>
                                           )}
                                         </TableCell>
-                                        <TableCell className="min-w-0 px-1.5 py-1.5 text-right tabular-nums">
+                                        <TableCell className="min-w-0 px-1.5 py-1.5 text-left tabular-nums">
                                           {showLive ? (
                                             <div className="min-w-0 space-y-0.5 leading-tight">
                                               <div className="truncate">
@@ -3900,7 +3914,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                             </span>
                                           )}
                                         </TableCell>
-                                        <TableCell className="min-w-0 px-1.5 py-1.5 text-right tabular-nums text-muted-foreground">
+                                        <TableCell className="min-w-0 px-1.5 py-1.5 text-left tabular-nums text-muted-foreground">
                                           <span className="block min-w-0 truncate text-[11px]">
                                             Was {(h.weight * 100).toFixed(1)}%
                                           </span>
@@ -3972,7 +3986,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                           </span>
                                         )}
                                       </TableCell>
-                                      <TableCell className="min-w-0 px-1.5 py-1.5 text-right tabular-nums">
+                                      <TableCell className="min-w-0 px-1.5 py-1.5 text-left tabular-nums">
                                         {showLive ? (
                                           <div className="min-w-0 space-y-0.5 leading-tight">
                                             <div className="truncate">

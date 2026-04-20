@@ -12,7 +12,7 @@ type Props = {
 };
 
 /**
- * Canonical UI lives on `/performance/[slug]?config=…`.
+ * Canonical UI lives on `/performance/[slug]?portfolio=…`.
  * This path exists for shareable URLs: `/performance/[model]/[portfolio]`.
  */
 export default async function PerformanceModelPortfolioPage({ params }: Props) {
@@ -24,12 +24,14 @@ export default async function PerformanceModelPortfolioPage({ params }: Props) {
   }
 
   const u = new URLSearchParams();
-  u.set('config', decoded);
+  u.set('portfolio', decoded);
   const slice = parsePerformancePortfolioConfigParam(u);
   if (!slice) {
     notFound();
   }
 
   const canonicalConfig = portfolioSliceToConfigSlug(slice);
-  redirect(`/performance/${encodeURIComponent(slug)}?config=${encodeURIComponent(canonicalConfig)}`);
+  redirect(
+    `/performance/${encodeURIComponent(slug)}?portfolio=${encodeURIComponent(canonicalConfig)}`
+  );
 }

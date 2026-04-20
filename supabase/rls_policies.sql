@@ -243,7 +243,14 @@ create policy "Public read strategy portfolio config performance"
   using (true);
 
 -- -------------------------------------------------------
--- 14c) User portfolio profiles – own row only
+-- 14c) Strategy portfolio config holdings – service-role only
+-- -------------------------------------------------------
+alter table public.strategy_portfolio_config_holdings enable row level security;
+
+drop policy if exists "Public read strategy portfolio config holdings" on public.strategy_portfolio_config_holdings;
+
+-- -------------------------------------------------------
+-- 14d) User portfolio profiles – own row only
 -- -------------------------------------------------------
 alter table public.user_portfolio_profiles enable row level security;
 

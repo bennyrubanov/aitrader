@@ -62,9 +62,11 @@ import { Disclaimer } from '@/components/Disclaimer';
 import { ModelHeaderCard, type ModelHeaderQuintileInsight } from '@/components/ModelHeaderCard';
 import {
   CagrOverTimeChart,
+  CumulativeSharpeRatioChart,
   CumulativeReturnsChart,
+  DrawdownOverTimeChart,
   RelativeOutperformanceChart,
-  RiskChart,
+  RollingSharpeRatioChart,
   WeeklyReturnsChart,
 } from './mini-charts';
 import {
@@ -83,6 +85,7 @@ import {
   loadExplorePortfolioConfigHoldings,
   prefetchExploreHoldingsDates,
   getCachedExploreHoldings,
+  useExploreHoldingsCacheVersion,
 } from '@/lib/portfolio-config-holdings-cache';
 import { buildLiveHoldingsAllocationResult } from '@/lib/live-holdings-allocation';
 import { rebasedEndingEquityAtRunDate } from '@/lib/portfolio-movement';
@@ -227,7 +230,13 @@ function PerformanceHoldingsCostBasisCell({
     );
   }
   const total = snapshot?.costBasisBySymbol[sym] ?? 0;
-  return <span className="tabular-nums">{perfFormatUsd(total)}</span>;
+  const openedOn = formatInvestedOnCalendarDate(snapshot?.openedDateBySymbol[sym] ?? null);
+  return (
+    <span className="inline-flex flex-col leading-tight">
+      <span className="tabular-nums">{perfFormatUsd(total)}</span>
+      {openedOn ? <span className="text-[11px] text-muted-foreground">{openedOn}</span> : null}
+    </span>
+  );
 }
 
 /** YYYY-MM → short label for regression month picker */
@@ -487,8 +496,8 @@ function PerformancePagePublicClientInner({
     setSidebarPortfolioConfig(parsed);
   }, [slug, searchParamsString, portfolioPerf.rankedConfigs]);
 
-  // Sidebar → URL: keep `config` in sync; preserve hash and non-portfolio query keys.
-  // Server routes (`getCanonicalPerformancePathIfNeeded`) already normalize missing/invalid `config`
+  // Sidebar → URL: keep `portfolio` in sync; preserve hash and non-portfolio query keys.
+  // Server routes (`getCanonicalPerformancePathIfNeeded`) already normalize missing/invalid `portfolio`
   // and strip legacy `risk`/`frequency`/`weighting` when ranked data is available — this effect is
   // for user-driven portfolio changes and for the fallback when the server could not canonicalize.
   useEffect(() => {
@@ -622,6 +631,7 @@ function PerformancePagePublicClientInner({
     () => chartSeriesToPerfRowsForRebase(configPerfSlice?.series ?? []),
     [configPerfSlice?.series]
   );
+  const holdingsCacheVersion = useExploreHoldingsCacheVersion();
 
   const performancePublicCostBasisByDate = useMemo(() => {
     if (!slug?.trim() || !performanceHoldingsConfigId || !holdingsRebalanceDates.length) return {};
@@ -642,6 +652,7 @@ function PerformancePagePublicClientInner({
     performanceHoldingsConfigId,
     holdingsRebalanceDates,
     performanceCfgRowsForCostBasis,
+    holdingsCacheVersion,
   ]);
 
   const performanceSelectedCostBasis = useMemo(() => {
@@ -1586,8 +1597,8 @@ function PerformancePagePublicClientInner({
                     <TableRow>
                       <TableHead className="min-w-[4.25rem]">#</TableHead>
                       <TableHead>Stock</TableHead>
-                      <TableHead className="text-center">
-                        <span className="inline-flex items-center justify-center gap-1">
+                      <TableHead className="text-left">
+                        <span className="inline-flex items-center justify-start gap-1">
                           Value
                           <HoldingsAllocationColumnTooltip
                             weightingMethod={holdingsPortfolioConfig.weightingMethod}
@@ -1627,7 +1638,7 @@ function PerformancePagePublicClientInner({
                               </span>
                             )}
                           </TableCell>
-                          <TableCell className="text-center tabular-nums">
+                          <TableCell className="text-left tabular-nums">
                             {showLive ? (
                               <div className="space-y-0.5 leading-tight">
                                 <div>
@@ -1675,7 +1686,7 @@ function PerformancePagePublicClientInner({
                   <TableRow>
                     <TableHead>#</TableHead>
                     <TableHead>Stock</TableHead>
-                    <TableHead className="text-right">Value</TableHead>
+                    <TableHead className="text-left">Value</TableHead>
                     <TableHead className="text-right">Cost basis</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -1687,7 +1698,7 @@ function PerformancePagePublicClientInner({
                         <span className="font-medium">XXXX</span>
                         <span className="text-xs text-muted-foreground ml-1.5">Company Name</span>
                       </TableCell>
-                      <TableCell className="text-right tabular-nums">$1,000 (5.0%)</TableCell>
+                      <TableCell className="text-left tabular-nums">$1,000 (5.0%)</TableCell>
                       <TableCell className="text-right tabular-nums">$950</TableCell>
                     </TableRow>
                   ))}
@@ -1900,15 +1911,19 @@ function PerformancePagePublicClientInner({
             aria-busy="true"
             aria-label="Loading risk metrics for selected portfolio"
           >
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <Skeleton className="min-h-[118px] w-full rounded-lg" />
               <Skeleton className="min-h-[118px] w-full rounded-lg" />
               <Skeleton className="min-h-[118px] w-full rounded-lg" />
             </div>
-            <Skeleton className="h-[260px] w-full rounded-lg" />
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+              <Skeleton className="h-[360px] w-full rounded-lg" />
+              <Skeleton className="h-[360px] w-full rounded-lg" />
+            </div>
           </div>
         ) : displayMetrics ? (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
               <FlipCard
                 label="Max drawdown"
                 value={fmt.pct(displayMetrics.maxDrawdown)}
@@ -1946,7 +1961,19 @@ function PerformancePagePublicClientInner({
               />
             </div>
             {displaySeries.length > 2 && (
-              <RiskChart series={displaySeries} strategyName={portfolioPerf.chartTitle} />
+              <div className="space-y-4">
+                <DrawdownOverTimeChart series={displaySeries} strategyName={portfolioPerf.chartTitle} />
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                  <CumulativeSharpeRatioChart
+                    series={displaySeries}
+                    strategyName={portfolioPerf.chartTitle}
+                  />
+                  <RollingSharpeRatioChart
+                    series={displaySeries}
+                    strategyName={portfolioPerf.chartTitle}
+                  />
+                </div>
+              </div>
             )}
           </div>
         ) : (
@@ -1967,7 +1994,8 @@ function PerformancePagePublicClientInner({
             aria-busy="true"
             aria-label="Loading consistency metrics for selected portfolio"
           >
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <Skeleton className="min-h-[118px] w-full rounded-lg" />
               <Skeleton className="min-h-[118px] w-full rounded-lg" />
               <Skeleton className="min-h-[118px] w-full rounded-lg" />
             </div>
@@ -1977,7 +2005,7 @@ function PerformancePagePublicClientInner({
           displayMetrics?.pctWeeksBeatingSp500 != null ||
           displayMetrics?.pctWeeksBeatingNasdaq100EqualWeight != null ? (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
               {displayMetrics.pctWeeksBeatingNasdaq100 != null && (
                 <FlipCard
                   label="% weeks outperforming Nasdaq-100 (cap-weighted)"

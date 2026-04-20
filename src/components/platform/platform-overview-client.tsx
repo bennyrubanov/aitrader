@@ -131,6 +131,7 @@ import {
   loadExplorePortfolioConfigHoldings,
   prefetchExploreHoldingsDates,
   sleepMs,
+  useExploreHoldingsCacheVersion,
 } from '@/lib/portfolio-config-holdings-cache';
 import { loadRankedConfigsClient } from '@/lib/portfolio-configs-ranked-client';
 import { loadUserPortfolioProfilesClient } from '@/lib/user-portfolio-profiles-client';
@@ -451,17 +452,38 @@ function formatOverviewCurrency(amount: number): string {
   }).format(amount);
 }
 
+function formatOverviewOpenedDate(ymd: string | null | undefined): string | null {
+  if (!ymd) return null;
+  const parsed = new Date(`${ymd}T12:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(parsed);
+}
+
 function SpotlightCostBasisCell({
   symbol,
   snapshot,
+  loading,
   exited,
 }: {
   symbol: string;
   snapshot: CostBasisDateSnapshot | null;
+  loading?: boolean;
   exited?: boolean;
 }) {
   if (exited) {
     return <span className="tabular-nums text-muted-foreground">—</span>;
+  }
+  if (loading) {
+    return (
+      <span className="inline-flex w-full justify-start">
+        <Skeleton className="h-3.5 w-16 rounded-sm" />
+      </span>
+    );
   }
   const sym = symbol.toUpperCase();
   const gap = snapshot?.incompleteFirstDateBySymbol[sym];
@@ -478,8 +500,12 @@ function SpotlightCostBasisCell({
     );
   }
   const total = snapshot?.costBasisBySymbol[sym] ?? 0;
+  const openedOn = formatOverviewOpenedDate(snapshot?.openedDateBySymbol[sym] ?? null);
   return (
-    <span className="tabular-nums font-medium">{formatOverviewCurrency(total)}</span>
+    <span className="inline-flex flex-col leading-tight">
+      <span className="tabular-nums font-medium">{formatOverviewCurrency(total)}</span>
+      {openedOn ? <span className="text-[11px] text-muted-foreground">{openedOn}</span> : null}
+    </span>
   );
 }
 
@@ -2658,6 +2684,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   const topSpotlightProfileId = topSpotlightOverview?.profile.id ?? null;
   const topSpotlightConfigId = topSpotlightOverview?.profile.portfolio_config?.id ?? null;
   const topSpotlightSlug = topSpotlightOverview?.profile.strategy_models?.slug ?? null;
+  const holdingsCacheVersion = useExploreHoldingsCacheVersion();
 
   const fetchTopSpotlightHoldings = useCallback(
     async (asOf: string | null) => {
@@ -2922,6 +2949,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     topSpotlightUserStartYmd,
     spotlightHoldingsMovementTimeline,
     scopedTopSpotlightRebalanceDates,
+    holdingsCacheVersion,
   ]);
 
   const selectedSpotlightCostBasisSnapshot = useMemo(() => {
@@ -2929,6 +2957,20 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     if (!d) return null;
     return spotlightCostBasisSnapshotsByDate[d] ?? null;
   }, [topSpotlightHoldingsAsOf, spotlightCostBasisSnapshotsByDate]);
+  const spotlightCostBasisLoading = useMemo(() => {
+    if (!overviewPaidHoldings) return false;
+    if (!topSpotlightUserStartYmd) return false;
+    if (topSpotlightHoldings.length === 0) return false;
+    if (!spotlightHoldingsMovementTimeline) return true;
+    if ('error' in spotlightHoldingsMovementTimeline) return false;
+    const status = spotlightHoldingsMovementTimeline.data.status;
+    return status === 'pending' || status === 'in_progress';
+  }, [
+    overviewPaidHoldings,
+    topSpotlightUserStartYmd,
+    topSpotlightHoldings.length,
+    spotlightHoldingsMovementTimeline,
+  ]);
 
   const spotlightPortfolioValueLineAmount = useMemo(() => {
     if (spotlightHoldingsMovementTimeline && 'data' in spotlightHoldingsMovementTimeline) {
@@ -4015,6 +4057,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                                           <SpotlightCostBasisCell
                                                             symbol={h.symbol}
                                                             snapshot={selectedSpotlightCostBasisSnapshot}
+                                                          loading={spotlightCostBasisLoading}
                                                           />
                                                         </TableCell>
                                                       </TableRow>
@@ -4091,6 +4134,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                                         <SpotlightCostBasisCell
                                                           symbol={h.symbol}
                                                           snapshot={selectedSpotlightCostBasisSnapshot}
+                                                          loading={spotlightCostBasisLoading}
                                                           exited
                                                         />
                                                       </TableCell>
@@ -4176,6 +4220,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                                       <SpotlightCostBasisCell
                                                         symbol={h.symbol}
                                                         snapshot={selectedSpotlightCostBasisSnapshot}
+                                                        loading={spotlightCostBasisLoading}
                                                       />
                                                     </TableCell>
                                                   </TableRow>

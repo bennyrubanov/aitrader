@@ -42,7 +42,13 @@ export function MetricReadinessPill({
       : kind === 'cagr'
         ? `CAGR is hidden until about 12 weeks of history so short-window annualization does not mislead (${wPhrase}).`
         : `Composite needs Sharpe, total return, consistency, max drawdown, and excess vs Nasdaq-100 cap — some inputs are still gathering (${wPhrase}).`
-    : `Based on ${wNum} ${unit} of data — expect these numbers to move as history grows.`;
+    : kind === 'sharpe'
+      ? `Early estimate: under 12 weeks of holding returns, so Sharpe is still stabilizing.`
+      : kind === 'sharpe-decision'
+        ? `Early estimate: under 12 rebalance periods, so decision Sharpe is still stabilizing.`
+        : kind === 'cagr'
+          ? `Early estimate: short history, so annualized growth is still stabilizing.`
+          : `Early estimate: short history, so composite inputs are still stabilizing.`;
 
   return (
     <Tooltip>

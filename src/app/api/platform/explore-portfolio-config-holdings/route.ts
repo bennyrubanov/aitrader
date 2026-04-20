@@ -63,6 +63,41 @@ function buildPriceMap(
   return out;
 }
 
+function normalizeStoredHoldings(
+  raw: unknown
+): Awaited<ReturnType<typeof getPortfolioConfigHoldings>>['holdings'] {
+  if (!Array.isArray(raw)) return [];
+  const out: Awaited<ReturnType<typeof getPortfolioConfigHoldings>>['holdings'] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const row = item as Record<string, unknown>;
+    const symbol = typeof row.symbol === 'string' ? row.symbol.trim().toUpperCase() : '';
+    if (!symbol) continue;
+    const companyName =
+      typeof row.companyName === 'string' && row.companyName.trim().length > 0
+        ? row.companyName.trim()
+        : symbol;
+    const rank = Number(row.rank);
+    const weight = Number(row.weight);
+    const score = row.score == null ? null : Number(row.score);
+    const latentRank = row.latentRank == null ? null : Number(row.latentRank);
+    const bucket =
+      row.bucket === 'buy' || row.bucket === 'hold' || row.bucket === 'sell' ? row.bucket : null;
+    const rankChange = row.rankChange == null ? null : Number(row.rankChange);
+    out.push({
+      symbol,
+      companyName,
+      rank: Number.isFinite(rank) && rank > 0 ? rank : out.length + 1,
+      weight: Number.isFinite(weight) ? weight : 0,
+      score: score != null && Number.isFinite(score) ? score : null,
+      latentRank: latentRank != null && Number.isFinite(latentRank) ? latentRank : null,
+      bucket,
+      rankChange: rankChange != null && Number.isFinite(rankChange) ? rankChange : null,
+    });
+  }
+  return out;
+}
+
 function parseDatesCsv(csv: string | null): string[] {
   if (!csv) return [];
   const unique = new Set(
@@ -145,7 +180,7 @@ export async function GET(req: NextRequest) {
   }
 
   const responseCacheKey = [
-    'explore-holdings-v1',
+    'explore-holdings-v2',
     user.id,
     tier,
     strategy.id,
@@ -179,89 +214,108 @@ export async function GET(req: NextRequest) {
   let latestPriceBySymbol: SymbolPriceMap = {};
   let byDate: Record<string, HoldingsTimelineEntry> | undefined;
 
-  if (symbols.length > 0 && asOfDate) {
-    const { data: asOfRows } = await admin
-      .from('nasdaq_100_daily_raw')
-      .select('symbol, last_sale_price')
-      .eq('run_date', asOfDate)
-      .in('symbol', symbols);
-    asOfPriceBySymbol = buildPriceMap(
-      (asOfRows ?? []) as Array<{ symbol: string; last_sale_price: string | null }>
-    );
+  const holdingsByDate = new Map<string, Awaited<ReturnType<typeof getPortfolioConfigHoldings>>['holdings']>();
+  const asOfByDate = new Map<string, string>();
+  if (asOfDate) {
+    holdingsByDate.set(asOfDate, holdings);
+    asOfByDate.set(asOfDate, asOfDate);
+  }
+  const datesToLoad = [...new Set(requestedDates)];
+  if (asOfDate) datesToLoad.push(asOfDate);
+  const uniqueDatesToLoad = [...new Set(datesToLoad)];
 
-    const { data: latestDateRow } = await admin
-      .from('nasdaq_100_daily_raw')
-      .select('run_date')
-      .order('run_date', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    const latestRunDate = latestDateRow?.run_date ?? null;
-
-    if (latestRunDate) {
-      const { data: latestRows } = await admin
-        .from('nasdaq_100_daily_raw')
-        .select('symbol, last_sale_price')
-        .eq('run_date', latestRunDate)
-        .in('symbol', symbols);
-      latestPriceBySymbol = buildPriceMap(
-        (latestRows ?? []) as Array<{ symbol: string; last_sale_price: string | null }>
-      );
+  if (uniqueDatesToLoad.length > 0) {
+    const { data: storedRows, error: storedErr } = await admin
+      .from('strategy_portfolio_config_holdings')
+      .select('run_date, holdings')
+      .eq('strategy_id', strategy.id)
+      .eq('config_id', configId)
+      .in('run_date', uniqueDatesToLoad);
+    if (storedErr) {
+      return NextResponse.json({ error: 'failed to load holdings snapshots' }, { status: 500 });
+    }
+    for (const row of (storedRows ?? []) as Array<{ run_date: string; holdings: unknown }>) {
+      const runDate = row.run_date;
+      holdingsByDate.set(runDate, normalizeStoredHoldings(row.holdings));
+      asOfByDate.set(runDate, runDate);
     }
   }
 
+  const missingDates = uniqueDatesToLoad.filter((d) => !holdingsByDate.has(d));
+  for (const date of missingDates) {
+    const fallbackPayload = await getPortfolioConfigHoldings(
+      admin,
+      strategy.id,
+      riskLevel,
+      String(cfg.rebalance_frequency),
+      String(cfg.weighting_method),
+      date
+    );
+    holdingsByDate.set(date, fallbackPayload.holdings);
+    asOfByDate.set(date, fallbackPayload.asOfDate ?? date);
+    console.warn('[explore-holdings] missing config snapshot row; used fallback compute', {
+      strategyId: strategy.id,
+      configId,
+      runDate: date,
+    });
+  }
+
+  const symbolUnion = new Set<string>();
+  for (const h of holdings) symbolUnion.add(h.symbol.toUpperCase());
+  for (const date of requestedDates) {
+    for (const h of holdingsByDate.get(date) ?? []) {
+      symbolUnion.add(h.symbol.toUpperCase());
+    }
+  }
+
+  const { data: latestDateRow } = await admin
+    .from('nasdaq_100_daily_raw')
+    .select('run_date')
+    .order('run_date', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const latestRunDate = latestDateRow?.run_date ?? null;
+  const priceDates = [
+    ...new Set([
+      ...(asOfDate ? [asOfDate] : []),
+      ...requestedDates.map((d) => asOfByDate.get(d) ?? d),
+      ...(latestRunDate ? [latestRunDate] : []),
+    ]),
+  ];
+
+  const priceMapByDate = new Map<string, SymbolPriceMap>();
+  if (symbolUnion.size > 0 && priceDates.length > 0) {
+    const { data: priceRows, error: priceErr } = await admin
+      .from('nasdaq_100_daily_raw')
+      .select('run_date, symbol, last_sale_price')
+      .in('run_date', priceDates)
+      .in('symbol', [...symbolUnion]);
+    if (priceErr) {
+      return NextResponse.json({ error: 'failed to load holdings prices' }, { status: 500 });
+    }
+    for (const row of (priceRows ?? []) as Array<{
+      run_date: string;
+      symbol: string;
+      last_sale_price: string | null;
+    }>) {
+      const runDate = row.run_date;
+      const m = priceMapByDate.get(runDate) ?? {};
+      m[row.symbol.toUpperCase()] = parseNasdaqRawPrice(row.last_sale_price);
+      priceMapByDate.set(runDate, m);
+    }
+  }
+  if (asOfDate) asOfPriceBySymbol = priceMapByDate.get(asOfDate) ?? {};
+  if (latestRunDate) latestPriceBySymbol = priceMapByDate.get(latestRunDate) ?? {};
+
   if (requestedDates.length > 0) {
     byDate = {};
-    const symbolUnion = new Set(symbols);
     for (const date of requestedDates) {
-      let dateHoldings = holdings;
-      let dateAsOf = asOfDate;
-      if (date !== asOfDate) {
-        const payload = await getPortfolioConfigHoldings(
-          admin,
-          strategy.id,
-          riskLevel,
-          String(cfg.rebalance_frequency),
-          String(cfg.weighting_method),
-          date
-        );
-        dateHoldings = payload.holdings;
-        dateAsOf = payload.asOfDate;
-      }
-      if (!dateAsOf) continue;
-      const dateSymbols = [...new Set(dateHoldings.map((h) => h.symbol.toUpperCase()))];
-      for (const symbol of dateSymbols) symbolUnion.add(symbol);
-      const { data: dateRows } = await admin
-        .from('nasdaq_100_daily_raw')
-        .select('symbol, last_sale_price')
-        .eq('run_date', dateAsOf)
-        .in('symbol', dateSymbols);
+      const dateAsOf = asOfByDate.get(date) ?? date;
       byDate[date] = {
         asOfDate: dateAsOf,
-        holdings: dateHoldings,
-        asOfPriceBySymbol: buildPriceMap(
-          (dateRows ?? []) as Array<{ symbol: string; last_sale_price: string | null }>
-        ),
+        holdings: holdingsByDate.get(date) ?? [],
+        asOfPriceBySymbol: priceMapByDate.get(dateAsOf) ?? {},
       };
-    }
-
-    if (Object.keys(byDate).length > 0) {
-      const { data: latestDateRow } = await admin
-        .from('nasdaq_100_daily_raw')
-        .select('run_date')
-        .order('run_date', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      const latestRunDate = latestDateRow?.run_date ?? null;
-      if (latestRunDate && symbolUnion.size > 0) {
-        const { data: latestRows } = await admin
-          .from('nasdaq_100_daily_raw')
-          .select('symbol, last_sale_price')
-          .eq('run_date', latestRunDate)
-          .in('symbol', [...symbolUnion]);
-        latestPriceBySymbol = buildPriceMap(
-          (latestRows ?? []) as Array<{ symbol: string; last_sale_price: string | null }>
-        );
-      }
     }
   }
 

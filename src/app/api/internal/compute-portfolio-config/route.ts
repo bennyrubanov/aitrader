@@ -15,6 +15,8 @@ import { createAdminClient } from '@/utils/supabase/admin';
 import {
   filterRebalanceBatches,
   buildScoresByBatch,
+  buildEqualWeightHoldings,
+  buildCapWeightHoldings,
   buildPricesAndCapsByDate,
   computeEquityUpsertRows,
   backfillBenchmarkEquities,
@@ -51,6 +53,23 @@ async function upsertQueueStatus(
 type RequestBody = {
   strategy_id: string;
   config_id: string;
+};
+
+type HoldingsUpsertRow = {
+  strategy_id: string;
+  config_id: string;
+  run_date: string;
+  holdings: Array<{
+    symbol: string;
+    companyName: string;
+    rank: number;
+    weight: number;
+    score: number | null;
+    latentRank: number | null;
+    bucket: 'buy' | 'hold' | 'sell' | null;
+    rankChange: number | null;
+  }>;
+  updated_at: string;
 };
 
 export async function POST(req: Request) {
@@ -102,8 +121,75 @@ export async function POST(req: Request) {
       const { data: bfResult } = await supabase.rpc('backfill_portfolio_config_mappings');
       const bf = bfResult as { rows_inserted?: number; error?: string } | null;
       if (bf?.error) throw new Error(bf.error);
+      const { data: defaultRows, error: defaultErr } = await supabase
+        .from('strategy_portfolio_holdings')
+        .select('run_date, stock_id, symbol, rank_position, target_weight, score, latent_rank, stocks(company_name)')
+        .eq('strategy_id', strategy_id)
+        .order('run_date', { ascending: true })
+        .order('rank_position', { ascending: true });
+      if (defaultErr) throw new Error(`Default holdings fetch failed: ${defaultErr.message}`);
+      const rows = (defaultRows ?? []) as Array<{
+        run_date: string;
+        stock_id: string;
+        symbol: string;
+        rank_position: number;
+        target_weight: number;
+        score: number | null;
+        latent_rank: number | null;
+        stocks: { company_name: string | null } | { company_name: string | null }[] | null;
+      }>;
+      const byDate = new Map<string, typeof rows>();
+      for (const row of rows) {
+        const list = byDate.get(row.run_date) ?? [];
+        list.push(row);
+        byDate.set(row.run_date, list);
+      }
+      const holdingsUpsertRows: HoldingsUpsertRow[] = [];
+      let prevRankBySymbol = new Map<string, number>();
+      for (const [runDate, dateRows] of byDate) {
+        const holdings = [...dateRows]
+          .sort((a, b) => a.rank_position - b.rank_position)
+          .map((row) => {
+            const rank = row.rank_position;
+            const prevRank = prevRankBySymbol.get(row.symbol.toUpperCase()) ?? null;
+            const stockRel = Array.isArray(row.stocks) ? row.stocks[0] : row.stocks;
+            return {
+              symbol: row.symbol,
+              companyName: stockRel?.company_name?.trim() || row.symbol,
+              rank,
+              weight: Number(row.target_weight),
+              score: row.score != null && Number.isFinite(Number(row.score)) ? Number(row.score) : null,
+              latentRank:
+                row.latent_rank != null && Number.isFinite(Number(row.latent_rank))
+                  ? Number(row.latent_rank)
+                  : null,
+              bucket: null,
+              rankChange: prevRank == null ? null : prevRank - rank,
+            };
+          });
+        holdingsUpsertRows.push({
+          strategy_id,
+          config_id,
+          run_date: runDate,
+          holdings,
+          updated_at: new Date().toISOString(),
+        });
+        prevRankBySymbol = new Map(holdings.map((h) => [h.symbol.toUpperCase(), h.rank]));
+      }
+      for (let i = 0; i < holdingsUpsertRows.length; i += 100) {
+        const chunk = holdingsUpsertRows.slice(i, i + 100);
+        const { error: holdingsErr } = await supabase
+          .from('strategy_portfolio_config_holdings')
+          .upsert(chunk, { onConflict: 'strategy_id,config_id,run_date' });
+        if (holdingsErr) throw new Error(`Default holdings upsert failed: ${holdingsErr.message}`);
+      }
       await upsertQueueStatus(supabase, strategy_id, config_id, 'done');
-      return NextResponse.json({ ok: true, mode: 'backfill', rows: bf?.rows_inserted ?? 0 });
+      return NextResponse.json({
+        ok: true,
+        mode: 'backfill',
+        rows: bf?.rows_inserted ?? 0,
+        holdingsRows: holdingsUpsertRows.length,
+      });
     }
 
     const { data: batchData, error: batchErr } = await supabase
@@ -125,14 +211,37 @@ export async function POST(req: Request) {
     const allBatchIds = allBatches.map((b) => b.id);
     const { data: scoreData, error: scoreErr } = await supabase
       .from('ai_analysis_runs')
-      .select('batch_id, stock_id, score, latent_rank, stocks(symbol)')
+      .select('batch_id, stock_id, score, latent_rank, bucket, stocks(symbol, company_name)')
       .in('batch_id', allBatchIds);
 
     if (scoreErr) throw new Error(`Score fetch failed: ${scoreErr.message}`);
 
+    const scoreRows = (scoreData ?? []) as Array<{
+      batch_id: string;
+      stock_id: string;
+      score: number;
+      latent_rank: number | null;
+      bucket: string | null;
+      stocks:
+        | { symbol: string; company_name: string | null }
+        | { symbol: string; company_name: string | null }[]
+        | null;
+    }>;
     const scoresByBatch = buildScoresByBatch(
-      (scoreData ?? []) as Parameters<typeof buildScoresByBatch>[0]
+      scoreRows as Parameters<typeof buildScoresByBatch>[0]
     );
+    const scoreMetaByBatchAndStock = new Map<
+      string,
+      { companyName: string; bucket: 'buy' | 'hold' | 'sell' | null }
+    >();
+    for (const row of scoreRows) {
+      const stockRel = Array.isArray(row.stocks) ? row.stocks[0] : row.stocks;
+      const symbol = stockRel?.symbol?.toUpperCase() ?? '';
+      const companyName = stockRel?.company_name?.trim() || symbol || row.stock_id;
+      const bucket =
+        row.bucket === 'buy' || row.bucket === 'hold' || row.bucket === 'sell' ? row.bucket : null;
+      scoreMetaByBatchAndStock.set(`${row.batch_id}\0${row.stock_id}`, { companyName, bucket });
+    }
 
     const uniqueDates = [...new Set(allBatches.map((b) => b.run_date))];
     const PAGE = 1000;
@@ -175,9 +284,58 @@ export async function POST(req: Request) {
       capsByDate,
     });
 
+    const weightingMethod = config.weighting_method === 'cap' ? 'cap' : 'equal';
+    const holdingsUpsertRows: HoldingsUpsertRow[] = [];
+    let prevRankBySymbol = new Map<string, number>();
+    for (const batch of rebalanceBatches) {
+      const scores = scoresByBatch.get(batch.id) ?? [];
+      const scoreByStockId = new Map(scores.map((s) => [s.stock_id, s]));
+      const weighted =
+        weightingMethod === 'cap'
+          ? buildCapWeightHoldings(scores, config.top_n, capsByDate.get(batch.run_date) ?? new Map())
+          : buildEqualWeightHoldings(scores, config.top_n);
+      const holdings = weighted.map((h, idx) => {
+        const rank = idx + 1;
+        const meta = scoreMetaByBatchAndStock.get(`${batch.id}\0${h.stock_id}`);
+        const score = scoreByStockId.get(h.stock_id) ?? null;
+        const prevRank = prevRankBySymbol.get(h.symbol.toUpperCase()) ?? null;
+        return {
+          symbol: h.symbol,
+          companyName: meta?.companyName ?? h.symbol,
+          rank,
+          weight: h.weight,
+          score: score ? Number(score.score) : null,
+          latentRank: score ? Number(score.latent_rank) : null,
+          bucket: meta?.bucket ?? null,
+          rankChange: prevRank == null ? null : prevRank - rank,
+        };
+      });
+      holdingsUpsertRows.push({
+        strategy_id,
+        config_id,
+        run_date: batch.run_date,
+        holdings,
+        updated_at: new Date().toISOString(),
+      });
+      prevRankBySymbol = new Map(holdings.map((h) => [h.symbol.toUpperCase(), h.rank]));
+    }
+
+    for (let i = 0; i < holdingsUpsertRows.length; i += 100) {
+      const chunk = holdingsUpsertRows.slice(i, i + 100);
+      const { error: holdingsErr } = await supabase
+        .from('strategy_portfolio_config_holdings')
+        .upsert(chunk, { onConflict: 'strategy_id,config_id,run_date' });
+      if (holdingsErr) throw new Error(`Holdings upsert failed: ${holdingsErr.message}`);
+    }
+
     if (!upsertRows.length) {
       await upsertQueueStatus(supabase, strategy_id, config_id, 'done');
-      return NextResponse.json({ ok: true, mode: 'no_computable_periods', rows: 0 });
+      return NextResponse.json({
+        ok: true,
+        mode: 'no_computable_periods',
+        rows: 0,
+        holdingsRows: holdingsUpsertRows.length,
+      });
     }
 
     await backfillBenchmarkEquities(supabase, strategy_id, upsertRows as PerformanceRowLite[]);
@@ -207,6 +365,7 @@ export async function POST(req: Request) {
       weighting: config.weighting_method,
       topN: config.top_n,
       rows: inserted,
+      holdingsRows: holdingsUpsertRows.length,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

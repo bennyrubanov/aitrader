@@ -25,7 +25,11 @@ import {
   CHART_RELATIVE_OUTPERF_COLORS,
 } from '@/lib/chart-index-series-colors';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
-import { downsampleSeriesToIsoWeek } from '@/lib/metrics-annualization';
+import {
+  computeSharpeAnnualized,
+  downsampleSeriesToIsoWeek,
+  MIN_OBS_FOR_SHARPE,
+} from '@/lib/metrics-annualization';
 import {
   computePerformanceCagr,
   MIN_YEARS_FOR_CAGR_OVER_TIME_POINT,
@@ -187,7 +191,8 @@ export function CagrOverTimeChart({
       <p className="text-sm font-semibold mb-1">CAGR over time</p>
       <p className="text-xs text-muted-foreground mb-3">
         Annualized growth since inception, recomputed each ISO week (same window for each line). The
-        line starts after about 8 weeks of history so very short spans are not annualized.
+        line starts after about 4 weeks of history; early points can swing a lot until more weeks roll
+        in.
       </p>
       {showPreliminaryNote ? (
         <p className="text-xs text-muted-foreground mb-3 rounded-md border border-dashed border-border/80 bg-muted/30 px-2.5 py-2">
@@ -249,6 +254,7 @@ export const ROLLING_SHARPE_WINDOW_WEEKS = 12;
 
 /** Equity curve points: inception row + one per week → need W+1 points for the first rolling estimate. */
 export const ROLLING_SHARPE_MIN_SERIES_LENGTH = ROLLING_SHARPE_WINDOW_WEEKS + 1;
+export const CUMULATIVE_SHARPE_MIN_SERIES_LENGTH = MIN_OBS_FOR_SHARPE + 1;
 
 function seriesLineLabels(strategyName?: string): Record<ReturnsKey, string> {
   return {
@@ -500,9 +506,8 @@ export function RollingSharpeRatioChart({
         <p>No weekly returns yet; this chart appears once there is enough history.</p>
       ) : (
         <p>
-          Uses a fixed {W}-week rolling window (not expanding history). You have {weeklyReturnCount} week
-          {weeklyReturnCount === 1 ? '' : 's'} so far—the line fills in automatically as more weekly data is
-          recorded.
+          Still gathering data. Uses a fixed {W}-week rolling window. You have {weeklyReturnCount} week
+          {weeklyReturnCount === 1 ? '' : 's'} so far.
         </p>
       );
     const emptyInner = (
@@ -602,6 +607,221 @@ export function RollingSharpeRatioChart({
   return embedded ? inner : <div className="rounded-lg border bg-card p-4">{inner}</div>;
 }
 
+export function CumulativeSharpeRatioChart({
+  series,
+  strategyName,
+  embedded = false,
+}: {
+  series: SeriesPoint[];
+  strategyName?: string;
+  embedded?: boolean;
+}) {
+  const [hiddenSh, setHiddenSh] = useState<Set<ReturnsKey>>(new Set());
+
+  const toggleSh = (key: ReturnsKey) => {
+    setHiddenSh((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const { sharpeData, weeklyReturnCount } = useMemo(() => {
+    const keys = Object.keys(RETURNS_SERIES) as ReturnsKey[];
+    if (series.length < 2) {
+      return {
+        sharpeData: [] as Array<{ date: string } & Record<ReturnsKey, number | null>>,
+        weeklyReturnCount: 0,
+      };
+    }
+
+    const weeklySeries = downsampleSeriesToIsoWeek(series);
+    if (weeklySeries.length < 2) {
+      return {
+        sharpeData: [] as Array<{ date: string } & Record<ReturnsKey, number | null>>,
+        weeklyReturnCount: 0,
+      };
+    }
+
+    const weeklyReturns = weeklySeries.slice(1).map((point, i) => {
+      const prev = weeklySeries[i]!;
+      const safe = (p: number, c: number) => (p > 0 ? c / p - 1 : 0);
+      const row: Record<ReturnsKey, number> = {
+        aiTop20: safe(prev.aiTop20, point.aiTop20),
+        nasdaq100CapWeight: safe(prev.nasdaq100CapWeight, point.nasdaq100CapWeight),
+        nasdaq100EqualWeight: safe(prev.nasdaq100EqualWeight, point.nasdaq100EqualWeight),
+        sp500: safe(prev.sp500, point.sp500),
+      };
+      return { date: point.date, ...row };
+    });
+
+    const result: Array<{ date: string } & Record<ReturnsKey, number | null>> = [];
+    for (let i = 0; i < weeklyReturns.length; i++) {
+      const row: Record<string, string | number | null> = {
+        date: shortDate(weeklyReturns[i]!.date),
+      };
+      for (const key of keys) {
+        const window = weeklyReturns.slice(0, i + 1).map((w) => w[key]);
+        row[key] = computeSharpeAnnualized(window, 52);
+      }
+      result.push(row as { date: string } & Record<ReturnsKey, number | null>);
+    }
+
+    return { sharpeData: result, weeklyReturnCount: weeklyReturns.length };
+  }, [series]);
+
+  const sharpeYDomain = useMemo((): [number, number] | ['auto', 'auto'] => {
+    if (!sharpeData.length) return ['auto', 'auto'];
+    const visibleKeys = (Object.keys(RETURNS_SERIES) as ReturnsKey[]).filter((k) => !hiddenSh.has(k));
+    if (!visibleKeys.length) return ['auto', 'auto'];
+
+    const values: number[] = [];
+    sharpeData.forEach((row) => {
+      visibleKeys.forEach((key) => {
+        const value = row[key];
+        if (typeof value === 'number' && Number.isFinite(value)) values.push(value);
+      });
+    });
+
+    if (!values.length) return ['auto', 'auto'];
+
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const span = max - min;
+
+    if (span <= 0) {
+      const pad = Math.max(Math.abs(min) * 0.05, 0.15);
+      return [min - pad, max + pad];
+    }
+
+    const pad = span * 0.08;
+    return [min - pad, max + pad];
+  }, [sharpeData, hiddenSh]);
+
+  const aiSharpePointCount = useMemo(
+    () =>
+      sharpeData.reduce((count, row) => {
+        const value = row.aiTop20;
+        return typeof value === 'number' && Number.isFinite(value) ? count + 1 : count;
+      }, 0),
+    [sharpeData]
+  );
+  const hasSharpeTrend = aiSharpePointCount >= 2;
+  const weeksNeededForSharpeTrend = MIN_OBS_FOR_SHARPE + 1;
+  const weeksRemainingForSharpeTrend = Math.max(weeksNeededForSharpeTrend - weeklyReturnCount, 1);
+
+  const ddLabels = seriesLineLabels(strategyName);
+
+  if (!hasSharpeTrend) {
+    const emptyBody =
+      weeklyReturnCount === 0 ? (
+        <p>No weekly returns yet; this chart appears once there is enough history.</p>
+      ) : (
+        <p>
+          Still gathering data. Check back in {weeksRemainingForSharpeTrend} week
+          {weeksRemainingForSharpeTrend === 1 ? '' : 's'}.
+        </p>
+      );
+    const emptyInner = (
+      <>
+        <p className="text-sm font-semibold mb-1">Holding-period Sharpe over time</p>
+        <p className="text-xs text-muted-foreground mb-3">
+          Uses every weekly return since inception. Shows how smooth risk/return has looked over time;
+          mirrors the Sharpe shown in Key metrics, with the line starting at week {MIN_OBS_FOR_SHARPE}.
+        </p>
+        <div className="h-[260px] w-full rounded-md border border-dashed flex items-center justify-center px-4 text-center text-xs text-muted-foreground">
+          {emptyBody}
+        </div>
+      </>
+    );
+    return embedded ? emptyInner : <div className="rounded-lg border bg-card p-4">{emptyInner}</div>;
+  }
+
+  const inner: ReactNode = (
+    <>
+      <p className="text-sm font-semibold mb-1">Holding-period Sharpe over time</p>
+      <p className="text-xs text-muted-foreground mb-3">
+        Uses every weekly return since inception. Shows how smooth risk/return has looked over time;
+        mirrors the Sharpe shown in Key metrics, with the line starting at week {MIN_OBS_FOR_SHARPE}.
+      </p>
+      <div className="flex flex-wrap gap-1.5 mb-3">
+        {(Object.entries(RETURNS_SERIES) as [ReturnsKey, (typeof RETURNS_SERIES)[ReturnsKey]][]).map(
+          ([key, cfg]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => toggleSh(key)}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs transition-opacity ${
+                hiddenSh.has(key) ? 'opacity-40' : ''
+              }`}
+            >
+              <span className="size-2 rounded-full shrink-0" style={{ background: cfg.color }} />
+              {key === 'aiTop20' ? ddLabels.aiTop20 : cfg.label}
+            </button>
+          )
+        )}
+      </div>
+      <ChartContainer
+        className="h-[260px] w-full"
+        config={Object.fromEntries(
+          Object.entries(RETURNS_SERIES).map(([key, cfg]) => [
+            key,
+            { label: ddLabels[key as ReturnsKey], color: cfg.color },
+          ])
+        )}
+      >
+        <LineChart data={sharpeData} margin={{ top: 4, right: 8, left: 4, bottom: 4 }}>
+          <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />
+          <XAxis dataKey="date" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+          <YAxis domain={sharpeYDomain} tick={{ fontSize: 10 }} width={40} />
+          <ReferenceLine
+            y={1}
+            stroke={CHART_NEUTRAL_REFERENCE_STROKE}
+            strokeDasharray="4 2"
+            label={{
+              value: '1.0',
+              position: 'left',
+              fontSize: 9,
+              fill: CHART_NEUTRAL_REFERENCE_STROKE,
+            }}
+          />
+          <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="4 2" />
+          <ChartTooltip
+            content={
+              <ChartTooltipContent
+                formatter={(v, name) => {
+                  const label = ddLabels[name as ReturnsKey] ?? String(name);
+                  const numeric =
+                    typeof v === 'number' && Number.isFinite(v) ? Number(v) : Number.NaN;
+                  return [Number.isFinite(numeric) ? `${numeric.toFixed(2)} ` : '—', ` ${label}`];
+                }}
+              />
+            }
+          />
+          {(Object.keys(RETURNS_SERIES) as ReturnsKey[]).map((key) => (
+            <Line
+              key={key}
+              type="monotone"
+              dataKey={key}
+              stroke={RETURNS_SERIES[key].color}
+              strokeWidth={key === 'aiTop20' ? 2.5 : 1.75}
+              dot={sharpeData.length <= 2 ? { r: 2.5 } : false}
+              hide={hiddenSh.has(key)}
+              connectNulls
+            />
+          ))}
+        </LineChart>
+      </ChartContainer>
+      <p className="text-[11px] text-muted-foreground mt-2">
+        Sharpe = mean weekly return ÷ volatility from inception to that week, scaled to a 52-week year.
+      </p>
+    </>
+  );
+
+  return embedded ? inner : <div className="rounded-lg border bg-card p-4">{inner}</div>;
+}
+
 export function RiskChart({
   series,
   strategyName,
@@ -610,7 +830,7 @@ export function RiskChart({
   /** Model name, or full overview-style track title (`model · Top n · weight · frequency`). */
   strategyName?: string;
 }) {
-  const [view, setView] = useState<'drawdown' | 'sharpe'>('drawdown');
+  const [view, setView] = useState<'drawdown' | 'sharpe-holding' | 'sharpe-rolling'>('drawdown');
 
   const drawdownChartData = useMemo(() => {
     if (series.length < 2) return [];
@@ -620,12 +840,19 @@ export function RiskChart({
     }));
   }, [series]);
 
-  const sharpeReady = useMemo(
-    () => downsampleSeriesToIsoWeek(series).length >= ROLLING_SHARPE_MIN_SERIES_LENGTH,
-    [series]
+  const weeklySeries = useMemo(() => downsampleSeriesToIsoWeek(series), [series]);
+
+  const cumulativeSharpeReady = useMemo(
+    () => weeklySeries.length >= CUMULATIVE_SHARPE_MIN_SERIES_LENGTH,
+    [weeklySeries]
   );
 
-  if (drawdownChartData.length < 2 && !sharpeReady) return null;
+  const rollingSharpeReady = useMemo(
+    () => weeklySeries.length >= ROLLING_SHARPE_MIN_SERIES_LENGTH,
+    [weeklySeries]
+  );
+
+  if (drawdownChartData.length < 2 && !cumulativeSharpeReady && !rollingSharpeReady) return null;
 
   return (
     <div className="relative rounded-lg border bg-card p-4">
@@ -643,26 +870,45 @@ export function RiskChart({
         </button>
         <button
           type="button"
-          disabled={!sharpeReady}
+          disabled={!cumulativeSharpeReady}
           title={
-            sharpeReady
+            cumulativeSharpeReady
               ? undefined
-              : `Rolling Sharpe uses a ${ROLLING_SHARPE_WINDOW_WEEKS}-week window, so this chart needs at least ${ROLLING_SHARPE_WINDOW_WEEKS} completed ISO weeks. The headline Sharpe in Key metrics is available earlier (around 8 weeks).`
+              : `Holding-period Sharpe needs at least ${MIN_OBS_FOR_SHARPE} completed ISO weeks (same gate as the Sharpe in Key metrics).`
           }
-          onClick={() => setView('sharpe')}
+          onClick={() => setView('sharpe-holding')}
           className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-            view === 'sharpe'
+            view === 'sharpe-holding'
               ? 'bg-trader-blue text-white'
               : 'text-muted-foreground hover:text-foreground'
-          } ${!sharpeReady ? 'opacity-40 cursor-not-allowed hover:text-muted-foreground' : ''}`}
+          } ${!cumulativeSharpeReady ? 'opacity-40 cursor-not-allowed hover:text-muted-foreground' : ''}`}
         >
           Sharpe
         </button>
+        <button
+          type="button"
+          disabled={!rollingSharpeReady}
+          title={
+            rollingSharpeReady
+              ? undefined
+              : `Rolling Sharpe uses a ${ROLLING_SHARPE_WINDOW_WEEKS}-week window, so this chart needs at least ${ROLLING_SHARPE_WINDOW_WEEKS} completed ISO weeks. The headline Sharpe in Key metrics is available earlier (around 8 weeks).`
+          }
+          onClick={() => setView('sharpe-rolling')}
+          className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+            view === 'sharpe-rolling'
+              ? 'bg-trader-blue text-white'
+              : 'text-muted-foreground hover:text-foreground'
+          } ${!rollingSharpeReady ? 'opacity-40 cursor-not-allowed hover:text-muted-foreground' : ''}`}
+        >
+          Rolling Sharpe
+        </button>
       </div>
 
-      <div className="mb-3 min-w-0 pr-[13.5rem] sm:pr-[14.5rem]">
+      <div className="mb-3 min-w-0 pr-[18rem] sm:pr-[19.5rem]">
         {view === 'drawdown' ? (
           <DrawdownOverTimeChart series={series} strategyName={strategyName} embedded />
+        ) : view === 'sharpe-holding' ? (
+          <CumulativeSharpeRatioChart series={series} strategyName={strategyName} embedded />
         ) : (
           <RollingSharpeRatioChart series={series} strategyName={strategyName} embedded />
         )}

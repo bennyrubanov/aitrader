@@ -29,7 +29,8 @@ export function pickDefaultPortfolioSliceFromRanked(configs: RankedConfig[]): Po
 }
 
 /** Public query key for the selected portfolio preset on `/performance/[slug]`. */
-export const PERFORMANCE_PORTFOLIO_CONFIG_QUERY_KEY = 'config';
+export const PERFORMANCE_PORTFOLIO_CONFIG_QUERY_KEY = 'portfolio';
+const LEGACY_PERFORMANCE_PORTFOLIO_CONFIG_QUERY_KEY = 'config';
 
 const FREQUENCIES: RebalanceFrequency[] = ['weekly', 'monthly', 'quarterly', 'yearly'];
 const WEIGHTINGS: WeightingMethod[] = ['equal', 'cap'];
@@ -53,12 +54,16 @@ export function portfolioSliceToConfigSlug(slice: PortfolioConfigSlice): string 
 }
 
 /**
- * Parse `config=top10-weekly-equal` into a portfolio slice. Returns null if absent or invalid.
+ * Parse `portfolio=top10-weekly-equal` into a portfolio slice.
+ * Legacy `config=` is still accepted for backward-compatible incoming links.
+ * Returns null if absent or invalid.
  */
 export function parsePerformancePortfolioConfigParam(
   searchParams: URLSearchParams
 ): PortfolioConfigSlice | null {
-  const raw = searchParams.get(PERFORMANCE_PORTFOLIO_CONFIG_QUERY_KEY)?.trim();
+  const raw =
+    searchParams.get(PERFORMANCE_PORTFOLIO_CONFIG_QUERY_KEY)?.trim() ||
+    searchParams.get(LEGACY_PERFORMANCE_PORTFOLIO_CONFIG_QUERY_KEY)?.trim();
   if (!raw) return null;
   const m = /^top(\d+)-(weekly|monthly|quarterly|yearly)-(equal|cap)$/i.exec(raw);
   if (!m) return null;
@@ -117,7 +122,7 @@ export function portfolioSlicesEqual(a: PortfolioConfigSlice, b: PortfolioConfig
   );
 }
 
-/** Value for `config` whenever a portfolio is selected and ranked list is available (including rank #1). */
+/** Value for `portfolio` whenever a portfolio is selected and ranked list is available (including rank #1). */
 export function desiredPerformancePortfolioConfigParam(
   portfolio: PortfolioConfigSlice | null,
   ranked: RankedConfig[]
@@ -127,7 +132,7 @@ export function desiredPerformancePortfolioConfigParam(
 }
 
 /**
- * Copy `base` search params, remove legacy triplet keys and `config`, then set `config` when needed.
+ * Copy `base` search params, remove legacy triplet keys and portfolio key(s), then set `portfolio` when needed.
  */
 export function mergePortfolioIntoSearchParams(
   base: URLSearchParams,
@@ -139,6 +144,7 @@ export function mergePortfolioIntoSearchParams(
   next.delete('frequency');
   next.delete('weighting');
   next.delete(PERFORMANCE_PORTFOLIO_CONFIG_QUERY_KEY);
+  next.delete(LEGACY_PERFORMANCE_PORTFOLIO_CONFIG_QUERY_KEY);
   if (!portfolio || ranked.length === 0) return next;
   const slug = desiredPerformancePortfolioConfigParam(portfolio, ranked);
   if (slug) next.set(PERFORMANCE_PORTFOLIO_CONFIG_QUERY_KEY, slug);

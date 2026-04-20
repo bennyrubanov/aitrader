@@ -13,6 +13,7 @@
     "migrate:billing-finalize": "node scripts/finalize-migrated-billing.mjs",
     "backfill-benchmark-daily-prices": "tsx scripts/backfill-benchmark-daily-prices.ts",
     "backfill-configs": "node scripts/backfill-all-configs.mjs",
+    "backfill-config-holdings": "node scripts/backfill-config-holdings.mjs",
     "repair-weekly-benchmarks": "tsx scripts/repair-weekly-benchmarks.ts"
   },
   "dependencies": {

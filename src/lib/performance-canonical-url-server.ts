@@ -37,7 +37,7 @@ function stableQueryStringFromParams(sp: URLSearchParams): string {
 
 /**
  * When ranked configs are available, returns `/performance/{slug}?…` if the browser should be
- * redirected to a canonical query string (valid `config=`, legacy triplet keys stripped).
+ * redirected to a canonical query string (valid `portfolio=`, legacy triplet keys stripped).
  * Returns `null` if ranked data is unavailable or the URL is already canonical.
  */
 export async function getCanonicalPerformancePathIfNeeded(

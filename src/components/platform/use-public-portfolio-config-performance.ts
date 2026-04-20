@@ -62,7 +62,7 @@ export type UsePublicPortfolioConfigPerformanceArgs = {
   onSliceChange?: (slice: PublicConfigPerfSlice) => void;
   portfolioConfigOverride?: PortfolioConfigSlice | null;
   onPortfolioConfigChange?: (c: PortfolioConfigSlice | null) => void;
-  /** Parsed `config=topN-…` query param; applied once ranked configs load when valid. */
+  /** Parsed `portfolio=topN-…` query param; applied once ranked configs load when valid. */
   urlPortfolioSelection?: PortfolioConfigSlice | null;
 };
 

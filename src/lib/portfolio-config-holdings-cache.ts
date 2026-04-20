@@ -1,4 +1,5 @@
 import type { HoldingItem } from '@/lib/platform-performance-payload';
+import { useSyncExternalStore } from 'react';
 import {
   USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT,
   type UserPortfolioProfilesInvalidateDetail,
@@ -30,11 +31,14 @@ type CacheEntry<T> = {
 const CACHE_PREFIX = 'aitrader.platform.cache.v1.explore-holdings';
 const TTL_MS = 5 * 60_000;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const DATES_BATCH_SIZE = 10;
+const DATES_BATCH_SIZE = 20;
 
 const memoryStore = new Map<string, CacheEntry<ExploreHoldingsPayload>>();
 const inflightSingle = new Map<string, Promise<ExploreHoldingsPayload | null>>();
 const inflightDates = new Map<string, Promise<void>>();
+const cacheVersionListeners = new Set<() => void>();
+let cacheVersion = 0;
+let cacheVersionNotifyScheduled = false;
 let invalidateListenerBound = false;
 
 /** Stable cache key for explore-portfolio-config-holdings (slug + config + optional as-of date). */
@@ -99,6 +103,14 @@ function rememberValue(key: string, value: ExploreHoldingsPayload): void {
   const entry: CacheEntry<ExploreHoldingsPayload> = { value, updatedAt: Date.now() };
   memoryStore.set(key, entry);
   writeSessionEntry(key, entry);
+  cacheVersion += 1;
+  if (cacheVersionListeners.size > 0 && !cacheVersionNotifyScheduled) {
+    cacheVersionNotifyScheduled = true;
+    queueMicrotask(() => {
+      cacheVersionNotifyScheduled = false;
+      for (const listener of cacheVersionListeners) listener();
+    });
+  }
 }
 
 function remember(
@@ -268,6 +280,14 @@ export function invalidateExploreHoldingsCache(): void {
   memoryStore.clear();
   inflightSingle.clear();
   inflightDates.clear();
+  cacheVersion += 1;
+  if (cacheVersionListeners.size > 0 && !cacheVersionNotifyScheduled) {
+    cacheVersionNotifyScheduled = true;
+    queueMicrotask(() => {
+      cacheVersionNotifyScheduled = false;
+      for (const listener of cacheVersionListeners) listener();
+    });
+  }
   if (typeof window === 'undefined') return;
   try {
     const prefix = `${CACHE_PREFIX}.`;
@@ -287,4 +307,23 @@ export const HOLDINGS_DATE_SWITCH_MIN_SKELETON_MS = 0;
 
 export function sleepMs(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+export function getExploreHoldingsCacheVersion(): number {
+  return cacheVersion;
+}
+
+export function subscribeExploreHoldingsCache(listener: () => void): () => void {
+  cacheVersionListeners.add(listener);
+  return () => {
+    cacheVersionListeners.delete(listener);
+  };
+}
+
+export function useExploreHoldingsCacheVersion(): number {
+  return useSyncExternalStore(
+    subscribeExploreHoldingsCache,
+    getExploreHoldingsCacheVersion,
+    getExploreHoldingsCacheVersion
+  );
 }

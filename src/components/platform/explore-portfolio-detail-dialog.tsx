@@ -134,6 +134,18 @@ function fmtUsd(n: number | null | undefined): string {
   }).format(n);
 }
 
+function fmtOpenedDate(ymd: string | null | undefined): string | null {
+  if (!ymd) return null;
+  const parsed = new Date(`${ymd}T12:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(parsed);
+}
+
 function ExploreCostBasisCell({
   symbol,
   snapshot,
@@ -161,7 +173,13 @@ function ExploreCostBasisCell({
     );
   }
   const total = snapshot?.costBasisBySymbol[sym] ?? 0;
-  return <span className="tabular-nums font-medium">{fmtUsd(total)}</span>;
+  const openedOn = fmtOpenedDate(snapshot?.openedDateBySymbol[sym] ?? null);
+  return (
+    <span className="inline-flex flex-col leading-tight">
+      <span className="tabular-nums font-medium">{fmtUsd(total)}</span>
+      {openedOn ? <span className="text-[11px] text-muted-foreground">{openedOn}</span> : null}
+    </span>
+  );
 }
 
 type RebalanceActionKind = 'buy' | 'sell' | 'hold';
@@ -181,6 +199,28 @@ function rebalanceActionRows(
 function getDisplayPortfolioValue(value: number | null | undefined, isInitial: boolean): number | null {
   if (value == null || !Number.isFinite(value) || value <= 0) return null;
   return isInitial ? INITIAL_CAPITAL : value;
+}
+
+function estimateRebalanceBlocksSinceInception(
+  inceptionDate: string | null,
+  rebalanceFrequency: string | null | undefined
+): number {
+  if (!inceptionDate) return 1;
+  const inceptionMs = Date.parse(`${inceptionDate}T00:00:00Z`);
+  if (!Number.isFinite(inceptionMs)) return 1;
+  const nowMs = Date.now();
+  const elapsedDays = Math.max(0, (nowMs - inceptionMs) / (24 * 60 * 60 * 1000));
+  const cadenceDays =
+    rebalanceFrequency === 'weekly'
+      ? 7
+      : rebalanceFrequency === 'monthly'
+        ? 30.4375
+        : rebalanceFrequency === 'quarterly'
+          ? 91.3125
+          : rebalanceFrequency === 'yearly'
+            ? 365.25
+            : 30.4375;
+  return Math.max(1, Math.floor(elapsedDays / cadenceDays) + 1);
 }
 
 function ExploreRebalanceActionsTable({
@@ -286,8 +326,8 @@ function ExploreRebalanceActionsTable({
             Stock
           </TableHead>
           {useAllocationOnly ? (
-            <TableHead className="h-9 w-full min-w-[7rem] px-1.5 py-1.5 text-center align-middle">
-              <span className="inline-flex min-w-0 max-w-full items-center justify-center gap-1">
+            <TableHead className="h-9 w-full min-w-[7rem] px-1.5 py-1.5 text-left align-middle">
+              <span className="inline-flex min-w-0 max-w-full items-center justify-start gap-1">
                 <span className="truncate">Value</span>
               </span>
             </TableHead>
@@ -329,7 +369,7 @@ function ExploreRebalanceActionsTable({
               </Link>
             </TableCell>
             {useAllocationOnly ? (
-              <TableCell className="min-w-0 whitespace-normal px-1.5 py-1.5 text-center align-middle tabular-nums">
+              <TableCell className="min-w-0 whitespace-normal px-1.5 py-1.5 text-left align-middle tabular-nums">
                 {allocationCell(kind, line)}
               </TableCell>
             ) : (
@@ -598,6 +638,10 @@ export function ExplorePortfolioDetailDialog({
   const [exploreFullMetrics, setExploreFullMetrics] = useState<ExploreFullMetrics | null>(null);
   const [explorePerfLoading, setExplorePerfLoading] = useState(false);
   const [exploreActionsLoading, setExploreActionsLoading] = useState(false);
+  const [holdingsCacheRev, setHoldingsCacheRev] = useState(0);
+  const bumpHoldingsCacheRev = useCallback(() => {
+    setHoldingsCacheRev((n) => n + 1);
+  }, []);
 
   const authState = useAuthState();
   const appAccess = useMemo(() => getAppAccessState(authState), [authState]);
@@ -623,6 +667,7 @@ export function ExplorePortfolioDetailDialog({
       setExplorePerfRows([]);
       setExplorePerfSeries([]);
       setExploreFullMetrics(null);
+      setHoldingsCacheRev(0);
       return;
     }
     const slug = strategySlug?.trim();
@@ -667,13 +712,14 @@ export function ExplorePortfolioDetailDialog({
         setRebalanceDates(data.rebalanceDates);
         setHoldingsAsOfPriceBySymbol(data.asOfPriceBySymbol);
         setHoldingsLatestPriceBySymbol(data.latestPriceBySymbol);
+        bumpHoldingsCacheRev();
       })
       .finally(() => {
         if (exploreHoldingsRequestIdRef.current === reqId) {
           setHoldingsLoading(false);
         }
       });
-  }, [open, config, strategySlug, exploreHoldingsUnlocked]);
+  }, [open, config, strategySlug, exploreHoldingsUnlocked, bumpHoldingsCacheRev]);
 
   const visibleDates = useMemo(
     () => rebalanceDates.slice(0, visibleDateCount),
@@ -684,6 +730,20 @@ export function ExplorePortfolioDetailDialog({
     [rebalanceDates, visibleDateCount]
   );
   const hasMoreRebalanceDates = visibleDateCount < rebalanceDates.length;
+  const bootstrapSkeletonCount = useMemo(() => {
+    // Before bootstrap returns dates, show up to the visible window skeletons.
+    // Once dates are known, cap skeletons to actual date blocks available.
+    // If dates are not known yet, estimate from inception + cadence (e.g. young yearly -> 1).
+    const estimatedBlocks = estimateRebalanceBlocksSinceInception(
+      modelInceptionDate,
+      config?.rebalanceFrequency
+    );
+    const requestedBlocks =
+      rebalanceDates.length > 0
+        ? Math.min(visibleDateCount, rebalanceDates.length)
+        : Math.min(visibleDateCount, estimatedBlocks);
+    return Math.max(1, Math.min(requestedBlocks, STREAMING_REBALANCE_SKELETON_CAP));
+  }, [rebalanceDates.length, visibleDateCount, modelInceptionDate, config?.rebalanceFrequency]);
   const loadMoreCount = Math.min(
     LOAD_MORE_REBALANCE_STEP,
     Math.max(0, rebalanceDates.length - visibleDateCount)
@@ -707,8 +767,10 @@ export function ExplorePortfolioDetailDialog({
     if (!open || !config || !exploreHoldingsUnlocked || nextDatesToPrefetch.length === 0) return;
     const slug = strategySlug.trim();
     if (!slug) return;
-    void loadExploreHoldingsForDates(slug, config.id, nextDatesToPrefetch);
-  }, [open, config, exploreHoldingsUnlocked, nextDatesToPrefetch, strategySlug]);
+    void loadExploreHoldingsForDates(slug, config.id, nextDatesToPrefetch).then(() => {
+      bumpHoldingsCacheRev();
+    });
+  }, [open, config, exploreHoldingsUnlocked, nextDatesToPrefetch, strategySlug, bumpHoldingsCacheRev]);
   const scheduleLoadMorePrefetch = useCallback(() => {
     clearLoadMoreHoverTimer();
     if (!hasMoreRebalanceDates) return;
@@ -766,6 +828,7 @@ export function ExplorePortfolioDetailDialog({
     setExploreActionsLoading(true);
     void loadExploreHoldingsForDates(slug, config.id, datesToFetch).finally(() => {
       if (!cancelled) {
+        bumpHoldingsCacheRev();
         setExploreActionsLoading(false);
         setLoadingMoreDates(false);
       }
@@ -773,7 +836,7 @@ export function ExplorePortfolioDetailDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, config, strategySlug, datesToFetch, exploreHoldingsUnlocked]);
+  }, [open, config, strategySlug, datesToFetch, exploreHoldingsUnlocked, bumpHoldingsCacheRev]);
 
   useEffect(() => {
     if (!open || !config) {
@@ -896,7 +959,7 @@ export function ExplorePortfolioDetailDialog({
     }
 
     return { rows, missingDates };
-  }, [config, strategySlug, visibleDates, rebalanceDates, selectedAsOf, holdings, explorePerfRows]);
+  }, [config, strategySlug, visibleDates, rebalanceDates, selectedAsOf, holdings, explorePerfRows, holdingsCacheRev]);
 
   const explorePublicCostBasisByDate = useMemo(() => {
     if (!config?.id || !strategySlug?.trim() || !rebalanceDates.length || !explorePerfRows.length) {
@@ -913,7 +976,7 @@ export function ExplorePortfolioDetailDialog({
         return { holdings: hit.holdings, asOfPriceBySymbol: hit.asOfPriceBySymbol };
       },
     });
-  }, [config?.id, strategySlug, rebalanceDates, explorePerfRows]);
+  }, [config?.id, strategySlug, rebalanceDates, explorePerfRows, holdingsCacheRev]);
   const exploreHoldingsTimeline = useMemo(() => {
     if (!config || !strategySlug?.trim() || visibleDates.length === 0) {
       return {
@@ -1004,6 +1067,7 @@ export function ExplorePortfolioDetailDialog({
     explorePerfRows,
     explorePublicCostBasisByDate,
     exploreHoldingsTopN,
+    holdingsCacheRev,
   ]);
   const exploreHoldingsRowsByDate = useMemo(
     () => new Map(exploreHoldingsTimeline.rows.map((row) => [row.date, row])),
@@ -1548,8 +1612,9 @@ export function ExplorePortfolioDetailDialog({
             ) : (holdingsLoading || exploreActionsLoading) &&
               exploreHoldingsTimeline.rows.length === 0 ? (
               <div className="space-y-2">
-                <ExploreHoldingsCardSkeleton />
-                <ExploreHoldingsCardSkeleton />
+                {Array.from({ length: bootstrapSkeletonCount }).map((_, idx) => (
+                  <ExploreHoldingsCardSkeleton key={`hs-bootstrap-${idx}`} />
+                ))}
               </div>
             ) : exploreHoldingsTimeline.rows.length === 0 ? (
               <p className="text-sm text-muted-foreground">No rebalance holdings history yet.</p>
@@ -1599,8 +1664,8 @@ export function ExplorePortfolioDetailDialog({
                                 <TableHead className="h-9 w-16 px-1.5 py-1.5 text-left align-middle">
                                   Stock
                                 </TableHead>
-                                <TableHead className="h-9 px-1.5 py-1.5 text-center align-middle whitespace-nowrap">
-                                  <span className="inline-flex items-center justify-center gap-1">
+                                <TableHead className="h-9 px-1.5 py-1.5 text-left align-middle whitespace-nowrap">
+                                  <span className="inline-flex items-center justify-start gap-1">
                                     {row.isLatest ? 'Value' : 'Value at rebalance'}
                                     {row.isLatest ? (
                                       <HoldingsAllocationColumnTooltip
@@ -1665,7 +1730,7 @@ export function ExplorePortfolioDetailDialog({
                                             <span className="block truncate font-medium">{h.symbol}</span>
                                           )}
                                         </TableCell>
-                                        <TableCell className="min-w-0 px-1.5 py-1.5 text-center tabular-nums">
+                                        <TableCell className="min-w-0 px-1.5 py-1.5 text-left tabular-nums">
                                           {showLive ? (
                                             <div className="min-w-0 space-y-0.5 leading-tight">
                                               <div className="truncate">
@@ -1738,7 +1803,7 @@ export function ExplorePortfolioDetailDialog({
                                             <span className="block truncate font-medium">{h.symbol}</span>
                                           )}
                                         </TableCell>
-                                        <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap text-muted-foreground">
+                                        <TableCell className="px-1.5 py-1.5 text-left tabular-nums whitespace-nowrap text-muted-foreground">
                                           <span className="text-[11px]">Was {(h.weight * 100).toFixed(1)}%</span>
                                         </TableCell>
                                         <TableCell className="py-1.5 pl-1.5 pr-3 text-right align-top">
@@ -1794,7 +1859,7 @@ export function ExplorePortfolioDetailDialog({
                                           <span className="block truncate font-medium">{h.symbol}</span>
                                         )}
                                       </TableCell>
-                                      <TableCell className="min-w-0 px-1.5 py-1.5 text-center tabular-nums">
+                                      <TableCell className="min-w-0 px-1.5 py-1.5 text-left tabular-nums">
                                         {showLive ? (
                                           <div className="min-w-0 space-y-0.5 leading-tight">
                                             <div className="truncate">
@@ -1903,8 +1968,9 @@ export function ExplorePortfolioDetailDialog({
             ) : (holdingsLoading || exploreActionsLoading) &&
               exploreRebalanceActionsTimeline.rows.length === 0 ? (
               <div className="space-y-2">
-                <ExploreActionsCardSkeleton />
-                <ExploreActionsCardSkeleton />
+                {Array.from({ length: bootstrapSkeletonCount }).map((_, idx) => (
+                  <ExploreActionsCardSkeleton key={`as-bootstrap-${idx}`} />
+                ))}
               </div>
             ) : exploreRebalanceActionsTimeline.rows.length === 0 ? (
               <p className="text-sm text-muted-foreground">No rebalance actions yet.</p>
@@ -2044,8 +2110,9 @@ export function ExplorePortfolioDetailDialog({
               exploreHoldingsTimeline.rows.length === 0 &&
               exploreRebalanceActionsTimeline.rows.length === 0 ? (
               <div className="space-y-2">
-                <ExploreHoldingsCardSkeleton />
-                <ExploreHoldingsCardSkeleton />
+                {Array.from({ length: bootstrapSkeletonCount }).map((_, idx) => (
+                  <ExploreHoldingsCardSkeleton key={`combined-bootstrap-${idx}`} />
+                ))}
               </div>
             ) : rebalanceDates.length === 0 ? (
               <p className="text-sm text-muted-foreground">No rebalance history yet.</p>
@@ -2117,8 +2184,8 @@ export function ExplorePortfolioDetailDialog({
                                       <TableHead className="h-9 w-16 px-1.5 py-1.5 text-left align-middle">
                                         Stock
                                       </TableHead>
-                                      <TableHead className="h-9 px-1.5 py-1.5 text-center align-middle whitespace-nowrap">
-                                        <span className="inline-flex items-center justify-center gap-1">
+                                      <TableHead className="h-9 px-1.5 py-1.5 text-left align-middle whitespace-nowrap">
+                                        <span className="inline-flex items-center justify-start gap-1">
                                           {holdingsRow.isLatest ? 'Value' : 'Value at rebalance'}
                                           {holdingsRow.isLatest ? (
                                             <HoldingsAllocationColumnTooltip
@@ -2190,7 +2257,7 @@ export function ExplorePortfolioDetailDialog({
                                                   <span className="block truncate font-medium">{h.symbol}</span>
                                                 )}
                                               </TableCell>
-                                              <TableCell className="min-w-0 px-1.5 py-1.5 text-center tabular-nums">
+                                              <TableCell className="min-w-0 px-1.5 py-1.5 text-left tabular-nums">
                                                 {showLive ? (
                                                   <div className="min-w-0 space-y-0.5 leading-tight">
                                                     <div className="truncate">
@@ -2266,7 +2333,7 @@ export function ExplorePortfolioDetailDialog({
                                                   <span className="block truncate font-medium">{h.symbol}</span>
                                                 )}
                                               </TableCell>
-                                              <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap text-muted-foreground">
+                                              <TableCell className="px-1.5 py-1.5 text-left tabular-nums whitespace-nowrap text-muted-foreground">
                                                 <span className="text-[11px]">
                                                   Was {(h.weight * 100).toFixed(1)}%
                                                 </span>
@@ -2331,7 +2398,7 @@ export function ExplorePortfolioDetailDialog({
                                                 <span className="block truncate font-medium">{h.symbol}</span>
                                               )}
                                             </TableCell>
-                                            <TableCell className="min-w-0 px-1.5 py-1.5 text-center tabular-nums">
+                                            <TableCell className="min-w-0 px-1.5 py-1.5 text-left tabular-nums">
                                               {showLive ? (
                                                 <div className="min-w-0 space-y-0.5 leading-tight">
                                                   <div className="truncate">

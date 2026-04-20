@@ -26,6 +26,10 @@ export function HoldingsCostBasisColumnTooltip({
           A full exit resets the lot; a re-entry starts a new basis. Analytical estimate — not tax
           or broker cost basis.
         </p>
+        <p className="text-muted-foreground">
+          The displayed opened date is when the currently held lot began, and it resets after a full
+          exit and re-entry.
+        </p>
       </div>
     ) : (
       <div className="space-y-2">
@@ -36,6 +40,10 @@ export function HoldingsCostBasisColumnTooltip({
         </p>
         <p className="text-muted-foreground">
           For illustration only — not your personal tax or broker cost basis.
+        </p>
+        <p className="text-muted-foreground">
+          The displayed opened date is when the currently held lot began, and it resets after a full
+          exit and re-entry.
         </p>
       </div>
     );

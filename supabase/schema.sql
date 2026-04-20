@@ -865,6 +865,23 @@ create index if not exists idx_spcp_compute_status
   on public.strategy_portfolio_config_performance(compute_status);
 
 -- =========================
+-- 14b) Config-scoped holdings snapshots
+-- =========================
+
+create table if not exists public.strategy_portfolio_config_holdings (
+  strategy_id uuid not null references public.strategy_models(id) on delete cascade,
+  config_id uuid not null references public.portfolio_configs(id) on delete cascade,
+  run_date date not null,
+  holdings jsonb not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (strategy_id, config_id, run_date)
+);
+
+create index if not exists idx_spch_strategy_config_date
+  on public.strategy_portfolio_config_holdings(strategy_id, config_id, run_date desc);
+
+-- =========================
 -- 15) User portfolio profiles (one active profile per user)
 -- =========================
 
