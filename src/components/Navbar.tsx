@@ -106,6 +106,7 @@ const Navbar: React.FC = () => {
   const [isNavigatingToSignIn, setIsNavigatingToSignIn] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [hasHydrated, setHasHydrated] = useState(false);
   const [avatarLoaded, setAvatarLoaded] = useState(false);
   const [openMenu, setOpenMenu] = useState<"platform" | "resources" | "company" | null>(null);
   const pathname = usePathname();
@@ -116,9 +117,10 @@ const Navbar: React.FC = () => {
   const isAuthenticated = authState.isAuthenticated;
   const hasPremiumAccess = authState.hasPremiumAccess;
   const subscriptionTier = authState.subscriptionTier;
-  const isFreeSignedIn = isAuthenticated && !hasPremiumAccess;
-  const primaryCtaHref = isAuthenticated ? "/platform/overview" : "/sign-up";
-  const isAuthLoading = !authState.isLoaded;
+  const authUiReady = hasHydrated && authState.isLoaded;
+  const showAuthenticatedUi = authUiReady && isAuthenticated;
+  const showGuestUi = authUiReady && !isAuthenticated;
+  const primaryCtaHref = showAuthenticatedUi ? "/platform/overview" : "/sign-up";
   const account = {
     name: authState.name,
     email: authState.email,
@@ -132,6 +134,10 @@ const Navbar: React.FC = () => {
   useEffect(() => {
     setIsNavigatingToSignIn(false);
   }, [pathname]);
+
+  useEffect(() => {
+    setHasHydrated(true);
+  }, []);
 
   useEffect(() => {
     setNavPathReady(true);
@@ -546,15 +552,15 @@ const Navbar: React.FC = () => {
 
           <div className="hidden items-center gap-2 md:flex">
             <ThemeToggle className="rounded-full" />
-            {isAuthenticated && <AccountDropdown />}
-            {!isAuthenticated && (
+            {showAuthenticatedUi && <AccountDropdown />}
+            {showGuestUi && (
               <Button
                 variant="outline"
                 className="rounded-full px-5"
                 onClick={handleLogin}
-                disabled={isNavigatingToSignIn || isAuthLoading}
+                disabled={isNavigatingToSignIn || !authUiReady}
               >
-                {isNavigatingToSignIn || isAuthLoading ? (
+                {isNavigatingToSignIn || !authUiReady ? (
                   <Loader2 size={16} className="mr-2 animate-spin" />
                 ) : (
                   <LogIn size={16} className="mr-2" />
@@ -571,7 +577,7 @@ const Navbar: React.FC = () => {
             >
               <Button className="rounded-full bg-trader-blue px-5 text-white transition-all duration-300 hover:bg-trader-blue-dark">
                 <span className="mr-2">
-                  {isAuthenticated ? "Platform" : "Get Started"}
+                  {showAuthenticatedUi ? "Platform" : "Get Started"}
                 </span>
                 <ArrowRight size={16} />
               </Button>
@@ -580,7 +586,7 @@ const Navbar: React.FC = () => {
 
           <div className="flex items-center gap-2 md:hidden">
             <ThemeToggle className="rounded-full" />
-            {isAuthenticated && <AccountDropdown mobile />}
+            {showAuthenticatedUi && <AccountDropdown mobile />}
             <Sheet open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
               <SheetTrigger asChild>
                 <Button variant="outline" size="icon" className="rounded-full" aria-label="Open navigation menu">
@@ -694,14 +700,14 @@ const Navbar: React.FC = () => {
                   </div>
 
                   <div className="shrink-0 space-y-2 border-t border-border/60 pt-4">
-                    {!isAuthenticated && (
+                    {showGuestUi && (
                       <Button
                         variant="outline"
                         className="w-full justify-center rounded-full"
                         onClick={handleLogin}
-                        disabled={isNavigatingToSignIn || isAuthLoading}
+                        disabled={isNavigatingToSignIn || !authUiReady}
                       >
-                        {isNavigatingToSignIn || isAuthLoading ? (
+                        {isNavigatingToSignIn || !authUiReady ? (
                           <Loader2 size={16} className="mr-2 animate-spin" />
                         ) : (
                           <LogIn size={16} className="mr-2" />
@@ -720,7 +726,7 @@ const Navbar: React.FC = () => {
                       >
                         <Button className="w-full rounded-full bg-trader-blue text-white transition-all duration-300 hover:bg-trader-blue-dark">
                           <span className="mr-2">
-                            {isAuthenticated ? "Platform" : "Get Started"}
+                            {showAuthenticatedUi ? "Platform" : "Get Started"}
                           </span>
                           <ArrowRight size={16} />
                         </Button>

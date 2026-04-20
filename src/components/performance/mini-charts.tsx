@@ -190,13 +190,11 @@ export function CagrOverTimeChart({
     <div className="rounded-lg border bg-card p-4">
       <p className="text-sm font-semibold mb-1">CAGR over time</p>
       <p className="text-xs text-muted-foreground mb-3">
-        Annualized growth since inception, recomputed each ISO week (same window for each line). The
-        line starts after about 4 weeks of history; early points can swing a lot until more weeks roll
-        in.
+        Annualized growth since inception, recomputed each week.
       </p>
       {showPreliminaryNote ? (
         <p className="text-xs text-muted-foreground mb-3 rounded-md border border-dashed border-border/80 bg-muted/30 px-2.5 py-2">
-          Preliminary: still a short track—annualized figures can move a lot as more weeks roll in.
+          Preliminary results: annualized figures can move a lot as more data rolls in.
         </p>
       ) : null}
       <ChartContainer

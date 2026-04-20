@@ -29,6 +29,7 @@ import {
 import { cn } from '@/lib/utils';
 import type { StockNewsItem } from '@/lib/stock-news';
 import { formatDistanceToNow } from 'date-fns';
+import { RiskTextWithLinks } from '@/components/platform/risk-text-with-links';
 
 /** Stable across SSR and browser (avoid `toLocaleString()` default TZ mismatch). */
 const newsPublishedAbsoluteFormatter = new Intl.DateTimeFormat('en-US', {
@@ -855,7 +856,9 @@ const StockDetailClient = ({
                           latestRisks.length > 0 ? (
                             <ul className="text-sm text-foreground/90 list-disc pl-5 space-y-1">
                               {latestRisks.map((risk) => (
-                                <li key={risk}>{risk}</li>
+                                <li key={risk}>
+                                  <RiskTextWithLinks text={risk} />
+                                </li>
                               ))}
                             </ul>
                           ) : (

@@ -406,7 +406,10 @@ function PerformancePagePublicClientInner({
     setSidebarPortfolioConfig(null);
   }, [slug]);
   const [quintileDate, setQuintileDate] = useState<string | null>(null);
-  const [quintileView, setQuintileView] = useState<'weekly' | 'monthly'>('weekly');
+  const [quintileView, setQuintileView] = useState<'weekly' | 'fourWeek'>('weekly');
+  const [smoothMonthlyQuintiles, setSmoothMonthlyQuintiles] = useState(false);
+  const [quintileMonth, setQuintileMonth] = useState<string | null>(null);
+  const [fourWeekQuintileDate, setFourWeekQuintileDate] = useState<string | null>(null);
   const [regressionDate, setRegressionDate] = useState<string | null>(null);
   const [regressionView, setRegressionView] = useState<'weekly' | 'monthly'>('weekly');
   const [regressionMonth, setRegressionMonth] = useState<string | null>(null);
@@ -432,6 +435,14 @@ function PerformancePagePublicClientInner({
 
   useLayoutEffect(() => {
     lastSyncedSearchParamsStringRef.current = null;
+  }, [slug]);
+
+  useEffect(() => {
+    setQuintileDate(null);
+    setQuintileMonth(null);
+    setFourWeekQuintileDate(null);
+    setQuintileView('weekly');
+    setSmoothMonthlyQuintiles(false);
   }, [slug]);
 
   const urlPortfolioSelection = useMemo(() => {
@@ -893,6 +904,16 @@ function PerformancePagePublicClientInner({
     () => research?.regressionHistory ?? [],
     [research?.regressionHistory]
   );
+  const monthlyQuintileHistory = useMemo(
+    () => research?.monthlyQuintiles ?? [],
+    [research?.monthlyQuintiles]
+  );
+  const fourWeekQuintileHistory = useMemo(() => {
+    const history = research?.fourWeekQuintileHistory ?? [];
+    if (history.length > 0) return history;
+    const latest = research?.fourWeekQuintiles;
+    return latest ? [latest] : [];
+  }, [research?.fourWeekQuintileHistory, research?.fourWeekQuintiles]);
   const monthlyRegressionHistory = useMemo(
     () => research?.monthlyRegressionHistory ?? [],
     [research?.monthlyRegressionHistory]
@@ -958,13 +979,30 @@ function PerformancePagePublicClientInner({
   }, [research, quintileDate]);
 
   const selectedMonthlySnapshot: MonthlyQuintileSnapshot | null = useMemo(() => {
-    const monthly = research?.monthlyQuintiles ?? [];
-    if (!monthly.length) return null;
-    return monthly[0] ?? null;
-  }, [research]);
+    if (!monthlyQuintileHistory.length) return null;
+    const target = quintileMonth ?? monthlyQuintileHistory[0]?.month;
+    return (
+      monthlyQuintileHistory.find((m) => m.month === target) ??
+      monthlyQuintileHistory[0] ??
+      null
+    );
+  }, [monthlyQuintileHistory, quintileMonth]);
+
+  const selectedFourWeekSnapshot: QuintileSnapshot | null = useMemo(() => {
+    if (!fourWeekQuintileHistory.length) return null;
+    const target = fourWeekQuintileDate ?? fourWeekQuintileHistory[0]?.runDate;
+    return (
+      fourWeekQuintileHistory.find((s) => s.runDate === target) ??
+      fourWeekQuintileHistory[0] ??
+      null
+    );
+  }, [fourWeekQuintileDate, fourWeekQuintileHistory]);
+
+  const isWeeklySmoothed = quintileView === 'weekly' && smoothMonthlyQuintiles;
 
   const activeQuintileRows = useMemo(() => {
-    if (quintileView === 'weekly') return selectedQuintileSnapshot?.rows ?? [];
+    if (quintileView === 'fourWeek') return selectedFourWeekSnapshot?.rows ?? [];
+    if (!isWeeklySmoothed) return selectedQuintileSnapshot?.rows ?? [];
     return (
       selectedMonthlySnapshot?.rows?.map((r) => ({
         quintile: r.quintile,
@@ -972,15 +1010,35 @@ function PerformancePagePublicClientInner({
         return: r.avgReturn,
       })) ?? []
     );
-  }, [quintileView, selectedQuintileSnapshot?.rows, selectedMonthlySnapshot?.rows]);
+  }, [
+    isWeeklySmoothed,
+    quintileView,
+    selectedFourWeekSnapshot?.rows,
+    selectedMonthlySnapshot?.rows,
+    selectedQuintileSnapshot?.rows,
+  ]);
 
-  const weeklySpread = useMemo(() => {
+  const selectedMonthlyWeekCount = selectedMonthlySnapshot?.weekCount ?? 0;
+  const selectedMonthlyIsPartial = selectedMonthlyWeekCount > 0 && selectedMonthlyWeekCount < 3;
+
+  const activeQuintileSpread = useMemo(() => {
     const rows = activeQuintileRows;
     const q1 = rows.find((r) => r.quintile === 1)?.return;
     const q5 = rows.find((r) => r.quintile === 5)?.return;
     if (typeof q1 !== 'number' || typeof q5 !== 'number') return null;
     return q5 - q1;
   }, [activeQuintileRows]);
+
+  const weeklyQuintileWinRate = research?.quintileWinRate ?? null;
+  const monthlyQuintileWinRate = research?.monthlyQuintileWinRate ?? null;
+  const fourWeekQuintileWinRate = research?.fourWeekQuintileWinRate ?? null;
+  const selectedMonthlyRowsByQuintile = useMemo(() => {
+    const map = new Map<number, MonthlyQuintileSnapshot['rows'][number]>();
+    for (const row of selectedMonthlySnapshot?.rows ?? []) {
+      map.set(row.quintile, row);
+    }
+    return map;
+  }, [selectedMonthlySnapshot?.rows]);
 
   const outperformanceVsCap = useMemo(() => {
     if (!displayMetrics) return null;
@@ -2068,36 +2126,54 @@ function PerformancePagePublicClientInner({
                 <div>
                   <CardTitle className="text-base">Quintile analysis</CardTitle>
                   <CardDescription className="mt-1">
-                    Stocks split into 5 equal groups by AI score. Q1 = lowest rated, Q5 = highest
-                    rated. If the model has real signal, Q5 should consistently outperform Q1.
+                    Stocks split into 5 equal groups by AI-scored rank (Q1 = lowest rated, Q5 = highest
+                    rated). Weekly view shows the raw 1-week horizon signal, while 4-week non-overlap
+                    checks if the same formation signal persists across a full 4-week hold. Missing
+                    rank values are treated as neutral (0.5), which can concentrate those names
+                    near Q3.
                   </CardDescription>
                 </div>
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex items-center gap-1 rounded-md border bg-card p-0.5 shadow-sm">
-                    <button
-                      type="button"
-                      onClick={() => setQuintileView('weekly')}
-                      className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                        quintileView === 'weekly'
-                          ? 'bg-trader-blue text-white'
-                          : 'text-muted-foreground hover:text-foreground'
-                      }`}
-                    >
-                      Weekly
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setQuintileView('monthly')}
-                      className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                        quintileView === 'monthly'
-                          ? 'bg-trader-blue text-white'
-                          : 'text-muted-foreground hover:text-foreground'
-                      }`}
-                    >
-                      Monthly avg
-                    </button>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-1 rounded-md border bg-card p-0.5 shadow-sm">
+                      <button
+                        type="button"
+                        onClick={() => setQuintileView('weekly')}
+                        className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                          quintileView === 'weekly'
+                            ? 'bg-trader-blue text-white'
+                            : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        Weekly
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setQuintileView('fourWeek')}
+                        className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                          quintileView === 'fourWeek'
+                            ? 'bg-trader-blue text-white'
+                            : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        4-week non-overlap
+                      </button>
+                    </div>
+                    {quintileView === 'weekly' && (
+                      <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+                        <input
+                          type="checkbox"
+                          className="h-3.5 w-3.5 rounded border-border accent-trader-blue"
+                          checked={smoothMonthlyQuintiles}
+                          onChange={(e) => setSmoothMonthlyQuintiles(e.target.checked)}
+                        />
+                        Smooth to monthly average
+                      </label>
+                    )}
                   </div>
-                  {quintileView === 'weekly' && (research?.quintileHistory?.length ?? 0) > 1 && (
+                  {quintileView === 'weekly' &&
+                    !smoothMonthlyQuintiles &&
+                    (research?.quintileHistory?.length ?? 0) > 1 && (
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button
@@ -2127,27 +2203,143 @@ function PerformancePagePublicClientInner({
                       </DropdownMenuContent>
                     </DropdownMenu>
                   )}
+                  {quintileView === 'weekly' && smoothMonthlyQuintiles && monthlyQuintileHistory.length > 1 && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5 shrink-0">
+                          Avg:{' '}
+                          {formatMonthLabel(
+                            selectedMonthlySnapshot?.month ?? monthlyQuintileHistory[0]?.month ?? ''
+                          )}
+                          {selectedMonthlyIsPartial && (
+                            <span className="text-[10px] text-muted-foreground">
+                              {' '}
+                              (partial)
+                            </span>
+                          )}
+                          <ChevronDown className="size-3" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="max-h-48 overflow-y-auto">
+                        {monthlyQuintileHistory.map((m) => (
+                          <DropdownMenuItem
+                            key={m.month}
+                            onSelect={() => setQuintileMonth(m.month)}
+                            className={
+                              m.month === selectedMonthlySnapshot?.month
+                                ? 'font-semibold bg-muted'
+                                : m.weekCount < 3
+                                  ? 'text-muted-foreground'
+                                  : ''
+                            }
+                          >
+                            {formatMonthLabel(m.month)}
+                            {m.weekCount < 3 ? ` (partial - ${m.weekCount}w)` : ''}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+                  {quintileView === 'fourWeek' && fourWeekQuintileHistory.length > 1 && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5 shrink-0">
+                          Formation date:{' '}
+                          {fmt.date(selectedFourWeekSnapshot?.runDate ?? fourWeekQuintileHistory[0]?.runDate)}
+                          <ChevronDown className="size-3" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="max-h-48 overflow-y-auto">
+                        {fourWeekQuintileHistory.map((s) => (
+                          <DropdownMenuItem
+                            key={s.runDate}
+                            onSelect={() => setFourWeekQuintileDate(s.runDate)}
+                            className={
+                              (fourWeekQuintileDate ?? fourWeekQuintileHistory[0]?.runDate) === s.runDate
+                                ? 'font-semibold bg-muted'
+                                : ''
+                            }
+                          >
+                            {fmt.date(s.runDate)}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
                 </div>
               </div>
             </CardHeader>
             <CardContent>
               {/* Win rate summary */}
-              {research?.quintileWinRate && (
+              {quintileView === 'weekly' && !smoothMonthlyQuintiles && weeklyQuintileWinRate && (
                 <div className="mb-4 rounded-lg border bg-muted/30 px-4 py-3">
                   <p className="text-sm font-medium">
                     Q5 outperformed Q1 in{' '}
                     <span
                       className={
-                        research.quintileWinRate.rate >= 0.5 ? 'text-green-600' : 'text-red-500'
+                        weeklyQuintileWinRate.rate >= 0.5 ? 'text-green-600' : 'text-red-500'
                       }
                     >
-                      {research.quintileWinRate.wins} of {research.quintileWinRate.total} weeks
+                      {weeklyQuintileWinRate.wins} of {weeklyQuintileWinRate.total} weeks
                     </span>{' '}
-                    ({Math.round(research.quintileWinRate.rate * 100)}%)
+                    ({Math.round(weeklyQuintileWinRate.rate * 100)}%)
                   </p>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     Above 50% means top-rated stocks outperform bottom-rated stocks more often than
                     not.
+                  </p>
+                </div>
+              )}
+              {quintileView === 'weekly' && smoothMonthlyQuintiles && (
+                <div className="mb-4 rounded-lg border bg-muted/30 px-4 py-3 space-y-1.5">
+                  {weeklyQuintileWinRate && (
+                    <p className="text-sm">
+                      <span className="font-medium">Weekly win rate:</span>{' '}
+                      <span
+                        className={
+                          weeklyQuintileWinRate.rate >= 0.5 ? 'text-green-600' : 'text-red-500'
+                        }
+                      >
+                        {weeklyQuintileWinRate.wins}/{weeklyQuintileWinRate.total} (
+                        {Math.round(weeklyQuintileWinRate.rate * 100)}%)
+                      </span>
+                    </p>
+                  )}
+                  {monthlyQuintileWinRate && (
+                    <p className="text-sm">
+                      <span className="font-medium">Monthly-smoothed win rate:</span>{' '}
+                      <span
+                        className={
+                          monthlyQuintileWinRate.rate >= 0.5 ? 'text-green-600' : 'text-red-500'
+                        }
+                      >
+                        {monthlyQuintileWinRate.wins}/{monthlyQuintileWinRate.total} months (
+                        {Math.round(monthlyQuintileWinRate.rate * 100)}%)
+                      </span>
+                    </p>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    Monthly smoothing averages weekly 1-week horizon quintile returns inside each
+                    calendar month.
+                  </p>
+                </div>
+              )}
+              {quintileView === 'fourWeek' && fourWeekQuintileWinRate && (
+                <div className="mb-4 rounded-lg border bg-muted/30 px-4 py-3">
+                  <p className="text-sm font-medium">
+                    Q5 outperformed Q1 in{' '}
+                    <span
+                      className={
+                        fourWeekQuintileWinRate.rate >= 0.5 ? 'text-green-600' : 'text-red-500'
+                      }
+                    >
+                      {fourWeekQuintileWinRate.wins} of {fourWeekQuintileWinRate.total} 4-week windows
+                    </span>{' '}
+                    ({Math.round(fourWeekQuintileWinRate.rate * 100)}%)
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    This checks whether the same formation ranking still differentiates returns over a
+                    full 4-week hold.
                   </p>
                 </div>
               )}
@@ -2175,22 +2367,47 @@ function PerformancePagePublicClientInner({
                       {fmt.pct(row.return, 2)}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {quintileView === 'weekly'
+                      {quintileView === 'fourWeek'
                         ? `${row.stockCount} stocks`
-                        : `${row.stockCount}w avg`}
+                        : isWeeklySmoothed
+                          ? (() => {
+                              const monthlyRow = selectedMonthlyRowsByQuintile.get(row.quintile);
+                              if (!monthlyRow) return `${row.stockCount}w avg`;
+                              return `${monthlyRow.weekCount}w avg · ${monthlyRow.stockTotal} obs`;
+                            })()
+                          : `${row.stockCount} stocks`}
                     </p>
                   </div>
                 ))}
               </div>
+              {activeQuintileRows.length === 0 && (
+                <p className="text-sm text-muted-foreground mt-3">
+                  {quintileView === 'fourWeek'
+                    ? '4-week non-overlapping quintile data is not available yet for this strategy.'
+                    : 'Quintile data is not available yet for this selection.'}
+                </p>
+              )}
 
-              {weeklySpread != null && (
+              {activeQuintileSpread != null && (
                 <p className="text-sm text-muted-foreground mt-3">
                   Q5 outperformed Q1 by{' '}
-                  <strong className={weeklySpread >= 0 ? 'text-green-600' : 'text-red-600'}>
-                    {fmt.pct(weeklySpread, 2)}
+                  <strong
+                    className={activeQuintileSpread >= 0 ? 'text-green-600' : 'text-red-600'}
+                  >
+                    {fmt.pct(activeQuintileSpread, 2)}
                   </strong>{' '}
-                  {quintileView === 'weekly' ? 'that week' : 'on average this month'}. A positive
-                  spread means higher-rated stocks outperformed lower-rated ones.
+                  {quintileView === 'fourWeek'
+                    ? 'over the selected 4-week hold window'
+                    : isWeeklySmoothed
+                      ? 'on average in the selected calendar month'
+                      : 'that week'}
+                  . A positive spread means higher-rated stocks outperformed lower-rated ones.
+                </p>
+              )}
+              {isWeeklySmoothed && selectedMonthlyIsPartial && (
+                <p className="text-xs text-amber-700 dark:text-amber-400 mt-2">
+                  Partial month: this average is based on {selectedMonthlyWeekCount} weekly snapshot
+                  {selectedMonthlyWeekCount === 1 ? '' : 's'}.
                 </p>
               )}
             </CardContent>

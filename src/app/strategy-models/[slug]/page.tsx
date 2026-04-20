@@ -49,6 +49,7 @@ const MODEL_DETAIL_TOC = [
   { id: 'portfolio-ranking-how', label: '↳ ↳ How we rank portfolios' },
   { id: 'methodology-scoring', label: '↳ Scoring' },
   { id: 'methodology-performance-metrics', label: '↳ Performance metrics' },
+  { id: 'methodology-sharpe', label: '↳ Sharpe ratio' },
   { id: 'methodology-turnover', label: '↳ Turnover & costs' },
   { id: 'methodology-quintiles', label: '↳ Quintile analysis' },
   { id: 'methodology-regression', label: '↳ Regression' },
@@ -381,20 +382,23 @@ export default async function StrategyModelDetailPage({ params }: Props) {
                 </p>
                 <p>
                   The score blends{' '}
-                  <strong className="text-foreground">six</strong> dimensions:
+                  <strong className="text-foreground">five</strong> dimensions:
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {[
-                  { label: 'Sharpe ratio', weight: '30%', note: 'Risk-adjusted weekly return' },
-                  { label: 'CAGR', weight: '25%', note: 'Annualized return from inception' },
+                  {
+                    label: 'Sharpe ratio',
+                    weight: '30%',
+                    note: 'Weekly MTM risk-adjusted return (see Sharpe section)',
+                  },
+                  { label: 'Total return', weight: '35%', note: 'Cumulative net return from $10k start' },
                   {
                     label: 'Consistency',
                     weight: '15%',
                     note: '% of weeks beating Nasdaq-100 (cap) that week',
                   },
                   { label: 'Max drawdown', weight: '10%', note: 'Shallower losses score higher' },
-                  { label: 'Total return', weight: '10%', note: 'Cumulative return vs $10k start' },
                   {
                     label: 'vs Nasdaq-100 (cap)',
                     weight: '10%',
@@ -411,13 +415,19 @@ export default async function StrategyModelDetailPage({ params }: Props) {
               <div className="text-sm text-muted-foreground space-y-2 leading-relaxed">
                 <p>
                   <strong className="text-foreground">Why both growth and risk:</strong> total return
-                  and benchmark-relative return keep the list aligned with what you see on portfolio
-                  cards, while Sharpe, consistency, and drawdown still down-rank configs that only
-                  looked good from one lucky stretch or extreme risk-taking.
+                  and benchmark-relative return capture realized growth, while Sharpe, consistency, and
+                  drawdown still down-rank configs that only looked good from one lucky stretch or
+                  extreme risk-taking. CAGR is shown on portfolios but is not part of the composite:
+                  over short windows annualization can be noisy, and total return plus benchmark-relative
+                  return already capture growth.
                 </p>
                 <p className="text-xs">
                   Portfolios require at least 2 weeks of data to be ranked. Those with fewer
                   observations are shown with a &quot;building track record&quot; status.
+                </p>
+                <p className="text-xs">
+                  Composite rank appears only when all five inputs are finite: Sharpe, total return,
+                  consistency, max drawdown, and excess return vs Nasdaq-100 cap.
                 </p>
               </div>
             </div>
@@ -490,10 +500,83 @@ export default async function StrategyModelDetailPage({ params }: Props) {
                 </span>
               </p>
               <p>
+                <strong>Max drawdown</strong> measures the worst peak-to-trough decline in the net equity
+                curve:
+                <span className="mx-1 font-mono text-xs">
+                  max_drawdown = min_t ((equity_t / running_peak_t) &minus; 1)
+                </span>
+                . It is reported as a negative decimal; values closer to 0 are better.
+              </p>
+              <p>
+                <strong>Consistency</strong> measures weekly steadiness versus Nasdaq-100 cap:
+                <span className="mx-1 font-mono text-xs">
+                  consistency = #weeks(portfolio_wow &ge; benchmark_wow) / #weeks_compared
+                </span>
+                , where weekly returns come from the mark-to-market path.
+              </p>
+              <p>
+                <strong>vs Nasdaq-100 cap (excess)</strong> is benchmark-relative outcome over the same
+                date range:
+                <span className="mx-1 font-mono text-xs">
+                  excess_vs_ndx_cap = portfolio_total_return &minus; ndx_cap_total_return
+                </span>
+                .
+              </p>
+              <p>
                 We use a fixed <strong>$10,000</strong> starting capital for strategy and benchmark
                 series. This keeps the model page and performance page consistent.
               </p>
+              <p className="text-xs text-muted-foreground">
+                Readiness gates: Sharpe needs at least 8 observations, CAGR is hidden until about 12
+                weeks, and composite rank requires all five ranking inputs to be finite.
+              </p>
             </div>
+          </div>
+
+          <div
+            id="methodology-sharpe"
+            className="border-t pt-6 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
+          >
+            <h3 className="group text-xl font-bold mb-3 flex flex-wrap items-center gap-x-1">
+              Sharpe ratio: decision-cadence vs weekly MTM
+              <SectionHeadingAnchor fragmentId="methodology-sharpe" hrefBase={strategyPageHrefBase} />
+            </h3>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="rounded-lg border bg-card p-4 space-y-2 text-sm text-foreground/80">
+                <p className="font-medium text-foreground">Holding-period Sharpe (weekly MTM)</p>
+                <p>
+                  This is the headline Sharpe on performance pages and the one that feeds composite
+                  ranking.
+                </p>
+                <ul className="list-disc list-inside pl-1 space-y-0.5 text-xs">
+                  <li>Inputs: ISO-week closes from the daily mark-to-market equity series</li>
+                  <li>Returns: week-over-week simple returns</li>
+                  <li>Annualization: mean / std &times; &radic;52 (no risk-free rate)</li>
+                  <li>Use when: comparing portfolios across different rebalance cadences</li>
+                </ul>
+              </div>
+              <div className="rounded-lg border bg-card p-4 space-y-2 text-sm text-foreground/80">
+                <p className="font-medium text-foreground">Decision-cadence Sharpe</p>
+                <p>Treats each completed rebalance period as one independent bet.</p>
+                <ul className="list-disc list-inside pl-1 space-y-0.5 text-xs">
+                  <li>Inputs: net return at each rebalance observation</li>
+                  <li>Cadence: weekly / monthly / quarterly / yearly by portfolio setting</li>
+                  <li>
+                    Annualization: mean / std &times; &radic;periodsPerYear (52 / 12 / 4 / 1,
+                    respectively)
+                  </li>
+                  <li>Use when: evaluating decision quality on the portfolio&apos;s own schedule</li>
+                </ul>
+              </div>
+            </div>
+            <p className="mt-3 text-sm text-foreground/80 leading-relaxed">
+              Both versions require at least 8 observations before showing a value; between 8 and about
+              12 observations they are shown as early estimates. We use naive Sharpe (no risk-free-rate
+              subtraction), and the UI treats values at or above 1 as good. Weekly MTM Sharpe makes
+              portfolios comparable across cadences, while decision-cadence Sharpe is the textbook
+              i.i.d.-returns view for the portfolio&apos;s true decision horizon. Showing both avoids
+              hiding cadence-specific tradeoffs.
+            </p>
           </div>
 
           <div
@@ -506,20 +589,33 @@ export default async function StrategyModelDetailPage({ params }: Props) {
             </h3>
             <div className="text-sm text-foreground/80 space-y-3 leading-relaxed">
               <p>
-                <strong>Turnover</strong> measures how much the portfolio changes each week. Formally:
+                <strong>Turnover</strong> measures how much the portfolio changes at each rebalance.
+                Rebalances run on the configured cadence (weekly, monthly, quarterly, or yearly), not
+                necessarily every week. Formally:
               </p>
               <div className="rounded-md bg-muted px-4 py-3 font-mono text-xs">
                 turnover = &frac12; &times; &Sigma;|new_weight &minus; old_weight|
               </div>
               <p>
-                A full replacement of all stocks gives turnover = 1.0. Typical weekly turnover for
-                a Top-20 equal-weight portfolio is 0.15 to 0.35 depending on how much the ranking
-                changes week to week.
+                Net return uses multiplicative cost deduction at rebalance:
+              </p>
+              <div className="rounded-md bg-muted px-4 py-3 font-mono text-xs">
+                gross_return = &Sigma; weight_i &times; (price_i_now / price_i_prev &minus; 1)
+                <br />
+                transaction_cost = turnover &times; (transaction_cost_bps / 10_000)
+                <br />
+                net_factor = (1 + gross_return) &times; (1 &minus; transaction_cost)
+                <br />
+                net_return = net_factor &minus; 1
+              </div>
+              <p>
+                Entry run is treated as a full buy-in: turnover = 1, gross_return = 0, so net_return =
+                &minus;transaction_cost. On non-rebalance dates (for monthly/quarterly/yearly
+                portfolios), turnover stays 0 and only mark-to-market gross return contributes.
               </p>
               <p>
-                <strong>Net return</strong> = gross return &minus; (turnover &times;{' '}
-                {detail.transactionCostBps} bps). On the first run (no prior portfolio), turnover
-                defaults to 1 (full buy-in).
+                A full replacement of all stocks gives turnover = 1.0. For a weekly Top-20 equal-weight
+                portfolio, typical turnover is about 0.15 to 0.35 depending on how much rankings change.
               </p>
               <p className="text-xs text-muted-foreground">
                 {detail.transactionCostBps} bps per traded dollar is a conservative assumption
@@ -538,18 +634,38 @@ export default async function StrategyModelDetailPage({ params }: Props) {
             </h3>
             <div className="text-sm text-foreground/80 space-y-3 leading-relaxed">
               <p>
+                We validate ranking quality in two complementary ways: a continuous regression and a
+                discrete quintile sort. Regression asks whether the signal exists; quintiles ask whether
+                it is usable in portfolio construction.
+              </p>
+              <p>
                 Every week, all ~100 Nasdaq-100 stocks are sorted by latent rank and split into 5
                 equal quintile groups (Q1 = lowest rated, Q5 = highest rated). We then compute the
                 average 1-week forward return for each quintile.
               </p>
               <p>
+                On the performance page, Weekly is the primary view and Monthly-smoothed is just a
+                calendar-month average of those same weekly 1-week horizon snapshots (not a separate
+                horizon test).
+              </p>
+              <p>
+                <span className="mx-1 font-mono text-xs">
+                  avg_forward_return[q] = mean_over_stocks_in_q(price_next_week / price_this_week
+                  &minus; 1)
+                </span>
+              </p>
+              <p>
                 A monotonically increasing pattern (Q1 &lt; Q2 &lt; Q3 &lt; Q4 &lt; Q5) indicates
                 the model has genuine cross-sectional predictive signal — not just luck in the top 20
-                picks. This is the same methodology used in Pelster &amp; Val (2024).
+                picks.
               </p>
               <p>
                 We also track 4-week non-overlapping quintile returns, computed on a
                 formation-to-realization basis every 4 weeks.
+              </p>
+              <p className="text-xs text-muted-foreground">
+                If a latent rank is missing, we treat it as neutral (0.5), which tends to place those
+                names around the middle bucket (Q3).
               </p>
               <p>
                 The <strong>Q5 win rate</strong> is the fraction of weeks where Q5 outperformed Q1.
@@ -568,9 +684,8 @@ export default async function StrategyModelDetailPage({ params }: Props) {
             </h3>
             <div className="text-sm text-foreground/80 space-y-3 leading-relaxed">
               <p>
-                Each week, we test a single question: <em>do higher AI scores lead to higher
-                next-week returns?</em> We take ~100 stocks, pair each stock&apos;s score with its
-                next-week return, and fit a straight line:
+                Each week we pair every stock&apos;s score with its next-week return and fit a straight
+                line:
               </p>
               <div className="rounded-md bg-muted px-4 py-3 font-mono text-xs">
                 forward_return = &alpha; + &beta; &times; score
@@ -601,6 +716,10 @@ export default async function StrategyModelDetailPage({ params }: Props) {
                     <div className="rounded-md bg-muted px-3 py-2 text-xs space-y-0.5">
                       <p><strong>Good:</strong> any positive value</p>
                       <p><strong>Strong:</strong> &gt; 0.002</p>
+                      <p className="text-muted-foreground mt-1">
+                        Cross-sectional equity literature often treats ~0.002 per score point as
+                        economically meaningful (rough Fama-MacBeth-style guide, not a universal cutoff).
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -621,23 +740,11 @@ export default async function StrategyModelDetailPage({ params }: Props) {
                     <p><strong>Baseline:</strong> 0.00 (no signal)</p>
                     <p><strong>Meaningful:</strong> 0.01 &ndash; 0.05</p>
                     <p><strong>Exceptional:</strong> &gt; 0.05</p>
+                    <p className="text-muted-foreground mt-1">
+                      Single-factor stock-return regressions are noisy; 1&ndash;5% is commonly
+                      considered meaningful, while &gt;5% is unusual.
+                    </p>
                   </div>
-                </div>
-
-                <div className="rounded-lg border border-trader-blue/20 bg-trader-blue/5 dark:bg-trader-blue/10 dark:border-trader-blue/25 p-4 text-sm text-foreground/90 space-y-2 leading-relaxed">
-                  <p className="font-semibold text-foreground">Literature-derived benchmarks (not custom-tuned)</p>
-                  <p className="text-xs sm:text-sm">
-                    The <strong>β</strong> bands above come from cross-sectional equity research: any
-                    positive slope is the minimum bar; a weekly slope around <strong>0.002</strong> per
-                    score point is often treated as economically meaningful in academic settings (e.g.
-                    Fama–MacBeth–style regressions) — a rough guide, not a universal cutoff.
-                  </p>
-                  <p className="text-xs sm:text-sm">
-                    The <strong>R²</strong> bands reflect how noisy individual stock returns are: a
-                    single predictor rarely explains much of the cross-section. Values in the{' '}
-                    <strong>1–5%</strong> range are commonly cited as meaningful for one factor; above{' '}
-                    <strong>5%</strong> is unusually strong.
-                  </p>
                 </div>
 
                 <div className="rounded-lg border bg-card p-4 space-y-2">
@@ -676,11 +783,6 @@ export default async function StrategyModelDetailPage({ params }: Props) {
               />
             </h3>
             <div className="text-sm text-foreground/80 space-y-3 leading-relaxed">
-              <p>
-                Both tests ask the same underlying question — <em>does score predict return?</em> —
-                but in fundamentally different ways.
-              </p>
-
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
                 <div className="rounded-lg border bg-card p-4 space-y-2">
                   <p className="font-medium text-foreground">Regression (&beta;, R&sup2;)</p>

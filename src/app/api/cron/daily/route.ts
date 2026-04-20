@@ -148,6 +148,7 @@ type StrategyRow = {
   slug: string;
   name: string;
   version: string;
+  description: string | null;
   ait_code: string | null;
   robot_name: string | null;
   index_name: string;
@@ -712,7 +713,7 @@ const getOrCreateStrategy = async (
   const { data: existing, error: fetchError } = await supabase
     .from('strategy_models')
     .select(
-      'id, slug, name, version, ait_code, robot_name, index_name, rebalance_frequency, rebalance_day_of_week, portfolio_size, weighting_method, transaction_cost_bps, prompt_id, model_id, status'
+      'id, slug, name, version, description, ait_code, robot_name, index_name, rebalance_frequency, rebalance_day_of_week, portfolio_size, weighting_method, transaction_cost_bps, prompt_id, model_id, status'
     )
     .eq('slug', STRATEGY_CONFIG.slug)
     .maybeSingle();
@@ -747,6 +748,7 @@ const getOrCreateStrategy = async (
       existing.prompt_id !== promptId ||
       existing.model_id !== modelId ||
       existing.name !== STRATEGY_CONFIG.name ||
+      existing.description !== STRATEGY_CONFIG.description ||
       existing.ait_code !== STRATEGY_CONFIG.aitCode ||
       existing.robot_name !== STRATEGY_CONFIG.robotName;
 
@@ -794,7 +796,7 @@ const getOrCreateStrategy = async (
       updated_at: new Date().toISOString(),
     })
     .select(
-      'id, slug, name, version, ait_code, robot_name, index_name, rebalance_frequency, rebalance_day_of_week, portfolio_size, weighting_method, transaction_cost_bps, prompt_id, model_id, status'
+      'id, slug, name, version, description, ait_code, robot_name, index_name, rebalance_frequency, rebalance_day_of_week, portfolio_size, weighting_method, transaction_cost_bps, prompt_id, model_id, status'
     )
     .single();
 
@@ -1086,34 +1088,45 @@ const storeQuintileReturns = async (
   horizonWeeks: 1 | 4,
   rows: Array<{ quintile: number; stock_count: number; return_value: number }>
 ) => {
-  const { error: deleteError } = await supabase
+  if (!rows.length) {
+    const { error: deleteError } = await supabase
+      .from('strategy_quintile_returns')
+      .delete()
+      .eq('strategy_id', strategyId)
+      .eq('run_date', runDate)
+      .eq('horizon_weeks', horizonWeeks);
+    if (deleteError) {
+      throw new Error(deleteError.message);
+    }
+    return;
+  }
+
+  const payload = rows.map((row) => ({
+    strategy_id: strategyId,
+    run_date: runDate,
+    horizon_weeks: horizonWeeks,
+    quintile: row.quintile,
+    stock_count: row.stock_count,
+    return_value: row.return_value,
+  }));
+
+  const { error: upsertError } = await supabase.from('strategy_quintile_returns').upsert(payload, {
+    onConflict: 'strategy_id,run_date,horizon_weeks,quintile',
+  });
+  if (upsertError) {
+    throw new Error(upsertError.message);
+  }
+
+  const quintilesCsv = `(${rows.map((row) => row.quintile).join(',')})`;
+  const { error: cleanupError } = await supabase
     .from('strategy_quintile_returns')
     .delete()
     .eq('strategy_id', strategyId)
     .eq('run_date', runDate)
-    .eq('horizon_weeks', horizonWeeks);
-
-  if (deleteError) {
-    throw new Error(deleteError.message);
-  }
-
-  if (!rows.length) {
-    return;
-  }
-
-  const { error: insertError } = await supabase.from('strategy_quintile_returns').insert(
-    rows.map((row) => ({
-      strategy_id: strategyId,
-      run_date: runDate,
-      horizon_weeks: horizonWeeks,
-      quintile: row.quintile,
-      stock_count: row.stock_count,
-      return_value: row.return_value,
-    }))
-  );
-
-  if (insertError) {
-    throw new Error(insertError.message);
+    .eq('horizon_weeks', horizonWeeks)
+    .not('quintile', 'in', quintilesCsv);
+  if (cleanupError) {
+    throw new Error(cleanupError.message);
   }
 };
 

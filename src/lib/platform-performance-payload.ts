@@ -14,6 +14,17 @@ import { ACTIVE_STRATEGY_ENTRY } from '@/lib/ai-strategy-registry';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { createPublicClient } from '@/utils/supabase/public';
 import { buildDailyMarkedToMarketSeriesForStrategy } from '@/lib/live-mark-to-market';
+import {
+  buildFourWeekQuintileHistory,
+  buildMonthlyQuintiles,
+  buildQuintileHistory,
+  computeFourWeekQuintileWinRate,
+  computeMonthlyQuintileWinRate,
+  computeQuintileWinRate,
+  type MonthlyQuintileSnapshot,
+  type QuintileSnapshot,
+  type QuintileWinRate,
+} from '@/lib/quintile-analysis';
 
 const INITIAL_CAPITAL = 10_000;
 
@@ -132,15 +143,7 @@ export type PerformanceSeriesPoint = {
 
 type SeriesPoint = PerformanceSeriesPoint;
 
-export type QuintileSnapshot = {
-  runDate: string;
-  rows: Array<{ quintile: number; stockCount: number; return: number }>;
-};
-
-export type MonthlyQuintileSnapshot = {
-  month: string; // "YYYY-MM"
-  rows: Array<{ quintile: number; avgReturn: number; weekCount: number }>;
-};
+export type { QuintileSnapshot, MonthlyQuintileSnapshot, QuintileWinRate };
 
 /** Cross-sectional regression averaged within each calendar month (from weekly rows). */
 export type MonthlyRegressionSnapshot = {
@@ -150,12 +153,6 @@ export type MonthlyRegressionSnapshot = {
   alpha: number | null;
   beta: number | null;
   rSquared: number | null;
-};
-
-export type QuintileWinRate = {
-  total: number;
-  wins: number;
-  rate: number;
 };
 
 export type PlatformPerformancePayload = {
@@ -225,10 +222,16 @@ export type PlatformPerformancePayload = {
     // Latest snapshot for default display
     weeklyQuintiles: QuintileSnapshot | null;
     fourWeekQuintiles: QuintileSnapshot | null;
+    // Full history for the 4-week non-overlapping view (all formation dates)
+    fourWeekQuintileHistory: QuintileSnapshot[];
     // Full history for the week selector (all run dates, weekly horizon)
     quintileHistory: QuintileSnapshot[];
     // Q5 vs Q1 win rate across all weeks
     quintileWinRate: QuintileWinRate | null;
+    // Q5 vs Q1 win rate across monthly-aggregated snapshots
+    monthlyQuintileWinRate: QuintileWinRate | null;
+    // Q5 vs Q1 win rate across all 4-week non-overlapping snapshots
+    fourWeekQuintileWinRate: QuintileWinRate | null;
     // Monthly averages (aggregated from weekly data)
     monthlyQuintiles: MonthlyQuintileSnapshot[];
     monthlyRegressionHistory: MonthlyRegressionSnapshot[];
@@ -339,32 +342,6 @@ export const computePctWeeksBeatingNasdaq100 = (
   return beats / total;
 };
 
-/**
- * Build full quintile history from all rows, grouped by run_date.
- * Returns snapshots sorted newest-first.
- */
-export function buildQuintileHistory(rows: StrategyQuintileReturnRow[]): QuintileSnapshot[] {
-  if (!rows.length) return [];
-  const byDate = new Map<string, QuintileRow[]>();
-  for (const row of rows) {
-    const bucket = byDate.get(row.run_date) ?? [];
-    bucket.push(row);
-    byDate.set(row.run_date, bucket);
-  }
-  return Array.from(byDate.entries())
-    .sort(([a], [b]) => b.localeCompare(a)) // newest first
-    .map(([runDate, dateRows]) => ({
-      runDate,
-      rows: dateRows
-        .sort((a, b) => a.quintile - b.quintile)
-        .map((r) => ({
-          quintile: r.quintile,
-          stockCount: r.stock_count,
-          return: toNumber(r.return_value, 0),
-        })),
-    }));
-}
-
 const avgNullable = (vals: (number | null)[]): number | null => {
   const nums = vals.filter((v): v is number => v != null && Number.isFinite(v));
   if (!nums.length) return null;
@@ -410,55 +387,14 @@ const buildMonthlyRegressions = (
     });
 };
 
-/**
- * Aggregate weekly quintile history into calendar-month averages.
- */
-const buildMonthlyQuintiles = (history: QuintileSnapshot[]): MonthlyQuintileSnapshot[] => {
-  if (!history.length) return [];
-  const byMonth = new Map<string, Map<number, { sum: number; count: number }>>();
-  for (const snapshot of history) {
-    const month = snapshot.runDate.slice(0, 7); // "YYYY-MM"
-    const monthMap = byMonth.get(month) ?? new Map<number, { sum: number; count: number }>();
-    for (const row of snapshot.rows) {
-      const acc = monthMap.get(row.quintile) ?? { sum: 0, count: 0 };
-      acc.sum += row.return;
-      acc.count += 1;
-      monthMap.set(row.quintile, acc);
-    }
-    byMonth.set(month, monthMap);
-  }
-  return Array.from(byMonth.entries())
-    .sort(([a], [b]) => b.localeCompare(a)) // newest first
-    .map(([month, qMap]) => ({
-      month,
-      rows: Array.from(qMap.entries())
-        .sort(([a], [b]) => a - b)
-        .map(([quintile, { sum, count }]) => ({
-          quintile,
-          avgReturn: count > 0 ? sum / count : 0,
-          weekCount: count,
-        })),
-    }));
+export {
+  buildQuintileHistory,
+  buildFourWeekQuintileHistory,
+  buildMonthlyQuintiles,
+  computeQuintileWinRate,
+  computeMonthlyQuintileWinRate,
+  computeFourWeekQuintileWinRate,
 };
-
-/**
- * Compute how often Q5 outperforms Q1 across all weekly snapshots.
- */
-export function computeQuintileWinRate(history: QuintileSnapshot[]): QuintileWinRate | null {
-  if (!history.length) return null;
-  let total = 0;
-  let wins = 0;
-  for (const snapshot of history) {
-    const q1 = snapshot.rows.find((r) => r.quintile === 1)?.return;
-    const q5 = snapshot.rows.find((r) => r.quintile === 5)?.return;
-    if (typeof q1 === 'number' && typeof q5 === 'number') {
-      total += 1;
-      if (q5 > q1) wins += 1;
-    }
-  }
-  if (total === 0) return null;
-  return { total, wins, rate: wins / total };
-}
 
 // ─── Main performance payload ────────────────────────────────────────────────
 
@@ -623,15 +559,14 @@ const buildPayloadForStrategy = async (
         .eq('horizon_weeks', 1)
         .order('run_date', { ascending: false })
         .order('quintile', { ascending: true }),
-      // Fetch latest 4-week quintiles (just the most recent snapshot)
+      // Fetch ALL 4-week non-overlapping quintile rows for history
       supabase
         .from('strategy_quintile_returns')
         .select('run_date, quintile, stock_count, return_value')
         .eq('strategy_id', strategy.id)
         .eq('horizon_weeks', 4)
         .order('run_date', { ascending: false })
-        .order('quintile', { ascending: true })
-        .limit(5),
+        .order('quintile', { ascending: true }),
       supabase
         .from('strategy_cross_sectional_regressions')
         .select('run_date, sample_size, alpha, beta, r_squared')
@@ -651,24 +586,9 @@ const buildPayloadForStrategy = async (
   const allWeeklyRows = (weeklyQuintilesResponse.data || []) as QuintileRow[];
   const quintileHistory = buildQuintileHistory(allWeeklyRows);
   const weeklyQuintiles = quintileHistory[0] ?? null;
-  const fourWeekQuintiles =
-    (fourWeekQuintilesResponse.data?.length ?? 0) > 0
-      ? (() => {
-          const rows = (fourWeekQuintilesResponse.data || []) as QuintileRow[];
-          const latestDate = rows[0]?.run_date;
-          return {
-            runDate: latestDate,
-            rows: rows
-              .filter((r) => r.run_date === latestDate)
-              .sort((a, b) => a.quintile - b.quintile)
-              .map((r) => ({
-                quintile: r.quintile,
-                stockCount: r.stock_count,
-                return: toNumber(r.return_value, 0),
-              })),
-          };
-        })()
-      : null;
+  const allFourWeekRows = (fourWeekQuintilesResponse.data || []) as QuintileRow[];
+  const fourWeekQuintileHistory = buildFourWeekQuintileHistory(allFourWeekRows);
+  const fourWeekQuintiles = fourWeekQuintileHistory[0] ?? null;
 
   const allRegressionRows = ((regressionResponse.data || []) as RegressionRow[]).map((row) => ({
     runDate: row.run_date,
@@ -682,6 +602,8 @@ const buildPayloadForStrategy = async (
   const monthlyQuintiles = buildMonthlyQuintiles(quintileHistory);
   const monthlyRegressionHistory = buildMonthlyRegressions(allRegressionRows);
   const quintileWinRate = computeQuintileWinRate(quintileHistory);
+  const monthlyQuintileWinRate = computeMonthlyQuintileWinRate(monthlyQuintiles);
+  const fourWeekQuintileWinRate = computeFourWeekQuintileWinRate(fourWeekQuintileHistory);
 
   return {
     strategy: baseStrategy,
@@ -692,8 +614,11 @@ const buildPayloadForStrategy = async (
     research: {
       weeklyQuintiles,
       fourWeekQuintiles,
+      fourWeekQuintileHistory,
       quintileHistory,
       quintileWinRate,
+      monthlyQuintileWinRate,
+      fourWeekQuintileWinRate,
       monthlyQuintiles,
       monthlyRegressionHistory,
       regression,
