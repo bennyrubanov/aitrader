@@ -1221,7 +1221,7 @@ const getStrategyDetailCached = (slug: string) =>
           totalReturn: perfRows.length >= 2 ? computeTotalReturn(INITIAL_CAPITAL, endEquity) : null,
           cagr:
             firstRow && lastRow && perfRows.length >= 2
-              ? computeCagr(INITIAL_CAPITAL, endEquity, firstRow.run_date, lastRow.run_date)
+              ? cagrGated(INITIAL_CAPITAL, endEquity, firstRow.run_date, lastRow.run_date)
               : null,
           maxDrawdown:
             perfRows.length >= 2

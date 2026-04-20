@@ -48,11 +48,11 @@ const viewMetaByPath: Record<string, ViewMeta> = {
   },
   '/platform/overview': {
     title: 'Overview',
-    subtitle: 'Top portfolio by performance, rebalance actions, and quick links',
+    subtitle: 'Top portfolio performance, holdings, and latest rebalance actions',
   },
   '/platform': {
     title: 'Overview',
-    subtitle: 'Top portfolio by performance, rebalance actions, and quick links',
+    subtitle: 'Top portfolio performance, holdings, and latest rebalance actions',
   },
 };
 

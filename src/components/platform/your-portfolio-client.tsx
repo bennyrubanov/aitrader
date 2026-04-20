@@ -207,7 +207,7 @@ function YourPortfolioCostBasisCell({
   }
   if (loading) {
     return (
-      <span className="inline-flex w-full justify-end">
+      <span className="inline-flex w-full justify-start">
         <Skeleton className="h-3.5 w-16 rounded-sm" />
       </span>
     );
@@ -297,8 +297,8 @@ function getSidebarRowPerf(p: UserPortfolioProfileRow): {
 
 function SidebarRowPerfLoadingSkeleton() {
   return (
-    <span className="inline-flex max-w-[9.5rem] items-center justify-end pt-0.5">
-      <Skeleton className="h-2.5 w-[9rem] shrink-0 rounded-sm" />
+    <span className="inline-flex max-w-[4.75rem] items-center justify-end pt-0.5">
+      <Skeleton className="h-2.5 w-[4.5rem] shrink-0 rounded-sm" />
     </span>
   );
 }
@@ -356,7 +356,7 @@ function YourPortfoliosSkeletonShell() {
             {Array.from({ length: 6 }).map((_, i) => (
               <Skeleton
                 key={`your-portfolios-sidebar-skel-${i}`}
-                className="h-16 w-[14rem] shrink-0 rounded-lg lg:h-16 lg:w-full"
+                className="h-16 w-[14rem] shrink-0 rounded-lg lg:h-16 lg:w-[7rem] lg:self-start"
               />
             ))}
           </nav>
@@ -2380,6 +2380,16 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     configHoldingsAsOfPriceBySymbol,
     configHoldingsLatestPriceBySymbol,
   ]);
+  const liveConfigHoldingsTotalValue = useMemo(() => {
+    if (!liveConfigHoldingsAllocation.hasCompleteCoverage) return null;
+    let sum = 0;
+    for (const row of Object.values(liveConfigHoldingsAllocation.bySymbol)) {
+      const n = row.currentValue;
+      if (n == null || !Number.isFinite(n) || n <= 0) return null;
+      sum += n;
+    }
+    return Number.isFinite(sum) && sum > 0 ? sum : null;
+  }, [liveConfigHoldingsAllocation]);
 
   const effectiveHoldingsAsOf = pendingHoldingsAsOf ?? configHoldingsAsOf;
 
@@ -2404,6 +2414,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   ]);
 
   const holdingsPortfolioValueLineAmount = useMemo(() => {
+    if (liveConfigHoldingsTotalValue != null) return liveConfigHoldingsTotalValue;
     if (holdingsMovementTimeline && 'data' in holdingsMovementTimeline) {
       const pl = holdingsMovementTimeline.data;
       if (pl.status === 'ok' && effectiveHoldingsAsOf) {
@@ -2413,7 +2424,12 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       }
     }
     return holdingsAsOfNotional;
-  }, [holdingsMovementTimeline, effectiveHoldingsAsOf, holdingsAsOfNotional]);
+  }, [
+    liveConfigHoldingsTotalValue,
+    holdingsMovementTimeline,
+    effectiveHoldingsAsOf,
+    holdingsAsOfNotional,
+  ]);
 
   const holdingsPrevRebalanceDate = useMemo(
     () => getPreviousRebalanceDate(scopedConfigHoldingsRebalanceDates, configHoldingsAsOf),
@@ -3580,7 +3596,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                           </SelectContent>
                         </Select>
                         {holdingsPrevRebalanceDate ? (
-                          <div className="flex shrink-0 items-center gap-1.5">
+                          <div className="ml-auto flex shrink-0 items-center gap-1.5">
                             <Switch
                               id="your-portfolio-holdings-movement"
                               checked={holdingsMovementView}
@@ -3665,20 +3681,30 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                         <div
                           className={cn(
                             configHoldingsRefreshing && 'opacity-[0.65]',
-                            'min-w-0 w-full overflow-x-auto overflow-y-clip'
+                            '@container min-w-0 w-full overflow-x-auto overflow-y-clip'
                           )}
                         >
                         <Table noScrollWrapper className="min-w-0 w-full table-auto text-[11px]">
                           <TableHeader>
                             <TableRow className="hover:bg-transparent">
-                              <TableHead className="h-9 w-[4.75rem] shrink-0 py-1.5 pl-2 pr-0.5 text-left align-middle tabular-nums">
-                                #
+                              <TableHead className="h-9 w-0 shrink-0 whitespace-nowrap py-1.5 pl-2 pr-1 text-left align-middle tabular-nums">
+                                <span className="inline-flex min-w-0 max-w-full items-center gap-1">
+                                  <span>#</span>
+                                  <InfoIconTooltip ariaLabel="How holding rank works">
+                                    <p className="mb-1 font-semibold">Holding rank</p>
+                                    <p className="text-muted-foreground">
+                                      Current rank in the AI&apos;s latest ratings. The arrow badge
+                                      shows how many spots the holding moved since the prior
+                                      rebalance.
+                                    </p>
+                                  </InfoIconTooltip>
+                                </span>
                               </TableHead>
                               <TableHead className="h-9 w-0 min-w-[4rem] px-1.5 py-1.5 text-left align-middle">
                                 Stock
                               </TableHead>
-                              <TableHead className="h-9 w-0 min-w-[7rem] px-1.5 py-1.5 text-center align-middle whitespace-nowrap">
-                                <span className="inline-flex min-w-0 max-w-full items-center justify-center gap-1">
+                              <TableHead className="h-9 w-0 min-w-[5.5rem] px-1.5 py-1.5 text-right align-middle whitespace-nowrap">
+                                <span className="inline-flex min-w-0 max-w-full items-center justify-end gap-1">
                                   <span className="truncate">Value</span>
                                   <HoldingsAllocationColumnTooltip
                                     weightingMethod={
@@ -3689,8 +3715,8 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                   />
                                 </span>
                               </TableHead>
-                              <TableHead className="h-9 w-full min-w-[5.5rem] py-1.5 pl-1.5 pr-2 text-right align-middle whitespace-nowrap">
-                                <span className="inline-flex min-w-0 max-w-full items-center justify-end gap-1">
+                              <TableHead className="h-9 w-full min-w-[5.5rem] py-1.5 pl-1.5 pr-2 text-left align-middle whitespace-nowrap">
+                                <span className="inline-flex min-w-0 max-w-full items-center justify-start gap-1">
                                   <span className="truncate">Cost basis</span>
                                   <HoldingsCostBasisColumnTooltip variant="user" />
                                 </span>
@@ -3704,18 +3730,18 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                     key={`holdings-movement-loading-${h.symbol}-${idx}`}
                                     className="pointer-events-none"
                                   >
-                                    <TableCell className="w-[4.75rem] shrink-0 py-1.5 pl-2 pr-0.5 text-muted-foreground">
+                                    <TableCell className="w-0 shrink-0 whitespace-nowrap py-1.5 pl-2 pr-1 text-muted-foreground">
                                       <Skeleton className="h-3.5 w-11 rounded-sm" />
                                     </TableCell>
                                     <TableCell className="min-w-0 px-1.5 py-1.5 text-left">
                                       <Skeleton className="h-3.5 w-14 rounded-sm" />
                                     </TableCell>
-                                    <TableCell className="min-w-0 px-1.5 py-1.5 text-center tabular-nums">
-                                      <span className="inline-flex w-full justify-center">
+                                    <TableCell className="min-w-0 px-1.5 py-1.5 text-right tabular-nums">
+                                      <span className="inline-flex w-full justify-end">
                                         <Skeleton className="h-3.5 w-24 rounded-sm" />
                                       </span>
                                     </TableCell>
-                                    <TableCell className="min-w-0 py-1.5 pl-1.5 pr-2 text-right align-top">
+                                    <TableCell className="min-w-0 py-1.5 pl-1.5 pr-2 text-left align-top">
                                       <YourPortfolioCostBasisCell
                                         symbol={h.symbol}
                                         snapshot={selectedHoldingsCostBasisSnapshot}
@@ -3756,10 +3782,11 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                           }
                                         }}
                                       >
-                                        <TableCell className="w-[4.75rem] shrink-0 py-1.5 pl-2 pr-0.5 text-muted-foreground">
+                                        <TableCell className="w-0 shrink-0 whitespace-nowrap py-1.5 pl-2 pr-1 text-muted-foreground">
                                           <HoldingRankWithChange
                                             rank={h.rank}
                                             rankChange={h.rankChange}
+                                            hideChangeOnNarrow
                                           />
                                         </TableCell>
                                         <TableCell className="min-w-0 px-1.5 py-1.5 text-left">
@@ -3783,7 +3810,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                             </span>
                                           )}
                                         </TableCell>
-                                        <TableCell className="min-w-0 px-1.5 py-1.5 text-center tabular-nums">
+                                        <TableCell className="min-w-0 px-1.5 py-1.5 text-right tabular-nums">
                                           {showLive ? (
                                             <div className="min-w-0 space-y-0.5 leading-tight">
                                               <div className="truncate">
@@ -3803,7 +3830,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                             </span>
                                           )}
                                         </TableCell>
-                                        <TableCell className="min-w-0 py-1.5 pl-1.5 pr-2 text-right align-top">
+                                        <TableCell className="min-w-0 py-1.5 pl-1.5 pr-2 text-left align-top">
                                           <YourPortfolioCostBasisCell
                                             symbol={h.symbol}
                                             snapshot={selectedHoldingsCostBasisSnapshot}
@@ -3845,8 +3872,12 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                           }
                                         }}
                                       >
-                                        <TableCell className="w-[4.75rem] shrink-0 py-1.5 pl-2 pr-0.5 text-muted-foreground">
-                                          <HoldingRankWithChange rank={h.rank} rankChange={null} />
+                                        <TableCell className="w-0 shrink-0 whitespace-nowrap py-1.5 pl-2 pr-1 text-muted-foreground">
+                                          <HoldingRankWithChange
+                                            rank={h.rank}
+                                            rankChange={null}
+                                            hideChangeOnNarrow
+                                          />
                                         </TableCell>
                                         <TableCell className="min-w-0 px-1.5 py-1.5 text-left">
                                           {company ? (
@@ -3869,12 +3900,12 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                             </span>
                                           )}
                                         </TableCell>
-                                        <TableCell className="min-w-0 px-1.5 py-1.5 text-center tabular-nums text-muted-foreground">
+                                        <TableCell className="min-w-0 px-1.5 py-1.5 text-right tabular-nums text-muted-foreground">
                                           <span className="block min-w-0 truncate text-[11px]">
                                             Was {(h.weight * 100).toFixed(1)}%
                                           </span>
                                         </TableCell>
-                                        <TableCell className="min-w-0 py-1.5 pl-1.5 pr-2 text-right align-top">
+                                        <TableCell className="min-w-0 py-1.5 pl-1.5 pr-2 text-left align-top">
                                           <YourPortfolioCostBasisCell
                                             symbol={h.symbol}
                                             snapshot={selectedHoldingsCostBasisSnapshot}
@@ -3913,10 +3944,11 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                         }
                                       }}
                                     >
-                                      <TableCell className="w-[4.75rem] shrink-0 py-1.5 pl-2 pr-0.5 text-muted-foreground">
+                                      <TableCell className="w-0 shrink-0 whitespace-nowrap py-1.5 pl-2 pr-1 text-muted-foreground">
                                         <HoldingRankWithChange
                                           rank={h.rank}
                                           rankChange={h.rankChange}
+                                          hideChangeOnNarrow
                                         />
                                       </TableCell>
                                       <TableCell className="min-w-0 px-1.5 py-1.5 text-left">
@@ -3940,7 +3972,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                           </span>
                                         )}
                                       </TableCell>
-                                      <TableCell className="min-w-0 px-1.5 py-1.5 text-center tabular-nums">
+                                      <TableCell className="min-w-0 px-1.5 py-1.5 text-right tabular-nums">
                                         {showLive ? (
                                           <div className="min-w-0 space-y-0.5 leading-tight">
                                             <div className="truncate">
@@ -3960,7 +3992,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                           </span>
                                         )}
                                       </TableCell>
-                                      <TableCell className="min-w-0 py-1.5 pl-1.5 pr-2 text-right align-top">
+                                      <TableCell className="min-w-0 py-1.5 pl-1.5 pr-2 text-left align-top">
                                         <YourPortfolioCostBasisCell
                                           symbol={h.symbol}
                                           snapshot={selectedHoldingsCostBasisSnapshot}
@@ -4043,6 +4075,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                       series={displaySeries}
                       strategyName={chartStrategyName}
                       hideDrawdown
+                      nominalDollars
                       initialNotional={chartInitialNotional}
                       firstPointDisplayNotional={
                         selectedProfile?.user_start_date && num(selectedProfile?.investment_size) > 0

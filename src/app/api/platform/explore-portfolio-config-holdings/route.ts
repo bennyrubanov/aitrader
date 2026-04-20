@@ -17,6 +17,8 @@ export const revalidate = 300;
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_DATES_PER_REQUEST = 10;
 
 type SymbolPriceMap = Record<string, number | null>;
 type HoldingsTimelineEntry = {
@@ -61,6 +63,17 @@ function buildPriceMap(
   return out;
 }
 
+function parseDatesCsv(csv: string | null): string[] {
+  if (!csv) return [];
+  const unique = new Set(
+    csv
+      .split(',')
+      .map((v) => v.trim())
+      .filter((v) => DATE_RE.test(v))
+  );
+  return [...unique].sort((a, b) => b.localeCompare(a));
+}
+
 /**
  * Portfolio config holdings for explore / overview (cap-weighting uses service role).
  * Requires Supporter+; Supporter is limited to the default strategy model slug.
@@ -69,7 +82,8 @@ export async function GET(req: NextRequest) {
   const slug = req.nextUrl.searchParams.get('slug');
   const configId = req.nextUrl.searchParams.get('configId');
   const asOfDateParam = req.nextUrl.searchParams.get('asOfDate');
-  const includeAllDates = req.nextUrl.searchParams.get('includeAllDates') === '1';
+  const requestedDatesCsv = req.nextUrl.searchParams.get('dates');
+  const requestedDatesInput = parseDatesCsv(requestedDatesCsv);
 
   if (!slug?.trim()) {
     return NextResponse.json({ error: 'slug required' }, { status: 400 });
@@ -99,8 +113,10 @@ export async function GET(req: NextRequest) {
     return strategyModelNotOnPlanResponse();
   }
 
-  const asOfRunDate =
-    asOfDateParam && /^\d{4}-\d{2}-\d{2}$/.test(asOfDateParam) ? asOfDateParam : null;
+  const asOfRunDate = asOfDateParam && DATE_RE.test(asOfDateParam) ? asOfDateParam : null;
+  if (asOfRunDate && requestedDatesInput.length > 0) {
+    return NextResponse.json({ error: 'asOfDate and dates cannot be combined' }, { status: 400 });
+  }
 
   const pub = createPublicClient();
   const { data: strategy } = await pub
@@ -138,7 +154,7 @@ export async function GET(req: NextRequest) {
     String(cfg.rebalance_frequency),
     String(cfg.weighting_method),
     asOfRunDate ?? 'latest',
-    includeAllDates ? 'timeline' : 'single',
+    requestedDatesInput.join(','),
   ].join('\0');
   const cachedResponse = getCachedHoldingsResponse(responseCacheKey);
   if (cachedResponse) {
@@ -156,6 +172,9 @@ export async function GET(req: NextRequest) {
   );
 
   const symbols = [...new Set(holdings.map((h) => h.symbol.toUpperCase()))];
+  const requestedDates = requestedDatesInput
+    .filter((date) => rebalanceDates.includes(date))
+    .slice(0, MAX_DATES_PER_REQUEST);
   let asOfPriceBySymbol: SymbolPriceMap = {};
   let latestPriceBySymbol: SymbolPriceMap = {};
   let byDate: Record<string, HoldingsTimelineEntry> | undefined;
@@ -190,10 +209,10 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  if (includeAllDates && rebalanceDates.length > 0) {
+  if (requestedDates.length > 0) {
     byDate = {};
     const symbolUnion = new Set(symbols);
-    for (const date of rebalanceDates) {
+    for (const date of requestedDates) {
       let dateHoldings = holdings;
       let dateAsOf = asOfDate;
       if (date !== asOfDate) {
@@ -253,7 +272,7 @@ export async function GET(req: NextRequest) {
     rebalanceDates,
     asOfPriceBySymbol,
     latestPriceBySymbol,
-    ...(includeAllDates ? { timelineVersion: 1, byDate: byDate ?? {} } : {}),
+    ...(requestedDates.length > 0 ? { timelineVersion: 1, byDate: byDate ?? {} } : {}),
   };
   holdingsResponseCache.set(responseCacheKey, {
     expiresAt: Date.now() + HOLDINGS_RESPONSE_TTL_MS,

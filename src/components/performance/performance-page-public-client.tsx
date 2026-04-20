@@ -758,7 +758,6 @@ function PerformancePagePublicClientInner({
     performanceHoldingsRankedRow?.metrics.weeklyObservations ?? null;
   const displayMetricDecisionObservations =
     performanceHoldingsRankedRow?.metrics.decisionObservations ?? null;
-  const displayMetricWeeksOfData = performanceHoldingsRankedRow?.metrics.weeksOfData ?? null;
 
   const latestDisplayDate =
     displaySeries.length > 0
@@ -980,6 +979,28 @@ function PerformancePagePublicClientInner({
     return ai - cap;
   }, [displayMetrics]);
 
+  const outperformanceVsSp500 = useMemo(() => {
+    if (!displayMetrics) return null;
+    const ai = displayMetrics.totalReturn;
+    const sp500 = displayMetrics.benchmarks.sp500.totalReturn;
+    if (ai === null || sp500 === null) return null;
+    return ai - sp500;
+  }, [displayMetrics]);
+
+  const outperformanceVsNasdaqEqual = useMemo(() => {
+    if (!displayMetrics) return null;
+    const ai = displayMetrics.totalReturn;
+    const ndxEqual = displayMetrics.benchmarks.nasdaq100EqualWeight.totalReturn;
+    if (ai === null || ndxEqual === null) return null;
+    return ai - ndxEqual;
+  }, [displayMetrics]);
+
+  const overviewHeadlinePortfolioValue = useMemo(() => {
+    if (!displayMetrics) return 'N/A';
+    if (displayMetrics.endingValue == null || !Number.isFinite(displayMetrics.endingValue)) return 'N/A';
+    return `${perfFormatUsd(displayMetrics.endingValue)} (${fmt.pct(displayMetrics.totalReturn)})`;
+  }, [displayMetrics]);
+
   // ── Sidebar slot ─────────────────────────────────────────────────────────
 
   const sidebarSlot =
@@ -1173,7 +1194,7 @@ function PerformancePagePublicClientInner({
           <PerformanceChart series={series} strategyName={effectiveStrategy?.name} hideDrawdown />
         ) : (
           <div className="flex items-center justify-center h-[200px] rounded-lg border bg-muted/30 text-sm text-muted-foreground">
-            Performance data not yet available. Check back after the first weekly run.
+            Performance data not yet available. Check back after the first rebalance run.
           </div>
         )}
 
@@ -1277,112 +1298,124 @@ function PerformancePagePublicClientInner({
                 ))}
               </div>
             ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              <FlipCard
-                label="Portfolio value"
-                value={
-                  displayMetrics.endingValue != null && Number.isFinite(displayMetrics.endingValue)
-                    ? new Intl.NumberFormat('en-US', {
-                        style: 'currency',
-                        currency: 'USD',
-                        maximumFractionDigits: 0,
-                      }).format(displayMetrics.endingValue)
-                    : 'N/A'
-                }
-                explanation={(() => {
-                  const invested =
-                    effectiveStrategy?.startDate != null
-                      ? formatInvestedOnCalendarDate(effectiveStrategy.startDate)
-                      : null;
-                  return `Simulated value of the $10,000 model portfolio${
-                    invested ? ` ($10k invested on ${invested})` : ''
-                  } through the latest rebalance, net of trading costs. The strategy’s cumulative return is ${fmt.pct(displayMetrics.totalReturn)}.`;
-                })()}
-                positive={(displayMetrics.totalReturn ?? 0) > 0}
-              />
-              <FlipCard
-                label="Performance vs S&P 500 (cap)"
-                value={fmt.pct(
-                  displayMetrics.totalReturn != null &&
-                    displayMetrics.benchmarks.sp500.totalReturn != null
-                    ? displayMetrics.totalReturn - displayMetrics.benchmarks.sp500.totalReturn
-                    : null
-                )}
-                explanation="Cumulative portfolio return minus the S&P 500 cap-weight benchmark over the same dates. Positive means the model added more percentage points than the index."
-                positive={
-                  displayMetrics.totalReturn != null &&
-                  displayMetrics.benchmarks.sp500.totalReturn != null
-                    ? displayMetrics.totalReturn - displayMetrics.benchmarks.sp500.totalReturn > 0
-                    : undefined
-                }
-              />
-              <FlipCard
-                label="Sharpe ratio"
-                afterLabel={
-                  <MetricReadinessPill
-                    kind="sharpe"
-                    value={displayMetrics.sharpeRatio}
-                    weeksOfData={displayMetricWeeklyObservations}
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Key metrics
+                </p>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  <FlipCard
+                    label="Portfolio value (return%)"
+                    value={overviewHeadlinePortfolioValue}
+                    explanation={(() => {
+                      const invested =
+                        effectiveStrategy?.startDate != null
+                          ? formatInvestedOnCalendarDate(effectiveStrategy.startDate)
+                          : null;
+                      return `Simulated value of the $10,000 model portfolio${
+                        invested ? ` ($10k invested on ${invested})` : ''
+                      } through the latest rebalance, net of trading costs. The cumulative return is shown in parentheses.`;
+                    })()}
+                    positive={(displayMetrics.totalReturn ?? 0) > 0}
                   />
-                }
-                value={fmt.num(displayMetrics.sharpeRatio)}
-                explanation="Return per unit of risk. It divides the strategy's average return by how much the returns fluctuate week to week. Above 1.0 is generally considered good for a stock strategy. Higher is better."
-                positive={(displayMetrics.sharpeRatio ?? 0) > 1}
-                positiveTone="brand"
-              />
-              <FlipCard
-                label="Decision-cadence Sharpe"
-                afterLabel={
-                  <MetricReadinessPill
-                    kind="sharpe-decision"
-                    value={displayMetrics.sharpeRatioDecisionCadence}
-                    weeksOfData={displayMetricDecisionObservations}
-                    rebalanceFrequency={effectiveStrategy?.rebalanceFrequency}
+                  <FlipCard
+                    label="Performance vs S&P 500 (cap)"
+                    value={fmt.pct(outperformanceVsSp500)}
+                    explanation="Cumulative portfolio return minus the S&P 500 cap-weight benchmark over the same dates. Positive means the model added more percentage points than the index."
+                    positive={(outperformanceVsSp500 ?? 0) > 0}
                   />
-                }
-                value={fmt.num(displayMetrics.sharpeRatioDecisionCadence)}
-                explanation="Sharpe computed from rebalance-period net returns, annualized at the strategy's rebalance cadence. This complements the primary Sharpe by isolating decision-process edge from intra-period holding risk."
-                positive={(displayMetrics.sharpeRatioDecisionCadence ?? 0) > 1}
-                positiveTone="brand"
-              />
-              <FlipCard
-                label="CAGR"
-                afterLabel={
-                  <MetricReadinessPill
-                    kind="cagr"
-                    value={displayMetrics.cagr}
-                    weeksOfData={displayMetricWeeksOfData}
+                  <FlipCard
+                    label="Sharpe ratio"
+                    afterLabel={
+                      <MetricReadinessPill
+                        kind="sharpe"
+                        value={displayMetrics.sharpeRatio}
+                        weeksOfData={displayMetricWeeklyObservations}
+                      />
+                    }
+                    value={fmt.num(displayMetrics.sharpeRatio)}
+                    explanation="Holding-period Sharpe asks: 'How smooth is the investor experience over time?' It compares average weekly return to weekly volatility (annualized at sqrt(52)). Above 1.0 is generally considered good for a stock strategy. Higher is better."
+                    positive={(displayMetrics.sharpeRatio ?? 0) > 1}
+                    positiveTone="brand"
                   />
-                }
-                value={fmt.pct(displayMetrics.cagr)}
-                explanation="Annualized compound growth rate. If the strategy grew at this exact pace every calendar year since inception, this is the annual return you would have seen."
-                positive={(displayMetrics.cagr ?? 0) > 0}
-              />
-              <FlipCard
-                label="Max drawdown"
-                value={fmt.pct(displayMetrics.maxDrawdown)}
-                explanation="The worst peak-to-trough decline since inception. If you had invested at the peak and sold at the worst point, this is how much you would have lost. Closer to zero is better."
-                positive={(displayMetrics.maxDrawdown ?? 0) > -0.2}
-              />
-              <FlipCard
-                label="Performance vs Nasdaq-100 (cap)"
-                value={fmt.pct(
-                  displayMetrics.totalReturn != null &&
-                    displayMetrics.benchmarks.nasdaq100CapWeight.totalReturn != null
-                    ? displayMetrics.totalReturn -
-                        displayMetrics.benchmarks.nasdaq100CapWeight.totalReturn
-                    : null
-                )}
-                explanation="Cumulative portfolio return minus the Nasdaq-100 cap-weight benchmark over the same dates. Positive means the model beat the index in percentage points."
-                positive={
-                  displayMetrics.totalReturn != null &&
-                  displayMetrics.benchmarks.nasdaq100CapWeight.totalReturn != null
-                    ? displayMetrics.totalReturn -
-                        displayMetrics.benchmarks.nasdaq100CapWeight.totalReturn >
-                      0
-                    : undefined
-                }
-              />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <FlipCard
+                    label="CAGR"
+                    afterLabel={
+                      <MetricReadinessPill
+                        kind="cagr"
+                        value={displayMetrics.cagr}
+                        weeksOfData={displayMetricWeeklyObservations}
+                      />
+                    }
+                    value={fmt.pct(displayMetrics.cagr)}
+                    explanation="Annualized compound growth rate. If the strategy grew at this exact pace every calendar year since inception, this is the annual return you would have seen."
+                    positive={(displayMetrics.cagr ?? 0) > 0}
+                  />
+                  <FlipCard
+                    label="Max drawdown"
+                    value={fmt.pct(displayMetrics.maxDrawdown)}
+                    explanation="The worst peak-to-trough decline since inception. If you had invested at the peak and sold at the worst point, this is how much you would have lost. Closer to zero is better."
+                    positive={(displayMetrics.maxDrawdown ?? 0) > -0.2}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Detailed metrics
+                </p>
+                <div className="space-y-2">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    <FlipCard
+                      label="Decision-cadence Sharpe"
+                      value={fmt.num(displayMetrics.sharpeRatioDecisionCadence)}
+                      explanation="Decision-unit Sharpe asks: 'How good are this strategy's decisions?' Each observation is one rebalance-period net return (one independent bet), annualized at the strategy's rebalance cadence. It complements holding-period Sharpe."
+                      afterLabel={
+                        <MetricReadinessPill
+                          kind="sharpe-decision"
+                          value={displayMetrics.sharpeRatioDecisionCadence}
+                          weeksOfData={displayMetricDecisionObservations}
+                          rebalanceFrequency={effectiveStrategy?.rebalanceFrequency}
+                        />
+                      }
+                      positive={(displayMetrics.sharpeRatioDecisionCadence ?? 0) > 1}
+                      positiveTone="brand"
+                    />
+                    <FlipCard
+                      label="Performance vs Nasdaq-100 (cap)"
+                      value={fmt.pct(outperformanceVsCap)}
+                      explanation="Cumulative return on the portfolio minus the cumulative return on the Nasdaq-100 cap-weight benchmark over the full tracked period—both starting from the same $10,000. Positive means the strategy added more percentage points than the index over that span."
+                      positive={(outperformanceVsCap ?? 0) > 0}
+                    />
+                    <FlipCard
+                      label="Performance vs Nasdaq-100 (equal)"
+                      value={fmt.pct(outperformanceVsNasdaqEqual)}
+                      explanation="Cumulative return on the portfolio minus the cumulative return on the Nasdaq-100 equal-weight benchmark over the full tracked period. Positive means the strategy added more percentage points than the equal-weight index."
+                      positive={(outperformanceVsNasdaqEqual ?? 0) > 0}
+                    />
+                    <FlipCard
+                      label="% weeks beating Nasdaq-100 (cap)"
+                      value={fmt.pct(displayMetrics.pctWeeksBeatingNasdaq100, 0)}
+                      explanation="How often this portfolio's weekly return exceeded the Nasdaq-100 cap-weighted index's weekly return. 50% means it matched the benchmark half the time week by week. Above 50% means it wins more weeks than it loses."
+                      positive={(displayMetrics.pctWeeksBeatingNasdaq100 ?? 0) > 0.5}
+                    />
+                    <FlipCard
+                      label="% weeks beating S&P 500 (cap)"
+                      value={fmt.pct(displayMetrics.pctWeeksBeatingSp500, 0)}
+                      explanation="How often this portfolio's weekly return exceeded the S&P 500 cap-weighted benchmark's weekly return. Above 50% means it wins more weeks than it loses."
+                      positive={(displayMetrics.pctWeeksBeatingSp500 ?? 0) > 0.5}
+                    />
+                    <FlipCard
+                      label="% weeks beating Nasdaq-100 (equal)"
+                      value={fmt.pct(displayMetrics.pctWeeksBeatingNasdaq100EqualWeight, 0)}
+                      explanation="How often this portfolio's weekly return exceeded the Nasdaq-100 equal-weight benchmark's weekly return. Above 50% means it wins more weeks than it loses."
+                      positive={(displayMetrics.pctWeeksBeatingNasdaq100EqualWeight ?? 0) > 0.5}
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
             )}
           </div>
@@ -1719,7 +1752,7 @@ function PerformancePagePublicClientInner({
                   <MetricReadinessPill
                     kind="cagr"
                     value={displayMetrics.cagr}
-                    weeksOfData={displayMetricWeeksOfData}
+                    weeksOfData={displayMetricWeeklyObservations}
                   />
                 }
                 value={fmt.pct(displayMetrics.cagr)}
@@ -1849,7 +1882,7 @@ function PerformancePagePublicClientInner({
           </div>
         ) : (
           <p className="text-muted-foreground text-sm">
-            Return data not yet available. Check back after the first weekly run.
+            Return data not yet available. Check back after the first rebalance run.
           </p>
         )}
       </section>
@@ -1892,7 +1925,7 @@ function PerformancePagePublicClientInner({
                   />
                 }
                 value={fmt.num(displayMetrics.sharpeRatio)}
-                explanation="Return per unit of risk. Average weekly return divided by the standard deviation of weekly returns, then annualized. Above 1.0 is generally considered good for a stock strategy."
+                explanation="Holding-period Sharpe asks: 'How smooth is the investor experience over time?' It compares average weekly return to weekly volatility (annualized at sqrt(52)). Above 1.0 is generally considered good for a stock strategy."
                 positive={(displayMetrics.sharpeRatio ?? 0) > 1}
                 positiveTone="brand"
               />
@@ -1907,7 +1940,7 @@ function PerformancePagePublicClientInner({
                   />
                 }
                 value={fmt.num(displayMetrics.sharpeRatioDecisionCadence)}
-                explanation="Sharpe computed from rebalance-period net returns, annualized at the strategy's rebalance cadence. This complements the primary Sharpe by isolating decision-process edge from intra-period holding risk."
+                explanation="Decision-unit Sharpe asks: 'How good are this strategy's decisions?' Each observation is one rebalance-period net return (one independent bet), annualized at the strategy's rebalance cadence. It complements the holding-period Sharpe."
                 positive={(displayMetrics.sharpeRatioDecisionCadence ?? 0) > 1}
                 positiveTone="brand"
               />
@@ -2413,7 +2446,7 @@ function PerformancePagePublicClientInner({
             {
               icon: ShieldCheck,
               title: 'Includes trading costs',
-              body: `Each time we rebalance, we deduct ${effectiveStrategy?.transactionCostBps ?? 15} basis points (${((effectiveStrategy?.transactionCostBps ?? 15) / 100).toFixed(2)}%) per unit of portfolio turnover. For example, if 30% of the portfolio changes in a given week, the cost is 0.30 × ${((effectiveStrategy?.transactionCostBps ?? 15) / 100).toFixed(2)}% = ${((0.3 * (effectiveStrategy?.transactionCostBps ?? 15)) / 100).toFixed(3)}% deducted from that week's return. This models real-world trading friction.`,
+              body: `Each time we rebalance, we deduct ${effectiveStrategy?.transactionCostBps ?? 15} basis points (${((effectiveStrategy?.transactionCostBps ?? 15) / 100).toFixed(2)}%) per unit of portfolio turnover. For example, if 30% of the portfolio changes at a given rebalance, the cost is 0.30 × ${((effectiveStrategy?.transactionCostBps ?? 15) / 100).toFixed(2)}% = ${((0.3 * (effectiveStrategy?.transactionCostBps ?? 15)) / 100).toFixed(3)}% deducted from that period's return. This models real-world trading friction.`,
             },
             {
               icon: BadgeCheck,

@@ -151,10 +151,6 @@ export function PortfolioAtAGlanceCard({
       fm.totalReturn != null && fm.benchmarks.sp500.totalReturn != null
         ? fm.totalReturn - fm.benchmarks.sp500.totalReturn
         : null;
-    const vsNdxCap =
-      fm.totalReturn != null && fm.benchmarks.nasdaq100CapWeight.totalReturn != null
-        ? fm.totalReturn - fm.benchmarks.nasdaq100CapWeight.totalReturn
-        : null;
     const portfolioValueLine =
       fm.endingValue != null && Number.isFinite(fm.endingValue)
         ? `${currency0(fm.endingValue)}${m.totalReturn != null ? ` (${fmt.pct(m.totalReturn)})` : ''}`
@@ -183,22 +179,8 @@ export function PortfolioAtAGlanceCard({
             weeksOfData={metricWeeklyObservations}
           />
         ),
-        hint: `Excess return per unit of risk (volatility) from weekly holding-period returns, annualized at sqrt(52) (higher is better, above 1 is good). ${metricsPeriodNote}`,
+        hint: `Holding-period Sharpe asks "how smooth is the investor experience over time?" It compares average weekly return to weekly volatility (annualized at sqrt(52)). Higher is better; above 1 is often considered good. ${metricsPeriodNote}`,
         ...headerStatSentiment('Sharpe', m.sharpeRatio),
-      },
-      {
-        label: 'Decision-cadence Sharpe',
-        value: fmt.num(m.sharpeRatioDecisionCadence),
-        afterLabel: (
-          <MetricReadinessPill
-            kind="sharpe-decision"
-            value={m.sharpeRatioDecisionCadence}
-            weeksOfData={metricDecisionObservations}
-            rebalanceFrequency={perf?.config?.rebalance_frequency}
-          />
-        ),
-        hint: `Sharpe of rebalance-period net returns, annualized at the portfolio's rebalance cadence. ${metricsPeriodNote}`,
-        ...headerStatSentiment('Sharpe', m.sharpeRatioDecisionCadence),
       },
       {
         label: 'CAGR',
@@ -218,12 +200,6 @@ export function PortfolioAtAGlanceCard({
         value: fmt.pct(m.maxDrawdown),
         hint: `Largest peak-to-trough percentage decline (more negative is deeper drawdown). ${metricsPeriodNote}`,
         ...headerStatSentiment('Max drawdown', m.maxDrawdown),
-      },
-      {
-        label: 'Performance vs Nasdaq-100 (cap)',
-        value: fmt.pct(vsNdxCap),
-        hint: `Cumulative model return minus the Nasdaq-100 cap-weight benchmark over the same window. ${metricsPeriodNote}`,
-        positive: vsNdxCap == null || !Number.isFinite(vsNdxCap) ? undefined : vsNdxCap > 0,
       }
     );
   }

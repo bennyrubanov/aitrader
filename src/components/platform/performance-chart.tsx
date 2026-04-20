@@ -162,6 +162,8 @@ type PerformanceChartProps = {
    * Useful when entry costs are applied to economics but UX should show full invested dollars at t0.
    */
   firstPointDisplayNotional?: number;
+  /** When true, equity view plots nominal dollars (no window-start rebase). */
+  nominalDollars?: boolean;
   /** Series keys to exclude from the chart and legend chips entirely */
   omitSeriesKeys?: PerformanceChartSeriesKey[];
   /** Per-series label overrides (e.g. shorter benchmark names) */
@@ -170,6 +172,8 @@ type PerformanceChartProps = {
   chartContainerClassName?: string;
   /** When true, lines draw without enter animation (reduces flicker on remount / tight embeds). */
   disableLineAnimation?: boolean;
+  /** When true, renders series chips inline with top controls, right-aligned. */
+  chipsInControlsRow?: boolean;
 };
 
 export function PerformanceChart({
@@ -181,10 +185,12 @@ export function PerformanceChart({
   tightStartingInvestmentLabel = false,
   initialNotional = DEFAULT_INITIAL_NOTIONAL,
   firstPointDisplayNotional,
+  nominalDollars = false,
   omitSeriesKeys = [],
   seriesLabelOverrides,
   chartContainerClassName,
   disableLineAnimation = false,
+  chipsInControlsRow = false,
 }: PerformanceChartProps) {
   const [range, setRange] = useState<TimeRange>('All');
   const [view, setView] = useState<'equity' | 'drawdown'>('equity');
@@ -237,13 +243,28 @@ export function PerformanceChart({
     Number.isFinite(firstPointDisplayNotional) && (firstPointDisplayNotional ?? 0) > 0
       ? (firstPointDisplayNotional as number)
       : null;
+  const filteredSeries = useMemo(
+    () => filterByRange(series, hideTimeRangeControls ? 'All' : range),
+    [series, hideTimeRangeControls, range]
+  );
+  const windowStartsAtSeriesStart =
+    filteredSeries.length > 0 && series.length > 0 && filteredSeries[0]?.date === series[0]?.date;
+  const startingReferenceNotional =
+    nominalDollars && firstPointDisplay != null && windowStartsAtSeriesStart ? firstPointDisplay : notional;
 
   const chartData = useMemo(() => {
-    const filtered = filterByRange(series, hideTimeRangeControls ? 'All' : range);
-    const rebased = rebaseSeries(filtered, notional);
-    const data = view === 'drawdown' ? toDrawdownPercentSeries(filtered) : rebased;
+    const rebased = rebaseSeries(filteredSeries, notional);
+    const data =
+      view === 'drawdown'
+        ? toDrawdownPercentSeries(filteredSeries)
+        : nominalDollars
+          ? filteredSeries
+          : rebased;
     const withDisplayStart =
-      view === 'equity' && firstPointDisplay != null && data.length > 0
+      view === 'equity' &&
+      firstPointDisplay != null &&
+      data.length > 0 &&
+      (!nominalDollars || windowStartsAtSeriesStart)
         ? data.map((p, idx) =>
             idx === 0
               ? {
@@ -257,7 +278,7 @@ export function PerformanceChart({
           )
         : data;
     return withDisplayStart.map((p) => ({ ...p, shortDate: formatDisplayDate(p.date as string) }));
-  }, [series, range, view, notional, hideTimeRangeControls, firstPointDisplay]);
+  }, [filteredSeries, view, notional, firstPointDisplay, nominalDollars, windowStartsAtSeriesStart]);
 
   const yDomain = useMemo<[number, number] | ['auto', 'auto']>(() => {
     if (!chartData.length) return ['auto', 'auto'];
@@ -316,14 +337,44 @@ export function PerformanceChart({
   const usePointMarkers = chartData.length > 0 && chartData.length < 3;
 
   const showTopControlsRow = !hideTimeRangeControls || !hideDrawdown;
+  const renderSeriesChips = () => (
+    <div className="flex flex-wrap gap-1.5">
+      {(Object.entries(config) as [SeriesKey, { label: string; color: string }][]).map(
+        ([key, cfg]) => {
+          const chipEmphasized = emphasizedSeriesKey === key && !hidden.has(key);
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => toggleSeries(key)}
+              onMouseEnter={() => setEmphasizedSeriesKey(key)}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-background/80 px-2.5 py-0.5 text-xs transition-[box-shadow,background-color,border-color,opacity]',
+                hidden.has(key) ? 'opacity-40' : '',
+                chipEmphasized && 'border-primary/45 bg-primary/[0.07] shadow-sm ring-2 ring-primary/25'
+              )}
+            >
+              <span className="size-2 rounded-full shrink-0" style={{ background: cfg.color }} />
+              {cfg.label}
+            </button>
+          );
+        }
+      )}
+    </div>
+  );
 
   return (
     <div className="space-y-3">
       {/* Controls row */}
       {showTopControlsRow ? (
-        <div className="flex flex-wrap items-center justify-between gap-2">
+        <div
+          className={cn(
+            'flex items-center justify-between gap-2',
+            chipsInControlsRow ? 'flex-nowrap' : 'flex-wrap'
+          )}
+        >
           {!hideTimeRangeControls ? (
-            <div className="flex items-center gap-1">
+            <div className={cn('flex items-center gap-1', chipsInControlsRow && 'shrink-0')}>
               {TIME_RANGES.map((r) => (
                 <button
                   key={r}
@@ -343,26 +394,33 @@ export function PerformanceChart({
             <span className="min-w-0 shrink" aria-hidden />
           ) : null}
 
-          {!hideDrawdown && (
-            <div className="flex items-center gap-1 rounded-md border p-0.5">
-              <Button
-                variant={view === 'equity' ? 'default' : 'ghost'}
-                size="sm"
-                className="h-7 text-xs px-2.5"
-                onClick={() => setView('equity')}
-              >
-                Growth
-              </Button>
-              <Button
-                variant={view === 'drawdown' ? 'default' : 'ghost'}
-                size="sm"
-                className="h-7 text-xs px-2.5"
-                onClick={() => setView('drawdown')}
-              >
-                Drawdown
-              </Button>
-            </div>
-          )}
+          <div className="flex min-w-0 items-center justify-end gap-2 overflow-hidden">
+            {chipsInControlsRow ? (
+              <div className="min-w-0 overflow-x-auto whitespace-nowrap [scrollbar-width:thin]">
+                {renderSeriesChips()}
+              </div>
+            ) : null}
+            {!hideDrawdown && (
+              <div className="flex items-center gap-1 rounded-md border p-0.5">
+                <Button
+                  variant={view === 'equity' ? 'default' : 'ghost'}
+                  size="sm"
+                  className="h-7 text-xs px-2.5"
+                  onClick={() => setView('equity')}
+                >
+                  Growth
+                </Button>
+                <Button
+                  variant={view === 'drawdown' ? 'default' : 'ghost'}
+                  size="sm"
+                  className="h-7 text-xs px-2.5"
+                  onClick={() => setView('drawdown')}
+                >
+                  Drawdown
+                </Button>
+              </div>
+            )}
+          </div>
         </div>
       ) : null}
 
@@ -380,33 +438,7 @@ export function PerformanceChart({
         }}
       >
         {/* Series toggle chips — hover emphasizes matching line (no SVG pointer handlers). */}
-        <div className="flex flex-wrap gap-1.5">
-          {(Object.entries(config) as [SeriesKey, { label: string; color: string }][]).map(
-            ([key, cfg]) => {
-              const chipEmphasized = emphasizedSeriesKey === key && !hidden.has(key);
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => toggleSeries(key)}
-                  onMouseEnter={() => setEmphasizedSeriesKey(key)}
-                  className={cn(
-                    'inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-background/80 px-2.5 py-0.5 text-xs transition-[box-shadow,background-color,border-color,opacity]',
-                    hidden.has(key) ? 'opacity-40' : '',
-                    chipEmphasized &&
-                      'border-primary/45 bg-primary/[0.07] shadow-sm ring-2 ring-primary/25'
-                  )}
-                >
-                  <span
-                    className="size-2 rounded-full shrink-0"
-                    style={{ background: cfg.color }}
-                  />
-                  {cfg.label}
-                </button>
-              );
-            }
-          )}
-        </div>
+        {!chipsInControlsRow ? renderSeriesChips() : null}
 
         <ChartContainer
           className={cn('w-full', chartContainerClassName ?? 'h-[340px]')}
@@ -429,7 +461,7 @@ export function PerformanceChart({
           )}
           {view === 'equity' && (
             <ReferenceLine
-              y={notional}
+              y={startingReferenceNotional}
               stroke={CHART_NEUTRAL_REFERENCE_STROKE}
               strokeDasharray="4 3"
               strokeOpacity={startingRefHovered ? 0.8 : 0.4}
@@ -446,7 +478,7 @@ export function PerformanceChart({
                   const formatted =
                     view === 'drawdown'
                       ? `${num.toFixed(2)}%`
-                      : formatEquityTooltipValue(num, notional);
+                      : formatEquityTooltipValue(num, startingReferenceNotional);
                   return [`${formatted} `, ` ${label}`];
                 }}
               />
@@ -499,7 +531,7 @@ export function PerformanceChart({
               )}
               aria-hidden
             />
-            <span>{formatStartingInvestmentLabel(notional)}</span>
+            <span>{formatStartingInvestmentLabel(startingReferenceNotional)}</span>
           </div>
         </div>
       )}
@@ -507,7 +539,9 @@ export function PerformanceChart({
       {!hideFootnote ? (
         <p className="text-[11px] text-muted-foreground">
           {view === 'equity'
-            ? `Growth rebased to the start of the selected window. Net of trading costs.`
+            ? nominalDollars
+              ? `Portfolio value over time. Net of trading costs.`
+              : `Growth rebased to the start of the selected window. Net of trading costs.`
             : `Drawdown from rolling peak for each series. Deeper troughs = larger losses from peak.`}
         </p>
       ) : null}

@@ -52,7 +52,10 @@ export type ConfigMetrics = {
   decisionObservations: number;
   endingValuePortfolio: number | null;
   endingValueMarket: number | null;
+  endingValueNasdaq100EqualWeight: number | null;
   endingValueSp500: number | null;
+  pctWeeksBeatingSp500: number | null;
+  pctWeeksBeatingNasdaq100EqualWeight: number | null;
   beatsMarket: boolean | null;
   beatsSp500: boolean | null;
 };
@@ -226,7 +229,10 @@ function emptyConfigMetrics(weeksOfData: number): ConfigMetrics {
     decisionObservations: weeksOfData,
     endingValuePortfolio: null,
     endingValueMarket: null,
+    endingValueNasdaq100EqualWeight: null,
     endingValueSp500: null,
+    pctWeeksBeatingSp500: null,
+    pctWeeksBeatingNasdaq100EqualWeight: null,
     beatsMarket: null,
     beatsSp500: null,
   };
@@ -240,7 +246,10 @@ async function computeRankedConfigMetrics(
   cfg: ConfigRow,
   rowsWithInception: ConfigPerfRow[],
   rawObservationCount: number
-): Promise<{ metrics: ConfigMetrics; liveTail: LiveTail | null }> {
+): Promise<{
+  metrics: ConfigMetrics;
+  liveTail: LiveTail | null;
+}> {
   if (!rowsWithInception.length) {
     return { metrics: emptyConfigMetrics(0), liveTail: null };
   }
@@ -322,7 +331,10 @@ async function computeRankedConfigMetrics(
     decisionObservations: rawObservationCount,
     endingValuePortfolio: full?.endingValue ?? null,
     endingValueMarket: full?.benchmarks.nasdaq100CapWeight.endingValue ?? null,
+    endingValueNasdaq100EqualWeight: full?.benchmarks.nasdaq100EqualWeight.endingValue ?? null,
     endingValueSp500: full?.benchmarks.sp500.endingValue ?? null,
+    pctWeeksBeatingSp500: full?.pctWeeksBeatingSp500 ?? null,
+    pctWeeksBeatingNasdaq100EqualWeight: full?.pctWeeksBeatingNasdaq100EqualWeight ?? null,
     beatsMarket:
       full != null && full.endingValue > 0 && full.benchmarks.nasdaq100CapWeight.endingValue > 0
         ? full.endingValue > full.benchmarks.nasdaq100CapWeight.endingValue
@@ -431,7 +443,13 @@ export async function loadPortfolioConfigsRankedPayload(
     const rawList = perfByConfigRaw.get(cfg.id) ?? [];
     const rawCount = rawList.length;
     const rows = ensureModelInceptionPrefix(inceptionDate, rawList);
-    const { metrics, liveTail } = await computeRankedConfigMetrics(adminSupabase, strategy.id, cfg, rows, rawCount);
+    const { metrics, liveTail } = await computeRankedConfigMetrics(
+      adminSupabase,
+      strategy.id,
+      cfg,
+      rows,
+      rawCount
+    );
     const dataStatus: 'ready' | 'early' | 'empty' =
       rawCount === 0 ? 'empty' : compositeInputsReady(metrics) ? 'ready' : 'early';
     return { cfg, metrics, dataStatus, liveTail };
@@ -520,7 +538,8 @@ export async function loadPortfolioConfigsRankedPayload(
     }
   }
 
-  const result: RankedConfig[] = configsWithMetrics.map(({ cfg, metrics, dataStatus }) => {
+  const result: RankedConfig[] = configsWithMetrics.map(
+    ({ cfg, metrics, dataStatus }) => {
     const rank = rankMap.get(cfg.id) ?? null;
     const hasComposite = scoreByConfigId.get(cfg.id) != null;
 
@@ -533,29 +552,30 @@ export async function loadPortfolioConfigsRankedPayload(
     if (hasComposite && bestTotalReturnId && cfg.id === bestTotalReturnId) badges.push('Best total return');
     if (hasComposite && steadiestId && cfg.id === steadiestId) badges.push('Steadiest');
 
-    return {
-      id: cfg.id,
-      riskLevel: cfg.risk_level,
-      rebalanceFrequency: cfg.rebalance_frequency,
-      weightingMethod: cfg.weighting_method,
-      topN: cfg.top_n,
-      label:
-        cfg.label && String(cfg.label).trim() !== ''
-          ? cfg.label
-          : formatPortfolioConfigLabel({
-              topN: cfg.top_n,
-              weightingMethod: cfg.weighting_method,
-              rebalanceFrequency: cfg.rebalance_frequency,
-            }),
-      riskLabel: cfg.risk_label,
-      isDefault: cfg.is_default,
-      metrics,
-      compositeScore: scoreByConfigId.get(cfg.id) ?? null,
-      rank,
-      badges,
-      dataStatus,
-    };
-  });
+      return {
+        id: cfg.id,
+        riskLevel: cfg.risk_level,
+        rebalanceFrequency: cfg.rebalance_frequency,
+        weightingMethod: cfg.weighting_method,
+        topN: cfg.top_n,
+        label:
+          cfg.label && String(cfg.label).trim() !== ''
+            ? cfg.label
+            : formatPortfolioConfigLabel({
+                topN: cfg.top_n,
+                weightingMethod: cfg.weighting_method,
+                rebalanceFrequency: cfg.rebalance_frequency,
+              }),
+        riskLabel: cfg.risk_label,
+        isDefault: cfg.is_default,
+        metrics,
+        compositeScore: scoreByConfigId.get(cfg.id) ?? null,
+        rank,
+        badges,
+        dataStatus,
+      };
+    }
+  );
 
   result.sort((a, b) => {
     if (a.rank !== null && b.rank !== null) return a.rank - b.rank;
@@ -610,7 +630,7 @@ export async function getCachedRankedConfigsPayload(
 ): Promise<PortfolioConfigsRankedPayload | null> {
   const loadCached = unstable_cache(
     async () => loadPortfolioConfigsRankedPayload(slug),
-    [RANKED_CONFIGS_CACHE_TAG, slug, 'v7-weekly-mtm-sharpe'],
+    [RANKED_CONFIGS_CACHE_TAG, slug, 'v9-no-weekly-preload'],
     {
       revalidate: 300,
       tags: [RANKED_CONFIGS_CACHE_TAG, `${RANKED_CONFIGS_CACHE_TAG}:${slug}`],

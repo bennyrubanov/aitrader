@@ -277,7 +277,7 @@ export function PerformancePageClient({ payload }: PerformancePageClientProps) {
                     <MetricReadinessPill
                       kind="cagr"
                       value={metrics.cagr}
-                      weeksOfData={strategy.runCount}
+                      weeksOfData={metrics.weeklyObservations}
                     />
                   ) : null}
                 </p>

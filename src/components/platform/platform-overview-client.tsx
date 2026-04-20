@@ -193,11 +193,6 @@ const OVERVIEW_PAGE_QUICK_LINKS: {
   label: string;
   icon: typeof Sparkles;
 }[] = [
-  {
-    href: '/platform/your-portfolios#rebalance-actions',
-    label: 'Rebalance actions',
-    icon: ArrowLeftRight,
-  },
   { href: '/platform/ratings', label: 'Stock Ratings', icon: Sparkles },
   { href: '/platform/your-portfolios', label: 'Your portfolios', icon: Folders },
   { href: '/platform/explore-portfolios', label: 'Explore portfolios', icon: Compass },
@@ -390,6 +385,9 @@ function resolveRankedConfigForProfile(
       endingValuePortfolio: null,
       endingValueMarket: null,
       endingValueSp500: null,
+      endingValueNasdaq100EqualWeight: null,
+      pctWeeksBeatingSp500: null,
+      pctWeeksBeatingNasdaq100EqualWeight: null,
       beatsMarket: null,
       beatsSp500: null,
     },
@@ -3489,22 +3487,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                           })
                         : null;
                       const investmentSize = Number(bp.investment_size);
-                      const { excessVsNasdaqCap, excessVsNasdaqEqual, excessVsSp500 } =
-                        benchmarkStatsFromSeries(series);
-                      const excessNdxForDisplay =
-                        st.excessReturnVsNasdaqCap != null &&
-                        Number.isFinite(st.excessReturnVsNasdaqCap)
-                          ? st.excessReturnVsNasdaqCap
-                          : excessVsNasdaqCap;
-                      const weeksVsNasdaqCap = computeWeeklyPctBeatingBenchmark(
-                        series,
-                        'nasdaq100CapWeight'
-                      );
-                      const weeksVsSp500 = computeWeeklyPctBeatingBenchmark(series, 'sp500');
-                      const weeksVsNasdaqEqual = computeWeeklyPctBeatingBenchmark(
-                        series,
-                        'nasdaq100EqualWeight'
-                      );
+                      const { excessVsSp500 } = benchmarkStatsFromSeries(series);
                       return (
                         <section className="rounded-xl border border-border bg-card/50 p-4 sm:p-5 lg:h-[calc(100svh-14.75rem)] lg:overflow-hidden">
                           <div className="mb-2 flex min-w-0 items-start justify-between gap-3">
@@ -3674,7 +3657,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                       <MetricReadinessPill
                                         kind="cagr"
                                         value={st.cagr}
-                                        weeksOfData={st.series.length}
+                                        weeksOfData={st.weeklyObservations}
                                       />
                                     }
                                     value={fmt.pct(st.cagr)}
@@ -3694,58 +3677,6 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                         : undefined
                                     }
                                   />
-                                  <SpotlightStatCard
-                                    tooltipKey="vs_nasdaq_cap"
-                                    label="Performance vs Nasdaq-100 (cap)"
-                                    value={fmt.pct(excessNdxForDisplay)}
-                                    positive={
-                                      excessNdxForDisplay != null &&
-                                      Number.isFinite(excessNdxForDisplay)
-                                        ? excessNdxForDisplay > 0
-                                        : undefined
-                                    }
-                                  />
-                                  <SpotlightStatCard
-                                    tooltipKey="vs_nasdaq_equal"
-                                    label="Performance vs Nasdaq-100 (equal)"
-                                    value={fmt.pct(excessVsNasdaqEqual)}
-                                    positive={
-                                      excessVsNasdaqEqual != null &&
-                                      Number.isFinite(excessVsNasdaqEqual)
-                                        ? excessVsNasdaqEqual > 0
-                                        : undefined
-                                    }
-                                  />
-                                  <SpotlightStatCard
-                                    tooltipKey="consistency"
-                                    label="% weeks beating Nasdaq-100 (cap)"
-                                    value={
-                                      weeksVsNasdaqCap != null ? fmt.pct(weeksVsNasdaqCap, 0) : '—'
-                                    }
-                                    positive={
-                                      weeksVsNasdaqCap != null ? weeksVsNasdaqCap > 0.5 : undefined
-                                    }
-                                  />
-                                  <SpotlightStatCard
-                                    tooltipKey="weeks_beating_sp500"
-                                    label="% weeks beating S&P 500 (cap)"
-                                    value={weeksVsSp500 != null ? fmt.pct(weeksVsSp500, 0) : '—'}
-                                    positive={weeksVsSp500 != null ? weeksVsSp500 > 0.5 : undefined}
-                                  />
-                                  <SpotlightStatCard
-                                    tooltipKey="weeks_beating_nasdaq_equal"
-                                    label="% weeks beating Nasdaq-100 (equal)"
-                                    value={
-                                      weeksVsNasdaqEqual != null
-                                        ? fmt.pct(weeksVsNasdaqEqual, 0)
-                                        : '—'
-                                    }
-                                    positive={
-                                      weeksVsNasdaqEqual != null
-                                        ? weeksVsNasdaqEqual > 0.5
-                                        : undefined
-                                    }
-                                  />
                                 </div>
                               </div>
                               <div className="relative min-w-0 rounded-xl border bg-background/60 p-3 sm:p-4">
@@ -3753,9 +3684,10 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                   <div className="pb-11">
                                     <PerformanceChart
                                       series={series}
-                                      strategyName="Your top portfolio"
+                                      strategyName="Your Portfolio"
                                       hideDrawdown
                                       hideFootnote
+                                      nominalDollars
                                       initialNotional={initialNotional}
                                       firstPointDisplayNotional={
                                         bp.user_start_date && Number(bp.investment_size) > 0
@@ -4353,7 +4285,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                         <MetricReadinessPill
                                           kind="cagr"
                                           value={st.cagr}
-                                          weeksOfData={st.series.length}
+                                          weeksOfData={st.weeklyObservations}
                                         />
                                       }
                                       value={fmt.pct(st.cagr)}
@@ -4370,64 +4302,6 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                       positive={
                                         st.maxDrawdown != null && Number.isFinite(st.maxDrawdown)
                                           ? st.maxDrawdown > -0.2
-                                          : undefined
-                                      }
-                                    />
-                                    <SpotlightStatCard
-                                      tooltipKey="vs_nasdaq_cap"
-                                      label="Performance vs Nasdaq-100 (cap)"
-                                      value={fmt.pct(excessNdxForDisplay)}
-                                      positive={
-                                        excessNdxForDisplay != null &&
-                                        Number.isFinite(excessNdxForDisplay)
-                                          ? excessNdxForDisplay > 0
-                                          : undefined
-                                      }
-                                    />
-                                    <SpotlightStatCard
-                                      tooltipKey="vs_nasdaq_equal"
-                                      label="Performance vs Nasdaq-100 (equal)"
-                                      value={fmt.pct(excessVsNasdaqEqual)}
-                                      positive={
-                                        excessVsNasdaqEqual != null &&
-                                        Number.isFinite(excessVsNasdaqEqual)
-                                          ? excessVsNasdaqEqual > 0
-                                          : undefined
-                                      }
-                                    />
-                                    <SpotlightStatCard
-                                      tooltipKey="consistency"
-                                      label="% weeks beating Nasdaq-100 (cap)"
-                                      value={
-                                        weeksVsNasdaqCap != null
-                                          ? fmt.pct(weeksVsNasdaqCap, 0)
-                                          : '—'
-                                      }
-                                      positive={
-                                        weeksVsNasdaqCap != null
-                                          ? weeksVsNasdaqCap > 0.5
-                                          : undefined
-                                      }
-                                    />
-                                    <SpotlightStatCard
-                                      tooltipKey="weeks_beating_sp500"
-                                      label="% weeks beating S&P 500 (cap)"
-                                      value={weeksVsSp500 != null ? fmt.pct(weeksVsSp500, 0) : '—'}
-                                      positive={
-                                        weeksVsSp500 != null ? weeksVsSp500 > 0.5 : undefined
-                                      }
-                                    />
-                                    <SpotlightStatCard
-                                      tooltipKey="weeks_beating_nasdaq_equal"
-                                      label="% weeks beating Nasdaq-100 (equal)"
-                                      value={
-                                        weeksVsNasdaqEqual != null
-                                          ? fmt.pct(weeksVsNasdaqEqual, 0)
-                                          : '—'
-                                      }
-                                      positive={
-                                        weeksVsNasdaqEqual != null
-                                          ? weeksVsNasdaqEqual > 0.5
                                           : undefined
                                       }
                                     />

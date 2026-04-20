@@ -74,6 +74,20 @@ import { sharpeRatioValueClass } from '@/lib/sharpe-value-class';
 import { usePersistedExplorePortfoliosSortMetric } from '@/lib/portfolio-list-sort-preference-local';
 import { type StrategyListItem } from '@/lib/platform-performance-payload';
 import {
+  canAccessPaidPortfolioHoldings,
+  canAccessStrategySlugPaidData,
+  getAppAccessState,
+} from '@/lib/app-access';
+import {
+  loadExploreHoldingsBootstrap,
+  loadExploreHoldingsForDates,
+} from '@/lib/portfolio-config-holdings-cache';
+import {
+  getCachedExploreEquitySeries,
+  loadExploreEquitySeries,
+} from '@/lib/explore-equity-series-cache';
+import { loadConfigPerformance } from '@/lib/portfolio-config-performance-cache';
+import {
   EXPLORE_PORTFOLIOS_BROWSE_PARAM,
   explorePortfoliosBrowseUrl,
   parseExplorePortfoliosBrowseMode,
@@ -243,6 +257,48 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
   const { openSignupPrompt } = useAccountSignupPrompt();
   const { config, updateConfig } = usePortfolioConfig();
   const strategySlug = config.strategySlug;
+  const appAccess = useMemo(() => getAppAccessState(authState), [authState]);
+  const exploreHoldingsUnlocked = useMemo(
+    () =>
+      canAccessPaidPortfolioHoldings(appAccess) &&
+      canAccessStrategySlugPaidData(appAccess, strategySlug?.trim() ?? ''),
+    [appAccess, strategySlug]
+  );
+  const prefetchedHoldingsConfigIdsRef = useRef<Set<string>>(new Set());
+  const prefetchedPerformanceConfigIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    prefetchedHoldingsConfigIdsRef.current.clear();
+    prefetchedPerformanceConfigIdsRef.current.clear();
+  }, [strategySlug]);
+
+  const prefetchHoldingsForConfig = useCallback(
+    (cfg: RankedConfig) => {
+      const slug = strategySlug.trim();
+      if (!slug) return;
+
+      if (
+        exploreHoldingsUnlocked &&
+        !prefetchedHoldingsConfigIdsRef.current.has(cfg.id)
+      ) {
+        prefetchedHoldingsConfigIdsRef.current.add(cfg.id);
+        void (async () => {
+          const bootstrap = await loadExploreHoldingsBootstrap(slug, cfg.id);
+          if (!bootstrap) return;
+          await loadExploreHoldingsForDates(slug, cfg.id, bootstrap.rebalanceDates.slice(0, 3));
+        })();
+      }
+
+      if (prefetchedPerformanceConfigIdsRef.current.has(cfg.id)) return;
+      prefetchedPerformanceConfigIdsRef.current.add(cfg.id);
+      void loadConfigPerformance(slug, cfg.id, {
+        riskLevel: cfg.riskLevel,
+        rebalanceFrequency: cfg.rebalanceFrequency,
+        weightingMethod: cfg.weightingMethod,
+      });
+    },
+    [strategySlug, exploreHoldingsUnlocked]
+  );
 
   const effectiveStrategy = useMemo(
     () => strategies.find((s) => s.slug === strategySlug),
@@ -414,7 +470,8 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
   );
 
   useEffect(() => {
-    setEquitySeriesPayload(null);
+    setEquitySeriesPayload(getCachedExploreEquitySeries(strategySlug));
+    setEquitySeriesLoading(false);
   }, [strategySlug]);
 
   useEffect(() => {
@@ -424,38 +481,23 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
   }, [riskFilter, weightFilter]);
 
   useEffect(() => {
+    void loadExploreEquitySeries(strategySlug);
+  }, [strategySlug]);
+
+  useEffect(() => {
     if (browseMode !== 'chart' || equitySeriesPayload != null) return;
+    const cached = getCachedExploreEquitySeries(strategySlug);
+    if (cached) {
+      setEquitySeriesPayload(cached);
+      return;
+    }
+
     let cancelled = false;
     setEquitySeriesLoading(true);
-    void fetch(
-      `/api/platform/explore-portfolios-equity-series?slug=${encodeURIComponent(strategySlug)}`
-    )
-      .then((r) => r.json())
-      .then(
-        (d: {
-          dates?: string[];
-          series?: ExploreEquitySeriesRow[];
-          benchmarks?: ExploreBenchmarkSeries;
-        }) => {
-          if (cancelled) return;
-          const dates = d.dates ?? [];
-          const bm = d.benchmarks;
-          const benchmarksValid =
-            bm &&
-            bm.nasdaq100Cap.length === dates.length &&
-            bm.nasdaq100Equal.length === dates.length &&
-            bm.sp500.length === dates.length
-              ? bm
-              : null;
-          setEquitySeriesPayload({
-            dates,
-            series: d.series ?? [],
-            benchmarks: benchmarksValid,
-          });
-        }
-      )
-      .catch(() => {
-        if (!cancelled) setEquitySeriesPayload({ dates: [], series: [], benchmarks: null });
+    void loadExploreEquitySeries(strategySlug)
+      .then((payload) => {
+        if (cancelled) return;
+        setEquitySeriesPayload(payload ?? { dates: [], series: [], benchmarks: null });
       })
       .finally(() => {
         if (!cancelled) setEquitySeriesLoading(false);
@@ -1005,6 +1047,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
                         setDetailOpen(true);
                       }}
                       onAdd={() => openAddDialog(c)}
+                      onPrefetchHoldings={() => prefetchHoldingsForConfig(c)}
                       onUnfollow={() => {
                         if (!followPid) return;
                         void handleUnfollowProfile(followPid, c.id, c.label);
@@ -1269,6 +1312,7 @@ function ConfigCard({
   unfollowBusy,
   onOpenDetails,
   onAdd,
+  onPrefetchHoldings,
   onUnfollow,
 }: {
   listDomId?: string;
@@ -1279,8 +1323,27 @@ function ConfigCard({
   unfollowBusy: boolean;
   onOpenDetails: () => void;
   onAdd: () => void;
+  onPrefetchHoldings: () => void;
   onUnfollow: () => void;
 }) {
+  const hoverPrefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearHoverPrefetchTimer = useCallback(() => {
+    if (hoverPrefetchTimerRef.current == null) return;
+    clearTimeout(hoverPrefetchTimerRef.current);
+    hoverPrefetchTimerRef.current = null;
+  }, []);
+
+  const scheduleHoverPrefetch = useCallback(() => {
+    clearHoverPrefetchTimer();
+    hoverPrefetchTimerRef.current = setTimeout(() => {
+      hoverPrefetchTimerRef.current = null;
+      onPrefetchHoldings();
+    }, 150);
+  }, [clearHoverPrefetchTimer, onPrefetchHoldings]);
+
+  useEffect(() => () => clearHoverPrefetchTimer(), [clearHoverPrefetchTimer]);
+
   const showMetricBlock = config.dataStatus !== 'empty';
   const isLimited = config.dataStatus === 'early';
   const weeklyObservations = config.metrics.weeklyObservations;
@@ -1340,6 +1403,10 @@ function ConfigCard({
     <div
       id={listDomId}
       className="group min-w-0 overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-foreground/20 scroll-mt-24"
+      onMouseEnter={scheduleHoverPrefetch}
+      onMouseLeave={clearHoverPrefetchTimer}
+      onPointerDown={onPrefetchHoldings}
+      onTouchStart={onPrefetchHoldings}
     >
       {/* Mobile: rank rail (centered) + stacked body — row 1 = risk pill + title */}
       <div className="flex min-w-0 lg:hidden">
@@ -1465,7 +1532,12 @@ function ConfigCard({
                 <MetricPill
                   label="Max drawdown"
                   value={fmt(config.metrics.maxDrawdown, 'pct')}
-                  positive={false}
+                  positive={
+                    config.metrics.maxDrawdown != null &&
+                    Number.isFinite(config.metrics.maxDrawdown)
+                      ? config.metrics.maxDrawdown > -0.2
+                      : undefined
+                  }
                 />
               </>
             )}
@@ -1538,7 +1610,7 @@ function ConfigCard({
                 </div>
               ) : null}
               {!isLimited ? (
-                <div className="grid w-full min-w-[28rem] grid-cols-[minmax(0,1.35fr)_repeat(4,minmax(0,1fr))] gap-x-2 pl-1 pr-6 sm:min-w-0 sm:gap-x-3 sm:pl-2 sm:pr-8 sm:items-start">
+                <div className="grid w-full min-w-[28rem] grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] gap-x-2 sm:min-w-0 sm:gap-x-3 sm:items-end">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <div className="min-w-0 cursor-default">
@@ -1584,7 +1656,7 @@ function ConfigCard({
                   value={fmt(outperformanceVsSp500Cap, 'pct')}
                   positive={(outperformanceVsSp500Cap ?? 0) > 0}
                   title="Portfolio cumulative return minus S&P 500 cap-weight benchmark cumulative return over the same period ($10k start)."
-                  labelClassName="leading-tight"
+                  labelClassName="whitespace-nowrap"
                 />
                 <MetricPill
                   className="min-w-0"
@@ -1618,10 +1690,15 @@ function ConfigCard({
                   }
                 />
                 <MetricPill
-                  className="min-w-0"
+                  className="min-w-0 justify-self-end text-right"
                   label="Max drawdown"
                   value={fmt(config.metrics.maxDrawdown, 'pct')}
-                  positive={false}
+                  positive={
+                    config.metrics.maxDrawdown != null &&
+                    Number.isFinite(config.metrics.maxDrawdown)
+                      ? config.metrics.maxDrawdown > -0.2
+                      : undefined
+                  }
                 />
                 </div>
               ) : null}
@@ -1654,7 +1731,7 @@ function ConfigCardMetricsSkeletonMobile() {
 
 function ConfigCardMetricsSkeletonDesktop() {
   return (
-    <div className="grid w-full min-w-[28rem] grid-cols-5 gap-x-2 pl-1 pr-6 sm:min-w-0 sm:gap-x-3 sm:pl-2 sm:pr-8 sm:items-end">
+    <div className="grid w-full min-w-[28rem] grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] gap-x-2 sm:min-w-0 sm:gap-x-3 sm:items-end">
       {Array.from({ length: 5 }).map((_, i) => (
         <div key={i} className="space-y-1">
           <Skeleton className="h-2.5 w-24" />

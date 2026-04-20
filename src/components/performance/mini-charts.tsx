@@ -25,6 +25,7 @@ import {
   CHART_RELATIVE_OUTPERF_COLORS,
 } from '@/lib/chart-index-series-colors';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
+import { downsampleSeriesToIsoWeek } from '@/lib/metrics-annualization';
 import {
   computePerformanceCagr,
   MIN_YEARS_FOR_CAGR_OVER_TIME_POINT,
@@ -34,7 +35,7 @@ import {
 import { toDrawdownPercentSeries } from '@/lib/performance-series-drawdown';
 
 /** Full-history span below this (years) shows a short “preliminary track” note on CAGR over time. */
-const CAGR_PRELIMINARY_NOTE_MAX_YEARS = 0.5;
+const CAGR_PRELIMINARY_NOTE_MAX_YEARS = 12 / 52;
 
 /** Same shape as `PlatformPerformancePayload.series` elements */
 export type SeriesPoint = PerformanceSeriesPoint;
@@ -80,13 +81,19 @@ export function WeeklyReturnsChart({
 }) {
   const weeklyReturns = useMemo(() => {
     if (series.length < 2) return [];
-    return series.slice(1).map((point, i) => {
-      const prev = series[i];
-      return {
-        date: shortDate(point.date),
-        aiReturn: ((point.aiTop20 / prev.aiTop20) - 1) * 100,
-      };
-    });
+    const weekly = downsampleSeriesToIsoWeek(series);
+    if (weekly.length < 2) return [];
+    return weekly
+      .slice(1)
+      .map((point, i) => {
+        const prev = weekly[i]!;
+        if (!(prev.aiTop20 > 0)) return null;
+        return {
+          date: shortDate(point.date),
+          aiReturn: ((point.aiTop20 / prev.aiTop20) - 1) * 100,
+        };
+      })
+      .filter((r): r is { date: string; aiReturn: number } => r != null);
   }, [series]);
 
   if (weeklyReturns.length < 2) return null;
@@ -96,7 +103,7 @@ export function WeeklyReturnsChart({
     <div className="rounded-lg border bg-card p-4">
       <p className="text-sm font-semibold mb-1">Weekly returns</p>
       <p className="text-xs text-muted-foreground mb-3">
-        Week-over-week percentage change.
+        Week-over-week percentage change (ISO weeks).
       </p>
       <ChartContainer
         className="h-[180px] w-full"
@@ -132,10 +139,12 @@ export function CagrOverTimeChart({
   /** Model name, or full overview-style track title (`model · Top n · weight · frequency`). */
   strategyName?: string;
 }) {
+  const weeklySeries = useMemo(() => downsampleSeriesToIsoWeek(series), [series]);
+
   const cagrData = useMemo(() => {
-    if (series.length < 2) return [];
-    const s0 = series[0]!;
-    return series
+    if (weeklySeries.length < 2) return [];
+    const s0 = weeklySeries[0]!;
+    return weeklySeries
       .slice(1)
       .map((point) => {
         const years = yearsBetweenUtcDates(s0.date, point.date);
@@ -159,13 +168,16 @@ export function CagrOverTimeChart({
         (row): row is NonNullable<typeof row> =>
           row != null && (row.aiCagr != null || row.ndxCapCagr != null)
       );
-  }, [series]);
+  }, [weeklySeries]);
 
   const showPreliminaryNote = useMemo(() => {
-    if (series.length < 2) return false;
-    const y = yearsBetweenUtcDates(series[0]!.date, series[series.length - 1]!.date);
+    if (weeklySeries.length < 2) return false;
+    const y = yearsBetweenUtcDates(
+      weeklySeries[0]!.date,
+      weeklySeries[weeklySeries.length - 1]!.date
+    );
     return y != null && y < CAGR_PRELIMINARY_NOTE_MAX_YEARS;
-  }, [series]);
+  }, [weeklySeries]);
 
   if (cagrData.length < 2) return null;
   const aiLabel = strategyName ?? 'AI Strategy';
@@ -174,8 +186,8 @@ export function CagrOverTimeChart({
     <div className="rounded-lg border bg-card p-4">
       <p className="text-sm font-semibold mb-1">CAGR over time</p>
       <p className="text-xs text-muted-foreground mb-3">
-        Annualized growth since the first week shown (same window for each line). The line starts after
-        about three months of history so short spans are not annualized (those numbers swing wildly).
+        Annualized growth since inception, recomputed each ISO week (same window for each line). The
+        line starts after about 8 weeks of history so very short spans are not annualized.
       </p>
       {showPreliminaryNote ? (
         <p className="text-xs text-muted-foreground mb-3 rounded-md border border-dashed border-border/80 bg-muted/30 px-2.5 py-2">
@@ -412,15 +424,18 @@ export function RollingSharpeRatioChart({
     }
 
     const keys = Object.keys(RETURNS_SERIES) as ReturnsKey[];
-    const weeklyReturns = series.slice(1).map((point, i) => {
-      const prev = series[i];
+    const weeklySeries = downsampleSeriesToIsoWeek(series);
+    if (weeklySeries.length < 2) {
+      return { sharpeData: [] as Array<{ date: string } & Record<ReturnsKey, number>>, sharpeWindow: W, weeklyReturnCount: 0 };
+    }
+    const weeklyReturns = weeklySeries.slice(1).map((point, i) => {
+      const prev = weeklySeries[i]!;
+      const safe = (p: number, c: number) => (p > 0 ? c / p - 1 : 0);
       const row: Record<ReturnsKey, number> = {
-        aiTop20: prev.aiTop20 > 0 ? point.aiTop20 / prev.aiTop20 - 1 : 0,
-        nasdaq100CapWeight:
-          prev.nasdaq100CapWeight > 0 ? point.nasdaq100CapWeight / prev.nasdaq100CapWeight - 1 : 0,
-        nasdaq100EqualWeight:
-          prev.nasdaq100EqualWeight > 0 ? point.nasdaq100EqualWeight / prev.nasdaq100EqualWeight - 1 : 0,
-        sp500: prev.sp500 > 0 ? point.sp500 / prev.sp500 - 1 : 0,
+        aiTop20: safe(prev.aiTop20, point.aiTop20),
+        nasdaq100CapWeight: safe(prev.nasdaq100CapWeight, point.nasdaq100CapWeight),
+        nasdaq100EqualWeight: safe(prev.nasdaq100EqualWeight, point.nasdaq100EqualWeight),
+        sp500: safe(prev.sp500, point.sp500),
       };
       return { date: point.date, ...row };
     });
@@ -606,8 +621,8 @@ export function RiskChart({
   }, [series]);
 
   const sharpeReady = useMemo(
-    () => series.length >= ROLLING_SHARPE_MIN_SERIES_LENGTH,
-    [series.length]
+    () => downsampleSeriesToIsoWeek(series).length >= ROLLING_SHARPE_MIN_SERIES_LENGTH,
+    [series]
   );
 
   if (drawdownChartData.length < 2 && !sharpeReady) return null;
@@ -632,7 +647,7 @@ export function RiskChart({
           title={
             sharpeReady
               ? undefined
-              : `Needs at least ${ROLLING_SHARPE_WINDOW_WEEKS} weeks of weekly returns for a rolling estimate.`
+              : `Rolling Sharpe uses a ${ROLLING_SHARPE_WINDOW_WEEKS}-week window, so this chart needs at least ${ROLLING_SHARPE_WINDOW_WEEKS} completed ISO weeks. The headline Sharpe in Key metrics is available earlier (around 8 weeks).`
           }
           onClick={() => setView('sharpe')}
           className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
@@ -827,7 +842,7 @@ export function RelativeOutperformanceChart({
 
   return (
     <div className="rounded-lg border bg-card p-4">
-      <p className="text-sm font-semibold mb-1">Cumulative outperformance</p>
+      <p className="text-sm font-semibold mb-1">Cumulative performance vs benchmarks</p>
       <p className="text-xs text-muted-foreground mb-3">
         How much{' '}
         <span

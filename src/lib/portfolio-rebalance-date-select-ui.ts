@@ -5,6 +5,6 @@
 export const PORTFOLIO_REBALANCE_DATE_SELECT_WIDTH_CLASSES =
   'w-full max-w-[8rem] shrink-0 sm:w-[8rem]';
 
-/** Narrower trigger next to Movement so the row stays on one line when space is tight. */
+/** Match rebalance-actions trigger width for consistent sizing. */
 export const PORTFOLIO_HOLDINGS_DATE_SELECT_WIDTH_CLASSES =
-  'w-full max-w-[6.75rem] min-w-0 shrink-0 sm:w-[6.75rem]';
+  'w-full max-w-[8rem] shrink-0 sm:w-[8rem]';

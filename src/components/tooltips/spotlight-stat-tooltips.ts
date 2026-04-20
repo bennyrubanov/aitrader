@@ -14,11 +14,11 @@ export const SPOTLIGHT_STAT_TOOLTIPS = {
   },
   sharpe_ratio: {
     title: 'Sharpe ratio',
-    body: 'Return per unit of risk: weekly holding-period returns (last close in each calendar week) divided by their week-to-week volatility, annualized at sqrt(52). Ready after about 8 weeks of history. Higher is better; above about 1.0 is often considered strong for equity strategies.',
+    body: 'Holding-period Sharpe asks: "How smooth is the investor experience over time?" It compares average weekly return to weekly volatility (annualized at sqrt(52)). Ready after about 8 weeks. Higher is better; above about 1.0 is often considered strong for equity strategies.',
   },
   sharpe_ratio_decision_cadence: {
     title: 'Decision-cadence Sharpe',
-    body: "Sharpe computed from the portfolio's rebalance-period net returns, annualized at its rebalance cadence. This complements primary Sharpe by isolating decision-process edge from intra-period holding risk. Ready after 8 completed rebalance periods.",
+    body: 'Decision-unit Sharpe asks: "How good are this strategy\'s decisions?" Each observation is one rebalance-period net return (one independent bet). It compares average decision return to decision volatility and annualizes at the rebalance cadence. Ready after 8 completed rebalance periods.',
   },
   max_drawdown: {
     title: 'Max drawdown',
