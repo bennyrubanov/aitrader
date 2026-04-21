@@ -28,6 +28,7 @@ import {
   type BenchmarkDailyPriceIngestRow,
 } from '@/lib/benchmark-daily-prices-ingest';
 import { createAdminClient } from '@/utils/supabase/admin';
+// Intentional: operator-only cron digest to CRON_ERROR_EMAIL (Gmail→Gmail). User-facing mail uses Resend via @/lib/mailer.
 import { sendEmailByGmail } from '@/lib/sendEmailByGmail';
 
 export const runtime = 'nodejs';
@@ -1021,7 +1022,8 @@ const computeQuintileReturns = (samples: ForwardSample[]) => {
 
   let cursor = 0;
   for (let quintile = 1; quintile <= 5; quintile++) {
-    const size = baseSize + (quintile <= remainder ? 1 : 0);
+    // When n % 5 !== 0, assign extra stocks to highest quintiles first so Q5 is never smaller than Q1.
+    const size = baseSize + (quintile > (5 - remainder) ? 1 : 0);
     const bucket = ranked.slice(cursor, cursor + size);
     cursor += size;
     if (!bucket.length) {
@@ -1832,6 +1834,9 @@ const handleRequest = async (req: Request) => {
       });
     }
 
+    /** Used after rebalance actions for optional `model_ratings_ready` fan-out. */
+    let ratingChangesForNotifications: import('@/lib/notifications/types').RatingBucketChange[] = [];
+
     // ----- Step 5: Create/reuse weekly snapshot -----
     const symbols = Array.from(new Set(nasdaqRows.map((row) => row.symbol))).sort();
     const snapshot = await createSnapshot(supabase, runDate, symbols);
@@ -2132,6 +2137,29 @@ const handleRequest = async (req: Request) => {
     digestMeta.aiOk = results.filter((result) => result.status === 'ok').length;
     digestMeta.aiFailed = results.filter((result) => result.status === 'failed').length;
     digestMeta.aiMissing = results.filter((result) => result.status === 'missing_stock').length;
+
+    try {
+      const cronFanout = await import('@/lib/notifications/cron-fanout');
+      ratingChangesForNotifications = cronFanout.collectRatingBucketChanges(
+        results as import('@/lib/notifications/cron-fanout').AiCronResult[],
+        previousRunsMap
+      );
+      if (ratingChangesForNotifications.length > 0) {
+        const r = await cronFanout.notifyRatingBucketChanges(supabase, {
+          strategyId: strategy.id,
+          strategySlug: strategy.slug,
+          strategyName: strategy.name,
+          runDate,
+          changes: ratingChangesForNotifications,
+        });
+        log(
+          'NOTIFICATIONS RATING',
+          `inapp=${r.inappInserted} emails=${r.emailsSent} changes=${ratingChangesForNotifications.length}`
+        );
+      }
+    } catch (error) {
+      recordCronError('Notifications fan-out (rating changes) failed', error);
+    }
 
     // ----- Step 10: Remove stale recommendation rows -----
     const memberIds = memberRows.map((member) => member.stock_id);
@@ -2568,6 +2596,31 @@ const handleRequest = async (req: Request) => {
     }
 
     digestMeta.rebalanceActionsCount = actions.length;
+
+    try {
+      const cronFanout = await import('@/lib/notifications/cron-fanout');
+      if (actions.length > 0) {
+        const rb = await cronFanout.notifyPortfolioRebalances(supabase, {
+          strategyId: strategy.id,
+          strategySlug: strategy.slug,
+          strategyName: strategy.name,
+          runDate,
+          actionCount: actions.length,
+        });
+        log('NOTIFICATIONS REBALANCE', `inapp=${rb.inappInserted} emails=${rb.emailsSent}`);
+      }
+      if (ratingChangesForNotifications.length === 0) {
+        const mr = await cronFanout.notifyModelRatingsReady(supabase, {
+          strategyId: strategy.id,
+          strategySlug: strategy.slug,
+          strategyName: strategy.name,
+          runDate,
+        });
+        log('NOTIFICATIONS RATINGS_READY', `inapp=${mr.inappInserted} emails=${mr.emailsSent}`);
+      }
+    } catch (error) {
+      recordCronError('Notifications fan-out (rebalance / ratings ready) failed', error);
+    }
 
     // ----- Step 17: Weekly research layer (quintiles + regression) -----
     if (previousBatch?.id && previousBatch.run_date) {

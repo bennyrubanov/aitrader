@@ -251,6 +251,70 @@ function formatMonthLabel(ym: string) {
   }).format(d);
 }
 
+function addDaysUtc(ymd: string, days: number): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  if (!y || !m || !d) return ymd;
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  const yyyy = dt.getUTCFullYear();
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getUTCDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function addWeeksUtc(ymd: string, weeks: number): string {
+  return addDaysUtc(ymd, weeks * 7);
+}
+
+function oneWeekRealizationEndUtcFromDates(
+  formationYmd: string,
+  formationDates: string[],
+  latestRunYmd: string | null
+): string {
+  const sortedAsc = [...new Set(formationDates)].sort((a, b) => a.localeCompare(b));
+  const idx = sortedAsc.indexOf(formationYmd);
+  if (idx >= 0 && idx < sortedAsc.length - 1) return sortedAsc[idx + 1]!;
+  if (latestRunYmd && latestRunYmd > formationYmd) return latestRunYmd;
+  return addDaysUtc(formationYmd, 7);
+}
+
+/** "Feb 17, 2026 to Feb 24, 2026" — 1-week hold from formation using known formation dates. */
+function formatUtcHoldRangeOneWeek(
+  formationYmd: string,
+  allFormationDates: string[],
+  latestRunYmd: string | null
+): string {
+  const end = oneWeekRealizationEndUtcFromDates(formationYmd, allFormationDates, latestRunYmd);
+  return formatUtcRangeLong(formationYmd, end);
+}
+
+/** Span from first weekly formation in month through end of the last included week’s hold. */
+function formatUtcHoldRangeMonthlyFromFormations(
+  monthY: string,
+  allFormationDates: string[],
+  latestRunYmd: string | null
+): string {
+  const dates = allFormationDates
+    .filter((d) => d.slice(0, 7) === monthY)
+    .sort((a, b) => a.localeCompare(b));
+  if (!dates.length) return '';
+  const start = dates[0]!;
+  const last = dates[dates.length - 1]!;
+  const end = oneWeekRealizationEndUtcFromDates(last, allFormationDates, latestRunYmd);
+  return formatUtcRangeLong(start, end);
+}
+
+function formatUtcHoldRangeFourWeek(formationYmd: string): string {
+  return formatUtcRangeLong(formationYmd, addWeeksUtc(formationYmd, 4));
+}
+
+function formatUtcRangeLong(startYmd: string, endYmd: string): string {
+  const a = formatInvestedOnCalendarDate(startYmd);
+  const b = formatInvestedOnCalendarDate(endYmd);
+  if (!a || !b) return '';
+  return `${a} to ${b}`;
+}
+
 // ─── Flip Card ───────────────────────────────────────────────────────────────
 
 function FlipCard({
@@ -904,6 +968,15 @@ function PerformancePagePublicClientInner({
     () => research?.regressionHistory ?? [],
     [research?.regressionHistory]
   );
+  const regressionFormationDates = useMemo(
+    () => regressionHistory.map((r) => r.runDate),
+    [regressionHistory]
+  );
+  const quintileFormationDates = useMemo(
+    () => (research?.quintileHistory ?? []).map((s) => s.runDate),
+    [research?.quintileHistory]
+  );
+  const strategyLatestRunDate = payload.latestRunDate ?? null;
   const monthlyQuintileHistory = useMemo(
     () => research?.monthlyQuintiles ?? [],
     [research?.monthlyQuintiles]
@@ -919,14 +992,18 @@ function PerformancePagePublicClientInner({
     [research?.monthlyRegressionHistory]
   );
 
-  /** Latest weekly regression — matches default “Signal strength” view in Research validation. */
+  /** Weekly regression headline + stability (matches research payload). */
   const headerCrossSectionRegression = useMemo(() => {
-    if (!research) return null;
-    const r = research.regressionHistory?.[0] ?? research.regression ?? null;
-    if (!r) return null;
-    const beta = typeof r.beta === 'number' && Number.isFinite(r.beta) ? r.beta : null;
-    return { beta };
-  }, [research]);
+    const summary = research?.regressionSummary;
+    if (!summary || summary.totalWeeks === 0) return null;
+    return {
+      latestBeta: summary.latestBeta,
+      avgBetaRecent8w: summary.avgBetaRecent8w,
+      avgBetaAllWeeks: summary.avgBetaAllWeeks,
+      betaPositiveRate: summary.betaPositiveRate,
+      totalWeeks: summary.totalWeeks,
+    };
+  }, [research?.regressionSummary]);
 
   const selectedWeeklyRegression = useMemo(() => {
     if (!regressionHistory.length) return research?.regression ?? null;
@@ -1028,6 +1105,36 @@ function PerformancePagePublicClientInner({
     if (typeof q1 !== 'number' || typeof q5 !== 'number') return null;
     return q5 - q1;
   }, [activeQuintileRows]);
+
+  /** Formation → realization window for the active quintile view (UTC calendar dates). */
+  const activeQuintileSpreadDateRangeText = useMemo(() => {
+    const latestRun = strategyLatestRunDate;
+    if (quintileView === 'fourWeek') {
+      const start = selectedFourWeekSnapshot?.runDate;
+      if (!start) return null;
+      return formatUtcHoldRangeFourWeek(start);
+    }
+    if (isWeeklySmoothed && selectedMonthlySnapshot) {
+      const text = formatUtcHoldRangeMonthlyFromFormations(
+        selectedMonthlySnapshot.month,
+        quintileFormationDates,
+        latestRun
+      );
+      return text || null;
+    }
+    const start = selectedQuintileSnapshot?.runDate;
+    if (!start) return null;
+    const text = formatUtcHoldRangeOneWeek(start, quintileFormationDates, latestRun);
+    return text || null;
+  }, [
+    quintileView,
+    isWeeklySmoothed,
+    selectedFourWeekSnapshot?.runDate,
+    selectedMonthlySnapshot?.month,
+    quintileFormationDates,
+    selectedQuintileSnapshot?.runDate,
+    strategyLatestRunDate,
+  ]);
 
   const weeklyQuintileWinRate = research?.quintileWinRate ?? null;
   const monthlyQuintileWinRate = research?.monthlyQuintileWinRate ?? null;
@@ -2126,11 +2233,11 @@ function PerformancePagePublicClientInner({
                 <div>
                   <CardTitle className="text-base">Quintile analysis</CardTitle>
                   <CardDescription className="mt-1">
-                    Stocks split into 5 equal groups by AI-scored rank (Q1 = lowest rated, Q5 = highest
-                    rated). Weekly view shows the raw 1-week horizon signal, while 4-week non-overlap
-                    checks if the same formation signal persists across a full 4-week hold. Missing
-                    rank values are treated as neutral (0.5), which can concentrate those names
-                    near Q3.
+                    Stocks split into 5 equal groups by AI-scored rank (Q1 = lowest rated, Q5 =
+                    highest rated). Weekly view shows the raw 1-week forward return signal; 4-week non-overlap
+                    checks whether the same forward return signal persists across a full 4-week hold. Q5 = top
+                    20 by latent rank (same ordering as the Ratings page); Q1 = bottom 20. We keep the academic
+                    naming so the Q5−Q1 spread is comparable to research.
                   </CardDescription>
                 </div>
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -2179,24 +2286,58 @@ function PerformancePagePublicClientInner({
                         <Button
                           variant="outline"
                           size="sm"
-                          className="h-7 text-xs gap-1.5 shrink-0"
+                          className="h-auto min-h-7 max-w-full shrink-0 px-2 py-1.5 text-xs"
                         >
-                          Week of{' '}
-                          {fmt.date(quintileDate ?? research?.quintileHistory?.[0]?.runDate ?? '')}
-                          <ChevronDown className="size-3" />
+                          <div className="flex w-full min-w-0 items-start justify-between gap-2">
+                            <div className="min-w-0 flex flex-col items-start gap-0.5 text-left">
+                              <span className="truncate">
+                                Week of{' '}
+                                {fmt.date(
+                                  quintileDate ?? research?.quintileHistory?.[0]?.runDate ?? ''
+                                )}
+                              </span>
+                              {(() => {
+                                const d =
+                                  quintileDate ?? research?.quintileHistory?.[0]?.runDate ?? '';
+                                const sub = d
+                                  ? formatUtcHoldRangeOneWeek(
+                                      d,
+                                      quintileFormationDates,
+                                      strategyLatestRunDate
+                                    )
+                                  : '';
+                                return sub ? (
+                                  <span className="text-[10px] font-normal leading-snug text-muted-foreground">
+                                    {sub}
+                                  </span>
+                                ) : null;
+                              })()}
+                            </div>
+                            <ChevronDown className="mt-0.5 size-3 shrink-0" />
+                          </div>
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="max-h-48 overflow-y-auto">
                         {(research?.quintileHistory ?? []).map((s) => {
                           const active =
                             (quintileDate ?? research?.quintileHistory?.[0]?.runDate) === s.runDate;
+                          const sub = formatUtcHoldRangeOneWeek(
+                            s.runDate,
+                            quintileFormationDates,
+                            strategyLatestRunDate
+                          );
                           return (
                             <DropdownMenuItem
                               key={s.runDate}
                               onSelect={() => setQuintileDate(s.runDate)}
-                              className={active ? 'font-semibold bg-muted' : ''}
+                              className={`flex flex-col items-start gap-0.5 py-2 ${active ? 'font-semibold bg-muted' : ''}`}
                             >
-                              {fmt.date(s.runDate)}
+                              <span>{fmt.date(s.runDate)}</span>
+                              {sub ? (
+                                <span className="text-[10px] font-normal text-muted-foreground">
+                                  {sub}
+                                </span>
+                              ) : null}
                             </DropdownMenuItem>
                           );
                         })}
@@ -2206,63 +2347,141 @@ function PerformancePagePublicClientInner({
                   {quintileView === 'weekly' && smoothMonthlyQuintiles && monthlyQuintileHistory.length > 1 && (
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5 shrink-0">
-                          Avg:{' '}
-                          {formatMonthLabel(
-                            selectedMonthlySnapshot?.month ?? monthlyQuintileHistory[0]?.month ?? ''
-                          )}
-                          {selectedMonthlyIsPartial && (
-                            <span className="text-[10px] text-muted-foreground">
-                              {' '}
-                              (partial)
-                            </span>
-                          )}
-                          <ChevronDown className="size-3" />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-auto min-h-7 max-w-full shrink-0 px-2 py-1.5 text-xs"
+                        >
+                          <div className="flex w-full min-w-0 items-start justify-between gap-2">
+                            <div className="min-w-0 flex flex-col items-start gap-0.5 text-left">
+                              <span className="truncate">
+                                Avg:{' '}
+                                {formatMonthLabel(
+                                  selectedMonthlySnapshot?.month ??
+                                    monthlyQuintileHistory[0]?.month ??
+                                    ''
+                                )}
+                                {selectedMonthlyIsPartial && (
+                                  <span className="text-[10px] text-muted-foreground">
+                                    {' '}
+                                    (partial)
+                                  </span>
+                                )}
+                              </span>
+                              {(() => {
+                                const mo =
+                                  selectedMonthlySnapshot?.month ??
+                                  monthlyQuintileHistory[0]?.month ??
+                                  '';
+                                const sub = mo
+                                  ? formatUtcHoldRangeMonthlyFromFormations(
+                                      mo,
+                                      quintileFormationDates,
+                                      strategyLatestRunDate
+                                    )
+                                  : '';
+                                return sub ? (
+                                  <span className="text-[10px] font-normal leading-snug text-muted-foreground">
+                                    {sub}
+                                  </span>
+                                ) : null;
+                              })()}
+                            </div>
+                            <ChevronDown className="mt-0.5 size-3 shrink-0" />
+                          </div>
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="max-h-48 overflow-y-auto">
-                        {monthlyQuintileHistory.map((m) => (
-                          <DropdownMenuItem
-                            key={m.month}
-                            onSelect={() => setQuintileMonth(m.month)}
-                            className={
-                              m.month === selectedMonthlySnapshot?.month
-                                ? 'font-semibold bg-muted'
-                                : m.weekCount < 3
-                                  ? 'text-muted-foreground'
-                                  : ''
-                            }
-                          >
-                            {formatMonthLabel(m.month)}
-                            {m.weekCount < 3 ? ` (partial - ${m.weekCount}w)` : ''}
-                          </DropdownMenuItem>
-                        ))}
+                        {monthlyQuintileHistory.map((m) => {
+                          const sub = formatUtcHoldRangeMonthlyFromFormations(
+                            m.month,
+                            quintileFormationDates,
+                            strategyLatestRunDate
+                          );
+                          return (
+                            <DropdownMenuItem
+                              key={m.month}
+                              onSelect={() => setQuintileMonth(m.month)}
+                              className={`flex flex-col items-start gap-0.5 py-2 ${
+                                m.month === selectedMonthlySnapshot?.month
+                                  ? 'font-semibold bg-muted'
+                                  : m.weekCount < 3
+                                    ? 'text-muted-foreground'
+                                    : ''
+                              }`}
+                            >
+                              <span>
+                                {formatMonthLabel(m.month)}
+                                {m.weekCount < 3 ? ` (partial - ${m.weekCount}w)` : ''}
+                              </span>
+                              {sub ? (
+                                <span className="text-[10px] font-normal text-muted-foreground">
+                                  {sub}
+                                </span>
+                              ) : null}
+                            </DropdownMenuItem>
+                          );
+                        })}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   )}
                   {quintileView === 'fourWeek' && fourWeekQuintileHistory.length > 1 && (
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5 shrink-0">
-                          Formation date:{' '}
-                          {fmt.date(selectedFourWeekSnapshot?.runDate ?? fourWeekQuintileHistory[0]?.runDate)}
-                          <ChevronDown className="size-3" />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-auto min-h-7 max-w-full shrink-0 px-2 py-1.5 text-xs"
+                        >
+                          <div className="flex w-full min-w-0 items-start justify-between gap-2">
+                            <div className="min-w-0 flex flex-col items-start gap-0.5 text-left">
+                              <span className="truncate">
+                                Formation date:{' '}
+                                {fmt.date(
+                                  selectedFourWeekSnapshot?.runDate ??
+                                    fourWeekQuintileHistory[0]?.runDate
+                                )}
+                              </span>
+                              {(() => {
+                                const d =
+                                  selectedFourWeekSnapshot?.runDate ??
+                                  fourWeekQuintileHistory[0]?.runDate ??
+                                  '';
+                                const sub = d ? formatUtcHoldRangeFourWeek(d) : '';
+                                return sub ? (
+                                  <span className="text-[10px] font-normal leading-snug text-muted-foreground">
+                                    {sub}
+                                  </span>
+                                ) : null;
+                              })()}
+                            </div>
+                            <ChevronDown className="mt-0.5 size-3 shrink-0" />
+                          </div>
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="max-h-48 overflow-y-auto">
-                        {fourWeekQuintileHistory.map((s) => (
-                          <DropdownMenuItem
-                            key={s.runDate}
-                            onSelect={() => setFourWeekQuintileDate(s.runDate)}
-                            className={
-                              (fourWeekQuintileDate ?? fourWeekQuintileHistory[0]?.runDate) === s.runDate
-                                ? 'font-semibold bg-muted'
-                                : ''
-                            }
-                          >
-                            {fmt.date(s.runDate)}
-                          </DropdownMenuItem>
-                        ))}
+                        {fourWeekQuintileHistory.map((s) => {
+                          const sub = formatUtcHoldRangeFourWeek(s.runDate);
+                          return (
+                            <DropdownMenuItem
+                              key={s.runDate}
+                              onSelect={() => setFourWeekQuintileDate(s.runDate)}
+                              className={`flex flex-col items-start gap-0.5 py-2 ${
+                                (fourWeekQuintileDate ?? fourWeekQuintileHistory[0]?.runDate) ===
+                                s.runDate
+                                  ? 'font-semibold bg-muted'
+                                  : ''
+                              }`}
+                            >
+                              <span>{fmt.date(s.runDate)}</span>
+                              {sub ? (
+                                <span className="text-[10px] font-normal text-muted-foreground">
+                                  {sub}
+                                </span>
+                              ) : null}
+                            </DropdownMenuItem>
+                          );
+                        })}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   )}
@@ -2316,6 +2535,10 @@ function PerformancePagePublicClientInner({
                         {monthlyQuintileWinRate.wins}/{monthlyQuintileWinRate.total} months (
                         {Math.round(monthlyQuintileWinRate.rate * 100)}%)
                       </span>
+                      <span className="text-muted-foreground">
+                        {' '}
+                        (months with ≥3 weekly snapshots)
+                      </span>
                     </p>
                   )}
                   <p className="text-xs text-muted-foreground">
@@ -2344,42 +2567,108 @@ function PerformancePagePublicClientInner({
                 </div>
               )}
 
-              <div className="grid grid-cols-5 gap-2">
-                {activeQuintileRows.map((row) => (
-                  <div
-                    key={row.quintile}
-                    className={`rounded-lg border p-3 text-center ${
-                      row.quintile === 5
-                        ? 'border-trader-blue/40 bg-trader-blue/5'
-                        : row.quintile === 1
-                          ? 'border-red-200 bg-red-50 dark:bg-red-950/20 dark:border-red-900'
-                          : 'bg-muted/30'
-                    }`}
-                  >
-                    <p className="text-xs text-muted-foreground mb-1">Q{row.quintile}</p>
-                    <p
-                      className={`text-sm font-semibold ${
-                        row.return >= 0
-                          ? 'text-green-600 dark:text-green-400'
-                          : 'text-red-600 dark:text-red-400'
-                      }`}
-                    >
-                      {fmt.pct(row.return, 2)}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {quintileView === 'fourWeek'
-                        ? `${row.stockCount} stocks`
-                        : isWeeklySmoothed
-                          ? (() => {
-                              const monthlyRow = selectedMonthlyRowsByQuintile.get(row.quintile);
-                              if (!monthlyRow) return `${row.stockCount}w avg`;
-                              return `${monthlyRow.weekCount}w avg · ${monthlyRow.stockTotal} obs`;
-                            })()
-                          : `${row.stockCount} stocks`}
-                    </p>
-                  </div>
-                ))}
-              </div>
+              {activeQuintileRows.length > 0 &&
+                (() => {
+                  const rowsTopDown = [...activeQuintileRows].sort(
+                    (a, b) => b.quintile - a.quintile,
+                  );
+                  const magnitudes = rowsTopDown.map((r) => Math.abs(r.return ?? 0));
+                  const maxMag = Math.max(1e-9, ...magnitudes);
+                  const labelFor = (q: number) =>
+                    q === 5
+                      ? 'Top 20%'
+                      : q === 4
+                        ? 'Upper-middle'
+                        : q === 3
+                          ? 'Middle 20%'
+                          : q === 2
+                            ? 'Lower-middle'
+                            : 'Bottom 20%';
+                  return (
+                    <div className="space-y-1.5">
+                      <p className="text-[11px] text-muted-foreground">
+                        Each week all ~100 Nasdaq-100 stocks are sorted by latent rank and split into 5
+                        equal buckets of ~20. <strong>Top 20% = Q5</strong>, <strong>Bottom 20% = Q1</strong>.
+                        Each row shows that bucket&apos;s average forward return.
+                      </p>
+                      <div className="rounded-lg border bg-card divide-y">
+                        {rowsTopDown.map((row) => {
+                          const isTop = row.quintile === 5;
+                          const isBottom = row.quintile === 1;
+                          const ret = row.return ?? 0;
+                          const pctBar = (Math.abs(ret) / maxMag) * 100;
+                          const positive = ret >= 0;
+                          const subLabel =
+                            quintileView === 'fourWeek'
+                              ? `${row.stockCount} stocks`
+                              : isWeeklySmoothed
+                                ? (() => {
+                                    const m = selectedMonthlyRowsByQuintile.get(row.quintile);
+                                    return m
+                                      ? `${m.weekCount}w avg · ${m.stockTotal} obs`
+                                      : `${row.stockCount}w avg`;
+                                  })()
+                                : `${row.stockCount} stocks`;
+                          return (
+                            <div
+                              key={row.quintile}
+                              className={cn(
+                                'grid grid-cols-[auto_1fr_auto] items-center gap-3 px-3 py-2.5',
+                                isTop && 'bg-trader-blue/5',
+                                isBottom && 'bg-red-50 dark:bg-red-950/20',
+                              )}
+                            >
+                              <div className="flex flex-col items-start gap-0.5 min-w-[6.25rem]">
+                                <span
+                                  className={cn(
+                                    'text-xs font-semibold leading-tight',
+                                    isTop && 'text-trader-blue dark:text-trader-blue-light',
+                                    isBottom && 'text-red-600 dark:text-red-400',
+                                  )}
+                                >
+                                  {labelFor(row.quintile)}
+                                </span>
+                                <span className="text-[10px] text-muted-foreground tabular-nums leading-tight">
+                                  Q{row.quintile}
+                                  {isTop
+                                    ? ' · highest latent rank'
+                                    : isBottom
+                                      ? ' · lowest latent rank'
+                                      : ''}
+                                </span>
+                              </div>
+                              <div className="relative h-2 w-full overflow-hidden rounded-full bg-muted">
+                                <div
+                                  className={cn(
+                                    'absolute inset-y-0',
+                                    positive
+                                      ? 'left-1/2 bg-green-500/70'
+                                      : 'right-1/2 bg-red-500/70',
+                                  )}
+                                  style={{ width: `${Math.min(50, pctBar / 2)}%` }}
+                                />
+                                <div className="absolute inset-y-0 left-1/2 w-px bg-border" />
+                              </div>
+                              <div className="flex flex-col items-end gap-0.5 min-w-[6rem]">
+                                <span
+                                  className={cn(
+                                    'text-sm font-semibold tabular-nums',
+                                    positive
+                                      ? 'text-green-600 dark:text-green-400'
+                                      : 'text-red-600 dark:text-red-400',
+                                  )}
+                                >
+                                  {fmt.pct(row.return, 2)}
+                                </span>
+                                <span className="text-[10px] text-muted-foreground">{subLabel}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
               {activeQuintileRows.length === 0 && (
                 <p className="text-sm text-muted-foreground mt-3">
                   {quintileView === 'fourWeek'
@@ -2397,10 +2686,22 @@ function PerformancePagePublicClientInner({
                     {fmt.pct(activeQuintileSpread, 2)}
                   </strong>{' '}
                   {quintileView === 'fourWeek'
-                    ? 'over the selected 4-week hold window'
+                    ? `over the selected 4-week hold window${
+                        activeQuintileSpreadDateRangeText
+                          ? ` (${activeQuintileSpreadDateRangeText})`
+                          : ''
+                      }`
                     : isWeeklySmoothed
-                      ? 'on average in the selected calendar month'
-                      : 'that week'}
+                      ? `on average in the selected calendar month${
+                          activeQuintileSpreadDateRangeText
+                            ? ` (${activeQuintileSpreadDateRangeText})`
+                            : ''
+                        }`
+                      : `that week${
+                          activeQuintileSpreadDateRangeText
+                            ? ` (${activeQuintileSpreadDateRangeText})`
+                            : ''
+                        }`}
                   . A positive spread means higher-rated stocks outperformed lower-rated ones.
                 </p>
               )}
@@ -2477,26 +2778,56 @@ function PerformancePagePublicClientInner({
                             <Button
                               variant="outline"
                               size="sm"
-                              className="h-7 text-xs gap-1.5 shrink-0"
+                              className="h-auto min-h-7 max-w-full shrink-0 px-2 py-1.5 text-xs"
                             >
-                              Week of {fmt.date(regressionDisplay.runDate)}
-                              <ChevronDown className="size-3" />
+                              <div className="flex w-full min-w-0 items-start justify-between gap-2">
+                                <div className="min-w-0 flex flex-col items-start gap-0.5 text-left">
+                                  <span className="truncate">
+                                    Week of {fmt.date(regressionDisplay.runDate)}
+                                  </span>
+                                  {(() => {
+                                    const sub = formatUtcHoldRangeOneWeek(
+                                      regressionDisplay.runDate,
+                                      regressionFormationDates,
+                                      strategyLatestRunDate
+                                    );
+                                    return sub ? (
+                                      <span className="text-[10px] font-normal leading-snug text-muted-foreground">
+                                        {sub}
+                                      </span>
+                                    ) : null;
+                                  })()}
+                                </div>
+                                <ChevronDown className="mt-0.5 size-3 shrink-0" />
+                              </div>
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="max-h-48 overflow-y-auto">
-                            {regressionHistory.map((r) => (
-                              <DropdownMenuItem
-                                key={r.runDate}
-                                onSelect={() => setRegressionDate(r.runDate)}
-                                className={
-                                  r.runDate === regressionDisplay.runDate
-                                    ? 'font-semibold bg-muted'
-                                    : ''
-                                }
-                              >
-                                {fmt.date(r.runDate)}
-                              </DropdownMenuItem>
-                            ))}
+                            {regressionHistory.map((r) => {
+                              const sub = formatUtcHoldRangeOneWeek(
+                                r.runDate,
+                                regressionFormationDates,
+                                strategyLatestRunDate
+                              );
+                              return (
+                                <DropdownMenuItem
+                                  key={r.runDate}
+                                  onSelect={() => setRegressionDate(r.runDate)}
+                                  className={`flex flex-col items-start gap-0.5 py-2 ${
+                                    r.runDate === regressionDisplay.runDate
+                                      ? 'font-semibold bg-muted'
+                                      : ''
+                                  }`}
+                                >
+                                  <span>{fmt.date(r.runDate)}</span>
+                                  {sub ? (
+                                    <span className="text-[10px] font-normal text-muted-foreground">
+                                      {sub}
+                                    </span>
+                                  ) : null}
+                                </DropdownMenuItem>
+                              );
+                            })}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       )}
@@ -2506,26 +2837,56 @@ function PerformancePagePublicClientInner({
                             <Button
                               variant="outline"
                               size="sm"
-                              className="h-7 text-xs gap-1.5 shrink-0"
+                              className="h-auto min-h-7 max-w-full shrink-0 px-2 py-1.5 text-xs"
                             >
-                              Avg: {formatMonthLabel(regressionDisplay.month)}
-                              <ChevronDown className="size-3" />
+                              <div className="flex w-full min-w-0 items-start justify-between gap-2">
+                                <div className="min-w-0 flex flex-col items-start gap-0.5 text-left">
+                                  <span className="truncate">
+                                    Avg: {formatMonthLabel(regressionDisplay.month)}
+                                  </span>
+                                  {(() => {
+                                    const sub = formatUtcHoldRangeMonthlyFromFormations(
+                                      regressionDisplay.month,
+                                      regressionFormationDates,
+                                      strategyLatestRunDate
+                                    );
+                                    return sub ? (
+                                      <span className="text-[10px] font-normal leading-snug text-muted-foreground">
+                                        {sub}
+                                      </span>
+                                    ) : null;
+                                  })()}
+                                </div>
+                                <ChevronDown className="mt-0.5 size-3 shrink-0" />
+                              </div>
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="max-h-48 overflow-y-auto">
-                            {monthlyRegressionHistory.map((m) => (
-                              <DropdownMenuItem
-                                key={m.month}
-                                onSelect={() => setRegressionMonth(m.month)}
-                                className={
-                                  m.month === regressionDisplay.month
-                                    ? 'font-semibold bg-muted'
-                                    : ''
-                                }
-                              >
-                                {formatMonthLabel(m.month)}
-                              </DropdownMenuItem>
-                            ))}
+                            {monthlyRegressionHistory.map((m) => {
+                              const sub = formatUtcHoldRangeMonthlyFromFormations(
+                                m.month,
+                                regressionFormationDates,
+                                strategyLatestRunDate
+                              );
+                              return (
+                                <DropdownMenuItem
+                                  key={m.month}
+                                  onSelect={() => setRegressionMonth(m.month)}
+                                  className={`flex flex-col items-start gap-0.5 py-2 ${
+                                    m.month === regressionDisplay.month
+                                      ? 'font-semibold bg-muted'
+                                      : ''
+                                  }`}
+                                >
+                                  <span>{formatMonthLabel(m.month)}</span>
+                                  {sub ? (
+                                    <span className="text-[10px] font-normal text-muted-foreground">
+                                      {sub}
+                                    </span>
+                                  ) : null}
+                                </DropdownMenuItem>
+                              );
+                            })}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       )}

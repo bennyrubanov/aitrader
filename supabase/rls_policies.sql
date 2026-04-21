@@ -362,6 +362,46 @@ grant select on public.nasdaq100_scores_7d_view to anon, authenticated;
 grant select on public.nasdaq100_current_members to anon, authenticated;
 grant select on public.nasdaq100_latest_snapshot to anon, authenticated;
 
+-- -------------------------------------------------------
+-- 17) notifications – read own; update read_at only
+-- -------------------------------------------------------
+alter table public.notifications enable row level security;
+
+drop policy if exists "notifications_select_own" on public.notifications;
+create policy "notifications_select_own" on public.notifications
+  for select using (auth.uid() = user_id);
+
+drop policy if exists "notifications_update_own_read" on public.notifications;
+create policy "notifications_update_own_read" on public.notifications
+  for update using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+grant select, update on public.notifications to authenticated;
+
+-- -------------------------------------------------------
+-- 18) user_model_subscriptions – own rows
+-- -------------------------------------------------------
+alter table public.user_model_subscriptions enable row level security;
+
+drop policy if exists "ums_owner_all" on public.user_model_subscriptions;
+create policy "ums_owner_all" on public.user_model_subscriptions
+  for all using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+grant select, insert, update, delete on public.user_model_subscriptions to authenticated;
+
+-- -------------------------------------------------------
+-- 19) user_notification_preferences – own row
+-- -------------------------------------------------------
+alter table public.user_notification_preferences enable row level security;
+
+drop policy if exists "unp_owner_all" on public.user_notification_preferences;
+create policy "unp_owner_all" on public.user_notification_preferences
+  for all using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+grant select, insert, update, delete on public.user_notification_preferences to authenticated;
+
 -- ============================================================
 -- Notes
 -- ============================================================

@@ -32,7 +32,10 @@ export async function GET() {
     user_start_date,
     entry_prices_snapshot_at,
     is_active,
-    notifications_enabled,
+    notify_rebalance,
+    notify_holdings_change,
+    email_enabled,
+    inapp_enabled,
     is_starting_portfolio,
     created_at,
     updated_at,
@@ -99,7 +102,10 @@ export async function GET() {
     } else {
       data = (fallback.data ?? []).map((row: Record<string, unknown>) => ({
         ...row,
-        notifications_enabled: false,
+        notify_rebalance: true,
+        notify_holdings_change: true,
+        email_enabled: true,
+        inapp_enabled: true,
       }));
     }
   } else {
@@ -379,8 +385,17 @@ export async function PATCH(req: Request) {
   }
 
   const updates: Record<string, unknown> = { updated_at: now };
-  if (typeof body.notificationsEnabled === 'boolean') {
-    updates.notifications_enabled = body.notificationsEnabled;
+  if (typeof body.notifyRebalance === 'boolean') {
+    updates.notify_rebalance = body.notifyRebalance;
+  }
+  if (typeof body.notifyHoldingsChange === 'boolean') {
+    updates.notify_holdings_change = body.notifyHoldingsChange;
+  }
+  if (typeof body.emailEnabled === 'boolean') {
+    updates.email_enabled = body.emailEnabled;
+  }
+  if (typeof body.inappEnabled === 'boolean') {
+    updates.inapp_enabled = body.inappEnabled;
   }
   if (typeof body.investmentSize === 'number' && body.investmentSize > 0) {
     updates.investment_size = body.investmentSize;
@@ -456,7 +471,10 @@ export async function PATCH(req: Request) {
   }
 
   const hasProfileColumnUpdate =
-    typeof body.notificationsEnabled === 'boolean' ||
+    typeof body.notifyRebalance === 'boolean' ||
+    typeof body.notifyHoldingsChange === 'boolean' ||
+    typeof body.emailEnabled === 'boolean' ||
+    typeof body.inappEnabled === 'boolean' ||
     (typeof body.investmentSize === 'number' && body.investmentSize > 0) ||
     typeof body.isActive === 'boolean' ||
     didReanchorOrStartChange;

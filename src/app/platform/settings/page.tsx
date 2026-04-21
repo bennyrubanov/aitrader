@@ -32,6 +32,7 @@ import {
   ScheduledDowngradeDetailDialog,
 } from '@/components/account/downgrade-to-supporter-dialog';
 import { useAuthState, useRefreshAuthProfile } from '@/components/auth/auth-state-context';
+import { NotificationsSettingsSection } from '@/components/platform/notifications-settings-section';
 import { cn } from '@/lib/utils';
 
 type ProfileState = {
@@ -1373,6 +1374,7 @@ const SettingsPageContent = () => {
                 aria-label="Toggle AI Trader newsletter subscription"
               />
             </div>
+            <NotificationsSettingsSection />
             {followedStocks.length > 0 && (
               <div className="border-t px-5 py-4">
                 <div className="flex items-center gap-2">
@@ -1383,8 +1385,8 @@ const SettingsPageContent = () => {
                   You&apos;ll be notified when these stocks&apos; weekly ratings change.
                 </p>
                 <p className="mt-1.5 text-[11px] text-muted-foreground">
-                  Portfolio- and plan-based alert rules are still rolling out; preferences you set here
-                  stay saved for when delivery goes live.
+                  Per-stock preferences here pair with the notifications center; portfolio-level alerts live in
+                  Your Portfolios and Settings.
                 </p>
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {followedStocks.map((s) => (

@@ -78,8 +78,14 @@ export default async function StrategyModelDetailPage({ params }: Props) {
   const isTop = strategies[0]?.id === detail.id;
 
   const headerCrossSectionRegression =
-    detail.latestBeta != null || detail.latestRSquared != null
-      ? { beta: detail.latestBeta }
+    detail.regressionSummary.totalWeeks > 0
+      ? {
+          latestBeta: detail.regressionSummary.latestBeta,
+          avgBetaRecent8w: detail.regressionSummary.avgBetaRecent8w,
+          avgBetaAllWeeks: detail.regressionSummary.avgBetaAllWeeks,
+          betaPositiveRate: detail.regressionSummary.betaPositiveRate,
+          totalWeeks: detail.regressionSummary.totalWeeks,
+        }
       : null;
 
   const PROMPT_KEY_POINTS = [
@@ -101,6 +107,7 @@ export default async function StrategyModelDetailPage({ params }: Props) {
         <StrategyModelSidebarSlot
           currentSlug={slug}
           currentName={detail.name}
+          currentStrategyId={detail.id}
           strategies={strategies}
           performanceSlug={slug}
         />
@@ -664,8 +671,9 @@ export default async function StrategyModelDetailPage({ params }: Props) {
                 formation-to-realization basis every 4 weeks.
               </p>
               <p className="text-xs text-muted-foreground">
-                If a latent rank is missing, we treat it as neutral (0.5), which tends to place those
-                names around the middle bucket (Q3).
+                Stocks without a latent rank for a given week are dropped from that week&apos;s
+                bucketing entirely. Only when the model errored for a name do we impute a neutral rank
+                of 0.5, which tends to place those names in the middle bucket (Q3).
               </p>
               <p>
                 The <strong>Q5 win rate</strong> is the fraction of weeks where Q5 outperformed Q1.

@@ -31,7 +31,10 @@ export type GuestOverviewProfileRow = {
   id: string;
   investment_size: number;
   user_start_date: string | null;
-  notifications_enabled: boolean;
+  notify_rebalance: boolean;
+  notify_holdings_change: boolean;
+  email_enabled: boolean;
+  inapp_enabled: boolean;
   is_starting_portfolio: boolean;
   strategy_models: { slug: string; name: string } | null;
   portfolio_config: {
@@ -116,7 +119,10 @@ export async function buildGuestLocalProfileRows(
     id: GUEST_LOCAL_PROFILE_ID,
     investment_size: pc.investmentSize,
     user_start_date: start,
-    notifications_enabled: false,
+    notify_rebalance: false,
+    notify_holdings_change: false,
+    email_enabled: false,
+    inapp_enabled: false,
     is_starting_portfolio: true,
     strategy_models: { slug: strategy.slug, name: strategy.name },
     portfolio_config,

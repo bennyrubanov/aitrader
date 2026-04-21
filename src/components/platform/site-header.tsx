@@ -4,7 +4,7 @@ import { Suspense } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Home, Menu } from 'lucide-react';
+import { Menu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SidebarControlDialog } from '@/components/platform/sidebar-control-dialog';
 import { useSidebar } from '@/components/ui/sidebar';
@@ -15,6 +15,7 @@ import { PlanLabel } from '@/components/account/plan-label';
 import { useAuthState } from '@/components/auth/auth-state-context';
 import { SiteHeaderGuestAuth } from '@/components/platform/site-header-guest-auth';
 import { PLATFORM_TOUR_SHELL_READY_ATTR } from '@/lib/platform-post-onboarding-tour';
+import { NotificationsBell } from '@/components/platform/notifications-bell';
 
 type ViewMeta = {
   title: string;
@@ -45,6 +46,10 @@ const viewMetaByPath: Record<string, ViewMeta> = {
   '/platform/settings': {
     title: 'Settings',
     subtitle: 'Manage account, billing, and notification preferences',
+  },
+  '/platform/notifications': {
+    title: 'Notifications',
+    subtitle: 'Your in-app alerts and recent activity',
   },
   '/platform/overview': {
     title: 'Overview',
@@ -197,7 +202,7 @@ export function SiteHeader() {
           <MiniStockSearch />
         </Suspense>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1">
           <ThemeToggle />
           {isLoaded && !isAuthenticated ? (
             <Suspense
@@ -208,18 +213,9 @@ export function SiteHeader() {
               <SiteHeaderGuestAuth />
             </Suspense>
           ) : (
-            <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
-              <Link
-                href="/"
-                prefetch
-                onMouseEnter={() => router.prefetch('/')}
-                onFocus={() => router.prefetch('/')}
-                onPointerDown={() => router.prefetch('/')}
-              >
-                <Home className="mr-2 size-4" />
-                Home
-              </Link>
-            </Button>
+            <div className="hidden sm:flex sm:items-center">
+              <NotificationsBell />
+            </div>
           )}
         </div>
       </div>

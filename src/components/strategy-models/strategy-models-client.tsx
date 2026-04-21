@@ -434,35 +434,53 @@ export function StrategyModelsClient({ strategies }: Props) {
                         </div>
                         <div>
                           <p className="text-[10px] font-semibold text-muted-foreground mb-1 leading-snug">
-                            {`Beta (\u03B2) · latest week`}
+                            {`Beta (\u03B2) · all-time avg`}
                           </p>
                           {statsLoading ? (
                             <div className="h-10 w-24 rounded-md bg-muted animate-pulse mt-1" />
-                          ) : ranked?.latestBeta != null && Number.isFinite(ranked.latestBeta) ? (
-                            <>
-                              <p
-                                className={cn(
-                                  'text-lg font-bold tabular-nums tracking-tight',
-                                  ranked.latestBeta > 0
-                                    ? 'text-green-600 dark:text-green-400'
-                                    : ranked.latestBeta < 0
-                                      ? 'text-red-600 dark:text-red-400'
-                                      : 'text-foreground'
-                                )}
-                              >
-                                {fmtBeta(ranked.latestBeta)}
-                              </p>
-                              <p className="text-[10px] text-muted-foreground mt-0.5">
-                                Score vs next-week return.
-                              </p>
-                              <Link
-                                href={`/strategy-models/${STRATEGY_CONFIG.slug}#methodology-regression`}
-                                className="mt-1.5 inline-flex items-center gap-0.5 text-[10px] font-medium text-trader-blue hover:underline dark:text-trader-blue-light"
-                              >
-                                What this is
-                                <ArrowRight className="size-2.5 shrink-0" />
-                              </Link>
-                            </>
+                          ) : (ranked?.betaWeeksObserved ?? 0) > 0 ? (
+                            (() => {
+                              const hero = ranked.avgBetaAllWeeks;
+                              const heroFinite = hero != null && Number.isFinite(hero);
+                              return (
+                                <>
+                                  <p
+                                    className={cn(
+                                      'text-lg font-bold tabular-nums tracking-tight',
+                                      heroFinite
+                                        ? hero > 0
+                                          ? 'text-green-600 dark:text-green-400'
+                                          : hero < 0
+                                            ? 'text-red-600 dark:text-red-400'
+                                            : 'text-foreground'
+                                        : 'text-muted-foreground'
+                                    )}
+                                  >
+                                    {fmtBeta(heroFinite ? hero : null)}
+                                  </p>
+                                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                                    β&gt;0 in{' '}
+                                    {ranked.betaPositiveRate != null
+                                      ? `${Math.round(ranked.betaPositiveRate * 100)}% of ${ranked.betaWeeksObserved}w`
+                                      : `— of ${ranked.betaWeeksObserved}w`}
+                                    {ranked.latestBeta != null && Number.isFinite(ranked.latestBeta)
+                                      ? ` · latest ${fmtBeta(ranked.latestBeta)}`
+                                      : ''}
+                                    {ranked.avgBetaRecent8w != null &&
+                                    Number.isFinite(ranked.avgBetaRecent8w)
+                                      ? ` · 8w avg ${fmtBeta(ranked.avgBetaRecent8w)}`
+                                      : ''}
+                                  </p>
+                                  <Link
+                                    href={`/strategy-models/${STRATEGY_CONFIG.slug}#methodology-regression`}
+                                    className="mt-1.5 inline-flex items-center gap-0.5 text-[10px] font-medium text-trader-blue hover:underline dark:text-trader-blue-light"
+                                  >
+                                    What this is
+                                    <ArrowRight className="size-2.5 shrink-0" />
+                                  </Link>
+                                </>
+                              );
+                            })()
                           ) : (
                             <>
                               <p className="text-lg font-bold tabular-nums text-muted-foreground">—</p>

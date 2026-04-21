@@ -13,10 +13,12 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { type StrategyListItem } from '@/lib/platform-performance-payload';
 import { strategyModelDropdownSubtitle } from '@/lib/strategy-list-meta';
+import { ModelSubscribeCard } from '@/components/strategy-models/model-subscribe-card';
 
 type Props = {
   currentSlug: string;
   currentName: string;
+  currentStrategyId: string;
   strategies: StrategyListItem[];
   performanceSlug: string;
 };
@@ -24,6 +26,7 @@ type Props = {
 export function StrategyModelSidebarSlot({
   currentSlug,
   currentName,
+  currentStrategyId,
   strategies,
   performanceSlug,
 }: Props) {
@@ -80,6 +83,8 @@ export function StrategyModelSidebarSlot({
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
+
+        <ModelSubscribeCard strategyId={currentStrategyId} strategyName={currentName} />
 
         <Button asChild variant="ghost" size="sm" className="w-full justify-start gap-1.5 text-xs h-7 px-1">
           <Link href={`/performance/${performanceSlug}`}>

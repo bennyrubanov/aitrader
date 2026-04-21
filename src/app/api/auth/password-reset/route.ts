@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/utils/supabase/admin";
-import { sendEmailByGmail } from "@/lib/sendEmailByGmail";
+import { sendTransactionalEmail } from "@/lib/mailer";
 import {
   DEFAULT_POST_AUTH_PATH,
   sanitizeAuthRedirectPath,
@@ -61,8 +61,12 @@ export async function POST(request: Request) {
       </div>
     `;
 
-    const sent = await sendEmailByGmail(email, htmlBody, "Reset your AITrader password");
-    if (!sent) {
+    const sent = await sendTransactionalEmail({
+      to: email,
+      html: htmlBody,
+      subject: "Reset your AITrader password",
+    });
+    if (!sent.ok) {
       return NextResponse.json({ error: "Failed to send reset email." }, { status: 500 });
     }
 

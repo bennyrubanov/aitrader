@@ -269,7 +269,10 @@ type ProfileRow = {
   id: string;
   investment_size: number;
   user_start_date: string | null;
-  notifications_enabled: boolean;
+  notify_rebalance: boolean;
+  notify_holdings_change: boolean;
+  email_enabled: boolean;
+  inapp_enabled: boolean;
   is_starting_portfolio: boolean;
   created_at?: string;
   strategy_models: { slug: string; name: string } | null;

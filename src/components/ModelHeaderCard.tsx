@@ -51,7 +51,11 @@ type ModelHeaderCardProps = {
    * links to `researchValidationHref` for full methodology.
    */
   crossSectionRegression?: {
-    beta: number | null;
+    latestBeta: number | null;
+    avgBetaRecent8w: number | null;
+    avgBetaAllWeeks: number | null;
+    betaPositiveRate: number | null;
+    totalWeeks: number;
   } | null;
   /** Same-page anchor for regression detail (performance page uses `#research-signal-strength`). */
   researchValidationHref?: string;
@@ -618,27 +622,38 @@ export function ModelHeaderCard({
               <InsightCardShell
                 icon={Activity}
                 title="Beta (β)"
-                subtitle="Signal — score vs next-week return (latest week)"
+                subtitle="Signal — average β across all weekly regressions"
               >
                 {(() => {
-                  const beta = crossSectionRegression.beta;
-                  const betaGood = beta != null && beta > 0;
+                  const {
+                    latestBeta,
+                    avgBetaRecent8w,
+                    avgBetaAllWeeks,
+                    betaPositiveRate,
+                    totalWeeks,
+                  } = crossSectionRegression;
+                  const heroBeta = avgBetaAllWeeks;
+                  const heroGood = heroBeta != null && heroBeta > 0;
+                  const pctFmt = (v: number | null) =>
+                    v == null ? '—' : `${Math.round(v * 100)}%`;
                   return (
                     <>
                       <p
                         className={cn(
                           insightHighlightClass,
-                          beta == null
+                          heroBeta == null
                             ? 'text-muted-foreground'
-                            : betaGood
+                            : heroGood
                               ? 'text-green-600 dark:text-green-400'
                               : 'text-red-600 dark:text-red-400'
                         )}
                       >
-                        {fmtRegressionStat(beta, 4)}
+                        {fmtRegressionStat(heroBeta, 4)}
                       </p>
                       <p className="text-xs leading-snug text-muted-foreground">
-                        Positive means higher-rated names tended to outperform next week.
+                        β&gt;0 in {pctFmt(betaPositiveRate)} of {totalWeeks} weeks · latest{' '}
+                        {fmtRegressionStat(latestBeta, 4)} · 8w avg{' '}
+                        {fmtRegressionStat(avgBetaRecent8w, 4)}
                       </p>
                       <Link
                         href={researchValidationHref}

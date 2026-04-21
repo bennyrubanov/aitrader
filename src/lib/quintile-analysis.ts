@@ -22,6 +22,52 @@ export type QuintileWinRate = {
   rate: number;
 };
 
+/** Weekly cross-sectional regression stability (1-week horizon history). */
+export type RegressionSummary = {
+  latestBeta: number | null;
+  avgBetaAllWeeks: number | null;
+  medianBetaAllWeeks: number | null;
+  avgBetaRecent8w: number | null;
+  avgRsqRecent8w: number | null;
+  betaPositiveRate: number | null;
+  totalWeeks: number;
+};
+
+export function computeRegressionSummary(
+  history: Array<{ runDate: string; beta: number | null; rSquared: number | null }>
+): RegressionSummary {
+  const sorted = [...history].sort((a, b) => b.runDate.localeCompare(a.runDate));
+  const betasAll = sorted
+    .map((r) => r.beta)
+    .filter((b): b is number => b != null && Number.isFinite(b));
+  const recent = sorted.slice(0, 8);
+  const betasRecent = recent
+    .map((r) => r.beta)
+    .filter((b): b is number => b != null && Number.isFinite(b));
+  const rsqRecent = recent
+    .map((r) => r.rSquared)
+    .filter((b): b is number => b != null && Number.isFinite(b));
+  const mean = (ns: number[]) =>
+    ns.length ? ns.reduce((a, b) => a + b, 0) / ns.length : null;
+  const medianOf = (ns: number[]) => {
+    if (!ns.length) return null;
+    const s = [...ns].sort((a, b) => a - b);
+    const m = Math.floor(s.length / 2);
+    return s.length % 2 ? s[m]! : (s[m - 1]! + s[m]!) / 2;
+  };
+  return {
+    latestBeta: sorted[0]?.beta ?? null,
+    avgBetaAllWeeks: mean(betasAll),
+    medianBetaAllWeeks: medianOf(betasAll),
+    avgBetaRecent8w: mean(betasRecent),
+    avgRsqRecent8w: mean(rsqRecent),
+    betaPositiveRate: betasAll.length
+      ? betasAll.filter((b) => b > 0).length / betasAll.length
+      : null,
+    totalWeeks: betasAll.length,
+  };
+}
+
 const toFiniteNumber = (value: number | string, fallback = 0): number => {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
@@ -128,12 +174,14 @@ export function computeQuintileWinRate(history: QuintileSnapshot[]): QuintileWin
 }
 
 export function computeMonthlyQuintileWinRate(
-  history: MonthlyQuintileSnapshot[]
+  history: MonthlyQuintileSnapshot[],
+  minWeeksPerMonth = 3
 ): QuintileWinRate | null {
   if (!history.length) return null;
   let total = 0;
   let wins = 0;
   for (const snapshot of history) {
+    if (snapshot.weekCount < minWeeksPerMonth) continue;
     const q1 = snapshot.rows.find((r) => r.quintile === 1)?.avgReturn;
     const q5 = snapshot.rows.find((r) => r.quintile === 5)?.avgReturn;
     if (typeof q1 === 'number' && typeof q5 === 'number') {

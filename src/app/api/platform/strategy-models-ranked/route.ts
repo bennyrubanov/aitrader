@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import {
   buildQuintileHistory,
   computeQuintileWinRate,
+  computeRegressionSummary,
   getStrategiesList,
 } from '@/lib/platform-performance-payload';
 import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
@@ -96,6 +97,14 @@ export type RankedStrategyModel = {
   avgExcessVsSp500: number | null;
   /** Latest weekly cross-sectional regression beta (1-week horizon). */
   latestBeta: number | null;
+  /** Mean beta across all weekly regressions with finite β (1-week horizon). */
+  avgBetaAllWeeks: number | null;
+  /** Mean beta over the most recent 8 weekly regressions (1-week horizon). */
+  avgBetaRecent8w: number | null;
+  /** Share of weeks with finite β > 0 (denominator = weeks with finite β). */
+  betaPositiveRate: number | null;
+  /** Count of weekly regressions with a finite β value. */
+  betaWeeksObserved: number;
   /** Q5 vs Q1 weekly win rate (same definition as performance research). */
   quintileWinRate: { total: number; wins: number; rate: number } | null;
   quintileLatestWeekSpread: number | null;
@@ -114,17 +123,28 @@ export async function GET() {
   const strategyIds = strategies.map((s) => s.id);
   const { data: regRows } = await supabase
     .from('strategy_cross_sectional_regressions')
-    .select('strategy_id, beta, run_date')
+    .select('strategy_id, beta, r_squared, run_date')
     .in('strategy_id', strategyIds)
     .eq('horizon_weeks', 1)
     .order('run_date', { ascending: false });
 
   const latestBetaByStrategyId = new Map<string, number | null>();
+  const regressionHistoryByStrategyId = new Map<
+    string,
+    Array<{ runDate: string; beta: number | null; rSquared: number | null }>
+  >();
   for (const row of regRows ?? []) {
     const sid = row.strategy_id as string;
     if (!latestBetaByStrategyId.has(sid)) {
       latestBetaByStrategyId.set(sid, toNullableNumber(row.beta));
     }
+    const list = regressionHistoryByStrategyId.get(sid) ?? [];
+    list.push({
+      runDate: row.run_date as string,
+      beta: toNullableNumber(row.beta),
+      rSquared: toNullableNumber(row.r_squared),
+    });
+    regressionHistoryByStrategyId.set(sid, list);
   }
 
   const { data: quintileRaw } = await supabase
@@ -158,6 +178,9 @@ export async function GET() {
 
   for (const s of strategies) {
     const latestBeta = latestBetaByStrategyId.get(s.id) ?? null;
+    const regSummary = computeRegressionSummary(
+      regressionHistoryByStrategyId.get(s.id) ?? []
+    );
     const qHistory = buildQuintileHistory(quintileRowsByStrategyId.get(s.id) ?? []);
     const quintileWinRate = computeQuintileWinRate(qHistory);
     const latestQuintileSnap = qHistory[0];
@@ -205,6 +228,10 @@ export async function GET() {
         eligibleConfigCount: eligible.length,
         avgExcessVsSp500: avgExcessReturnVsSp500(configs),
         latestBeta,
+        avgBetaAllWeeks: regSummary.avgBetaAllWeeks,
+        avgBetaRecent8w: regSummary.avgBetaRecent8w,
+        betaPositiveRate: regSummary.betaPositiveRate,
+        betaWeeksObserved: regSummary.totalWeeks,
         quintileWinRate,
         quintileLatestWeekSpread,
         quintileLatestWeekRunDate,
@@ -229,6 +256,10 @@ export async function GET() {
         eligibleConfigCount: 0,
         avgExcessVsSp500: null,
         latestBeta,
+        avgBetaAllWeeks: regSummary.avgBetaAllWeeks,
+        avgBetaRecent8w: regSummary.avgBetaRecent8w,
+        betaPositiveRate: regSummary.betaPositiveRate,
+        betaWeeksObserved: regSummary.totalWeeks,
         quintileWinRate,
         quintileLatestWeekSpread,
         quintileLatestWeekRunDate,

@@ -391,7 +391,39 @@ function ExploreRebalanceActionsTable({
 
 const STREAMING_REBALANCE_SKELETON_CAP = 3;
 const INITIAL_VISIBLE_REBALANCE_DATES = 3;
-const LOAD_MORE_REBALANCE_STEP = 5;
+/** How many rebalance-date blocks each “View more” click reveals (remainder on last click). */
+const VISIBLE_LOAD_MORE_STEP = 10;
+/** Proactively fetch holdings for this many upcoming dates beyond the visible window (+1 for movement diff). */
+const PREFETCH_NEXT_REBALANCE_DATES = 5;
+
+const EXPLORE_DIALOG_VISIBLE_DATES_SESSION_PREFIX =
+  'aitrader.platform.cache.v1.explore-dialog.visible-rebalance-dates';
+
+function storageKeyExploreDialogVisibleDates(slug: string, configId: string): string {
+  return `${EXPLORE_DIALOG_VISIBLE_DATES_SESSION_PREFIX}.${slug.trim()}\0${configId}`;
+}
+
+function readVisibleDateCountSession(slug: string, configId: string): number | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.sessionStorage.getItem(storageKeyExploreDialogVisibleDates(slug, configId));
+    if (!raw) return null;
+    const n = Number.parseInt(raw, 10);
+    if (!Number.isFinite(n) || n < INITIAL_VISIBLE_REBALANCE_DATES) return null;
+    return n;
+  } catch {
+    return null;
+  }
+}
+
+function writeVisibleDateCountSession(slug: string, configId: string, count: number): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.setItem(storageKeyExploreDialogVisibleDates(slug, configId), String(count));
+  } catch {
+    // Ignore quota / privacy failures.
+  }
+}
 
 function ExploreHoldingsCardSkeleton({ rows = 5 }: { rows?: number }) {
   return (
@@ -659,7 +691,6 @@ export function ExplorePortfolioDetailDialog({
       setHoldings([]);
       setRebalanceDates([]);
       setSelectedAsOf(null);
-      setVisibleDateCount(INITIAL_VISIBLE_REBALANCE_DATES);
       setLoadingMoreDates(false);
       setHoldingsLoading(false);
       setHoldingsAsOfPriceBySymbol({});
@@ -725,8 +756,16 @@ export function ExplorePortfolioDetailDialog({
     () => rebalanceDates.slice(0, visibleDateCount),
     [rebalanceDates, visibleDateCount]
   );
-  const datesToFetch = useMemo(
-    () => rebalanceDates.slice(0, Math.min(visibleDateCount + 1, rebalanceDates.length)),
+  /** Prefix of rebalance dates to keep cached: visible window + next N hidden (+1 for prior-date movement diff). */
+  const prefetchDates = useMemo(
+    () =>
+      rebalanceDates.slice(
+        0,
+        Math.min(
+          visibleDateCount + PREFETCH_NEXT_REBALANCE_DATES + 1,
+          rebalanceDates.length
+        )
+      ),
     [rebalanceDates, visibleDateCount]
   );
   const hasMoreRebalanceDates = visibleDateCount < rebalanceDates.length;
@@ -744,47 +783,34 @@ export function ExplorePortfolioDetailDialog({
         : Math.min(visibleDateCount, estimatedBlocks);
     return Math.max(1, Math.min(requestedBlocks, STREAMING_REBALANCE_SKELETON_CAP));
   }, [rebalanceDates.length, visibleDateCount, modelInceptionDate, config?.rebalanceFrequency]);
-  const loadMoreCount = Math.min(
-    LOAD_MORE_REBALANCE_STEP,
+  const viewMoreIncrement = Math.min(
+    VISIBLE_LOAD_MORE_STEP,
     Math.max(0, rebalanceDates.length - visibleDateCount)
   );
-  const nextDatesToPrefetch = useMemo(
-    () =>
-      rebalanceDates.slice(
-        0,
-        Math.min(visibleDateCount + LOAD_MORE_REBALANCE_STEP + 1, rebalanceDates.length)
-      ),
-    [rebalanceDates, visibleDateCount]
-  );
-  const loadMoreHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const clearLoadMoreHoverTimer = useCallback(() => {
-    if (loadMoreHoverTimerRef.current != null) {
-      clearTimeout(loadMoreHoverTimerRef.current);
-      loadMoreHoverTimerRef.current = null;
-    }
-  }, []);
-  const prefetchNextDates = useCallback(() => {
-    if (!open || !config || !exploreHoldingsUnlocked || nextDatesToPrefetch.length === 0) return;
+
+  useEffect(() => {
+    if (!open || !config?.id || !exploreHoldingsUnlocked) return;
+    const slug = strategySlug.trim();
+    if (!slug || rebalanceDates.length === 0) return;
+    const stored = readVisibleDateCountSession(slug, config.id);
+    const next = Math.min(
+      Math.max(stored ?? INITIAL_VISIBLE_REBALANCE_DATES, INITIAL_VISIBLE_REBALANCE_DATES),
+      rebalanceDates.length
+    );
+    setVisibleDateCount(next);
+  }, [open, config?.id, strategySlug, rebalanceDates, exploreHoldingsUnlocked]);
+
+  const handleLoadMoreDates = useCallback(() => {
+    if (!hasMoreRebalanceDates || !config) return;
     const slug = strategySlug.trim();
     if (!slug) return;
-    void loadExploreHoldingsForDates(slug, config.id, nextDatesToPrefetch).then(() => {
-      bumpHoldingsCacheRev();
-    });
-  }, [open, config, exploreHoldingsUnlocked, nextDatesToPrefetch, strategySlug, bumpHoldingsCacheRev]);
-  const scheduleLoadMorePrefetch = useCallback(() => {
-    clearLoadMoreHoverTimer();
-    if (!hasMoreRebalanceDates) return;
-    loadMoreHoverTimerRef.current = setTimeout(() => {
-      prefetchNextDates();
-    }, 150);
-  }, [clearLoadMoreHoverTimer, hasMoreRebalanceDates, prefetchNextDates]);
-  const handleLoadMoreDates = useCallback(() => {
-    if (!hasMoreRebalanceDates) return;
     setLoadingMoreDates(true);
-    setVisibleDateCount((n) => Math.min(n + LOAD_MORE_REBALANCE_STEP, rebalanceDates.length));
-  }, [hasMoreRebalanceDates, rebalanceDates.length]);
-
-  useEffect(() => () => clearLoadMoreHoverTimer(), [clearLoadMoreHoverTimer]);
+    setVisibleDateCount((n) => {
+      const next = Math.min(n + VISIBLE_LOAD_MORE_STEP, rebalanceDates.length);
+      writeVisibleDateCountSession(slug, config.id, next);
+      return next;
+    });
+  }, [hasMoreRebalanceDates, rebalanceDates.length, config, strategySlug]);
 
   useEffect(() => {
     setStockChartSymbol(null);
@@ -794,7 +820,6 @@ export function ExplorePortfolioDetailDialog({
     if (open) {
       setDetailTab('overview');
       setHoldingsMovementView(false);
-      setVisibleDateCount(INITIAL_VISIBLE_REBALANCE_DATES);
       setLoadingMoreDates(false);
     }
   }, [open, config?.id]);
@@ -810,12 +835,12 @@ export function ExplorePortfolioDetailDialog({
       return;
     }
     const slug = strategySlug.trim();
-    if (!slug || datesToFetch.length === 0) {
+    if (!slug || prefetchDates.length === 0) {
       setExploreActionsLoading(false);
       setLoadingMoreDates(false);
       return;
     }
-    const hasMissingDates = datesToFetch.some(
+    const hasMissingDates = prefetchDates.some(
       (date) => !getCachedExploreHoldings(slug, config.id, date)
     );
     if (!hasMissingDates) {
@@ -826,7 +851,7 @@ export function ExplorePortfolioDetailDialog({
 
     let cancelled = false;
     setExploreActionsLoading(true);
-    void loadExploreHoldingsForDates(slug, config.id, datesToFetch).finally(() => {
+    void loadExploreHoldingsForDates(slug, config.id, prefetchDates).finally(() => {
       if (!cancelled) {
         bumpHoldingsCacheRev();
         setExploreActionsLoading(false);
@@ -836,7 +861,7 @@ export function ExplorePortfolioDetailDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, config, strategySlug, datesToFetch, exploreHoldingsUnlocked, bumpHoldingsCacheRev]);
+  }, [open, config, strategySlug, prefetchDates, exploreHoldingsUnlocked, bumpHoldingsCacheRev]);
 
   useEffect(() => {
     if (!open || !config) {
@@ -1921,14 +1946,10 @@ export function ExplorePortfolioDetailDialog({
                         variant="outline"
                         size="sm"
                         className="w-full"
-                        onMouseEnter={scheduleLoadMorePrefetch}
-                        onMouseLeave={clearLoadMoreHoverTimer}
-                        onPointerDown={prefetchNextDates}
-                        onTouchStart={prefetchNextDates}
                         onClick={handleLoadMoreDates}
                         disabled={loadingMoreDates}
                       >
-                        {loadingMoreDates ? 'Loading…' : `Load ${loadMoreCount} more`}
+                        {loadingMoreDates ? 'Loading…' : `View ${viewMoreIncrement} more`}
                       </Button>
                     </div>
                   ) : null}
@@ -2037,14 +2058,10 @@ export function ExplorePortfolioDetailDialog({
                       variant="outline"
                       size="sm"
                       className="w-full"
-                      onMouseEnter={scheduleLoadMorePrefetch}
-                      onMouseLeave={clearLoadMoreHoverTimer}
-                      onPointerDown={prefetchNextDates}
-                      onTouchStart={prefetchNextDates}
                       onClick={handleLoadMoreDates}
                       disabled={loadingMoreDates}
                     >
-                      {loadingMoreDates ? 'Loading…' : `Load ${loadMoreCount} more`}
+                      {loadingMoreDates ? 'Loading…' : `View ${viewMoreIncrement} more`}
                     </Button>
                   </div>
                 ) : null}
@@ -2469,14 +2486,10 @@ export function ExplorePortfolioDetailDialog({
                         variant="outline"
                         size="sm"
                         className="w-full"
-                        onMouseEnter={scheduleLoadMorePrefetch}
-                        onMouseLeave={clearLoadMoreHoverTimer}
-                        onPointerDown={prefetchNextDates}
-                        onTouchStart={prefetchNextDates}
                         onClick={handleLoadMoreDates}
                         disabled={loadingMoreDates}
                       >
-                        {loadingMoreDates ? 'Loading…' : `Load ${loadMoreCount} more`}
+                        {loadingMoreDates ? 'Loading…' : `View ${viewMoreIncrement} more`}
                       </Button>
                     </div>
                   ) : null}

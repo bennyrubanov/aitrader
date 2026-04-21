@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/utils/supabase/admin";
-import { sendEmailByGmail } from "@/lib/sendEmailByGmail";
+import { sendTransactionalEmail } from "@/lib/mailer";
 import {
   DEFAULT_POST_AUTH_PATH,
   sanitizeAuthRedirectPath,
@@ -128,12 +128,12 @@ export async function POST(request: Request) {
       </div>
     `;
 
-    const sent = await sendEmailByGmail(
-      email,
-      htmlBody,
-      "Confirm your AITrader account",
-    );
-    if (!sent) {
+    const sent = await sendTransactionalEmail({
+      to: email,
+      html: htmlBody,
+      subject: "Confirm your AITrader account",
+    });
+    if (!sent.ok) {
       return NextResponse.json(
         { error: "Failed to send confirmation email." },
         { status: 500 },

@@ -208,6 +208,19 @@ begin
   where user_id is null
     and lower(email) = lower(new.email);
 
+  insert into public.user_notification_preferences (user_id)
+  values (new.id)
+  on conflict (user_id) do nothing;
+
+  insert into public.notifications (user_id, type, title, body, data)
+  values (
+    new.id,
+    'system',
+    'Welcome to AI Trader',
+    'Thanks for joining. Follow a portfolio or subscribe to a model to start getting rating and rebalance alerts here.',
+    jsonb_build_object('welcome', '1', 'href', '/platform/overview')
+  );
+
   return new;
 end;
 $$ language plpgsql security definer
@@ -882,6 +895,62 @@ create index if not exists idx_spch_strategy_config_date
   on public.strategy_portfolio_config_holdings(strategy_id, config_id, run_date desc);
 
 -- =========================
+-- 14c) Notifications center
+-- =========================
+
+create table if not exists public.notifications (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  type text not null
+    check (
+      type in (
+        'stock_rating_change',
+        'rebalance_action',
+        'model_ratings_ready',
+        'weekly_digest',
+        'system'
+      )
+    ),
+  title text not null,
+  body text,
+  data jsonb not null default '{}'::jsonb,
+  read_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists notifications_user_created_idx
+  on public.notifications (user_id, created_at desc);
+
+create index if not exists notifications_user_unread_idx
+  on public.notifications (user_id)
+  where read_at is null;
+
+create table if not exists public.user_model_subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  strategy_id uuid not null references public.strategy_models(id) on delete cascade,
+  notify_rating_changes boolean not null default true,
+  email_enabled boolean not null default true,
+  inapp_enabled boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, strategy_id)
+);
+
+create index if not exists idx_ums_user_id on public.user_model_subscriptions (user_id);
+create index if not exists idx_ums_strategy_id on public.user_model_subscriptions (strategy_id);
+
+create table if not exists public.user_notification_preferences (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  weekly_digest_enabled boolean not null default true,
+  weekly_digest_email boolean not null default true,
+  weekly_digest_inapp boolean not null default true,
+  email_enabled boolean not null default true,
+  inapp_enabled boolean not null default true,
+  updated_at timestamptz not null default now()
+);
+
+-- =========================
 -- 15) User portfolio profiles (one active profile per user)
 -- =========================
 
@@ -895,7 +964,10 @@ create table if not exists public.user_portfolio_profiles (
   entry_prices_snapshot_at timestamptz,
   next_rebalance_date date,
   is_active boolean not null default true,
-  notifications_enabled boolean not null default false,
+  notify_rebalance boolean not null default true,
+  notify_holdings_change boolean not null default true,
+  email_enabled boolean not null default true,
+  inapp_enabled boolean not null default true,
   is_starting_portfolio boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),

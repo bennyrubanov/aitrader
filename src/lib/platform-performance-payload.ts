@@ -21,9 +21,11 @@ import {
   computeFourWeekQuintileWinRate,
   computeMonthlyQuintileWinRate,
   computeQuintileWinRate,
+  computeRegressionSummary,
   type MonthlyQuintileSnapshot,
   type QuintileSnapshot,
   type QuintileWinRate,
+  type RegressionSummary,
 } from '@/lib/quintile-analysis';
 
 const INITIAL_CAPITAL = 10_000;
@@ -249,6 +251,7 @@ export type PlatformPerformancePayload = {
       beta: number | null;
       rSquared: number | null;
     }>;
+    regressionSummary: RegressionSummary;
   } | null;
   notes?: {
     forwardOnly: boolean;
@@ -387,6 +390,8 @@ const buildMonthlyRegressions = (
     });
 };
 
+export type { RegressionSummary };
+
 export {
   buildQuintileHistory,
   buildFourWeekQuintileHistory,
@@ -394,6 +399,7 @@ export {
   computeQuintileWinRate,
   computeMonthlyQuintileWinRate,
   computeFourWeekQuintileWinRate,
+  computeRegressionSummary,
 };
 
 // ─── Main performance payload ────────────────────────────────────────────────
@@ -604,6 +610,13 @@ const buildPayloadForStrategy = async (
   const quintileWinRate = computeQuintileWinRate(quintileHistory);
   const monthlyQuintileWinRate = computeMonthlyQuintileWinRate(monthlyQuintiles);
   const fourWeekQuintileWinRate = computeFourWeekQuintileWinRate(fourWeekQuintileHistory);
+  const regressionSummary = computeRegressionSummary(
+    allRegressionRows.map((r) => ({
+      runDate: r.runDate,
+      beta: r.beta,
+      rSquared: r.rSquared,
+    }))
+  );
 
   return {
     strategy: baseStrategy,
@@ -623,6 +636,7 @@ const buildPayloadForStrategy = async (
       monthlyRegressionHistory,
       regression,
       regressionHistory: allRegressionRows,
+      regressionSummary,
     },
     notes: {
       forwardOnly: true,
@@ -991,6 +1005,8 @@ export type StrategyDetail = {
   latestRSquared: number | null;
   latestAlpha: number | null;
   latestRegressionDate: string | null;
+  /** Full weekly regression history summary (1-week horizon). */
+  regressionSummary: RegressionSummary;
   benchmarkCapWeightReturn: number | null;
 };
 
@@ -1055,9 +1071,7 @@ const getStrategyDetailCached = (slug: string) =>
             .select('run_date, sample_size, alpha, beta, r_squared')
             .eq('strategy_id', row.id)
             .eq('horizon_weeks', 1)
-            .order('run_date', { ascending: false })
-            .limit(1)
-            .maybeSingle(),
+            .order('run_date', { ascending: false }),
         ]);
 
         const perfRows = (perfResponse.data ?? []) as Array<{
@@ -1113,7 +1127,15 @@ const getStrategyDetailCached = (slug: string) =>
           }
         }
 
-        const regRow = regressionResponse.data as RegressionRow | null;
+        const regressionRows = (regressionResponse.data ?? []) as RegressionRow[];
+        const regRow = regressionRows[0] ?? null;
+        const regressionSummary = computeRegressionSummary(
+          regressionRows.map((r) => ({
+            runDate: r.run_date,
+            beta: toNullableNumber(r.beta),
+            rSquared: toNullableNumber(r.r_squared),
+          }))
+        );
 
         return {
           id: row.id,
@@ -1163,6 +1185,7 @@ const getStrategyDetailCached = (slug: string) =>
           latestRSquared: regRow ? toNullableNumber(regRow.r_squared) : null,
           latestAlpha: regRow ? toNullableNumber(regRow.alpha) : null,
           latestRegressionDate: regRow?.run_date ?? null,
+          regressionSummary,
           benchmarkCapWeightReturn:
             perfRows.length >= 2 ? computeTotalReturn(INITIAL_CAPITAL, benchCapEnd) : null,
         };

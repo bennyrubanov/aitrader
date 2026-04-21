@@ -28,6 +28,7 @@ import {
   TrendingUp,
   Trophy,
   UserMinus,
+  Bell,
 } from 'lucide-react';
 import { useAuthState } from '@/components/auth/auth-state-context';
 import { ExplorePortfolioFilterControls } from '@/components/platform/explore-portfolio-filter-controls';
@@ -86,6 +87,7 @@ import {
   type UserPortfolioProfilesInvalidateDetail,
 } from '@/components/platform/portfolio-unfollow-toast';
 import { UserPortfolioEntrySettingsDialog } from '@/components/platform/user-portfolio-entry-settings-dialog';
+import { PortfolioAlertsDialog } from '@/components/platform/portfolio-alerts-dialog';
 import { YourPortfoliosGuestPreview } from '@/components/platform/your-portfolios-guest-preview';
 import {
   usePortfolioConfig,
@@ -464,7 +466,10 @@ export type UserPortfolioProfileRow = {
   config_id: string;
   investment_size: number | string;
   user_start_date: string | null;
-  notifications_enabled: boolean;
+  notify_rebalance: boolean;
+  notify_holdings_change: boolean;
+  email_enabled: boolean;
+  inapp_enabled: boolean;
   is_starting_portfolio?: boolean;
   strategy_models: StrategyModelEmbed;
   portfolio_config: PortfolioConfigEmbed;
@@ -1454,6 +1459,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const [isLoadingUserEntry, setIsLoadingUserEntry] = useState(false);
   const userEntryRequestIdRef = useRef(0);
   const [entrySettingsOpen, setEntrySettingsOpen] = useState(false);
+  const [portfolioAlertsOpen, setPortfolioAlertsOpen] = useState(false);
   const [holdingsRowChartSymbol, setHoldingsRowChartSymbol] = useState<string | null>(null);
   const [holdingsMovementView, setHoldingsMovementView] = useState(false);
   const holdingsMovementViewRef = useRef(false);
@@ -1481,6 +1487,10 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         list.map((p) => ({
           ...p,
           is_starting_portfolio: Boolean(p.is_starting_portfolio),
+          notify_rebalance: p.notify_rebalance ?? true,
+          notify_holdings_change: p.notify_holdings_change ?? true,
+          email_enabled: p.email_enabled ?? true,
+          inapp_enabled: p.inapp_enabled ?? true,
         }))
       );
     } catch {
@@ -3274,6 +3284,18 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                   <span className="hidden sm:inline">Entry settings</span>
                 </Button>
               ) : null}
+              {selectedProfile && !isGuestLocalProfileId(selectedProfile.id) ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 h-8 text-xs"
+                  onClick={() => setPortfolioAlertsOpen(true)}
+                >
+                  <Bell className="size-3.5" />
+                  <span className="hidden sm:inline">Alerts</span>
+                </Button>
+              ) : null}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -4311,6 +4333,20 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         }}
         prefetchedModelInceptionYmd={entrySettingsPrefetchedModelInceptionYmd}
       />
+      {selectedProfile && !isGuestLocalProfileId(selectedProfile.id) ? (
+        <PortfolioAlertsDialog
+          open={portfolioAlertsOpen}
+          onOpenChange={setPortfolioAlertsOpen}
+          profileId={selectedProfile.id}
+          initial={{
+            notifyRebalance: selectedProfile.notify_rebalance ?? true,
+            notifyHoldingsChange: selectedProfile.notify_holdings_change ?? true,
+            emailEnabled: selectedProfile.email_enabled ?? true,
+            inappEnabled: selectedProfile.inapp_enabled ?? true,
+          }}
+          onSaved={() => void loadProfiles({ silent: true })}
+        />
+      ) : null}
     </div>
   );
 }
