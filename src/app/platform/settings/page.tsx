@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { MouseEvent } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -135,64 +134,71 @@ function nameFromAuthState(displayName: string): string {
 }
 
 const SETTINGS_TOC_AUTHENTICATED = [
-  { id: 'account', label: 'Account' },
-  { id: 'security', label: 'Security' },
-  { id: 'billing', label: 'Billing' },
-  { id: 'notifications', label: 'Notifications' },
+  { id: 'account', label: 'Account', href: '/platform/settings/account' },
+  { id: 'security', label: 'Security', href: '/platform/settings/security' },
+  { id: 'billing', label: 'Billing', href: '/platform/settings/billing' },
+  { id: 'notifications', label: 'Notifications', href: '/platform/settings/notifications' },
 ] as const;
 
-const SETTINGS_TOC_GUEST = [{ id: 'sign-up', label: 'Sign up' }] as const;
+const SETTINGS_TOC_GUEST = [
+  { id: 'sign-up', label: 'Sign up', href: '/platform/settings/sign-up' },
+] as const;
 
-const SETTINGS_SECTION_IDS = new Set<string>(
-  [...SETTINGS_TOC_AUTHENTICATED, ...SETTINGS_TOC_GUEST].map((i) => i.id)
-);
+type SettingsSectionId = (typeof SETTINGS_TOC_AUTHENTICATED)[number]['id'] | 'sign-up';
+type AuthSettingsSectionId = Exclude<SettingsSectionId, 'sign-up'>;
 
-/** Old fragment IDs → canonical (bookmark compatibility). */
-const LEGACY_SETTINGS_HASH: Record<string, string> = {
-  'settings-account': 'account',
-  'settings-security': 'security',
-  'settings-billing': 'billing',
-  'settings-notifications': 'notifications',
-  'settings-sign-up': 'sign-up',
-};
-
-function resolveSettingsSectionId(hash: string): string | null {
-  const key = hash.replace(/^#/, '');
-  if (!key) return null;
-  if (SETTINGS_SECTION_IDS.has(key)) return key;
-  return LEGACY_SETTINGS_HASH[key] ?? null;
+function resolveSettingsSectionFromPath(pathname: string): SettingsSectionId | null {
+  const normalized = pathname.replace(/\/+$/, '');
+  const match = normalized.match(/^\/platform\/settings\/([^/]+)$/);
+  if (!match) return null;
+  const section = match[1];
+  if (
+    section === 'account' ||
+    section === 'security' ||
+    section === 'billing' ||
+    section === 'notifications' ||
+    section === 'sign-up'
+  ) {
+    return section;
+  }
+  return null;
 }
 
-function SettingsOnThisPageNav({
-  items,
-  className,
-  onInPageNav,
-}: {
-  items: readonly { id: string; label: string }[];
-  className?: string;
-  /** Scroll the settings main column only (avoids chaining scroll on the platform shell + sidebar). */
-  onInPageNav?: (sectionId: string, event: MouseEvent<HTMLAnchorElement>) => void;
-}) {
-  const linkClass =
-    'block border-l-2 border-transparent py-1 pl-3 text-sm text-muted-foreground transition-colors hover:border-trader-blue/50 hover:text-trader-blue';
+function hrefForSettingsSection(section: SettingsSectionId): string {
+  return `/platform/settings/${section}`;
+}
 
+function SettingsSidebarNav({
+  items,
+  activeId,
+  onSelect,
+  className,
+}: {
+  items: readonly { id: SettingsSectionId; label: string; href: string }[];
+  activeId: SettingsSectionId;
+  onSelect: (section: SettingsSectionId) => void;
+  className?: string;
+}) {
   return (
-    <nav className={className} aria-label="On this page">
-      <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground leading-none">
-        On this page
+    <nav className={className} aria-label="Settings sections">
+      <p className="mb-3 px-2 text-lg font-semibold tracking-tight text-foreground leading-none">
+        Settings
       </p>
-      <ul className="space-y-0.5">
+      <ul className="space-y-1">
         {items.map((item) => (
           <li key={item.id}>
-            <a
-              href={`#${item.id}`}
-              className={linkClass}
-              onClick={(e) => {
-                onInPageNav?.(item.id, e);
-              }}
+            <button
+              type="button"
+              className={cn(
+                'block w-full rounded-md px-2 py-1.5 text-left text-sm transition-colors',
+                item.id === activeId
+                  ? 'bg-muted font-medium text-foreground'
+                  : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
+              )}
+              onClick={() => onSelect(item.id)}
             >
               {item.label}
-            </a>
+            </button>
           </li>
         ))}
       </ul>
@@ -207,7 +213,6 @@ const SettingsPageContent = () => {
   const refreshProfile = useRefreshAuthProfile();
   const billingReturnHandled = useRef(false);
   const billingCadenceReconcileAttemptedRef = useRef(false);
-  const settingsMainScrollRef = useRef<HTMLDivElement>(null);
   const [authUser, setAuthUser] = useState<{ id: string; email: string | null } | null>(null);
   const [profile, setProfile] = useState<ProfileState>({
     email: null,
@@ -746,78 +751,98 @@ const SettingsPageContent = () => {
     }
   };
 
+  const pathSection = resolveSettingsSectionFromPath(pathname);
+  const [activeSection, setActiveSection] = useState<SettingsSectionId>(() => {
+    const initial = resolveSettingsSectionFromPath(pathname);
+    if (initial && initial !== 'sign-up') return initial;
+    return 'account';
+  });
+  const [loadedAuthSections, setLoadedAuthSections] = useState<Set<AuthSettingsSectionId>>(() => {
+    const initial = resolveSettingsSectionFromPath(pathname);
+    const first: AuthSettingsSectionId =
+      initial && initial !== 'sign-up' ? initial : 'account';
+    return new Set([first]);
+  });
   const settingsTocItems = authState.isAuthenticated
     ? SETTINGS_TOC_AUTHENTICATED
     : SETTINGS_TOC_GUEST;
+  const showAccount = loadedAuthSections.has('account');
+  const showSecurity = loadedAuthSections.has('security');
+  const showBilling = loadedAuthSections.has('billing');
+  const showNotifications = loadedAuthSections.has('notifications');
 
-  const scrollToSettingsSection = useCallback(
-    (sectionId: string, behavior: ScrollBehavior = 'smooth') => {
-      const target = document.getElementById(sectionId);
-      if (!target) {
+  useEffect(() => {
+    if (!authState.isLoaded) return;
+    if (authState.isAuthenticated) {
+      const canonical: AuthSettingsSectionId =
+        pathSection && pathSection !== 'sign-up' ? pathSection : 'account';
+      setActiveSection((prev) => (prev === canonical ? prev : canonical));
+      setLoadedAuthSections((prev) => {
+        if (prev.has(canonical)) return prev;
+        const next = new Set(prev);
+        next.add(canonical);
+        return next;
+      });
+      const nextHref = hrefForSettingsSection(canonical);
+      if (typeof window !== 'undefined' && window.location.pathname !== nextHref) {
+        window.history.replaceState(null, '', nextHref);
+      }
+      return;
+    }
+    setActiveSection('sign-up');
+    if (typeof window !== 'undefined' && window.location.pathname !== '/platform/settings/sign-up') {
+      window.history.replaceState(null, '', '/platform/settings/sign-up');
+    }
+  }, [authState.isLoaded, authState.isAuthenticated, pathSection, pathname]);
+
+  const selectSection = useCallback(
+    (section: SettingsSectionId) => {
+      if (!authState.isLoaded) return;
+      if (!authState.isAuthenticated) {
+        setActiveSection('sign-up');
+        if (typeof window !== 'undefined') {
+          const href = '/platform/settings/sign-up';
+          if (window.location.pathname !== href) window.history.pushState(null, '', href);
+        }
         return;
       }
-      const isMdUp =
-        typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches;
-      const main = settingsMainScrollRef.current;
-      if (isMdUp && main) {
-        const cRect = main.getBoundingClientRect();
-        const eRect = target.getBoundingClientRect();
-        const nextTop = main.scrollTop + (eRect.top - cRect.top) - 8;
-        main.scrollTo({ top: Math.max(0, nextTop), behavior });
-      } else {
-        target.scrollIntoView({ behavior, block: 'start' });
+      if (section === 'sign-up') return;
+      setActiveSection(section);
+      setLoadedAuthSections((prev) => {
+        if (prev.has(section)) return prev;
+        const next = new Set(prev);
+        next.add(section);
+        return next;
+      });
+      if (typeof window !== 'undefined') {
+        const href = hrefForSettingsSection(section);
+        if (window.location.pathname !== href) window.history.pushState(null, '', href);
       }
     },
-    []
-  );
-
-  const handleSettingsInPageNav = useCallback(
-    (sectionId: string, e: MouseEvent<HTMLAnchorElement>) => {
-      e.preventDefault();
-      scrollToSettingsSection(sectionId, 'smooth');
-      window.history.replaceState(null, '', `#${sectionId}`);
-    },
-    [scrollToSettingsSection]
+    [authState.isLoaded, authState.isAuthenticated]
   );
 
   useEffect(() => {
-    if (!authState.isLoaded || pathname !== '/platform/settings') {
-      return;
-    }
-
-    const applyHashScroll = () => {
-      const raw = typeof window !== 'undefined' ? window.location.hash : '';
-      const sectionId = resolveSettingsSectionId(raw);
-      if (!sectionId) {
+    if (typeof window === 'undefined') return;
+    const onPopState = () => {
+      const section = resolveSettingsSectionFromPath(window.location.pathname);
+      if (!authState.isAuthenticated) {
+        setActiveSection('sign-up');
         return;
       }
-      const guest = !authState.isAuthenticated;
-      if (guest && sectionId !== 'sign-up') {
-        return;
-      }
-      if (!guest && sectionId === 'sign-up') {
-        return;
-      }
-      if (!document.getElementById(sectionId)) {
-        return;
-      }
-
-      const legacyKey = raw.replace(/^#/, '');
-      if (legacyKey && LEGACY_SETTINGS_HASH[legacyKey]) {
-        window.history.replaceState(null, '', `#${sectionId}`);
-      }
-
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          scrollToSettingsSection(sectionId, 'auto');
-        });
+      const next: AuthSettingsSectionId =
+        section && section !== 'sign-up' ? section : 'account';
+      setActiveSection(next);
+      setLoadedAuthSections((prev) => {
+        if (prev.has(next)) return prev;
+        const updated = new Set(prev);
+        updated.add(next);
+        return updated;
       });
     };
-
-    applyHashScroll();
-    window.addEventListener('hashchange', applyHashScroll);
-    return () => window.removeEventListener('hashchange', applyHashScroll);
-  }, [authState.isLoaded, authState.isAuthenticated, pathname, scrollToSettingsSection]);
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [authState.isAuthenticated]);
 
   return (
     <div
@@ -829,15 +854,15 @@ const SettingsPageContent = () => {
       )}
     >
       {authState.isLoaded && (
-        <aside className="hidden shrink-0 md:flex md:h-full md:min-h-0 md:w-56 md:max-h-full md:flex-col lg:w-64">
-          <SettingsOnThisPageNav
+        <aside className="hidden shrink-0 md:flex md:h-full md:min-h-0 md:w-56 md:max-h-full md:flex-col md:pt-4 lg:w-64">
+          <SettingsSidebarNav
             items={settingsTocItems}
-            onInPageNav={handleSettingsInPageNav}
+            activeId={activeSection}
+            onSelect={selectSection}
           />
         </aside>
       )}
       <div
-        ref={settingsMainScrollRef}
         className={cn(
           'min-w-0 space-y-6',
           authState.isLoaded
@@ -845,24 +870,24 @@ const SettingsPageContent = () => {
             : 'mx-auto max-w-2xl'
         )}
       >
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Manage your account, billing, and notification preferences.
-          </p>
-        </div>
+        <h1 className="text-2xl font-semibold tracking-tight md:hidden">Settings</h1>
 
         {authState.isLoaded && (
           <div className="-mx-1 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] md:hidden [&::-webkit-scrollbar]:hidden">
             {settingsTocItems.map((item) => (
-              <a
+              <button
+                type="button"
                 key={item.id}
-                href={`#${item.id}`}
-                className="shrink-0 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-trader-blue/40 hover:text-foreground"
-                onClick={(e) => handleSettingsInPageNav(item.id, e)}
+                className={cn(
+                  'shrink-0 rounded-full border bg-card px-3 py-1.5 text-xs font-medium transition-colors',
+                  item.id === activeSection
+                    ? 'border-foreground/30 text-foreground'
+                    : 'border-border text-muted-foreground hover:border-trader-blue/40 hover:text-foreground'
+                )}
+                onClick={() => selectSection(item.id)}
               >
                 {item.label}
-              </a>
+              </button>
             ))}
           </div>
         )}
@@ -875,10 +900,14 @@ const SettingsPageContent = () => {
         ) : authState.isAuthenticated ? (
           <>
             {/* ── Account ── */}
-            <section
-              id="account"
-              className="scroll-mt-4 rounded-xl border bg-card md:scroll-mt-6"
-            >
+            {showAccount && (
+              <section
+                id="account"
+                className={cn(
+                  'scroll-mt-4 rounded-xl border bg-card md:scroll-mt-6',
+                  activeSection === 'account' ? 'block' : 'hidden'
+                )}
+              >
             <div className="flex items-center gap-2 border-b px-5 py-3">
               <UserRound className="size-4 text-muted-foreground" />
               <h2 className="text-sm font-semibold">Account</h2>
@@ -1034,13 +1063,18 @@ const SettingsPageContent = () => {
                   </div>
                 )}
             </div>
-          </section>
+              </section>
+            )}
 
           {/* ── Security ── */}
-          <section
-            id="security"
-            className="scroll-mt-4 rounded-xl border bg-card md:scroll-mt-6"
-          >
+          {showSecurity && (
+            <section
+              id="security"
+              className={cn(
+                'scroll-mt-4 rounded-xl border bg-card md:scroll-mt-6',
+                activeSection === 'security' ? 'block' : 'hidden'
+              )}
+            >
             <div className="flex items-center gap-2 border-b px-5 py-3">
               <KeyRound className="size-4 text-muted-foreground" />
               <h2 className="text-sm font-semibold">Security</h2>
@@ -1118,13 +1152,18 @@ const SettingsPageContent = () => {
                 </Button>
               </div>
             </div>
-          </section>
+            </section>
+          )}
 
           {/* ── Billing ── */}
-          <section
-            id="billing"
-            className="scroll-mt-4 rounded-xl border bg-card md:scroll-mt-6"
-          >
+          {showBilling && (
+            <section
+              id="billing"
+              className={cn(
+                'scroll-mt-4 rounded-xl border bg-card md:scroll-mt-6',
+                activeSection === 'billing' ? 'block' : 'hidden'
+              )}
+            >
             <div className="border-b px-5 py-3">
               <div className="flex items-center gap-2">
                 <CreditCard className="size-4 text-muted-foreground" />
@@ -1345,13 +1384,18 @@ const SettingsPageContent = () => {
                 </div>
               )}
             </div>
-          </section>
+            </section>
+          )}
 
           {/* ── Notifications ── */}
-          <section
-            id="notifications"
-            className="scroll-mt-4 rounded-xl border bg-card md:scroll-mt-6"
-          >
+          {showNotifications && (
+            <section
+              id="notifications"
+              className={cn(
+                'scroll-mt-4 rounded-xl border bg-card md:scroll-mt-6',
+                activeSection === 'notifications' ? 'block' : 'hidden'
+              )}
+            >
             <div className="flex items-center gap-2 border-b px-5 py-3">
               <Bell className="size-4 text-muted-foreground" />
               <h2 className="text-sm font-semibold">Notifications</h2>
@@ -1406,7 +1450,8 @@ const SettingsPageContent = () => {
                 </p>
               </div>
             )}
-          </section>
+            </section>
+          )}
 
           {/* ── Sign out ── */}
           <div className="flex justify-end pb-4">

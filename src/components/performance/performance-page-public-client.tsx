@@ -315,6 +315,14 @@ function formatUtcRangeLong(startYmd: string, endYmd: string): string {
   return `${a} to ${b}`;
 }
 
+function compactHoldRangeEndLabel(rangeText: string): string {
+  const sep = ' to ';
+  const idx = rangeText.lastIndexOf(sep);
+  if (idx < 0) return rangeText;
+  const end = rangeText.slice(idx + sep.length).trim();
+  return end ? `to ${end}` : rangeText;
+}
+
 // ─── Flip Card ───────────────────────────────────────────────────────────────
 
 function FlipCard({
@@ -471,7 +479,8 @@ function PerformancePagePublicClientInner({
   }, [slug]);
   const [quintileDate, setQuintileDate] = useState<string | null>(null);
   const [quintileView, setQuintileView] = useState<'weekly' | 'fourWeek'>('weekly');
-  const [smoothMonthlyQuintiles, setSmoothMonthlyQuintiles] = useState(false);
+  type QuintileAverage = 'weekly' | 'monthly' | 'allTime';
+  const [quintileAverage, setQuintileAverage] = useState<QuintileAverage>('allTime');
   const [quintileMonth, setQuintileMonth] = useState<string | null>(null);
   const [fourWeekQuintileDate, setFourWeekQuintileDate] = useState<string | null>(null);
   const [regressionDate, setRegressionDate] = useState<string | null>(null);
@@ -506,7 +515,7 @@ function PerformancePagePublicClientInner({
     setQuintileMonth(null);
     setFourWeekQuintileDate(null);
     setQuintileView('weekly');
-    setSmoothMonthlyQuintiles(false);
+    setQuintileAverage('allTime');
   }, [slug]);
 
   const urlPortfolioSelection = useMemo(() => {
@@ -770,6 +779,7 @@ function PerformancePagePublicClientInner({
 
   const headerQuintileInsight = useMemo((): ModelHeaderQuintileInsight | null => {
     const history = research?.quintileHistory ?? [];
+    const summary = research?.quintileSummary;
     const qwr = research?.quintileWinRate;
     const hasWin =
       qwr != null &&
@@ -787,6 +797,8 @@ function PerformancePagePublicClientInner({
     if (!hasWin && (latestWeekSpread == null || !Number.isFinite(latestWeekSpread))) return null;
     return {
       winRate: hasWin ? { wins: qwr!.wins, total: qwr!.total, rate: qwr!.rate } : null,
+      avgSpread: summary?.avgSpread ?? null,
+      weeksObserved: summary?.weeksObserved ?? 0,
       latestWeekSpread,
       latestWeekRunDate: latest?.runDate ?? null,
     };
@@ -1075,10 +1087,20 @@ function PerformancePagePublicClientInner({
     );
   }, [fourWeekQuintileDate, fourWeekQuintileHistory]);
 
-  const isWeeklySmoothed = quintileView === 'weekly' && smoothMonthlyQuintiles;
+  const isWeeklySmoothed = quintileView === 'weekly' && quintileAverage === 'monthly';
+  const isAllTimeQuintiles = quintileView === 'weekly' && quintileAverage === 'allTime';
 
   const activeQuintileRows = useMemo(() => {
     if (quintileView === 'fourWeek') return selectedFourWeekSnapshot?.rows ?? [];
+    if (isAllTimeQuintiles) {
+      return (
+        research?.quintileSummary?.rows?.map((r) => ({
+          quintile: r.quintile,
+          stockCount: r.weekCount,
+          return: r.avgReturn,
+        })) ?? []
+      );
+    }
     if (!isWeeklySmoothed) return selectedQuintileSnapshot?.rows ?? [];
     return (
       selectedMonthlySnapshot?.rows?.map((r) => ({
@@ -1088,8 +1110,10 @@ function PerformancePagePublicClientInner({
       })) ?? []
     );
   }, [
+    isAllTimeQuintiles,
     isWeeklySmoothed,
     quintileView,
+    research?.quintileSummary?.rows,
     selectedFourWeekSnapshot?.rows,
     selectedMonthlySnapshot?.rows,
     selectedQuintileSnapshot?.rows,
@@ -1114,6 +1138,7 @@ function PerformancePagePublicClientInner({
       if (!start) return null;
       return formatUtcHoldRangeFourWeek(start);
     }
+    if (isAllTimeQuintiles) return null;
     if (isWeeklySmoothed && selectedMonthlySnapshot) {
       const text = formatUtcHoldRangeMonthlyFromFormations(
         selectedMonthlySnapshot.month,
@@ -2235,9 +2260,9 @@ function PerformancePagePublicClientInner({
                   <CardDescription className="mt-1">
                     Stocks split into 5 equal groups by AI-scored rank (Q1 = lowest rated, Q5 =
                     highest rated). Weekly view shows the raw 1-week forward return signal; 4-week non-overlap
-                    checks whether the same forward return signal persists across a full 4-week hold. Q5 = top
-                    20 by latent rank (same ordering as the Ratings page); Q1 = bottom 20. We keep the academic
-                    naming so the Q5−Q1 spread is comparable to research.
+                    checks whether the same forward return signal persists across a full 4-week hold. All-time view shows the
+                    model&apos;s performance across every weekly snapshot; drill into This month
+                    or This week for specific periods.
                   </CardDescription>
                 </div>
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -2267,19 +2292,31 @@ function PerformancePagePublicClientInner({
                       </button>
                     </div>
                     {quintileView === 'weekly' && (
-                      <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
-                        <input
-                          type="checkbox"
-                          className="h-3.5 w-3.5 rounded border-border accent-trader-blue"
-                          checked={smoothMonthlyQuintiles}
-                          onChange={(e) => setSmoothMonthlyQuintiles(e.target.checked)}
-                        />
-                        Smooth to monthly average
-                      </label>
+                      <div className="flex items-center gap-1 rounded-md border bg-card p-0.5 shadow-sm text-xs">
+                        {(['allTime', 'monthly', 'weekly'] as const).map((value) => (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => setQuintileAverage(value)}
+                            className={cn(
+                              'px-2.5 py-1 rounded font-medium transition-colors',
+                              quintileAverage === value
+                                ? 'bg-trader-blue text-white'
+                                : 'text-muted-foreground hover:text-foreground'
+                            )}
+                          >
+                            {value === 'allTime'
+                              ? 'All-time'
+                              : value === 'monthly'
+                                ? 'This month'
+                                : 'This week'}
+                          </button>
+                        ))}
+                      </div>
                     )}
                   </div>
                   {quintileView === 'weekly' &&
-                    !smoothMonthlyQuintiles &&
+                    quintileAverage === 'weekly' &&
                     (research?.quintileHistory?.length ?? 0) > 1 && (
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -2308,7 +2345,7 @@ function PerformancePagePublicClientInner({
                                   : '';
                                 return sub ? (
                                   <span className="text-[10px] font-normal leading-snug text-muted-foreground">
-                                    {sub}
+                                    {compactHoldRangeEndLabel(sub)}
                                   </span>
                                 ) : null;
                               })()}
@@ -2335,7 +2372,7 @@ function PerformancePagePublicClientInner({
                               <span>{fmt.date(s.runDate)}</span>
                               {sub ? (
                                 <span className="text-[10px] font-normal text-muted-foreground">
-                                  {sub}
+                                  {compactHoldRangeEndLabel(sub)}
                                 </span>
                               ) : null}
                             </DropdownMenuItem>
@@ -2344,7 +2381,9 @@ function PerformancePagePublicClientInner({
                       </DropdownMenuContent>
                     </DropdownMenu>
                   )}
-                  {quintileView === 'weekly' && smoothMonthlyQuintiles && monthlyQuintileHistory.length > 1 && (
+                  {quintileView === 'weekly' &&
+                    quintileAverage === 'monthly' &&
+                    monthlyQuintileHistory.length > 1 && (
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button
@@ -2382,7 +2421,7 @@ function PerformancePagePublicClientInner({
                                   : '';
                                 return sub ? (
                                   <span className="text-[10px] font-normal leading-snug text-muted-foreground">
-                                    {sub}
+                                    {compactHoldRangeEndLabel(sub)}
                                   </span>
                                 ) : null;
                               })()}
@@ -2416,7 +2455,7 @@ function PerformancePagePublicClientInner({
                               </span>
                               {sub ? (
                                 <span className="text-[10px] font-normal text-muted-foreground">
-                                  {sub}
+                                  {compactHoldRangeEndLabel(sub)}
                                 </span>
                               ) : null}
                             </DropdownMenuItem>
@@ -2450,7 +2489,7 @@ function PerformancePagePublicClientInner({
                                 const sub = d ? formatUtcHoldRangeFourWeek(d) : '';
                                 return sub ? (
                                   <span className="text-[10px] font-normal leading-snug text-muted-foreground">
-                                    {sub}
+                                    {compactHoldRangeEndLabel(sub)}
                                   </span>
                                 ) : null;
                               })()}
@@ -2476,7 +2515,7 @@ function PerformancePagePublicClientInner({
                               <span>{fmt.date(s.runDate)}</span>
                               {sub ? (
                                 <span className="text-[10px] font-normal text-muted-foreground">
-                                  {sub}
+                                  {compactHoldRangeEndLabel(sub)}
                                 </span>
                               ) : null}
                             </DropdownMenuItem>
@@ -2490,7 +2529,7 @@ function PerformancePagePublicClientInner({
             </CardHeader>
             <CardContent>
               {/* Win rate summary */}
-              {quintileView === 'weekly' && !smoothMonthlyQuintiles && weeklyQuintileWinRate && (
+              {quintileView === 'weekly' && quintileAverage === 'weekly' && weeklyQuintileWinRate && (
                 <div className="mb-4 rounded-lg border bg-muted/30 px-4 py-3">
                   <p className="text-sm font-medium">
                     Q5 outperformed Q1 in{' '}
@@ -2509,7 +2548,7 @@ function PerformancePagePublicClientInner({
                   </p>
                 </div>
               )}
-              {quintileView === 'weekly' && smoothMonthlyQuintiles && (
+              {quintileView === 'weekly' && quintileAverage === 'monthly' && (
                 <div className="mb-4 rounded-lg border bg-muted/30 px-4 py-3 space-y-1.5">
                   {weeklyQuintileWinRate && (
                     <p className="text-sm">
@@ -2601,7 +2640,9 @@ function PerformancePagePublicClientInner({
                           const subLabel =
                             quintileView === 'fourWeek'
                               ? `${row.stockCount} stocks`
-                              : isWeeklySmoothed
+                              : isAllTimeQuintiles
+                                ? `${row.stockCount}w avg`
+                                : isWeeklySmoothed
                                 ? (() => {
                                     const m = selectedMonthlyRowsByQuintile.get(row.quintile);
                                     return m
@@ -2631,9 +2672,9 @@ function PerformancePagePublicClientInner({
                                 <span className="text-[10px] text-muted-foreground tabular-nums leading-tight">
                                   Q{row.quintile}
                                   {isTop
-                                    ? ' · highest latent rank'
+                                    ? ' · highest rank'
                                     : isBottom
-                                      ? ' · lowest latent rank'
+                                      ? ' · lowest rank'
                                       : ''}
                                 </span>
                               </div>
@@ -2677,7 +2718,25 @@ function PerformancePagePublicClientInner({
                 </p>
               )}
 
-              {activeQuintileSpread != null && (
+              {isAllTimeQuintiles && research?.quintileSummary?.avgSpread != null && (
+                <p className="text-sm text-muted-foreground mt-3">
+                  Q5 averaged{' '}
+                  <strong
+                    className={
+                      research.quintileSummary.avgSpread >= 0 ? 'text-green-600' : 'text-red-600'
+                    }
+                  >
+                    {fmt.pct(research.quintileSummary.avgSpread, 2)}
+                  </strong>{' '}
+                  more than Q1 per week across{' '}
+                  <strong>{research.quintileSummary.weeksObserved} weeks</strong>
+                  {research.quintileSummary.winRate
+                    ? `, positive in ${research.quintileSummary.winRate.wins} of ${research.quintileSummary.winRate.total} (${Math.round(research.quintileSummary.winRate.rate * 100)}%)`
+                    : ''}
+                  . Higher-rated stocks outperformed lower-rated ones on average.
+                </p>
+              )}
+              {!isAllTimeQuintiles && activeQuintileSpread != null && (
                 <p className="text-sm text-muted-foreground mt-3">
                   Q5 outperformed Q1 by{' '}
                   <strong
@@ -2705,7 +2764,7 @@ function PerformancePagePublicClientInner({
                   . A positive spread means higher-rated stocks outperformed lower-rated ones.
                 </p>
               )}
-              {isWeeklySmoothed && selectedMonthlyIsPartial && (
+              {quintileAverage === 'monthly' && selectedMonthlyIsPartial && (
                 <p className="text-xs text-amber-700 dark:text-amber-400 mt-2">
                   Partial month: this average is based on {selectedMonthlyWeekCount} weekly snapshot
                   {selectedMonthlyWeekCount === 1 ? '' : 's'}.
@@ -2746,6 +2805,15 @@ function PerformancePagePublicClientInner({
                       <CardDescription className="mt-1">
                         Does the AI score actually predict which stocks will do better next week?
                       </CardDescription>
+                      {research?.regressionSummary && research.regressionSummary.totalWeeks > 0 && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          All-time avg β {fmt.num(research.regressionSummary.avgBetaAllWeeks, 4)}
+                          {' · '}All-time R² {fmt.num(research.regressionSummary.avgRsqAllWeeks, 4)}
+                          {' · '}β&gt;0 in{' '}
+                          {Math.round((research.regressionSummary.betaPositiveRate ?? 0) * 100)}% of{' '}
+                          {research.regressionSummary.totalWeeks} weeks
+                        </p>
+                      )}
                     </div>
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="flex items-center gap-1 rounded-md border bg-card p-0.5 shadow-sm">
@@ -2793,7 +2861,7 @@ function PerformancePagePublicClientInner({
                                     );
                                     return sub ? (
                                       <span className="text-[10px] font-normal leading-snug text-muted-foreground">
-                                        {sub}
+                                        {compactHoldRangeEndLabel(sub)}
                                       </span>
                                     ) : null;
                                   })()}
@@ -2822,7 +2890,7 @@ function PerformancePagePublicClientInner({
                                   <span>{fmt.date(r.runDate)}</span>
                                   {sub ? (
                                     <span className="text-[10px] font-normal text-muted-foreground">
-                                      {sub}
+                                      {compactHoldRangeEndLabel(sub)}
                                     </span>
                                   ) : null}
                                 </DropdownMenuItem>
@@ -2852,7 +2920,7 @@ function PerformancePagePublicClientInner({
                                     );
                                     return sub ? (
                                       <span className="text-[10px] font-normal leading-snug text-muted-foreground">
-                                        {sub}
+                                        {compactHoldRangeEndLabel(sub)}
                                       </span>
                                     ) : null;
                                   })()}
@@ -2881,7 +2949,7 @@ function PerformancePagePublicClientInner({
                                   <span>{formatMonthLabel(m.month)}</span>
                                   {sub ? (
                                     <span className="text-[10px] font-normal text-muted-foreground">
-                                      {sub}
+                                      {compactHoldRangeEndLabel(sub)}
                                     </span>
                                   ) : null}
                                 </DropdownMenuItem>

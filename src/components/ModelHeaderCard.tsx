@@ -334,35 +334,60 @@ export function ModelHeaderCard({
     (() => {
       const q = quintileHeaderInsight;
       const wr = q.winRate;
-      const winPct = wr && wr.total > 0 ? Math.round(wr.rate * 100) : null;
+      const avgSpread = q.avgSpread;
+      const showAvg = avgSpread != null && Number.isFinite(avgSpread);
       const spread = q.latestWeekSpread;
-      const showWinPrimary = winPct != null;
+      const pctFmt = (v: number | null) => (v == null ? '—' : `${Math.round(v * 100)}%`);
 
       return (
         <InsightCardShell
           icon={LayoutGrid}
           title="Q5 vs Q1"
-          subtitle="Top vs bottom rated (all Nasdaq-100)"
+          subtitle="Signal — avg Q5 minus Q1 per week"
         >
           <div className="mt-1">
-            {showWinPrimary ? (
+            {showAvg ? (
               <>
                 <p
                   className={cn(
                     insightHighlightClass,
-                    wr!.rate > 0.5
+                    avgSpread > 0
                       ? 'text-green-600 dark:text-green-400'
-                      : wr!.rate < 0.5
+                      : avgSpread < 0
                         ? 'text-red-600 dark:text-red-400'
                         : 'text-foreground'
                   )}
                 >
-                  {winPct}%
+                  {fmtSignedPctFromDecimal(avgSpread, 2)}
+                </p>
+                <p className="text-xs leading-snug text-muted-foreground">
+                  {wr && wr.total > 0
+                    ? `Q5 beat Q1 in ${wr.wins} of ${wr.total} weeks (${pctFmt(wr.rate)})`
+                    : `${q.weeksObserved} weeks observed`}
+                  {spread != null && Number.isFinite(spread)
+                    ? ` · latest ${fmtSignedPctFromDecimal(spread, 2)}`
+                    : ''}
+                  {q.latestWeekRunDate ? ` (${fmt.date(q.latestWeekRunDate)})` : ''}
+                </p>
+              </>
+            ) : wr && wr.total > 0 ? (
+              <>
+                <p
+                  className={cn(
+                    insightHighlightClass,
+                    wr.rate > 0.5
+                      ? 'text-green-600 dark:text-green-400'
+                      : wr.rate < 0.5
+                        ? 'text-red-600 dark:text-red-400'
+                        : 'text-foreground'
+                  )}
+                >
+                  {Math.round(wr.rate * 100)}%
                 </p>
                 <p className="text-xs leading-relaxed text-muted-foreground">
-                  <span className="font-medium text-foreground tabular-nums">{wr!.wins}</span>
+                  <span className="font-medium text-foreground tabular-nums">{wr.wins}</span>
                   {' of '}
-                  <span className="font-medium text-foreground tabular-nums">{wr!.total}</span>
+                  <span className="font-medium text-foreground tabular-nums">{wr.total}</span>
                   {' weeks, Q5 (top-rated) outperformed Q1 (bottom-rated)'}
                 </p>
               </>

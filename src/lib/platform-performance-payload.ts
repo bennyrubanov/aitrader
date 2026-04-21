@@ -20,9 +20,11 @@ import {
   buildQuintileHistory,
   computeFourWeekQuintileWinRate,
   computeMonthlyQuintileWinRate,
+  computeQuintileSummary,
   computeQuintileWinRate,
   computeRegressionSummary,
   type MonthlyQuintileSnapshot,
+  type QuintileSummary,
   type QuintileSnapshot,
   type QuintileWinRate,
   type RegressionSummary,
@@ -145,7 +147,7 @@ export type PerformanceSeriesPoint = {
 
 type SeriesPoint = PerformanceSeriesPoint;
 
-export type { QuintileSnapshot, MonthlyQuintileSnapshot, QuintileWinRate };
+export type { QuintileSnapshot, MonthlyQuintileSnapshot, QuintileSummary, QuintileWinRate };
 
 /** Cross-sectional regression averaged within each calendar month (from weekly rows). */
 export type MonthlyRegressionSnapshot = {
@@ -230,6 +232,8 @@ export type PlatformPerformancePayload = {
     quintileHistory: QuintileSnapshot[];
     // Q5 vs Q1 win rate across all weeks
     quintileWinRate: QuintileWinRate | null;
+    // All-time stock-count weighted quintile summary (weekly horizon)
+    quintileSummary: QuintileSummary;
     // Q5 vs Q1 win rate across monthly-aggregated snapshots
     monthlyQuintileWinRate: QuintileWinRate | null;
     // Q5 vs Q1 win rate across all 4-week non-overlapping snapshots
@@ -396,6 +400,7 @@ export {
   buildQuintileHistory,
   buildFourWeekQuintileHistory,
   buildMonthlyQuintiles,
+  computeQuintileSummary,
   computeQuintileWinRate,
   computeMonthlyQuintileWinRate,
   computeFourWeekQuintileWinRate,
@@ -608,6 +613,7 @@ const buildPayloadForStrategy = async (
   const monthlyQuintiles = buildMonthlyQuintiles(quintileHistory);
   const monthlyRegressionHistory = buildMonthlyRegressions(allRegressionRows);
   const quintileWinRate = computeQuintileWinRate(quintileHistory);
+  const quintileSummary = computeQuintileSummary(quintileHistory);
   const monthlyQuintileWinRate = computeMonthlyQuintileWinRate(monthlyQuintiles);
   const fourWeekQuintileWinRate = computeFourWeekQuintileWinRate(fourWeekQuintileHistory);
   const regressionSummary = computeRegressionSummary(
@@ -630,6 +636,7 @@ const buildPayloadForStrategy = async (
       fourWeekQuintileHistory,
       quintileHistory,
       quintileWinRate,
+      quintileSummary,
       monthlyQuintileWinRate,
       fourWeekQuintileWinRate,
       monthlyQuintiles,
@@ -998,6 +1005,7 @@ export type StrategyDetail = {
   pctWeeksBeatingNasdaq100: number | null;
   pctMonthsBeatingNasdaq100: number | null;
   quintileWinRate: { total: number; wins: number; rate: number } | null;
+  quintileSummary: QuintileSummary;
   /** Latest weekly snapshot: Q5 minus Q1 forward return. */
   quintileLatestWeekSpread: number | null;
   quintileLatestWeekRunDate: string | null;
@@ -1115,6 +1123,7 @@ const getStrategyDetailCached = (slug: string) =>
           (quintileResponse.data ?? []) as QuintileRow[]
         );
         const quintileWinRate = computeQuintileWinRate(quintileHistory);
+        const quintileSummary = computeQuintileSummary(quintileHistory);
         const latestQuintileSnap = quintileHistory[0];
         let quintileLatestWeekSpread: number | null = null;
         let quintileLatestWeekRunDate: string | null = null;
@@ -1179,6 +1188,7 @@ const getStrategyDetailCached = (slug: string) =>
           pctWeeksBeatingNasdaq100,
           pctMonthsBeatingNasdaq100,
           quintileWinRate,
+          quintileSummary,
           quintileLatestWeekSpread,
           quintileLatestWeekRunDate,
           latestBeta: regRow ? toNullableNumber(regRow.beta) : null,

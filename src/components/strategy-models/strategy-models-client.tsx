@@ -59,16 +59,41 @@ function QuintileInsightMini({
   insight: ModelHeaderQuintileInsight;
 }) {
   const wr = insight.winRate;
+  const avgSpread = insight.avgSpread;
+  const avgSpreadFinite = avgSpread != null && Number.isFinite(avgSpread);
   const spread = insight.latestWeekSpread;
   const showWin = wr != null && wr.total > 0;
 
   return (
     <div>
       <p className="text-[10px] font-semibold text-muted-foreground mb-1 leading-snug">
-        Q5 vs Q1
+        Q5 - Q1 · all-time avg
       </p>
       {statsLoading ? (
         <div className="h-10 w-20 rounded-md bg-muted animate-pulse mt-1" />
+      ) : avgSpreadFinite ? (
+        <>
+          <p
+            className={cn(
+              'text-lg font-bold tabular-nums tracking-tight',
+              avgSpread > 0
+                ? 'text-green-600 dark:text-green-400'
+                : avgSpread < 0
+                  ? 'text-red-600 dark:text-red-400'
+                  : 'text-foreground'
+            )}
+          >
+            {fmtSignedPctFromDecimal(avgSpread, 2)}
+          </p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">
+            {showWin
+              ? `Q5>Q1 in ${Math.round(wr.rate * 100)}% of ${insight.weeksObserved}w`
+              : `${insight.weeksObserved}w observed`}
+            {spread != null && Number.isFinite(spread)
+              ? ` · latest ${fmtSignedPctFromDecimal(spread, 2)}`
+              : ''}
+          </p>
+        </>
       ) : showWin ? (
         <>
           <p
@@ -122,7 +147,7 @@ function QuintileInsightMini({
           <p className="text-[10px] text-muted-foreground mt-0.5">No quintile data yet.</p>
         </>
       )}
-      {!statsLoading && (showWin || (spread != null && Number.isFinite(spread))) ? (
+      {!statsLoading && (avgSpreadFinite || showWin || (spread != null && Number.isFinite(spread))) ? (
         <Link
           href={`/strategy-models/${STRATEGY_CONFIG.slug}#methodology-quintiles`}
           className="mt-1.5 inline-flex items-center gap-0.5 text-[10px] font-medium text-trader-blue hover:underline dark:text-trader-blue-light"
@@ -265,11 +290,14 @@ export function StrategyModelsClient({ strategies }: Props) {
 
             const quintileInsight: ModelHeaderQuintileInsight | null =
               ranked &&
-              (ranked.quintileWinRate != null ||
+              (ranked.quintileWeeksObserved > 0 ||
+                ranked.quintileWinRate != null ||
                 (ranked.quintileLatestWeekSpread != null &&
                   Number.isFinite(ranked.quintileLatestWeekSpread)))
                 ? {
                     winRate: ranked.quintileWinRate,
+                    avgSpread: ranked.quintileAvgSpread,
+                    weeksObserved: ranked.quintileWeeksObserved,
                     latestWeekSpread: ranked.quintileLatestWeekSpread,
                     latestWeekRunDate: ranked.quintileLatestWeekRunDate,
                   }
@@ -288,6 +316,7 @@ export function StrategyModelsClient({ strategies }: Props) {
               statsLoading,
               null
             );
+            const effectiveReplaceSlot = quintileInsight ? (replaceSlot ?? 'nasdaq') : null;
 
             return (
               <article
@@ -335,7 +364,7 @@ export function StrategyModelsClient({ strategies }: Props) {
 
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div>
-                          {replaceSlot === 'nasdaq' && quintileInsight ? (
+                          {effectiveReplaceSlot === 'nasdaq' && quintileInsight ? (
                             <QuintileInsightMini
                               statsLoading={statsLoading}
                               insight={quintileInsight}
@@ -384,7 +413,7 @@ export function StrategyModelsClient({ strategies }: Props) {
                           )}
                         </div>
                         <div>
-                          {replaceSlot === 'sp500' && quintileInsight ? (
+                          {effectiveReplaceSlot === 'sp500' && quintileInsight ? (
                             <QuintileInsightMini
                               statsLoading={statsLoading}
                               insight={quintileInsight}
@@ -526,22 +555,6 @@ export function StrategyModelsClient({ strategies }: Props) {
             tracking and benchmarks.
           </p>
         </div>
-      </div>
-
-      {/* CTA to performance */}
-      <div className="rounded-xl border border-trader-blue/20 bg-trader-blue/5 p-6 flex flex-col sm:flex-row items-start sm:items-center gap-4">
-        <div className="flex-1">
-          <p className="font-semibold mb-1">Ready to see the numbers?</p>
-          <p className="text-sm text-muted-foreground">
-            Full live performance charts, benchmark comparisons, and research validation.
-          </p>
-        </div>
-        <Button asChild>
-          <Link href="/performance" className="gap-2 shrink-0">
-            <BarChart3 className="size-4 shrink-0" />
-            Model Performances
-          </Link>
-        </Button>
       </div>
     </ContentPageLayout>
   );

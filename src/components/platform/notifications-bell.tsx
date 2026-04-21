@@ -161,7 +161,7 @@ export function NotificationsBell() {
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
-          <Link href="/platform/settings#notifications" prefetch className="cursor-pointer">
+          <Link href="/platform/settings/notifications" prefetch className="cursor-pointer">
             Notification settings
           </Link>
         </DropdownMenuItem>

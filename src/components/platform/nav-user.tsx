@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import {
   BadgeCheck,
   Bell,
@@ -54,6 +54,8 @@ export function NavUser({
   onSignOut,
   onSignUp,
 }: NavUserProps) {
+  const router = useRouter();
+  const pathname = usePathname();
   const { isMobile, sidebarMode, setSidebarHoverExpanded, setSidebarNavMenuOpen } = useSidebar();
 
   const initials = useMemo(() => {
@@ -64,6 +66,18 @@ export function NavUser({
     }
     return (source[0] ?? "U").toUpperCase();
   }, [user.email, user.name]);
+
+  const goToSettingsSection = (href: string) => {
+    // Instant switch when already in Settings; avoid route transition delay.
+    if (pathname.startsWith("/platform/settings")) {
+      if (typeof window !== "undefined" && window.location.pathname !== href) {
+        window.history.pushState(null, "", href);
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      }
+      return;
+    }
+    router.push(href);
+  };
 
   if (!user.isAuthenticated) {
     return (
@@ -148,35 +162,26 @@ export function NavUser({
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem asChild>
-                <Link
-                  href="/platform/settings#account"
-                  prefetch
-                  className="cursor-pointer gap-2"
-                >
+              <DropdownMenuItem
+                className="cursor-pointer gap-2"
+                onSelect={() => goToSettingsSection("/platform/settings/account")}
+              >
                   <BadgeCheck className="size-4 text-muted-foreground" />
                   Account
-                </Link>
               </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link
-                  href="/platform/settings#billing"
-                  prefetch
-                  className="cursor-pointer gap-2"
-                >
+              <DropdownMenuItem
+                className="cursor-pointer gap-2"
+                onSelect={() => goToSettingsSection("/platform/settings/billing")}
+              >
                   <CreditCard className="size-4 text-muted-foreground" />
                   Billing
-                </Link>
               </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link
-                  href="/platform/settings#notifications"
-                  prefetch
-                  className="cursor-pointer gap-2"
-                >
+              <DropdownMenuItem
+                className="cursor-pointer gap-2"
+                onSelect={() => goToSettingsSection("/platform/settings/notifications")}
+              >
                   <Bell className="size-4 text-muted-foreground" />
                   Notifications
-                </Link>
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />

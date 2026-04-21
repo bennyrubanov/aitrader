@@ -139,11 +139,14 @@ export default async function StrategyModelDetailPage({ params }: Props) {
           variant="model"
           beatMarketSlug={slug}
           quintileHeaderInsight={
+            detail.quintileSummary.weeksObserved > 0 ||
             detail.quintileWinRate != null ||
             (detail.quintileLatestWeekSpread != null &&
               Number.isFinite(detail.quintileLatestWeekSpread))
               ? {
                   winRate: detail.quintileWinRate,
+                  avgSpread: detail.quintileSummary.avgSpread,
+                  weeksObserved: detail.quintileSummary.weeksObserved,
                   latestWeekSpread: detail.quintileLatestWeekSpread,
                   latestWeekRunDate: detail.quintileLatestWeekRunDate,
                 }

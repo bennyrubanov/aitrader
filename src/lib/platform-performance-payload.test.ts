@@ -5,6 +5,7 @@ import {
   buildFourWeekQuintileHistory,
   buildMonthlyQuintiles,
   buildQuintileHistory,
+  computeQuintileSummary,
   computeFourWeekQuintileWinRate,
   computeMonthlyQuintileWinRate,
   computeQuintileWinRate,
@@ -168,4 +169,73 @@ test('computeRegressionSummary aggregates betas and 8-week window', () => {
   const recentRsq = [0.2, 0.1, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1];
   const expectedR8 = recentRsq.reduce((a, b) => a + b, 0) / 8;
   assert.ok(s.avgRsqRecent8w != null && Math.abs(s.avgRsqRecent8w - expectedR8) < 1e-9);
+  const allRsq = [0.2, 0.1, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1, 0.11, 0.12];
+  const expectedRAll = allRsq.reduce((a, b) => a + b, 0) / allRsq.length;
+  assert.ok(s.avgRsqAllWeeks != null && Math.abs(s.avgRsqAllWeeks - expectedRAll) < 1e-9);
+});
+
+test('computeQuintileSummary returns weighted spread and stock totals', () => {
+  const history: QuintileSnapshot[] = [
+    {
+      runDate: '2026-04-18',
+      rows: [
+        { quintile: 1, stockCount: 10, return: 0.01 },
+        { quintile: 5, stockCount: 10, return: 0.04 },
+      ],
+    },
+    {
+      runDate: '2026-04-11',
+      rows: [
+        { quintile: 1, stockCount: 30, return: 0.0 },
+        { quintile: 5, stockCount: 30, return: 0.03 },
+      ],
+    },
+    {
+      runDate: '2026-04-04',
+      rows: [
+        { quintile: 1, stockCount: 20, return: -0.02 },
+        { quintile: 5, stockCount: 20, return: 0.02 },
+      ],
+    },
+  ];
+
+  const summary = computeQuintileSummary(history);
+  assert.equal(summary.weeksObserved, 3);
+  const q1 = summary.rows.find((row) => row.quintile === 1);
+  const q5 = summary.rows.find((row) => row.quintile === 5);
+  assert.ok(q1);
+  assert.ok(q5);
+  assert.equal(q5.stockTotal, 60);
+  const expectedQ1 = (10 * 0.01 + 30 * 0.0 + 20 * -0.02) / 60;
+  const expectedQ5 = (10 * 0.04 + 30 * 0.03 + 20 * 0.02) / 60;
+  const expectedSpread = expectedQ5 - expectedQ1;
+  assert.ok(Math.abs(summary.avgSpread! - expectedSpread) < 1e-9);
+});
+
+test('computeQuintileSummary uses stock-count weighting, not simple mean', () => {
+  const history: QuintileSnapshot[] = [
+    {
+      runDate: '2026-04-18',
+      rows: [{ quintile: 5, stockCount: 100, return: 0.01 }],
+    },
+    {
+      runDate: '2026-04-11',
+      rows: [{ quintile: 5, stockCount: 1, return: 1.0 }],
+    },
+  ];
+  const summary = computeQuintileSummary(history);
+  const q5 = summary.rows.find((row) => row.quintile === 5);
+  assert.ok(q5);
+  const expected = (100 * 0.01 + 1 * 1.0) / 101;
+  assert.ok(Math.abs(q5.avgReturn - expected) < 1e-9);
+});
+
+test('computeQuintileSummary empty history returns null spread and win rate', () => {
+  const summary = computeQuintileSummary([]);
+  assert.deepEqual(summary, {
+    weeksObserved: 0,
+    rows: [],
+    avgSpread: null,
+    winRate: null,
+  });
 });

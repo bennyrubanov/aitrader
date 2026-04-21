@@ -22,12 +22,20 @@ export type QuintileWinRate = {
   rate: number;
 };
 
+export type QuintileSummary = {
+  weeksObserved: number;
+  rows: Array<{ quintile: number; avgReturn: number; weekCount: number; stockTotal: number }>;
+  avgSpread: number | null;
+  winRate: QuintileWinRate | null;
+};
+
 /** Weekly cross-sectional regression stability (1-week horizon history). */
 export type RegressionSummary = {
   latestBeta: number | null;
   avgBetaAllWeeks: number | null;
   medianBetaAllWeeks: number | null;
   avgBetaRecent8w: number | null;
+  avgRsqAllWeeks: number | null;
   avgRsqRecent8w: number | null;
   betaPositiveRate: number | null;
   totalWeeks: number;
@@ -43,6 +51,9 @@ export function computeRegressionSummary(
   const recent = sorted.slice(0, 8);
   const betasRecent = recent
     .map((r) => r.beta)
+    .filter((b): b is number => b != null && Number.isFinite(b));
+  const rsqAll = sorted
+    .map((r) => r.rSquared)
     .filter((b): b is number => b != null && Number.isFinite(b));
   const rsqRecent = recent
     .map((r) => r.rSquared)
@@ -60,6 +71,7 @@ export function computeRegressionSummary(
     avgBetaAllWeeks: mean(betasAll),
     medianBetaAllWeeks: medianOf(betasAll),
     avgBetaRecent8w: mean(betasRecent),
+    avgRsqAllWeeks: mean(rsqAll),
     avgRsqRecent8w: mean(rsqRecent),
     betaPositiveRate: betasAll.length
       ? betasAll.filter((b) => b > 0).length / betasAll.length
@@ -171,6 +183,43 @@ export function computeQuintileWinRate(history: QuintileSnapshot[]): QuintileWin
   }
   if (total === 0) return null;
   return { total, wins, rate: wins / total };
+}
+
+export function computeQuintileSummary(history: QuintileSnapshot[]): QuintileSummary {
+  if (!history.length) {
+    return { weeksObserved: 0, rows: [], avgSpread: null, winRate: null };
+  }
+
+  const acc = new Map<number, { weightedSum: number; stockTotal: number; weekCount: number }>();
+  for (const snapshot of history) {
+    for (const row of snapshot.rows) {
+      const current = acc.get(row.quintile) ?? { weightedSum: 0, stockTotal: 0, weekCount: 0 };
+      current.weightedSum += row.return * row.stockCount;
+      current.stockTotal += row.stockCount;
+      current.weekCount += 1;
+      acc.set(row.quintile, current);
+    }
+  }
+
+  const rows = Array.from(acc.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([quintile, { weightedSum, stockTotal, weekCount }]) => ({
+      quintile,
+      avgReturn: stockTotal > 0 ? weightedSum / stockTotal : 0,
+      weekCount,
+      stockTotal,
+    }));
+
+  const q1 = rows.find((row) => row.quintile === 1)?.avgReturn;
+  const q5 = rows.find((row) => row.quintile === 5)?.avgReturn;
+  const avgSpread = typeof q1 === 'number' && typeof q5 === 'number' ? q5 - q1 : null;
+
+  return {
+    weeksObserved: history.length,
+    rows,
+    avgSpread,
+    winRate: computeQuintileWinRate(history),
+  };
 }
 
 export function computeMonthlyQuintileWinRate(

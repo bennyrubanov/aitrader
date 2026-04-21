@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import {
   buildQuintileHistory,
+  computeQuintileSummary,
   computeQuintileWinRate,
   computeRegressionSummary,
   getStrategiesList,
@@ -107,6 +108,8 @@ export type RankedStrategyModel = {
   betaWeeksObserved: number;
   /** Q5 vs Q1 weekly win rate (same definition as performance research). */
   quintileWinRate: { total: number; wins: number; rate: number } | null;
+  quintileAvgSpread: number | null;
+  quintileWeeksObserved: number;
   quintileLatestWeekSpread: number | null;
   quintileLatestWeekRunDate: string | null;
 };
@@ -182,6 +185,7 @@ export async function GET() {
       regressionHistoryByStrategyId.get(s.id) ?? []
     );
     const qHistory = buildQuintileHistory(quintileRowsByStrategyId.get(s.id) ?? []);
+    const qSummary = computeQuintileSummary(qHistory);
     const quintileWinRate = computeQuintileWinRate(qHistory);
     const latestQuintileSnap = qHistory[0];
     let quintileLatestWeekSpread: number | null = null;
@@ -233,6 +237,8 @@ export async function GET() {
         betaPositiveRate: regSummary.betaPositiveRate,
         betaWeeksObserved: regSummary.totalWeeks,
         quintileWinRate,
+        quintileAvgSpread: qSummary.avgSpread,
+        quintileWeeksObserved: qSummary.weeksObserved,
         quintileLatestWeekSpread,
         quintileLatestWeekRunDate,
         ...nasdaqBeats,
@@ -261,6 +267,8 @@ export async function GET() {
         betaPositiveRate: regSummary.betaPositiveRate,
         betaWeeksObserved: regSummary.totalWeeks,
         quintileWinRate,
+        quintileAvgSpread: qSummary.avgSpread,
+        quintileWeeksObserved: qSummary.weeksObserved,
         quintileLatestWeekSpread,
         quintileLatestWeekRunDate,
         beatNasdaqPct: null,
