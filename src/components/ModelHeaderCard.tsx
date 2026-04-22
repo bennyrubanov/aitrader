@@ -343,7 +343,7 @@ export function ModelHeaderCard({
         <InsightCardShell
           icon={LayoutGrid}
           title="Q5 vs Q1"
-          subtitle="Signal — avg Q5 minus Q1 per week"
+          subtitle="Signal — average weekly Q5 minus Q1"
         >
           <div className="mt-1">
             {showAvg ? (
@@ -367,7 +367,6 @@ export function ModelHeaderCard({
                   {spread != null && Number.isFinite(spread)
                     ? ` · latest ${fmtSignedPctFromDecimal(spread, 2)}`
                     : ''}
-                  {q.latestWeekRunDate ? ` (${fmt.date(q.latestWeekRunDate)})` : ''}
                 </p>
               </>
             ) : wr && wr.total > 0 ? (
@@ -479,7 +478,7 @@ export function ModelHeaderCard({
             <p className="text-sm text-muted-foreground mt-1.5">
               {startDate ? (
                 <>
-                  Inception:{' '}
+                  Initiation:{' '}
                   <span className="font-medium tabular-nums text-foreground/90">
                     {fmt.date(startDate)}
                   </span>
@@ -677,8 +676,7 @@ export function ModelHeaderCard({
                       </p>
                       <p className="text-xs leading-snug text-muted-foreground">
                         β&gt;0 in {pctFmt(betaPositiveRate)} of {totalWeeks} weeks · latest{' '}
-                        {fmtRegressionStat(latestBeta, 4)} · 8w avg{' '}
-                        {fmtRegressionStat(avgBetaRecent8w, 4)}
+                        {fmtRegressionStat(latestBeta, 4)}
                       </p>
                       <Link
                         href={researchValidationHref}

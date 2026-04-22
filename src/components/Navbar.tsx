@@ -334,7 +334,7 @@ const Navbar: React.FC = () => {
         <DropdownMenuGroup>
               <DropdownMenuItem
                 onSelect={() =>
-                  navigateWithFallback((href) => router.push(href), "/platform/settings#account")
+                  navigateWithFallback((href) => router.push(href), "/platform/settings/account")
                 }
                 className="gap-2"
               >
@@ -343,7 +343,7 @@ const Navbar: React.FC = () => {
           </DropdownMenuItem>
               <DropdownMenuItem
                 onSelect={() =>
-                  navigateWithFallback((href) => router.push(href), "/platform/settings#billing")
+                  navigateWithFallback((href) => router.push(href), "/platform/settings/billing")
                 }
                 className="gap-2"
               >
@@ -354,7 +354,7 @@ const Navbar: React.FC = () => {
                 onSelect={() =>
                   navigateWithFallback(
                     (href) => router.push(href),
-                    "/platform/settings#notifications"
+                    "/platform/settings/notifications"
                   )
                 }
                 className="gap-2"

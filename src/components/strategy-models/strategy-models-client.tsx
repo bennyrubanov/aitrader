@@ -495,10 +495,6 @@ export function StrategyModelsClient({ strategies }: Props) {
                                     {ranked.latestBeta != null && Number.isFinite(ranked.latestBeta)
                                       ? ` · latest ${fmtBeta(ranked.latestBeta)}`
                                       : ''}
-                                    {ranked.avgBetaRecent8w != null &&
-                                    Number.isFinite(ranked.avgBetaRecent8w)
-                                      ? ` · 8w avg ${fmtBeta(ranked.avgBetaRecent8w)}`
-                                      : ''}
                                   </p>
                                   <Link
                                     href={`/strategy-models/${STRATEGY_CONFIG.slug}#methodology-regression`}

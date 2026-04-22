@@ -153,7 +153,7 @@ export async function notifyRatingBucketChanges(
   ]);
 
   const base = siteBase();
-  const settingsUrl = base ? `${base}/platform/settings#notifications` : '/platform/settings#notifications';
+  const settingsUrl = base ? `${base}/platform/settings/notifications` : '/platform/settings/notifications';
 
   const inappRows: {
     user_id: string;
@@ -280,7 +280,7 @@ export async function notifyPortfolioRebalances(
   ]);
 
   const base = siteBase();
-  const settingsUrl = base ? `${base}/platform/settings#notifications` : '/platform/settings#notifications';
+  const settingsUrl = base ? `${base}/platform/settings/notifications` : '/platform/settings/notifications';
 
   const inappRows: {
     user_id: string;
@@ -393,7 +393,7 @@ export async function notifyModelRatingsReady(
   ]);
 
   const base = siteBase();
-  const settingsUrl = base ? `${base}/platform/settings#notifications` : '/platform/settings#notifications';
+  const settingsUrl = base ? `${base}/platform/settings/notifications` : '/platform/settings/notifications';
   const modelUrl = base ? `${base}${hrefStrategyModel(params.strategySlug)}` : hrefStrategyModel(params.strategySlug);
 
   const inappRows: Array<{

@@ -213,6 +213,135 @@ function perfFormatUsd(amount: number): string {
   }).format(amount);
 }
 
+function PublicPerformanceHoldingsLoadingSkeleton({
+  sectionLabel,
+  sectionHrefBase,
+}: {
+  sectionLabel: string;
+  sectionHrefBase: string;
+}) {
+  return (
+    <div className="space-y-4" aria-busy="true" aria-label="Loading portfolio holdings">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
+        <div className="min-w-0 flex-1">
+          <h2 className="group text-2xl font-bold mb-1 flex flex-wrap items-center gap-x-1">
+            {sectionLabel}
+            <SectionHeadingAnchor
+              fragmentId="holdings"
+              hrefBase={sectionHrefBase}
+              copyAbsoluteUrlOnClick
+            />
+          </h2>
+          <Skeleton className="h-4 w-[18rem] max-w-full rounded-sm" />
+        </div>
+        <div className="flex w-full max-w-[9rem] flex-col gap-1 sm:shrink-0 sm:items-end">
+          <Skeleton className="h-3 w-20 rounded-sm" />
+          <Skeleton
+            className={cn(
+              'h-8 rounded-md',
+              PORTFOLIO_REBALANCE_DATE_SELECT_WIDTH_CLASSES
+            )}
+          />
+        </div>
+      </div>
+      <div className="rounded-lg border overflow-hidden">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="min-w-[4.25rem]">#</TableHead>
+              <TableHead>Stock</TableHead>
+              <TableHead className="text-left">Value</TableHead>
+              <TableHead className="text-right">Cost basis</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {Array.from({ length: 5 }).map((_, idx) => (
+              <TableRow key={`holdings-skeleton-row-${idx}`}>
+                <TableCell>
+                  <Skeleton className="h-4 w-6 rounded-sm" />
+                </TableCell>
+                <TableCell>
+                  <div className="space-y-1">
+                    <Skeleton className="h-4 w-14 rounded-sm" />
+                    <Skeleton className="h-3 w-24 rounded-sm" />
+                  </div>
+                </TableCell>
+                <TableCell className="text-left">
+                  <Skeleton className="h-4 w-28 rounded-sm" />
+                </TableCell>
+                <TableCell className="text-right">
+                  <Skeleton className="ml-auto h-4 w-20 rounded-sm" />
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  );
+}
+
+function PublicPerformanceReturnsLoadingSkeleton() {
+  return (
+    <div
+      className="space-y-4"
+      aria-busy="true"
+      aria-label="Loading returns for selected portfolio"
+    >
+      <div className="grid grid-cols-2 gap-3">
+        {Array.from({ length: 2 }).map((_, idx) => (
+          <div key={`returns-metric-skeleton-${idx}`} className="rounded-lg border bg-card p-3">
+            <div className="space-y-2">
+              <Skeleton className="h-3 w-20 rounded-sm" />
+              <Skeleton className="h-7 w-24 rounded-md" />
+              <Skeleton className="h-3 w-28 rounded-sm" />
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="rounded-lg border bg-muted/30 overflow-hidden">
+        <div className="space-y-2 border-b p-4">
+          <Skeleton className="h-4 w-40 rounded-sm" />
+          <Skeleton className="h-3 w-64 max-w-full rounded-sm" />
+        </div>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Strategy / Benchmark</TableHead>
+              <TableHead className="text-right">Total return</TableHead>
+              <TableHead className="text-right">CAGR</TableHead>
+              <TableHead className="text-right">Max drawdown</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {Array.from({ length: 4 }).map((_, idx) => (
+              <TableRow key={`returns-table-skeleton-${idx}`}>
+                <TableCell>
+                  <Skeleton className="h-4 w-36 rounded-sm" />
+                </TableCell>
+                <TableCell className="text-right">
+                  <Skeleton className="ml-auto h-4 w-16 rounded-sm" />
+                </TableCell>
+                <TableCell className="text-right">
+                  <Skeleton className="ml-auto h-4 w-14 rounded-sm" />
+                </TableCell>
+                <TableCell className="text-right">
+                  <Skeleton className="ml-auto h-4 w-20 rounded-sm" />
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+      <Skeleton className="h-[240px] w-full rounded-lg" />
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <Skeleton className="h-[180px] w-full rounded-lg" />
+        <Skeleton className="h-[180px] w-full rounded-lg" />
+      </div>
+    </div>
+  );
+}
+
 function PerformanceHoldingsCostBasisCell({
   symbol,
   snapshot,
@@ -1708,23 +1837,15 @@ function PerformancePagePublicClientInner({
       {/* ── Portfolio holdings (supporter / outperformer) ─────────────── */}
       <section id="holdings" className="mb-10">
         {!slug || !holdingsPortfolioConfig ? (
-          <>
-            <h2 className="group text-2xl font-bold mb-2 flex flex-wrap items-center gap-x-1">
-              {holdingsSectionLabel}
-              <SectionHeadingAnchor fragmentId="holdings" hrefBase={sectionHrefBase}
-            copyAbsoluteUrlOnClick />
-            </h2>
-            <Skeleton className="h-[200px] w-full rounded-xl" />
-          </>
+          <PublicPerformanceHoldingsLoadingSkeleton
+            sectionLabel={holdingsSectionLabel}
+            sectionHrefBase={sectionHrefBase}
+          />
         ) : holdingsLoading ? (
-          <>
-            <h2 className="group text-2xl font-bold mb-2 flex flex-wrap items-center gap-x-1">
-              {holdingsSectionLabel}
-              <SectionHeadingAnchor fragmentId="holdings" hrefBase={sectionHrefBase}
-            copyAbsoluteUrlOnClick />
-            </h2>
-            <Skeleton className="h-[200px] w-full rounded-xl" />
-          </>
+          <PublicPerformanceHoldingsLoadingSkeleton
+            sectionLabel={holdingsSectionLabel}
+            sectionHrefBase={sectionHrefBase}
+          />
         ) : entitledToHoldings ? (
           <>
             <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
@@ -1738,8 +1859,15 @@ function PerformancePagePublicClientInner({
                   Positions for the selected portfolio ({portfolioHoldingsSubtitle}).
                 </p>
               </div>
+              {holdingsRebalanceDates.length > 0 ? (
+                <HoldingsPortfolioValueLine
+                  value={performanceHoldingsPortfolioValue}
+                  formatCurrency={perfFormatUsd}
+                  className="sm:ml-auto"
+                />
+              ) : null}
               {holdingsRebalanceDates.length > 1 ? (
-                <div className="flex w-full max-w-[9rem] flex-col gap-1 sm:shrink-0 sm:items-end">
+                <div className="flex w-full max-w-[13rem] flex-col gap-1 sm:shrink-0 sm:items-end">
                   <Label
                     htmlFor="holdings-rebalance-date"
                     className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:text-right"
@@ -1753,7 +1881,7 @@ function PerformancePagePublicClientInner({
                     <SelectTrigger
                       id="holdings-rebalance-date"
                       className={cn(
-                        'h-8 min-h-8 rounded-md border border-input bg-background px-2 text-left text-xs shadow-none ring-0 hover:bg-muted/30 focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:ring-0 data-[state=open]:ring-offset-0 [&_svg]:size-3.5',
+                        'h-8 min-h-8 rounded-md border border-input bg-background px-2 text-left text-xs shadow-none ring-0 hover:bg-muted/30 focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:ring-0 data-[state=open]:ring-offset-0 [&_svg]:size-3.5 min-w-[10rem]',
                         PORTFOLIO_REBALANCE_DATE_SELECT_WIDTH_CLASSES
                       )}
                     >
@@ -1771,13 +1899,6 @@ function PerformancePagePublicClientInner({
                     </SelectContent>
                   </Select>
                 </div>
-              ) : null}
-              {holdingsRebalanceDates.length > 0 ? (
-                <HoldingsPortfolioValueLine
-                  value={performanceHoldingsPortfolioValue}
-                  formatCurrency={perfFormatUsd}
-                  className="sm:ml-auto"
-                />
               ) : null}
             </div>
             {holdings.length > 0 ? (
@@ -1922,22 +2043,7 @@ function PerformancePagePublicClientInner({
             copyAbsoluteUrlOnClick />
         </h2>
         {overviewPortfolioDataLoading ? (
-          <div
-            className="space-y-4"
-            aria-busy="true"
-            aria-label="Loading returns for selected portfolio"
-          >
-            <div className="grid grid-cols-2 gap-3">
-              <Skeleton className="min-h-[118px] w-full rounded-lg" />
-              <Skeleton className="min-h-[118px] w-full rounded-lg" />
-            </div>
-            <Skeleton className="min-h-[200px] w-full rounded-lg" />
-            <Skeleton className="h-[240px] w-full rounded-lg" />
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <Skeleton className="h-[180px] w-full rounded-lg" />
-              <Skeleton className="h-[180px] w-full rounded-lg" />
-            </div>
-          </div>
+          <PublicPerformanceReturnsLoadingSkeleton />
         ) : displayMetrics ? (
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
@@ -2261,13 +2367,13 @@ function PerformancePagePublicClientInner({
                     Stocks split into 5 equal groups by AI-scored rank (Q1 = lowest rated, Q5 =
                     highest rated). Weekly view shows the raw 1-week forward return signal; 4-week non-overlap
                     checks whether the same forward return signal persists across a full 4-week hold. All-time view shows the
-                    model&apos;s performance across every weekly snapshot; drill into This month
-                    or This week for specific periods.
+                    model&apos;s average performance across every weekly snapshot; drill into <strong>This month</strong>
+                    or <strong>This week</strong> for specific periods.
                   </CardDescription>
                 </div>
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="space-y-2">
-                    <div className="flex items-center gap-1 rounded-md border bg-card p-0.5 shadow-sm">
+                    <div className="inline-flex items-center gap-1 rounded-md border bg-card p-0.5 shadow-sm">
                       <button
                         type="button"
                         onClick={() => setQuintileView('weekly')}

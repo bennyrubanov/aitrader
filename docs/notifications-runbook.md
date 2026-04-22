@@ -47,5 +47,5 @@ If you need to stop fan-out quickly, deploy a hotfix that early-returns before f
 ## 7. Smoke tests
 
 - Password reset email arrives (Resend or Gmail fallback) and lands in inbox.
-- Signed-in user: bell opens, “Mark all read” works, `/platform/notifications` lists items.
+- Signed-in user: bell opens, “Mark all read” works; recent items stay in the bell (no separate inbox page). Notification preferences live under Settings → Notifications (`/platform/settings/notifications`).
 - Unsubscribe link from an email disables `email_enabled` on preferences (check Supabase).

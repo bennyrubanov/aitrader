@@ -37,7 +37,7 @@ export async function GET(req: Request) {
   return new NextResponse(
     `<!DOCTYPE html><html><body style="font-family:system-ui;padding:24px">
       <p>You are unsubscribed from AITrader notification emails.</p>
-      <p><a href="/platform/settings#notifications">Open notification settings</a></p>
+      <p><a href="/platform/settings/notifications">Open notification settings</a></p>
     </body></html>`,
     { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
   );

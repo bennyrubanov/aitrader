@@ -47,10 +47,6 @@ const viewMetaByPath: Record<string, ViewMeta> = {
     title: 'Settings',
     subtitle: 'Manage account, billing, and notification preferences',
   },
-  '/platform/notifications': {
-    title: 'Notifications',
-    subtitle: 'Your in-app alerts and recent activity',
-  },
   '/platform/overview': {
     title: 'Overview',
     subtitle: 'Top portfolio performance, holdings, and latest rebalance actions',

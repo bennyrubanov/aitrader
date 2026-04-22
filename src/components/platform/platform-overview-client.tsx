@@ -3607,21 +3607,23 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                           <div className="grid gap-4 lg:h-full lg:min-h-0 lg:grid-cols-[minmax(0,11rem)_minmax(0,1.25fr)_minmax(0,0.8fr)] lg:items-start">
                               <div className="mx-auto flex w-full max-w-full flex-col gap-2 sm:gap-3 lg:mx-0 lg:max-w-[11rem] lg:gap-2 lg:max-h-[min(68vh,520px)] lg:overflow-y-auto lg:pr-1">
                                 <div className="grid w-full grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-1 lg:gap-2">
-                                  <SpotlightStatCard
-                                    tooltipKey="portfolio_value"
-                                    label="Portfolio value"
-                                    value={val != null ? formatOverviewCurrency(val) : '—'}
-                                    valueSuffix={
-                                      val != null ? ` (${fmt.pct(st.totalReturn)})` : undefined
-                                    }
-                                    suffixPositive={
-                                      val != null &&
-                                      st.totalReturn != null &&
-                                      Number.isFinite(st.totalReturn)
-                                        ? st.totalReturn > 0
-                                        : undefined
-                                    }
-                                  />
+                                  <div data-platform-tour="overview-portfolio-value-card">
+                                    <SpotlightStatCard
+                                      tooltipKey="portfolio_value"
+                                      label="Portfolio value"
+                                      value={val != null ? formatOverviewCurrency(val) : '—'}
+                                      valueSuffix={
+                                        val != null ? ` (${fmt.pct(st.totalReturn)})` : undefined
+                                      }
+                                      suffixPositive={
+                                        val != null &&
+                                        st.totalReturn != null &&
+                                        Number.isFinite(st.totalReturn)
+                                          ? st.totalReturn > 0
+                                          : undefined
+                                      }
+                                    />
+                                  </div>
                                   <SpotlightStatCard
                                     tooltipKey="vs_sp500"
                                     label="Performance vs S&P 500 (cap)"

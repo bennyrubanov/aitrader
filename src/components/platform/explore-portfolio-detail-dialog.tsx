@@ -649,6 +649,7 @@ export function ExplorePortfolioDetailDialog({
   unfollowBusy?: boolean;
 }) {
   const exploreHoldingsRequestIdRef = useRef(0);
+  const prevDialogConfigKeyRef = useRef<string | null>(null);
 
   const [holdingsLoading, setHoldingsLoading] = useState(false);
   const [loadingMoreDates, setLoadingMoreDates] = useState(false);
@@ -789,6 +790,15 @@ export function ExplorePortfolioDetailDialog({
   );
 
   useEffect(() => {
+    const slug = strategySlug?.trim() ?? '';
+    const key = config?.id && slug ? `${slug}\0${config.id}` : null;
+    if (key !== prevDialogConfigKeyRef.current) {
+      prevDialogConfigKeyRef.current = key;
+      setVisibleDateCount(INITIAL_VISIBLE_REBALANCE_DATES);
+    }
+  }, [config?.id, strategySlug]);
+
+  useEffect(() => {
     if (!open || !config?.id || !exploreHoldingsUnlocked) return;
     const slug = strategySlug.trim();
     if (!slug || rebalanceDates.length === 0) return;
@@ -804,13 +814,11 @@ export function ExplorePortfolioDetailDialog({
     if (!hasMoreRebalanceDates || !config) return;
     const slug = strategySlug.trim();
     if (!slug) return;
+    const next = Math.min(visibleDateCount + VISIBLE_LOAD_MORE_STEP, rebalanceDates.length);
+    writeVisibleDateCountSession(slug, config.id, next);
     setLoadingMoreDates(true);
-    setVisibleDateCount((n) => {
-      const next = Math.min(n + VISIBLE_LOAD_MORE_STEP, rebalanceDates.length);
-      writeVisibleDateCountSession(slug, config.id, next);
-      return next;
-    });
-  }, [hasMoreRebalanceDates, rebalanceDates.length, config, strategySlug]);
+    setVisibleDateCount(next);
+  }, [hasMoreRebalanceDates, visibleDateCount, rebalanceDates.length, config, strategySlug]);
 
   useEffect(() => {
     setStockChartSymbol(null);

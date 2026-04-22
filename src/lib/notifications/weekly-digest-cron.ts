@@ -29,8 +29,9 @@ export async function runWeeklyDigest(admin: SupabaseClient): Promise<{
   }
 
   const base = siteBase();
-  const settingsUrl = base ? `${base}/platform/settings#notifications` : '/platform/settings#notifications';
-  const inboxUrl = base ? `${base}/platform/notifications` : '/platform/notifications';
+  const notificationsSettingsPath = '/platform/settings/notifications';
+  const settingsUrl = base ? `${base}${notificationsSettingsPath}` : notificationsSettingsPath;
+  const inboxUrl = settingsUrl;
 
   let usersProcessed = 0;
   let emailsSent = 0;

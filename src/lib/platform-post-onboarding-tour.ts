@@ -158,6 +158,17 @@ export function queuePlatformPostOnboardingTour(): void {
   }
 }
 
+/** Clears the one-time completion flag and re-queues the area tour (e.g. from Welcome notification). */
+export function requestPlatformPostOnboardingTourAgain(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.removeItem(PLATFORM_POST_ONBOARDING_TOUR_DONE_KEY);
+  } catch {
+    // ignore
+  }
+  queuePlatformPostOnboardingTour();
+}
+
 export function consumePlatformPostOnboardingTourQueue(): boolean {
   try {
     const v = sessionStorage.getItem(PLATFORM_POST_ONBOARDING_TOUR_QUEUE_KEY);

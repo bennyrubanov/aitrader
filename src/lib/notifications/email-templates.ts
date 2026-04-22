@@ -132,7 +132,7 @@ export function buildWeeklyDigestEmailHtml(params: {
     <p style="margin:0 0 12px;color:#4b5563">Week ending ${escapeHtml(params.runWeekEnding)}</p>
     <ul style="margin:0;padding-left:18px">${items}</ul>
     <p style="margin:20px 0 0">
-      <a href="${escapeHtml(params.inboxUrl)}" style="display:inline-block;background:#0A84FF;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px">Open inbox</a>
+      <a href="${escapeHtml(params.inboxUrl)}" style="display:inline-block;background:#0A84FF;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px">View notifications</a>
     </p>
     <p style="margin:12px 0 0;font-size:13px">
       <a href="${escapeHtml(params.settingsUrl)}" style="color:#0A84FF">Notification settings</a>
