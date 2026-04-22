@@ -43,6 +43,9 @@ export async function sendTransactionalEmail(
   }
 
   const to = Array.isArray(input.to) ? input.to[0] : input.to;
-  const ok = await sendEmailByGmail(to, input.html, input.subject);
+  const ok = await sendEmailByGmail(to, input.html, input.subject, {
+    text: input.text,
+    headers: input.headers,
+  });
   return ok ? { ok: true } : { ok: false, error: 'Gmail SMTP send failed' };
 }

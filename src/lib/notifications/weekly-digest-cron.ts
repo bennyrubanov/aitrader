@@ -1,8 +1,15 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { sendTransactionalEmail } from '@/lib/mailer';
 import {
+  loadUserEmails,
+  resolvePrefsForFanout,
+  type UserPrefs,
+} from '@/lib/notifications/user-notify-queries';
+import {
   buildCuratedWeeklyDigestEmailHtml,
+  buildPerformanceSectionHtml,
   buildStockRatingWeeklyEmailHtml,
+  type PerformanceDigestRow,
 } from '@/lib/notifications/email-templates';
 import { escapeHtml } from '@/lib/notifications/html-escape';
 import { signUnsubscribePayload } from '@/lib/notifications/unsubscribe-token';
@@ -79,6 +86,180 @@ function buildCuratedSectionsHtml(rows: { type: string; title: string | null }[]
   return parts.join('');
 }
 
+function pairKey(strategyId: string, configId: string): string {
+  return `${strategyId}|${configId}`;
+}
+
+function dateMinusDays(isoDate: string, days: number): string {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, (m ?? 1) - 1, d ?? 1));
+  dt.setUTCDate(dt.getUTCDate() - days);
+  return dt.toISOString().slice(0, 10);
+}
+
+const PROFILE_USER_CHUNK = 150;
+const PAIR_HISTORY_CHUNK = 80;
+const META_ID_CHUNK = 200;
+const FREE_ROUNDUP_IN_CHUNK = 200;
+
+function chunkLocal<T>(arr: T[], size: number): T[][] {
+  const o: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) o.push(arr.slice(i, i + size));
+  return o;
+}
+
+function splitPairKey(pk: string): { strategyId: string; configId: string } | null {
+  const i = pk.indexOf('|');
+  if (i <= 0) {
+    console.error('[weekly-digest] malformed pairKey', pk);
+    return null;
+  }
+  return { strategyId: pk.slice(0, i), configId: pk.slice(i + 1) };
+}
+
+/**
+ * Batched week window performance (oldest vs newest snapshot in ~8d window) per followed portfolio; HTML per user.
+ */
+async function fetchWeeklyPerformanceSectionByUser(
+  admin: SupabaseClient,
+  userIds: string[],
+  runWeekEnding: string,
+  settingsUrl: string
+): Promise<{ htmlByUser: Map<string, string>; textLinesByUser: Map<string, string[]> }> {
+  const htmlByUser = new Map<string, string>();
+  const textLinesByUser = new Map<string, string[]>();
+  if (!userIds.length) return { htmlByUser, textLinesByUser };
+
+  type Prof = { user_id: string; strategy_id: string; config_id: string };
+  const plist: Prof[] = [];
+  for (const uidChunk of chunkLocal(userIds, PROFILE_USER_CHUNK)) {
+    if (!uidChunk.length) continue;
+    const { data: profiles, error: profErr } = await admin
+      .from('user_portfolio_profiles')
+      .select('user_id, strategy_id, config_id')
+      .eq('is_active', true)
+      .in('user_id', uidChunk);
+
+    if (profErr) {
+      console.error('[weekly-digest] perf profiles', profErr.message);
+      continue;
+    }
+    plist.push(...((profiles ?? []) as Prof[]));
+  }
+
+  if (!plist.length) return { htmlByUser, textLinesByUser };
+
+  const pairSet = new Set(plist.map((p) => pairKey(p.strategy_id, p.config_id)));
+  const minDate = dateMinusDays(runWeekEnding, 8);
+
+  const byPair = new Map<string, { as_of_run_date: string; ending_value_portfolio: number | null }[]>();
+  const pairKeysArray = [...pairSet];
+
+  for (const pkChunk of chunkLocal(pairKeysArray, PAIR_HISTORY_CHUNK)) {
+    if (!pkChunk.length) continue;
+    const allowedPairs = new Set(pkChunk);
+    const splitPairs = pkChunk.map(splitPairKey).filter((x): x is NonNullable<typeof x> => x !== null);
+    if (!splitPairs.length) continue;
+    const strategyIds = [...new Set(splitPairs.map((x) => x.strategyId))];
+    const configIds = [...new Set(splitPairs.map((x) => x.configId))];
+
+    const { data: histRows, error: hErr } = await admin
+      .from('portfolio_config_daily_series_history')
+      .select('strategy_id, config_id, as_of_run_date, ending_value_portfolio')
+      .in('strategy_id', strategyIds)
+      .in('config_id', configIds)
+      .gte('as_of_run_date', minDate)
+      .lte('as_of_run_date', runWeekEnding);
+
+    if (hErr) {
+      console.error('[weekly-digest] perf history', hErr.message);
+      continue;
+    }
+
+    for (const row of histRows ?? []) {
+      const r = row as {
+        strategy_id: string;
+        config_id: string;
+        as_of_run_date: string;
+        ending_value_portfolio: number | null;
+      };
+      const pk = pairKey(r.strategy_id, r.config_id);
+      if (!allowedPairs.has(pk)) continue;
+      const arr = byPair.get(pk) ?? [];
+      arr.push({ as_of_run_date: r.as_of_run_date, ending_value_portfolio: r.ending_value_portfolio });
+      byPair.set(pk, arr);
+    }
+  }
+
+  const pctByPair = new Map<string, string>();
+  for (const [pk, list] of byPair) {
+    const sorted = [...list].sort((a, b) => (a.as_of_run_date < b.as_of_run_date ? -1 : 1));
+    const first = sorted[0];
+    const last = sorted[sorted.length - 1];
+    if (!first || !last || first.as_of_run_date === last.as_of_run_date) continue;
+    const start = Number(first.ending_value_portfolio);
+    const end = Number(last.ending_value_portfolio);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start <= 0) continue;
+    const pct = ((end - start) / start) * 100;
+    pctByPair.set(pk, `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`);
+  }
+
+  const strategyIds = [...new Set(plist.map((p) => p.strategy_id))];
+  const strategyNameById = new Map<string, string>();
+  for (const sidChunk of chunkLocal(strategyIds, META_ID_CHUNK)) {
+    if (!sidChunk.length) continue;
+    const { data: stratRows } = await admin.from('strategy_models').select('id, name').in('id', sidChunk);
+    for (const row of stratRows ?? []) {
+      const r = row as { id: string; name: string };
+      strategyNameById.set(r.id, r.name);
+    }
+  }
+
+  const configIds = [...new Set(plist.map((p) => p.config_id))];
+  const configLabelById = new Map<string, string>();
+  for (const cidChunk of chunkLocal(configIds, META_ID_CHUNK)) {
+    if (!cidChunk.length) continue;
+    const { data: cfgRows } = await admin.from('portfolio_configs').select('id, label').in('id', cidChunk);
+    for (const row of cfgRows ?? []) {
+      const r = row as { id: string; label: string };
+      configLabelById.set(r.id, r.label);
+    }
+  }
+
+  const byUser = new Map<string, Prof[]>();
+  for (const p of plist) {
+    const arr = byUser.get(p.user_id) ?? [];
+    arr.push(p);
+    byUser.set(p.user_id, arr);
+  }
+
+  for (const uid of userIds) {
+    const ups = byUser.get(uid);
+    if (!ups?.length) continue;
+    const rows: PerformanceDigestRow[] = [];
+    const seenPair = new Set<string>();
+    for (const p of ups) {
+      const pk = pairKey(p.strategy_id, p.config_id);
+      if (seenPair.has(pk)) continue;
+      seenPair.add(pk);
+      const pctLabel = pctByPair.get(pk);
+      if (!pctLabel) continue;
+      const sn = strategyNameById.get(p.strategy_id) ?? 'Portfolio';
+      const lab = configLabelById.get(p.config_id);
+      rows.push({ strategyName: lab ? `${sn} · ${lab}` : sn, pctLabel });
+    }
+    const top = rows.slice(0, 10);
+    if (!top.length) continue;
+    htmlByUser.set(uid, buildPerformanceSectionHtml(top, { viewAllHref: settingsUrl }));
+    textLinesByUser.set(
+      uid,
+      top.map((r) => `${r.strategyName}: ${r.pctLabel}`)
+    );
+  }
+
+  return { htmlByUser, textLinesByUser };
+}
+
 async function runFreeTrackedStockWeeklyRoundup(
   admin: SupabaseClient,
   params: {
@@ -113,6 +294,11 @@ async function runFreeTrackedStockWeeklyRoundup(
 
   if (bErr || !batches || batches.length < 2) {
     if (bErr) console.error('[weekly-digest] batches for free roundup', bErr.message);
+    else if (!batches?.length) {
+      console.warn('[weekly-digest] free roundup skipped: no weekly ai_run_batches for strategy');
+    } else {
+      console.warn('[weekly-digest] free roundup skipped: need at least 2 weekly batches, got', batches.length);
+    }
     return { usersProcessed: 0, emailsSent: 0, inappInserted: 0 };
   }
   const [newBatch, oldBatch] = batches as { id: string; run_date: string }[];
@@ -141,37 +327,54 @@ async function runFreeTrackedStockWeeklyRoundup(
   if (!trackList.length) return { usersProcessed: 0, emailsSent: 0, inappInserted: 0 };
 
   const userIds = [...new Set(trackList.map((t) => t.user_id))];
-  const { data: profiles, error: pErr } = await admin
-    .from('user_profiles')
-    .select('id, email, subscription_tier')
-    .in('id', userIds);
-  if (pErr) {
-    console.error('[weekly-digest] profiles for free roundup', pErr.message);
-    return { usersProcessed: 0, emailsSent: 0, inappInserted: 0 };
+  const tierByUser = new Map<string, string | null>();
+  const emailByUser = new Map<string, string>();
+  let hadProfileChunkError = false;
+  for (const idChunk of chunkLocal(userIds, FREE_ROUNDUP_IN_CHUNK)) {
+    if (!idChunk.length) continue;
+    const { data: profiles, error: pErr } = await admin
+      .from('user_profiles')
+      .select('id, email, subscription_tier')
+      .in('id', idChunk);
+    if (pErr) {
+      hadProfileChunkError = true;
+      console.error('[weekly-digest] profiles for free roundup', pErr.message);
+      continue;
+    }
+    for (const r of profiles ?? []) {
+      const row = r as { id: string; email: string | null; subscription_tier: string | null };
+      tierByUser.set(row.id, row.subscription_tier);
+      emailByUser.set(row.id, row.email?.trim() ?? '');
+    }
   }
-  const tierByUser = new Map(
-    (profiles ?? []).map((r) => [r.id as string, (r as { subscription_tier: string | null }).subscription_tier])
-  );
-  const emailByUser = new Map(
-    (profiles ?? []).map((r) => {
-      const row = r as { id: string; email: string | null };
-      return [row.id, row.email?.trim() ?? ''] as const;
-    })
-  );
 
-  const { data: prefsRows } = await admin
-    .from('user_notification_preferences')
-    .select('user_id, email_enabled, inapp_enabled')
-    .in('user_id', userIds);
-  const prefsByUser = new Map(
-    (prefsRows ?? []).map((r) => {
+  const prefsMap = new Map<string, UserPrefs>();
+  let hadPrefsChunkError = false;
+  for (const idChunk of chunkLocal(userIds, FREE_ROUNDUP_IN_CHUNK)) {
+    if (!idChunk.length) continue;
+    const { data: prefsRows, error: prefErr } = await admin
+      .from('user_notification_preferences')
+      .select('user_id, email_enabled, inapp_enabled')
+      .in('user_id', idChunk);
+    if (prefErr) {
+      hadPrefsChunkError = true;
+      console.error('[weekly-digest] prefs for free roundup', prefErr.message);
+      continue;
+    }
+    for (const r of prefsRows ?? []) {
       const row = r as { user_id: string; email_enabled: boolean; inapp_enabled: boolean };
-      return [row.user_id, row] as const;
-    })
-  );
+      prefsMap.set(row.user_id, {
+        email_enabled: row.email_enabled,
+        inapp_enabled: row.inapp_enabled,
+      });
+    }
+  }
 
   const tracksByUser = new Map<string, TrackRow[]>();
   for (const t of trackList) {
+    if (hadProfileChunkError && !tierByUser.has(t.user_id)) {
+      continue;
+    }
     const tier = tierByUser.get(t.user_id);
     if (tier && PAID_STOCK_TIERS.has(tier)) continue;
     const arr = tracksByUser.get(t.user_id) ?? [];
@@ -184,27 +387,30 @@ async function runFreeTrackedStockWeeklyRoundup(
   const newBucketAll = new Map<string, string>();
 
   if (allTrackedStockIds.length) {
-    const [{ data: runsNewAll }, { data: runsOldAll }] = await Promise.all([
-      admin
-        .from('ai_analysis_runs')
-        .select('stock_id, bucket')
-        .eq('batch_id', newBatch.id)
-        .in('stock_id', allTrackedStockIds),
-      admin
-        .from('ai_analysis_runs')
-        .select('stock_id, bucket')
-        .eq('batch_id', oldBatch.id)
-        .in('stock_id', allTrackedStockIds),
-    ]);
-    for (const r of runsOldAll ?? []) {
-      const row = r as { stock_id: string; bucket: string | null };
-      if (row.bucket) oldBucketAll.set(row.stock_id, row.bucket);
-    }
-    for (const r of runsNewAll ?? []) {
-      const row = r as { stock_id: string; bucket: string | null };
-      const nb = row.bucket;
-      if (nb === 'buy' || nb === 'hold' || nb === 'sell') {
-        newBucketAll.set(row.stock_id, nb);
+    for (const sidChunk of chunkLocal(allTrackedStockIds, FREE_ROUNDUP_IN_CHUNK)) {
+      if (!sidChunk.length) continue;
+      const [{ data: runsNewChunk }, { data: runsOldChunk }] = await Promise.all([
+        admin
+          .from('ai_analysis_runs')
+          .select('stock_id, bucket')
+          .eq('batch_id', newBatch.id)
+          .in('stock_id', sidChunk),
+        admin
+          .from('ai_analysis_runs')
+          .select('stock_id, bucket')
+          .eq('batch_id', oldBatch.id)
+          .in('stock_id', sidChunk),
+      ]);
+      for (const r of runsOldChunk ?? []) {
+        const row = r as { stock_id: string; bucket: string | null };
+        if (row.bucket) oldBucketAll.set(row.stock_id, row.bucket);
+      }
+      for (const r of runsNewChunk ?? []) {
+        const row = r as { stock_id: string; bucket: string | null };
+        const nb = row.bucket;
+        if (nb === 'buy' || nb === 'hold' || nb === 'sell') {
+          newBucketAll.set(row.stock_id, nb);
+        }
       }
     }
   }
@@ -231,9 +437,9 @@ async function runFreeTrackedStockWeeklyRoundup(
 
     const wantInapp = userTracks.some((t) => t.notify_rating_inapp);
     const wantEmail = userTracks.some((t) => t.notify_rating_email);
-    const prefs = prefsByUser.get(userId);
-    const emailOk = Boolean(prefs?.email_enabled);
-    const inappOk = Boolean(prefs?.inapp_enabled);
+    const master = resolvePrefsForFanout(prefsMap, hadPrefsChunkError, userId);
+    const emailOk = master.email_enabled;
+    const inappOk = master.inapp_enabled;
 
     usersProcessed += 1;
 
@@ -267,7 +473,7 @@ async function runFreeTrackedStockWeeklyRoundup(
       });
       const res = await sendTransactionalEmail({
         to: email,
-        subject: `Weekly stock rating roundup — ${params.runWeekEnding}`,
+        subject: `Weekly stock ratings — ${params.runWeekEnding}`,
         html,
         text,
         headers: listUnsubscribeHeaders(unsubscribeUrl),
@@ -339,6 +545,15 @@ export async function runWeeklyDigest(
     prefList = prefList.filter((p) => p.user_id === dryUserId);
   }
 
+  const prefUserIds = prefList.map((p) => p.user_id);
+  const [{ map: digestEmailMap }, perfBundle] = await Promise.all([
+    loadUserEmails(admin, prefUserIds),
+    fetchWeeklyPerformanceSectionByUser(admin, prefUserIds, runWeekEnding, settingsUrl),
+  ]);
+  const perfSectionByUser = perfBundle.htmlByUser;
+  const perfTextLinesByUser = perfBundle.textLinesByUser;
+
+  // TODO(perf): batch via RPC or window-function SQL when digest subscribers >500
   for (const pref of prefList) {
     const { data: recentRows, error: cErr } = await admin
       .from('notifications')
@@ -350,13 +565,18 @@ export async function runWeeklyDigest(
 
     if (cErr) continue;
     const rows = recentRows ?? [];
-    if (!rows.length) continue;
+    const perfHtml = perfSectionByUser.get(pref.user_id) ?? '';
+    const hasPerfOnlyDigest = !rows.length && perfHtml.length > 0;
+    if (!rows.length && !perfHtml.length) continue;
 
     const byType = new Map<string, number>();
     for (const r of rows as { type: string }[]) {
       byType.set(r.type, (byType.get(r.type) ?? 0) + 1);
     }
-    const summaryLines = [...Array.from(byType.entries()).map(([t, n]) => `${n}× ${t.replace(/_/g, ' ')}`)];
+    const summaryLines =
+      rows.length > 0
+        ? [...Array.from(byType.entries()).map(([t, n]) => `${n}× ${t.replace(/_/g, ' ')}`)]
+        : ['No notification alerts in the last 7 days'];
 
     usersProcessed += 1;
 
@@ -366,35 +586,56 @@ export async function runWeeklyDigest(
         type: 'weekly_digest',
         title: `Weekly digest — week ending ${runWeekEnding}`,
         body: summaryLines.join('\n'),
-        data: { run_week_ending: runWeekEnding, by_type: Object.fromEntries(byType), href: inboxUrl },
+        data: {
+          run_week_ending: runWeekEnding,
+          by_type: Object.fromEntries(byType),
+          href: inboxUrl,
+          ...(hasPerfOnlyDigest ? { portfolio_summary_email: true } : {}),
+        },
       });
       if (!insErr) inappInserted += 1;
     }
 
     if (pref.weekly_digest_email && pref.email_enabled) {
-      const { data: profile } = await admin
-        .from('user_profiles')
-        .select('email')
-        .eq('id', pref.user_id)
-        .maybeSingle();
-      const email = (profile as { email: string | null } | null)?.email?.trim();
+      const email = digestEmailMap.get(pref.user_id);
       if (!email) continue;
 
       const token = signUnsubscribePayload({ userId: pref.user_id, scope: 'all' });
       const unsubscribeUrl = token
         ? `${base}/api/platform/notifications/unsubscribe?token=${encodeURIComponent(token)}`
         : settingsUrl;
-      const sectionsHtml = buildCuratedSectionsHtml(rows as { type: string; title: string | null }[]);
+      const curatedHtml = buildCuratedSectionsHtml(rows as { type: string; title: string | null }[]);
+      const sectionsHtml = `${perfHtml}${curatedHtml}`;
+      const perfPlain = perfTextLinesByUser.get(pref.user_id) ?? [];
+      const titleSamples = (rows as { type: string; title: string | null }[])
+        .filter((r) => !['weekly_digest', 'system', 'stock_rating_weekly'].includes(r.type))
+        .map((r) => (r.title ?? '').trim())
+        .filter(Boolean)
+        .slice(0, 8);
+      const textSummaryLines: string[] = [];
+      if (perfPlain.length) {
+        textSummaryLines.push('Followed portfolios (week window):');
+        textSummaryLines.push(...perfPlain);
+      }
+      if (titleSamples.length) {
+        textSummaryLines.push('Recent alerts:');
+        textSummaryLines.push(...titleSamples);
+      } else if (!rows.length) {
+        textSummaryLines.push('No individual alerts in the last 7 days.');
+      } else {
+        textSummaryLines.push(...summaryLines);
+      }
       const { html, text } = buildCuratedWeeklyDigestEmailHtml({
         runWeekEnding,
         sectionsHtml,
         inboxUrl,
         settingsUrl,
         unsubscribeUrl,
+        textSummaryLines,
       });
       const res = await sendTransactionalEmail({
         to: email,
-        subject: `AITrader weekly digest — ${runWeekEnding}`,
+        subject: `Weekly portfolio summary — ${runWeekEnding}`,
         html,
         text,
         headers: listUnsubscribeHeaders(unsubscribeUrl),

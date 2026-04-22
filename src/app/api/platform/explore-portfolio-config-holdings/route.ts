@@ -30,6 +30,8 @@ type HoldingsTimelineEntry = {
 type ExploreHoldingsApiResponse = {
   holdings: Awaited<ReturnType<typeof getPortfolioConfigHoldings>>['holdings'];
   asOfDate: string | null;
+  /** Max `run_date` in `nasdaq_100_daily_raw` used for `latestPriceBySymbol` (YYYY-MM-DD). */
+  latestRunDate: string | null;
   configSummary: Awaited<ReturnType<typeof getPortfolioConfigHoldings>>['configSummary'];
   rebalanceDates: string[];
   asOfPriceBySymbol: SymbolPriceMap;
@@ -40,6 +42,10 @@ type ExploreHoldingsApiResponse = {
 
 const HOLDINGS_RESPONSE_TTL_MS = 90_000;
 const holdingsResponseCache = new Map<string, { expiresAt: number; data: ExploreHoldingsApiResponse }>();
+
+/** Shared across requests so cache keys refresh when raw prices advance without querying on every hit. */
+let latestNasdaqRawRunDateCache: { runDate: string | null; fetchedAt: number } | null = null;
+const LATEST_NASDAQ_RAW_RUN_DATE_TTL_MS = 60_000;
 
 function getCachedHoldingsResponse(key: string): ExploreHoldingsApiResponse | null {
   const hit = holdingsResponseCache.get(key);
@@ -179,8 +185,27 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'invalid config' }, { status: 400 });
   }
 
+  const admin = createAdminClient();
+  const now = Date.now();
+  let latestRunDate: string | null;
+  if (
+    latestNasdaqRawRunDateCache &&
+    now - latestNasdaqRawRunDateCache.fetchedAt < LATEST_NASDAQ_RAW_RUN_DATE_TTL_MS
+  ) {
+    latestRunDate = latestNasdaqRawRunDateCache.runDate;
+  } else {
+    const { data: latestDateRow } = await admin
+      .from('nasdaq_100_daily_raw')
+      .select('run_date')
+      .order('run_date', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    latestRunDate = latestDateRow?.run_date ?? null;
+    latestNasdaqRawRunDateCache = { runDate: latestRunDate, fetchedAt: now };
+  }
+
   const responseCacheKey = [
-    'explore-holdings-v2',
+    'explore-holdings-v3',
     tier,
     strategy.id,
     configId,
@@ -189,13 +214,13 @@ export async function GET(req: NextRequest) {
     String(cfg.weighting_method),
     asOfRunDate ?? 'latest',
     requestedDatesInput.join(','),
+    latestRunDate ?? 'none',
   ].join('\0');
   const cachedResponse = getCachedHoldingsResponse(responseCacheKey);
   if (cachedResponse) {
     return NextResponse.json(cachedResponse);
   }
 
-  const admin = createAdminClient();
   const { holdings, asOfDate, configSummary, rebalanceDates } = await getPortfolioConfigHoldings(
     admin,
     strategy.id,
@@ -267,13 +292,6 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const { data: latestDateRow } = await admin
-    .from('nasdaq_100_daily_raw')
-    .select('run_date')
-    .order('run_date', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const latestRunDate = latestDateRow?.run_date ?? null;
   const priceDates = [
     ...new Set([
       ...(asOfDate ? [asOfDate] : []),
@@ -321,6 +339,7 @@ export async function GET(req: NextRequest) {
   const response: ExploreHoldingsApiResponse = {
     holdings,
     asOfDate,
+    latestRunDate,
     configSummary,
     rebalanceDates,
     asOfPriceBySymbol,

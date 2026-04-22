@@ -7,6 +7,10 @@
 -- Then run:
 --   1) supabase/schema.sql
 --   2) supabase/rls_policies.sql
+--   3) All pending Supabase migrations (e.g. supabase db push / migration up).
+--      Required because user_portfolio_stocks is preserved: CREATE TABLE IF NOT EXISTS
+--      in schema.sql will not add new columns to an existing table; migrations must
+--      ALTER preserved tables (e.g. notify_rating_inapp / notify_rating_email).
 --
 -- Preserved:
 --   * public.user_profiles

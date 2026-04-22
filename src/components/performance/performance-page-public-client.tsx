@@ -74,6 +74,7 @@ import {
   type StrategyListItem,
   type HoldingItem,
   type QuintileSnapshot,
+  type PerformanceSeriesPoint,
 } from '@/lib/platform-performance-payload';
 import type { ResearchStats } from '@/lib/quintile-analysis';
 import type { ConfigHoldingsSummary } from '@/lib/portfolio-config-holdings';
@@ -677,6 +678,7 @@ function PerformancePagePublicClientInner({
     null
   );
   const [holdingsRebalanceDates, setHoldingsRebalanceDates] = useState<string[]>([]);
+  const [holdingsExploreLatestRunDate, setHoldingsExploreLatestRunDate] = useState<string | null>(null);
   const [holdingsLoading, setHoldingsLoading] = useState(true);
 
   const holdingsSectionLabel = entitledToHoldings ? 'Portfolio holdings' : 'Top rated stocks';
@@ -826,6 +828,7 @@ function PerformancePagePublicClientInner({
       setHoldingsRebalanceDates([]);
       setHoldingsAsOfPriceBySymbol({});
       setHoldingsLatestPriceBySymbol({});
+      setHoldingsExploreLatestRunDate(null);
       setHoldingsLoading(false);
       return;
     }
@@ -836,6 +839,7 @@ function PerformancePagePublicClientInner({
       setHoldingsRebalanceDates([]);
       setHoldingsAsOfPriceBySymbol({});
       setHoldingsLatestPriceBySymbol({});
+      setHoldingsExploreLatestRunDate(null);
       setHoldingsLoading(false);
       return;
     }
@@ -854,11 +858,13 @@ function PerformancePagePublicClientInner({
         setHoldingsRebalanceDates([]);
         setHoldingsAsOfPriceBySymbol({});
         setHoldingsLatestPriceBySymbol({});
+        setHoldingsExploreLatestRunDate(null);
       } else {
         setHoldings(data.holdings);
         setHoldingsAsOfPriceBySymbol(data.asOfPriceBySymbol);
         setHoldingsLatestPriceBySymbol(data.latestPriceBySymbol);
         setHoldingsRebalanceDates(data.rebalanceDates);
+        setHoldingsExploreLatestRunDate(data.latestRunDate ?? null);
         const row = performanceHoldingsRankedRow;
         setHoldingsConfigSummary(
           row
@@ -970,26 +976,57 @@ function PerformancePagePublicClientInner({
     holdingsAsOfDate === null ? 'live' : 'as-of';
 
   const performanceLiveHoldingsAllocation = useMemo(() => {
+    const notional =
+      holdingsAsOfDate === null
+        ? performanceHoldingsModelNotional
+        : performanceHoldingsAllocationNotional;
     return buildLiveHoldingsAllocationResult(
       holdings,
-      performanceHoldingsAllocationNotional,
+      notional,
       holdingsAsOfPriceBySymbol,
       holdingsLatestPriceBySymbol,
       performanceHoldingsValuationMode
     );
   }, [
     holdings,
+    holdingsAsOfDate,
+    performanceHoldingsModelNotional,
     performanceHoldingsAllocationNotional,
     holdingsAsOfPriceBySymbol,
     holdingsLatestPriceBySymbol,
     performanceHoldingsValuationMode,
   ]);
 
-  /** Same dollars as allocation notional so the value line always matches the sum of row `currentValue`. */
-  const performanceHoldingsPortfolioValue = useMemo(
-    () => performanceHoldingsAllocationNotional,
-    [performanceHoldingsAllocationNotional]
-  );
+  const performanceHoldingsAsOfCloseLabel = useMemo(() => {
+    const seriesPts = configPerfSlice?.series;
+    const ymd =
+      holdingsAsOfDate === null
+        ? holdingsExploreLatestRunDate ??
+          (seriesPts?.length ? seriesPts[seriesPts.length - 1]!.date : null)
+        : performanceHoldingsAsOfYmd;
+    if (!ymd) return null;
+    try {
+      return displayDateFormatter.format(new Date(`${ymd}T12:00:00.000Z`));
+    } catch {
+      return null;
+    }
+  }, [holdingsAsOfDate, configPerfSlice?.series, performanceHoldingsAsOfYmd, holdingsExploreLatestRunDate]);
+
+  const performanceHoldingsPortfolioValue = useMemo(() => {
+    if (holdingsAsOfDate === null) {
+      return performanceLiveHoldingsAllocation.totalCurrentValue ?? performanceHoldingsModelNotional;
+    }
+    const cb = performanceSelectedCostBasis?.portfolioValue;
+    if (cb != null && Number.isFinite(cb) && cb > 0) {
+      return cb;
+    }
+    return performanceHoldingsModelNotional;
+  }, [
+    holdingsAsOfDate,
+    performanceLiveHoldingsAllocation.totalCurrentValue,
+    performanceHoldingsModelNotional,
+    performanceSelectedCostBasis?.portfolioValue,
+  ]);
 
   const effectiveStrategy = payload.strategy ?? null;
   const series = payload.series ?? [];
@@ -1065,20 +1102,52 @@ function PerformancePagePublicClientInner({
     return entries;
   }, [displayMetrics, holdingsSectionLabel, overviewPortfolioDataLoading]);
 
-  const displaySeries =
-    configMetricsReady && (configPerfSlice?.series?.length ?? 0) > 1
-      ? configPerfSlice!.series
-      : slug && portfolioPerf.portfolioConfig != null
-        ? []
-        : series;
+  const displaySeries = useMemo(
+    () =>
+      configMetricsReady && (configPerfSlice?.series?.length ?? 0) > 1
+        ? configPerfSlice!.series
+        : slug && portfolioPerf.portfolioConfig != null
+          ? []
+          : series,
+    [configMetricsReady, configPerfSlice, slug, portfolioPerf.portfolioConfig, series]
+  );
   const displayMetricWeeklyObservations =
     performanceHoldingsRankedRow?.metrics.weeklyObservations ?? null;
   const displayMetricDecisionObservations =
     performanceHoldingsRankedRow?.metrics.decisionObservations ?? null;
 
+  const effectivePerformanceDisplaySeries = useMemo(() => {
+    const pts = displaySeries as PerformanceSeriesPoint[];
+    if (!pts.length) return pts;
+    if (holdingsAsOfDate !== null) return pts;
+    const holdingsLatestYmd = holdingsExploreLatestRunDate;
+    if (!holdingsLatestYmd) return pts;
+    const last = pts[pts.length - 1]!;
+    if (holdingsLatestYmd <= last.date) return pts;
+    const totalFromHoldings = performanceLiveHoldingsAllocation.totalCurrentValue;
+    if (totalFromHoldings == null || !Number.isFinite(totalFromHoldings) || totalFromHoldings <= 0) {
+      return pts;
+    }
+    return [
+      ...pts,
+      {
+        date: holdingsLatestYmd,
+        aiTop20: totalFromHoldings,
+        nasdaq100CapWeight: last.nasdaq100CapWeight,
+        nasdaq100EqualWeight: last.nasdaq100EqualWeight,
+        sp500: last.sp500,
+      },
+    ];
+  }, [
+    displaySeries,
+    holdingsAsOfDate,
+    holdingsExploreLatestRunDate,
+    performanceLiveHoldingsAllocation.totalCurrentValue,
+  ]);
+
   const latestDisplayDate =
-    displaySeries.length > 0
-      ? displaySeries[displaySeries.length - 1]!.date
+    effectivePerformanceDisplaySeries.length > 0
+      ? effectivePerformanceDisplaySeries[effectivePerformanceDisplaySeries.length - 1]!.date
       : (payload.latestRunDate ?? null);
 
   const returnsBenchmarkTablePortfolioLine = useMemo(() => {
@@ -1402,9 +1471,31 @@ function PerformancePagePublicClientInner({
 
   const overviewHeadlinePortfolioValue = useMemo(() => {
     if (!displayMetrics) return 'N/A';
+    const base = displaySeries as PerformanceSeriesPoint[];
+    const eff = effectivePerformanceDisplaySeries as PerformanceSeriesPoint[];
+    const hasSyntheticTail =
+      holdingsAsOfDate === null && eff.length > base.length;
+    if (hasSyntheticTail) {
+      const first = eff[0]?.aiTop20;
+      const last = eff[eff.length - 1]?.aiTop20;
+      if (
+        first != null &&
+        last != null &&
+        Number.isFinite(first) &&
+        Number.isFinite(last) &&
+        first > 0
+      ) {
+        return `${perfFormatUsd(last)} (${fmt.pct(last / first - 1)})`;
+      }
+    }
     if (displayMetrics.endingValue == null || !Number.isFinite(displayMetrics.endingValue)) return 'N/A';
     return `${perfFormatUsd(displayMetrics.endingValue)} (${fmt.pct(displayMetrics.totalReturn)})`;
-  }, [displayMetrics]);
+  }, [
+    displayMetrics,
+    displaySeries,
+    effectivePerformanceDisplaySeries,
+    holdingsAsOfDate,
+  ]);
 
   // ── Sidebar slot ─────────────────────────────────────────────────────────
 
@@ -1939,6 +2030,7 @@ function PerformancePagePublicClientInner({
                   value={performanceHoldingsPortfolioValue}
                   formatCurrency={perfFormatUsd}
                   className="sm:ml-auto"
+                  asOfCloseDate={performanceHoldingsAsOfCloseLabel}
                 />
               ) : null}
               {holdingsRebalanceDates.length >= 1 ? (
@@ -2253,19 +2345,19 @@ function PerformancePagePublicClientInner({
             </div>
 
             {/* Returns charts */}
-            {displaySeries.length > 2 && (
+            {effectivePerformanceDisplaySeries.length > 2 && (
               <>
                 <CumulativeReturnsChart
-                  series={displaySeries}
+                  series={effectivePerformanceDisplaySeries}
                   strategyName={portfolioPerf.chartTitle}
                   startingCapital={displayMetrics.startingCapital}
                 />
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <WeeklyReturnsChart
-                    series={displaySeries}
+                    series={effectivePerformanceDisplaySeries}
                     strategyName={portfolioPerf.chartTitle}
                   />
-                  <CagrOverTimeChart series={displaySeries} strategyName={portfolioPerf.chartTitle} />
+                  <CagrOverTimeChart series={effectivePerformanceDisplaySeries} strategyName={portfolioPerf.chartTitle} />
                 </div>
               </>
             )}
@@ -2339,16 +2431,16 @@ function PerformancePagePublicClientInner({
                 positiveTone="brand"
               />
             </div>
-            {displaySeries.length > 2 && (
+            {effectivePerformanceDisplaySeries.length > 2 && (
               <div className="space-y-4">
-                <DrawdownOverTimeChart series={displaySeries} strategyName={portfolioPerf.chartTitle} />
+                <DrawdownOverTimeChart series={effectivePerformanceDisplaySeries} strategyName={portfolioPerf.chartTitle} />
                 <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                   <CumulativeSharpeRatioChart
-                    series={displaySeries}
+                    series={effectivePerformanceDisplaySeries}
                     strategyName={portfolioPerf.chartTitle}
                   />
                   <RollingSharpeRatioChart
-                    series={displaySeries}
+                    series={effectivePerformanceDisplaySeries}
                     strategyName={portfolioPerf.chartTitle}
                   />
                 </div>
@@ -2410,9 +2502,9 @@ function PerformancePagePublicClientInner({
                 />
               )}
             </div>
-            {displaySeries.length > 2 && (
+            {effectivePerformanceDisplaySeries.length > 2 && (
               <RelativeOutperformanceChart
-                series={displaySeries}
+                series={effectivePerformanceDisplaySeries}
                 strategyName={portfolioPerf.chartTitle}
               />
             )}

@@ -1104,16 +1104,20 @@ export function ExplorePortfolioDetailDialog({
       const prevDate = globalIdx >= 0 ? (rebalanceDates[globalIdx + 1] ?? null) : null;
       const prevPayload = prevDate ? getCachedExploreHoldings(slug, config.id, prevDate) : null;
 
-      let modelNotional =
+      let rebalanceNotionalForAllocation =
         rebasedEndingEquityAtRunDate(explorePerfRows, null, INITIAL_CAPITAL, date) ?? INITIAL_CAPITAL;
-      if (!Number.isFinite(modelNotional) || modelNotional <= 0) modelNotional = INITIAL_CAPITAL;
-      if (
+      if (!Number.isFinite(rebalanceNotionalForAllocation) || rebalanceNotionalForAllocation <= 0) {
+        rebalanceNotionalForAllocation = INITIAL_CAPITAL;
+      }
+
+      let modelNotional = rebalanceNotionalForAllocation;
+      const useLiveAllocation =
         globalIdx === 0 &&
         lastBar != null &&
         lastBar.date === date &&
-        lastBarEquity != null
-      ) {
-        modelNotional = lastBarEquity;
+        lastBarEquity != null;
+      if (useLiveAllocation) {
+        modelNotional = lastBarEquity!;
       }
 
       const movementNeedsPriorData = Boolean(prevDate && !prevPayload?.holdings);
@@ -1130,10 +1134,10 @@ export function ExplorePortfolioDetailDialog({
         modelNotional,
         liveAllocation: buildLiveHoldingsAllocationResult(
           datePayload.holdings,
-          modelNotional,
+          rebalanceNotionalForAllocation,
           datePayload.asOfPriceBySymbol ?? {},
           datePayload.latestPriceBySymbol ?? holdingsLatestPriceBySymbol,
-          'as-of'
+          useLiveAllocation ? 'live' : 'as-of'
         ),
         selectedCostBasis: explorePublicCostBasisByDate[date] ?? null,
         movementModel,
@@ -1721,15 +1725,17 @@ export function ExplorePortfolioDetailDialog({
                         </p>
                         <HoldingsPortfolioValueLine
                           value={getDisplayPortfolioValue(
-                            row.isLatest
-                              ? (exploreLatestModelPortfolioValue ??
-                                row.selectedCostBasis?.portfolioValue ??
-                                row.modelNotional)
-                              : (row.selectedCostBasis?.portfolioValue ?? row.modelNotional),
+                            row.liveAllocation.totalCurrentValue ??
+                              (row.isLatest
+                                ? exploreLatestModelPortfolioValue ??
+                                  row.selectedCostBasis?.portfolioValue ??
+                                  row.modelNotional
+                                : row.selectedCostBasis?.portfolioValue ?? row.modelNotional),
                             row.isInitial
                           )}
                           formatCurrency={(n) => fmtUsd(n)}
                           className="text-[11px]"
+                          asOfCloseDate={shortDateFmt.format(new Date(`${row.date}T12:00:00.000Z`))}
                         />
                       </div>
                       {holdingsMovementView && row.movementNeedsPriorData ? (

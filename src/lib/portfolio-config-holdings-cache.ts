@@ -8,6 +8,8 @@ import {
 export type ExploreHoldingsPayload = {
   holdings: HoldingItem[];
   asOfDate: string | null;
+  /** Max raw price `run_date` aligned with `latestPriceBySymbol`. */
+  latestRunDate: string | null;
   rebalanceDates: string[];
   asOfPriceBySymbol: Record<string, number | null>;
   latestPriceBySymbol: Record<string, number | null>;
@@ -195,6 +197,7 @@ function rememberTimeline(
   configId: string,
   rebalanceDates: string[],
   latestPriceBySymbol: Record<string, number | null>,
+  latestRunDate: string | null,
   byDate: Record<string, ExploreHoldingsTimelineEntry>
 ): void {
   const s = slug.trim();
@@ -204,6 +207,7 @@ function rememberTimeline(
     const payload: ExploreHoldingsPayload = {
       holdings: Array.isArray(entry.holdings) ? entry.holdings : [],
       asOfDate: typeof entry.asOfDate === 'string' ? entry.asOfDate : d,
+      latestRunDate,
       rebalanceDates,
       asOfPriceBySymbol: entry.asOfPriceBySymbol ?? {},
       latestPriceBySymbol,
@@ -219,9 +223,22 @@ function normalizePayload(data: ExploreHoldingsApiResponse): ExploreHoldingsPayl
   return {
     holdings: Array.isArray(data.holdings) ? data.holdings : [],
     asOfDate: typeof data.asOfDate === 'string' ? data.asOfDate : null,
+    latestRunDate:
+      typeof data.latestRunDate === 'string' && DATE_RE.test(data.latestRunDate)
+        ? data.latestRunDate
+        : null,
     rebalanceDates: Array.isArray(data.rebalanceDates) ? data.rebalanceDates : [],
     asOfPriceBySymbol: data.asOfPriceBySymbol ?? {},
     latestPriceBySymbol: data.latestPriceBySymbol ?? {},
+  };
+}
+
+/** v1 localStorage entries may omit `latestRunDate`. */
+function padExploreHoldingsPayload(value: ExploreHoldingsPayload): ExploreHoldingsPayload {
+  const lr = (value as { latestRunDate?: unknown }).latestRunDate;
+  return {
+    ...value,
+    latestRunDate: typeof lr === 'string' && DATE_RE.test(lr) ? lr : null,
   };
 }
 
@@ -263,6 +280,7 @@ async function fetchExploreHoldings(
       configId,
       normalized.rebalanceDates,
       normalized.latestPriceBySymbol,
+      normalized.latestRunDate,
       data.byDate
     );
   }
@@ -277,26 +295,27 @@ function resolveEntryFromStore(
 ): ExploreHoldingsPayload | undefined {
   const memoryEntry = memoryStore.get(logicalKey);
   if (memoryEntry) {
-    if (isFresh(memoryEntry.updatedAt)) return memoryEntry.value;
+    if (isFresh(memoryEntry.updatedAt)) return padExploreHoldingsPayload(memoryEntry.value);
     if (isStaleButUsable(memoryEntry.updatedAt)) {
       scheduleRevalidate(slug, configId, asOf);
-      return memoryEntry.value;
+      return padExploreHoldingsPayload(memoryEntry.value);
     }
     memoryStore.delete(logicalKey);
   }
 
   const diskEntry = readPersistentEntry(logicalKey);
   if (diskEntry) {
+    const padded = { ...diskEntry, value: padExploreHoldingsPayload(diskEntry.value) };
     if (isFresh(diskEntry.updatedAt)) {
-      memoryStore.set(logicalKey, diskEntry);
+      memoryStore.set(logicalKey, padded);
       touchLruOrder(logicalKey);
-      return diskEntry.value;
+      return padded.value;
     }
     if (isStaleButUsable(diskEntry.updatedAt)) {
-      memoryStore.set(logicalKey, diskEntry);
+      memoryStore.set(logicalKey, padded);
       touchLruOrder(logicalKey);
       scheduleRevalidate(slug, configId, asOf);
-      return diskEntry.value;
+      return padded.value;
     }
     removePersistentEntry(logicalKey);
   }

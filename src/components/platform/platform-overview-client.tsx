@@ -166,7 +166,10 @@ import {
   PORTFOLIO_REBALANCE_DATE_SELECT_WIDTH_CLASSES,
 } from '@/lib/portfolio-rebalance-date-select-ui';
 import { cn } from '@/lib/utils';
-import { buildLiveHoldingsAllocationResult } from '@/lib/live-holdings-allocation';
+import {
+  buildLiveHoldingsAllocationResult,
+  type HoldingsValuationMode,
+} from '@/lib/live-holdings-allocation';
 import {
   buildCostBasisSnapshotsFromMovementTimeline,
   costBasisIncompleteTooltip,
@@ -1559,6 +1562,9 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     Record<string, number | null>
   >({});
   const [topSpotlightRebalanceDates, setTopSpotlightRebalanceDates] = useState<string[]>([]);
+  const [topSpotlightHoldingsLatestRunDate, setTopSpotlightHoldingsLatestRunDate] = useState<
+    string | null
+  >(null);
   const [spotlightHoldingsDateSelect, setSpotlightHoldingsDateSelect] =
     useState<string>(HOLDINGS_TODAY_SENTINEL);
   const spotlightHoldingsRequestIdRef = useRef(0);
@@ -2277,6 +2283,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
         setTopSpotlightAsOfPriceBySymbol({});
         setTopSpotlightLatestPriceBySymbol({});
         setTopSpotlightRebalanceDates([]);
+        setTopSpotlightHoldingsLatestRunDate(null);
         setTopSpotlightHoldingsLoading(false);
         setTopSpotlightHoldingsRefreshing(false);
         return;
@@ -2294,6 +2301,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
         setTopSpotlightAsOfPriceBySymbol(syncHit.asOfPriceBySymbol);
         setTopSpotlightLatestPriceBySymbol(syncHit.latestPriceBySymbol);
         setTopSpotlightRebalanceDates(syncHit.rebalanceDates);
+        setTopSpotlightHoldingsLatestRunDate(syncHit.latestRunDate ?? null);
         setTopSpotlightHoldingsLoading(false);
         setTopSpotlightHoldingsRefreshing(false);
         prefetchExploreHoldingsDates(slug, configId, syncHit.rebalanceDates);
@@ -2317,6 +2325,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
           setTopSpotlightAsOfPriceBySymbol({});
           setTopSpotlightLatestPriceBySymbol({});
           setTopSpotlightRebalanceDates([]);
+          setTopSpotlightHoldingsLatestRunDate(null);
         } else {
           if (useRefreshChrome) {
             const elapsed = Date.now() - started;
@@ -2330,6 +2339,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
           setTopSpotlightAsOfPriceBySymbol(data.asOfPriceBySymbol);
           setTopSpotlightLatestPriceBySymbol(data.latestPriceBySymbol);
           setTopSpotlightRebalanceDates(data.rebalanceDates);
+          setTopSpotlightHoldingsLatestRunDate(data.latestRunDate ?? null);
           prefetchExploreHoldingsDates(slug, configId, data.rebalanceDates);
         }
       } finally {
@@ -2350,6 +2360,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
       setTopSpotlightAsOfPriceBySymbol({});
       setTopSpotlightLatestPriceBySymbol({});
       setTopSpotlightRebalanceDates([]);
+      setTopSpotlightHoldingsLatestRunDate(null);
       setTopSpotlightHoldingsLoading(false);
       setTopSpotlightHoldingsRefreshing(false);
       setSpotlightHoldingsDateSelect(HOLDINGS_TODAY_SENTINEL);
@@ -2468,38 +2479,67 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
       : Number(topSpotlightOverview?.profile.investment_size);
   }, [topSpotlightOverview, topSpotlightHoldingsAsOf, spotlightHoldingsRebalanceAnchorDate]);
 
-  const spotlightHoldingsNotional = useMemo(() => {
-    if (spotlightHoldingsDateSelect === HOLDINGS_TODAY_SENTINEL) {
-      const v = computeOverviewPortfolioValue(
-        topSpotlightOverview?.state.series,
-        Number(topSpotlightOverview?.profile.investment_size),
-        topSpotlightOverview?.profile.user_start_date ?? null
-      );
-      if (v != null && Number.isFinite(v) && v > 0) return v;
-    }
-    return spotlightHoldingsAsOfNotional;
-  }, [
-    spotlightHoldingsDateSelect,
-    topSpotlightOverview?.state.series,
-    topSpotlightOverview?.profile.investment_size,
-    topSpotlightOverview?.profile.user_start_date,
-    spotlightHoldingsAsOfNotional,
-  ]);
+  const spotlightHoldingsValuationMode: HoldingsValuationMode =
+    spotlightHoldingsDateSelect === HOLDINGS_TODAY_SENTINEL ? 'live' : 'as-of';
 
   const liveTopSpotlightAllocation = useMemo(() => {
     return buildLiveHoldingsAllocationResult(
       topSpotlightHoldings,
-      spotlightHoldingsNotional,
+      spotlightHoldingsAsOfNotional,
       topSpotlightAsOfPriceBySymbol,
       topSpotlightLatestPriceBySymbol,
-      'as-of'
+      spotlightHoldingsValuationMode
     );
   }, [
     topSpotlightHoldings,
-    spotlightHoldingsNotional,
+    spotlightHoldingsAsOfNotional,
     topSpotlightAsOfPriceBySymbol,
     topSpotlightLatestPriceBySymbol,
+    spotlightHoldingsValuationMode,
   ]);
+
+  const effectiveTopSpotlightDisplaySeries = useMemo(() => {
+    const pts = (topSpotlightOverview?.state.series ?? []) as PerformanceSeriesPoint[];
+    if (!pts.length) return pts;
+    if (spotlightHoldingsDateSelect !== HOLDINGS_TODAY_SENTINEL) return pts;
+    const holdingsLatestYmd = topSpotlightHoldingsLatestRunDate;
+    if (!holdingsLatestYmd) return pts;
+    const last = pts[pts.length - 1]!;
+    if (holdingsLatestYmd <= last.date) return pts;
+    const totalFromHoldings = liveTopSpotlightAllocation.totalCurrentValue;
+    if (totalFromHoldings == null || !Number.isFinite(totalFromHoldings) || totalFromHoldings <= 0) {
+      return pts;
+    }
+    return [
+      ...pts,
+      {
+        date: holdingsLatestYmd,
+        aiTop20: totalFromHoldings,
+        nasdaq100CapWeight: last.nasdaq100CapWeight,
+        nasdaq100EqualWeight: last.nasdaq100EqualWeight,
+        sp500: last.sp500,
+      },
+    ];
+  }, [
+    topSpotlightOverview?.state.series,
+    spotlightHoldingsDateSelect,
+    topSpotlightHoldingsLatestRunDate,
+    liveTopSpotlightAllocation.totalCurrentValue,
+  ]);
+
+  const spotlightPortfolioValueAsOfCloseLabel = useMemo(() => {
+    const pts = topSpotlightOverview?.state.series ?? [];
+    const ymd =
+      spotlightHoldingsDateSelect === HOLDINGS_TODAY_SENTINEL
+        ? topSpotlightHoldingsLatestRunDate ?? pts[pts.length - 1]?.date ?? null
+        : spotlightHoldingsDateSelect;
+    if (!ymd || typeof ymd !== 'string') return null;
+    try {
+      return spotlightHoldingsShortDateFmt.format(new Date(`${ymd}T12:00:00.000Z`));
+    } catch {
+      return null;
+    }
+  }, [spotlightHoldingsDateSelect, topSpotlightOverview?.state.series, topSpotlightHoldingsLatestRunDate]);
 
   useEffect(() => {
     if (!topSpotlightProfileId || !topSpotlightUserStartYmd) {
@@ -2568,10 +2608,16 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     spotlightHoldingsMovementTimeline,
   ]);
 
-  const spotlightPortfolioValueLineAmount = useMemo(
-    () => spotlightHoldingsNotional,
-    [spotlightHoldingsNotional]
-  );
+  const spotlightPortfolioValueLineAmount = useMemo(() => {
+    if (spotlightHoldingsDateSelect === HOLDINGS_TODAY_SENTINEL) {
+      return liveTopSpotlightAllocation.totalCurrentValue ?? spotlightHoldingsAsOfNotional;
+    }
+    return spotlightHoldingsAsOfNotional;
+  }, [
+    spotlightHoldingsDateSelect,
+    liveTopSpotlightAllocation.totalCurrentValue,
+    spotlightHoldingsAsOfNotional,
+  ]);
 
   const effectiveSpotlightRebalanceForMovement = useMemo(() => {
     if (spotlightHoldingsDateSelect === HOLDINGS_TODAY_SENTINEL) {
@@ -2981,15 +3027,16 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                     (() => {
                       const bp = topSpotlightOverview.profile;
                       const st = topSpotlightOverview.state;
-                      const series = st.series ?? [];
+                      const baseSeries = st.series ?? [];
+                      const series = effectiveTopSpotlightDisplaySeries;
                       const val = computeOverviewPortfolioValue(
                         series,
                         Number(bp.investment_size),
                         bp.user_start_date
                       );
                       const initialNotional =
-                        series.length > 0 && series[0]!.aiTop20 > 0
-                          ? series[0]!.aiTop20
+                        baseSeries.length > 0 && baseSeries[0]!.aiTop20 > 0
+                          ? baseSeries[0]!.aiTop20
                           : Number(bp.investment_size) > 0
                             ? Number(bp.investment_size)
                             : OVERVIEW_MODEL_INITIAL;
@@ -3009,7 +3056,27 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                           })
                         : null;
                       const investmentSize = Number(bp.investment_size);
-                      const { excessVsSp500 } = benchmarkStatsFromSeries(series);
+                      const { excessVsSp500 } = benchmarkStatsFromSeries(baseSeries);
+                      // When the synthetic tail is applied, recompute totalReturn from the effective
+                      // series so the $ value and parenthetical % stay consistent. Otherwise keep the
+                      // server-computed `st.totalReturn` over the full period.
+                      const hasSpotlightSyntheticTail =
+                        spotlightHoldingsDateSelect === HOLDINGS_TODAY_SENTINEL &&
+                        series.length > baseSeries.length;
+                      let spotlightDisplayTotalReturn: number | null = st.totalReturn ?? null;
+                      if (hasSpotlightSyntheticTail) {
+                        const firstAi = series[0]?.aiTop20;
+                        const lastAi = series[series.length - 1]?.aiTop20;
+                        if (
+                          firstAi != null &&
+                          lastAi != null &&
+                          Number.isFinite(firstAi) &&
+                          Number.isFinite(lastAi) &&
+                          firstAi > 0
+                        ) {
+                          spotlightDisplayTotalReturn = lastAi / firstAi - 1;
+                        }
+                      }
                       return (
                         <section className="rounded-xl border border-border bg-card/50 p-4 sm:p-5 lg:h-[calc(100svh-14.75rem)] lg:overflow-hidden">
                           <div className="mb-2 flex min-w-0 items-start justify-between gap-3">
@@ -3090,13 +3157,15 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                       label="Portfolio value"
                                       value={val != null ? formatOverviewCurrency(val) : '—'}
                                       valueSuffix={
-                                        val != null ? ` (${fmt.pct(st.totalReturn)})` : undefined
+                                        val != null
+                                          ? ` (${fmt.pct(spotlightDisplayTotalReturn)})`
+                                          : undefined
                                       }
                                       suffixPositive={
                                         val != null &&
-                                        st.totalReturn != null &&
-                                        Number.isFinite(st.totalReturn)
-                                          ? st.totalReturn > 0
+                                        spotlightDisplayTotalReturn != null &&
+                                        Number.isFinite(spotlightDisplayTotalReturn)
+                                          ? spotlightDisplayTotalReturn > 0
                                           : undefined
                                       }
                                     />
@@ -3207,10 +3276,10 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                 className="relative min-w-0 rounded-xl border bg-background/60 p-3 sm:p-4"
                                 data-platform-tour="overview-performance-chart"
                               >
-                                {series.length > 1 ? (
+                                {effectiveTopSpotlightDisplaySeries.length > 1 ? (
                                   <div className="pb-11">
                                     <PerformanceChart
-                                      series={series}
+                                      series={effectiveTopSpotlightDisplaySeries}
                                       strategyName="Your Portfolio"
                                       hideDrawdown
                                       hideFootnote
@@ -3365,6 +3434,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                     <HoldingsPortfolioValueLine
                                       value={spotlightPortfolioValueLineAmount}
                                       formatCurrency={formatOverviewCurrency}
+                                      asOfCloseDate={spotlightPortfolioValueAsOfCloseLabel}
                                     />
                                   ) : null}
                                 </div>

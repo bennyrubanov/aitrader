@@ -149,7 +149,10 @@ import {
 import { cn } from '@/lib/utils';
 import type { ConfigPerfRow } from '@/lib/portfolio-config-utils';
 import { buildConfigPerformanceChart } from '@/lib/config-performance-chart';
-import { buildLiveHoldingsAllocationResult } from '@/lib/live-holdings-allocation';
+import {
+  buildLiveHoldingsAllocationResult,
+  type HoldingsValuationMode,
+} from '@/lib/live-holdings-allocation';
 import type { PortfolioMovementLine } from '@/lib/portfolio-movement';
 import {
   buildCostBasisSnapshotsFromMovementTimeline,
@@ -1461,6 +1464,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     Record<string, number | null>
   >({});
   const [configHoldingsRebalanceDates, setConfigHoldingsRebalanceDates] = useState<string[]>([]);
+  const [configHoldingsLatestRunDate, setConfigHoldingsLatestRunDate] = useState<string | null>(null);
   const configHoldingsLenRef = useRef(0);
   configHoldingsLenRef.current = configHoldings.length;
 
@@ -2191,6 +2195,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     setConfigHoldingsAsOfPriceBySymbol({});
     setConfigHoldingsLatestPriceBySymbol({});
     setConfigHoldingsRebalanceDates([]);
+    setConfigHoldingsLatestRunDate(null);
     setConfigHoldingsRefreshing(false);
     setHoldingsDateSelect(HOLDINGS_TODAY_SENTINEL);
 
@@ -2226,6 +2231,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         setConfigHoldingsAsOfPriceBySymbol({});
         setConfigHoldingsLatestPriceBySymbol({});
         setConfigHoldingsRebalanceDates([]);
+        setConfigHoldingsLatestRunDate(null);
         setConfigHoldingsLoading(false);
         setConfigHoldingsRefreshing(false);
         return;
@@ -2249,6 +2255,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         setConfigHoldingsAsOfPriceBySymbol(syncHit.asOfPriceBySymbol);
         setConfigHoldingsLatestPriceBySymbol(syncHit.latestPriceBySymbol);
         setConfigHoldingsRebalanceDates(syncHit.rebalanceDates);
+        setConfigHoldingsLatestRunDate(syncHit.latestRunDate ?? null);
         setConfigHoldingsLoading(false);
         setConfigHoldingsRefreshing(false);
         prefetchExploreHoldingsDates(slug, configId, syncHit.rebalanceDates);
@@ -2272,6 +2279,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
           setConfigHoldingsAsOfPriceBySymbol({});
           setConfigHoldingsLatestPriceBySymbol({});
           setConfigHoldingsRebalanceDates([]);
+          setConfigHoldingsLatestRunDate(null);
         } else {
           if (useRefreshChrome) {
             const elapsed = Date.now() - started;
@@ -2285,6 +2293,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
           setConfigHoldingsAsOfPriceBySymbol(data.asOfPriceBySymbol);
           setConfigHoldingsLatestPriceBySymbol(data.latestPriceBySymbol);
           setConfigHoldingsRebalanceDates(data.rebalanceDates);
+          setConfigHoldingsLatestRunDate(data.latestRunDate ?? null);
           prefetchExploreHoldingsDates(slug, configId, data.rebalanceDates);
         }
       } finally {
@@ -2312,6 +2321,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       setConfigHoldingsAsOfPriceBySymbol({});
       setConfigHoldingsLatestPriceBySymbol({});
       setConfigHoldingsRebalanceDates([]);
+      setConfigHoldingsLatestRunDate(null);
       setConfigHoldingsLoading(false);
       setConfigHoldingsRefreshing(false);
       setHoldingsDateSelect(HOLDINGS_TODAY_SENTINEL);
@@ -2375,15 +2385,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     : modelDisplaySeries;
 
   const userEntryMetricsFull = userEntryPayload?.metrics;
-
-  const portfolioValueAmount = useMemo(() => {
-    const pts = displaySeries as PerformanceSeriesPoint[];
-    return computeYourPortfolioValue(
-      pts,
-      num(selectedProfile?.investment_size),
-      selectedProfile?.user_start_date ?? null
-    );
-  }, [displaySeries, selectedProfile?.investment_size, selectedProfile?.user_start_date]);
 
   const benchmarkBench = useMemo(() => {
     return benchmarkStatsFromYourPortfolioSeries(displaySeries as PerformanceSeriesPoint[]);
@@ -2477,31 +2478,135 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     holdingsMovementSlice,
   ]);
 
-  const holdingsNotional = useMemo(() => {
-    if (holdingsDateSelect === HOLDINGS_TODAY_SENTINEL) {
-      const v = portfolioValueAmount;
-      if (v != null && Number.isFinite(v) && v > 0) return v;
-    }
-    return holdingsAsOfNotional;
-  }, [holdingsDateSelect, portfolioValueAmount, holdingsAsOfNotional]);
+  const holdingsValuationMode: HoldingsValuationMode =
+    holdingsDateSelect === HOLDINGS_TODAY_SENTINEL ? 'live' : 'as-of';
 
   const liveConfigHoldingsAllocation = useMemo(() => {
     return buildLiveHoldingsAllocationResult(
       configHoldings,
-      holdingsNotional,
+      holdingsAsOfNotional,
       configHoldingsAsOfPriceBySymbol,
       configHoldingsLatestPriceBySymbol,
-      'as-of',
-      holdingsTargetDollarsBySymbol != null
+      holdingsValuationMode,
+      holdingsValuationMode === 'as-of' && holdingsTargetDollarsBySymbol != null
         ? { targetDollarsBySymbol: holdingsTargetDollarsBySymbol }
         : undefined
     );
   }, [
     configHoldings,
-    holdingsNotional,
+    holdingsAsOfNotional,
     configHoldingsAsOfPriceBySymbol,
     configHoldingsLatestPriceBySymbol,
+    holdingsValuationMode,
     holdingsTargetDollarsBySymbol,
+  ]);
+
+  /**
+   * Align the chart/endpoint with the holdings block for "Today":
+   *  - holdings date strictly newer than series → append a synthetic last bar
+   *  - holdings date equals series last date but totals differ → replace the
+   *    last bar so the card, chart endpoint, and holdings row sum all agree
+   *  - otherwise keep the server-computed series untouched
+   */
+  const effectiveDisplaySeries = useMemo(() => {
+    const pts = displaySeries as PerformanceSeriesPoint[];
+    if (!pts.length) return pts;
+    if (holdingsDateSelect !== HOLDINGS_TODAY_SENTINEL) return pts;
+    const holdingsLatestYmd = configHoldingsLatestRunDate;
+    if (!holdingsLatestYmd) return pts;
+    const last = pts[pts.length - 1]!;
+    if (holdingsLatestYmd < last.date) return pts;
+    const totalFromHoldings = liveConfigHoldingsAllocation.totalCurrentValue;
+    if (totalFromHoldings == null || !Number.isFinite(totalFromHoldings) || totalFromHoldings <= 0) {
+      return pts;
+    }
+    const nextBar = {
+      date: holdingsLatestYmd,
+      aiTop20: totalFromHoldings,
+      nasdaq100CapWeight: last.nasdaq100CapWeight,
+      nasdaq100EqualWeight: last.nasdaq100EqualWeight,
+      sp500: last.sp500,
+    };
+    if (holdingsLatestYmd === last.date) {
+      if (
+        last.aiTop20 != null &&
+        Number.isFinite(last.aiTop20) &&
+        Math.abs(last.aiTop20 - totalFromHoldings) < 0.005
+      ) {
+        return pts;
+      }
+      return [...pts.slice(0, -1), nextBar];
+    }
+    return [...pts, nextBar];
+  }, [
+    displaySeries,
+    holdingsDateSelect,
+    configHoldingsLatestRunDate,
+    liveConfigHoldingsAllocation.totalCurrentValue,
+  ]);
+
+  const portfolioValueAmount = useMemo(() => {
+    const pts = effectiveDisplaySeries as PerformanceSeriesPoint[];
+    return computeYourPortfolioValue(
+      pts,
+      num(selectedProfile?.investment_size),
+      selectedProfile?.user_start_date ?? null
+    );
+  }, [effectiveDisplaySeries, selectedProfile?.investment_size, selectedProfile?.user_start_date]);
+
+  /**
+   * Parenthetical % for Portfolio value: when the effective series differs from the base
+   * (either appended or last point replaced) we recompute last/first so the % matches
+   * the displayed $ value. Otherwise use server-computed `displayMetrics.totalReturn`.
+   */
+  const portfolioValueDisplayTotalReturn = useMemo<number | null>(() => {
+    const base = displaySeries as PerformanceSeriesPoint[];
+    const eff = effectiveDisplaySeries as PerformanceSeriesPoint[];
+    const baseLast = base[base.length - 1]?.aiTop20 ?? null;
+    const effLast = eff[eff.length - 1]?.aiTop20 ?? null;
+    const hasEffectiveOverride =
+      holdingsDateSelect === HOLDINGS_TODAY_SENTINEL &&
+      eff.length > 0 &&
+      (eff.length > base.length || (base.length > 0 && baseLast !== effLast));
+    if (hasEffectiveOverride) {
+      const first = eff[0]?.aiTop20;
+      const last = effLast;
+      if (
+        first != null &&
+        last != null &&
+        Number.isFinite(first) &&
+        Number.isFinite(last) &&
+        first > 0
+      ) {
+        return last / first - 1;
+      }
+    }
+    return displayMetrics?.totalReturn ?? null;
+  }, [displaySeries, effectiveDisplaySeries, holdingsDateSelect, displayMetrics?.totalReturn]);
+
+  const holdingsPortfolioValueAsOfCloseLabel = useMemo(() => {
+    const pts = displaySeries as PerformanceSeriesPoint[];
+    const ymd =
+      holdingsDateSelect === HOLDINGS_TODAY_SENTINEL
+        ? configHoldingsLatestRunDate ?? pts[pts.length - 1]?.date ?? null
+        : holdingsDateSelect;
+    if (!ymd || typeof ymd !== 'string') return null;
+    try {
+      return yourPortfolioHoldingsShortDateFmt.format(new Date(`${ymd}T12:00:00.000Z`));
+    } catch {
+      return null;
+    }
+  }, [holdingsDateSelect, displaySeries, configHoldingsLatestRunDate]);
+
+  const holdingsPortfolioValueLineAmount = useMemo(() => {
+    if (holdingsDateSelect === HOLDINGS_TODAY_SENTINEL) {
+      return liveConfigHoldingsAllocation.totalCurrentValue ?? holdingsAsOfNotional;
+    }
+    return holdingsAsOfNotional;
+  }, [
+    holdingsDateSelect,
+    liveConfigHoldingsAllocation.totalCurrentValue,
+    holdingsAsOfNotional,
   ]);
 
   const costBasisRebalanceDate = useMemo(() => {
@@ -2528,8 +2633,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     configHoldings.length,
     holdingsMovementTimeline,
   ]);
-
-  const holdingsPortfolioValueLineAmount = useMemo(() => holdingsNotional, [holdingsNotional]);
 
   const effectiveRebalanceForMovement = useMemo(() => {
     if (holdingsDateSelect === HOLDINGS_TODAY_SENTINEL) {
@@ -3488,14 +3591,14 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                       }
                       valueSuffix={
                         portfolioValueAmount != null
-                          ? ` (${spotlightFmt.pct(displayMetrics?.totalReturn ?? null)})`
+                          ? ` (${spotlightFmt.pct(portfolioValueDisplayTotalReturn)})`
                           : undefined
                       }
                       suffixPositive={
                         portfolioValueAmount != null &&
-                        displayMetrics?.totalReturn != null &&
-                        Number.isFinite(displayMetrics.totalReturn)
-                          ? displayMetrics.totalReturn > 0
+                        portfolioValueDisplayTotalReturn != null &&
+                        Number.isFinite(portfolioValueDisplayTotalReturn)
+                          ? portfolioValueDisplayTotalReturn > 0
                           : undefined
                       }
                     />
@@ -3776,6 +3879,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                         value={holdingsPortfolioValueLineAmount}
                         formatCurrency={formatYourPortfolioCurrency}
                         className="shrink-0"
+                        asOfCloseDate={holdingsPortfolioValueAsOfCloseLabel}
                       />
                     ) : null}
                     {holdingsMovementView && prevMovementError ? (
@@ -4226,9 +4330,9 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                       ? 'Portfolio vs. benchmarks'
                       : 'Model track vs. benchmarks'}
                   </p>
-                  {displaySeries.length > 1 ? (
+                  {effectiveDisplaySeries.length > 1 ? (
                     <PerformanceChart
-                      series={displaySeries}
+                      series={effectiveDisplaySeries}
                       strategyName={chartStrategyName}
                       hideDrawdown
                       nominalDollars

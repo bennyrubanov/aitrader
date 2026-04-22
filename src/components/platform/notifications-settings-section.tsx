@@ -352,10 +352,6 @@ export function NotificationsSettingsSection({
       .slice(0, 8);
   }, [stockQuery, catalog, tracked]);
 
-  const disableInAppCol = savingPrefs || !prefs.inapp_enabled;
-  const disableEmailCol = savingPrefs || !prefs.email_enabled;
-  const bothMastersOff = !prefs.inapp_enabled && !prefs.email_enabled;
-
   if (!authState.isLoaded) {
     return <p className="px-5 py-3 text-sm text-muted-foreground">Loading…</p>;
   }
@@ -370,6 +366,10 @@ export function NotificationsSettingsSection({
   if (loading || !prefs) {
     return <p className="px-5 py-3 text-sm text-muted-foreground">Loading notification settings…</p>;
   }
+
+  const disableInAppCol = savingPrefs || !prefs.inapp_enabled;
+  const disableEmailCol = savingPrefs || !prefs.email_enabled;
+  const bothMastersOff = !prefs.inapp_enabled && !prefs.email_enabled;
 
   return (
     <TooltipProvider>

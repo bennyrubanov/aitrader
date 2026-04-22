@@ -12,16 +12,20 @@ export type LiveHoldingAllocation = {
 export type LiveHoldingsAllocationResult = {
   bySymbol: Record<string, LiveHoldingAllocation>;
   hasCompleteCoverage: boolean;
+  /**
+   * Sum of all positive row `currentValue`s when that sum is finite and positive; otherwise null.
+   * `hasCompleteCoverage` is whether every row used the strict live/complete path (no partial fallbacks).
+   */
+  totalCurrentValue: number | null;
 };
 
-/**
- * Kept for backward compatibility at call sites; allocation no longer branches on mode
- * (row values are always aligned to aggregate `rebalanceDateNotional` and optional per-symbol overrides).
- */
 export type HoldingsValuationMode = 'live' | 'as-of';
 
 export type BuildLiveHoldingsAllocationOptions = {
-  /** When set, row `currentValue` uses this instead of `rebalanceDateNotional * weight` (e.g. rebalance-actions targets). */
+  /**
+   * When set, row `currentValue` uses this instead of the mode-specific default
+   * (live: shares×latest from rebalance notional; as-of: notional×weight).
+   */
   targetDollarsBySymbol?: Record<string, number>;
 };
 
@@ -30,27 +34,40 @@ function toFinitePositive(value: number | null | undefined): number | null {
   return value;
 }
 
+function pickPrice(map: SymbolPriceMap, key: string): number | null {
+  return toFinitePositive(map[key]);
+}
+
 /**
  * Builds portfolio allocation per holding.
- * Each row `currentValue` is `options.targetDollarsBySymbol[sym]` when provided and positive,
- * else `rebalanceDateNotional × weight`. Row dollar totals match `rebalanceDateNotional` when
- * every holding gets a positive `currentValue` and any overrides are consistent with that notional;
- * otherwise `hasCompleteCoverage` is false (e.g. missing symbols or non-positive weights).
  *
- * `asOfPriceBySymbol`, `latestPriceBySymbol`, and `mode` are retained for API compatibility; unused.
+ * **`as-of`:** `currentValue` = `options.targetDollarsBySymbol[sym]` when finite positive, else
+ * `rebalanceDateNotional × weight`.
+ *
+ * **`live`:** same override rule; otherwise `currentValue` = `(notional×weight / asOfPrice) × latestPrice`
+ * when both prices are finite positive; else falls back to `notional×weight` and marks incomplete.
+ *
+ * `totalCurrentValue` is the sum of positive row `currentValue`s when that sum is finite and positive
+ * (can be set even when `hasCompleteCoverage` is false, e.g. partial live MTM fallbacks to weight dollars).
  */
 export function buildLiveHoldingsAllocationResult(
   holdings: HoldingItem[],
   rebalanceDateNotional: number,
-  _asOfPriceBySymbol: SymbolPriceMap,
-  _latestPriceBySymbol: SymbolPriceMap,
-  _mode: HoldingsValuationMode = 'as-of',
+  asOfPriceBySymbol: SymbolPriceMap,
+  latestPriceBySymbol: SymbolPriceMap,
+  mode: HoldingsValuationMode = 'as-of',
   options?: BuildLiveHoldingsAllocationOptions
 ): LiveHoldingsAllocationResult {
+  const empty: LiveHoldingsAllocationResult = {
+    bySymbol: {},
+    hasCompleteCoverage: false,
+    totalCurrentValue: null,
+  };
+
   const bySymbol: Record<string, LiveHoldingAllocation> = {};
   const notional = toFinitePositive(rebalanceDateNotional);
   if (notional == null || holdings.length === 0) {
-    return { bySymbol, hasCompleteCoverage: false };
+    return empty;
   }
 
   const overrides = options?.targetDollarsBySymbol;
@@ -69,7 +86,25 @@ export function buildLiveHoldingsAllocationResult(
     const weightDollars =
       Number.isFinite(targetDollars) && targetDollars > 0 ? targetDollars : null;
 
-    const currentValue = override ?? weightDollars;
+    let currentValue: number | null = null;
+
+    if (mode === 'live') {
+      if (override != null) {
+        currentValue = override;
+      } else {
+        const asOfPx = pickPrice(asOfPriceBySymbol, key);
+        const latestPx = pickPrice(latestPriceBySymbol, key);
+        if (asOfPx != null && latestPx != null && weightDollars != null) {
+          const shares = weightDollars / asOfPx;
+          currentValue = shares * latestPx;
+        } else {
+          currentValue = weightDollars;
+          hasCompleteCoverage = false;
+        }
+      }
+    } else {
+      currentValue = override ?? weightDollars;
+    }
 
     if (currentValue == null || !Number.isFinite(currentValue) || currentValue <= 0) {
       hasCompleteCoverage = false;
@@ -92,14 +127,18 @@ export function buildLiveHoldingsAllocationResult(
   }
 
   if (!Number.isFinite(totalCurrentValue) || totalCurrentValue <= 0) {
-    return { bySymbol, hasCompleteCoverage: false };
+    return { bySymbol, hasCompleteCoverage: false, totalCurrentValue: null };
   }
 
-  for (const [key, value] of currentValues) {
-    const row = bySymbol[key];
+  for (const [symKey, value] of currentValues) {
+    const row = bySymbol[symKey];
     if (!row) continue;
     row.currentWeight = value / totalCurrentValue;
   }
 
-  return { bySymbol, hasCompleteCoverage };
+  return {
+    bySymbol,
+    hasCompleteCoverage,
+    totalCurrentValue,
+  };
 }

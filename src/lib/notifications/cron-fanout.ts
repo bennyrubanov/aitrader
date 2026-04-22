@@ -9,6 +9,7 @@ import {
 } from '@/lib/notifications/email-templates';
 import { hrefStockSymbol, hrefStrategyModel, hrefYourPortfolio } from '@/lib/notifications/hrefs';
 import type { Bucket, RatingBucketChange } from '@/lib/notifications/types';
+import { loadUserEmails, loadUserPrefs, resolvePrefsForFanout } from '@/lib/notifications/user-notify-queries';
 import { signUnsubscribePayload } from '@/lib/notifications/unsubscribe-token';
 
 type AiOk = { status: 'ok'; stock_id: string; symbol: string; bucket: Bucket };
@@ -64,59 +65,8 @@ export function collectRatingBucketChanges(
   return out;
 }
 
-type UserPrefs = {
-  email_enabled: boolean;
-  inapp_enabled: boolean;
-};
-
-function defaultPrefs(): UserPrefs {
-  return { email_enabled: true, inapp_enabled: true };
-}
-
-async function loadUserPrefs(
-  admin: SupabaseClient,
-  userIds: string[]
-): Promise<Map<string, UserPrefs>> {
-  const map = new Map<string, UserPrefs>();
-  if (!userIds.length) return map;
-  const { data, error } = await admin
-    .from('user_notification_preferences')
-    .select('user_id, email_enabled, inapp_enabled')
-    .in('user_id', userIds);
-  if (error) {
-    console.error('[notifications] loadUserPrefs', error.message);
-    return map;
-  }
-  for (const row of data ?? []) {
-    const r = row as {
-      user_id: string;
-      email_enabled: boolean;
-      inapp_enabled: boolean;
-    };
-    map.set(r.user_id, {
-      email_enabled: r.email_enabled,
-      inapp_enabled: r.inapp_enabled,
-    });
-  }
-  return map;
-}
-
-async function loadUserEmails(
-  admin: SupabaseClient,
-  userIds: string[]
-): Promise<Map<string, string>> {
-  const map = new Map<string, string>();
-  if (!userIds.length) return map;
-  const { data, error } = await admin.from('user_profiles').select('id, email').in('id', userIds);
-  if (error) {
-    console.error('[notifications] loadUserEmails', error.message);
-    return map;
-  }
-  for (const row of data ?? []) {
-    const r = row as { id: string; email: string | null };
-    if (r.email?.trim()) map.set(r.id, r.email.trim());
-  }
-  return map;
+function ratingInappDedupeKey(userId: string, stockId: string, runDate: string): string {
+  return `${userId}|${stockId}|${runDate}`;
 }
 
 function chunk<T>(arr: T[], size: number): T[][] {
@@ -135,8 +85,14 @@ export async function notifyRatingBucketChanges(
     changes: RatingBucketChange[];
     dryUserId?: string | null;
   }
-): Promise<{ inappInserted: number; emailsSent: number }> {
-  if (!params.changes.length) return { inappInserted: 0, emailsSent: 0 };
+): Promise<{
+  inappInserted: number;
+  emailsSent: number;
+  /** Keys `userId|stockId|runDate` for in-app model rating rows (dedupe tracked-stock in-app). */
+  modelRatingInappKeys: Set<string>;
+}> {
+  const emptyKeys = () => new Set<string>();
+  if (!params.changes.length) return { inappInserted: 0, emailsSent: 0, modelRatingInappKeys: emptyKeys() };
 
   const { data: subs, error: subErr } = await admin
     .from('user_model_subscriptions')
@@ -146,16 +102,16 @@ export async function notifyRatingBucketChanges(
 
   if (subErr || !subs?.length) {
     if (subErr) console.error('[notifications] subs rating', subErr.message);
-    return { inappInserted: 0, emailsSent: 0 };
+    return { inappInserted: 0, emailsSent: 0, modelRatingInappKeys: emptyKeys() };
   }
 
   const subsFiltered = (subs as { user_id: string; email_enabled: boolean; inapp_enabled: boolean }[]).filter(
     (s) => !params.dryUserId || s.user_id === params.dryUserId
   );
-  if (!subsFiltered.length) return { inappInserted: 0, emailsSent: 0 };
+  if (!subsFiltered.length) return { inappInserted: 0, emailsSent: 0, modelRatingInappKeys: emptyKeys() };
 
   const userIds = [...new Set(subsFiltered.map((s) => s.user_id))];
-  const [prefsMap, emailMap] = await Promise.all([
+  const [{ map: prefsMap, hadError: hadPrefsError }, { map: emailMap }] = await Promise.all([
     loadUserPrefs(admin, userIds),
     loadUserEmails(admin, userIds),
   ]);
@@ -170,17 +126,25 @@ export async function notifyRatingBucketChanges(
     body: string | null;
     data: Record<string, unknown>;
   }[] = [];
+  /** Same length/order as `inappRows` — used to populate `modelRatingInappKeys` only after successful insert. */
+  const inappRowMeta: { userId: string; stockId: string }[] = [];
 
-  const emailJobs: { userId: string; email: string; lines: { symbol: string; prev: string; next: string }[] }[] =
-    [];
+  type RatingLine = { symbol: string; prev: string; next: string };
+  const emailJobsByUser = new Map<
+    string,
+    { userId: string; email: string; lines: RatingLine[] }
+  >();
+
+  const modelRatingInappKeys = new Set<string>();
 
   for (const sub of subsFiltered) {
-    const prefs = prefsMap.get(sub.user_id) ?? defaultPrefs();
+    const prefs = resolvePrefsForFanout(prefsMap, hadPrefsError, sub.user_id);
     const allowInapp = prefs.inapp_enabled && sub.inapp_enabled;
     const allowEmail = prefs.email_enabled && sub.email_enabled;
 
     if (allowInapp) {
       for (const ch of params.changes) {
+        inappRowMeta.push({ userId: sub.user_id, stockId: ch.stock_id });
         inappRows.push({
           user_id: sub.user_id,
           type: 'stock_rating_change',
@@ -203,31 +167,46 @@ export async function notifyRatingBucketChanges(
     if (allowEmail) {
       const email = emailMap.get(sub.user_id);
       if (email) {
-        emailJobs.push({
-          userId: sub.user_id,
-          email,
-          lines: params.changes.map((c) => ({
-            symbol: c.symbol,
-            prev: c.prev_bucket,
-            next: c.next_bucket,
-          })),
-        });
+        const lines: RatingLine[] = params.changes.map((c) => ({
+          symbol: c.symbol,
+          prev: c.prev_bucket,
+          next: c.next_bucket,
+        }));
+        const existing = emailJobsByUser.get(sub.user_id);
+        if (existing) {
+          const seen = new Set(existing.lines.map((l) => l.symbol));
+          for (const line of lines) {
+            if (!seen.has(line.symbol)) {
+              existing.lines.push(line);
+              seen.add(line.symbol);
+            }
+          }
+        } else {
+          emailJobsByUser.set(sub.user_id, { userId: sub.user_id, email, lines });
+        }
       }
     }
   }
 
   let inappInserted = 0;
-  for (const batch of chunk(inappRows, 80)) {
+  const INAPP_BATCH = 80;
+  for (let i = 0; i < inappRows.length; i += INAPP_BATCH) {
+    const batch = inappRows.slice(i, i + INAPP_BATCH);
+    const metaBatch = inappRowMeta.slice(i, i + INAPP_BATCH);
     if (!batch.length) continue;
     const { error } = await admin.from('notifications').insert(batch);
     if (error) {
       console.error('[notifications] insert rating inapp', error.message);
     } else {
       inappInserted += batch.length;
+      for (const m of metaBatch) {
+        modelRatingInappKeys.add(ratingInappDedupeKey(m.userId, m.stockId, params.runDate));
+      }
     }
   }
 
   let emailsSent = 0;
+  const emailJobs = [...emailJobsByUser.values()];
   for (const job of emailJobs) {
     const token = signUnsubscribePayload({ userId: job.userId, scope: 'all' });
     const unsubscribeUrl = token
@@ -252,7 +231,7 @@ export async function notifyRatingBucketChanges(
     else emailsSent += 1;
   }
 
-  return { inappInserted, emailsSent };
+  return { inappInserted, emailsSent, modelRatingInappKeys };
 }
 
 export async function notifyPortfolioRebalances(
@@ -273,7 +252,7 @@ export async function notifyPortfolioRebalances(
     )
     .eq('strategy_id', params.strategyId)
     .eq('is_active', true)
-    .eq('notify_rebalance', true);
+    .or('notify_rebalance.eq.true,notify_rebalance_inapp.eq.true,notify_rebalance_email.eq.true');
 
   if (error || !profiles?.length) {
     if (error) console.error('[notifications] profiles rebalance', error.message);
@@ -294,7 +273,7 @@ export async function notifyPortfolioRebalances(
   if (!list.length) return { inappInserted: 0, emailsSent: 0 };
 
   const userIds = [...new Set(list.map((p) => p.user_id))];
-  const [prefsMap, emailMap] = await Promise.all([
+  const [{ map: prefsMap, hadError: hadPrefsError }, { map: emailMap }] = await Promise.all([
     loadUserPrefs(admin, userIds),
     loadUserEmails(admin, userIds),
   ]);
@@ -311,7 +290,7 @@ export async function notifyPortfolioRebalances(
   }[] = [];
 
   for (const p of list) {
-    const prefs = prefsMap.get(p.user_id) ?? defaultPrefs();
+    const prefs = resolvePrefsForFanout(prefsMap, hadPrefsError, p.user_id);
     const rbIn = p.notify_rebalance_inapp ?? true;
     const rbEm = p.notify_rebalance_email ?? true;
     if (prefs.inapp_enabled && rbIn) {
@@ -343,7 +322,7 @@ export async function notifyPortfolioRebalances(
   let emailsSent = 0;
   const emailed = new Set<string>();
   for (const p of list) {
-    const prefs = prefsMap.get(p.user_id) ?? defaultPrefs();
+    const prefs = resolvePrefsForFanout(prefsMap, hadPrefsError, p.user_id);
     const rbEm = p.notify_rebalance_email ?? true;
     if (!prefs.email_enabled || !rbEm) continue;
     if (emailed.has(p.user_id)) continue;
@@ -366,7 +345,7 @@ export async function notifyPortfolioRebalances(
     });
     const res = await sendTransactionalEmail({
       to: email,
-      subject: `Portfolio rebalance — ${params.strategyName}`,
+      subject: `Rebalance — ${params.strategyName} (${params.runDate})`,
       html,
       text,
       headers: listUnsubscribeHeaders(unsubscribeUrl),
@@ -406,7 +385,7 @@ export async function notifyModelRatingsReady(
   if (!subsFiltered.length) return { inappInserted: 0, emailsSent: 0 };
 
   const userIds = [...new Set(subsFiltered.map((s) => s.user_id))];
-  const [prefsMap, emailMap] = await Promise.all([
+  const [{ map: prefsMap, hadError: hadPrefsError }, { map: emailMap }] = await Promise.all([
     loadUserPrefs(admin, userIds),
     loadUserEmails(admin, userIds),
   ]);
@@ -423,7 +402,7 @@ export async function notifyModelRatingsReady(
     data: Record<string, unknown>;
   }> = [];
   for (const sub of subsFiltered) {
-    const prefs = prefsMap.get(sub.user_id) ?? defaultPrefs();
+    const prefs = resolvePrefsForFanout(prefsMap, hadPrefsError, sub.user_id);
     if (prefs.inapp_enabled && sub.inapp_enabled) {
       inappRows.push({
         user_id: sub.user_id,
@@ -451,7 +430,7 @@ export async function notifyModelRatingsReady(
   let emailsSent = 0;
   const emailed = new Set<string>();
   for (const sub of subsFiltered) {
-    const prefs = prefsMap.get(sub.user_id) ?? defaultPrefs();
+    const prefs = resolvePrefsForFanout(prefsMap, hadPrefsError, sub.user_id);
     if (!prefs.email_enabled || !sub.email_enabled) continue;
     if (emailed.has(sub.user_id)) continue;
     const email = emailMap.get(sub.user_id);
@@ -471,7 +450,7 @@ export async function notifyModelRatingsReady(
     });
     const res = await sendTransactionalEmail({
       to: email,
-      subject: `New AI ratings — ${params.strategyName}`,
+      subject: `AI ratings ready — ${params.strategyName}`,
       html,
       text,
       headers: listUnsubscribeHeaders(unsubscribeUrl),
@@ -486,6 +465,7 @@ export async function notifyModelRatingsReady(
 
 const PAID_STOCK_TIERS = new Set(['supporter', 'outperformer']);
 const PRICE_MOVE_THRESHOLD = 0.05;
+const PRICE_ALERT_COOLDOWN_DAYS = 3;
 
 export async function notifyStockRatingChangesPerStock(
   admin: SupabaseClient,
@@ -496,33 +476,66 @@ export async function notifyStockRatingChangesPerStock(
     runDate: string;
     changes: RatingBucketChange[];
     dryUserId?: string | null;
+    /** Skip in-app duplicate when model subscription already inserted same user/stock/run. */
+    modelRatingInappKeys?: Set<string>;
   }
 ): Promise<{ inappInserted: number; emailsSent: number }> {
   if (!params.changes.length) return { inappInserted: 0, emailsSent: 0 };
 
   const stockIds = [...new Set(params.changes.map((c) => c.stock_id))];
-  const { data: tracks, error: trErr } = await admin
-    .from('user_portfolio_stocks')
-    .select('user_id, stock_id, symbol, notify_rating_inapp, notify_rating_email')
-    .in('stock_id', stockIds)
-    .or('notify_rating_inapp.eq.true,notify_rating_email.eq.true');
-
-  if (trErr || !tracks?.length) {
-    if (trErr) console.error('[notifications] per-stock tracks', trErr.message);
-    return { inappInserted: 0, emailsSent: 0 };
+  if (stockIds.length > 200) {
+    console.warn('[notifications] per-stock large stockIds count', stockIds.length);
   }
 
-  let trackRows = tracks as {
+  type TrackRow = {
     user_id: string;
     stock_id: string;
     symbol: string;
     notify_rating_inapp: boolean;
     notify_rating_email: boolean;
-  }[];
+  };
+  const mergedTracks: TrackRow[] = [];
+  for (const idChunk of chunk(stockIds, 100)) {
+    const { data: tracks, error: trErr } = await admin
+      .from('user_portfolio_stocks')
+      .select('user_id, stock_id, symbol, notify_rating_inapp, notify_rating_email')
+      .in('stock_id', idChunk)
+      .or('notify_rating_inapp.eq.true,notify_rating_email.eq.true');
+
+    if (trErr) {
+      console.error('[notifications] per-stock tracks', trErr.message);
+      return { inappInserted: 0, emailsSent: 0 };
+    }
+    mergedTracks.push(...((tracks ?? []) as TrackRow[]));
+  }
+
+  if (!mergedTracks.length) {
+    return { inappInserted: 0, emailsSent: 0 };
+  }
+
+  let trackRows = mergedTracks;
   if (params.dryUserId) {
     trackRows = trackRows.filter((t) => t.user_id === params.dryUserId);
   }
   if (!trackRows.length) return { inappInserted: 0, emailsSent: 0 };
+
+  const { data: ratingSubsRows } = await admin
+    .from('user_model_subscriptions')
+    .select('user_id, email_enabled')
+    .eq('strategy_id', params.strategyId)
+    .eq('notify_rating_changes', true);
+
+  const skipPerStockEmail = new Set<string>();
+  const subUserIds = [...new Set((ratingSubsRows ?? []).map((r: { user_id: string }) => r.user_id))];
+  if (subUserIds.length) {
+    const { map: prefsSubs, hadError: hadPrefsSubsError } = await loadUserPrefs(admin, subUserIds);
+    for (const row of ratingSubsRows ?? []) {
+      const r = row as { user_id: string; email_enabled: boolean };
+      if (params.dryUserId && r.user_id !== params.dryUserId) continue;
+      const pr = resolvePrefsForFanout(prefsSubs, hadPrefsSubsError, r.user_id);
+      if (pr.email_enabled && r.email_enabled) skipPerStockEmail.add(r.user_id);
+    }
+  }
 
   const userIds = [...new Set(trackRows.map((t) => t.user_id))];
   const { data: tierRows, error: tierErr } = await admin
@@ -543,7 +556,7 @@ export async function notifyStockRatingChangesPerStock(
   if (!trackRows.length) return { inappInserted: 0, emailsSent: 0 };
 
   const changeByStock = new Map(params.changes.map((c) => [c.stock_id, c]));
-  const [prefsMap, emailMap] = await Promise.all([
+  const [{ map: prefsMap, hadError: hadPrefsError }, { map: emailMap }] = await Promise.all([
     loadUserPrefs(admin, [...new Set(trackRows.map((t) => t.user_id))]),
     loadUserEmails(admin, [...new Set(trackRows.map((t) => t.user_id))]),
   ]);
@@ -565,10 +578,11 @@ export async function notifyStockRatingChangesPerStock(
   for (const t of trackRows) {
     const ch = changeByStock.get(t.stock_id);
     if (!ch) continue;
-    const prefs = prefsMap.get(t.user_id) ?? defaultPrefs();
+    const prefs = resolvePrefsForFanout(prefsMap, hadPrefsError, t.user_id);
     const allowInapp = prefs.inapp_enabled && t.notify_rating_inapp;
     const allowEmail = prefs.email_enabled && t.notify_rating_email;
-    if (allowInapp) {
+    const dedupeKey = ratingInappDedupeKey(t.user_id, ch.stock_id, params.runDate);
+    if (allowInapp && !params.modelRatingInappKeys?.has(dedupeKey)) {
       inappRows.push({
         user_id: t.user_id,
         type: 'stock_rating_change',
@@ -587,7 +601,7 @@ export async function notifyStockRatingChangesPerStock(
         },
       });
     }
-    if (allowEmail) {
+    if (allowEmail && !skipPerStockEmail.has(t.user_id)) {
       const arr = emailLinesByUser.get(t.user_id) ?? [];
       arr.push({ symbol: ch.symbol, prev: ch.prev_bucket, next: ch.next_bucket });
       emailLinesByUser.set(t.user_id, arr);
@@ -619,7 +633,7 @@ export async function notifyStockRatingChangesPerStock(
     });
     const res = await sendTransactionalEmail({
       to: email,
-      subject: `Rating updates — your tracked stocks`,
+      subject: `Tracked stocks — rating updates`,
       html,
       text,
       headers: listUnsubscribeHeaders(unsubscribeUrl),
@@ -682,7 +696,7 @@ export async function notifyPortfolioEntriesExits(
   if (!plist.length) return { inappInserted: 0, emailsSent: 0 };
 
   const userIds = [...new Set(plist.map((p) => p.user_id))];
-  const [prefsMap, emailMap] = await Promise.all([
+  const [{ map: prefsMap, hadError: hadPrefsError }, { map: emailMap }] = await Promise.all([
     loadUserPrefs(admin, userIds),
     loadUserEmails(admin, userIds),
   ]);
@@ -705,7 +719,7 @@ export async function notifyPortfolioEntriesExits(
   }[] = [];
 
   for (const p of plist) {
-    const prefs = prefsMap.get(p.user_id) ?? defaultPrefs();
+    const prefs = resolvePrefsForFanout(prefsMap, hadPrefsError, p.user_id);
     const exIn = p.notify_entries_exits_inapp ?? (p.notify_holdings_change && p.inapp_enabled);
     if (prefs.inapp_enabled && exIn) {
       inappRows.push({
@@ -737,7 +751,7 @@ export async function notifyPortfolioEntriesExits(
   let emailsSent = 0;
   const emailed = new Set<string>();
   for (const p of plist) {
-    const prefs = prefsMap.get(p.user_id) ?? defaultPrefs();
+    const prefs = resolvePrefsForFanout(prefsMap, hadPrefsError, p.user_id);
     const exEm = p.notify_entries_exits_email ?? (p.notify_holdings_change && p.email_enabled);
     if (!prefs.email_enabled || !exEm) continue;
     if (emailed.has(p.user_id)) continue;
@@ -761,7 +775,7 @@ export async function notifyPortfolioEntriesExits(
     });
     const res = await sendTransactionalEmail({
       to: email,
-      subject: `Portfolio holdings update — ${params.strategyName}`,
+      subject: `Holdings update — ${params.strategyName}`,
       html,
       text,
       headers: listUnsubscribeHeaders(unsubscribeUrl),
@@ -806,7 +820,7 @@ export async function notifyPortfolioPriceMoves(
   }
 
   const userIds = [...new Set(plist.map((p) => p.user_id))];
-  const [prefsMap, emailMap] = await Promise.all([
+  const [{ map: prefsMap, hadError: hadPrefsError }, { map: emailMap }] = await Promise.all([
     loadUserPrefs(admin, userIds),
     loadUserEmails(admin, userIds),
   ]);
@@ -855,6 +869,36 @@ export async function notifyPortfolioPriceMoves(
     }
   }
 
+  const cooldownCutoffIso = new Date(
+    Date.now() - PRICE_ALERT_COOLDOWN_DAYS * 24 * 60 * 60 * 1000
+  ).toISOString();
+  const priceMoveCooldownKey = (userId: string, strategyId: string, configId: string) =>
+    `${userId}|${strategyId}|${configId}`;
+  const firingCandidates = plist.filter((p) => pctByPair.has(pairKey(p.strategy_id, p.config_id)));
+  const firingUserIds = [...new Set(firingCandidates.map((p) => p.user_id))];
+  const priceMoveCooldownKeys = new Set<string>();
+  for (const uidChunk of chunk(firingUserIds, 80)) {
+    if (!uidChunk.length) continue;
+    const { data: recentRows, error: cdErr } = await admin
+      .from('notifications')
+      .select('user_id, data')
+      .eq('type', 'portfolio_price_move')
+      .gte('created_at', cooldownCutoffIso)
+      .in('user_id', uidChunk);
+    if (cdErr) {
+      console.error('[notifications] price-move cooldown', cdErr.message);
+      continue;
+    }
+    for (const n of recentRows ?? []) {
+      const row = n as { user_id: string; data: unknown };
+      const d =
+        row.data && typeof row.data === 'object' ? (row.data as Record<string, unknown>) : {};
+      const sid = typeof d.strategy_id === 'string' ? d.strategy_id : '';
+      const cid = typeof d.config_id === 'string' ? d.config_id : '';
+      if (sid) priceMoveCooldownKeys.add(priceMoveCooldownKey(row.user_id, sid, cid));
+    }
+  }
+
   const inappRows: {
     user_id: string;
     type: 'portfolio_price_move';
@@ -864,13 +908,16 @@ export async function notifyPortfolioPriceMoves(
   }[] = [];
 
   let emailsSent = 0;
-  const emailed = new Set<string>();
+  const emailedProfileIds = new Set<string>();
 
   for (const p of plist) {
     const snap = pctByPair.get(pairKey(p.strategy_id, p.config_id));
     if (!snap) continue;
+    if (priceMoveCooldownKeys.has(priceMoveCooldownKey(p.user_id, p.strategy_id, p.config_id))) {
+      continue;
+    }
 
-    const prefs = prefsMap.get(p.user_id) ?? defaultPrefs();
+    const prefs = resolvePrefsForFanout(prefsMap, hadPrefsError, p.user_id);
     const pmIn = p.notify_price_move_inapp ?? false;
     const pmEm = p.notify_price_move_email ?? false;
     const { pct, pctLabel } = snap;
@@ -884,6 +931,7 @@ export async function notifyPortfolioPriceMoves(
         data: {
           profile_id: p.id,
           strategy_id: p.strategy_id,
+          config_id: p.config_id,
           run_date: params.runDate,
           pct,
           href: hrefYourPortfolio(p.id),
@@ -891,10 +939,10 @@ export async function notifyPortfolioPriceMoves(
       });
     }
 
-    if (prefs.email_enabled && pmEm && !emailed.has(p.user_id)) {
+    if (prefs.email_enabled && pmEm && !emailedProfileIds.has(p.id)) {
       const email = emailMap.get(p.user_id);
       if (email) {
-        emailed.add(p.user_id);
+        emailedProfileIds.add(p.id);
         const token = signUnsubscribePayload({ userId: p.user_id, scope: 'all' });
         const unsubscribeUrl = token
           ? `${base || ''}/api/platform/notifications/unsubscribe?token=${encodeURIComponent(token)}`
@@ -911,7 +959,7 @@ export async function notifyPortfolioPriceMoves(
         });
         const res = await sendTransactionalEmail({
           to: email,
-          subject: `Portfolio price alert — ${strategyName}`,
+          subject: `Price alert — ${strategyName}`,
           html,
           text,
           headers: listUnsubscribeHeaders(unsubscribeUrl),

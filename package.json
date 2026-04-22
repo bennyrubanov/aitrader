@@ -15,7 +15,8 @@
     "backfill-configs": "node scripts/backfill-all-configs.mjs",
     "backfill-config-holdings": "node scripts/backfill-config-holdings.mjs",
     "backfill:daily-snapshots": "tsx scripts/backfill-daily-snapshots.ts",
-    "repair-weekly-benchmarks": "tsx scripts/repair-weekly-benchmarks.ts"
+    "repair-weekly-benchmarks": "tsx scripts/repair-weekly-benchmarks.ts",
+    "verify:notifications-migration": "sh -c 'test -n \"$DATABASE_URL\" || (echo \"Set DATABASE_URL (e.g. from Supabase project settings).\" >&2; exit 1); exec psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f scripts/verify-notifications-migration.sql'"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",

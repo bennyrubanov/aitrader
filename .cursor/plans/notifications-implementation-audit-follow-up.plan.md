@@ -18,7 +18,13 @@ Application code in this repo already expects these objects. If any environment 
 
 ## Step 1 — Verify migration on each database (staging, prod, local)
 
-Run in the **Supabase SQL editor** (or `psql`) against that environment:
+**Repo helper (same checks, rolled-back insert test):** with `DATABASE_URL` set to the Postgres connection string for that environment:
+
+```bash
+npm run verify:notifications-migration
+```
+
+Or run the SQL below manually in the **Supabase SQL editor** (or `psql`) against that environment:
 
 ```sql
 -- A) Profile scope columns exist
@@ -101,7 +107,7 @@ For `dryUser`, value must be a **user UUID** (e.g. from `user_profiles.id`), not
 2. Run **all pending migrations** (including `20260422212537_notifications_per_scope_channels.sql`) so `ALTER TABLE … ADD COLUMN IF NOT EXISTS` runs on the preserved `user_portfolio_stocks` table.
 3. Verify with: `select notify_rating_inapp from public.user_portfolio_stocks limit 1;` (must not error).
 
-**Optional doc improvement:** add one sentence to `reset.sql` header (lines 8–10): “After `schema.sql`, run Supabase migrations so preserved `user_portfolio_stocks` receives new columns.”
+**Doc in repo:** `reset.sql` header now includes step (3) to run all pending migrations after `schema.sql` / `rls_policies.sql` for preserved `user_portfolio_stocks`.
 
 ---
 
@@ -150,12 +156,14 @@ These are **not** blockers once Steps 1–3 pass.
 
 ## Completion checklist (copy for PR / release)
 
-- [ ] **Step 1** SQL verification run on **staging** (attach note or screenshot in PR optional).
-- [ ] **Step 1** SQL verification run on **production** after deploy (or confirm prod was included in migration apply).
+- [ ] **Step 1** SQL verification on **staging** (`npm run verify:notifications-migration` with staging `DATABASE_URL`, or paste SQL from `scripts/verify-notifications-migration.sql` / this plan into SQL editor).
+- [ ] **Step 1** SQL verification on **production** after deploy (same as above with prod URL).
 - [ ] **Step 2** app revision deployed / aligned.
-- [ ] **Step 3** table smoke tests (at least rows 1–3) pass.
-- [ ] **Step 4** understood by team; optional `reset.sql` header edit if you add the sentence.
-- [ ] (Optional) Step 5 items picked up as separate tickets.
+- [ ] **Step 3** table smoke tests (at least rows 1–3) pass in the web app.
+- [x] **Step 4** `supabase/reset.sql` header documents: after `schema.sql` + `rls_policies.sql`, run **all pending migrations** so preserved `user_portfolio_stocks` gets new columns.
+- [x] **Step 1 helper** `scripts/verify-notifications-migration.sql` + `npm run verify:notifications-migration` in `package.json`.
+- [x] **Step 5 (sample)** Operator log when free roundup skips (`<2` weekly batches); comment on overlapping model vs tracked-stock rating email in `daily/route.ts`.
+- [ ] (Optional) Remaining Step 5 tickets: D (`dryUser` by email), G (exact weekly counts), C (dedupe), performance RPC.
 
 ---
 

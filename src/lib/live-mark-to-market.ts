@@ -223,7 +223,8 @@ async function loadConfigWalkInputsUncached(
 
 /**
  * Shared holdings + raw prices for a config (same for all user entry dates). Per-request dedupe via
- * `react` cache; cross-request via `unstable_cache`. Invalidate with `revalidateTag('mtm-walk-inputs')`.
+ * `react` cache; cross-request via `unstable_cache` keyed by `latestRunDate` so new raw closes miss
+ * stale entries. Invalidate with `revalidateTag('mtm-walk-inputs')`.
  */
 export const loadConfigWalkInputsForMtm = cacheFn(
   async (
@@ -233,6 +234,10 @@ export const loadConfigWalkInputsForMtm = cacheFn(
     weightingMethod: string
   ): Promise<ConfigMtmWalkInputs | null> => {
     try {
+      const admin = createAdminClient();
+      const latestRunDateForKey = await loadLatestRawRunDate(admin);
+      if (!latestRunDateForKey) return null;
+
       const serialized = await unstable_cache(
         async () => {
           const supabase = createAdminClient();
@@ -244,10 +249,22 @@ export const loadConfigWalkInputsForMtm = cacheFn(
             weightingMethod
           );
         },
-        ['config-mtm-walk-inputs', strategyId, String(riskLevel), rebalanceFrequency, weightingMethod],
+        [
+          'config-mtm-walk-inputs',
+          strategyId,
+          String(riskLevel),
+          rebalanceFrequency,
+          weightingMethod,
+          latestRunDateForKey,
+        ],
         { revalidate: 7200, tags: ['mtm-walk-inputs', `mtm-walk-inputs:${strategyId}`] }
       )();
       if (!serialized) return null;
+      if (serialized.latestRunDate !== latestRunDateForKey) {
+        console.warn(
+          `[loadConfigWalkInputsForMtm] latestRunDate mismatch: key=${latestRunDateForKey} serialized=${serialized.latestRunDate} strategyId=${strategyId}`
+        );
+      }
       return {
         latestRunDate: serialized.latestRunDate,
         rebalanceDatesAsc: serialized.rebalanceDatesAsc,
@@ -683,6 +700,11 @@ export async function buildLatestMtmPointFromLastSnapshot(
   if (candidates.length === 0) return null;
   const snapshotDate = candidates.reduce((a, b) => (a > b ? a : b));
 
+  // When the most recent rebalance date equals the latest raw price date, the notional series
+  // already includes that close — walking forward from `snapshotDate` to `latestRunDate` would
+  // reproduce the same point and double-count the day. Bail out and let the client-side
+  // synthetic-tail fallback (keyed off `latestRunDate` from the holdings API) align the card,
+  // chart endpoint, and holdings block without adding a redundant server point.
   if (snapshotDate === latestRunDate) return null;
 
   const cachedSnapshotHoldings = walkInputs?.holdingsByDate.get(snapshotDate) ?? null;

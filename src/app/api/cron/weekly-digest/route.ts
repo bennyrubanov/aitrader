@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { resolveDryUserIdForCron } from '@/lib/notifications/resolve-dry-user-for-cron';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { runWeeklyDigest } from '@/lib/notifications/weekly-digest-cron';
 
@@ -31,9 +32,23 @@ export async function GET(req: Request) {
   try {
     const admin = createAdminClient();
     const dryUserRaw = new URL(req.url).searchParams.get('dryUser')?.trim() ?? '';
-    const dryUserId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(dryUserRaw)
-      ? dryUserRaw
-      : null;
+    let dryUserId: string | null = null;
+    if (dryUserRaw) {
+      const resolved = await resolveDryUserIdForCron(admin, dryUserRaw);
+      if ('notFound' in resolved && resolved.notFound) {
+        return NextResponse.json({ error: 'dryUser not found' }, { status: 400 });
+      }
+      if ('ambiguous' in resolved && resolved.ambiguous) {
+        return NextResponse.json(
+          { error: 'dryUser email matches multiple accounts' },
+          { status: 400 }
+        );
+      }
+      if ('lookupError' in resolved && resolved.lookupError) {
+        return NextResponse.json({ error: 'dryUser lookup failed' }, { status: 500 });
+      }
+      dryUserId = resolved.dryUserId;
+    }
     const summary = await runWeeklyDigest(admin, { dryUserId });
     return NextResponse.json({ ok: true, dryUser: dryUserId, ...summary });
   } catch (e) {

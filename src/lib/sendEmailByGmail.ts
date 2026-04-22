@@ -3,7 +3,8 @@ import nodemailer from "nodemailer";
 export const sendEmailByGmail = async (
   email: string,
   htmlBody: string,
-  subject: string
+  subject: string,
+  options?: { text?: string; headers?: Record<string, string> }
 ) => {
   try {
     const transporter = nodemailer.createTransport({
@@ -22,6 +23,8 @@ export const sendEmailByGmail = async (
       to: email,
       subject,
       html: htmlBody,
+      text: options?.text,
+      headers: options?.headers,
     });
 
     console.log("[Gmail API] Email sent successfully!");

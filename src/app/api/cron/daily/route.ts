@@ -31,6 +31,7 @@ import {
   upsertBenchmarkDailyPricesFromStooq,
   type BenchmarkDailyPriceIngestRow,
 } from '@/lib/benchmark-daily-prices-ingest';
+import { resolveDryUserIdForCron } from '@/lib/notifications/resolve-dry-user-for-cron';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { runWithSupabaseQueryCount } from '@/utils/supabase/query-counter';
 // Intentional: operator-only cron digest to CRON_ERROR_EMAIL (Gmail→Gmail). User-facing mail uses Resend via @/lib/mailer.
@@ -148,6 +149,23 @@ type CronRatingDigestMeta = {
   benchmarkDailyPricesIngest?: BenchmarkDailyPriceIngestRow[];
   /** Top holdings count written to `strategy_portfolio_holdings`. */
   holdingsCount?: number;
+  notifications?: {
+    dryUserId?: string | null;
+    ratingInapp?: number;
+    ratingEmails?: number;
+    ratingChangesCount?: number;
+    ratingTrackedInapp?: number;
+    ratingTrackedEmails?: number;
+    rebalanceInapp?: number;
+    rebalanceEmails?: number;
+    entriesExitsInapp?: number;
+    entriesExitsEmails?: number;
+    ratingsReadyInapp?: number;
+    ratingsReadyEmails?: number;
+    priceMoveProfilesChecked?: number;
+    priceMoveInapp?: number;
+    priceMoveEmails?: number;
+  };
 };
 
 type StrategyRow = {
@@ -1188,6 +1206,7 @@ const handleRequest = async (req: Request) => {
     doneMs: null as number | null,
   };
   const digestMeta: CronRatingDigestMeta = {};
+  digestMeta.notifications = {};
 
   const recordCronError = (subject: string, error: unknown, context?: string) => {
     const message = error instanceof Error ? error.message : JSON.stringify(error, null, 2);
@@ -1343,6 +1362,62 @@ const handleRequest = async (req: Request) => {
         ? `<h3 style="color:#b91c1c;">Fatal / thrown error</h3><pre style="background:#fef2f2;padding:12px;border-radius:8px;">${escapeHtml(cronDigestFatalMessage)}</pre>`
         : '';
 
+      const notificationsBlock = (() => {
+        const n = digestMeta.notifications;
+        if (!n) return '';
+        const rows: Array<[string, string]> = [];
+        const addRow = (label: string, inapp?: number, emails?: number) => {
+          if (inapp === undefined && emails === undefined) return;
+          rows.push([
+            label,
+            `in-app ${escapeHtml(formatMeta(inapp))} · emails ${escapeHtml(formatMeta(emails))}`,
+          ]);
+        };
+        addRow('Model rating bucket changes', n.ratingInapp, n.ratingEmails);
+        addRow('Tracked-stock rating (paid)', n.ratingTrackedInapp, n.ratingTrackedEmails);
+        addRow('Portfolio rebalances', n.rebalanceInapp, n.rebalanceEmails);
+        addRow('Portfolio entries / exits', n.entriesExitsInapp, n.entriesExitsEmails);
+        addRow('Model ratings ready', n.ratingsReadyInapp, n.ratingsReadyEmails);
+        addRow('Portfolio price-move alerts', n.priceMoveInapp, n.priceMoveEmails);
+
+        const extraLines: string[] = [];
+        if (n.ratingChangesCount !== undefined) {
+          extraLines.push(
+            `Rating bucket changes detected: <strong>${escapeHtml(formatMeta(n.ratingChangesCount))}</strong>`
+          );
+        }
+        if (n.priceMoveProfilesChecked !== undefined) {
+          extraLines.push(
+            `Profiles checked for price-move threshold: <strong>${escapeHtml(formatMeta(n.priceMoveProfilesChecked))}</strong>`
+          );
+        }
+        if (n.dryUserId) {
+          extraLines.push(
+            `dryUser: <code>${escapeHtml(n.dryUserId)}</code> (only this user received notifications)`
+          );
+        }
+
+        if (!rows.length && !extraLines.length) return '';
+
+        const tableRows = rows
+          .map(
+            ([label, value]) =>
+              `<tr><td style="padding:6px 12px;border:1px solid #e2e8f0;">${escapeHtml(label)}</td>` +
+              `<td style="padding:6px 12px;border:1px solid #e2e8f0;">${value}</td></tr>`
+          )
+          .join('');
+        const extras = extraLines.length
+          ? `<ul style="padding-left:18px;">${extraLines.map((l) => `<li>${l}</li>`).join('')}</ul>`
+          : '';
+
+        return `
+    <h3>Notifications fan-out</h3>
+    <p style="font-size:12px;color:#64748b;margin:4px 0 8px;">User-facing emails go through Resend (fallback Gmail) from <code>sendTransactionalEmail</code>. This block shows what fan-out counters reported; empty rows mean that path did not run on this day.</p>
+    ${rows.length ? `<table style="border-collapse:collapse;width:100%;font-size:14px;">${tableRows}</table>` : ''}
+    ${extras}
+  `;
+      })();
+
       const digestNote =
         !isPricesOnly &&
         digestMarks.prepEndMs === null &&
@@ -1494,13 +1569,15 @@ const handleRequest = async (req: Request) => {
         <table style="border-collapse:collapse;width:100%;font-size:14px;">${sectionTable}</table>
         ${fatalBlock}
         ${errorBlock}
+        ${notificationsBlock}
         <p style="margin-top:24px;font-size:12px;color:#64748b;">If any line reads &quot;unavailable&quot;, that statistic could not be collected for this run.</p>
       </div>
     `;
 
+      const dryNote = digestMeta.notifications?.dryUserId ? ' · dryUser' : '';
       subject = isPricesOnly
-        ? `AITrader Cron — ${runDate} (daily prices · ${statusLabel})`
-        : `AITrader Cron — ${runDate} (${statusLabel})`;
+        ? `AITrader Cron — ${runDate} (daily prices · ${statusLabel}${dryNote})`
+        : `AITrader Cron — ${runDate} (${statusLabel}${dryNote})`;
     } catch (buildError) {
       const buildMsg = buildError instanceof Error ? buildError.message : JSON.stringify(buildError);
       log('CRON RATING DIGEST BUILD FAILED', buildMsg);
@@ -1602,15 +1679,6 @@ const handleRequest = async (req: Request) => {
     log('AUTH OK');
 
     const dryUserRaw = new URL(req.url).searchParams.get('dryUser')?.trim() ?? '';
-    const dryUserId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(dryUserRaw)
-      ? dryUserRaw
-      : null;
-    if (dryUserRaw && !dryUserId) {
-      log('DRY_USER INVALID', dryUserRaw);
-    }
-    if (dryUserId) {
-      log('DRY_USER', dryUserId);
-    }
 
     const forceRunRaw = new URL(req.url).searchParams.get('force');
     const forceRun = forceRunRaw === '1' || forceRunRaw === 'true';
@@ -1629,6 +1697,27 @@ const handleRequest = async (req: Request) => {
     }
 
     const supabase = createAdminClient();
+
+    let dryUserId: string | null = null;
+    if (dryUserRaw) {
+      const resolved = await resolveDryUserIdForCron(supabase, dryUserRaw);
+      if ('notFound' in resolved && resolved.notFound) {
+        return NextResponse.json({ error: 'dryUser not found' }, { status: 400 });
+      }
+      if ('ambiguous' in resolved && resolved.ambiguous) {
+        return NextResponse.json(
+          { error: 'dryUser email matches multiple accounts' },
+          { status: 400 }
+        );
+      }
+      if ('lookupError' in resolved && resolved.lookupError) {
+        return NextResponse.json({ error: 'dryUser lookup failed' }, { status: 500 });
+      }
+      dryUserId = resolved.dryUserId;
+      log('DRY_USER', dryUserId);
+    }
+    if (digestMeta.notifications) digestMeta.notifications.dryUserId = dryUserId;
+
     log('CONFIG', `runDate=${runDate}, forceRun=${forceRun}, isRebalanceDay=${isRebalanceDay}`);
 
     // ----- Step 1: Fetch NASDAQ-100 list (API -> DB fallback) -----
@@ -1860,6 +1949,11 @@ const handleRequest = async (req: Request) => {
           'NOTIFICATIONS PRICE_MOVE',
           `checked=${notificationsPriceMove.profilesChecked} inapp=${notificationsPriceMove.inappInserted} emails=${notificationsPriceMove.emailsSent}`
         );
+        if (digestMeta.notifications) {
+          digestMeta.notifications.priceMoveProfilesChecked = notificationsPriceMove.profilesChecked;
+          digestMeta.notifications.priceMoveInapp = notificationsPriceMove.inappInserted;
+          digestMeta.notifications.priceMoveEmails = notificationsPriceMove.emailsSent;
+        }
       } catch (priceMoveErr) {
         recordCronError('Notifications fan-out (price move) failed', priceMoveErr);
       }
@@ -1874,6 +1968,8 @@ const handleRequest = async (req: Request) => {
       revalidatePath('/platform');
       revalidatePath('/platform/overview');
       revalidateTag(CONFIG_DAILY_SERIES_CACHE_TAG);
+      // MTM walk inputs (`loadConfigWalkInputsForMtm`); explore-holdings uses client memory/localStorage only — no Next tag.
+      revalidateTag('mtm-walk-inputs');
 
       const totalSeconds = ((Date.now() - t0) / 1000).toFixed(1);
       return NextResponse.json({
@@ -1886,6 +1982,7 @@ const handleRequest = async (req: Request) => {
         aiRatings: false,
         benchmarkDailyPricesIngest: digestMeta.benchmarkDailyPricesIngest,
         notificationsPriceMove,
+        notifications: digestMeta.notifications,
         dryUser: dryUserId,
         elapsedSeconds: Number(totalSeconds),
       });
@@ -2214,6 +2311,11 @@ const handleRequest = async (req: Request) => {
           'NOTIFICATIONS RATING',
           `inapp=${r.inappInserted} emails=${r.emailsSent} changes=${ratingChangesForNotifications.length}`
         );
+        if (digestMeta.notifications) {
+          digestMeta.notifications.ratingInapp = r.inappInserted;
+          digestMeta.notifications.ratingEmails = r.emailsSent;
+          digestMeta.notifications.ratingChangesCount = ratingChangesForNotifications.length;
+        }
         const ps = await cronFanout.notifyStockRatingChangesPerStock(supabase, {
           strategyId: strategy.id,
           strategySlug: strategy.slug,
@@ -2221,11 +2323,16 @@ const handleRequest = async (req: Request) => {
           runDate,
           changes: ratingChangesForNotifications,
           dryUserId,
+          modelRatingInappKeys: r.modelRatingInappKeys,
         });
         log(
           'NOTIFICATIONS RATING_TRACKED',
           `inapp=${ps.inappInserted} emails=${ps.emailsSent} changes=${ratingChangesForNotifications.length}`
         );
+        if (digestMeta.notifications) {
+          digestMeta.notifications.ratingTrackedInapp = ps.inappInserted;
+          digestMeta.notifications.ratingTrackedEmails = ps.emailsSent;
+        }
       }
     } catch (error) {
       recordCronError('Notifications fan-out (rating changes) failed', error);
@@ -2617,6 +2724,11 @@ const handleRequest = async (req: Request) => {
         'NOTIFICATIONS PRICE_MOVE',
         `checked=${pm.profilesChecked} inapp=${pm.inappInserted} emails=${pm.emailsSent}`
       );
+      if (digestMeta.notifications) {
+        digestMeta.notifications.priceMoveProfilesChecked = pm.profilesChecked;
+        digestMeta.notifications.priceMoveInapp = pm.inappInserted;
+        digestMeta.notifications.priceMoveEmails = pm.emailsSent;
+      }
     } catch (priceMoveErr) {
       recordCronError('Notifications fan-out (price move) failed', priceMoveErr);
     }
@@ -2712,6 +2824,10 @@ const handleRequest = async (req: Request) => {
           dryUserId,
         });
         log('NOTIFICATIONS REBALANCE', `inapp=${rb.inappInserted} emails=${rb.emailsSent}`);
+        if (digestMeta.notifications) {
+          digestMeta.notifications.rebalanceInapp = rb.inappInserted;
+          digestMeta.notifications.rebalanceEmails = rb.emailsSent;
+        }
         const entries = actions
           .filter((a) => a.action_type === 'enter')
           .map((a) => ({ symbol: a.symbol, stock_id: a.stock_id }));
@@ -2728,6 +2844,10 @@ const handleRequest = async (req: Request) => {
           dryUserId,
         });
         log('NOTIFICATIONS ENTRIES_EXITS', `inapp=${ee.inappInserted} emails=${ee.emailsSent}`);
+        if (digestMeta.notifications) {
+          digestMeta.notifications.entriesExitsInapp = ee.inappInserted;
+          digestMeta.notifications.entriesExitsEmails = ee.emailsSent;
+        }
       }
       if (ratingChangesForNotifications.length === 0) {
         const mr = await cronFanout.notifyModelRatingsReady(supabase, {
@@ -2738,6 +2858,10 @@ const handleRequest = async (req: Request) => {
           dryUserId,
         });
         log('NOTIFICATIONS RATINGS_READY', `inapp=${mr.inappInserted} emails=${mr.emailsSent}`);
+        if (digestMeta.notifications) {
+          digestMeta.notifications.ratingsReadyInapp = mr.inappInserted;
+          digestMeta.notifications.ratingsReadyEmails = mr.emailsSent;
+        }
       }
     } catch (error) {
       recordCronError('Notifications fan-out (rebalance / ratings ready) failed', error);
@@ -2840,6 +2964,7 @@ const handleRequest = async (req: Request) => {
     revalidatePath('/', 'page');
     revalidateTag(LANDING_TOP_PORTFOLIO_PERFORMANCE_CACHE_TAG);
     revalidateTag(CONFIG_DAILY_SERIES_CACHE_TAG);
+    revalidateTag('mtm-walk-inputs');
     revalidateTag(RANKED_CONFIGS_CACHE_TAG);
     revalidateTag(`${RANKED_CONFIGS_CACHE_TAG}:${strategy.slug}`);
     revalidatePath('/strategy-models');
@@ -2862,6 +2987,7 @@ const handleRequest = async (req: Request) => {
     return NextResponse.json({
       runDate,
       dryUser: dryUserId,
+      notifications: digestMeta.notifications,
       strategy: {
         slug: strategy.slug,
         version: strategy.version,
