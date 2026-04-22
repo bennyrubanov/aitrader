@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { canAccessPaidPortfolioHoldings, canAccessStrategySlugPaidData } from '@/lib/app-access';
 import { getPortfolioConfigHoldings } from '@/lib/portfolio-config-holdings';
+import { syncMissingConfigHoldingsSnapshots } from '@/lib/portfolio-config-holdings-write';
 import { parseNasdaqRawPrice } from '@/lib/user-portfolio-entry';
 import {
   appAccessForAuthedUser,
@@ -172,7 +173,7 @@ export async function GET(req: NextRequest) {
 
   const { data: cfg } = await pub
     .from('portfolio_configs')
-    .select('id, risk_level, rebalance_frequency, weighting_method')
+    .select('id, risk_level, rebalance_frequency, weighting_method, top_n')
     .eq('id', configId)
     .maybeSingle();
 
@@ -220,6 +221,21 @@ export async function GET(req: NextRequest) {
   if (cachedResponse) {
     return NextResponse.json(cachedResponse);
   }
+
+  // Self-heal: if any rebalance batch has landed without a corresponding JSONB snapshot,
+  // fill it in before reading. Guarantees the server MTM walk and this API see the same
+  // symbols/weights for the latest rebalance (prevents the $/holdings divergence that
+  // otherwise surfaces when the compute job ran before today's ai_run_batches was committed).
+  // Best-effort; errors don't fail the request.
+  await syncMissingConfigHoldingsSnapshots(admin, {
+    strategyId: strategy.id,
+    config: {
+      id: configId,
+      top_n: (cfg as { top_n?: number }).top_n ?? 20,
+      weighting_method: String(cfg.weighting_method),
+      rebalance_frequency: String(cfg.rebalance_frequency),
+    },
+  });
 
   const { holdings, asOfDate, configSummary, rebalanceDates } = await getPortfolioConfigHoldings(
     admin,

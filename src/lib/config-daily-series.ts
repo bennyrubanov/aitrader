@@ -16,6 +16,7 @@ import {
   type ConfigPerfRow,
 } from '@/lib/portfolio-config-utils';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
+import { syncMissingConfigHoldingsSnapshots } from '@/lib/portfolio-config-holdings-write';
 import { computeWeeklyConsistencyVsNasdaqCap } from '@/lib/user-entry-performance';
 
 const INITIAL_CAPITAL = 10_000;
@@ -653,6 +654,32 @@ export async function ensureConfigDailySeries(
   if (!latestRawRunDate) return null;
   const existing = await loadConfigDailySeries(adminSupabase, params.strategyId, params.config.id);
   if (existing && existing.asOfRunDate === latestRawRunDate) return existing;
+
+  // Self-heal: fill in any rebalance holdings snapshots that are missing before rebuilding the
+  // daily series. The MTM walk reads from `strategy_portfolio_config_holdings`; if a new
+  // `ai_run_batches` row landed after the last compute job, that table is stale and the walk
+  // would extend forward using old weights. Requires top_n; fetch it on demand here.
+  try {
+    const { data: cfgRow } = await adminSupabase
+      .from('portfolio_configs')
+      .select('top_n')
+      .eq('id', params.config.id)
+      .maybeSingle();
+    const topN = Number((cfgRow as { top_n?: number } | null)?.top_n ?? 20);
+    if (Number.isFinite(topN) && topN > 0) {
+      await syncMissingConfigHoldingsSnapshots(adminSupabase, {
+        strategyId: params.strategyId,
+        config: {
+          id: params.config.id,
+          top_n: topN,
+          weighting_method: params.config.weighting_method,
+          rebalance_frequency: params.config.rebalance_frequency,
+        },
+      });
+    }
+  } catch {
+    /* best-effort; don't block series rebuild if sync fails */
+  }
 
   const perf = await getConfigPerformance(adminSupabase as never, params.strategyId, params.config.id);
   const withInception = await prependModelInceptionToConfigRows(
