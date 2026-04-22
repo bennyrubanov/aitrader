@@ -1,0 +1,46 @@
+---
+description: Enforce one-daily-write many-reads for portfolio MTM series
+alwaysApply: true
+---
+
+# Daily snapshot invariant
+
+The canonical portfolio mark-to-market series is precomputed once per latest raw price bar and persisted in:
+
+- `public.portfolio_config_daily_series` (current per strategy+config)
+- `public.portfolio_strategy_daily_series` (current per strategy)
+
+History/audit rows are append-only in:
+
+- `public.portfolio_config_daily_series_history`
+- `public.portfolio_strategy_daily_series_history`
+
+## Required read path
+
+For config-level performance surfaces, read from `@/lib/config-daily-series` helpers:
+
+- `loadStrategyDailySeriesBulk()`
+- `loadConfigDailySeries()`
+- `ensureConfigDailySeries()` only for lazy backfill of missing/stale rows
+- `sliceAndScale()` for user-specific entry-date/investment transforms
+
+For strategy-level `/performance`, use:
+
+- `loadStrategyDailySeries()`
+- `ensureStrategyDailySeries()` for lazy backfill
+
+## Write path
+
+Only the cron/internal compute pipeline writes snapshots:
+
+- `src/app/api/cron/**`
+- `src/app/api/internal/compute-portfolio-config/**`
+- `src/app/api/internal/compute-portfolio-configs-batch/**`
+
+Every daily cron run must refresh snapshots for the latest `nasdaq_100_daily_raw.run_date` and revalidate `CONFIG_DAILY_SERIES_CACHE_TAG`.
+
+## Guardrails
+
+- Do not import raw MTM builders (`buildDailyMarkedToMarketSeriesForConfig`, `buildLatestMtmPointFromLastSnapshot`, `buildDailyMarkedToMarketSeriesForStrategy`, live-series-point helpers) outside the allowlist above.
+- API routes should not rebuild the daily MTM walk on request.
+- Any new surface needing config-level series must consume the snapshot tables through `@/lib/config-daily-series`.

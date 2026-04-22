@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Mail, Loader2 } from 'lucide-react';
 import { errorHandler, asyncErrorHandler } from '@/lib/errorHandler';
 import { getSupabaseBrowserClient, isSupabaseConfigured } from '@/utils/supabase/browser';
+import { useAuthState } from '@/components/auth/auth-state-context';
 
 // Define the ref type for external control
 export interface NewsletterPopupRef {
@@ -27,33 +28,49 @@ const NewsletterPopup = forwardRef<NewsletterPopupRef, object>((props, ref) => {
   const [wasAlreadySubscribed, setWasAlreadySubscribed] = useState(false);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { isAuthenticated, isLoaded: authLoaded } = useAuthState();
+
+  const LAST_GUEST_LANDING_VISIT_AT_KEY = 'newsletter_popup_last_guest_landing_visit_at';
+  const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
   // Expose the openPopup method to parent components
   useImperativeHandle(ref, () => ({
     openPopup: () => {
+      if (!authLoaded || isAuthenticated) return;
       setOpen(true);
     },
   }));
 
   useEffect(() => {
-    // Show popup after 10 seconds
-    const timer = setTimeout(() => {
+    if (!authLoaded || isAuthenticated) return;
+
+    const shouldShowPopup =
       errorHandler(
         () => {
+          const now = Date.now();
+          const rawLastVisit = localStorage.getItem(LAST_GUEST_LANDING_VISIT_AT_KEY);
+          const parsedLastVisit = rawLastVisit ? Number(rawLastVisit) : NaN;
+          const hasVisitedWithinADay =
+            Number.isFinite(parsedLastVisit) && now - parsedLastVisit < ONE_DAY_MS;
+
+          // Track this guest landing visit so repeated visits within 24h do not retrigger the popup.
+          localStorage.setItem(LAST_GUEST_LANDING_VISIT_AT_KEY, String(now));
+
           // Check if user has already subscribed (using localStorage)
           const hasSubscribed = localStorage.getItem('newsletter_subscribed');
-          if (!hasSubscribed) {
-            setOpen(true);
-          }
+          return !hasSubscribed && !hasVisitedWithinADay;
         },
         (err) => {
-          console.error('Failed to check subscription status:', err.message);
+          console.error('Failed to evaluate newsletter popup visibility:', err.message);
         }
-      );
-    }, 10000);
+      ) ?? false;
 
+    if (!shouldShowPopup) return;
+
+    // Show popup after 10 seconds.
+    const timer = setTimeout(() => setOpen(true), 10000);
     return () => clearTimeout(timer);
-  }, []);
+  }, [authLoaded, isAuthenticated]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

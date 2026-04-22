@@ -23,6 +23,7 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { createPublicClient } from '@/utils/supabase/public';
+import { runWithSupabaseQueryCount } from '@/utils/supabase/query-counter';
 import {
   resolveConfigId,
   getConfigPerformance,
@@ -30,12 +31,9 @@ import {
   prependModelInceptionToConfigRows,
 } from '@/lib/portfolio-config-utils';
 import { buildConfigPerformanceChart, buildMetricsFromSeries } from '@/lib/config-performance-chart';
+import { ensureConfigDailySeries } from '@/lib/config-daily-series';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
 import { triggerPortfolioConfigCompute } from '@/lib/trigger-config-compute';
-import {
-  buildDailyMarkedToMarketSeriesForConfig,
-  buildLatestMtmPointFromLastSnapshot,
-} from '@/lib/live-mark-to-market';
 
 function mapComputeStatusForClient(
   s: 'ready' | 'pending' | 'failed' | 'empty'
@@ -46,30 +44,31 @@ function mapComputeStatusForClient(
 export const runtime = 'nodejs';
 
 export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const slug = searchParams.get('slug') ?? 'ait-1-daneel';
-  const riskParam = searchParams.get('risk');
-  const frequency = searchParams.get('frequency') ?? 'weekly';
-  const weighting = searchParams.get('weighting') ?? 'equal';
+  return runWithSupabaseQueryCount('/api/platform/portfolio-config-performance', async () => {
+    const { searchParams } = new URL(req.url);
+    const slug = searchParams.get('slug') ?? 'ait-1-daneel';
+    const riskParam = searchParams.get('risk');
+    const frequency = searchParams.get('frequency') ?? 'weekly';
+    const weighting = searchParams.get('weighting') ?? 'equal';
 
-  const riskLevel = riskParam ? parseInt(riskParam, 10) : 3;
+    const riskLevel = riskParam ? parseInt(riskParam, 10) : 3;
 
-  if (isNaN(riskLevel) || riskLevel < 1 || riskLevel > 6) {
-    return NextResponse.json({ error: 'Invalid risk level' }, { status: 400 });
-  }
+    if (isNaN(riskLevel) || riskLevel < 1 || riskLevel > 6) {
+      return NextResponse.json({ error: 'Invalid risk level' }, { status: 400 });
+    }
 
-  const validFrequencies = ['weekly', 'monthly', 'quarterly', 'yearly'];
-  if (!validFrequencies.includes(frequency)) {
-    return NextResponse.json({ error: 'Invalid frequency' }, { status: 400 });
-  }
+    const validFrequencies = ['weekly', 'monthly', 'quarterly', 'yearly'];
+    if (!validFrequencies.includes(frequency)) {
+      return NextResponse.json({ error: 'Invalid frequency' }, { status: 400 });
+    }
 
-  const validWeightings = ['equal', 'cap'];
-  if (!validWeightings.includes(weighting)) {
-    return NextResponse.json({ error: 'Invalid weighting method' }, { status: 400 });
-  }
+    const validWeightings = ['equal', 'cap'];
+    if (!validWeightings.includes(weighting)) {
+      return NextResponse.json({ error: 'Invalid weighting method' }, { status: 400 });
+    }
 
-  try {
-    const supabase = createPublicClient();
+    try {
+      const supabase = createPublicClient();
 
     // Resolve strategy ID from slug
     const { data: strategyData, error: strategyError } = await supabase
@@ -126,27 +125,19 @@ export async function GET(req: Request) {
 
     if (series.length > 0 && computeStatus === 'ready' && configMeta) {
       const adminSupabase = createAdminClient();
-      const dailySeries = await buildDailyMarkedToMarketSeriesForConfig(adminSupabase, {
+      const snapshot = await ensureConfigDailySeries(adminSupabase as never, {
         strategyId,
-        riskLevel,
-        rebalanceFrequency: frequency,
-        weightingMethod: weighting,
-        notionalSeries: series,
-        startDate: series[0]?.date,
+        config: {
+          id: configId,
+          risk_level: Number((configMeta as { risk_level: number }).risk_level),
+          rebalance_frequency: String(
+            (configMeta as { rebalance_frequency: string }).rebalance_frequency
+          ),
+          weighting_method: String((configMeta as { weighting_method: string }).weighting_method),
+        },
       });
-      if (dailySeries && dailySeries.length >= 2) {
-        series = dailySeries;
-      }
-
-      const tailPoint = await buildLatestMtmPointFromLastSnapshot(adminSupabase, {
-        strategyId,
-        riskLevel,
-        rebalanceFrequency: frequency,
-        weightingMethod: weighting,
-        notionalSeries: series,
-      });
-      if (tailPoint && tailPoint.date > series[series.length - 1]!.date) {
-        series = [...series, tailPoint];
+      if (snapshot?.series && snapshot.series.length >= 2) {
+        series = snapshot.series;
       }
 
       const fromSeries = buildMetricsFromSeries(series, frequency, sharpeReturnsFromRows);
@@ -181,19 +172,20 @@ export async function GET(req: Request) {
     const isHoldingPeriod =
       rows.length > 0 && frequency !== 'weekly' && !hasRebalanced;
 
-    return NextResponse.json({
-      configId,
-      computeStatus,
-      rows,
-      series,
-      metrics,
-      fullMetrics,
-      config: configPayload ?? null,
-      nextRebalanceDate,
-      isHoldingPeriod,
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Internal error';
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
+      return NextResponse.json({
+        configId,
+        computeStatus,
+        rows,
+        series,
+        metrics,
+        fullMetrics,
+        config: configPayload ?? null,
+        nextRebalanceDate,
+        isHoldingPeriod,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Internal error';
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
+  });
 }

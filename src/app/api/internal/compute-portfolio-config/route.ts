@@ -13,6 +13,11 @@ import { revalidateTag } from 'next/cache';
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/utils/supabase/admin';
 import {
+  CONFIG_DAILY_SERIES_CACHE_TAG,
+  refreshDailySeriesSnapshotsForStrategy,
+} from '@/lib/config-daily-series';
+import { runWithSupabaseQueryCount } from '@/utils/supabase/query-counter';
+import {
   filterRebalanceBatches,
   buildScoresByBatch,
   buildEqualWeightHoldings,
@@ -73,11 +78,12 @@ type HoldingsUpsertRow = {
 };
 
 export async function POST(req: Request) {
-  const authHeader = req.headers.get('authorization');
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  return runWithSupabaseQueryCount('/api/internal/compute-portfolio-config', async () => {
+    const authHeader = req.headers.get('authorization');
+    const cronSecret = process.env.CRON_SECRET;
+    if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
   let body: RequestBody;
   try {
@@ -353,6 +359,13 @@ export async function POST(req: Request) {
     await upsertQueueStatus(supabase, strategy_id, config_id, 'done');
 
     try {
+      await refreshDailySeriesSnapshotsForStrategy(supabase as never, { strategyId: strategy_id });
+      revalidateTag(CONFIG_DAILY_SERIES_CACHE_TAG);
+    } catch {
+      /* best effort */
+    }
+
+    try {
       revalidateTag('mtm-walk-inputs');
     } catch {
       /* revalidateTag only runs in Next.js server context */
@@ -367,9 +380,10 @@ export async function POST(req: Request) {
       rows: inserted,
       holdingsRows: holdingsUpsertRows.length,
     });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    await upsertQueueStatus(supabase, strategy_id, config_id, 'failed', message);
-    return NextResponse.json({ ok: false, error: message }, { status: 500 });
-  }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await upsertQueueStatus(supabase, strategy_id, config_id, 'failed', message);
+      return NextResponse.json({ ok: false, error: message }, { status: 500 });
+    }
+  });
 }

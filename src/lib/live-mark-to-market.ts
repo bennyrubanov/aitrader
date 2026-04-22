@@ -1,4 +1,4 @@
-import { cache } from 'react';
+import * as React from 'react';
 import { unstable_cache } from 'next/cache';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getPortfolioConfigHoldings } from '@/lib/portfolio-config-holdings';
@@ -55,14 +55,24 @@ function priceMapFromRows(rows: Array<{ symbol: string; last_sale_price: string 
 export async function loadLatestRawRunDate(
   supabase: SupabaseClient
 ): Promise<string | null> {
-  const { data } = await supabase
-    .from('nasdaq_100_daily_raw')
-    .select('run_date')
-    .order('run_date', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  return data?.run_date ?? null;
+  return loadLatestRawRunDateCached(supabase);
 }
+
+const cacheFn =
+  (React as unknown as { cache?: <T extends (...args: any[]) => unknown>(fn: T) => T }).cache ??
+  (<T extends (...args: any[]) => unknown>(fn: T) => fn);
+
+const loadLatestRawRunDateCached = cacheFn(
+  async (supabase: SupabaseClient): Promise<string | null> => {
+    const { data } = await supabase
+      .from('nasdaq_100_daily_raw')
+      .select('run_date')
+      .order('run_date', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    return data?.run_date ?? null;
+  }
+);
 
 async function loadPricesForSymbolsOnDate(
   supabase: SupabaseClient,
@@ -120,39 +130,77 @@ async function loadConfigWalkInputsUncached(
   rebalanceFrequency: string,
   weightingMethod: string
 ): Promise<ConfigMtmWalkInputsSerialized | null> {
-  const { rebalanceDates } = await getPortfolioConfigHoldings(
-    supabase,
-    strategyId,
-    riskLevel,
-    rebalanceFrequency,
-    weightingMethod,
-    null
-  );
-  if (!rebalanceDates.length) return null;
+  const { data: configMeta } = await supabase
+    .from('portfolio_configs')
+    .select('id')
+    .eq('risk_level', riskLevel)
+    .eq('rebalance_frequency', rebalanceFrequency)
+    .eq('weighting_method', weightingMethod)
+    .maybeSingle();
 
-  const rebalanceDatesAsc = [...rebalanceDates].sort((a, b) => a.localeCompare(b));
+  const configId = (configMeta as { id: string } | null)?.id ?? null;
+  const holdingsByDate = new Map<string, SnapshotHolding[]>();
+  let rebalanceDatesAsc: string[] = [];
+
+  if (configId) {
+    const { data: holdingsRows } = await supabase
+      .from('strategy_portfolio_config_holdings')
+      .select('run_date, holdings')
+      .eq('strategy_id', strategyId)
+      .eq('config_id', configId)
+      .order('run_date', { ascending: true });
+    for (const row of (holdingsRows ?? []) as Array<{ run_date: string; holdings: unknown }>) {
+      if (!Array.isArray(row.holdings)) continue;
+      rebalanceDatesAsc.push(row.run_date);
+      holdingsByDate.set(
+        row.run_date,
+        row.holdings
+          .map((h) => {
+            const x = h as { symbol?: unknown; weight?: unknown };
+            const symbol = String(x.symbol ?? '').toUpperCase();
+            const weight = Number(x.weight);
+            return { symbol, weight };
+          })
+          .filter((h) => h.symbol && Number.isFinite(h.weight) && h.weight > 0)
+      );
+    }
+  }
+
+  if (!rebalanceDatesAsc.length) {
+    const fallback = await getPortfolioConfigHoldings(
+      supabase,
+      strategyId,
+      riskLevel,
+      rebalanceFrequency,
+      weightingMethod,
+      null,
+      { includeRankChange: false }
+    );
+    rebalanceDatesAsc = [...fallback.rebalanceDates].sort((a, b) => a.localeCompare(b));
+    await Promise.all(
+      rebalanceDatesAsc.map(async (d) => {
+        const { holdings } = await getPortfolioConfigHoldings(
+          supabase,
+          strategyId,
+          riskLevel,
+          rebalanceFrequency,
+          weightingMethod,
+          d,
+          { includeRankChange: false }
+        );
+        holdingsByDate.set(
+          d,
+          holdings
+            .map((h) => ({ symbol: h.symbol.toUpperCase(), weight: h.weight }))
+            .filter((h) => Number.isFinite(h.weight) && h.weight > 0)
+        );
+      })
+    );
+  }
+  if (!rebalanceDatesAsc.length) return null;
+
   const latestRunDate = await loadLatestRawRunDate(supabase);
   if (!latestRunDate) return null;
-
-  const holdingsByDate = new Map<string, SnapshotHolding[]>();
-  await Promise.all(
-    rebalanceDatesAsc.map(async (d) => {
-      const { holdings } = await getPortfolioConfigHoldings(
-        supabase,
-        strategyId,
-        riskLevel,
-        rebalanceFrequency,
-        weightingMethod,
-        d
-      );
-      holdingsByDate.set(
-        d,
-        holdings
-          .map((h) => ({ symbol: h.symbol.toUpperCase(), weight: h.weight }))
-          .filter((h) => Number.isFinite(h.weight) && h.weight > 0)
-      );
-    })
-  );
 
   const unionSymbols = uniqueSorted(
     [...holdingsByDate.values()].flatMap((arr) => arr.map((h) => h.symbol))
@@ -177,35 +225,55 @@ async function loadConfigWalkInputsUncached(
  * Shared holdings + raw prices for a config (same for all user entry dates). Per-request dedupe via
  * `react` cache; cross-request via `unstable_cache`. Invalidate with `revalidateTag('mtm-walk-inputs')`.
  */
-export const loadConfigWalkInputsForMtm = cache(
+export const loadConfigWalkInputsForMtm = cacheFn(
   async (
     strategyId: string,
     riskLevel: number,
     rebalanceFrequency: string,
     weightingMethod: string
   ): Promise<ConfigMtmWalkInputs | null> => {
-    const serialized = await unstable_cache(
-      async () => {
-        const supabase = createAdminClient();
-        return loadConfigWalkInputsUncached(
-          supabase,
-          strategyId,
-          riskLevel,
-          rebalanceFrequency,
-          weightingMethod
-        );
-      },
-      ['config-mtm-walk-inputs', strategyId, String(riskLevel), rebalanceFrequency, weightingMethod],
-      { revalidate: 7200, tags: ['mtm-walk-inputs', `mtm-walk-inputs:${strategyId}`] }
-    )();
-    if (!serialized) return null;
-    return {
-      latestRunDate: serialized.latestRunDate,
-      rebalanceDatesAsc: serialized.rebalanceDatesAsc,
-      holdingsByDate: toMap(serialized.holdingsEntries),
-      tradingDates: serialized.tradingDates,
-      pricesByDate: toMap(serialized.priceEntries),
-    };
+    try {
+      const serialized = await unstable_cache(
+        async () => {
+          const supabase = createAdminClient();
+          return loadConfigWalkInputsUncached(
+            supabase,
+            strategyId,
+            riskLevel,
+            rebalanceFrequency,
+            weightingMethod
+          );
+        },
+        ['config-mtm-walk-inputs', strategyId, String(riskLevel), rebalanceFrequency, weightingMethod],
+        { revalidate: 7200, tags: ['mtm-walk-inputs', `mtm-walk-inputs:${strategyId}`] }
+      )();
+      if (!serialized) return null;
+      return {
+        latestRunDate: serialized.latestRunDate,
+        rebalanceDatesAsc: serialized.rebalanceDatesAsc,
+        holdingsByDate: toMap(serialized.holdingsEntries),
+        tradingDates: serialized.tradingDates,
+        pricesByDate: toMap(serialized.priceEntries),
+      };
+    } catch {
+      // Fallback for non-Next runtimes (e.g. local scripts) where unstable_cache is unavailable.
+      const supabase = createAdminClient();
+      const serialized = await loadConfigWalkInputsUncached(
+        supabase,
+        strategyId,
+        riskLevel,
+        rebalanceFrequency,
+        weightingMethod
+      );
+      if (!serialized) return null;
+      return {
+        latestRunDate: serialized.latestRunDate,
+        rebalanceDatesAsc: serialized.rebalanceDatesAsc,
+        holdingsByDate: toMap(serialized.holdingsEntries),
+        tradingDates: serialized.tradingDates,
+        pricesByDate: toMap(serialized.priceEntries),
+      };
+    }
   }
 );
 
@@ -342,7 +410,7 @@ type BenchmarkCloses = {
   spxRows: StooqCsvRow[];
 };
 
-const loadBenchmarkClosesWindow = cache(
+const loadBenchmarkClosesWindow = cacheFn(
   async (supabase: SupabaseClient, queryStart: string, maxDate: string): Promise<BenchmarkCloses> => {
     const symbols = [
       STOOQ_BENCHMARK_SYMBOLS.nasdaqCap,
@@ -605,7 +673,8 @@ export async function buildLatestMtmPointFromLastSnapshot(
       params.riskLevel,
       params.rebalanceFrequency,
       params.weightingMethod,
-      null
+      null,
+      { includeRankChange: false }
     )
   ).rebalanceDates;
   if (!rebalanceDates.length) return null;
@@ -626,7 +695,8 @@ export async function buildLatestMtmPointFromLastSnapshot(
           params.riskLevel,
           params.rebalanceFrequency,
           params.weightingMethod,
-          snapshotDate
+          snapshotDate,
+          { includeRankChange: false }
         )
       ).holdings
           .map((h) => ({ symbol: h.symbol.toUpperCase(), weight: Number(h.weight) }))

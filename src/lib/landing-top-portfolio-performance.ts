@@ -1,7 +1,6 @@
 import { unstable_cache } from 'next/cache';
 import { RISK_TOP_N } from '@/components/portfolio-config';
-import { buildConfigPerformanceChart } from '@/lib/config-performance-chart';
-import { buildDailyMarkedToMarketSeriesForConfig } from '@/lib/live-mark-to-market';
+import { ensureConfigDailySeries } from '@/lib/config-daily-series';
 import { loadPortfolioConfigsRankedPayload } from '@/lib/portfolio-configs-ranked-core';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
@@ -10,8 +9,6 @@ import {
   portfolioSliceMatchesRankedRow,
 } from '@/lib/performance-portfolio-url';
 import {
-  getConfigPerformance,
-  prependModelInceptionToConfigRows,
   resolveConfigId,
 } from '@/lib/portfolio-config-utils';
 import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
@@ -35,8 +32,9 @@ export type LandingTopPortfolioPerformance = {
 };
 
 function mapComputeStatus(
-  s: 'ready' | 'pending' | 'failed' | 'empty'
+  s: 'ready' | 'pending' | 'failed' | 'empty' | 'early'
 ): LandingTopPortfolioPerformance['computeStatus'] {
+  if (s === 'early') return 'in_progress';
   return s === 'pending' ? 'in_progress' : s;
 }
 
@@ -81,31 +79,17 @@ async function loadLandingTopPortfolioPerformanceUncached(): Promise<LandingTopP
     };
   }
 
-  const { rows: initialRows, computeStatus: rawStatus } = await getConfigPerformance(
-    supabase,
-    ranked.strategyId,
-    configId
-  );
-  let rows = initialRows;
-  rows = await prependModelInceptionToConfigRows(supabase, ranked.strategyId, rows);
-
-  const built = buildConfigPerformanceChart(rows, portfolioSlice.rebalanceFrequency);
-  let series = built.series;
-  const isReady = mapComputeStatus(rawStatus) === 'ready';
-  if (isReady && series.length >= 2) {
-    const adminSupabase = createAdminClient();
-    const dailySeries = await buildDailyMarkedToMarketSeriesForConfig(adminSupabase, {
-      strategyId: ranked.strategyId,
-      riskLevel: portfolioSlice.riskLevel,
-      rebalanceFrequency: portfolioSlice.rebalanceFrequency,
-      weightingMethod: portfolioSlice.weightingMethod,
-      notionalSeries: series,
-      startDate: series[0]?.date,
-    });
-    if (dailySeries && dailySeries.length >= 2) {
-      series = dailySeries;
-    }
-  }
+  const adminSupabase = createAdminClient();
+  const snapshot = await ensureConfigDailySeries(adminSupabase as never, {
+    strategyId: ranked.strategyId,
+    config: {
+      id: configId,
+      risk_level: portfolioSlice.riskLevel,
+      rebalance_frequency: portfolioSlice.rebalanceFrequency,
+      weighting_method: portfolioSlice.weightingMethod,
+    },
+  });
+  const series = snapshot?.series ?? [];
 
   return {
     series,
@@ -117,7 +101,7 @@ async function loadLandingTopPortfolioPerformanceUncached(): Promise<LandingTopP
       rebalanceFrequency: portfolioSlice.rebalanceFrequency,
       weightingMethod: portfolioSlice.weightingMethod,
     },
-    computeStatus: mapComputeStatus(rawStatus),
+    computeStatus: mapComputeStatus(snapshot?.dataStatus ?? 'empty'),
   };
 }
 

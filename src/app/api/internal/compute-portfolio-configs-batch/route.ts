@@ -13,17 +13,23 @@ import { createAdminClient } from '@/utils/supabase/admin';
 import { computeAllPortfolioConfigs } from '@/lib/compute-all-portfolio-configs';
 import { LANDING_TOP_PORTFOLIO_PERFORMANCE_CACHE_TAG } from '@/lib/landing-top-portfolio-performance';
 import { RANKED_CONFIGS_CACHE_TAG } from '@/lib/portfolio-configs-ranked-core';
+import {
+  CONFIG_DAILY_SERIES_CACHE_TAG,
+  refreshDailySeriesSnapshotsForStrategy,
+} from '@/lib/config-daily-series';
+import { runWithSupabaseQueryCount } from '@/utils/supabase/query-counter';
 
 export const runtime = 'nodejs';
 /** Hobby plan caps non-cron routes at 60s; full inline run may need localhost backfill if this times out. */
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
-  const authHeader = req.headers.get('authorization');
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  return runWithSupabaseQueryCount('/api/internal/compute-portfolio-configs-batch', async () => {
+    const authHeader = req.headers.get('authorization');
+    const cronSecret = process.env.CRON_SECRET;
+    if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
   let body: { strategy_id?: string };
   try {
@@ -41,8 +47,10 @@ export async function POST(req: Request) {
 
   try {
     const result = await computeAllPortfolioConfigs(supabase, strategy_id);
+    await refreshDailySeriesSnapshotsForStrategy(supabase as never, { strategyId: strategy_id });
 
     revalidateTag(LANDING_TOP_PORTFOLIO_PERFORMANCE_CACHE_TAG);
+    revalidateTag(CONFIG_DAILY_SERIES_CACHE_TAG);
     revalidateTag(RANKED_CONFIGS_CACHE_TAG);
     revalidatePath('/', 'page');
 
@@ -59,8 +67,9 @@ export async function POST(req: Request) {
       failedNonDefault: result.failedNonDefault,
       results: result.results,
     });
-  } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
+  });
 }

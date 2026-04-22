@@ -7,6 +7,7 @@
  * For Client Components, use `@/utils/supabase/browser`.
  */
 import { createClient } from '@supabase/supabase-js';
+import { instrumentSupabaseFetch } from '@/utils/supabase/query-counter';
 
 export const createAdminClient = () => {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -20,6 +21,9 @@ export const createAdminClient = () => {
     auth: {
       persistSession: false,
       autoRefreshToken: false,
+    },
+    global: {
+      fetch: instrumentSupabaseFetch(fetch, 'admin'),
     },
   });
 };

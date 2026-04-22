@@ -250,7 +250,38 @@ alter table public.strategy_portfolio_config_holdings enable row level security;
 drop policy if exists "Public read strategy portfolio config holdings" on public.strategy_portfolio_config_holdings;
 
 -- -------------------------------------------------------
--- 14d) User portfolio profiles – own row only
+-- 14d) Daily config and strategy snapshots – public read
+-- -------------------------------------------------------
+alter table public.portfolio_config_daily_series enable row level security;
+
+drop policy if exists "Public read portfolio config daily series" on public.portfolio_config_daily_series;
+create policy "Public read portfolio config daily series"
+  on public.portfolio_config_daily_series for select
+  using (true);
+
+alter table public.portfolio_config_daily_series_history enable row level security;
+
+drop policy if exists "Public read portfolio config daily series history" on public.portfolio_config_daily_series_history;
+create policy "Public read portfolio config daily series history"
+  on public.portfolio_config_daily_series_history for select
+  using (true);
+
+alter table public.portfolio_strategy_daily_series enable row level security;
+
+drop policy if exists "Public read portfolio strategy daily series" on public.portfolio_strategy_daily_series;
+create policy "Public read portfolio strategy daily series"
+  on public.portfolio_strategy_daily_series for select
+  using (true);
+
+alter table public.portfolio_strategy_daily_series_history enable row level security;
+
+drop policy if exists "Public read portfolio strategy daily series history" on public.portfolio_strategy_daily_series_history;
+create policy "Public read portfolio strategy daily series history"
+  on public.portfolio_strategy_daily_series_history for select
+  using (true);
+
+-- -------------------------------------------------------
+-- 14e) User portfolio profiles – own row only
 -- -------------------------------------------------------
 alter table public.user_portfolio_profiles enable row level security;
 
@@ -275,7 +306,7 @@ create policy "Users can delete own portfolio profile"
   using (auth.uid() = user_id);
 
 -- -------------------------------------------------------
--- 14c-bis) User overview slot assignments – own rows only
+-- 14e-bis) User overview slot assignments – own rows only
 -- -------------------------------------------------------
 alter table public.user_overview_slot_assignments enable row level security;
 
@@ -301,7 +332,7 @@ create policy "Users delete own overview slot assignments"
   using (auth.uid() = user_id);
 
 -- -------------------------------------------------------
--- 14d) User portfolio positions – own rows via profile ownership
+-- 14f) User portfolio positions – own rows via profile ownership
 -- -------------------------------------------------------
 alter table public.user_portfolio_positions enable row level security;
 
@@ -346,7 +377,7 @@ create policy "Users can delete own portfolio positions"
   );
 
 -- -------------------------------------------------------
--- 14e) Compute queue – service role only (no public access)
+-- 14g) Compute queue – service role only (no public access)
 -- -------------------------------------------------------
 alter table public.portfolio_config_compute_queue enable row level security;
 -- No policies = no access except via service role key.

@@ -10,25 +10,16 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createAdminClient } from '@/utils/supabase/admin';
+import { runWithSupabaseQueryCount } from '@/utils/supabase/query-counter';
 import { getPortfolioRunDates } from '@/lib/platform-performance-payload';
-import {
-  getConfigPerformance,
-  prependModelInceptionToConfigRows,
-} from '@/lib/portfolio-config-utils';
-import {
-  buildMetricsFromSeries,
-  buildUserEntryConfigTrack,
-} from '@/lib/config-performance-chart';
+import { buildMetricsFromSeries } from '@/lib/config-performance-chart';
+import { ensureConfigDailySeries, sliceAndScale } from '@/lib/config-daily-series';
 import { pickHoldingsRunDate } from '@/lib/user-portfolio-entry';
 import {
   computeExcessReturnVsNasdaqCap,
   computeExcessReturnVsNasdaqEqual,
   computeWeeklyConsistencyVsNasdaqCap,
 } from '@/lib/user-entry-performance';
-import {
-  buildDailyMarkedToMarketSeriesForConfig,
-  buildLatestMtmPointFromLastSnapshot,
-} from '@/lib/live-mark-to-market';
 
 export const runtime = 'nodejs';
 
@@ -37,11 +28,12 @@ const unauthorized = () => NextResponse.json({ error: 'Unauthorized' }, { status
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function GET(req: Request) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return unauthorized();
+  return runWithSupabaseQueryCount('/api/platform/user-portfolio-performance', async () => {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return unauthorized();
 
   const { searchParams } = new URL(req.url);
   const profileId = searchParams.get('profileId')?.trim() ?? '';
@@ -97,17 +89,6 @@ export async function GET(req: Request) {
   }
 
   const admin = createAdminClient();
-  const { rows: initialCfgRows, computeStatus } = await getConfigPerformance(
-    admin,
-    row.strategy_id,
-    row.config_id
-  );
-  const cfgRows = await prependModelInceptionToConfigRows(
-    admin,
-    row.strategy_id,
-    initialCfgRows
-  );
-
   const dates = await getPortfolioRunDates(row.strategy_id);
   const anchorHoldingsRunDate = pickHoldingsRunDate(dates, userStart);
   if (!anchorHoldingsRunDate) {
@@ -130,47 +111,19 @@ export async function GET(req: Request) {
     ? String((cfgMeta as { rebalance_frequency: string }).rebalance_frequency)
     : 'weekly';
 
-  const configTrack = buildUserEntryConfigTrack(
-    cfgRows,
-    userStart,
-    investmentSize,
-    rebalanceFrequency
-  );
-  let userSeries = configTrack.series;
-  if (userSeries.length > 0) {
-    const cfg = cfgMeta;
-    if (cfg) {
-      const dailySeries = await buildDailyMarkedToMarketSeriesForConfig(admin, {
+  const snapshot = cfgMeta
+    ? await ensureConfigDailySeries(admin as never, {
         strategyId: row.strategy_id,
-        riskLevel: Number(cfg.risk_level),
-        rebalanceFrequency: String(cfg.rebalance_frequency),
-        weightingMethod: String(cfg.weighting_method),
-        notionalSeries: userSeries,
-        startDate: userStart,
-      });
-      if (dailySeries && dailySeries.length >= 2) {
-        userSeries = dailySeries;
-      }
-
-      if (computeStatus === 'ready' && userSeries.length >= 1) {
-        const tailPoint = await buildLatestMtmPointFromLastSnapshot(admin, {
-          strategyId: row.strategy_id,
-          riskLevel: Number(cfg.risk_level),
-          rebalanceFrequency: String(cfg.rebalance_frequency),
-          weightingMethod: String(cfg.weighting_method),
-          notionalSeries: userSeries,
-        });
-        if (tailPoint && tailPoint.date > userSeries[userSeries.length - 1]!.date) {
-          userSeries = [...userSeries, tailPoint];
-        }
-      }
-    }
-  }
-  const userSeriesMetrics = buildMetricsFromSeries(
-    userSeries,
-    rebalanceFrequency,
-    configTrack.sharpeReturns
-  ).metrics;
+        config: {
+          id: row.config_id,
+          risk_level: Number((cfgMeta as { risk_level: number }).risk_level),
+          rebalance_frequency: String((cfgMeta as { rebalance_frequency: string }).rebalance_frequency),
+          weighting_method: String((cfgMeta as { weighting_method: string }).weighting_method),
+        },
+      })
+    : null;
+  const userSeries = sliceAndScale(snapshot?.series ?? [], userStart, investmentSize);
+  const userSeriesMetrics = buildMetricsFromSeries(userSeries, rebalanceFrequency, []).metrics;
   const hasMultipleObservations = userSeries.length >= 2;
   const built = {
     anchorHoldingsRunDate,
@@ -198,8 +151,9 @@ export async function GET(req: Request) {
           },
   };
 
+  const snapshotStatus = snapshot?.dataStatus ?? 'empty';
   const clientStatus =
-    computeStatus !== 'ready' && !cfgRows.length
+    snapshotStatus === 'pending'
       ? ('pending' as const)
       : built.series.length === 0
         ? ('empty' as const)
@@ -207,14 +161,15 @@ export async function GET(req: Request) {
           ? ('gathering_data' as const)
           : ('ready' as const);
 
-  return NextResponse.json({
-    profileId,
-    computeStatus: clientStatus,
-    configComputeStatus: computeStatus,
-    anchorHoldingsRunDate: built.anchorHoldingsRunDate,
-    userStartDate: userStart,
-    hasMultipleObservations: built.hasMultipleObservations,
-    series: built.series,
-    metrics: built.metrics,
+    return NextResponse.json({
+      profileId,
+      computeStatus: clientStatus,
+      configComputeStatus: snapshotStatus,
+      anchorHoldingsRunDate: built.anchorHoldingsRunDate,
+      userStartDate: userStart,
+      hasMultipleObservations: built.hasMultipleObservations,
+      series: built.series,
+      metrics: built.metrics,
+    });
   });
 }

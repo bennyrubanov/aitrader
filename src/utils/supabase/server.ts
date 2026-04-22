@@ -7,6 +7,7 @@
  */
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { instrumentSupabaseFetch } from '@/utils/supabase/query-counter';
 
 export const createClient = async () => {
   const cookieStore = await cookies();
@@ -30,6 +31,9 @@ export const createClient = async () => {
             // user sessions.
           }
         },
+      },
+      global: {
+        fetch: instrumentSupabaseFetch(fetch, 'server'),
       },
     }
   );

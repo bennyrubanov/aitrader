@@ -1,34 +1,16 @@
-import { buildConfigPerformanceChart, buildMetricsFromSeries } from '@/lib/config-performance-chart';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
 import {
-  buildDailyMarkedToMarketSeriesForConfig,
-  buildLatestMtmPointFromLastSnapshot,
-  loadLatestRawRunDate,
-} from '@/lib/live-mark-to-market';
-import {
-  computeSharpeAnnualized,
-  periodsPerYearFromRebalanceFrequency,
-} from '@/lib/metrics-annualization';
-import type { ConfigPerfRow } from '@/lib/portfolio-config-utils';
+  loadStrategyDailySeriesBulk,
+  type ConfigDailySeriesMetrics,
+} from '@/lib/config-daily-series';
+import { loadLatestRawRunDate } from '@/lib/live-mark-to-market';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { createPublicClient } from '@/utils/supabase/public';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
-import { computeWeeklyConsistencyVsNasdaqCap } from '@/lib/user-entry-performance';
-import { unstable_cache } from 'next/cache';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 /** Flat row from DB (grouped by config_id). */
-type PerfRow = {
-  config_id: string;
-  run_date: string;
-  net_return: number | string | null;
-  ending_equity: number | string;
-  nasdaq100_cap_weight_equity: number | string;
-  nasdaq100_equal_weight_equity?: number | string | null;
-  sp500_equity?: number | string | null;
-};
-
 type ConfigRow = {
   id: string;
   risk_level: number;
@@ -40,25 +22,7 @@ type ConfigRow = {
   is_default: boolean;
 };
 
-export type ConfigMetrics = {
-  sharpeRatio: number | null;
-  sharpeRatioDecisionCadence: number | null;
-  cagr: number | null;
-  totalReturn: number | null;
-  maxDrawdown: number | null;
-  consistency: number | null;
-  weeksOfData: number;
-  weeklyObservations: number;
-  decisionObservations: number;
-  endingValuePortfolio: number | null;
-  endingValueMarket: number | null;
-  endingValueNasdaq100EqualWeight: number | null;
-  endingValueSp500: number | null;
-  pctWeeksBeatingSp500: number | null;
-  pctWeeksBeatingNasdaq100EqualWeight: number | null;
-  beatsMarket: boolean | null;
-  beatsSp500: boolean | null;
-};
+export type ConfigMetrics = ConfigDailySeriesMetrics;
 
 export type RankedConfig = {
   id: string;
@@ -137,37 +101,6 @@ const toNum = (v: unknown, fallback = 0): number => {
   return Number.isFinite(n) ? n : fallback;
 };
 
-function latestRunDateFromPerfRows(perfRows: PerfRow[]): string | null {
-  if (!perfRows.length) return null;
-  let maxDate = perfRows[0]!.run_date;
-  for (const r of perfRows) {
-    if (r.run_date > maxDate) maxDate = r.run_date;
-  }
-  return maxDate;
-}
-
-function extractLatestBenchmarkEndingValues(perfRows: PerfRow[]): BenchmarkEndingValues | null {
-  const maxDate = latestRunDateFromPerfRows(perfRows);
-  if (!maxDate) return null;
-  const onDate = perfRows.filter((r) => r.run_date === maxDate);
-  const row =
-    onDate.find(
-      (r) =>
-        toNum(r.sp500_equity, 0) > 0 &&
-        toNum(r.nasdaq100_cap_weight_equity, 0) > 0 &&
-        toNum(r.nasdaq100_equal_weight_equity, 0) > 0
-    ) ?? onDate[0];
-  if (!row) return null;
-  const sp = toNum(row.sp500_equity, 0);
-  const cap = toNum(row.nasdaq100_cap_weight_equity, 0);
-  const eq = toNum(row.nasdaq100_equal_weight_equity, 0);
-  return {
-    sp500: sp > 0 ? sp : null,
-    nasdaq100Cap: cap > 0 ? cap : null,
-    nasdaq100Equal: eq > 0 ? eq : null,
-  };
-}
-
 function benchmarkEndingValuesFromSeriesPoint(p: PerformanceSeriesPoint): BenchmarkEndingValues {
   const sp = toNum(p.sp500, 0);
   const cap = toNum(p.nasdaq100CapWeight, 0);
@@ -179,174 +112,7 @@ function benchmarkEndingValuesFromSeriesPoint(p: PerformanceSeriesPoint): Benchm
   };
 }
 
-const MODEL_INCEPTION_INITIAL = 10_000;
-/** Matches first-rebalance entry cost in portfolio-config-compute-core (15 bps on full turnover). */
-const MODEL_INCEPTION_POST_COST = MODEL_INCEPTION_INITIAL * (1 - 15 / 10_000);
-
-function ensureModelInceptionPrefix(inceptionDate: string | null, rows: ConfigPerfRow[]): ConfigPerfRow[] {
-  if (!inceptionDate || !rows.length) return rows;
-  const first = rows[0]!.run_date;
-  if (first <= inceptionDate) return rows;
-  const head = rows[0]!;
-  const synthetic: ConfigPerfRow = {
-    run_date: inceptionDate,
-    strategy_status: 'in_progress',
-    compute_status: 'ready',
-    net_return: MODEL_INCEPTION_POST_COST / MODEL_INCEPTION_INITIAL - 1,
-    gross_return: 0,
-    starting_equity: MODEL_INCEPTION_INITIAL,
-    ending_equity: MODEL_INCEPTION_POST_COST,
-    holdings_count: head.holdings_count,
-    turnover: 1,
-    transaction_cost_bps: head.transaction_cost_bps,
-    nasdaq100_cap_weight_equity: MODEL_INCEPTION_POST_COST,
-    nasdaq100_equal_weight_equity: MODEL_INCEPTION_POST_COST,
-    sp500_equity: MODEL_INCEPTION_POST_COST,
-    is_eligible_for_comparison: false,
-    first_rebalance_date: inceptionDate,
-    next_rebalance_date: null,
-  };
-  return [synthetic, ...rows];
-}
-
-type DbConfigPerfRow = ConfigPerfRow & { config_id: string };
-
-function stripConfigId(row: DbConfigPerfRow): ConfigPerfRow {
-  const { config_id: _cid, ...rest } = row;
-  return rest;
-}
-
-function emptyConfigMetrics(weeksOfData: number): ConfigMetrics {
-  return {
-    sharpeRatio: null,
-    sharpeRatioDecisionCadence: null,
-    cagr: null,
-    totalReturn: null,
-    maxDrawdown: null,
-    consistency: null,
-    weeksOfData,
-    weeklyObservations: 0,
-    decisionObservations: weeksOfData,
-    endingValuePortfolio: null,
-    endingValueMarket: null,
-    endingValueNasdaq100EqualWeight: null,
-    endingValueSp500: null,
-    pctWeeksBeatingSp500: null,
-    pctWeeksBeatingNasdaq100EqualWeight: null,
-    beatsMarket: null,
-    beatsSp500: null,
-  };
-}
-
 type LiveTail = { date: string; benchmark: BenchmarkEndingValues };
-
-async function computeRankedConfigMetrics(
-  adminSupabase: ReturnType<typeof createAdminClient>,
-  strategyId: string,
-  cfg: ConfigRow,
-  rowsWithInception: ConfigPerfRow[],
-  rawObservationCount: number
-): Promise<{
-  metrics: ConfigMetrics;
-  liveTail: LiveTail | null;
-}> {
-  if (!rowsWithInception.length) {
-    return { metrics: emptyConfigMetrics(0), liveTail: null };
-  }
-
-  const sorted = [...rowsWithInception].sort((a, b) => a.run_date.localeCompare(b.run_date));
-
-  const sharpeReturns = sorted
-    .slice(sorted.length - rawObservationCount)
-    .map((r) => toNum(r.net_return, 0));
-  const chartBuilt = buildConfigPerformanceChart(sorted, cfg.rebalance_frequency);
-  const latestRow = sorted[sorted.length - 1]!;
-  const computeReady = latestRow.compute_status === 'ready';
-  const weeklySeries = chartBuilt.series;
-  let headline = chartBuilt.metrics;
-  let full = chartBuilt.fullMetrics;
-  let liveTail: LiveTail | null = null;
-
-  let dailySeries: PerformanceSeriesPoint[] | null = null;
-  if (weeklySeries.length >= 2 && computeReady) {
-    dailySeries = await buildDailyMarkedToMarketSeriesForConfig(adminSupabase, {
-      strategyId,
-      riskLevel: cfg.risk_level,
-      rebalanceFrequency: cfg.rebalance_frequency,
-      weightingMethod: cfg.weighting_method,
-      notionalSeries: weeklySeries,
-      startDate: weeklySeries[0]?.date,
-    });
-  }
-
-  let chosenSeries: PerformanceSeriesPoint[] | null = null;
-  if (dailySeries && dailySeries.length >= 2) chosenSeries = dailySeries;
-
-  if (computeReady && weeklySeries.length >= 1) {
-    const tailPoint = await buildLatestMtmPointFromLastSnapshot(adminSupabase, {
-      strategyId,
-      riskLevel: cfg.risk_level,
-      rebalanceFrequency: cfg.rebalance_frequency,
-      weightingMethod: cfg.weighting_method,
-      notionalSeries: chosenSeries ?? weeklySeries,
-    });
-    if (tailPoint) {
-      const base = chosenSeries ?? weeklySeries;
-      const baseLastDate = base[base.length - 1]!.date;
-      if (tailPoint.date > baseLastDate) {
-        chosenSeries = [...base, tailPoint];
-      }
-    }
-  }
-
-  const consistency =
-    chosenSeries && chosenSeries.length >= 2
-      ? computeWeeklyConsistencyVsNasdaqCap(chosenSeries)
-      : null;
-
-  if (chosenSeries && chosenSeries.length >= 2) {
-    const fromSeries = buildMetricsFromSeries(
-      chosenSeries,
-      cfg.rebalance_frequency,
-      sharpeReturns
-    );
-    headline = fromSeries.metrics;
-    full = fromSeries.fullMetrics;
-    const last = chosenSeries[chosenSeries.length - 1]!;
-    liveTail = { date: last.date, benchmark: benchmarkEndingValuesFromSeriesPoint(last) };
-  }
-
-  const metrics: ConfigMetrics = {
-    sharpeRatio: headline?.sharpeRatio ?? null,
-    sharpeRatioDecisionCadence: computeSharpeAnnualized(
-      sharpeReturns,
-      periodsPerYearFromRebalanceFrequency(cfg.rebalance_frequency)
-    ),
-    cagr: headline?.cagr ?? null,
-    totalReturn: headline?.totalReturn ?? null,
-    maxDrawdown: headline?.maxDrawdown ?? null,
-    consistency,
-    weeksOfData: rawObservationCount,
-    weeklyObservations: headline?.weeklyObservations ?? 0,
-    decisionObservations: rawObservationCount,
-    endingValuePortfolio: full?.endingValue ?? null,
-    endingValueMarket: full?.benchmarks.nasdaq100CapWeight.endingValue ?? null,
-    endingValueNasdaq100EqualWeight: full?.benchmarks.nasdaq100EqualWeight.endingValue ?? null,
-    endingValueSp500: full?.benchmarks.sp500.endingValue ?? null,
-    pctWeeksBeatingSp500: full?.pctWeeksBeatingSp500 ?? null,
-    pctWeeksBeatingNasdaq100EqualWeight: full?.pctWeeksBeatingNasdaq100EqualWeight ?? null,
-    beatsMarket:
-      full != null && full.endingValue > 0 && full.benchmarks.nasdaq100CapWeight.endingValue > 0
-        ? full.endingValue > full.benchmarks.nasdaq100CapWeight.endingValue
-        : null,
-    beatsSp500:
-      full != null && full.endingValue > 0 && full.benchmarks.sp500.endingValue > 0
-        ? full.endingValue > full.benchmarks.sp500.endingValue
-        : null,
-  };
-
-  return { metrics, liveTail };
-}
 
 function normalize(values: (number | null)[], higherIsBetter: boolean): (number | null)[] {
   const valid = values.filter((v): v is number => v !== null && Number.isFinite(v));
@@ -382,14 +148,15 @@ export async function loadPortfolioConfigsRankedPayload(
   const adminSupabase = createAdminClient();
   const latestRawRunDate = await loadLatestRawRunDate(adminSupabase);
 
-  const { data: configs } = await supabase
+  const { data: configsData } = await supabase
     .from('portfolio_configs')
     .select('id, risk_level, rebalance_frequency, weighting_method, top_n, label, risk_label, is_default')
     .order('risk_level', { ascending: true })
     .order('rebalance_frequency', { ascending: true })
     .order('weighting_method', { ascending: true });
 
-  if (!configs || configs.length === 0) {
+  const configs = (configsData ?? []) as ConfigRow[];
+  if (configs.length === 0) {
     return {
       strategyId: strategy.id,
       strategyName: strategy.name ?? null,
@@ -403,57 +170,53 @@ export async function loadPortfolioConfigsRankedPayload(
     };
   }
 
-  const { data: perfRows } = await supabase
-    .from('strategy_portfolio_config_performance')
-    .select(
-      'config_id, run_date, strategy_status, compute_status, net_return, gross_return, starting_equity, ending_equity, holdings_count, turnover, transaction_cost_bps, nasdaq100_cap_weight_equity, nasdaq100_equal_weight_equity, sp500_equity, is_eligible_for_comparison, first_rebalance_date, next_rebalance_date'
-    )
-    .eq('strategy_id', strategy.id)
-    .order('run_date', { ascending: true });
-
-  const flatPerf = (perfRows ?? []) as DbConfigPerfRow[];
-  const perfRowsForBenchmark: PerfRow[] = flatPerf.map((r) => ({
-    config_id: r.config_id,
-    run_date: r.run_date,
-    net_return: r.net_return,
-    ending_equity: r.ending_equity ?? INITIAL_CAPITAL,
-    nasdaq100_cap_weight_equity: r.nasdaq100_cap_weight_equity ?? INITIAL_CAPITAL,
-    nasdaq100_equal_weight_equity: r.nasdaq100_equal_weight_equity ?? INITIAL_CAPITAL,
-    sp500_equity: r.sp500_equity ?? INITIAL_CAPITAL,
-  }));
-
-  const perfByConfigRaw = new Map<string, ConfigPerfRow[]>();
-  for (const row of flatPerf) {
-    const existing = perfByConfigRaw.get(row.config_id) ?? [];
-    existing.push(stripConfigId(row));
-    perfByConfigRaw.set(row.config_id, existing);
-  }
-
-  const { data: inceptionBatch } = await supabase
-    .from('ai_run_batches')
-    .select('run_date')
-    .eq('strategy_id', strategy.id)
-    .order('run_date', { ascending: true })
-    .limit(1)
-    .maybeSingle();
-
-  const inceptionDate = (inceptionBatch as { run_date: string } | null)?.run_date;
-
-  const configsWithMetrics = await Promise.all((configs as ConfigRow[]).map(async (cfg) => {
-    const rawList = perfByConfigRaw.get(cfg.id) ?? [];
-    const rawCount = rawList.length;
-    const rows = ensureModelInceptionPrefix(inceptionDate, rawList);
-    const { metrics, liveTail } = await computeRankedConfigMetrics(
-      adminSupabase,
-      strategy.id,
-      cfg,
-      rows,
-      rawCount
-    );
+  const snapshots = await loadStrategyDailySeriesBulk(supabase as never, strategy.id);
+  const configsWithMetrics = configs.map((cfg) => {
+    const snapshot = snapshots.get(cfg.id) ?? null;
+    const metrics = snapshot?.metrics ?? {
+      sharpeRatio: null,
+      sharpeRatioDecisionCadence: null,
+      cagr: null,
+      totalReturn: null,
+      maxDrawdown: null,
+      consistency: null,
+      weeksOfData: 0,
+      weeklyObservations: 0,
+      decisionObservations: 0,
+      endingValuePortfolio: null,
+      endingValueMarket: null,
+      endingValueNasdaq100EqualWeight: null,
+      endingValueSp500: null,
+      pctWeeksBeatingSp500: null,
+      pctWeeksBeatingNasdaq100EqualWeight: null,
+      beatsMarket: null,
+      beatsSp500: null,
+    };
+    const status = snapshot?.dataStatus ?? 'empty';
     const dataStatus: 'ready' | 'early' | 'empty' =
-      rawCount === 0 ? 'empty' : compositeInputsReady(metrics) ? 'ready' : 'early';
+      status === 'ready' ? 'ready' : status === 'empty' ? 'empty' : 'early';
+    const last = snapshot?.series?.length ? snapshot.series[snapshot.series.length - 1] : null;
+    const liveTail = last
+      ? ({ date: last.date, benchmark: benchmarkEndingValuesFromSeriesPoint(last) } satisfies LiveTail)
+      : null;
     return { cfg, metrics, dataStatus, liveTail };
-  }));
+  });
+
+  const missingAny = configs.some((cfg) => !snapshots.has(cfg.id));
+  const staleAny = Array.from(snapshots.values()).some(
+    (snapshot) =>
+      latestRawRunDate != null &&
+      snapshot.asOfRunDate &&
+      snapshot.asOfRunDate < latestRawRunDate
+  );
+  if (missingAny || staleAny) {
+    try {
+      const { triggerPortfolioConfigsBatch } = await import('@/lib/trigger-config-compute');
+      triggerPortfolioConfigsBatch(strategy.id);
+    } catch {
+      /* best-effort */
+    }
+  }
 
   const forRanking = configsWithMetrics.filter((c) => c.dataStatus !== 'empty');
 
@@ -538,8 +301,7 @@ export async function loadPortfolioConfigsRankedPayload(
     }
   }
 
-  const result: RankedConfig[] = configsWithMetrics.map(
-    ({ cfg, metrics, dataStatus }) => {
+  const result: RankedConfig[] = configsWithMetrics.map(({ cfg, metrics, dataStatus }) => {
     const rank = rankMap.get(cfg.id) ?? null;
     const hasComposite = scoreByConfigId.get(cfg.id) != null;
 
@@ -552,30 +314,29 @@ export async function loadPortfolioConfigsRankedPayload(
     if (hasComposite && bestTotalReturnId && cfg.id === bestTotalReturnId) badges.push('Best total return');
     if (hasComposite && steadiestId && cfg.id === steadiestId) badges.push('Steadiest');
 
-      return {
-        id: cfg.id,
-        riskLevel: cfg.risk_level,
-        rebalanceFrequency: cfg.rebalance_frequency,
-        weightingMethod: cfg.weighting_method,
-        topN: cfg.top_n,
-        label:
-          cfg.label && String(cfg.label).trim() !== ''
-            ? cfg.label
-            : formatPortfolioConfigLabel({
-                topN: cfg.top_n,
-                weightingMethod: cfg.weighting_method,
-                rebalanceFrequency: cfg.rebalance_frequency,
-              }),
-        riskLabel: cfg.risk_label,
-        isDefault: cfg.is_default,
-        metrics,
-        compositeScore: scoreByConfigId.get(cfg.id) ?? null,
-        rank,
-        badges,
-        dataStatus,
-      };
-    }
-  );
+    return {
+      id: cfg.id,
+      riskLevel: cfg.risk_level,
+      rebalanceFrequency: cfg.rebalance_frequency,
+      weightingMethod: cfg.weighting_method,
+      topN: cfg.top_n,
+      label:
+        cfg.label && String(cfg.label).trim() !== ''
+          ? cfg.label
+          : formatPortfolioConfigLabel({
+              topN: cfg.top_n,
+              weightingMethod: cfg.weighting_method,
+              rebalanceFrequency: cfg.rebalance_frequency,
+            }),
+      riskLabel: cfg.risk_label,
+      isDefault: cfg.is_default,
+      metrics,
+      compositeScore: scoreByConfigId.get(cfg.id) ?? null,
+      rank,
+      badges,
+      dataStatus,
+    };
+  });
 
   result.sort((a, b) => {
     if (a.rank !== null && b.rank !== null) return a.rank - b.rank;
@@ -595,7 +356,9 @@ export async function loadPortfolioConfigsRankedPayload(
     }
   }
 
-  const liveTails = configsWithMetrics.map((c) => c.liveTail).filter((t): t is LiveTail => t != null);
+  const liveTails = configsWithMetrics
+    .map((c) => c.liveTail)
+    .filter((t): t is LiveTail => t != null);
   let benchmarkEndingValues: BenchmarkEndingValues | null;
   let latestPerformanceDate: string | null;
   if (liveTails.length > 0) {
@@ -603,14 +366,14 @@ export async function loadPortfolioConfigsRankedPayload(
     latestPerformanceDate = pick.date;
     benchmarkEndingValues = pick.benchmark;
   } else {
-    benchmarkEndingValues = extractLatestBenchmarkEndingValues(perfRowsForBenchmark);
-    latestPerformanceDate = latestRunDateFromPerfRows(perfRowsForBenchmark);
+    benchmarkEndingValues = null;
+    latestPerformanceDate = null;
   }
 
   return {
     strategyId: strategy.id,
     strategyName: strategy.name ?? null,
-    modelInceptionDate: inceptionDate ?? null,
+    modelInceptionDate: null,
     eligibleCount: compositeCount,
     latestPerformanceDate,
     latestRawRunDate,
@@ -628,13 +391,5 @@ export async function loadPortfolioConfigsRankedPayload(
 export async function getCachedRankedConfigsPayload(
   slug: string
 ): Promise<PortfolioConfigsRankedPayload | null> {
-  const loadCached = unstable_cache(
-    async () => loadPortfolioConfigsRankedPayload(slug),
-    [RANKED_CONFIGS_CACHE_TAG, slug, 'v9-no-weekly-preload'],
-    {
-      revalidate: 300,
-      tags: [RANKED_CONFIGS_CACHE_TAG, `${RANKED_CONFIGS_CACHE_TAG}:${slug}`],
-    }
-  );
-  return loadCached();
+  return loadPortfolioConfigsRankedPayload(slug);
 }

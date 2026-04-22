@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
@@ -118,9 +118,9 @@ const RATINGS_TABLE_PADDING_PAID =
   '[&_th]:!px-2 sm:[&_th]:!px-3 [&_th]:!py-2.5 [&_td]:!px-2 sm:[&_td]:!px-3 [&_td]:!py-3';
 const RATINGS_TABLE_PADDING_FREE =
   '[&_th]:!px-2 sm:[&_th]:!px-3 [&_th]:!py-2.5 [&_td]:!px-2 sm:[&_td]:!px-3 [&_td]:!py-3';
-const STICKY_RANK_CELL = 'sticky left-0 bg-background [tr:hover_&]:bg-muted/50';
+const STICKY_RANK_CELL = 'sticky left-0 z-10 bg-background [tr:hover_&]:bg-muted/50';
 const STICKY_SYMBOL_CELL =
-  'sticky bg-background border-r border-border/70 [tr:hover_&]:bg-muted/50 left-[var(--ratings-rank-width)]';
+  'sticky bg-background border-r border-border/70 [tr:hover_&]:bg-muted/50 left-[var(--ratings-rank-width)] z-10';
 const STICKY_RANK_HEAD = 'sticky left-0 !z-30 !bg-background';
 const STICKY_SYMBOL_HEAD =
   'sticky left-[var(--ratings-rank-width)] !z-30 !bg-background border-r border-border/70';
@@ -441,36 +441,8 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
     ]
   );
 
-  const ratingsToolbarRef = useRef<HTMLDivElement>(null);
-  const [ratingsToolbarHeight, setRatingsToolbarHeight] = useState(96);
-
-  useLayoutEffect(() => {
-    if (isStrategyLoading || isDateLoading || errorMessage) return;
-    const el = ratingsToolbarRef.current;
-    if (!el) return;
-    const measure = () => setRatingsToolbarHeight(el.getBoundingClientRect().height);
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [
-    isStrategyLoading,
-    isDateLoading,
-    errorMessage,
-    topRatedStocksActive,
-    query,
-    bucketFilter,
-    selectedRunDate,
-    canUseStrategyFilter,
-    selectedStrategySlug,
-  ]);
-
-  /** Sticky on `<thead>` is unreliable; offset + sticky are applied per-`th` via CSS var. */
-  const ratingsTheadStickyStyle = {
-    '--ratings-thead-top': `${ratingsToolbarHeight}px`,
-  } as React.CSSProperties;
   const ratingsTableStickyHeaderClass =
-    '[&_tr]:border-0 [&_th]:sticky [&_th]:top-[var(--ratings-thead-top)] [&_th]:z-10 [&_th]:border-b [&_th]:border-border [&_th]:bg-background/95';
+    '[&_tr]:border-0 [&_th]:sticky [&_th]:top-0 [&_th]:z-20 [&_th]:border-b [&_th]:border-border [&_th]:bg-background';
 
   if (guestRatingsShell && !errorMessage) {
     const nextParam = encodeURIComponent(
@@ -487,11 +459,10 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
   return (
     <TooltipProvider delayDuration={150}>
       <div
-        className="flex h-full min-h-0 flex-1 flex-col"
+        className="flex h-full min-h-0 flex-1 flex-col -mx-4 -my-4 md:-mx-6 md:-my-6"
         data-platform-tour="ratings-page-root"
       >
-        {/* Floating header: title + date nav + strategy dropdown */}
-        <div className="sticky top-0 z-30 border-b bg-background/95 px-4 py-2.5 backdrop-blur-sm sm:px-6">
+        <div className="border-b border-border/70 bg-background px-4 py-3 sm:px-6">
           <div className="flex flex-wrap items-center gap-3">
             <div
               className={cn(
@@ -600,7 +571,7 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
 
             <div className="ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2">
               <div className="flex min-w-0 max-w-xs flex-1 items-center gap-2 sm:max-w-[min(100%,20rem)]">
-                <span className="hidden shrink-0 whitespace-nowrap text-xs text-muted-foreground md:inline">
+                <span className="sr-only shrink-0 whitespace-nowrap text-xs text-muted-foreground md:not-sr-only">
                   Strategy model
                 </span>
                 {canUseStrategyFilter ? (
@@ -732,10 +703,127 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
               </div>
             </div>
           </div>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="relative flex-1 sm:max-w-xs">
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      e.preventDefault();
+                      clearSearchQuery();
+                    }
+                  }}
+                  placeholder="Search anything"
+                  className={`h-8 pl-9 text-sm ${query ? 'pr-9' : ''}`}
+                />
+                {query ? (
+                  <button
+                    type="button"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    aria-label="Clear search"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={clearSearchQuery}
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                ) : null}
+              </div>
+              <div className="inline-flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1 rounded-md border p-0.5">
+                  {BUCKET_FILTERS.map((bf) => (
+                    <button
+                      key={bf.value}
+                      type="button"
+                      onClick={() => setBucketFilter(bf.value)}
+                      className={`rounded-sm px-2.5 py-1 text-xs font-medium transition-colors ${
+                        bucketFilter === bf.value
+                          ? 'bg-primary text-primary-foreground shadow-sm'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      {bf.label}
+                    </button>
+                  ))}
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  {visibleRows.length} of {filteredRows.length}
+                </span>
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center justify-end gap-2 sm:justify-end">
+              <Label
+                htmlFor="ratings-run-date-select"
+                className="mb-0 shrink-0 cursor-default whitespace-nowrap text-xs font-normal text-muted-foreground"
+              >
+                {topRatedStocksActive ? 'Cumulative ratings as of' : 'Rating date'}
+              </Label>
+              <Select
+                value={
+                  selectedRunDate && availableRunDates.includes(selectedRunDate)
+                    ? selectedRunDate
+                    : undefined
+                }
+                onValueChange={(v) => {
+                  if (v) void handleRunDateSelect(v);
+                }}
+                disabled={ratingsRunDateSelectDisabled}
+              >
+                {ratingsAccessMode === 'free' ? (
+                  <Tooltip delayDuration={200}>
+                    <TooltipTrigger asChild>
+                      <span className="inline-flex cursor-help rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+                        <SelectTrigger
+                          id="ratings-run-date-select"
+                          aria-label="Ratings run date — upgrade for history"
+                          className="h-8 w-full max-w-[168px] shrink-0 pointer-events-none text-xs sm:w-[168px]"
+                        >
+                          <SelectValue placeholder={availableRunDates.length ? 'Run date' : 'No dates'} />
+                        </SelectTrigger>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent
+                      side="top"
+                      align="end"
+                      className="pointer-events-auto w-[min(100vw-2rem,18rem)] border-border p-3 text-left shadow-lg"
+                    >
+                      <p className="mb-2.5 text-xs leading-snug text-popover-foreground">
+                        Rating history and past run dates are available on Supporter or Outperformer plans.
+                      </p>
+                      <Button
+                        size="sm"
+                        className="h-8 w-full gap-1 border-0 bg-trader-blue font-medium text-white hover:bg-trader-blue/90 dark:bg-trader-blue dark:hover:bg-trader-blue/90"
+                        asChild
+                      >
+                        <Link href="/pricing">Upgrade</Link>
+                      </Button>
+                    </TooltipContent>
+                  </Tooltip>
+                ) : (
+                  <SelectTrigger
+                    id="ratings-run-date-select"
+                    aria-label="Ratings run date"
+                    className="h-8 w-full max-w-[168px] shrink-0 text-xs sm:w-[168px]"
+                  >
+                    <SelectValue placeholder={availableRunDates.length ? 'Run date' : 'No dates'} />
+                  </SelectTrigger>
+                )}
+                <SelectContent align="end">
+                  {availableRunDates.map((d) => (
+                    <SelectItem key={d} value={d} className="text-xs">
+                      {formatRunDate(d)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
         </div>
 
-        {/* Table area — single overflow container so sticky <th> works (no nested overflow-x) */}
-        <div className="min-h-0 flex-1 overflow-auto overscroll-y-contain px-1 pb-4 pt-1">
+        {/* Table area */}
+        <div className="min-h-0 flex-1 overflow-auto overscroll-y-contain px-1 pb-4">
           {isStrategyLoading || isDateLoading ? (
             <div className="space-y-2 px-4 pt-4 sm:px-6">
               <Skeleton className="h-10 w-full" />
@@ -747,133 +835,7 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
             </div>
           ) : (
             <>
-              {/* Search + bucket filters + ratings date (same row as overview holdings toolbar) */}
-              <div
-                ref={ratingsToolbarRef}
-                className="sticky left-0 top-0 z-20 border-b border-border/70 bg-background/95 px-4 pb-3 pt-4 backdrop-blur-sm sm:px-6"
-              >
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
-                  <div className="relative flex-1 sm:max-w-xs">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      value={query}
-                      onChange={(e) => setQuery(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Escape') {
-                          e.preventDefault();
-                          clearSearchQuery();
-                        }
-                      }}
-                      placeholder="Search anything"
-                      className={`h-8 pl-9 text-sm ${query ? 'pr-9' : ''}`}
-                    />
-                    {query ? (
-                      <button
-                        type="button"
-                        className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                        aria-label="Clear search"
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={clearSearchQuery}
-                      >
-                        <X className="size-3.5" />
-                      </button>
-                    ) : null}
-                  </div>
-                  <div className="inline-flex flex-wrap items-center gap-2">
-                    <div className="flex items-center gap-1 rounded-md border p-0.5">
-                      {BUCKET_FILTERS.map((bf) => (
-                        <button
-                          key={bf.value}
-                          type="button"
-                          onClick={() => setBucketFilter(bf.value)}
-                          className={`rounded-sm px-2.5 py-1 text-xs font-medium transition-colors ${
-                            bucketFilter === bf.value
-                              ? 'bg-primary text-primary-foreground shadow-sm'
-                              : 'text-muted-foreground hover:text-foreground'
-                          }`}
-                        >
-                          {bf.label}
-                        </button>
-                      ))}
-                    </div>
-                    <span className="text-xs text-muted-foreground">
-                      {visibleRows.length} of {filteredRows.length}
-                    </span>
-                  </div>
-                  </div>
-                  <div className="flex shrink-0 items-center justify-end gap-2 sm:justify-end">
-                  <Label
-                    htmlFor="ratings-run-date-select"
-                    className="mb-0 shrink-0 cursor-default whitespace-nowrap text-xs font-normal text-muted-foreground"
-                  >
-                    {topRatedStocksActive ? 'Cumulative ratings as of' : 'Rating date'}
-                  </Label>
-                  <Select
-                    value={
-                      selectedRunDate && availableRunDates.includes(selectedRunDate)
-                        ? selectedRunDate
-                        : undefined
-                    }
-                    onValueChange={(v) => {
-                      if (v) void handleRunDateSelect(v);
-                    }}
-                    disabled={ratingsRunDateSelectDisabled}
-                  >
-                    {ratingsAccessMode === 'free' ? (
-                      <Tooltip delayDuration={200}>
-                        <TooltipTrigger asChild>
-                          <span className="inline-flex cursor-help rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
-                            <SelectTrigger
-                              id="ratings-run-date-select"
-                              aria-label="Ratings run date — upgrade for history"
-                              className="h-8 w-full max-w-[168px] shrink-0 pointer-events-none text-xs sm:w-[168px]"
-                            >
-                              <SelectValue placeholder={availableRunDates.length ? 'Run date' : 'No dates'} />
-                            </SelectTrigger>
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent
-                          side="top"
-                          align="end"
-                          className="pointer-events-auto w-[min(100vw-2rem,18rem)] border-border p-3 text-left shadow-lg"
-                        >
-                          <p className="mb-2.5 text-xs leading-snug text-popover-foreground">
-                            Rating history and past run dates are available on Supporter or Outperformer plans.
-                          </p>
-                          <Button
-                            size="sm"
-                            className="h-8 w-full gap-1 border-0 bg-trader-blue font-medium text-white hover:bg-trader-blue/90 dark:bg-trader-blue dark:hover:bg-trader-blue/90"
-                            asChild
-                          >
-                            <Link href="/pricing">Upgrade</Link>
-                          </Button>
-                        </TooltipContent>
-                      </Tooltip>
-                    ) : (
-                      <SelectTrigger
-                        id="ratings-run-date-select"
-                        aria-label="Ratings run date"
-                        className="h-8 w-full max-w-[168px] shrink-0 text-xs sm:w-[168px]"
-                      >
-                        <SelectValue placeholder={availableRunDates.length ? 'Run date' : 'No dates'} />
-                      </SelectTrigger>
-                    )}
-                    <SelectContent align="end">
-                      {availableRunDates.map((d) => (
-                        <SelectItem key={d} value={d} className="text-xs">
-                          {formatRunDate(d)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  </div>
-                </div>
-              </div>
-
-              <div className="px-0 sm:px-6">
-                <div className="w-fit min-w-full border-y border-border/70 py-2 sm:rounded-lg sm:border sm:px-5 sm:py-3">
-                {topRatedStocksActive ? (
+              {topRatedStocksActive ? (
                   <Table
                     noScrollWrapper
                     className={cn(
@@ -881,7 +843,7 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                       rankColumnBlurred ? RATINGS_TABLE_PADDING_FREE : RATINGS_TABLE_PADDING_PAID
                     )}
                   >
-                    <TableHeader className={ratingsTableStickyHeaderClass} style={ratingsTheadStickyStyle}>
+                    <TableHeader className={ratingsTableStickyHeaderClass}>
                       <TableRow>
                         <TableHead
                           className={cn(
@@ -954,7 +916,7 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                         const cumulativeBucket = bucketFromScore(row.cumulativeAvgScore);
                         return (
                           <TableRow key={row.stockId}>
-                            <TableCell className={cn('min-w-0 font-medium z-20', STICKY_RANK_CELL)}>
+                            <TableCell className={cn('min-w-0 font-medium', STICKY_RANK_CELL)}>
                               {rankColumnBlurred ? (
                                 <>
                                   <BlurredRankCellPlaceholder />
@@ -969,7 +931,7 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                                 />
                               )}
                             </TableCell>
-                            <TableCell className={cn('min-w-0 z-20', STICKY_SYMBOL_CELL)}>
+                            <TableCell className={cn('min-w-0', STICKY_SYMBOL_CELL)}>
                               {companyFull ? (
                                 <Tooltip>
                                   <TooltipTrigger asChild>
@@ -1062,7 +1024,7 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                       rankColumnBlurred ? RATINGS_TABLE_PADDING_FREE : RATINGS_TABLE_PADDING_PAID
                     )}
                   >
-                    <TableHeader className={ratingsTableStickyHeaderClass} style={ratingsTheadStickyStyle}>
+                    <TableHeader className={ratingsTableStickyHeaderClass}>
                       <TableRow>
                         <TableHead
                           className={cn(
@@ -1149,7 +1111,7 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
 
                         return (
                           <TableRow key={row.stockId}>
-                            <TableCell className={cn('min-w-0 font-medium z-20', STICKY_RANK_CELL)}>
+                            <TableCell className={cn('min-w-0 font-medium', STICKY_RANK_CELL)}>
                               {rankColumnBlurred ? (
                                 <>
                                   <BlurredRankCellPlaceholder />
@@ -1161,7 +1123,7 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                                 <HoldingRankWithChange rank={row.rank} rankChange={row.rankChange} />
                               )}
                             </TableCell>
-                            <TableCell className={cn('min-w-0 z-20', STICKY_SYMBOL_CELL)}>
+                            <TableCell className={cn('min-w-0', STICKY_SYMBOL_CELL)}>
                               <div className="flex min-w-0 items-center gap-1.5">
                                 {companyFull ? (
                                   <Tooltip>
@@ -1339,10 +1301,9 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                     </TableBody>
                   </Table>
                 )}
-                </div>
 
               {hasMore && (
-                <div className="flex justify-center pt-4">
+                <div className="flex justify-center py-4">
                   <Button
                     variant="outline"
                     size="sm"
@@ -1354,7 +1315,6 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                   </Button>
                 </div>
               )}
-              </div>
             </>
           )}
         </div>

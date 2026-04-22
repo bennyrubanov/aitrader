@@ -4276,49 +4276,47 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                     Details
                                   </h4>
                                   <div className="grid grid-cols-2 gap-2 sm:gap-3">
-                                    <div className="flex flex-col gap-2">
-                                      <div className="rounded-lg border bg-card px-2 py-2">
-                                        <div className="flex items-start justify-between gap-1">
-                                          <p className="min-w-0 flex-1 text-[10px] font-medium uppercase leading-tight tracking-wide text-muted-foreground">
-                                            Entry date
-                                          </p>
-                                          <Button
-                                            type="button"
-                                            variant="ghost"
-                                            size="icon"
-                                            className="size-6 shrink-0 -mr-1 -mt-0.5 text-muted-foreground hover:text-foreground"
-                                            aria-label="Entry settings"
-                                            onClick={() => setEntrySettingsProfileId(bp.id)}
-                                          >
-                                            <Settings2 className="size-3.5" aria-hidden />
-                                          </Button>
-                                        </div>
-                                        <p className="text-sm font-semibold tabular-nums leading-tight text-foreground">
-                                          {bp.user_start_date?.trim()
-                                            ? formatYmdDisplay(bp.user_start_date.trim())
-                                            : '—'}
+                                    <div className="rounded-lg border bg-card px-2 py-2">
+                                      <div className="flex items-start justify-between gap-1">
+                                        <p className="min-w-0 flex-1 text-[10px] font-medium uppercase leading-tight tracking-wide text-muted-foreground">
+                                          Entry date
                                         </p>
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="icon"
+                                          className="size-6 shrink-0 -mr-1 -mt-0.5 text-muted-foreground hover:text-foreground"
+                                          aria-label="Entry settings"
+                                          onClick={() => setEntrySettingsProfileId(bp.id)}
+                                        >
+                                          <Settings2 className="size-3.5" aria-hidden />
+                                        </Button>
                                       </div>
-                                      <div className="rounded-lg border bg-card px-2 py-2">
-                                        <div className="flex items-start justify-between gap-1">
-                                          <p className="min-w-0 flex-1 text-[10px] font-medium uppercase leading-tight tracking-wide text-muted-foreground">
-                                            Initial investment
-                                          </p>
-                                          <Button
-                                            type="button"
-                                            variant="ghost"
-                                            size="icon"
-                                            className="size-6 shrink-0 -mr-1 -mt-0.5 text-muted-foreground hover:text-foreground"
-                                            aria-label="Entry settings"
-                                            onClick={() => setEntrySettingsProfileId(bp.id)}
-                                          >
-                                            <Settings2 className="size-3.5" aria-hidden />
-                                          </Button>
-                                        </div>
-                                        <p className="text-sm font-semibold tabular-nums leading-tight text-foreground">
-                                          {formatOverviewInvestmentSize(Number(bp.investment_size)) ?? '—'}
+                                      <p className="text-sm font-semibold tabular-nums leading-tight text-foreground">
+                                        {bp.user_start_date?.trim()
+                                          ? formatYmdDisplay(bp.user_start_date.trim())
+                                          : '—'}
+                                      </p>
+                                    </div>
+                                    <div className="rounded-lg border bg-card px-2 py-2">
+                                      <div className="flex items-start justify-between gap-1">
+                                        <p className="min-w-0 flex-1 text-[10px] font-medium uppercase leading-tight tracking-wide text-muted-foreground">
+                                          Initial investment
                                         </p>
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="icon"
+                                          className="size-6 shrink-0 -mr-1 -mt-0.5 text-muted-foreground hover:text-foreground"
+                                          aria-label="Entry settings"
+                                          onClick={() => setEntrySettingsProfileId(bp.id)}
+                                        >
+                                          <Settings2 className="size-3.5" aria-hidden />
+                                        </Button>
                                       </div>
+                                      <p className="text-sm font-semibold tabular-nums leading-tight text-foreground">
+                                        {formatOverviewInvestmentSize(Number(bp.investment_size)) ?? '—'}
+                                      </p>
                                     </div>
                                     <SpotlightStatCard
                                       tooltipKey="sharpe_ratio"
@@ -4354,16 +4352,18 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                           : undefined
                                       }
                                     />
-                                    <SpotlightStatCard
-                                      tooltipKey="max_drawdown"
-                                      label="Max drawdown"
-                                      value={fmt.pct(st.maxDrawdown)}
-                                      positive={
-                                        st.maxDrawdown != null && Number.isFinite(st.maxDrawdown)
-                                          ? st.maxDrawdown > -0.2
-                                          : undefined
-                                      }
-                                    />
+                                    <div className="col-span-2">
+                                      <SpotlightStatCard
+                                        tooltipKey="max_drawdown"
+                                        label="Max drawdown"
+                                        value={fmt.pct(st.maxDrawdown)}
+                                        positive={
+                                          st.maxDrawdown != null && Number.isFinite(st.maxDrawdown)
+                                            ? st.maxDrawdown > -0.2
+                                            : undefined
+                                        }
+                                      />
+                                    </div>
                                   </div>
                                 </div>
                               </div>

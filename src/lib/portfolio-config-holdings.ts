@@ -182,13 +182,15 @@ export async function getPortfolioConfigHoldings(
   riskLevel: number,
   rebalanceFrequency: string,
   weightingMethod: string,
-  asOfRunDate: string | null
+  asOfRunDate: string | null,
+  options?: { includeRankChange?: boolean }
 ): Promise<{
   holdings: HoldingItem[];
   asOfDate: string | null;
   configSummary: ConfigHoldingsSummary | null;
   rebalanceDates: string[];
 }> {
+  const includeRankChange = options?.includeRankChange ?? true;
   const ctx = await resolvePortfolioConfigRebalanceContext(
     supabase,
     strategyId,
@@ -220,7 +222,7 @@ export async function getPortfolioConfigHoldings(
 
   const batchIndex = rebalanceBatches.findIndex((b) => b.run_date === batch.run_date);
   let holdingsOut = holdings;
-  if (batchIndex > 0) {
+  if (includeRankChange && batchIndex > 0) {
     const prevBatch = rebalanceBatches[batchIndex - 1]!;
     const { holdings: prevHoldings } = await buildHoldingsForBatch(
       supabase,

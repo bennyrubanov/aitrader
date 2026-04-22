@@ -1813,21 +1813,21 @@ export function PortfolioOnboardingDialog({
                 )}
               </div>
               <OnboardingDialogFooter>
-                <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex w-full items-center gap-1.5 sm:gap-2">
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="h-auto shrink-0 gap-1.5 px-2 -ml-2 text-muted-foreground hover:text-foreground"
+                    className="-ml-2 h-auto min-w-0 flex-1 gap-1 px-2 text-[11px] text-muted-foreground hover:text-foreground sm:gap-1.5 sm:text-sm"
                     onClick={() => goToStep('done')}
                   >
                     <ArrowLeft className="size-3.5" />
-                    Change selections
+                    <span className="truncate">Change selections</span>
                   </Button>
                   <Button
                     type="button"
                     size="sm"
-                    className="shrink-0 gap-1.5"
+                    className="ml-auto shrink-0 gap-0 px-2 text-[11px] sm:gap-1.5 sm:px-3 sm:text-sm"
                     disabled={followPhase !== 'idle'}
                     onClick={() => void handleFollowThisPortfolio()}
                   >
@@ -1836,7 +1836,7 @@ export function PortfolioOnboardingDialog({
                       : followPhase === 'posting'
                         ? 'Following…'
                         : 'Follow this portfolio'}
-                    {followPhase === 'idle' ? <ArrowRight className="size-3.5" /> : null}
+                    {followPhase === 'idle' ? <ArrowRight className="hidden size-3.5 sm:block" /> : null}
                   </Button>
                 </div>
               </OnboardingDialogFooter>

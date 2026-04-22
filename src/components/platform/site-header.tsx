@@ -119,7 +119,7 @@ export function SiteHeader() {
           onMouseEnter={() => router.prefetch('/')}
           onFocus={() => router.prefetch('/')}
           onPointerDown={() => router.prefetch('/')}
-          className="inline-flex items-center rounded-md p-1 hover:bg-muted"
+          className="hidden items-center rounded-md p-1 hover:bg-muted md:inline-flex"
           aria-label="Go to home"
         >
           <Image src="/favicon.ico" alt="AITrader home" width={24} height={24} />
@@ -183,7 +183,9 @@ export function SiteHeader() {
           ) : null}
           <div className="min-w-0 flex-1 max-w-lg">
             <p className="truncate text-sm font-semibold">{viewMeta.title}</p>
-            <p className="truncate text-xs text-muted-foreground">{viewMeta.subtitle}</p>
+            <p className="hidden truncate text-xs text-muted-foreground md:block">
+              {viewMeta.subtitle}
+            </p>
           </div>
         </div>
 

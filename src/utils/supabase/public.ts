@@ -4,6 +4,7 @@
  * Uses the public anon key without cookies/auth session state.
  */
 import { createClient } from '@supabase/supabase-js';
+import { instrumentSupabaseFetch } from '@/utils/supabase/query-counter';
 
 export const createPublicClient = () => {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -19,6 +20,9 @@ export const createPublicClient = () => {
     auth: {
       persistSession: false,
       autoRefreshToken: false,
+    },
+    global: {
+      fetch: instrumentSupabaseFetch(fetch, 'public'),
     },
   });
 };

@@ -11,6 +11,10 @@ import {
 } from '@/lib/aiPrompt';
 import { LANDING_TOP_PORTFOLIO_PERFORMANCE_CACHE_TAG } from '@/lib/landing-top-portfolio-performance';
 import { RANKED_CONFIGS_CACHE_TAG } from '@/lib/portfolio-configs-ranked-core';
+import {
+  CONFIG_DAILY_SERIES_CACHE_TAG,
+  refreshDailySeriesSnapshotsForStrategy,
+} from '@/lib/config-daily-series';
 import { STRATEGY_CONFIG, GIT_COMMIT_SHA } from '@/lib/strategyConfig';
 import {
   INITIAL_CAPITAL,
@@ -28,6 +32,7 @@ import {
   type BenchmarkDailyPriceIngestRow,
 } from '@/lib/benchmark-daily-prices-ingest';
 import { createAdminClient } from '@/utils/supabase/admin';
+import { runWithSupabaseQueryCount } from '@/utils/supabase/query-counter';
 // Intentional: operator-only cron digest to CRON_ERROR_EMAIL (Gmail→Gmail). User-facing mail uses Resend via @/lib/mailer.
 import { sendEmailByGmail } from '@/lib/sendEmailByGmail';
 
@@ -1158,6 +1163,7 @@ const storeRegression = async (
 };
 
 const handleRequest = async (req: Request) => {
+  return runWithSupabaseQueryCount('/api/cron/daily', async () => {
   const t0 = Date.now();
   const runDate = getRunDate();
 
@@ -1811,6 +1817,24 @@ const handleRequest = async (req: Request) => {
       }
       digestMeta.snapshotIsNew = snapshot.isNew;
       digestMeta.snapshotMembers = snapshotStocks.length;
+      const { data: activeStrategies, error: activeStrategiesError } = await supabase
+        .from('strategy_models')
+        .select('id, slug')
+        .eq('status', 'active');
+      if (activeStrategiesError) {
+        recordCronError('Active strategies load failed (daily snapshot)', activeStrategiesError);
+      }
+      let dailySeriesConfigsWritten = 0;
+      for (const activeStrategy of activeStrategies ?? []) {
+        const dailySnapshot = await refreshDailySeriesSnapshotsForStrategy(supabase as never, {
+          strategyId: String(activeStrategy.id),
+        });
+        dailySeriesConfigsWritten += dailySnapshot.writtenConfigRows;
+        log(
+          'DAILY SNAPSHOT',
+          `strategy=${String(activeStrategy.slug ?? activeStrategy.id)} configs_written=${dailySnapshot.writtenConfigRows} configs_skipped=${dailySnapshot.skippedConfigRows} strategy_written=${dailySnapshot.wroteStrategyRow}`
+        );
+      }
       log(
         'DAILY COMPLETE',
         `Prices saved for ${rawPayload.length} symbols. Snapshot updated. AI ratings skipped (not rebalance day).`
@@ -1820,6 +1844,7 @@ const handleRequest = async (req: Request) => {
 
       revalidatePath('/platform');
       revalidatePath('/platform/overview');
+      revalidateTag(CONFIG_DAILY_SERIES_CACHE_TAG);
 
       const totalSeconds = ((Date.now() - t0) / 1000).toFixed(1);
       return NextResponse.json({
@@ -1828,6 +1853,7 @@ const handleRequest = async (req: Request) => {
         runDate,
         pricesSaved: rawPayload.length,
         snapshotUpdated: true,
+        dailySeriesConfigsWritten,
         aiRatings: false,
         benchmarkDailyPricesIngest: digestMeta.benchmarkDailyPricesIngest,
         elapsedSeconds: Number(totalSeconds),
@@ -2518,6 +2544,28 @@ const handleRequest = async (req: Request) => {
       recordCronError('Portfolio config inline compute failed', batchTriggerError);
     }
 
+    try {
+      const { data: activeStrategies, error: activeStrategiesError } = await supabase
+        .from('strategy_models')
+        .select('id, slug')
+        .eq('status', 'active');
+      if (activeStrategiesError) {
+        recordCronError('Active strategies load failed (daily snapshot)', activeStrategiesError);
+      } else {
+        for (const activeStrategy of activeStrategies ?? []) {
+          const dailySnapshot = await refreshDailySeriesSnapshotsForStrategy(supabase as never, {
+            strategyId: String(activeStrategy.id),
+          });
+          log(
+            'DAILY SNAPSHOT',
+            `strategy=${String(activeStrategy.slug ?? activeStrategy.id)} configs_written=${dailySnapshot.writtenConfigRows} configs_skipped=${dailySnapshot.skippedConfigRows} strategy_written=${dailySnapshot.wroteStrategyRow}`
+          );
+        }
+      }
+    } catch (dailySnapshotErr) {
+      recordCronError('Daily snapshot writer failed', dailySnapshotErr);
+    }
+
     // ----- Step 16: Persist deterministic rebalance actions -----
     const eligibleSymbols = new Set(memberRows.map((member) => member.stock.symbol));
     const oldMapByStockId = new Map(previousHoldings.map((holding) => [holding.stock_id, holding]));
@@ -2711,6 +2759,7 @@ const handleRequest = async (req: Request) => {
     revalidatePath('/performance', 'page');
     revalidatePath('/', 'page');
     revalidateTag(LANDING_TOP_PORTFOLIO_PERFORMANCE_CACHE_TAG);
+    revalidateTag(CONFIG_DAILY_SERIES_CACHE_TAG);
     revalidateTag(RANKED_CONFIGS_CACHE_TAG);
     revalidateTag(`${RANKED_CONFIGS_CACHE_TAG}:${strategy.slug}`);
     revalidatePath('/strategy-models');
@@ -2767,6 +2816,7 @@ const handleRequest = async (req: Request) => {
     }
     await sendCronSummaryOnce();
   }
+  });
 };
 
 export async function GET(req: Request) {

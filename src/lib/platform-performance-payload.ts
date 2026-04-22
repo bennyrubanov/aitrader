@@ -13,7 +13,7 @@ import {
 import { ACTIVE_STRATEGY_ENTRY } from '@/lib/ai-strategy-registry';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { createPublicClient } from '@/utils/supabase/public';
-import { buildDailyMarkedToMarketSeriesForStrategy } from '@/lib/live-mark-to-market';
+import { ensureStrategyDailySeries } from '@/lib/config-daily-series';
 import {
   buildFourWeekQuintileHistory,
   buildMonthlyQuintiles,
@@ -463,13 +463,12 @@ const buildPayloadForStrategy = async (
     sp500: toNumber(row.sp500_equity, INITIAL_CAPITAL),
   }));
 
-  const dailySeries = await buildDailyMarkedToMarketSeriesForStrategy(supabase, {
+  const strategySnapshot = await ensureStrategyDailySeries(createAdminClient() as never, {
     strategyId: strategy.id,
-    notionalSeries: series,
-    startDate: series[0]?.date,
+    rebalanceFrequency: strategy.rebalance_frequency,
   });
-  if (dailySeries && dailySeries.length >= 2) {
-    series = dailySeries;
+  if (strategySnapshot?.series && strategySnapshot.series.length >= 2) {
+    series = strategySnapshot.series;
   }
 
   const weeklyNetReturns = perfRows.map((r) => toNumber(r.net_return, 0));
