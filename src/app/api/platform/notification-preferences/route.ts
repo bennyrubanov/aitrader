@@ -77,6 +77,9 @@ export async function PUT(req: Request) {
     if (typeof body[k] === 'boolean') merged[k] = body[k];
   }
 
+  merged.weekly_digest_enabled =
+    Boolean(merged.weekly_digest_inapp) || Boolean(merged.weekly_digest_email);
+
   const { data, error } = await supabase
     .from('user_notification_preferences')
     .upsert(merged, { onConflict: 'user_id' })

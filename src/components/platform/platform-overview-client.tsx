@@ -16,13 +16,11 @@ import {
   ArrowLeftRight,
   ArrowDownRight,
   ArrowRight,
-  ArrowUpDown,
   ArrowUpRight,
   ChevronDown,
   Compass,
-  FilterX,
   Folders,
-  ListFilter,
+  Bell,
   Loader2,
   Lock,
   Plus,
@@ -40,11 +38,12 @@ import {
   type RiskLevel,
 } from '@/components/portfolio-config';
 import { ENTRY_DATE_KEY } from '@/components/portfolio-config/portfolio-config-storage';
-import { ExplorePortfolioFilterControls } from '@/components/platform/explore-portfolio-filter-controls';
 import { ExplorePortfolioDetailDialog } from '@/components/platform/explore-portfolio-detail-dialog';
+import {
+  PortfolioAlertsDialog,
+  type PortfolioAlertsInitial,
+} from '@/components/platform/portfolio-alerts-dialog';
 import { MetricReadinessPill } from '@/components/platform/metric-readiness-pill';
-import { PortfolioListSortActiveIndicator } from '@/components/platform/portfolio-list-sort-active-indicator';
-import { PortfolioListSortDialog } from '@/components/platform/portfolio-list-sort-dialog';
 import { HoldingRankWithChange } from '@/components/platform/holding-rank-with-change';
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
 import { PortfolioOnboardingDialog } from '@/components/platform/portfolio-onboarding-dialog';
@@ -147,7 +146,6 @@ import {
   type PortfolioListSortMetric,
   sortProfilesByOverviewCardMetric,
 } from '@/lib/portfolio-profile-list-sort';
-import { PORTFOLIO_EXPLORE_QUICK_PICKS } from '@/lib/portfolio-explore-quick-picks';
 import type { SubscriptionTier } from '@/lib/auth-state';
 import { canAccessPaidPortfolioHoldings, getAppAccessState } from '@/lib/app-access';
 import { hasGuestDeclinedAccountNudgeThisSession } from '@/lib/guest-account-nudge-session';
@@ -163,6 +161,7 @@ import {
   computeWeeklyPctBeatingBenchmark,
 } from '@/lib/user-entry-performance';
 import {
+  HOLDINGS_TODAY_SENTINEL,
   PORTFOLIO_HOLDINGS_DATE_SELECT_WIDTH_CLASSES,
   PORTFOLIO_REBALANCE_DATE_SELECT_WIDTH_CLASSES,
 } from '@/lib/portfolio-rebalance-date-select-ui';
@@ -273,6 +272,12 @@ type ProfileRow = {
   notify_holdings_change: boolean;
   email_enabled: boolean;
   inapp_enabled: boolean;
+  notify_rebalance_inapp?: boolean;
+  notify_rebalance_email?: boolean;
+  notify_price_move_inapp?: boolean;
+  notify_price_move_email?: boolean;
+  notify_entries_exits_inapp?: boolean;
+  notify_entries_exits_email?: boolean;
   is_starting_portfolio: boolean;
   created_at?: string;
   strategy_models: { slug: string; name: string } | null;
@@ -343,9 +348,30 @@ function spotlightSortValue(
 }
 
 function normalizeOverviewProfile(p: ProfileRow): ProfileRow {
+  const email = p.email_enabled ?? true;
+  const inapp = p.inapp_enabled ?? true;
+  const nr = p.notify_rebalance ?? true;
+  const nh = p.notify_holdings_change ?? true;
   return {
     ...p,
     is_starting_portfolio: Boolean(p.is_starting_portfolio),
+    notify_rebalance_inapp: p.notify_rebalance_inapp ?? (nr && inapp),
+    notify_rebalance_email: p.notify_rebalance_email ?? (nr && email),
+    notify_price_move_inapp: p.notify_price_move_inapp ?? false,
+    notify_price_move_email: p.notify_price_move_email ?? false,
+    notify_entries_exits_inapp: p.notify_entries_exits_inapp ?? (nh && inapp),
+    notify_entries_exits_email: p.notify_entries_exits_email ?? (nh && email),
+  };
+}
+
+function overviewPortfolioAlertsInitial(p: ProfileRow): PortfolioAlertsInitial {
+  return {
+    notifyRebalanceInapp: p.notify_rebalance_inapp ?? true,
+    notifyRebalanceEmail: p.notify_rebalance_email ?? true,
+    notifyPriceMoveInapp: p.notify_price_move_inapp ?? false,
+    notifyPriceMoveEmail: p.notify_price_move_email ?? false,
+    notifyEntriesExitsInapp: p.notify_entries_exits_inapp ?? true,
+    notifyEntriesExitsEmail: p.notify_entries_exits_email ?? true,
   };
 }
 
@@ -400,39 +426,6 @@ function resolveRankedConfigForProfile(
     badges: [],
     dataStatus: 'empty',
   };
-}
-
-/** Same rules as Your portfolios sidebar filters; uses overview `RankedBundle` per strategy slug. */
-function profileMatchesOverviewRebalanceFilters(
-  p: ProfileRow,
-  rankedBySlug: Record<string, RankedBundle>,
-  opts: {
-    filterBeatNasdaq: boolean;
-    filterBeatSp500: boolean;
-    riskFilter: RiskLevel | null;
-    freqFilter: RebalanceFrequency | null;
-    weightFilter: 'equal' | 'cap' | null;
-  }
-): boolean {
-  const pc = p.portfolio_config;
-  if (!pc) return false;
-  const risk = pc.risk_level as RiskLevel;
-  const freq = pc.rebalance_frequency as RebalanceFrequency;
-  const weight = pc.weighting_method as 'equal' | 'cap';
-  if (opts.riskFilter != null && risk !== opts.riskFilter) return false;
-  if (opts.freqFilter != null && freq !== opts.freqFilter) return false;
-  if (opts.weightFilter != null && weight !== opts.weightFilter) return false;
-  const slug = p.strategy_models?.slug;
-  if (!slug) return false;
-  const ranked = resolveRankedConfigForProfile(p, rankedBySlug[slug]);
-  if (opts.filterBeatNasdaq && ranked?.metrics.beatsMarket !== true) return false;
-  if (opts.filterBeatSp500 && ranked?.metrics.beatsSp500 !== true) return false;
-  return true;
-}
-
-function fmtQuickPickReturnOverview(n: number | null | undefined): string {
-  if (n == null || !Number.isFinite(n)) return '';
-  return `${n >= 0 ? '+' : ''}${(n * 100).toFixed(1)}%`;
 }
 
 const fmt = {
@@ -1369,346 +1362,6 @@ function TopPortfolioLatestRebalanceSection({
   );
 }
 
-function SinglePortfolioRebalanceMovementSection({
-  profile,
-  rankedBySlug,
-  cardState,
-  onOpenEntrySettings,
-  refreshEpoch,
-  fetchEnabled,
-  platformTourFirstPortfolio,
-}: {
-  profile: ProfileRow;
-  rankedBySlug: Record<string, RankedBundle>;
-  cardState: Record<string, OverviewCardPerfState>;
-  onOpenEntrySettings: (profileId: string) => void;
-  refreshEpoch: number;
-  /** When false, skip network (tab inactive); cached data still shown after first load. */
-  fetchEnabled: boolean;
-  /** Post-onboarding tour: spotlight only the first portfolio row. */
-  platformTourFirstPortfolio?: boolean;
-}) {
-  const profileId = profile.id;
-  const [selectedRebalanceDate, setSelectedRebalanceDate] = useState<string | null>(null);
-  /** In-flight / last fetch when cache miss; session cache wins on read when present. */
-  const [localFetchState, setLocalFetchState] = useState<ProfileMovementFetchState | null>(null);
-  /** Last successful `status === 'ok'` payload so date chrome stays mounted while a new rebalanceDate fetch runs. */
-  const lastOkMovementRef = useRef<PortfolioMovementApiPayload | null>(null);
-  /** Dedupe background warm prefetch for this profile’s rebalance date list. */
-  const movementWarmPrefetchTokenRef = useRef('');
-
-  const cacheKey = portfolioMovementCacheKey(profileId, selectedRebalanceDate);
-  const st =
-    fetchEnabled
-      ? portfolioMovementFetchCache.get(cacheKey) ?? localFetchState
-      : localFetchState;
-
-  useEffect(() => {
-    setSelectedRebalanceDate(null);
-    lastOkMovementRef.current = null;
-    movementWarmPrefetchTokenRef.current = '';
-    setLocalFetchState(null);
-  }, [profileId]);
-
-  useEffect(() => {
-    movementWarmPrefetchTokenRef.current = '';
-    setLocalFetchState(null);
-  }, [refreshEpoch]);
-
-  useEffect(() => {
-    if (!fetchEnabled) {
-      return;
-    }
-
-    const hit = portfolioMovementFetchCache.get(cacheKey);
-    if (hit) {
-      setLocalFetchState(hit);
-      return;
-    }
-
-    let cancelled = false;
-    setLocalFetchState({ loading: true });
-
-    void loadPortfolioMovementDeduped(profileId, selectedRebalanceDate).then((result) => {
-      if (!cancelled) setLocalFetchState(result);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [profileId, refreshEpoch, fetchEnabled, selectedRebalanceDate, cacheKey]);
-
-  useEffect(() => {
-    if (st && !st.loading && 'data' in st && st.data.status === 'ok') {
-      lastOkMovementRef.current = st.data;
-    }
-  }, [st]);
-
-  useEffect(() => {
-    if (!fetchEnabled) return;
-    if (!st || st.loading || !('data' in st) || st.data.status !== 'ok') return;
-    const dates = st.data.rebalanceDates;
-    if (!dates || dates.length < 2) return;
-    const token = `${profileId}\0${dates.join('\0')}`;
-    if (movementWarmPrefetchTokenRef.current === token) return;
-    movementWarmPrefetchTokenRef.current = token;
-    warmPortfolioMovementCacheForProfile(profileId, dates);
-  }, [fetchEnabled, profileId, st]);
-
-  const movementPayload = st && !st.loading && 'data' in st ? st.data : null;
-  const movementError = st && !st.loading && 'error' in st ? st.error : null;
-
-  const chromeOkPayload =
-    movementPayload?.status === 'ok'
-      ? movementPayload
-      : lastOkMovementRef.current?.status === 'ok'
-        ? lastOkMovementRef.current
-        : null;
-
-  const initialMovementSkeleton = !st || (st.loading === true && chromeOkPayload == null);
-  const actionsTableLoading = st?.loading === true && chromeOkPayload != null;
-  const actionsTablePayload =
-    !st?.loading && movementPayload?.status === 'ok' ? movementPayload : null;
-
-  const cd = chromeOkPayload;
-  const headerLastRebalance =
-    actionsTablePayload?.lastRebalanceDate ??
-    selectedRebalanceDate ??
-    cd?.lastRebalanceDate ??
-    cd?.rebalanceDates?.[0] ??
-    null;
-  const headerNotional =
-    actionsTablePayload?.notionalAtCurrRebalanceEnd ?? cd?.notionalAtCurrRebalanceEnd ?? null;
-
-  const movementRowSource = actionsTablePayload ?? cd;
-  const portfolioValueLineLabel =
-    movementRowSource != null &&
-    (movementRowSource.buy.length > 0 || movementRowSource.hold.length > 0)
-      ? 'Portfolio value after this rebalance:'
-      : 'Portfolio value this date:';
-
-  const movementInitialAnchor =
-    cd?.rebalanceDates?.[cd.rebalanceDates.length - 1] ?? null;
-  const movementHeaderDisplayYmd =
-    headerLastRebalance != null &&
-    movementInitialAnchor != null &&
-    headerLastRebalance === movementInitialAnchor
-      ? ymdForInitialRebalanceDisplay(movementInitialAnchor, profile.user_start_date)
-      : headerLastRebalance;
-
-  return (
-    <div className="space-y-4">
-      <div
-        className="grid gap-4 rounded-2xl border border-border bg-card/30 p-4 lg:grid-cols-[minmax(0,17rem)_minmax(0,1fr)] lg:items-start"
-        data-platform-tour={
-          platformTourFirstPortfolio ? 'overview-rebalance-actions-first-portfolio' : undefined
-        }
-      >
-        <div
-          className="w-full max-w-[17rem] shrink-0 overflow-hidden"
-          style={{ height: OVERVIEW_TILE_ROW_HEIGHT }}
-        >
-          <OverviewPortfolioTile
-            profile={profile}
-            rankedBySlug={rankedBySlug}
-            cardState={cardState}
-            interactive={false}
-            yourPortfoliosHref={`/platform/your-portfolios?profile=${encodeURIComponent(profile.id)}`}
-            headerRight={
-              profile.user_start_date ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
-                  aria-label="Entry settings"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onOpenEntrySettings(profile.id);
-                  }}
-                >
-                  <Settings2 className="size-4" />
-                </Button>
-              ) : null
-            }
-          />
-        </div>
-        <div className="flex min-w-0 flex-col">
-          {!fetchEnabled ? null : initialMovementSkeleton ? (
-            <div className="space-y-2">
-              <Skeleton className="h-5 w-48" />
-              <Skeleton className="h-32 w-full" />
-            </div>
-          ) : movementError != null ? (
-            <div
-              className="flex flex-col justify-center"
-              style={{ minHeight: OVERVIEW_TILE_ROW_HEIGHT }}
-            >
-              <p className="text-sm text-muted-foreground">{movementError}</p>
-            </div>
-          ) : cd ? (
-            <div className="space-y-3">
-              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
-                <div className="min-w-0 space-y-1">
-                  {headerLastRebalance ? (
-                    <p className="text-sm font-medium text-foreground">
-                      {cd.rebalanceDates?.[0] === headerLastRebalance
-                        ? 'Actions for most recent rebalance date: '
-                        : cd.rebalanceDates?.[cd.rebalanceDates.length - 1] === headerLastRebalance
-                          ? 'Initial rebalance date: '
-                          : 'Rebalance date: '}
-                      <span className="tabular-nums">
-                        {formatYmdDisplay(movementHeaderDisplayYmd ?? headerLastRebalance)}
-                      </span>
-                    </p>
-                  ) : (
-                    <p className="text-sm font-medium text-foreground">Rebalance</p>
-                  )}
-                  {headerNotional != null ? (
-                    <p className="text-[11px] text-muted-foreground">
-                      {portfolioValueLineLabel}{' '}
-                      <span className="font-medium text-foreground tabular-nums">
-                        {formatOverviewCurrency(headerNotional)}
-                      </span>
-                    </p>
-                  ) : null}
-                </div>
-                {cd.rebalanceDates && cd.rebalanceDates.length >= 1 ? (
-                  <div className="flex shrink-0 flex-col gap-1">
-                    <Label
-                      htmlFor={`rebalance-date-${profileId}`}
-                      className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
-                    >
-                      View rebalance
-                    </Label>
-                    <Select
-                      value={
-                        selectedRebalanceDate ??
-                        cd.lastRebalanceDate ??
-                        cd.rebalanceDates[0]!
-                      }
-                      onValueChange={(v) => {
-                        const newest = cd.rebalanceDates[0];
-                        const nextSel = newest != null && v === newest ? null : v;
-                        const k = portfolioMovementCacheKey(profileId, nextSel);
-                        const hit = portfolioMovementFetchCache.get(k);
-                        setLocalFetchState(hit ?? { loading: true });
-                        setSelectedRebalanceDate(nextSel);
-                      }}
-                    >
-                      <SelectTrigger
-                        id={`rebalance-date-${profileId}`}
-                        className={cn('h-8 text-xs', PORTFOLIO_REBALANCE_DATE_SELECT_WIDTH_CLASSES)}
-                      >
-                        <SelectValue placeholder="Choose date" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {cd.rebalanceDates.map((d, idx, arr) => (
-                          <SelectItem key={d} value={d} className="text-xs">
-                            {idx === arr.length - 1
-                              ? `${formatYmdDisplay(
-                                  ymdForInitialRebalanceDisplay(d, profile.user_start_date)
-                                )} (initial)`
-                              : formatYmdDisplay(d)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                ) : null}
-              </div>
-              {actionsTableLoading ? (
-                <div className="space-y-2">
-                  <Skeleton className="h-28 w-full" />
-                  <Skeleton className="h-8 w-48" />
-                </div>
-              ) : actionsTablePayload ? (
-                <>
-                  <RebalanceActionsTable
-                    hold={actionsTablePayload.hold}
-                    buy={actionsTablePayload.buy}
-                    sell={actionsTablePayload.sell}
-                    weightingMethod={profile.portfolio_config?.weighting_method}
-                  />
-                </>
-              ) : null}
-            </div>
-          ) : movementPayload ? (
-            <div
-              className="flex min-w-0 flex-col items-center justify-center gap-3 px-2 text-center"
-              style={{ minHeight: OVERVIEW_TILE_ROW_HEIGHT }}
-            >
-              <p className="max-w-md text-sm text-muted-foreground">
-                {movementPayload.message ?? 'Movement data is not available yet.'}
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-8 gap-1.5 text-xs font-medium"
-                onClick={() => onOpenEntrySettings(profile.id)}
-              >
-                <Settings2 className="size-3.5 shrink-0" aria-hidden />
-                Entry settings
-              </Button>
-            </div>
-          ) : null}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function StockMovementPanel({
-  profiles,
-  rankedBySlug,
-  cardState,
-  onOpenEntrySettings,
-  refreshEpoch,
-  fetchEnabled,
-}: {
-  /** Pre-sorted (e.g. by portfolio return) and pre-filtered followed portfolios. */
-  profiles: ProfileRow[];
-  rankedBySlug: Record<string, RankedBundle>;
-  cardState: Record<string, OverviewCardPerfState>;
-  onOpenEntrySettings: (profileId: string) => void;
-  /** Bumps when portfolio data is invalidated so movement can refetch. */
-  refreshEpoch: number;
-  /** False while another overview tab is selected — skips network in sections; parent may preload cache. */
-  fetchEnabled: boolean;
-}) {
-  if (profiles.length === 0) {
-    return (
-      <Card
-        className="border-dashed"
-        data-platform-tour="overview-rebalance-actions-first-portfolio"
-      >
-        <CardContent className="py-6">
-          <p className="text-center text-sm text-muted-foreground">
-            Follow a portfolio to see rebalance instructions here.
-          </p>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  return (
-    <div className="space-y-8">
-      {profiles.map((profile, index) => (
-        <SinglePortfolioRebalanceMovementSection
-          key={profile.id}
-          profile={profile}
-          rankedBySlug={rankedBySlug}
-          cardState={cardState}
-          onOpenEntrySettings={onOpenEntrySettings}
-          refreshEpoch={refreshEpoch}
-          fetchEnabled={fetchEnabled}
-          platformTourFirstPortfolio={index === 0}
-        />
-      ))}
-    </div>
-  );
-}
 
 type OverviewProps = {
   strategies: StrategyListItem[];
@@ -1750,8 +1403,8 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
 
   useEffect(() => {
     if (rawOverviewTab !== 'rebalance-actions' && rawOverviewTab !== 'tracked-stocks') return;
-    router.replace('/platform/your-portfolios#rebalance-actions');
-  }, [rawOverviewTab, router]);
+    router.replace(platformOverviewPath('top-portfolio', pathname));
+  }, [rawOverviewTab, router, pathname]);
 
   /** One soft nudge per overview mount; skip while portfolio onboarding is active for guests. */
   /* eslint-disable react-hooks/exhaustive-deps -- pathname omitted: re-including it re-opened signup on every workspace tab switch */
@@ -1894,7 +1547,6 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   /** Fingerprint last time user-perf fetch finished for a profile (cleared when profile set changes). */
   const overviewUserEntryTerminalFpRef = useRef<Map<string, string>>(new Map());
   const overviewUserPerfAggregateKeyRef = useRef<string>('');
-  const overviewRebalanceSortMetricPrevRef = useRef<PortfolioListSortMetric | null>(null);
   const overviewUserEntryRunIdRef = useRef(0);
   const [topSpotlightHoldings, setTopSpotlightHoldings] = useState<HoldingItem[]>([]);
   const [topSpotlightHoldingsLoading, setTopSpotlightHoldingsLoading] = useState(false);
@@ -1907,6 +1559,8 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     Record<string, number | null>
   >({});
   const [topSpotlightRebalanceDates, setTopSpotlightRebalanceDates] = useState<string[]>([]);
+  const [spotlightHoldingsDateSelect, setSpotlightHoldingsDateSelect] =
+    useState<string>(HOLDINGS_TODAY_SENTINEL);
   const spotlightHoldingsRequestIdRef = useRef(0);
   const spotlightHoldingsLenRef = useRef(0);
   spotlightHoldingsLenRef.current = topSpotlightHoldings.length;
@@ -1925,6 +1579,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   const [spotlightHoldingsMovementTimeline, setSpotlightHoldingsMovementTimeline] =
     useState<PortfolioMovementResolved | null>(null);
   const [entrySettingsProfileId, setEntrySettingsProfileId] = useState<string | null>(null);
+  const [portfolioAlertsProfileId, setPortfolioAlertsProfileId] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailProfileId, setDetailProfileId] = useState<string | null>(null);
 
@@ -2362,55 +2017,14 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     return () => window.removeEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, handler);
   }, [refreshOverviewProfiles]);
 
-  const rebalanceFilterDialogBenchmarkNasdaqRef = useRef<HTMLButtonElement>(null);
-  const rebalanceFilterDialogTitleRef = useRef<HTMLHeadingElement>(null);
-  const [rebalanceFiltersDialogOpen, setRebalanceFiltersDialogOpen] = useState(false);
-  const [rebalanceSortDialogOpen, setRebalanceSortDialogOpen] = useState(false);
-  const [rebalanceFilterBeatNasdaq, setRebalanceFilterBeatNasdaq] = useState(false);
-  const [rebalanceFilterBeatSp500, setRebalanceFilterBeatSp500] = useState(false);
-  const [rebalanceRiskFilter, setRebalanceRiskFilter] = useState<RiskLevel | null>(null);
-  const [rebalanceFreqFilter, setRebalanceFreqFilter] = useState<RebalanceFrequency | null>(null);
-  const [rebalanceWeightFilter, setRebalanceWeightFilter] = useState<'equal' | 'cap' | null>(null);
+  /** Same ordering as overview card loads — used for movement cache warm order. */
+  const OVERVIEW_MOVEMENT_WARM_SORT_METRIC: PortfolioListSortMetric = 'portfolio_value_performance';
 
-  useEffect(() => {
-    if (rebalanceRiskFilter === 6 && rebalanceWeightFilter === 'cap') {
-      setRebalanceWeightFilter(null);
-    }
-  }, [rebalanceRiskFilter, rebalanceWeightFilter]);
-
-  const activeRebalanceFilterCount = useMemo(() => {
-    let n = 0;
-    if (rebalanceFilterBeatNasdaq) n++;
-    if (rebalanceFilterBeatSp500) n++;
-    if (rebalanceRiskFilter != null) n++;
-    if (rebalanceFreqFilter != null) n++;
-    if (rebalanceWeightFilter != null) n++;
-    return n;
-  }, [
-    rebalanceFilterBeatNasdaq,
-    rebalanceFilterBeatSp500,
-    rebalanceRiskFilter,
-    rebalanceFreqFilter,
-    rebalanceWeightFilter,
-  ]);
-
-  const clearRebalanceFilters = useCallback(() => {
-    setRebalanceFilterBeatNasdaq(false);
-    setRebalanceFilterBeatSp500(false);
-    setRebalanceRiskFilter(null);
-    setRebalanceFreqFilter(null);
-    setRebalanceWeightFilter(null);
-  }, []);
-
-  const [rebalanceListSortMetric, setRebalanceListSortMetric] =
-    useState<PortfolioListSortMetric>('portfolio_value_performance');
-
-  /** Same ordering as overview card loads — stable while tiles finish so the rebalance list does not reshuffle. */
-  const profilesSortedForRebalance = useMemo(
+  const profilesSortedForMovementWarm = useMemo(
     () =>
       sortProfilesByOverviewCardMetric(
         profiles,
-        rebalanceListSortMetric,
+        OVERVIEW_MOVEMENT_WARM_SORT_METRIC,
         cardState,
         overviewUserCompositeByProfileId,
         (p) => ({
@@ -2418,34 +2032,13 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
           user_start_date: p.user_start_date,
         })
       ),
-    [profiles, rebalanceListSortMetric, cardState, overviewUserCompositeByProfileId]
+    [profiles, cardState, overviewUserCompositeByProfileId]
   );
-
-  const filteredProfilesForRebalance = useMemo(() => {
-    const opts = {
-      filterBeatNasdaq: rebalanceFilterBeatNasdaq,
-      filterBeatSp500: rebalanceFilterBeatSp500,
-      riskFilter: rebalanceRiskFilter,
-      freqFilter: rebalanceFreqFilter,
-      weightFilter: rebalanceWeightFilter,
-    };
-    return profilesSortedForRebalance.filter((p) =>
-      profileMatchesOverviewRebalanceFilters(p, rankedBySlug, opts)
-    );
-  }, [
-    profilesSortedForRebalance,
-    rankedBySlug,
-    rebalanceFilterBeatNasdaq,
-    rebalanceFilterBeatSp500,
-    rebalanceRiskFilter,
-    rebalanceFreqFilter,
-    rebalanceWeightFilter,
-  ]);
 
   /**
    * Per loaded portfolio (user-entry tile done), prime default movement then warm every selectable
-   * rebalance date. Order matches `profilesSortedForRebalance` so top-ranked rows hit the shared
-   * movement FIFO first — even when another overview tab is selected.
+   * rebalance date. Order matches `profilesSortedForMovementWarm` so top-ranked rows hit the shared
+   * movement FIFO first.
    */
   useEffect(() => {
     if (!profiles.length) {
@@ -2453,7 +2046,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
       return;
     }
 
-    for (const p of profilesSortedForRebalance) {
+    for (const p of profilesSortedForMovementWarm) {
       if (isGuestLocalProfileId(p.id)) continue;
       if (!p.user_start_date?.trim()) continue;
       const st = cardState[p.id];
@@ -2475,22 +2068,10 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     }
   }, [
     profiles.length,
-    profilesSortedForRebalance,
+    profilesSortedForMovementWarm,
     cardState,
     movementRefreshEpoch,
   ]);
-
-  const rebalanceRankedConfigsForQuickPicks = useMemo(() => {
-    const slug =
-      profilesSortedForRebalance[0]?.strategy_models?.slug ?? strategies[0]?.slug ?? null;
-    if (!slug) {
-      return { configs: [] as RankedConfig[], latestAsOf: null as string | null };
-    }
-    return {
-      configs: rankedBySlug[slug]?.configs ?? [],
-      latestAsOf: latestPerfDateBySlug[slug] ?? null,
-    };
-  }, [profilesSortedForRebalance, strategies, rankedBySlug, latestPerfDateBySlug]);
 
   const overviewUserPerfFetchKey = useMemo(
     () =>
@@ -2510,17 +2091,11 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
       overviewUserEntryFetchStartedRef.current.clear();
       overviewUserEntryTerminalFpRef.current.clear();
       overviewUserPerfAggregateKeyRef.current = overviewUserPerfFetchKey;
-    } else {
-      const prevSort = overviewRebalanceSortMetricPrevRef.current;
-      if (prevSort !== null && prevSort !== rebalanceListSortMetric) {
-        overviewUserEntryFetchStartedRef.current.clear();
-      }
     }
-    overviewRebalanceSortMetricPrevRef.current = rebalanceListSortMetric;
 
     const ordered = sortProfilesByOverviewCardMetric(
       profiles,
-      rebalanceListSortMetric,
+      OVERVIEW_MOVEMENT_WARM_SORT_METRIC,
       cardStateUserFetchRef.current,
       overviewCompositeUserFetchRef.current,
       (p) => ({
@@ -2682,7 +2257,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     return () => {
       cancelled = true;
     };
-  }, [profiles, overviewUserPerfFetchKey, rebalanceListSortMetric]);
+  }, [profiles, overviewUserPerfFetchKey]);
 
   const topSpotlightProfileId = topSpotlightOverview?.profile.id ?? null;
   const topSpotlightConfigId = topSpotlightOverview?.profile.portfolio_config?.id ?? null;
@@ -2777,6 +2352,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
       setTopSpotlightRebalanceDates([]);
       setTopSpotlightHoldingsLoading(false);
       setTopSpotlightHoldingsRefreshing(false);
+      setSpotlightHoldingsDateSelect(HOLDINGS_TODAY_SENTINEL);
       return;
     }
     void fetchTopSpotlightHoldings(null);
@@ -2788,11 +2364,12 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     setPrevSpotlightMovementError(false);
     setPrevSpotlightMovementLoading(false);
     setSpotlightHoldingsMovementTimeline(null);
+    setSpotlightHoldingsDateSelect(HOLDINGS_TODAY_SENTINEL);
   }, [topSpotlightProfileId, topSpotlightConfigId]);
 
   useEffect(() => {
     setSpotlightHoldingsChevronDismissed(false);
-  }, [topSpotlightProfileId, topSpotlightConfigId, topSpotlightHoldingsAsOf]);
+  }, [topSpotlightProfileId, topSpotlightConfigId, topSpotlightHoldingsAsOf, spotlightHoldingsDateSelect]);
 
   const nudgeSpotlightHoldingsScroll = useCallback(() => {
     const el = spotlightHoldingsScrollRef.current;
@@ -2890,25 +2467,36 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
       ? investmentSize
       : Number(topSpotlightOverview?.profile.investment_size);
   }, [topSpotlightOverview, topSpotlightHoldingsAsOf, spotlightHoldingsRebalanceAnchorDate]);
-  const liveTopSpotlightAllocation = useMemo(() => {
-    if (
-      topSpotlightHoldingsAsOf &&
-      spotlightHoldingsRebalanceAnchorDate &&
-      topSpotlightHoldingsAsOf === spotlightHoldingsRebalanceAnchorDate
-    ) {
-      return { bySymbol: {}, hasCompleteCoverage: false as const };
+
+  const spotlightHoldingsNotional = useMemo(() => {
+    if (spotlightHoldingsDateSelect === HOLDINGS_TODAY_SENTINEL) {
+      const v = computeOverviewPortfolioValue(
+        topSpotlightOverview?.state.series,
+        Number(topSpotlightOverview?.profile.investment_size),
+        topSpotlightOverview?.profile.user_start_date ?? null
+      );
+      if (v != null && Number.isFinite(v) && v > 0) return v;
     }
+    return spotlightHoldingsAsOfNotional;
+  }, [
+    spotlightHoldingsDateSelect,
+    topSpotlightOverview?.state.series,
+    topSpotlightOverview?.profile.investment_size,
+    topSpotlightOverview?.profile.user_start_date,
+    spotlightHoldingsAsOfNotional,
+  ]);
+
+  const liveTopSpotlightAllocation = useMemo(() => {
     return buildLiveHoldingsAllocationResult(
       topSpotlightHoldings,
-      spotlightHoldingsAsOfNotional,
+      spotlightHoldingsNotional,
       topSpotlightAsOfPriceBySymbol,
-      topSpotlightLatestPriceBySymbol
+      topSpotlightLatestPriceBySymbol,
+      'as-of'
     );
   }, [
-    topSpotlightHoldingsAsOf,
-    spotlightHoldingsRebalanceAnchorDate,
     topSpotlightHoldings,
-    spotlightHoldingsAsOfNotional,
+    spotlightHoldingsNotional,
     topSpotlightAsOfPriceBySymbol,
     topSpotlightLatestPriceBySymbol,
   ]);
@@ -2955,11 +2543,16 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     holdingsCacheVersion,
   ]);
 
+  const spotlightCostBasisRebalanceDate = useMemo(() => {
+    if (spotlightHoldingsDateSelect === HOLDINGS_TODAY_SENTINEL) return topSpotlightHoldingsAsOf;
+    return spotlightHoldingsDateSelect;
+  }, [spotlightHoldingsDateSelect, topSpotlightHoldingsAsOf]);
+
   const selectedSpotlightCostBasisSnapshot = useMemo(() => {
-    const d = topSpotlightHoldingsAsOf;
+    const d = spotlightCostBasisRebalanceDate;
     if (!d) return null;
     return spotlightCostBasisSnapshotsByDate[d] ?? null;
-  }, [topSpotlightHoldingsAsOf, spotlightCostBasisSnapshotsByDate]);
+  }, [spotlightCostBasisRebalanceDate, spotlightCostBasisSnapshotsByDate]);
   const spotlightCostBasisLoading = useMemo(() => {
     if (!overviewPaidHoldings) return false;
     if (!topSpotlightUserStartYmd) return false;
@@ -2975,33 +2568,34 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     spotlightHoldingsMovementTimeline,
   ]);
 
-  const spotlightPortfolioValueLineAmount = useMemo(() => {
-    if (spotlightHoldingsMovementTimeline && 'data' in spotlightHoldingsMovementTimeline) {
-      const pl = spotlightHoldingsMovementTimeline.data;
-      if (pl.status === 'ok' && topSpotlightHoldingsAsOf) {
-        const row = pl.byRebalanceDate?.[topSpotlightHoldingsAsOf];
-        const n = row?.notionalAtCurrRebalanceEnd;
-        if (n != null && Number.isFinite(n) && n > 0) return n;
-      }
+  const spotlightPortfolioValueLineAmount = useMemo(
+    () => spotlightHoldingsNotional,
+    [spotlightHoldingsNotional]
+  );
+
+  const effectiveSpotlightRebalanceForMovement = useMemo(() => {
+    if (spotlightHoldingsDateSelect === HOLDINGS_TODAY_SENTINEL) {
+      return scopedTopSpotlightRebalanceDates[0] ?? null;
     }
-    return spotlightHoldingsAsOfNotional;
-  }, [spotlightHoldingsMovementTimeline, topSpotlightHoldingsAsOf, spotlightHoldingsAsOfNotional]);
+    return topSpotlightHoldingsAsOf;
+  }, [spotlightHoldingsDateSelect, scopedTopSpotlightRebalanceDates, topSpotlightHoldingsAsOf]);
 
   const spotlightHoldingsPrevRebalanceDate = useMemo(
-    () => getPreviousRebalanceDate(scopedTopSpotlightRebalanceDates, topSpotlightHoldingsAsOf),
-    [scopedTopSpotlightRebalanceDates, topSpotlightHoldingsAsOf]
+    () =>
+      getPreviousRebalanceDate(scopedTopSpotlightRebalanceDates, effectiveSpotlightRebalanceForMovement),
+    [scopedTopSpotlightRebalanceDates, effectiveSpotlightRebalanceForMovement]
   );
 
   useEffect(() => {
     if (!scopedTopSpotlightRebalanceDates.length) return;
-    if (!topSpotlightHoldingsAsOf) return;
-    if (!scopedTopSpotlightRebalanceDates.includes(topSpotlightHoldingsAsOf)) {
-      const newest = scopedTopSpotlightRebalanceDates[0];
-      if (newest) void fetchTopSpotlightHoldings(newest);
+    if (spotlightHoldingsDateSelect === HOLDINGS_TODAY_SENTINEL) return;
+    if (!scopedTopSpotlightRebalanceDates.includes(spotlightHoldingsDateSelect)) {
+      setSpotlightHoldingsDateSelect(HOLDINGS_TODAY_SENTINEL);
+      void fetchTopSpotlightHoldings(null);
     }
   }, [
     scopedTopSpotlightRebalanceDates,
-    topSpotlightHoldingsAsOf,
+    spotlightHoldingsDateSelect,
     fetchTopSpotlightHoldings,
   ]);
 
@@ -3106,6 +2700,14 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
         ? (profiles.find((x) => x.id === entrySettingsProfileId) ?? null)
         : null,
     [entrySettingsProfileId, profiles]
+  );
+
+  const portfolioAlertsProfile = useMemo(
+    () =>
+      portfolioAlertsProfileId
+        ? (profiles.find((x) => x.id === portfolioAlertsProfileId) ?? null)
+        : null,
+    [portfolioAlertsProfileId, profiles]
   );
 
   const entrySettingsPrefetchedModelInceptionYmd = useMemo(() => {
@@ -3215,142 +2817,17 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
         }}
         prefetchedModelInceptionYmd={entrySettingsPrefetchedModelInceptionYmd}
       />
-      <PortfolioListSortDialog
-        open={rebalanceSortDialogOpen}
-        onOpenChange={setRebalanceSortDialogOpen}
-        value={rebalanceListSortMetric}
-        onValueChange={setRebalanceListSortMetric}
-      />
-      <Dialog open={rebalanceFiltersDialogOpen} onOpenChange={setRebalanceFiltersDialogOpen}>
-        <DialogContent
-          className="flex max-h-[min(90dvh,560px)] w-[calc(100vw-1.5rem)] max-w-lg flex-col gap-0 overflow-hidden p-0 sm:w-full"
-          onOpenAutoFocus={(e) => {
-            e.preventDefault();
-            rebalanceFilterDialogTitleRef.current?.focus();
+      {portfolioAlertsProfile && !isGuestLocalProfileId(portfolioAlertsProfile.id) ? (
+        <PortfolioAlertsDialog
+          open={portfolioAlertsProfileId != null}
+          onOpenChange={(o) => {
+            if (!o) setPortfolioAlertsProfileId(null);
           }}
-        >
-          <DialogHeader className="shrink-0 space-y-1 border-b px-6 py-4 text-left">
-            <DialogTitle
-              ref={rebalanceFilterDialogTitleRef}
-              tabIndex={-1}
-              className="outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            >
-              Filter portfolios
-            </DialogTitle>
-            <DialogDescription>
-              Narrow the rebalance list the same way as Your portfolios.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-6 py-3">
-            <ExplorePortfolioFilterControls
-              filterBeatNasdaq={rebalanceFilterBeatNasdaq}
-              filterBeatSp500={rebalanceFilterBeatSp500}
-              onFilterBeatNasdaqChange={setRebalanceFilterBeatNasdaq}
-              onFilterBeatSp500Change={setRebalanceFilterBeatSp500}
-              riskFilter={rebalanceRiskFilter}
-              freqFilter={rebalanceFreqFilter}
-              weightFilter={rebalanceWeightFilter}
-              onRiskChange={setRebalanceRiskFilter}
-              onFreqChange={setRebalanceFreqFilter}
-              onWeightChange={setRebalanceWeightFilter}
-              benchmarkOutperformanceAsOf={rebalanceRankedConfigsForQuickPicks.latestAsOf}
-              benchmarkNasdaqToggleRef={rebalanceFilterDialogBenchmarkNasdaqRef}
-              benchmarkHeaderEnd={
-                activeRebalanceFilterCount > 0 ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
-                    onClick={clearRebalanceFilters}
-                  >
-                    <FilterX className="size-3.5 shrink-0" aria-hidden />
-                    Clear
-                  </Button>
-                ) : null
-              }
-              betweenBenchmarkAndRisk={
-                <div className="space-y-2 border-t border-border/60 pt-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Quick picks
-                  </p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {PORTFOLIO_EXPLORE_QUICK_PICKS.map((pick) => {
-                      const matched = rebalanceRankedConfigsForQuickPicks.configs.find(
-                        (c) =>
-                          c.riskLevel === pick.riskLevel &&
-                          c.rebalanceFrequency === pick.rebalanceFrequency &&
-                          c.weightingMethod === pick.weightingMethod
-                      );
-                      const isQuickPickActive =
-                        !rebalanceFilterBeatNasdaq &&
-                        !rebalanceFilterBeatSp500 &&
-                        rebalanceRiskFilter === pick.riskLevel &&
-                        rebalanceFreqFilter === pick.rebalanceFrequency &&
-                        (pick.riskLevel === 6 && pick.weightingMethod === 'equal'
-                          ? rebalanceWeightFilter === 'equal' || rebalanceWeightFilter === null
-                          : rebalanceWeightFilter === pick.weightingMethod);
-                      return (
-                        <button
-                          key={pick.key}
-                          type="button"
-                          aria-pressed={isQuickPickActive}
-                          onClick={() => {
-                            if (isQuickPickActive) {
-                              clearRebalanceFilters();
-                            } else {
-                              setRebalanceFilterBeatNasdaq(false);
-                              setRebalanceFilterBeatSp500(false);
-                              setRebalanceRiskFilter(pick.riskLevel);
-                              setRebalanceFreqFilter(pick.rebalanceFrequency);
-                              setRebalanceWeightFilter(pick.weightingMethod);
-                            }
-                          }}
-                          className={cn(
-                            'rounded-lg border px-2.5 py-2 text-left transition-all hover:shadow-sm',
-                            isQuickPickActive
-                              ? 'border-trader-blue bg-trader-blue/10 shadow-sm ring-2 ring-trader-blue/35 hover:border-trader-blue'
-                              : pick.highlight
-                                ? 'border-trader-blue/25 bg-trader-blue/[0.04] hover:border-trader-blue/50'
-                                : 'border-border hover:border-foreground/20 hover:bg-muted/30'
-                          )}
-                        >
-                          <p className="text-[11px] font-semibold leading-tight">{pick.label}</p>
-                          <p className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-muted-foreground">
-                            {pick.description}
-                          </p>
-                          {matched?.metrics.totalReturn != null && (
-                            <p
-                              className={cn(
-                                'mt-1 text-[10px] font-medium',
-                                matched.metrics.totalReturn >= 0
-                                  ? 'text-green-600 dark:text-green-400'
-                                  : 'text-red-600 dark:text-red-400'
-                              )}
-                            >
-                              {fmtQuickPickReturnOverview(matched.metrics.totalReturn)}
-                            </p>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              }
-            />
-          </div>
-          <DialogFooter className="shrink-0 flex-col gap-2 border-t px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs text-muted-foreground">
-              {activeRebalanceFilterCount > 0
-                ? `${filteredProfilesForRebalance.length} of ${profiles.length} match filters`
-                : `${profiles.length} portfolio${profiles.length === 1 ? '' : 's'}`}
-            </p>
-            <Button type="button" size="sm" onClick={() => setRebalanceFiltersDialogOpen(false)}>
-              Done
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          profileId={portfolioAlertsProfile.id}
+          initial={overviewPortfolioAlertsInitial(portfolioAlertsProfile)}
+          onSaved={() => void refreshOverviewProfiles()}
+        />
+      ) : null}
       <div className="flex h-full min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-y-contain px-1 pb-3 pt-1 sm:pb-4">
           {loading ? (
@@ -3802,18 +3279,13 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                   {overviewPaidHoldings && scopedTopSpotlightRebalanceDates.length > 0 ? (
                                     <div className="flex min-w-0 flex-nowrap items-center justify-start gap-x-1.5 overflow-x-auto sm:gap-x-2">
                                       <Select
-                                        value={
-                                          topSpotlightHoldingsAsOf &&
-                                          scopedTopSpotlightRebalanceDates.includes(
-                                            topSpotlightHoldingsAsOf
-                                          )
-                                            ? topSpotlightHoldingsAsOf
-                                            : undefined
-                                        }
+                                        value={spotlightHoldingsDateSelect}
                                         onValueChange={(v) => {
-                                          if (v && v !== topSpotlightHoldingsAsOf) {
-                                            void fetchTopSpotlightHoldings(v);
-                                          }
+                                          if (!v || v === spotlightHoldingsDateSelect) return;
+                                          setSpotlightHoldingsDateSelect(v);
+                                          void fetchTopSpotlightHoldings(
+                                            v === HOLDINGS_TODAY_SENTINEL ? null : v
+                                          );
                                         }}
                                         disabled={topSpotlightHoldingsLoading}
                                       >
@@ -3826,6 +3298,12 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                           <SelectValue placeholder="Rebalance date" />
                                         </SelectTrigger>
                                         <SelectContent align="start">
+                                          <SelectItem
+                                            value={HOLDINGS_TODAY_SENTINEL}
+                                            className="text-xs"
+                                          >
+                                            Today
+                                          </SelectItem>
                                           {scopedTopSpotlightRebalanceDates.map((d) => {
                                             const initialD =
                                               scopedTopSpotlightRebalanceDates[
@@ -4049,14 +3527,19 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                                         </TableCell>
                                                         <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap">
                                                           {showLive ? (
-                                                            <div className="leading-tight">
-                                                              <div>
-                                                                {`${formatOverviewCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
+                                                            spotlightHoldingsDateSelect ===
+                                                            HOLDINGS_TODAY_SENTINEL ? (
+                                                              <div className="leading-tight">
+                                                                <div>
+                                                                  {`${formatOverviewCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
+                                                                </div>
+                                                                <div className="text-[11px] text-muted-foreground">
+                                                                  Target: {(h.weight * 100).toFixed(1)}%
+                                                                </div>
                                                               </div>
-                                                              <div className="text-[11px] text-muted-foreground">
-                                                                Target: {(h.weight * 100).toFixed(1)}%
-                                                              </div>
-                                                            </div>
+                                                            ) : (
+                                                              `${formatOverviewCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`
+                                                            )
                                                           ) : Number.isFinite(investmentSize) &&
                                                             investmentSize > 0 ? (
                                                             `${formatOverviewCurrency(h.weight * investmentSize)} (${(h.weight * 100).toFixed(1)}%)`
@@ -4212,14 +3695,19 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                                     </TableCell>
                                                     <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap">
                                                       {showLive ? (
-                                                        <div className="leading-tight">
-                                                          <div>
-                                                            {`${formatOverviewCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
+                                                        spotlightHoldingsDateSelect ===
+                                                        HOLDINGS_TODAY_SENTINEL ? (
+                                                          <div className="leading-tight">
+                                                            <div>
+                                                              {`${formatOverviewCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
+                                                            </div>
+                                                            <div className="text-[11px] text-muted-foreground">
+                                                              Target: {(h.weight * 100).toFixed(1)}%
+                                                            </div>
                                                           </div>
-                                                          <div className="text-[11px] text-muted-foreground">
-                                                            Target: {(h.weight * 100).toFixed(1)}%
-                                                          </div>
-                                                        </div>
+                                                        ) : (
+                                                          `${formatOverviewCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`
+                                                        )
                                                       ) : Number.isFinite(investmentSize) &&
                                                         investmentSize > 0 ? (
                                                         `${formatOverviewCurrency(h.weight * investmentSize)} (${(h.weight * 100).toFixed(1)}%)`
@@ -4549,6 +4037,19 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                         variant="ghost"
                                         size="icon"
                                         className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
+                                        aria-label="Notification settings for this portfolio"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setPortfolioAlertsProfileId(p.id);
+                                        }}
+                                      >
+                                        <Bell className="size-4" />
+                                      </Button>
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
                                         aria-label="Edit starting investment and entry"
                                         onClick={(e) => {
                                           e.stopPropagation();
@@ -4616,83 +4117,6 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                 </div>
               </TabsContent>
 
-              <TabsContent
-                value="rebalance-actions"
-                data-platform-tour="overview-rebalance-actions-panel"
-                className="mt-0 ring-offset-0 focus-visible:outline-none focus-visible:ring-0 data-[state=inactive]:hidden"
-              >
-                {!overviewPaidHoldings ? (
-                  <Card className="border-dashed">
-                    <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
-                      <Lock className="size-8 text-muted-foreground" aria-hidden />
-                      <p className="max-w-md text-sm text-muted-foreground">
-                        Step-by-step rebalance actions vs your entry are included with Supporter or
-                        Outperformer.
-                      </p>
-                      <Button size="sm" asChild>
-                        <Link href="/pricing">Upgrade</Link>
-                      </Button>
-                    </CardContent>
-                  </Card>
-                ) : (
-                  <div className="space-y-3">
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
-                      <p className="text-xs text-muted-foreground">
-                        {activeRebalanceFilterCount > 0
-                          ? `${filteredProfilesForRebalance.length} of ${profiles.length} portfolios`
-                          : `${profiles.length} portfolio${profiles.length === 1 ? '' : 's'}`}
-                      </p>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="relative size-8 shrink-0"
-                        aria-label="Sort portfolios"
-                        onClick={() => setRebalanceSortDialogOpen(true)}
-                      >
-                        <ArrowUpDown className="size-4" />
-                        <PortfolioListSortActiveIndicator metric={rebalanceListSortMetric} />
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="relative size-8 shrink-0"
-                        aria-label="Filter portfolios"
-                        onClick={() => setRebalanceFiltersDialogOpen(true)}
-                      >
-                        <ListFilter className="size-4" />
-                        {activeRebalanceFilterCount > 0 ? (
-                          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold tabular-nums text-primary-foreground">
-                            {activeRebalanceFilterCount}
-                          </span>
-                        ) : null}
-                      </Button>
-                    </div>
-                    {profiles.length > 0 && filteredProfilesForRebalance.length === 0 ? (
-                      <Card
-                        className="border-dashed"
-                        data-platform-tour="overview-rebalance-actions-first-portfolio"
-                      >
-                        <CardContent className="py-6">
-                          <p className="text-center text-sm text-muted-foreground">
-                            No portfolios match these filters. Open filters to adjust or clear.
-                          </p>
-                        </CardContent>
-                      </Card>
-                    ) : (
-                      <StockMovementPanel
-                        profiles={filteredProfilesForRebalance}
-                        rankedBySlug={rankedBySlug}
-                        cardState={cardState}
-                        onOpenEntrySettings={setEntrySettingsProfileId}
-                        refreshEpoch={movementRefreshEpoch}
-                        fetchEnabled={overviewTab === 'rebalance-actions'}
-                      />
-                    )}
-                  </div>
-                )}
-              </TabsContent>
 
               <div className="!mt-3 flex justify-end">
                 <div className="inline-flex max-w-full flex-col items-end gap-1.5 rounded-2xl border border-border/80 bg-card/95 p-1.5 shadow-lg shadow-black/[0.06] ring-1 ring-black/[0.04] backdrop-blur-sm sm:flex-row sm:flex-wrap sm:justify-end dark:bg-card/90 dark:shadow-black/20 dark:ring-white/[0.06]">

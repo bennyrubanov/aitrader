@@ -1,3 +1,13 @@
+let warnedMissingCronSecret = false;
+
+function warnMissingCronSecretOnce(): void {
+  if (warnedMissingCronSecret) return;
+  warnedMissingCronSecret = true;
+  console.warn(
+    '[trigger-config-compute] CRON_SECRET is unset; internal portfolio snapshot triggers are skipped.'
+  );
+}
+
 /**
  * Fire-and-forget internal compute (same deployment). Used by public API and cron.
  */
@@ -11,7 +21,10 @@ export function getInternalApiOrigin(): string {
 
 export function triggerPortfolioConfigCompute(strategyId: string, configId: string): void {
   const secret = process.env.CRON_SECRET;
-  if (!secret) return;
+  if (!secret) {
+    warnMissingCronSecretOnce();
+    return;
+  }
   const base = getInternalApiOrigin();
   void fetch(`${base}/api/internal/compute-portfolio-config`, {
     method: 'POST',
@@ -22,7 +35,10 @@ export function triggerPortfolioConfigCompute(strategyId: string, configId: stri
 
 export function triggerPortfolioConfigsBatch(strategyId: string): void {
   const secret = process.env.CRON_SECRET;
-  if (!secret) return;
+  if (!secret) {
+    warnMissingCronSecretOnce();
+    return;
+  }
   const base = getInternalApiOrigin();
   void fetch(`${base}/api/internal/compute-portfolio-configs-batch`, {
     method: 'POST',

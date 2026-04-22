@@ -67,6 +67,7 @@ import {
   getCachedExploreHoldings,
   loadExploreHoldingsBootstrap,
   loadExploreHoldingsForDates,
+  prefetchExploreHoldingsDatesIdle,
 } from '@/lib/portfolio-config-holdings-cache';
 import {
   getCachedConfigPerformance,
@@ -629,6 +630,8 @@ export function ExplorePortfolioDetailDialog({
   followProfileId = null,
   onUnfollow,
   unfollowBusy = false,
+  followLimitReached = false,
+  onOpenNotificationSettings,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -647,6 +650,10 @@ export function ExplorePortfolioDetailDialog({
   followProfileId?: string | null;
   onUnfollow?: () => void;
   unfollowBusy?: boolean;
+  /** When true, disable Follow (user already follows the max number of portfolios). */
+  followLimitReached?: boolean;
+  /** Shown when already following; opens per-portfolio notification settings (parent handles UI). */
+  onOpenNotificationSettings?: () => void;
 }) {
   const exploreHoldingsRequestIdRef = useRef(0);
   const prevDialogConfigKeyRef = useRef<string | null>(null);
@@ -757,7 +764,7 @@ export function ExplorePortfolioDetailDialog({
     () => rebalanceDates.slice(0, visibleDateCount),
     [rebalanceDates, visibleDateCount]
   );
-  /** Prefix of rebalance dates to keep cached: visible window + next N hidden (+1 for prior-date movement diff). */
+  /** Prefix of rebalance dates to fetch eagerly: visible window + next N hidden (+1 for prior-date movement diff). Remaining dates load in idle chunks via `prefetchExploreHoldingsDatesIdle`. */
   const prefetchDates = useMemo(
     () =>
       rebalanceDates.slice(
@@ -870,6 +877,25 @@ export function ExplorePortfolioDetailDialog({
       cancelled = true;
     };
   }, [open, config, strategySlug, prefetchDates, exploreHoldingsUnlocked, bumpHoldingsCacheRev]);
+
+  useEffect(() => {
+    if (!open || !config || !exploreHoldingsUnlocked) return;
+    const slug = strategySlug.trim();
+    if (!slug || rebalanceDates.length === 0) return;
+    const windowReady = prefetchDates.every((d) => getCachedExploreHoldings(slug, config.id, d));
+    if (!windowReady) return;
+    const remaining = rebalanceDates.filter((d) => !getCachedExploreHoldings(slug, config.id, d));
+    if (remaining.length === 0) return;
+    return prefetchExploreHoldingsDatesIdle(slug, config.id, remaining);
+  }, [
+    open,
+    config,
+    strategySlug,
+    exploreHoldingsUnlocked,
+    rebalanceDates,
+    prefetchDates,
+    holdingsCacheRev,
+  ]);
 
   useEffect(() => {
     if (!open || !config) {
@@ -1010,6 +1036,14 @@ export function ExplorePortfolioDetailDialog({
       },
     });
   }, [config?.id, strategySlug, rebalanceDates, explorePerfRows, holdingsCacheRev]);
+
+  const exploreLatestModelPortfolioValue = useMemo(() => {
+    const pts = explorePerfSeries;
+    const last = pts[pts.length - 1]?.aiTop20;
+    if (last == null || !Number.isFinite(last) || last <= 0) return null;
+    return last;
+  }, [explorePerfSeries]);
+
   const exploreHoldingsTimeline = useMemo(() => {
     if (!config || !strategySlug?.trim() || visibleDates.length === 0) {
       return {
@@ -1042,6 +1076,16 @@ export function ExplorePortfolioDetailDialog({
     }> = [];
     let missingDates = 0;
 
+    const lastBar =
+      explorePerfSeries.length > 0 ? explorePerfSeries[explorePerfSeries.length - 1]! : null;
+    const lastBarEquity =
+      lastBar != null &&
+      lastBar.aiTop20 != null &&
+      Number.isFinite(lastBar.aiTop20) &&
+      lastBar.aiTop20 > 0
+        ? lastBar.aiTop20
+        : null;
+
     for (const date of visibleDates) {
       const globalIdx = rebalanceDates.indexOf(date);
       const fallbackPayload =
@@ -1063,6 +1107,14 @@ export function ExplorePortfolioDetailDialog({
       let modelNotional =
         rebasedEndingEquityAtRunDate(explorePerfRows, null, INITIAL_CAPITAL, date) ?? INITIAL_CAPITAL;
       if (!Number.isFinite(modelNotional) || modelNotional <= 0) modelNotional = INITIAL_CAPITAL;
+      if (
+        globalIdx === 0 &&
+        lastBar != null &&
+        lastBar.date === date &&
+        lastBarEquity != null
+      ) {
+        modelNotional = lastBarEquity;
+      }
 
       const movementNeedsPriorData = Boolean(prevDate && !prevPayload?.holdings);
       const movementModel =
@@ -1080,7 +1132,8 @@ export function ExplorePortfolioDetailDialog({
           datePayload.holdings,
           modelNotional,
           datePayload.asOfPriceBySymbol ?? {},
-          datePayload.latestPriceBySymbol ?? holdingsLatestPriceBySymbol
+          datePayload.latestPriceBySymbol ?? holdingsLatestPriceBySymbol,
+          'as-of'
         ),
         selectedCostBasis: explorePublicCostBasisByDate[date] ?? null,
         movementModel,
@@ -1098,6 +1151,7 @@ export function ExplorePortfolioDetailDialog({
     holdingsAsOfPriceBySymbol,
     holdingsLatestPriceBySymbol,
     explorePerfRows,
+    explorePerfSeries,
     explorePublicCostBasisByDate,
     exploreHoldingsTopN,
     holdingsCacheRev,
@@ -1667,7 +1721,11 @@ export function ExplorePortfolioDetailDialog({
                         </p>
                         <HoldingsPortfolioValueLine
                           value={getDisplayPortfolioValue(
-                            row.selectedCostBasis?.portfolioValue ?? row.modelNotional,
+                            row.isLatest
+                              ? (exploreLatestModelPortfolioValue ??
+                                row.selectedCostBasis?.portfolioValue ??
+                                row.modelNotional)
+                              : (row.selectedCostBasis?.portfolioValue ?? row.modelNotional),
                             row.isInitial
                           )}
                           formatCurrency={(n) => fmtUsd(n)}
@@ -1726,7 +1784,6 @@ export function ExplorePortfolioDetailDialog({
                                         : null;
                                     const liveRow = row.liveAllocation.bySymbol[h.symbol.toUpperCase()];
                                     const showLive =
-                                      row.isLatest &&
                                       row.liveAllocation.hasCompleteCoverage &&
                                       liveRow?.currentValue != null &&
                                       liveRow.currentWeight != null;
@@ -1765,14 +1822,20 @@ export function ExplorePortfolioDetailDialog({
                                         </TableCell>
                                         <TableCell className="min-w-0 px-1.5 py-1.5 text-left tabular-nums">
                                           {showLive ? (
-                                            <div className="min-w-0 space-y-0.5 leading-tight">
-                                              <div className="truncate">
+                                            row.isLatest ? (
+                                              <div className="min-w-0 space-y-0.5 leading-tight">
+                                                <div className="truncate">
+                                                  {`${fmtUsd(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
+                                                </div>
+                                                <div className="truncate text-[11px] text-muted-foreground">
+                                                  Target: {(h.weight * 100).toFixed(1)}%
+                                                </div>
+                                              </div>
+                                            ) : (
+                                              <span className="block min-w-0 truncate">
                                                 {`${fmtUsd(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
-                                              </div>
-                                              <div className="truncate text-[11px] text-muted-foreground">
-                                                Target: {(h.weight * 100).toFixed(1)}%
-                                              </div>
-                                            </div>
+                                              </span>
+                                            )
                                           ) : (
                                             <span className="block min-w-0 truncate">
                                               {`${fmtUsd(h.weight * row.modelNotional)} (${(h.weight * 100).toFixed(1)}%)`}
@@ -1858,7 +1921,6 @@ export function ExplorePortfolioDetailDialog({
                                       : null;
                                   const liveRow = row.liveAllocation.bySymbol[h.symbol.toUpperCase()];
                                   const showLive =
-                                    row.isLatest &&
                                     row.liveAllocation.hasCompleteCoverage &&
                                     liveRow?.currentValue != null &&
                                     liveRow.currentWeight != null;
@@ -1894,14 +1956,20 @@ export function ExplorePortfolioDetailDialog({
                                       </TableCell>
                                       <TableCell className="min-w-0 px-1.5 py-1.5 text-left tabular-nums">
                                         {showLive ? (
-                                          <div className="min-w-0 space-y-0.5 leading-tight">
-                                            <div className="truncate">
+                                          row.isLatest ? (
+                                            <div className="min-w-0 space-y-0.5 leading-tight">
+                                              <div className="truncate">
+                                                {`${fmtUsd(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
+                                              </div>
+                                              <div className="truncate text-[11px] text-muted-foreground">
+                                                Target: {(h.weight * 100).toFixed(1)}%
+                                              </div>
+                                            </div>
+                                          ) : (
+                                            <span className="block min-w-0 truncate">
                                               {`${fmtUsd(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
-                                            </div>
-                                            <div className="truncate text-[11px] text-muted-foreground">
-                                              Target: {(h.weight * 100).toFixed(1)}%
-                                            </div>
-                                          </div>
+                                            </span>
+                                          )
                                         ) : (
                                           <span className="block min-w-0 truncate">
                                             {`${fmtUsd(h.weight * row.modelNotional)} (${(h.weight * 100).toFixed(1)}%)`}
@@ -2150,11 +2218,14 @@ export function ExplorePortfolioDetailDialog({
                     const actionCount = actionsRow
                       ? actionsRow.hold.length + actionsRow.buy.length + actionsRow.sell.length
                       : 0;
+                    const isLatestCombined = holdingsRow?.isLatest ?? false;
                     const portfolioValue =
-                      holdingsRow?.selectedCostBasis?.portfolioValue ??
-                      holdingsRow?.modelNotional ??
-                      actionsRow?.movementNotional ??
-                      null;
+                      isLatestCombined && exploreLatestModelPortfolioValue != null
+                        ? exploreLatestModelPortfolioValue
+                        : holdingsRow?.selectedCostBasis?.portfolioValue ??
+                          holdingsRow?.modelNotional ??
+                          actionsRow?.movementNotional ??
+                          null;
                     const isInitial = holdingsRow?.isInitial ?? actionsRow?.isInitial ?? false;
                     const displayPortfolioValue = getDisplayPortfolioValue(portfolioValue, isInitial);
 
@@ -2240,7 +2311,6 @@ export function ExplorePortfolioDetailDialog({
                                           const liveRow =
                                             holdingsRow.liveAllocation.bySymbol[h.symbol.toUpperCase()];
                                           const showLive =
-                                            holdingsRow.isLatest &&
                                             holdingsRow.liveAllocation.hasCompleteCoverage &&
                                             liveRow?.currentValue != null &&
                                             liveRow.currentWeight != null;
@@ -2284,14 +2354,20 @@ export function ExplorePortfolioDetailDialog({
                                               </TableCell>
                                               <TableCell className="min-w-0 px-1.5 py-1.5 text-left tabular-nums">
                                                 {showLive ? (
-                                                  <div className="min-w-0 space-y-0.5 leading-tight">
-                                                    <div className="truncate">
+                                                  holdingsRow.isLatest ? (
+                                                    <div className="min-w-0 space-y-0.5 leading-tight">
+                                                      <div className="truncate">
+                                                        {`${fmtUsd(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
+                                                      </div>
+                                                      <div className="truncate text-[11px] text-muted-foreground">
+                                                        Target: {(h.weight * 100).toFixed(1)}%
+                                                      </div>
+                                                    </div>
+                                                  ) : (
+                                                    <span className="block min-w-0 truncate">
                                                       {`${fmtUsd(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
-                                                    </div>
-                                                    <div className="truncate text-[11px] text-muted-foreground">
-                                                      Target: {(h.weight * 100).toFixed(1)}%
-                                                    </div>
-                                                  </div>
+                                                    </span>
+                                                  )
                                                 ) : (
                                                   <span className="block min-w-0 truncate">
                                                     {`${fmtUsd(h.weight * holdingsRow.modelNotional)} (${(h.weight * 100).toFixed(1)}%)`}
@@ -2384,7 +2460,6 @@ export function ExplorePortfolioDetailDialog({
                                         const liveRow =
                                           holdingsRow.liveAllocation.bySymbol[h.symbol.toUpperCase()];
                                         const showLive =
-                                          holdingsRow.isLatest &&
                                           holdingsRow.liveAllocation.hasCompleteCoverage &&
                                           liveRow?.currentValue != null &&
                                           liveRow.currentWeight != null;
@@ -2425,14 +2500,20 @@ export function ExplorePortfolioDetailDialog({
                                             </TableCell>
                                             <TableCell className="min-w-0 px-1.5 py-1.5 text-left tabular-nums">
                                               {showLive ? (
-                                                <div className="min-w-0 space-y-0.5 leading-tight">
-                                                  <div className="truncate">
+                                                holdingsRow.isLatest ? (
+                                                  <div className="min-w-0 space-y-0.5 leading-tight">
+                                                    <div className="truncate">
+                                                      {`${fmtUsd(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
+                                                    </div>
+                                                    <div className="truncate text-[11px] text-muted-foreground">
+                                                      Target: {(h.weight * 100).toFixed(1)}%
+                                                    </div>
+                                                  </div>
+                                                ) : (
+                                                  <span className="block min-w-0 truncate">
                                                     {`${fmtUsd(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
-                                                  </div>
-                                                  <div className="truncate text-[11px] text-muted-foreground">
-                                                    Target: {(h.weight * 100).toFixed(1)}%
-                                                  </div>
-                                                </div>
+                                                  </span>
+                                                )
                                               ) : (
                                                 <span className="block min-w-0 truncate">
                                                   {`${fmtUsd(h.weight * holdingsRow.modelNotional)} (${(h.weight * 100).toFixed(1)}%)`}
@@ -2519,6 +2600,23 @@ export function ExplorePortfolioDetailDialog({
               </Link>
             </Button>
           ) : null}
+          {config &&
+          footerMode === 'follow' &&
+          isFollowing &&
+          followProfileId &&
+          onOpenNotificationSettings ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-1"
+              onClick={() => {
+                onOpenChange(false);
+                onOpenNotificationSettings();
+              }}
+            >
+              Notification settings
+            </Button>
+          ) : null}
           {config && footerMode === 'follow' && isFollowing && followProfileId && onUnfollow ? (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -2539,10 +2637,28 @@ export function ExplorePortfolioDetailDialog({
             </Tooltip>
           ) : null}
           {config && footerMode === 'follow' && !isFollowing ? (
-            <Button type="button" className="gap-1" onClick={onFollow}>
-              <Plus className="size-4" />
-              Follow
-            </Button>
+            followLimitReached ? (
+              <TooltipProvider delayDuration={150}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex">
+                      <Button type="button" className="gap-1" disabled>
+                        <Plus className="size-4" />
+                        Follow
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-xs text-xs">
+                    Follow limit reached (20). Unfollow one to make room.
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            ) : (
+              <Button type="button" className="gap-1" onClick={onFollow}>
+                <Plus className="size-4" />
+                Follow
+              </Button>
+            )
           ) : null}
         </div>
       </DialogContent>

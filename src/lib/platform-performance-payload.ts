@@ -28,9 +28,41 @@ import {
   type QuintileSnapshot,
   type QuintileWinRate,
   type RegressionSummary,
+  type ResearchStats,
 } from '@/lib/quintile-analysis';
 
 const INITIAL_CAPITAL = 10_000;
+
+/** Latest weekly AI commentary on cross-sectional regression diagnostics. */
+export type PlatformResearchHeadline = {
+  runDate: string;
+  headline: string;
+  body: string;
+  previousHeadline: string | null;
+  stats: ResearchStats;
+};
+
+const mapResearchHeadlineRow = (
+  row:
+    | {
+        run_date: string;
+        headline: string;
+        body: string;
+        previous_headline: string | null;
+        stats_json: unknown;
+      }
+    | null
+    | undefined
+): PlatformResearchHeadline | null => {
+  if (!row?.run_date || !row.headline || !row.body) return null;
+  return {
+    runDate: row.run_date,
+    headline: row.headline,
+    body: row.body,
+    previousHeadline: row.previous_headline ?? null,
+    stats: (row.stats_json ?? {}) as ResearchStats,
+  };
+};
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -256,6 +288,7 @@ export type PlatformPerformancePayload = {
       rSquared: number | null;
     }>;
     regressionSummary: RegressionSummary;
+    headline: PlatformResearchHeadline | null;
   } | null;
   notes?: {
     forwardOnly: boolean;
@@ -550,40 +583,51 @@ const buildPayloadForStrategy = async (
         }
       : null;
 
-  const [actionsResponse, weeklyQuintilesResponse, fourWeekQuintilesResponse, regressionResponse] =
-    await Promise.all([
-      latestRunDate
-        ? supabase
-            .from('strategy_rebalance_actions')
-            .select('symbol, action_type, action_label, previous_weight, new_weight')
-            .eq('strategy_id', strategy.id)
-            .eq('run_date', latestStrategyRunDate)
-            .order('action_type', { ascending: true })
-            .order('symbol', { ascending: true })
-        : Promise.resolve({ data: [], error: null }),
-      // Fetch ALL weekly quintile rows for history
-      supabase
-        .from('strategy_quintile_returns')
-        .select('run_date, quintile, stock_count, return_value')
-        .eq('strategy_id', strategy.id)
-        .eq('horizon_weeks', 1)
-        .order('run_date', { ascending: false })
-        .order('quintile', { ascending: true }),
-      // Fetch ALL 4-week non-overlapping quintile rows for history
-      supabase
-        .from('strategy_quintile_returns')
-        .select('run_date, quintile, stock_count, return_value')
-        .eq('strategy_id', strategy.id)
-        .eq('horizon_weeks', 4)
-        .order('run_date', { ascending: false })
-        .order('quintile', { ascending: true }),
-      supabase
-        .from('strategy_cross_sectional_regressions')
-        .select('run_date, sample_size, alpha, beta, r_squared')
-        .eq('strategy_id', strategy.id)
-        .eq('horizon_weeks', 1)
-        .order('run_date', { ascending: false }),
-    ]);
+  const [
+    actionsResponse,
+    weeklyQuintilesResponse,
+    fourWeekQuintilesResponse,
+    regressionResponse,
+    headlineResponse,
+  ] = await Promise.all([
+    latestRunDate
+      ? supabase
+          .from('strategy_rebalance_actions')
+          .select('symbol, action_type, action_label, previous_weight, new_weight')
+          .eq('strategy_id', strategy.id)
+          .eq('run_date', latestStrategyRunDate)
+          .order('action_type', { ascending: true })
+          .order('symbol', { ascending: true })
+      : Promise.resolve({ data: [], error: null }),
+    // Fetch ALL weekly quintile rows for history
+    supabase
+      .from('strategy_quintile_returns')
+      .select('run_date, quintile, stock_count, return_value')
+      .eq('strategy_id', strategy.id)
+      .eq('horizon_weeks', 1)
+      .order('run_date', { ascending: false })
+      .order('quintile', { ascending: true }),
+    // Fetch ALL 4-week non-overlapping quintile rows for history
+    supabase
+      .from('strategy_quintile_returns')
+      .select('run_date, quintile, stock_count, return_value')
+      .eq('strategy_id', strategy.id)
+      .eq('horizon_weeks', 4)
+      .order('run_date', { ascending: false })
+      .order('quintile', { ascending: true }),
+    supabase
+      .from('strategy_cross_sectional_regressions')
+      .select('run_date, sample_size, alpha, beta, r_squared')
+      .eq('strategy_id', strategy.id)
+      .eq('horizon_weeks', 1)
+      .order('run_date', { ascending: false }),
+    supabase
+      .from('strategy_research_headlines')
+      .select('run_date, headline, body, previous_headline, stats_json')
+      .eq('strategy_id', strategy.id)
+      .order('run_date', { ascending: false })
+      .limit(1),
+  ]);
 
   const latestActions = (actionsResponse.data || []).map((row: ActionRow) => ({
     symbol: row.symbol,
@@ -624,6 +668,16 @@ const buildPayloadForStrategy = async (
     }))
   );
 
+  const headline = mapResearchHeadlineRow(
+    (headlineResponse.data?.[0] ?? null) as {
+      run_date: string;
+      headline: string;
+      body: string;
+      previous_headline: string | null;
+      stats_json: unknown;
+    } | null
+  );
+
   return {
     strategy: baseStrategy,
     latestRunDate,
@@ -644,6 +698,7 @@ const buildPayloadForStrategy = async (
       regression,
       regressionHistory: allRegressionRows,
       regressionSummary,
+      headline,
     },
     notes: {
       forwardOnly: true,
@@ -1015,6 +1070,8 @@ export type StrategyDetail = {
   latestRegressionDate: string | null;
   /** Full weekly regression history summary (1-week horizon). */
   regressionSummary: RegressionSummary;
+  /** Latest stored weekly AI research headline (same as /performance research card). */
+  researchHeadline: PlatformResearchHeadline | null;
   benchmarkCapWeightReturn: number | null;
 };
 
@@ -1062,7 +1119,8 @@ const getStrategyDetailCached = (slug: string) =>
         const prompt = Array.isArray(row.ai_prompts) ? row.ai_prompts[0] : row.ai_prompts;
         const model = Array.isArray(row.ai_models) ? row.ai_models[0] : row.ai_models;
 
-        const [perfResponse, quintileResponse, regressionResponse] = await Promise.all([
+        const [perfResponse, quintileResponse, regressionResponse, headlineResponse] =
+          await Promise.all([
           supabase
             .from('strategy_performance_weekly')
             .select('run_date, net_return, ending_equity, nasdaq100_cap_weight_equity')
@@ -1080,6 +1138,12 @@ const getStrategyDetailCached = (slug: string) =>
             .eq('strategy_id', row.id)
             .eq('horizon_weeks', 1)
             .order('run_date', { ascending: false }),
+          supabase
+            .from('strategy_research_headlines')
+            .select('run_date, headline, body, previous_headline, stats_json')
+            .eq('strategy_id', row.id)
+            .order('run_date', { ascending: false })
+            .limit(1),
         ]);
 
         const perfRows = (perfResponse.data ?? []) as Array<{
@@ -1147,6 +1211,16 @@ const getStrategyDetailCached = (slug: string) =>
           }))
         );
 
+        const researchHeadline = mapResearchHeadlineRow(
+          (headlineResponse.data?.[0] ?? null) as {
+            run_date: string;
+            headline: string;
+            body: string;
+            previous_headline: string | null;
+            stats_json: unknown;
+          } | null
+        );
+
         return {
           id: row.id,
           slug: row.slug,
@@ -1197,6 +1271,7 @@ const getStrategyDetailCached = (slug: string) =>
           latestAlpha: regRow ? toNullableNumber(regRow.alpha) : null,
           latestRegressionDate: regRow?.run_date ?? null,
           regressionSummary,
+          researchHeadline,
           benchmarkCapWeightReturn:
             perfRows.length >= 2 ? computeTotalReturn(INITIAL_CAPITAL, benchCapEnd) : null,
         };

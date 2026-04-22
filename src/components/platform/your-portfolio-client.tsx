@@ -81,6 +81,7 @@ import { useToast } from '@/hooks/use-toast';
 import {
   showPortfolioUnfollowToast,
   showPortfolioFollowToast,
+  showFollowLimitToast,
   setUserPortfolioProfileActive,
   USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT,
   invalidateUserPortfolioProfilesEntrySave,
@@ -131,6 +132,7 @@ import { usePersistedYourPortfoliosSortMetric } from '@/lib/portfolio-list-sort-
 import { PORTFOLIO_EXPLORE_QUICK_PICKS } from '@/lib/portfolio-explore-quick-picks';
 import { loadRankedConfigsClient } from '@/lib/portfolio-configs-ranked-client';
 import { loadUserPortfolioProfilesClient } from '@/lib/user-portfolio-profiles-client';
+import { FOLLOW_LIMIT_ERROR_CODE, MAX_FOLLOWED_PORTFOLIOS } from '@/lib/follow-limits';
 import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import { formatYmdDisplay, ymdForInitialRebalanceDisplay } from '@/lib/format-ymd-display';
 import {
@@ -140,6 +142,7 @@ import {
   isGuestLocalProfileId,
 } from '@/lib/guest-local-profile';
 import {
+  HOLDINGS_TODAY_SENTINEL,
   PORTFOLIO_HOLDINGS_DATE_SELECT_WIDTH_CLASSES,
   PORTFOLIO_REBALANCE_DATE_SELECT_WIDTH_CLASSES,
 } from '@/lib/portfolio-rebalance-date-select-ui';
@@ -470,6 +473,12 @@ export type UserPortfolioProfileRow = {
   notify_holdings_change: boolean;
   email_enabled: boolean;
   inapp_enabled: boolean;
+  notify_rebalance_inapp?: boolean;
+  notify_rebalance_email?: boolean;
+  notify_price_move_inapp?: boolean;
+  notify_price_move_email?: boolean;
+  notify_entries_exits_inapp?: boolean;
+  notify_entries_exits_email?: boolean;
   is_starting_portfolio?: boolean;
   strategy_models: StrategyModelEmbed;
   portfolio_config: PortfolioConfigEmbed;
@@ -1283,6 +1292,7 @@ function PresetBentoGrid({
   subtitle,
   showCancel,
   strategySlug,
+  atFollowLimit = false,
 }: {
   rankedConfigs?: RankedConfig[];
   busyKey: string | null;
@@ -1292,8 +1302,10 @@ function PresetBentoGrid({
   subtitle: string;
   showCancel: boolean;
   strategySlug?: string;
+  atFollowLimit?: boolean;
 }) {
   return (
+    <TooltipProvider delayDuration={150}>
     <div className="flex h-full flex-col">
       <div className="sticky top-0 z-30 border-b bg-background/95 px-4 py-3 backdrop-blur-sm sm:px-6">
         <div className="flex items-center justify-between gap-3">
@@ -1319,12 +1331,12 @@ function PresetBentoGrid({
                 rc.weightingMethod === preset.weightingMethod
             );
             const loading = busyKey === preset.key;
+            const disabled = loading || atFollowLimit;
 
-            return (
+            const card = (
               <button
-                key={preset.key}
                 type="button"
-                disabled={loading}
+                disabled={disabled}
                 onClick={() => onPick(preset)}
                 className={`group relative rounded-xl border p-4 text-left transition-all hover:shadow-md disabled:opacity-60 ${
                   preset.highlight
@@ -1369,6 +1381,21 @@ function PresetBentoGrid({
                 )}
               </button>
             );
+
+            return atFollowLimit ? (
+              <Tooltip key={preset.key}>
+                <TooltipTrigger asChild>
+                  <span className="block w-full">{card}</span>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-xs text-xs">
+                  Follow limit reached (20). Unfollow one to make room.
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              <span key={preset.key} className="block w-full">
+                {card}
+              </span>
+            );
           })}
         </div>
 
@@ -1382,6 +1409,7 @@ function PresetBentoGrid({
         </div>
       </div>
     </div>
+    </TooltipProvider>
   );
 }
 
@@ -1467,8 +1495,8 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const [prevMovementHoldings, setPrevMovementHoldings] = useState<HoldingItem[] | null>(null);
   const [prevMovementLoading, setPrevMovementLoading] = useState(false);
   const [prevMovementError, setPrevMovementError] = useState(false);
-  /** Keeps the rebalance Select on the chosen date while holdings fetch runs (controlled value otherwise snaps back). */
-  const [pendingHoldingsAsOf, setPendingHoldingsAsOf] = useState<string | null>(null);
+  /** `today` = latest rebalance composition marked to latest prices (matches portfolio value card). */
+  const [holdingsDateSelect, setHoldingsDateSelect] = useState<string>(HOLDINGS_TODAY_SENTINEL);
   /** Entry-scoped movement timeline (same cache as rebalance actions) for cost-basis replay. */
   const [holdingsMovementTimeline, setHoldingsMovementTimeline] =
     useState<PortfolioMovementResolved | null>(null);
@@ -1484,14 +1512,26 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       } | null;
       const list = data?.profiles ?? [];
       setProfiles(
-        list.map((p) => ({
-          ...p,
-          is_starting_portfolio: Boolean(p.is_starting_portfolio),
-          notify_rebalance: p.notify_rebalance ?? true,
-          notify_holdings_change: p.notify_holdings_change ?? true,
-          email_enabled: p.email_enabled ?? true,
-          inapp_enabled: p.inapp_enabled ?? true,
-        }))
+        list.map((p) => {
+          const email = p.email_enabled ?? true;
+          const inapp = p.inapp_enabled ?? true;
+          const nr = p.notify_rebalance ?? true;
+          const nh = p.notify_holdings_change ?? true;
+          return {
+            ...p,
+            is_starting_portfolio: Boolean(p.is_starting_portfolio),
+            notify_rebalance: nr,
+            notify_holdings_change: nh,
+            email_enabled: email,
+            inapp_enabled: inapp,
+            notify_rebalance_inapp: p.notify_rebalance_inapp ?? (nr && inapp),
+            notify_rebalance_email: p.notify_rebalance_email ?? (nr && email),
+            notify_price_move_inapp: p.notify_price_move_inapp ?? false,
+            notify_price_move_email: p.notify_price_move_email ?? false,
+            notify_entries_exits_inapp: p.notify_entries_exits_inapp ?? (nh && inapp),
+            notify_entries_exits_email: p.notify_entries_exits_email ?? (nh && email),
+          };
+        })
       );
     } catch {
       // silent
@@ -1880,6 +1920,30 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     };
   }, [profiles]);
 
+  /** When the user has no follows yet, still load ranked configs for the portfolio-config strategy so preset cards can show badges/returns. */
+  useEffect(() => {
+    if (profiles.length > 0) return;
+    if (!portfolioConfigHydrated) return;
+    const slug = portfolioConfigCtx.strategySlug?.trim();
+    if (!slug) return;
+    let cancelled = false;
+    void loadRankedConfigsClient(slug).then((data) => {
+      if (cancelled || !data) return;
+      setRankedBySlug((prev) => ({ ...prev, [slug]: data.configs ?? [] }));
+      setLatestPerfDateBySlug((prev) => ({
+        ...prev,
+        [slug]: data.latestPerformanceDate ?? null,
+      }));
+      setModelInceptionBySlug((prev) => ({
+        ...prev,
+        [slug]: data.modelInceptionDate ?? null,
+      }));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [profiles.length, portfolioConfigCtx.strategySlug, portfolioConfigHydrated]);
+
   const loadPerf = useCallback(async (opts?: { bypassCache?: boolean }) => {
     if (!selectedProfile?.portfolio_config || !strategySlug) {
       perfRequestIdRef.current += 1;
@@ -2128,7 +2192,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     setConfigHoldingsLatestPriceBySymbol({});
     setConfigHoldingsRebalanceDates([]);
     setConfigHoldingsRefreshing(false);
-    setPendingHoldingsAsOf(null);
+    setHoldingsDateSelect(HOLDINGS_TODAY_SENTINEL);
 
     setPrevMovementHoldings(null);
     setPrevMovementLoading(false);
@@ -2164,7 +2228,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         setConfigHoldingsRebalanceDates([]);
         setConfigHoldingsLoading(false);
         setConfigHoldingsRefreshing(false);
-        setPendingHoldingsAsOf(null);
         return;
       }
 
@@ -2188,7 +2251,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         setConfigHoldingsRebalanceDates(syncHit.rebalanceDates);
         setConfigHoldingsLoading(false);
         setConfigHoldingsRefreshing(false);
-        setPendingHoldingsAsOf(null);
         prefetchExploreHoldingsDates(slug, configId, syncHit.rebalanceDates);
         return;
       }
@@ -2229,7 +2291,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         if (yourPortfolioHoldingsRequestIdRef.current === reqId) {
           setConfigHoldingsLoading(false);
           setConfigHoldingsRefreshing(false);
-          setPendingHoldingsAsOf(null);
         }
       }
     },
@@ -2253,7 +2314,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       setConfigHoldingsRebalanceDates([]);
       setConfigHoldingsLoading(false);
       setConfigHoldingsRefreshing(false);
-      setPendingHoldingsAsOf(null);
+      setHoldingsDateSelect(HOLDINGS_TODAY_SENTINEL);
       return;
     }
     void fetchYourPortfolioConfigHoldings(null);
@@ -2268,16 +2329,14 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
 
   useEffect(() => {
     if (!scopedConfigHoldingsRebalanceDates.length) return;
-    const asOf = pendingHoldingsAsOf ?? configHoldingsAsOf;
-    if (!asOf) return;
-    if (!scopedConfigHoldingsRebalanceDates.includes(asOf)) {
-      const newest = scopedConfigHoldingsRebalanceDates[0];
-      if (newest) void fetchYourPortfolioConfigHoldings(newest);
+    if (holdingsDateSelect === HOLDINGS_TODAY_SENTINEL) return;
+    if (!scopedConfigHoldingsRebalanceDates.includes(holdingsDateSelect)) {
+      setHoldingsDateSelect(HOLDINGS_TODAY_SENTINEL);
+      void fetchYourPortfolioConfigHoldings(null);
     }
   }, [
     scopedConfigHoldingsRebalanceDates,
-    configHoldingsAsOf,
-    pendingHoldingsAsOf,
+    holdingsDateSelect,
     fetchYourPortfolioConfigHoldings,
   ]);
 
@@ -2355,10 +2414,43 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   ]);
 
   const topN = selectedProfile?.portfolio_config?.top_n ?? 20;
+
+  const holdingsMovementSlice = useMemo(() => {
+    if (!holdingsMovementTimeline || 'error' in holdingsMovementTimeline) return null;
+    const data = holdingsMovementTimeline.data;
+    if (data.status !== 'ok' || !data.byRebalanceDate) return null;
+    const date =
+      holdingsDateSelect === HOLDINGS_TODAY_SENTINEL
+        ? scopedConfigHoldingsRebalanceDates[0] ?? null
+        : holdingsDateSelect;
+    if (!date) return null;
+    return data.byRebalanceDate[date] ?? null;
+  }, [holdingsMovementTimeline, holdingsDateSelect, scopedConfigHoldingsRebalanceDates]);
+
+  const holdingsTargetDollarsBySymbol = useMemo<Record<string, number> | null>(() => {
+    if (holdingsDateSelect === HOLDINGS_TODAY_SENTINEL) return null;
+    const slice = holdingsMovementSlice;
+    if (!slice) return null;
+    const map: Record<string, number> = {};
+    for (const line of [...slice.hold, ...slice.buy]) {
+      map[line.symbol.toUpperCase()] = line.targetDollars;
+    }
+    return Object.keys(map).length ? map : null;
+  }, [holdingsDateSelect, holdingsMovementSlice]);
+
   const holdingsAsOfNotional = useMemo(() => {
     const investmentSize = num(selectedProfile?.investment_size);
     const pts = (displaySeries as PerformanceSeriesPoint[]) ?? [];
     const asOf = configHoldingsAsOf;
+
+    if (holdingsDateSelect !== HOLDINGS_TODAY_SENTINEL && holdingsMovementSlice) {
+      const n =
+        holdingsMovementSlice.notionalAtCurrRebalanceEnd ??
+        holdingsMovementSlice.movementNotional ??
+        null;
+      if (n != null && Number.isFinite(n) && n > 0) return n;
+    }
+
     if (asOf && holdingsRebalanceAnchorDate && asOf === holdingsRebalanceAnchorDate) {
       return investmentSize;
     }
@@ -2381,47 +2473,47 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     configHoldingsAsOf,
     selectedProfile?.investment_size,
     holdingsRebalanceAnchorDate,
+    holdingsDateSelect,
+    holdingsMovementSlice,
   ]);
-  const liveConfigHoldingsAllocation = useMemo(() => {
-    if (
-      configHoldingsAsOf &&
-      holdingsRebalanceAnchorDate &&
-      configHoldingsAsOf === holdingsRebalanceAnchorDate
-    ) {
-      return { bySymbol: {}, hasCompleteCoverage: false as const };
+
+  const holdingsNotional = useMemo(() => {
+    if (holdingsDateSelect === HOLDINGS_TODAY_SENTINEL) {
+      const v = portfolioValueAmount;
+      if (v != null && Number.isFinite(v) && v > 0) return v;
     }
+    return holdingsAsOfNotional;
+  }, [holdingsDateSelect, portfolioValueAmount, holdingsAsOfNotional]);
+
+  const liveConfigHoldingsAllocation = useMemo(() => {
     return buildLiveHoldingsAllocationResult(
       configHoldings,
-      holdingsAsOfNotional,
+      holdingsNotional,
       configHoldingsAsOfPriceBySymbol,
-      configHoldingsLatestPriceBySymbol
+      configHoldingsLatestPriceBySymbol,
+      'as-of',
+      holdingsTargetDollarsBySymbol != null
+        ? { targetDollarsBySymbol: holdingsTargetDollarsBySymbol }
+        : undefined
     );
   }, [
-    configHoldingsAsOf,
-    holdingsRebalanceAnchorDate,
     configHoldings,
-    holdingsAsOfNotional,
+    holdingsNotional,
     configHoldingsAsOfPriceBySymbol,
     configHoldingsLatestPriceBySymbol,
+    holdingsTargetDollarsBySymbol,
   ]);
-  const liveConfigHoldingsTotalValue = useMemo(() => {
-    if (!liveConfigHoldingsAllocation.hasCompleteCoverage) return null;
-    let sum = 0;
-    for (const row of Object.values(liveConfigHoldingsAllocation.bySymbol)) {
-      const n = row.currentValue;
-      if (n == null || !Number.isFinite(n) || n <= 0) return null;
-      sum += n;
-    }
-    return Number.isFinite(sum) && sum > 0 ? sum : null;
-  }, [liveConfigHoldingsAllocation]);
 
-  const effectiveHoldingsAsOf = pendingHoldingsAsOf ?? configHoldingsAsOf;
+  const costBasisRebalanceDate = useMemo(() => {
+    if (holdingsDateSelect === HOLDINGS_TODAY_SENTINEL) return configHoldingsAsOf;
+    return holdingsDateSelect;
+  }, [holdingsDateSelect, configHoldingsAsOf]);
 
   const selectedHoldingsCostBasisSnapshot = useMemo(() => {
-    const d = effectiveHoldingsAsOf;
+    const d = costBasisRebalanceDate;
     if (!d) return null;
     return holdingsCostBasisSnapshotsByDate[d] ?? null;
-  }, [effectiveHoldingsAsOf, holdingsCostBasisSnapshotsByDate]);
+  }, [costBasisRebalanceDate, holdingsCostBasisSnapshotsByDate]);
   const holdingsCostBasisLoading = useMemo(() => {
     if (!yourPortfoliosHoldingsPaid) return false;
     if (!selectedProfile?.user_start_date?.trim()) return false;
@@ -2437,27 +2529,18 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     holdingsMovementTimeline,
   ]);
 
-  const holdingsPortfolioValueLineAmount = useMemo(() => {
-    if (liveConfigHoldingsTotalValue != null) return liveConfigHoldingsTotalValue;
-    if (holdingsMovementTimeline && 'data' in holdingsMovementTimeline) {
-      const pl = holdingsMovementTimeline.data;
-      if (pl.status === 'ok' && effectiveHoldingsAsOf) {
-        const row = pl.byRebalanceDate?.[effectiveHoldingsAsOf];
-        const n = row?.notionalAtCurrRebalanceEnd;
-        if (n != null && Number.isFinite(n) && n > 0) return n;
-      }
+  const holdingsPortfolioValueLineAmount = useMemo(() => holdingsNotional, [holdingsNotional]);
+
+  const effectiveRebalanceForMovement = useMemo(() => {
+    if (holdingsDateSelect === HOLDINGS_TODAY_SENTINEL) {
+      return scopedConfigHoldingsRebalanceDates[0] ?? null;
     }
-    return holdingsAsOfNotional;
-  }, [
-    liveConfigHoldingsTotalValue,
-    holdingsMovementTimeline,
-    effectiveHoldingsAsOf,
-    holdingsAsOfNotional,
-  ]);
+    return configHoldingsAsOf;
+  }, [holdingsDateSelect, scopedConfigHoldingsRebalanceDates, configHoldingsAsOf]);
 
   const holdingsPrevRebalanceDate = useMemo(
-    () => getPreviousRebalanceDate(scopedConfigHoldingsRebalanceDates, configHoldingsAsOf),
-    [scopedConfigHoldingsRebalanceDates, configHoldingsAsOf]
+    () => getPreviousRebalanceDate(scopedConfigHoldingsRebalanceDates, effectiveRebalanceForMovement),
+    [scopedConfigHoldingsRebalanceDates, effectiveRebalanceForMovement]
   );
 
   useEffect(() => {
@@ -2526,6 +2609,10 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     holdingsMovementView && Boolean(holdingsPrevRebalanceDate) && prevMovementLoading;
 
   const handleCreatePreset = async (preset: PresetConfig) => {
+    if (profiles.length >= MAX_FOLLOWED_PORTFOLIOS) {
+      showFollowLimitToast();
+      return;
+    }
     setPresetBusyKey(preset.key);
     const slug = portfolioConfigCtx.strategySlug;
     const ymd = localTodayYmd();
@@ -2542,13 +2629,21 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
           userStartDate: ymd,
         }),
       });
-      const j = (await res.json().catch(() => ({}))) as { profileId?: string; error?: string };
+      const j = (await res.json().catch(() => ({}))) as {
+        profileId?: string;
+        error?: string;
+        code?: string;
+      };
       if (!res.ok) {
-        toast({
-          title: 'Could not follow portfolio',
-          description: j.error ?? 'Try again later.',
-          variant: 'destructive',
-        });
+        if (j.code === FOLLOW_LIMIT_ERROR_CODE) {
+          showFollowLimitToast();
+        } else {
+          toast({
+            title: 'Could not follow portfolio',
+            description: j.error ?? 'Try again later.',
+            variant: 'destructive',
+          });
+        }
         return;
       }
       const createdId = j.profileId;
@@ -2583,8 +2678,8 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     const profileId = snapshot.id;
     const label = snapshot.portfolio_config?.label ?? 'Portfolio';
     try {
-      const ok = await setUserPortfolioProfileActive(profileId, false);
-      if (!ok) {
+      const outcome = await setUserPortfolioProfileActive(profileId, false);
+      if (!outcome.ok) {
         toast({ title: 'Could not unfollow', variant: 'destructive' });
         return;
       }
@@ -2789,25 +2884,39 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     return <YourPortfoliosSkeletonShell />;
   }
 
-  // Empty — point user to explore page
+  // Empty — starter presets + explore
   if (profiles.length === 0) {
+    const presetSlug = portfolioConfigCtx.strategySlug?.trim() || STRATEGY_CONFIG.slug;
+    const presetStrategyLabel =
+      strategies.find((s) => s.slug === presetSlug)?.name?.trim() || STRATEGY_CONFIG.name;
+    const presetRanked = rankedBySlug[presetSlug] ?? [];
     return (
-      <div className="flex h-full min-h-0 flex-1 flex-col items-center justify-center gap-4 overflow-y-auto px-6 py-20 text-center">
-        <div className="rounded-full bg-muted p-4">
-          <Compass className="size-8 text-muted-foreground" />
+      <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+        <div className="shrink-0 border-b bg-background/95 px-4 py-4 text-center sm:px-6">
+          <div className="mx-auto flex max-w-lg flex-col items-center gap-3">
+            <div className="rounded-full bg-muted p-3">
+              <Compass className="size-7 text-muted-foreground" />
+            </div>
+            <div className="space-y-1">
+              <p className="text-lg font-semibold">No portfolios followed yet</p>
+              <p className="text-sm text-muted-foreground">
+                Follow a starter below, or open Explore for the full catalog.
+              </p>
+            </div>
+          </div>
         </div>
-        <div className="space-y-1">
-          <p className="text-lg font-semibold">No portfolios followed yet</p>
-          <p className="text-sm text-muted-foreground max-w-sm">
-            Browse available portfolio portfolios and follow the ones that match your style.
-          </p>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
+          <PresetBentoGrid
+            rankedConfigs={presetRanked}
+            busyKey={presetBusyKey}
+            onPick={handleCreatePreset}
+            title="Starter portfolios"
+            subtitle={`Ranked picks for ${presetStrategyLabel}. Presets use today’s date and $10,000 tracking notional.`}
+            showCancel={false}
+            strategySlug={presetSlug}
+            atFollowLimit={profiles.length >= MAX_FOLLOWED_PORTFOLIOS}
+          />
         </div>
-        <Button asChild>
-          <Link href="/platform/explore-portfolios" className="gap-1.5">
-            <Compass className="size-4" />
-            Explore portfolios
-          </Link>
-        </Button>
       </div>
     );
   }
@@ -3584,17 +3693,13 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                     {yourPortfoliosHoldingsPaid && scopedConfigHoldingsRebalanceDates.length > 0 ? (
                       <div className="flex min-w-0 flex-nowrap items-center justify-start gap-x-1.5 overflow-x-auto sm:gap-x-2">
                         <Select
-                          value={
-                            effectiveHoldingsAsOf &&
-                            scopedConfigHoldingsRebalanceDates.includes(effectiveHoldingsAsOf)
-                              ? effectiveHoldingsAsOf
-                              : undefined
-                          }
+                          value={holdingsDateSelect}
                           onValueChange={(v) => {
-                            if (v && v !== effectiveHoldingsAsOf) {
-                              setPendingHoldingsAsOf(v);
-                              void fetchYourPortfolioConfigHoldings(v);
-                            }
+                            if (!v || v === holdingsDateSelect) return;
+                            setHoldingsDateSelect(v);
+                            void fetchYourPortfolioConfigHoldings(
+                              v === HOLDINGS_TODAY_SENTINEL ? null : v
+                            );
                           }}
                           disabled={configHoldingsLoading}
                         >
@@ -3607,6 +3712,9 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                             <SelectValue placeholder="Rebalance date" />
                           </SelectTrigger>
                           <SelectContent align="start">
+                            <SelectItem value={HOLDINGS_TODAY_SENTINEL} className="text-xs">
+                              Today
+                            </SelectItem>
                             {scopedConfigHoldingsRebalanceDates.map((d) => {
                               const initialD =
                                 scopedConfigHoldingsRebalanceDates[
@@ -3848,14 +3956,20 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                         </TableCell>
                                         <TableCell className="min-w-0 px-1.5 py-1.5 text-left tabular-nums">
                                           {showLive ? (
-                                            <div className="min-w-0 space-y-0.5 leading-tight">
-                                              <div className="truncate">
+                                            holdingsDateSelect === HOLDINGS_TODAY_SENTINEL ? (
+                                              <div className="min-w-0 space-y-0.5 leading-tight">
+                                                <div className="truncate">
+                                                  {`${formatYourPortfolioCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
+                                                </div>
+                                                <div className="truncate text-[11px] text-muted-foreground">
+                                                  Target: {(h.weight * 100).toFixed(1)}%
+                                                </div>
+                                              </div>
+                                            ) : (
+                                              <span className="block min-w-0 truncate">
                                                 {`${formatYourPortfolioCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
-                                              </div>
-                                              <div className="truncate text-[11px] text-muted-foreground">
-                                                Target: {(h.weight * 100).toFixed(1)}%
-                                              </div>
-                                            </div>
+                                              </span>
+                                            )
                                           ) : Number.isFinite(inv) && inv > 0 ? (
                                             <span className="block min-w-0 truncate">
                                               {`${formatYourPortfolioCurrency(h.weight * inv)} (${(h.weight * 100).toFixed(1)}%)`}
@@ -4010,14 +4124,20 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                       </TableCell>
                                       <TableCell className="min-w-0 px-1.5 py-1.5 text-left tabular-nums">
                                         {showLive ? (
-                                          <div className="min-w-0 space-y-0.5 leading-tight">
-                                            <div className="truncate">
+                                          holdingsDateSelect === HOLDINGS_TODAY_SENTINEL ? (
+                                            <div className="min-w-0 space-y-0.5 leading-tight">
+                                              <div className="truncate">
+                                                {`${formatYourPortfolioCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
+                                              </div>
+                                              <div className="truncate text-[11px] text-muted-foreground">
+                                                Target: {(h.weight * 100).toFixed(1)}%
+                                              </div>
+                                            </div>
+                                          ) : (
+                                            <span className="block min-w-0 truncate">
                                               {`${formatYourPortfolioCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
-                                            </div>
-                                            <div className="truncate text-[11px] text-muted-foreground">
-                                              Target: {(h.weight * 100).toFixed(1)}%
-                                            </div>
-                                          </div>
+                                            </span>
+                                          )
                                         ) : Number.isFinite(inv) && inv > 0 ? (
                                           <span className="block min-w-0 truncate">
                                             {`${formatYourPortfolioCurrency(h.weight * inv)} (${(h.weight * 100).toFixed(1)}%)`}
@@ -4339,10 +4459,12 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
           onOpenChange={setPortfolioAlertsOpen}
           profileId={selectedProfile.id}
           initial={{
-            notifyRebalance: selectedProfile.notify_rebalance ?? true,
-            notifyHoldingsChange: selectedProfile.notify_holdings_change ?? true,
-            emailEnabled: selectedProfile.email_enabled ?? true,
-            inappEnabled: selectedProfile.inapp_enabled ?? true,
+            notifyRebalanceInapp: selectedProfile.notify_rebalance_inapp ?? true,
+            notifyRebalanceEmail: selectedProfile.notify_rebalance_email ?? true,
+            notifyPriceMoveInapp: selectedProfile.notify_price_move_inapp ?? false,
+            notifyPriceMoveEmail: selectedProfile.notify_price_move_email ?? false,
+            notifyEntriesExitsInapp: selectedProfile.notify_entries_exits_inapp ?? true,
+            notifyEntriesExitsEmail: selectedProfile.notify_entries_exits_email ?? true,
           }}
           onSaved={() => void loadProfiles({ silent: true })}
         />

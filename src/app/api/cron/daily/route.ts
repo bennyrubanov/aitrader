@@ -35,6 +35,7 @@ import { createAdminClient } from '@/utils/supabase/admin';
 import { runWithSupabaseQueryCount } from '@/utils/supabase/query-counter';
 // Intentional: operator-only cron digest to CRON_ERROR_EMAIL (Gmail→Gmail). User-facing mail uses Resend via @/lib/mailer.
 import { sendEmailByGmail } from '@/lib/sendEmailByGmail';
+import { upsertWeeklyResearchHeadlineForStrategy } from '@/lib/research-headline';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -1600,6 +1601,17 @@ const handleRequest = async (req: Request) => {
     }
     log('AUTH OK');
 
+    const dryUserRaw = new URL(req.url).searchParams.get('dryUser')?.trim() ?? '';
+    const dryUserId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(dryUserRaw)
+      ? dryUserRaw
+      : null;
+    if (dryUserRaw && !dryUserId) {
+      log('DRY_USER INVALID', dryUserRaw);
+    }
+    if (dryUserId) {
+      log('DRY_USER', dryUserId);
+    }
+
     const forceRunRaw = new URL(req.url).searchParams.get('force');
     const forceRun = forceRunRaw === '1' || forceRunRaw === 'true';
     const runWeekday = getUtcWeekday(runDate);
@@ -1835,6 +1847,23 @@ const handleRequest = async (req: Request) => {
           `strategy=${String(activeStrategy.slug ?? activeStrategy.id)} configs_written=${dailySnapshot.writtenConfigRows} configs_skipped=${dailySnapshot.skippedConfigRows} strategy_written=${dailySnapshot.wroteStrategyRow}`
         );
       }
+
+      let notificationsPriceMove: { profilesChecked: number; inappInserted: number; emailsSent: number } | null =
+        null;
+      try {
+        const cronFanout = await import('@/lib/notifications/cron-fanout');
+        notificationsPriceMove = await cronFanout.notifyPortfolioPriceMoves(supabase, {
+          runDate,
+          dryUserId,
+        });
+        log(
+          'NOTIFICATIONS PRICE_MOVE',
+          `checked=${notificationsPriceMove.profilesChecked} inapp=${notificationsPriceMove.inappInserted} emails=${notificationsPriceMove.emailsSent}`
+        );
+      } catch (priceMoveErr) {
+        recordCronError('Notifications fan-out (price move) failed', priceMoveErr);
+      }
+
       log(
         'DAILY COMPLETE',
         `Prices saved for ${rawPayload.length} symbols. Snapshot updated. AI ratings skipped (not rebalance day).`
@@ -1856,6 +1885,8 @@ const handleRequest = async (req: Request) => {
         dailySeriesConfigsWritten,
         aiRatings: false,
         benchmarkDailyPricesIngest: digestMeta.benchmarkDailyPricesIngest,
+        notificationsPriceMove,
+        dryUser: dryUserId,
         elapsedSeconds: Number(totalSeconds),
       });
     }
@@ -2177,10 +2208,23 @@ const handleRequest = async (req: Request) => {
           strategyName: strategy.name,
           runDate,
           changes: ratingChangesForNotifications,
+          dryUserId,
         });
         log(
           'NOTIFICATIONS RATING',
           `inapp=${r.inappInserted} emails=${r.emailsSent} changes=${ratingChangesForNotifications.length}`
+        );
+        const ps = await cronFanout.notifyStockRatingChangesPerStock(supabase, {
+          strategyId: strategy.id,
+          strategySlug: strategy.slug,
+          strategyName: strategy.name,
+          runDate,
+          changes: ratingChangesForNotifications,
+          dryUserId,
+        });
+        log(
+          'NOTIFICATIONS RATING_TRACKED',
+          `inapp=${ps.inappInserted} emails=${ps.emailsSent} changes=${ratingChangesForNotifications.length}`
         );
       }
     } catch (error) {
@@ -2566,6 +2610,17 @@ const handleRequest = async (req: Request) => {
       recordCronError('Daily snapshot writer failed', dailySnapshotErr);
     }
 
+    try {
+      const cronFanout = await import('@/lib/notifications/cron-fanout');
+      const pm = await cronFanout.notifyPortfolioPriceMoves(supabase, { runDate, dryUserId });
+      log(
+        'NOTIFICATIONS PRICE_MOVE',
+        `checked=${pm.profilesChecked} inapp=${pm.inappInserted} emails=${pm.emailsSent}`
+      );
+    } catch (priceMoveErr) {
+      recordCronError('Notifications fan-out (price move) failed', priceMoveErr);
+    }
+
     // ----- Step 16: Persist deterministic rebalance actions -----
     const eligibleSymbols = new Set(memberRows.map((member) => member.stock.symbol));
     const oldMapByStockId = new Map(previousHoldings.map((holding) => [holding.stock_id, holding]));
@@ -2654,8 +2709,25 @@ const handleRequest = async (req: Request) => {
           strategyName: strategy.name,
           runDate,
           actionCount: actions.length,
+          dryUserId,
         });
         log('NOTIFICATIONS REBALANCE', `inapp=${rb.inappInserted} emails=${rb.emailsSent}`);
+        const entries = actions
+          .filter((a) => a.action_type === 'enter')
+          .map((a) => ({ symbol: a.symbol, stock_id: a.stock_id }));
+        const exits = actions
+          .filter((a) => a.action_type === 'exit_index' || a.action_type === 'exit_rank')
+          .map((a) => ({ symbol: a.symbol, stock_id: a.stock_id }));
+        const ee = await cronFanout.notifyPortfolioEntriesExits(supabase, {
+          strategyId: strategy.id,
+          strategySlug: strategy.slug,
+          strategyName: strategy.name,
+          runDate,
+          entries,
+          exits,
+          dryUserId,
+        });
+        log('NOTIFICATIONS ENTRIES_EXITS', `inapp=${ee.inappInserted} emails=${ee.emailsSent}`);
       }
       if (ratingChangesForNotifications.length === 0) {
         const mr = await cronFanout.notifyModelRatingsReady(supabase, {
@@ -2663,6 +2735,7 @@ const handleRequest = async (req: Request) => {
           strategySlug: strategy.slug,
           strategyName: strategy.name,
           runDate,
+          dryUserId,
         });
         log('NOTIFICATIONS RATINGS_READY', `inapp=${mr.inappInserted} emails=${mr.emailsSent}`);
       }
@@ -2696,6 +2769,13 @@ const handleRequest = async (req: Request) => {
           recordCronError('Store cross-sectional regression failed', error);
         }
       }
+    }
+
+    // ----- Step 17.5: Weekly research headline (stats + AI interpretation) -----
+    try {
+      await upsertWeeklyResearchHeadlineForStrategy(supabase, strategy.id);
+    } catch (error) {
+      recordCronError('Weekly research headline failed', error, strategy.slug);
     }
 
     // ----- Step 18: 4-week non-overlapping quintiles -----
@@ -2781,6 +2861,7 @@ const handleRequest = async (req: Request) => {
 
     return NextResponse.json({
       runDate,
+      dryUser: dryUserId,
       strategy: {
         slug: strategy.slug,
         version: strategy.version,

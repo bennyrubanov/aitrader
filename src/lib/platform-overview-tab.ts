@@ -4,17 +4,12 @@
  */
 export const PLATFORM_OVERVIEW_TAB_PARAM = 'tab';
 
-export type PlatformOverviewTab = 'top-portfolio' | 'overview-tiles' | 'rebalance-actions';
+export type PlatformOverviewTab = 'top-portfolio' | 'overview-tiles';
 
-const VALID = new Set<PlatformOverviewTab>([
-  'top-portfolio',
-  'overview-tiles',
-  'rebalance-actions',
-]);
+const VALID = new Set<PlatformOverviewTab>(['top-portfolio', 'overview-tiles']);
 
 export function parsePlatformOverviewTab(raw: string | null | undefined): PlatformOverviewTab {
-  // Legacy aliases used before rebalance actions moved into "Your portfolios".
-  // Keep them non-breaking by falling back to the default overview tab.
+  // Legacy tab query values — fall back to the default overview tab.
   if (raw === 'tracked-stocks' || raw === 'rebalance-actions') {
     return 'top-portfolio';
   }

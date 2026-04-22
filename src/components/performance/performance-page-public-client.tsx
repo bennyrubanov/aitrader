@@ -75,10 +75,14 @@ import {
   type HoldingItem,
   type QuintileSnapshot,
 } from '@/lib/platform-performance-payload';
+import type { ResearchStats } from '@/lib/quintile-analysis';
 import type { ConfigHoldingsSummary } from '@/lib/portfolio-config-holdings';
 import { formatStrategyDescriptionForDisplay } from '@/lib/format-strategy-description';
 import { formatPortfolioHoldingsSubtitle } from '@/lib/portfolio-config-display';
-import { PORTFOLIO_REBALANCE_DATE_SELECT_WIDTH_CLASSES } from '@/lib/portfolio-rebalance-date-select-ui';
+import {
+  HOLDINGS_TODAY_SENTINEL,
+  PORTFOLIO_REBALANCE_DATE_SELECT_WIDTH_CLASSES,
+} from '@/lib/portfolio-rebalance-date-select-ui';
 import { cn } from '@/lib/utils';
 import {
   loadExplorePortfolioConfigHoldings,
@@ -86,7 +90,10 @@ import {
   getCachedExploreHoldings,
   useExploreHoldingsCacheVersion,
 } from '@/lib/portfolio-config-holdings-cache';
-import { buildLiveHoldingsAllocationResult } from '@/lib/live-holdings-allocation';
+import {
+  buildLiveHoldingsAllocationResult,
+  type HoldingsValuationMode,
+} from '@/lib/live-holdings-allocation';
 import { rebasedEndingEquityAtRunDate } from '@/lib/portfolio-movement';
 import {
   buildPublicModelCostBasisSnapshotsFromHoldings,
@@ -170,9 +177,9 @@ const WEEKDAY_LABELS = [
   'Saturday',
 ];
 const displayDateFormatter = new Intl.DateTimeFormat('en-US', {
-  weekday: 'short',
   month: 'short',
   day: 'numeric',
+  year: 'numeric',
   timeZone: 'UTC',
 });
 
@@ -188,6 +195,72 @@ const fmt = {
     return displayDateFormatter.format(parsed);
   },
 };
+
+/** Collapsible research headline stat rows (β / R² / α / sample). */
+function ResearchHeadlineStatGroup({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div>
+      <p className="text-[11px] uppercase tracking-wide text-muted-foreground/80 mb-1">{label}</p>
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-3">{children}</dl>
+    </div>
+  );
+}
+
+function ResearchHeadlineStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="font-mono">{value}</dd>
+    </div>
+  );
+}
+
+const researchHeadlinePct = (v: number | null | undefined) =>
+  v == null ? '—' : `${Math.round(v * 100)}%`;
+
+const researchHeadlineRange = (
+  a: number | null | undefined,
+  b: number | null | undefined,
+  d: number,
+) => (a == null || b == null ? '—' : `[${fmt.num(a, d)}, ${fmt.num(b, d)}]`);
+
+function ResearchHeadlineUnderlyingStatsGrid({ s }: { s: ResearchStats }) {
+  return (
+    <div className="mt-3 space-y-3">
+      <ResearchHeadlineStatGroup label={`β diagnostics · ${s.weeks} weeks`}>
+        <ResearchHeadlineStat label="Mean β" value={fmt.num(s.meanBeta, 4)} />
+        <ResearchHeadlineStat label="t (mean β)" value={fmt.num(s.tMeanBeta, 2)} />
+        <ResearchHeadlineStat label="β > 0 rate" value={researchHeadlinePct(s.betaPositiveRate)} />
+        <ResearchHeadlineStat label="sd β" value={fmt.num(s.sdBeta, 4)} />
+        <ResearchHeadlineStat label="Mean |β|" value={fmt.num(s.meanAbsBeta, 4)} />
+        <ResearchHeadlineStat label="β range" value={researchHeadlineRange(s.minBeta, s.maxBeta, 4)} />
+        <ResearchHeadlineStat
+          label="|β| / |mean β|"
+          value={
+            s.absToMeanBetaRatio != null ? `${fmt.num(s.absToMeanBetaRatio, 1)}×` : '—'
+          }
+        />
+      </ResearchHeadlineStatGroup>
+
+      <ResearchHeadlineStatGroup label="R² diagnostics">
+        <ResearchHeadlineStat label="Mean R²" value={fmt.num(s.meanRsq, 3)} />
+        <ResearchHeadlineStat label="R² range" value={researchHeadlineRange(s.minRsq, s.maxRsq, 3)} />
+      </ResearchHeadlineStatGroup>
+
+      <ResearchHeadlineStatGroup label="α diagnostics (intercept)">
+        <ResearchHeadlineStat label="Mean α / wk" value={fmt.num(s.meanAlpha, 4)} />
+        <ResearchHeadlineStat label="t (mean α)" value={fmt.num(s.tMeanAlpha, 2)} />
+        <ResearchHeadlineStat label="α > 0 rate" value={researchHeadlinePct(s.alphaPositiveRate)} />
+        <ResearchHeadlineStat label="sd α" value={fmt.num(s.sdAlpha, 4)} />
+      </ResearchHeadlineStatGroup>
+
+      <ResearchHeadlineStatGroup label="Sample">
+        <ResearchHeadlineStat label="Mean n / wk" value={fmt.num(s.meanSampleSize, 1)} />
+        <ResearchHeadlineStat label="Weeks (β)" value={String(s.weeks)} />
+      </ResearchHeadlineStatGroup>
+    </div>
+  );
+}
 
 /** e.g. "Feb 17, 2026" for model inception (UTC calendar date). */
 function formatInvestedOnCalendarDate(ymd: string | null | undefined): string | null {
@@ -824,6 +897,8 @@ function PerformancePagePublicClientInner({
   const holdingsCacheVersion = useExploreHoldingsCacheVersion();
 
   const performancePublicCostBasisByDate = useMemo(() => {
+    // Subscribe to cache busts: body reads via getCachedExploreHoldings (mutable store).
+    void holdingsCacheVersion;
     if (!slug?.trim() || !performanceHoldingsConfigId || !holdingsRebalanceDates.length) return {};
     if (!performanceCfgRowsForCostBasis.length) return {};
     const s = slug.trim();
@@ -852,6 +927,12 @@ function PerformancePagePublicClientInner({
   }, [performanceHoldingsAsOfYmd, performancePublicCostBasisByDate]);
 
   const performanceHoldingsModelNotional = useMemo(() => {
+    if (holdingsAsOfDate === null) {
+      const pts = configPerfSlice?.series ?? [];
+      const last = pts[pts.length - 1]?.aiTop20;
+      if (last != null && Number.isFinite(last) && last > 0) return last;
+      return PERFORMANCE_MODEL_INITIAL;
+    }
     if (!performanceHoldingsAsOfYmd || performanceCfgRowsForCostBasis.length === 0) {
       return PERFORMANCE_MODEL_INITIAL;
     }
@@ -863,20 +944,52 @@ function PerformancePagePublicClientInner({
         performanceHoldingsAsOfYmd
       ) ?? PERFORMANCE_MODEL_INITIAL
     );
-  }, [performanceHoldingsAsOfYmd, performanceCfgRowsForCostBasis]);
+  }, [
+    holdingsAsOfDate,
+    performanceHoldingsAsOfYmd,
+    performanceCfgRowsForCostBasis,
+    configPerfSlice?.series,
+  ]);
+
+  const performanceHoldingsAllocationNotional = useMemo(() => {
+    if (holdingsAsOfDate === null) {
+      return performanceHoldingsModelNotional;
+    }
+    const cb = performanceSelectedCostBasis?.portfolioValue;
+    if (cb != null && Number.isFinite(cb) && cb > 0) {
+      return cb;
+    }
+    return performanceHoldingsModelNotional;
+  }, [
+    holdingsAsOfDate,
+    performanceHoldingsModelNotional,
+    performanceSelectedCostBasis?.portfolioValue,
+  ]);
+
+  const performanceHoldingsValuationMode: HoldingsValuationMode =
+    holdingsAsOfDate === null ? 'live' : 'as-of';
 
   const performanceLiveHoldingsAllocation = useMemo(() => {
     return buildLiveHoldingsAllocationResult(
       holdings,
-      performanceHoldingsModelNotional,
+      performanceHoldingsAllocationNotional,
       holdingsAsOfPriceBySymbol,
-      holdingsLatestPriceBySymbol
+      holdingsLatestPriceBySymbol,
+      performanceHoldingsValuationMode
     );
-  }, [holdings, performanceHoldingsModelNotional, holdingsAsOfPriceBySymbol, holdingsLatestPriceBySymbol]);
+  }, [
+    holdings,
+    performanceHoldingsAllocationNotional,
+    holdingsAsOfPriceBySymbol,
+    holdingsLatestPriceBySymbol,
+    performanceHoldingsValuationMode,
+  ]);
 
-  const performanceHoldingsPortfolioValue = useMemo(() => {
-    return performanceSelectedCostBasis?.portfolioValue ?? performanceHoldingsModelNotional;
-  }, [performanceSelectedCostBasis, performanceHoldingsModelNotional]);
+  /** Same dollars as allocation notional so the value line always matches the sum of row `currentValue`. */
+  const performanceHoldingsPortfolioValue = useMemo(
+    () => performanceHoldingsAllocationNotional,
+    [performanceHoldingsAllocationNotional]
+  );
 
   const effectiveStrategy = payload.strategy ?? null;
   const series = payload.series ?? [];
@@ -1253,6 +1366,7 @@ function PerformancePagePublicClientInner({
     return text || null;
   }, [
     quintileView,
+    isAllTimeQuintiles,
     selectedFourWeekSnapshot?.runDate,
     quintileFormationDates,
     selectedQuintileSnapshot?.runDate,
@@ -1827,7 +1941,7 @@ function PerformancePagePublicClientInner({
                   className="sm:ml-auto"
                 />
               ) : null}
-              {holdingsRebalanceDates.length > 1 ? (
+              {holdingsRebalanceDates.length >= 1 ? (
                 <div className="flex w-full max-w-[13rem] flex-col gap-1 sm:shrink-0 sm:items-end">
                   <Label
                     htmlFor="holdings-rebalance-date"
@@ -1836,8 +1950,10 @@ function PerformancePagePublicClientInner({
                     Rebalance date
                   </Label>
                   <Select
-                    value={holdingsAsOfDate ?? '__latest__'}
-                    onValueChange={(v) => setHoldingsAsOfDate(v === '__latest__' ? null : v)}
+                    value={holdingsAsOfDate ?? HOLDINGS_TODAY_SENTINEL}
+                    onValueChange={(v) =>
+                      setHoldingsAsOfDate(v === HOLDINGS_TODAY_SENTINEL ? null : v)
+                    }
                   >
                     <SelectTrigger
                       id="holdings-rebalance-date"
@@ -1849,10 +1965,10 @@ function PerformancePagePublicClientInner({
                       <SelectValue placeholder="Choose date" />
                     </SelectTrigger>
                     <SelectContent align="start" className="text-xs">
-                      <SelectItem value="__latest__" className="py-1.5 text-xs">
-                        Latest ({fmt.date(holdingsRebalanceDates[0])})
+                      <SelectItem value={HOLDINGS_TODAY_SENTINEL} className="py-1.5 text-xs">
+                        Today
                       </SelectItem>
-                      {holdingsRebalanceDates.slice(1).map((d) => (
+                      {holdingsRebalanceDates.map((d) => (
                         <SelectItem key={d} value={d} className="py-1.5 text-xs">
                           {fmt.date(d)}
                         </SelectItem>
@@ -1912,14 +2028,20 @@ function PerformancePagePublicClientInner({
                           </TableCell>
                           <TableCell className="text-left tabular-nums">
                             {showLive ? (
-                              <div className="space-y-0.5 leading-tight">
-                                <div>
+                              holdingsAsOfDate === null ? (
+                                <div className="space-y-0.5 leading-tight">
+                                  <div>
+                                    {`${perfFormatUsd(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
+                                  </div>
+                                  <div className="text-xs text-muted-foreground">
+                                    Target: {(holding.weight * 100).toFixed(1)}%
+                                  </div>
+                                </div>
+                              ) : (
+                                <span>
                                   {`${perfFormatUsd(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
-                                </div>
-                                <div className="text-xs text-muted-foreground">
-                                  Target: {(holding.weight * 100).toFixed(1)}%
-                                </div>
-                              </div>
+                                </span>
+                              )
                             ) : (
                               <span>
                                 {`${perfFormatUsd(holding.weight * performanceHoldingsModelNotional)} (${(holding.weight * 100).toFixed(1)}%)`}
@@ -2316,6 +2438,33 @@ function PerformancePagePublicClientInner({
           layer is tied to the <strong>strategy model</strong> (AI ratings engine), not the
           portfolio.
         </p>
+
+        {research?.headline && (
+          <Card className="mb-4">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                Weekly research commentary
+                <span className="ml-1 font-normal">
+                  · {fmt.date(addDaysUtc(research.headline.runDate, 7))}
+                </span>
+              </CardTitle>
+              <CardDescription className="text-xs">
+                AI-generated summary of weekly cross-sectional regression diagnostics (β, R², α).
+                Not investment advice.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2 pt-0">
+              <p className="text-lg font-semibold leading-snug">{research.headline.headline}</p>
+              <p className="text-sm text-muted-foreground">{research.headline.body}</p>
+              <details className="text-xs text-muted-foreground">
+                <summary className="cursor-pointer select-none text-foreground/80 hover:underline">
+                  Show underlying stats
+                </summary>
+                <ResearchHeadlineUnderlyingStatsGrid s={research.headline.stats} />
+              </details>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Quintile analysis */}
         {(research?.quintileHistory?.length ?? 0) > 0 && (
@@ -2829,15 +2978,14 @@ function PerformancePagePublicClientInner({
                             >
                               <div className="flex w-full min-w-0 items-start justify-between gap-2">
                                 <div className="min-w-0 flex flex-col items-start gap-0.5 text-left">
-                                  <span className="truncate">
-                                    to {fmt.date(regressionDisplay.endRunDate)}
+                                  <span className="truncate font-semibold">
+                                    {fmt.date(regressionDisplay.startRunDate)}
                                   </span>
                                   {(() => {
                                     if (regressionDisplay.mode !== 'fourWeek') return null;
                                     return (
                                       <span className="text-[10px] font-normal leading-snug text-muted-foreground">
-                                        {fmt.date(regressionDisplay.startRunDate)} -{' '}
-                                        {fmt.date(regressionDisplay.endRunDate)}
+                                        to {fmt.date(regressionDisplay.endRunDate)}
                                       </span>
                                     );
                                   })()}
@@ -2858,9 +3006,9 @@ function PerformancePagePublicClientInner({
                                       : ''
                                   }`}
                                 >
-                                  <span>to {fmt.date(m.endRunDate)}</span>
+                                  <span>{fmt.date(m.startRunDate)}</span>
                                   <span className="text-[10px] font-normal text-muted-foreground">
-                                    {fmt.date(m.startRunDate)} - {fmt.date(m.endRunDate)}
+                                    to {fmt.date(m.endRunDate)}
                                   </span>
                                 </DropdownMenuItem>
                               );

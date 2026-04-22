@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import {
-  ensureConfigDailySeries,
-  loadStrategyDailySeriesBulk,
-} from '@/lib/config-daily-series';
+import { loadStrategyDailySeriesBulk } from '@/lib/config-daily-series';
 import { loadLatestRawRunDate } from '@/lib/live-mark-to-market';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
 import { createAdminClient } from '@/utils/supabase/admin';
@@ -73,27 +70,27 @@ async function loadExplorePortfoliosEquitySeriesPayload(
 
   const configRows = (configs ?? []) as ConfigRow[];
   const snapshots = await loadStrategyDailySeriesBulk(supabase as never, strategy.id);
-  const perConfigSeries = await Promise.all(
-    configRows.map(async (cfg) => {
-      const existing = snapshots.get(cfg.id);
-      const shouldEnsure =
-        !existing ||
-        (latestRawRunDate != null && existing.asOfRunDate && existing.asOfRunDate < latestRawRunDate);
-      const snapshot =
-        shouldEnsure || !existing
-          ? await ensureConfigDailySeries(adminSupabase as never, {
-              strategyId: strategy.id,
-              config: cfg,
-            })
-          : existing;
-      const series = snapshot?.series ?? [];
-      return series.length > 0 ? ({ configId: cfg.id, series } as const) : null;
-    })
+  const missingAny = configRows.some((cfg) => !snapshots.has(cfg.id));
+  const staleAny = Array.from(snapshots.values()).some(
+    (snapshot) =>
+      latestRawRunDate != null &&
+      snapshot.asOfRunDate &&
+      snapshot.asOfRunDate < latestRawRunDate
   );
+  if (missingAny || staleAny) {
+    try {
+      const { triggerPortfolioConfigsBatch } = await import('@/lib/trigger-config-compute');
+      triggerPortfolioConfigsBatch(strategy.id);
+    } catch {
+      /* best-effort */
+    }
+  }
 
   const seriesByConfigId = new Map<string, PerformanceSeriesPoint[]>();
-  for (const row of perConfigSeries) {
-    if (row) seriesByConfigId.set(row.configId, row.series);
+  for (const cfg of configRows) {
+    const snapshot = snapshots.get(cfg.id);
+    const series = snapshot?.series ?? [];
+    if (series.length > 0) seriesByConfigId.set(cfg.id, series);
   }
 
   for (const cfg of configRows) {

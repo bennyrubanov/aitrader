@@ -6,6 +6,7 @@ import { useAuthState } from '@/components/auth/auth-state-context';
 import { Button } from '@/components/ui/button';
 import {
   PLATFORM_POST_ONBOARDING_TOUR_BROADCAST_KEY,
+  PLATFORM_POST_ONBOARDING_TOUR_CONSUME_BROADCAST_KEY,
   PLATFORM_POST_ONBOARDING_TOUR_PRIMED_EVENT,
   PLATFORM_POST_ONBOARDING_TOUR_QUEUED_EVENT,
   PLATFORM_POST_ONBOARDING_TOUR_QUEUE_KEY,
@@ -115,6 +116,7 @@ export function PostOnboardingPlatformTour() {
   /** Prefetch all tour routes once per active session (avoid churn on every pathname change). */
   const tourPrefetchRanForSessionRef = useRef(false);
   const lastTourBroadcastIdRef = useRef<string | null>(null);
+  const lastTourConsumeBroadcastIdRef = useRef<string | null>(null);
   const tourActiveRef = useRef(false);
 
   hasPremiumAccessRef.current = authState.hasPremiumAccess;
@@ -141,22 +143,40 @@ export function PostOnboardingPlatformTour() {
 
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
-      if (e.key !== PLATFORM_POST_ONBOARDING_TOUR_BROADCAST_KEY || e.newValue == null) return;
-      let id = '';
-      try {
-        const p = JSON.parse(e.newValue) as { id?: unknown };
-        id = typeof p.id === 'string' ? p.id : '';
-      } catch {
+      if (e.newValue == null) return;
+
+      if (e.key === PLATFORM_POST_ONBOARDING_TOUR_BROADCAST_KEY) {
+        let id = '';
+        try {
+          const p = JSON.parse(e.newValue) as { id?: unknown };
+          id = typeof p.id === 'string' ? p.id : '';
+        } catch {
+          return;
+        }
+        if (!id || lastTourBroadcastIdRef.current === id) return;
+        lastTourBroadcastIdRef.current = id;
+        try {
+          sessionStorage.setItem(PLATFORM_POST_ONBOARDING_TOUR_QUEUE_KEY, '1');
+        } catch {
+          // ignore
+        }
+        window.dispatchEvent(new Event(PLATFORM_POST_ONBOARDING_TOUR_QUEUED_EVENT));
         return;
       }
-      if (!id || lastTourBroadcastIdRef.current === id) return;
-      lastTourBroadcastIdRef.current = id;
-      try {
-        sessionStorage.setItem(PLATFORM_POST_ONBOARDING_TOUR_QUEUE_KEY, '1');
-      } catch {
-        // ignore
+
+      if (e.key === PLATFORM_POST_ONBOARDING_TOUR_CONSUME_BROADCAST_KEY) {
+        if (tourActiveRef.current) return;
+        let id = '';
+        try {
+          const p = JSON.parse(e.newValue) as { id?: unknown };
+          id = typeof p.id === 'string' ? p.id : '';
+        } catch {
+          return;
+        }
+        if (!id || lastTourConsumeBroadcastIdRef.current === id) return;
+        lastTourConsumeBroadcastIdRef.current = id;
+        discardPlatformPostOnboardingTourQueue();
       }
-      window.dispatchEvent(new Event(PLATFORM_POST_ONBOARDING_TOUR_QUEUED_EVENT));
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);

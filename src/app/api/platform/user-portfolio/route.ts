@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getAppAccessState } from '@/lib/app-access';
+import { canQueryStockCurrentRecommendation, getAppAccessState } from '@/lib/app-access';
 import { buildAuthStateFromUserAndProfile } from '@/lib/build-auth-state';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { createClient } from '@/utils/supabase/server';
@@ -13,6 +13,8 @@ type PortfolioDbRow = {
   stock_id: string;
   symbol: string;
   notify_on_change: boolean;
+  notify_rating_inapp: boolean;
+  notify_rating_email: boolean;
   added_at: string;
 };
 
@@ -29,6 +31,35 @@ type PriceRow = {
   run_date: string | null;
 };
 
+async function loadStockMetaByStockIds(
+  admin: ReturnType<typeof createAdminClient>,
+  stockIds: string[]
+): Promise<{
+  premium: Map<string, boolean>;
+  companyName: Map<string, string | null>;
+}> {
+  const premium = new Map<string, boolean>();
+  const companyName = new Map<string, string | null>();
+  if (!stockIds.length) return { premium, companyName };
+  const { data, error } = await admin
+    .from('stocks')
+    .select('id, is_premium_stock, company_name')
+    .in('id', stockIds);
+  if (error) {
+    console.error('[user-portfolio] loadStockMetaByStockIds', error.message);
+    return { premium, companyName };
+  }
+  for (const row of (data ?? []) as {
+    id: string;
+    is_premium_stock: boolean | null;
+    company_name: string | null;
+  }[]) {
+    premium.set(row.id, Boolean(row.is_premium_stock));
+    companyName.set(row.id, row.company_name ?? null);
+  }
+  return { premium, companyName };
+}
+
 export async function GET() {
   const supabase = await createClient();
   const {
@@ -41,7 +72,9 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from('user_portfolio_stocks')
-    .select('id, stock_id, symbol, notify_on_change, added_at')
+    .select(
+      'id, stock_id, symbol, notify_on_change, notify_rating_inapp, notify_rating_email, added_at'
+    )
     .eq('user_id', user.id)
     .order('added_at', { ascending: false });
 
@@ -68,6 +101,11 @@ export async function GET() {
   const showLatentRank = access === 'supporter' || access === 'outperformer';
 
   const admin = createAdminClient();
+  const { premium: premiumMap, companyName: companyNameMap } = await loadStockMetaByStockIds(
+    admin,
+    stockIds
+  );
+
   const [recResult, priceResult] = await Promise.all([
     showLatentRank
       ? admin
@@ -99,8 +137,12 @@ export async function GET() {
   const enriched = items.map((item) => {
     const rec = recMap.get(item.stock_id);
     const price = priceMap.get(item.symbol.toUpperCase());
+    const isPremiumStock = premiumMap.get(item.stock_id) ?? false;
     const base = {
       ...item,
+      is_premium_stock: isPremiumStock,
+      company_name: companyNameMap.get(item.stock_id) ?? null,
+      notify_on_change: item.notify_rating_inapp || item.notify_rating_email,
       score: rec?.score ?? null,
       bucket: rec?.bucket ?? null,
       lastPrice: price?.last_sale_price ?? null,
@@ -131,10 +173,44 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
   const stockId = typeof body?.stockId === 'string' ? body.stockId.trim() : '';
   const symbol = typeof body?.symbol === 'string' ? body.symbol.trim().toUpperCase() : '';
+  const notifyRatingInapp =
+    typeof body?.notifyRatingInapp === 'boolean' ? body.notifyRatingInapp : true;
+  const notifyRatingEmail =
+    typeof body?.notifyRatingEmail === 'boolean' ? body.notifyRatingEmail : true;
 
   if (!stockId || !symbol) {
     return NextResponse.json({ error: 'stockId and symbol are required.' }, { status: 400 });
   }
+
+  const { data: profile, error: profileError } = await supabase
+    .from('user_profiles')
+    .select('subscription_tier')
+    .eq('id', user.id)
+    .maybeSingle();
+  const access = getAppAccessState(
+    buildAuthStateFromUserAndProfile(user, profile, Boolean(profileError))
+  );
+
+  const admin = createAdminClient();
+  const { data: stockRow, error: stockErr } = await admin
+    .from('stocks')
+    .select('id, symbol, is_premium_stock')
+    .eq('id', stockId)
+    .maybeSingle();
+
+  if (stockErr || !stockRow) {
+    return NextResponse.json({ error: 'Stock not found.' }, { status: 404 });
+  }
+
+  const isPremium = Boolean((stockRow as { is_premium_stock?: boolean }).is_premium_stock);
+  if (!canQueryStockCurrentRecommendation(access, isPremium)) {
+    return NextResponse.json(
+      { error: 'Premium stock tracking requires a Supporter or Outperformer plan.' },
+      { status: 403 }
+    );
+  }
+
+  const notifyOn = notifyRatingInapp || notifyRatingEmail;
 
   const { data, error } = await supabase
     .from('user_portfolio_stocks')
@@ -142,14 +218,21 @@ export async function POST(req: Request) {
       user_id: user.id,
       stock_id: stockId,
       symbol,
+      notify_rating_inapp: notifyRatingInapp,
+      notify_rating_email: notifyRatingEmail,
+      notify_on_change: notifyOn,
     })
-    .select('id, stock_id, symbol, notify_on_change, added_at')
+    .select(
+      'id, stock_id, symbol, notify_on_change, notify_rating_inapp, notify_rating_email, added_at'
+    )
     .maybeSingle();
 
   if (error?.code === '23505') {
     const { data: existing, error: existingError } = await supabase
       .from('user_portfolio_stocks')
-      .select('id, stock_id, symbol, notify_on_change, added_at')
+      .select(
+        'id, stock_id, symbol, notify_on_change, notify_rating_inapp, notify_rating_email, added_at'
+      )
       .eq('user_id', user.id)
       .eq('stock_id', stockId)
       .maybeSingle();
@@ -181,24 +264,82 @@ export async function PATCH(req: Request) {
   const body = await req.json().catch(() => null);
   const stockId = typeof body?.stockId === 'string' ? body.stockId.trim() : '';
   const notifyOnChange = typeof body?.notifyOnChange === 'boolean' ? body.notifyOnChange : null;
+  const notifyRatingInapp = typeof body?.notifyRatingInapp === 'boolean' ? body.notifyRatingInapp : null;
+  const notifyRatingEmail = typeof body?.notifyRatingEmail === 'boolean' ? body.notifyRatingEmail : null;
 
   if (!stockId) {
     return NextResponse.json({ error: 'stockId is required.' }, { status: 400 });
   }
 
-  const update: Record<string, unknown> = {};
-  if (notifyOnChange !== null) update.notify_on_change = notifyOnChange;
+  const { data: existing, error: existingErr } = await supabase
+    .from('user_portfolio_stocks')
+    .select('notify_rating_inapp, notify_rating_email')
+    .eq('user_id', user.id)
+    .eq('stock_id', stockId)
+    .maybeSingle();
 
-  if (!Object.keys(update).length) {
+  if (existingErr) {
+    return NextResponse.json({ error: 'Unable to load stock row.' }, { status: 500 });
+  }
+  if (!existing) {
+    return NextResponse.json({ error: 'Stock row not found.' }, { status: 404 });
+  }
+
+  const cur = existing as { notify_rating_inapp: boolean; notify_rating_email: boolean };
+  let nextInapp = cur.notify_rating_inapp;
+  let nextEmail = cur.notify_rating_email;
+  if (notifyRatingInapp !== null) nextInapp = notifyRatingInapp;
+  if (notifyRatingEmail !== null) nextEmail = notifyRatingEmail;
+  if (notifyOnChange !== null && notifyRatingInapp === null && notifyRatingEmail === null) {
+    nextInapp = notifyOnChange;
+    nextEmail = notifyOnChange;
+  }
+
+  if (
+    notifyRatingInapp === null &&
+    notifyRatingEmail === null &&
+    notifyOnChange === null
+  ) {
     return NextResponse.json({ error: 'No fields to update.' }, { status: 400 });
   }
 
+  const { data: profile, error: profileError } = await supabase
+    .from('user_profiles')
+    .select('subscription_tier')
+    .eq('id', user.id)
+    .maybeSingle();
+  const access = getAppAccessState(
+    buildAuthStateFromUserAndProfile(user, profile, Boolean(profileError))
+  );
+
+  const admin = createAdminClient();
+  const { data: stockRow } = await admin
+    .from('stocks')
+    .select('is_premium_stock')
+    .eq('id', stockId)
+    .maybeSingle();
+  const isPremium = Boolean((stockRow as { is_premium_stock?: boolean } | null)?.is_premium_stock);
+
+  if ((nextInapp || nextEmail) && !canQueryStockCurrentRecommendation(access, isPremium)) {
+    return NextResponse.json(
+      { error: 'Premium stock tracking requires a Supporter or Outperformer plan.' },
+      { status: 403 }
+    );
+  }
+
+  const notifyOn = nextInapp || nextEmail;
   const { data, error } = await supabase
     .from('user_portfolio_stocks')
-    .update(update)
+    .update({
+      notify_rating_inapp: nextInapp,
+      notify_rating_email: nextEmail,
+      notify_on_change: notifyOn,
+    })
     .eq('user_id', user.id)
     .eq('stock_id', stockId)
-    .select('id, stock_id, symbol, notify_on_change, added_at')
+    .select(
+      'id, stock_id, symbol, notify_on_change, notify_rating_inapp, notify_rating_email, added_at'
+    )
     .maybeSingle();
 
   if (error) {

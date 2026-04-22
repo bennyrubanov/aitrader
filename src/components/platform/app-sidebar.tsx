@@ -45,6 +45,7 @@ import {
   PLATFORM_POST_ONBOARDING_TOUR_SHELL_READY_EVENT,
   PLATFORM_TOUR_SHELL_READY_ATTR,
 } from '@/lib/platform-post-onboarding-tour';
+import { SidebarFeedbackMenuSlot } from '@/components/platform/sidebar-feedback-dialog';
 
 type NavItem = {
   title: string;
@@ -355,13 +356,10 @@ export function AppSidebar() {
         </SidebarGroup>
         <SidebarSeparator className="my-0" />
         <NavSecondary
+          menuPrefix={
+            authState.isLoaded && account.isAuthenticated ? <SidebarFeedbackMenuSlot /> : null
+          }
           items={[
-            {
-              title: 'Feedback',
-              url: '/help',
-              icon: MessageSquare,
-              onClick: () => openPath('/help'),
-            },
             {
               title: 'Disclaimer',
               url: '/disclaimer',

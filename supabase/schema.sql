@@ -406,6 +406,8 @@ create table if not exists public.user_portfolio_stocks (
   stock_id uuid not null references public.stocks(id) on delete cascade,
   symbol text not null,
   notify_on_change boolean not null default false,
+  notify_rating_inapp boolean not null default false,
+  notify_rating_email boolean not null default false,
   added_at timestamptz not null default now(),
   unique (user_id, stock_id)
 );
@@ -785,6 +787,23 @@ create table if not exists public.strategy_cross_sectional_regressions (
 create index if not exists idx_strategy_cross_sectional_regressions_strategy_run_date
   on public.strategy_cross_sectional_regressions(strategy_id, run_date desc);
 
+create table if not exists public.strategy_research_headlines (
+  id uuid primary key default gen_random_uuid(),
+  strategy_id uuid not null references public.strategy_models(id) on delete cascade,
+  run_date date not null,
+  stats_json jsonb not null,
+  headline text not null,
+  body text not null,
+  previous_headline text,
+  model text not null,
+  prompt_hash text not null,
+  created_at timestamptz not null default now(),
+  unique (strategy_id, run_date)
+);
+
+create index if not exists idx_strategy_research_headlines_strategy_run_date
+  on public.strategy_research_headlines(strategy_id, run_date desc);
+
 -- =========================
 -- 12) Rolling score view (7-run rolling average)
 -- =========================
@@ -1027,7 +1046,10 @@ create table if not exists public.notifications (
         'rebalance_action',
         'model_ratings_ready',
         'weekly_digest',
-        'system'
+        'system',
+        'portfolio_price_move',
+        'portfolio_entries_exits',
+        'stock_rating_weekly'
       )
     ),
   title text not null,
@@ -1087,6 +1109,12 @@ create table if not exists public.user_portfolio_profiles (
   notify_holdings_change boolean not null default true,
   email_enabled boolean not null default true,
   inapp_enabled boolean not null default true,
+  notify_rebalance_inapp boolean not null default true,
+  notify_rebalance_email boolean not null default true,
+  notify_price_move_inapp boolean not null default false,
+  notify_price_move_email boolean not null default false,
+  notify_entries_exits_inapp boolean not null default true,
+  notify_entries_exits_email boolean not null default true,
   is_starting_portfolio boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),

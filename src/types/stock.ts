@@ -1,4 +1,6 @@
 export interface Stock {
+  /** DB primary key; present on `/api/stocks` for authenticated flows (e.g. watchlist). */
+  id?: string;
   symbol: string;
   name: string;
   isPremium: boolean;

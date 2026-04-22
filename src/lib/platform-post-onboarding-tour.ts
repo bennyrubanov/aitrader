@@ -10,6 +10,10 @@ export const PLATFORM_POST_ONBOARDING_TOUR_QUEUE_KEY = 'aitrader_platform_post_t
 /** Cross-tab: other tabs listen for `storage` on this key and mirror the queue into their sessionStorage. */
 export const PLATFORM_POST_ONBOARDING_TOUR_BROADCAST_KEY = 'aitrader_platform_post_tour_broadcast_v1';
 
+/** Cross-tab: tab that consumes the queue writes this so other tabs discard mirrored session queue. */
+export const PLATFORM_POST_ONBOARDING_TOUR_CONSUME_BROADCAST_KEY =
+  'aitrader_platform_post_tour_consumed_broadcast_v1';
+
 type TourBroadcastPayload = { id: string; ts: number };
 
 function broadcastPostOnboardingTourToOtherTabs(): void {
@@ -18,6 +22,17 @@ function broadcastPostOnboardingTourToOtherTabs(): void {
     const id = `${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
     const payload: TourBroadcastPayload = { id, ts: Date.now() };
     localStorage.setItem(PLATFORM_POST_ONBOARDING_TOUR_BROADCAST_KEY, JSON.stringify(payload));
+  } catch {
+    // ignore
+  }
+}
+
+function broadcastPostOnboardingTourConsumedToOtherTabs(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const id = `${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
+    const payload: TourBroadcastPayload = { id, ts: Date.now() };
+    localStorage.setItem(PLATFORM_POST_ONBOARDING_TOUR_CONSUME_BROADCAST_KEY, JSON.stringify(payload));
   } catch {
     // ignore
   }
@@ -47,7 +62,7 @@ export const PLATFORM_POST_ONBOARDING_TOUR_PRIMED_EVENT = 'aitrader:platform-pos
 /** DOM marker for shell auth loaded (site header + sidebar account module). */
 export const PLATFORM_TOUR_SHELL_READY_ATTR = 'data-platform-tour-shell-ready';
 
-export const PLATFORM_POST_ONBOARDING_TOUR_DONE_KEY = 'aitrader_platform_area_tour_v1_done';
+export const PLATFORM_POST_ONBOARDING_TOUR_DONE_KEY = 'aitrader_platform_area_tour_v2_done';
 
 export type PlatformPostOnboardingTourStepId =
   | 'overview-portfolio-value-and-chart'
@@ -185,6 +200,7 @@ export function consumePlatformPostOnboardingTourQueue(): boolean {
     const v = sessionStorage.getItem(PLATFORM_POST_ONBOARDING_TOUR_QUEUE_KEY);
     if (v !== '1') return false;
     sessionStorage.removeItem(PLATFORM_POST_ONBOARDING_TOUR_QUEUE_KEY);
+    broadcastPostOnboardingTourConsumedToOtherTabs();
     return true;
   } catch {
     return false;

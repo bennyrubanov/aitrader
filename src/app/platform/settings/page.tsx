@@ -243,9 +243,6 @@ const SettingsPageContent = () => {
   const [nameDraft, setNameDraft] = useState('');
   const [isSavingName, setIsSavingName] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
-  const [followedStocks, setFollowedStocks] = useState<
-    Array<{ symbol: string; notify_on_change: boolean }>
-  >([]);
   const [signInMethods, setSignInMethods] = useState<SignInMethods | null>(null);
   const [accountCreditRow, setAccountCreditRow] = useState<{
     creditCents: number;
@@ -468,22 +465,6 @@ const SettingsPageContent = () => {
     refreshProfile,
     router,
   ]);
-
-  useEffect(() => {
-    if (!authState.isLoaded || !authState.isAuthenticated) return;
-    let mounted = true;
-    fetch('/api/platform/user-portfolio')
-      .then(async (r) => (r.ok ? r.json() : null))
-      .then((data: { items?: Array<{ symbol: string; notify_on_change: boolean }> } | null) => {
-        if (mounted && data?.items) {
-          setFollowedStocks(data.items.filter((i) => i.notify_on_change));
-        }
-      })
-      .catch(() => {});
-    return () => {
-      mounted = false;
-    };
-  }, [authState.isLoaded, authState.isAuthenticated]);
 
   const handleSignIn = async () => {
     setIsSigningIn(true);
@@ -1414,56 +1395,11 @@ const SettingsPageContent = () => {
               <Bell className="size-4 text-muted-foreground" />
               <h2 className="text-sm font-semibold">Notifications</h2>
             </div>
-            <div className="flex items-center justify-between gap-4 px-5 py-4">
-              <div className="min-w-0">
-                <p className="text-sm font-medium">Weekly newsletter</p>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  {isLoadingNewsletter
-                    ? 'Loading preference...'
-                    : isSavingNewsletter
-                      ? 'Saving...'
-                      : 'AI-driven stock reports and market updates.'}
-                </p>
-              </div>
-              <Switch
-                checked={newsletterStatus === 'subscribed'}
-                onCheckedChange={handleNewsletterToggle}
-                disabled={isLoadingNewsletter || isSavingNewsletter}
-                aria-label="Toggle AI Trader newsletter subscription"
-              />
-            </div>
-            <NotificationsSettingsSection />
-            {followedStocks.length > 0 && (
-              <div className="border-t px-5 py-4">
-                <div className="flex items-center gap-2">
-                  <Bell className="size-3.5 text-trader-blue" />
-                  <p className="text-sm font-medium">Stock rating change alerts</p>
-                </div>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  You&apos;ll be notified when these stocks&apos; weekly ratings change.
-                </p>
-                <p className="mt-1.5 text-[11px] text-muted-foreground">
-                  Per-stock preferences here pair with the notifications center; portfolio-level alerts live in
-                  Your Portfolios and Settings.
-                </p>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {followedStocks.map((s) => (
-                    <Badge key={s.symbol} variant="outline" className="text-xs">
-                      {s.symbol}
-                    </Badge>
-                  ))}
-                </div>
-                <p className="mt-2 text-[11px] text-muted-foreground">
-                  Manage in{' '}
-                  <Link
-                    href="/platform/your-portfolios"
-                    className="font-medium text-foreground underline underline-offset-2 hover:no-underline"
-                  >
-                    Your Portfolios
-                  </Link>
-                </p>
-              </div>
-            )}
+            <NotificationsSettingsSection
+              newsletterSubscribed={newsletterStatus === 'subscribed'}
+              newsletterDisabled={isLoadingNewsletter || isSavingNewsletter}
+              onNewsletterChange={handleNewsletterToggle}
+            />
             </section>
           )}
 

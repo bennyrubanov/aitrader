@@ -181,7 +181,6 @@ export async function GET(req: NextRequest) {
 
   const responseCacheKey = [
     'explore-holdings-v2',
-    user.id,
     tier,
     strategy.id,
     configId,

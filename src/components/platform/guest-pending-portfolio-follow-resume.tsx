@@ -23,12 +23,14 @@ import {
 } from '@/components/portfolio-config/portfolio-config-storage';
 import {
   invalidateUserPortfolioProfiles,
+  showFollowLimitToast,
   showPortfolioFollowToast,
 } from '@/components/platform/portfolio-unfollow-toast';
 import { useToast } from '@/hooks/use-toast';
 import { formatYmdDisplay } from '@/lib/format-ymd-display';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
 import { queuePlatformPostOnboardingTour } from '@/lib/platform-post-onboarding-tour';
+import { FOLLOW_LIMIT_ERROR_CODE } from '@/lib/follow-limits';
 
 let guestPortfolioResumeInFlight: Promise<void> | null = null;
 
@@ -90,7 +92,6 @@ export function GuestPendingPortfolioFollowResume() {
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new Event(GUEST_PORTFOLIO_RESUME_STARTED_EVENT));
     }
-    clearPendingGuestPortfolioFollow();
 
     guestPortfolioResumeInFlight = (async () => {
       try {
@@ -122,18 +123,23 @@ export function GuestPendingPortfolioFollowResume() {
           error?: string;
           profileId?: string;
           deduplicated?: boolean;
+          code?: string;
         };
 
         if (!res.ok) {
           console.error('[GuestPendingPortfolioFollowResume]', j?.error ?? res.status);
-          toast({
-            title: 'Could not save your portfolio',
-            description:
-              typeof j.error === 'string'
-                ? j.error
-                : 'You can follow this setup from Explore after you sign in.',
-            variant: 'destructive',
-          });
+          if (j.code === FOLLOW_LIMIT_ERROR_CODE) {
+            showFollowLimitToast();
+          } else {
+            toast({
+              title: 'Could not save your portfolio',
+              description:
+                typeof j.error === 'string'
+                  ? j.error
+                  : 'You can follow this setup from Explore after you sign in.',
+              variant: 'destructive',
+            });
+          }
           return;
         }
 
@@ -142,6 +148,7 @@ export function GuestPendingPortfolioFollowResume() {
           return;
         }
 
+        clearPendingGuestPortfolioFollow();
         invalidateUserPortfolioProfiles();
 
         if (!j.deduplicated) {

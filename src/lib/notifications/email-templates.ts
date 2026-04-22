@@ -152,3 +152,141 @@ export function buildWeeklyDigestEmailHtml(params: {
   ].join('\n');
   return { html, text };
 }
+
+export function buildPortfolioEntriesExitsEmailHtml(params: {
+  strategyName: string;
+  runDate: string;
+  entries: string[];
+  exits: string[];
+  portfolioUrl: string;
+  settingsUrl: string;
+  unsubscribeUrl: string;
+}): { html: string; text: string } {
+  const en = params.entries.length ? `<p><strong>Entered</strong>: ${escapeHtml(params.entries.join(', '))}</p>` : '';
+  const ex = params.exits.length ? `<p><strong>Exited</strong>: ${escapeHtml(params.exits.join(', '))}</p>` : '';
+  const html = `
+  <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.5;max-width:560px">
+    <h2 style="margin:0 0 12px">Portfolio holdings update</h2>
+    <p style="margin:0 0 12px;color:#4b5563">${escapeHtml(params.strategyName)} · ${escapeHtml(params.runDate)}</p>
+    ${en}${ex}
+    <p style="margin:20px 0 0">
+      <a href="${escapeHtml(params.portfolioUrl)}" style="display:inline-block;background:#0A84FF;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px">View portfolio</a>
+    </p>
+    <p style="margin:12px 0 0;font-size:13px">
+      <a href="${escapeHtml(params.settingsUrl)}" style="color:#0A84FF">Notification settings</a>
+    </p>
+    <hr style="margin:24px 0;border:none;border-top:1px solid #e5e7eb" />
+    <p style="margin:0;font-size:12px;color:#6b7280">
+      <a href="${escapeHtml(params.unsubscribeUrl)}">Unsubscribe from these emails</a>
+    </p>
+  </div>`;
+  const text = [
+    `Portfolio holdings update — ${params.strategyName} (${params.runDate})`,
+    params.entries.length ? `Entered: ${params.entries.join(', ')}` : '',
+    params.exits.length ? `Exited: ${params.exits.join(', ')}` : '',
+    params.portfolioUrl,
+    '',
+    `Settings: ${params.settingsUrl}`,
+    `Unsubscribe: ${params.unsubscribeUrl}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+  return { html, text };
+}
+
+export function buildPortfolioPriceMoveEmailHtml(params: {
+  strategyName: string;
+  runDate: string;
+  pctLabel: string;
+  portfolioUrl: string;
+  settingsUrl: string;
+  unsubscribeUrl: string;
+}): { html: string; text: string } {
+  const html = `
+  <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.5;max-width:560px">
+    <h2 style="margin:0 0 12px">Portfolio price alert</h2>
+    <p style="margin:0 0 12px;color:#4b5563">
+      ${escapeHtml(params.strategyName)} moved about <strong>${escapeHtml(params.pctLabel)}</strong> vs the prior snapshot (${escapeHtml(params.runDate)}).
+    </p>
+    <p style="margin:0 0 20px">
+      <a href="${escapeHtml(params.portfolioUrl)}" style="display:inline-block;background:#0A84FF;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px">View portfolio</a>
+    </p>
+    <p style="margin:0;font-size:13px">
+      <a href="${escapeHtml(params.settingsUrl)}" style="color:#0A84FF">Notification settings</a>
+    </p>
+    <hr style="margin:24px 0;border:none;border-top:1px solid #e5e7eb" />
+    <p style="margin:0;font-size:12px;color:#6b7280">
+      <a href="${escapeHtml(params.unsubscribeUrl)}">Unsubscribe from these emails</a>
+    </p>
+  </div>`;
+  const text = [
+    `Portfolio price alert — ${params.strategyName} (${params.runDate}): ${params.pctLabel}`,
+    params.portfolioUrl,
+    '',
+    `Settings: ${params.settingsUrl}`,
+    `Unsubscribe: ${params.unsubscribeUrl}`,
+  ].join('\n');
+  return { html, text };
+}
+
+export function buildStockRatingWeeklyEmailHtml(params: {
+  runWeekEnding: string;
+  lines: string[];
+  settingsUrl: string;
+  unsubscribeUrl: string;
+}): { html: string; text: string } {
+  const items = params.lines.map((l) => `<li>${escapeHtml(l)}</li>`).join('');
+  const html = `
+  <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.5;max-width:560px">
+    <h2 style="margin:0 0 12px">Weekly stock rating roundup</h2>
+    <p style="margin:0 0 12px;color:#4b5563">Week ending ${escapeHtml(params.runWeekEnding)}</p>
+    <ul style="margin:0;padding-left:18px">${items}</ul>
+    <p style="margin:12px 0 0;font-size:13px">
+      <a href="${escapeHtml(params.settingsUrl)}" style="color:#0A84FF">Notification settings</a>
+    </p>
+    <hr style="margin:24px 0;border:none;border-top:1px solid #e5e7eb" />
+    <p style="margin:0;font-size:12px;color:#6b7280">
+      <a href="${escapeHtml(params.unsubscribeUrl)}">Unsubscribe from digest emails</a>
+    </p>
+  </div>`;
+  const text = [
+    `Weekly stock rating roundup — ${params.runWeekEnding}`,
+    ...params.lines,
+    '',
+    `Settings: ${params.settingsUrl}`,
+    `Unsubscribe: ${params.unsubscribeUrl}`,
+  ].join('\n');
+  return { html, text };
+}
+
+export function buildCuratedWeeklyDigestEmailHtml(params: {
+  runWeekEnding: string;
+  sectionsHtml: string;
+  inboxUrl: string;
+  settingsUrl: string;
+  unsubscribeUrl: string;
+}): { html: string; text: string } {
+  const html = `
+  <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.5;max-width:560px">
+    <h2 style="margin:0 0 12px">Your weekly portfolio summary</h2>
+    <p style="margin:0 0 12px;color:#4b5563">Week ending ${escapeHtml(params.runWeekEnding)}</p>
+    ${params.sectionsHtml}
+    <p style="margin:20px 0 0">
+      <a href="${escapeHtml(params.inboxUrl)}" style="display:inline-block;background:#0A84FF;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px">Open notifications</a>
+    </p>
+    <p style="margin:12px 0 0;font-size:13px">
+      <a href="${escapeHtml(params.settingsUrl)}" style="color:#0A84FF">Notification settings</a>
+    </p>
+    <hr style="margin:24px 0;border:none;border-top:1px solid #e5e7eb" />
+    <p style="margin:0;font-size:12px;color:#6b7280">
+      <a href="${escapeHtml(params.unsubscribeUrl)}">Unsubscribe from digest emails</a>
+    </p>
+  </div>`;
+  const text = [
+    `Your weekly portfolio summary — week ending ${params.runWeekEnding}`,
+    params.inboxUrl,
+    `Settings: ${params.settingsUrl}`,
+    `Unsubscribe: ${params.unsubscribeUrl}`,
+  ].join('\n');
+  return { html, text };
+}

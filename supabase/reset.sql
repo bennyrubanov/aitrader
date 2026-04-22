@@ -29,6 +29,7 @@ drop table if exists public.strategy_portfolio_config_performance cascade;
 drop table if exists public.portfolio_configs cascade;
 
 -- Research + performance layer
+drop table if exists public.strategy_research_headlines cascade;
 drop table if exists public.strategy_cross_sectional_regressions cascade;
 drop table if exists public.strategy_quintile_returns cascade;
 drop table if exists public.strategy_performance_weekly cascade;

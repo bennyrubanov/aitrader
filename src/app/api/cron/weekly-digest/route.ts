@@ -30,8 +30,12 @@ export async function GET(req: Request) {
   }
   try {
     const admin = createAdminClient();
-    const summary = await runWeeklyDigest(admin);
-    return NextResponse.json({ ok: true, ...summary });
+    const dryUserRaw = new URL(req.url).searchParams.get('dryUser')?.trim() ?? '';
+    const dryUserId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(dryUserRaw)
+      ? dryUserRaw
+      : null;
+    const summary = await runWeeklyDigest(admin, { dryUserId });
+    return NextResponse.json({ ok: true, dryUser: dryUserId, ...summary });
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 500 });

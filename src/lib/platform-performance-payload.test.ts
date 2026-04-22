@@ -10,6 +10,7 @@ import {
   computeMonthlyQuintileWinRate,
   computeQuintileWinRate,
   computeRegressionSummary,
+  computeResearchStats,
   type MonthlyQuintileSnapshot,
   type QuintileSnapshot,
   type StrategyQuintileReturnRowLike as StrategyQuintileReturnRow,
@@ -143,6 +144,37 @@ test('computeMonthlyQuintileWinRate excludes months with <3 weeks by default', (
   assert.ok(wr);
   assert.equal(wr.total, 1);
   assert.equal(wr.wins, 1);
+});
+
+test('computeResearchStats matches AIT-1 Daneel 9-week regression fixture', () => {
+  const history = [
+    { runDate: '2026-02-17', alpha: 0.000262, beta: 0.002372, rSquared: 0.0124, sampleSize: 101 },
+    { runDate: '2026-02-23', alpha: 0.006576, beta: -0.003201, rSquared: 0.0093, sampleSize: 101 },
+    { runDate: '2026-03-02', alpha: -0.011007, beta: -0.013832, rSquared: 0.1095, sampleSize: 101 },
+    { runDate: '2026-03-09', alpha: 0.001082, beta: 0.00825, rSquared: 0.0527, sampleSize: 101 },
+    { runDate: '2026-03-16', alpha: -0.014941, beta: -0.001485, rSquared: 0.0039, sampleSize: 101 },
+    { runDate: '2026-03-23', alpha: -0.026987, beta: -0.006112, rSquared: 0.0509, sampleSize: 101 },
+    { runDate: '2026-03-30', alpha: 0.023623, beta: 0.010074, rSquared: 0.0223, sampleSize: 101 },
+    { runDate: '2026-04-06', alpha: 0.013753, beta: 0.010779, rSquared: 0.0438, sampleSize: 101 },
+    { runDate: '2026-04-13', alpha: 0.058012, beta: -0.007869, rSquared: 0.0342, sampleSize: 100 },
+  ];
+  const s = computeResearchStats(history);
+  assert.equal(s.weeks, 9);
+  assert.ok(s.meanBeta != null && Math.abs(s.meanBeta - -0.000114) < 1e-5);
+  assert.ok(s.sdBeta != null && Math.abs(s.sdBeta - 0.008619) < 1e-5);
+  assert.ok(s.meanAbsBeta != null && Math.abs(s.meanAbsBeta - 0.007108) < 1e-5);
+  assert.ok(s.minBeta != null && Math.abs(s.minBeta - -0.013832) < 1e-5);
+  assert.ok(s.maxBeta != null && Math.abs(s.maxBeta - 0.010779) < 1e-5);
+  assert.ok(s.betaPositiveRate != null && Math.abs(s.betaPositiveRate - 4 / 9) < 1e-6);
+  assert.ok(s.meanRsq != null && Math.abs(s.meanRsq - 0.0377) < 1e-4);
+  assert.ok(s.minRsq != null && Math.abs(s.minRsq - 0.0039) < 1e-4);
+  assert.ok(s.maxRsq != null && Math.abs(s.maxRsq - 0.1095) < 1e-4);
+  assert.ok(s.meanAlpha != null && Math.abs(s.meanAlpha - 0.005597) < 1e-5);
+  assert.ok(s.alphaPositiveRate != null && Math.abs(s.alphaPositiveRate - 6 / 9) < 1e-6);
+  assert.ok(s.meanSampleSize != null && Math.abs(s.meanSampleSize - 908 / 9) < 1e-9);
+  assert.ok(s.tMeanBeta != null && Math.abs(s.tMeanBeta - -0.04) < 0.01);
+  assert.ok(s.tMeanAlpha != null && Math.abs(s.tMeanAlpha - 0.675) < 0.02);
+  assert.ok(s.absToMeanBetaRatio != null && s.absToMeanBetaRatio > 60 && s.absToMeanBetaRatio < 65);
 });
 
 test('computeRegressionSummary aggregates betas and 8-week window', () => {

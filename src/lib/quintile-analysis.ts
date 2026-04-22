@@ -42,6 +42,132 @@ export type RegressionSummary = {
   totalWeeks: number;
 };
 
+/** Diagnostics over weekly cross-sectional regressions (1-week horizon). */
+export type ResearchStats = {
+  /** Number of weeks with a finite β (primary series for t-stats and rates). */
+  weeks: number;
+  meanBeta: number | null;
+  sdBeta: number | null;
+  meanAbsBeta: number | null;
+  minBeta: number | null;
+  maxBeta: number | null;
+  betaPositiveRate: number | null;
+  meanRsq: number | null;
+  minRsq: number | null;
+  maxRsq: number | null;
+  meanAlpha: number | null;
+  sdAlpha: number | null;
+  alphaPositiveRate: number | null;
+  meanSampleSize: number | null;
+  tMeanBeta: number | null;
+  tMeanAlpha: number | null;
+  /** mean(|β|) / |mean(β)| when |mean(β)| is non-trivial; else null. */
+  absToMeanBetaRatio: number | null;
+};
+
+const meanFinite = (values: number[]): number | null =>
+  values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+
+const sampleStdDev = (values: number[]): number | null => {
+  if (values.length < 2) return null;
+  const m = meanFinite(values);
+  if (m === null) return null;
+  const v =
+    values.reduce((sum, x) => sum + (x - m) * (x - m), 0) / (values.length - 1);
+  return Math.sqrt(Math.max(0, v));
+};
+
+/**
+ * Aggregate regression diagnostics for commentary / monitoring.
+ * Uses weeks with finite β for `weeks`, β rates, and tMeanBeta; R² and α use their own finite subsets.
+ */
+export function computeResearchStats(
+  history: Array<{
+    runDate: string;
+    alpha: number | null;
+    beta: number | null;
+    rSquared: number | null;
+    sampleSize: number | null;
+  }>
+): ResearchStats {
+  const betas = history
+    .map((r) => r.beta)
+    .filter((b): b is number => b != null && Number.isFinite(b));
+  const alphas = history
+    .map((r) => r.alpha)
+    .filter((a): a is number => a != null && Number.isFinite(a));
+  const rsqs = history
+    .map((r) => r.rSquared)
+    .filter((x): x is number => x != null && Number.isFinite(x));
+  const sampleSizes = history
+    .map((r) => r.sampleSize)
+    .filter((n): n is number => n != null && Number.isFinite(n) && n > 0);
+
+  const weeks = betas.length;
+  const meanBeta = meanFinite(betas);
+  const sdBeta = sampleStdDev(betas);
+  const meanAbsBeta = meanFinite(betas.map((b) => Math.abs(b)));
+  const minBeta = betas.length ? Math.min(...betas) : null;
+  const maxBeta = betas.length ? Math.max(...betas) : null;
+  const betaPositiveRate =
+    betas.length > 0 ? betas.filter((b) => b > 0).length / betas.length : null;
+
+  const meanRsq = meanFinite(rsqs);
+  const minRsq = rsqs.length ? Math.min(...rsqs) : null;
+  const maxRsq = rsqs.length ? Math.max(...rsqs) : null;
+
+  const meanAlpha = meanFinite(alphas);
+  const sdAlpha = sampleStdDev(alphas);
+  const alphaPositiveRate =
+    alphas.length > 0 ? alphas.filter((a) => a > 0).length / alphas.length : null;
+
+  const meanSampleSize = meanFinite(sampleSizes);
+
+  const tMeanBeta =
+    meanBeta != null &&
+    sdBeta != null &&
+    weeks >= 2 &&
+    sdBeta > 0
+      ? meanBeta / (sdBeta / Math.sqrt(weeks))
+      : null;
+
+  const alphaWeeks = alphas.length;
+  const tMeanAlpha =
+    meanAlpha != null &&
+    sdAlpha != null &&
+    alphaWeeks >= 2 &&
+    sdAlpha > 0
+      ? meanAlpha / (sdAlpha / Math.sqrt(alphaWeeks))
+      : null;
+
+  const absToMeanBetaRatio =
+    meanBeta != null &&
+    meanAbsBeta != null &&
+    Math.abs(meanBeta) >= 1e-12
+      ? meanAbsBeta / Math.abs(meanBeta)
+      : null;
+
+  return {
+    weeks,
+    meanBeta,
+    sdBeta,
+    meanAbsBeta,
+    minBeta,
+    maxBeta,
+    betaPositiveRate,
+    meanRsq,
+    minRsq,
+    maxRsq,
+    meanAlpha,
+    sdAlpha,
+    alphaPositiveRate,
+    meanSampleSize,
+    tMeanBeta,
+    tMeanAlpha,
+    absToMeanBetaRatio,
+  };
+}
+
 export function computeRegressionSummary(
   history: Array<{ runDate: string; beta: number | null; alpha: number | null; rSquared: number | null }>
 ): RegressionSummary {

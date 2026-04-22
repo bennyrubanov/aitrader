@@ -29,8 +29,24 @@ export type ProfileRow = {
   notify_holdings_change: boolean;
   email_enabled: boolean;
   inapp_enabled: boolean;
+  notify_rebalance_inapp: boolean;
+  notify_rebalance_email: boolean;
+  notify_price_move_inapp: boolean;
+  notify_price_move_email: boolean;
+  notify_entries_exits_inapp: boolean;
+  notify_entries_exits_email: boolean;
   strategy_models: { slug: string; name: string } | null;
   portfolio_config: { label: string | null } | null;
+};
+
+export type TrackedStockRow = {
+  id: string;
+  stock_id: string;
+  symbol: string;
+  notify_rating_inapp: boolean;
+  notify_rating_email: boolean;
+  is_premium_stock?: boolean;
+  company_name?: string | null;
 };
 
 export type NewsletterStatus = 'subscribed' | 'unsubscribed' | null;

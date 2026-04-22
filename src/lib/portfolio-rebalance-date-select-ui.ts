@@ -1,3 +1,8 @@
+/** `<SelectItem value>` for portfolio holdings "live as of today" (not a YYYY-MM-DD). */
+export const HOLDINGS_TODAY_SENTINEL = 'today' as const;
+
+export type HoldingsDateSelectValue = typeof HOLDINGS_TODAY_SENTINEL | string;
+
 /**
  * Rebalance-actions and other full-width date `<SelectTrigger>` chrome (Overview row,
  * Explore, performance public, guest preview rebalance-style controls).

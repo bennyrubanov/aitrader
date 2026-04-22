@@ -21,8 +21,10 @@ For config-level performance surfaces, read from `@/lib/config-daily-series` hel
 
 - `loadStrategyDailySeriesBulk()`
 - `loadConfigDailySeries()`
-- `ensureConfigDailySeries()` only for lazy backfill of missing/stale rows
+- `ensureConfigDailySeries()` only for lazy backfill of missing/stale rows on **single-config** surfaces (portfolio detail, user portfolio, landing top pick, platform performance)
 - `sliceAndScale()` for user-specific entry-date/investment transforms
+
+**Explore multi-config charts** (`explore-portfolios-equity-series` and similar): bulk-read snapshots only via `loadStrategyDailySeriesBulk()`. Do not fan out `ensureConfigDailySeries()` per config. If any config is missing or stale vs `loadLatestRawRunDate`, fire `triggerPortfolioConfigsBatch(strategyId)` and return partial charts from whatever snapshot rows exist.
 
 For strategy-level `/performance`, use:
 

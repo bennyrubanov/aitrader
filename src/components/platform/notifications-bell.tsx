@@ -62,7 +62,15 @@ function matchesFilter(row: NotifRow, filter: FilterId): boolean {
   if (filter === 'all') return true;
   if (filter === 'rebalance') return row.type === 'rebalance_action';
   if (filter === 'model') return row.type === 'stock_rating_change' || row.type === 'model_ratings_ready';
-  if (filter === 'portfolio') return row.type === 'weekly_digest' || row.type === 'system';
+  if (filter === 'portfolio') {
+    return (
+      row.type === 'weekly_digest' ||
+      row.type === 'system' ||
+      row.type === 'portfolio_price_move' ||
+      row.type === 'portfolio_entries_exits' ||
+      row.type === 'stock_rating_weekly'
+    );
+  }
   return true;
 }
 
@@ -285,7 +293,7 @@ function NotificationsPanelInner({
             variant === 'menu' && 'max-h-[min(70vh,24rem)]'
           )}
         >
-          <NotificationsSettingsSection />
+          <NotificationsSettingsSection embedMode="bell" />
         </div>
       )}
     </div>

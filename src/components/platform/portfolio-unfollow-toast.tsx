@@ -3,6 +3,7 @@
 import { toast } from '@/hooks/use-toast';
 import { ToastAction } from '@/components/ui/toast';
 import { cn } from '@/lib/utils';
+import { FOLLOW_LIMIT_ERROR_CODE, followLimitReachedMessage } from '@/lib/follow-limits';
 
 /** Fired after follow is undone (PATCH isActive: false) so clients can refetch profiles. */
 export const USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT = 'user-portfolio-profiles-invalidate';
@@ -49,10 +50,15 @@ export function invalidateUserPortfolioProfilesEntrySave(
   );
 }
 
+export type SetUserPortfolioProfileActiveResult = {
+  ok: boolean;
+  code?: string;
+};
+
 export async function setUserPortfolioProfileActive(
   profileId: string,
   isActive: boolean
-): Promise<boolean> {
+): Promise<SetUserPortfolioProfileActiveResult> {
   const res = await fetch('/api/platform/user-portfolio-profile', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -60,8 +66,37 @@ export async function setUserPortfolioProfileActive(
   });
   if (res.ok) {
     invalidateUserPortfolioProfiles();
+    return { ok: true };
   }
-  return res.ok;
+  let code: string | undefined;
+  try {
+    const j = (await res.json()) as { code?: string };
+    if (typeof j.code === 'string') code = j.code;
+  } catch {
+    /* ignore */
+  }
+  return { ok: false, ...(code ? { code } : {}) };
+}
+
+/** Destructive toast + CTA when the user hits the max followed portfolios cap. */
+export function showFollowLimitToast(): void {
+  toast({
+    title: 'Follow limit reached',
+    description: followLimitReachedMessage(),
+    variant: 'destructive',
+    action: (
+      <ToastAction
+        altText="Open Your portfolios"
+        onClick={() => {
+          if (typeof window !== 'undefined') {
+            window.location.assign('/platform/your-portfolios');
+          }
+        }}
+      >
+        Your portfolios
+      </ToastAction>
+    ),
+  });
 }
 
 export type PortfolioUnfollowToastOptions = {
@@ -87,16 +122,20 @@ export function showPortfolioUnfollowToast({
         altText="Undo unfollow"
         onClick={() => {
           void (async () => {
-            const ok = await setUserPortfolioProfileActive(profileId, true);
-            if (ok) {
+            const outcome = await setUserPortfolioProfileActive(profileId, true);
+            if (outcome.ok) {
               onAfterUndo();
               toast({ title: `Following ${label} again` });
             } else {
-              toast({
-                title: 'Could not undo',
-                description: 'Try following again from Explore.',
-                variant: 'destructive',
-              });
+              if (outcome.code === FOLLOW_LIMIT_ERROR_CODE) {
+                showFollowLimitToast();
+              } else {
+                toast({
+                  title: 'Could not undo',
+                  description: 'Try following again from Explore.',
+                  variant: 'destructive',
+                });
+              }
             }
           })();
         }}
@@ -135,16 +174,20 @@ export function showPortfolioFollowToast({
       className={actionClassName}
       onClick={() => {
         void (async () => {
-          const ok = await setUserPortfolioProfileActive(profileId, false);
-          if (ok) {
+          const outcome = await setUserPortfolioProfileActive(profileId, false);
+          if (outcome.ok) {
             await onAfterUndo?.();
             toast({ title: `Stopped following ${label}` });
           } else {
-            toast({
-              title: 'Could not undo',
-              description: 'Try removing the portfolio from Your portfolio.',
-              variant: 'destructive',
-            });
+            if (outcome.code === FOLLOW_LIMIT_ERROR_CODE) {
+              showFollowLimitToast();
+            } else {
+              toast({
+                title: 'Could not undo',
+                description: 'Try removing the portfolio from Your portfolio.',
+                variant: 'destructive',
+              });
+            }
           }
         })();
       }}

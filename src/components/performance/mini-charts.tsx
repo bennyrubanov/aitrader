@@ -61,9 +61,9 @@ const RETURNS_SERIES = {
 type ReturnsKey = keyof typeof RETURNS_SERIES;
 
 const chartDateFormatter = new Intl.DateTimeFormat('en-US', {
-  weekday: 'short',
   month: 'short',
   day: 'numeric',
+  year: 'numeric',
   timeZone: 'UTC',
 });
 

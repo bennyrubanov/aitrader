@@ -9,10 +9,15 @@ import type {
 } from '@/components/platform/explore-portfolios-equity-chart-shared';
 import { ExplorePortfolioDetailDialog } from '@/components/platform/explore-portfolio-detail-dialog';
 import {
+  PortfolioAlertsDialog,
+  type PortfolioAlertsInitial,
+} from '@/components/platform/portfolio-alerts-dialog';
+import {
   showPortfolioUnfollowToast,
   showPortfolioFollowToast,
   setUserPortfolioProfileActive,
   invalidateUserPortfolioProfiles,
+  showFollowLimitToast,
 } from '@/components/platform/portfolio-unfollow-toast';
 import { PortfolioEntryDatePicker } from '@/components/platform/portfolio-entry-date-picker';
 import { portfolioEntryDateBounds } from '@/components/platform/portfolio-entry-date-utils';
@@ -78,10 +83,7 @@ import {
   canAccessStrategySlugPaidData,
   getAppAccessState,
 } from '@/lib/app-access';
-import {
-  loadExploreHoldingsBootstrap,
-  loadExploreHoldingsForDates,
-} from '@/lib/portfolio-config-holdings-cache';
+import { loadExploreHoldingsBootstrap } from '@/lib/portfolio-config-holdings-cache';
 import {
   getCachedExploreEquitySeries,
   loadExploreEquitySeries,
@@ -94,6 +96,7 @@ import {
   type ExplorePortfoliosBrowseMode,
 } from '@/lib/platform-explore-portfolios-browse';
 import { cn } from '@/lib/utils';
+import { FOLLOW_LIMIT_ERROR_CODE, MAX_FOLLOWED_PORTFOLIOS } from '@/lib/follow-limits';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -123,6 +126,21 @@ type UserProfileFollowRow = {
   config_id: string;
   strategy_models: { slug?: string } | null;
 };
+
+function profileRowToAlertsInitial(p: Record<string, unknown>): PortfolioAlertsInitial {
+  const email = Boolean(p.email_enabled ?? true);
+  const inapp = Boolean(p.inapp_enabled ?? true);
+  const nr = Boolean(p.notify_rebalance ?? true);
+  const nh = Boolean(p.notify_holdings_change ?? true);
+  return {
+    notifyRebalanceInapp: Boolean(p.notify_rebalance_inapp ?? (nr && inapp)),
+    notifyRebalanceEmail: Boolean(p.notify_rebalance_email ?? (nr && email)),
+    notifyPriceMoveInapp: Boolean(p.notify_price_move_inapp ?? false),
+    notifyPriceMoveEmail: Boolean(p.notify_price_move_email ?? false),
+    notifyEntriesExitsInapp: Boolean(p.notify_entries_exits_inapp ?? (nh && inapp)),
+    notifyEntriesExitsEmail: Boolean(p.notify_entries_exits_email ?? (nh && email)),
+  };
+}
 
 const CONFIG_CARD_RISK_DOT: Record<RiskLevel, string> = {
   1: 'bg-emerald-500',
@@ -282,11 +300,9 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
         !prefetchedHoldingsConfigIdsRef.current.has(cfg.id)
       ) {
         prefetchedHoldingsConfigIdsRef.current.add(cfg.id);
-        void (async () => {
-          const bootstrap = await loadExploreHoldingsBootstrap(slug, cfg.id);
-          if (!bootstrap) return;
-          await loadExploreHoldingsForDates(slug, cfg.id, bootstrap.rebalanceDates.slice(0, 3));
-        })();
+        void loadExploreHoldingsBootstrap(slug, cfg.id).then((result) => {
+          if (!result) prefetchedHoldingsConfigIdsRef.current.delete(cfg.id);
+        });
       }
 
       if (prefetchedPerformanceConfigIdsRef.current.has(cfg.id)) return;
@@ -336,10 +352,16 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
   const [followedProfileIdByConfigId, setFollowedProfileIdByConfigId] = useState<
     Record<string, string>
   >({});
+  /** Total active followed portfolios (all models); used for the global follow cap. */
+  const [followedProfilesTotalCount, setFollowedProfilesTotalCount] = useState(0);
   const [unfollowBusyProfileId, setUnfollowBusyProfileId] = useState<string | null>(null);
 
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailConfig, setDetailConfig] = useState<RankedConfig | null>(null);
+  const [exploreAlertsProfileId, setExploreAlertsProfileId] = useState<string | null>(null);
+  const [exploreAlertsInitial, setExploreAlertsInitial] = useState<PortfolioAlertsInitial | null>(
+    null
+  );
 
   const urlBrowseMode = useMemo(
     () => parseExplorePortfoliosBrowseMode(searchParams.get(EXPLORE_PORTFOLIOS_BROWSE_PARAM)),
@@ -395,14 +417,30 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
     void loadConfigs();
   }, [loadConfigs, strategySlug]);
 
+  const openExploreNotificationSettings = useCallback(async (profileId: string) => {
+    try {
+      const res = await fetch('/api/platform/user-portfolio-profile');
+      if (!res.ok) return;
+      const j = (await res.json()) as { profiles?: Record<string, unknown>[] };
+      const row = (j.profiles ?? []).find((p) => p.id === profileId);
+      if (!row) return;
+      setExploreAlertsInitial(profileRowToAlertsInitial(row));
+      setExploreAlertsProfileId(profileId);
+    } catch {
+      // ignore
+    }
+  }, []);
+
   const loadFollowedProfiles = useCallback(async () => {
     if (!authState.isAuthenticated) {
       setFollowedProfileIdByConfigId({});
+      setFollowedProfilesTotalCount(0);
       return;
     }
     try {
       const data = (await loadUserPortfolioProfilesClient()) as { profiles?: UserProfileFollowRow[] } | null;
       if (!data) return;
+      setFollowedProfilesTotalCount((data.profiles ?? []).length);
       const map: Record<string, string> = {};
       for (const p of data.profiles ?? []) {
         if (p.strategy_models?.slug !== strategySlug) continue;
@@ -411,6 +449,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
       setFollowedProfileIdByConfigId(map);
     } catch {
       setFollowedProfileIdByConfigId({});
+      setFollowedProfilesTotalCount(0);
     }
   }, [authState.isAuthenticated, strategySlug]);
 
@@ -422,6 +461,8 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
     () => new Set(Object.keys(followedProfileIdByConfigId)),
     [followedProfileIdByConfigId]
   );
+
+  const atFollowLimit = followedProfilesTotalCount >= MAX_FOLLOWED_PORTFOLIOS;
 
   const { minYmd: entryMinYmd, maxYmd: entryMaxYmd } = useMemo(
     () => portfolioEntryDateBounds(modelInceptionDate),
@@ -441,8 +482,8 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
     async (profileId: string, configId: string, label: string) => {
       setUnfollowBusyProfileId(profileId);
       try {
-        const ok = await setUserPortfolioProfileActive(profileId, false);
-        if (!ok) {
+        const outcome = await setUserPortfolioProfileActive(profileId, false);
+        if (!outcome.ok) {
           toast({
             title: 'Could not unfollow',
             description: 'Try again in a moment.',
@@ -589,6 +630,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
     const c =
       filteredConfigs.find((x) => x.id === configId) ?? configs.find((x) => x.id === configId);
     if (c) {
+      prefetchHoldingsForConfig(c);
       setDetailConfig(c);
       setDetailOpen(true);
     }
@@ -672,6 +714,10 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
       openSignupPrompt({ fromFollow: true });
       return;
     }
+    if (atFollowLimit) {
+      showFollowLimitToast();
+      return;
+    }
     if (followedConfigIdSet.has(c.id)) {
       toast({
         title: 'Already following',
@@ -718,13 +764,21 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
           userStartDate: addStartDate,
         }),
       });
-      const j = (await res.json().catch(() => ({}))) as { profileId?: string; error?: string };
+      const j = (await res.json().catch(() => ({}))) as {
+        profileId?: string;
+        error?: string;
+        code?: string;
+      };
       if (!res.ok) {
-        toast({
-          title: 'Could not follow portfolio',
-          description: typeof j.error === 'string' ? j.error : 'Try again later.',
-          variant: 'destructive',
-        });
+        if (j.code === FOLLOW_LIMIT_ERROR_CODE) {
+          showFollowLimitToast();
+        } else {
+          toast({
+            title: 'Could not follow portfolio',
+            description: typeof j.error === 'string' ? j.error : 'Try again later.',
+            variant: 'destructive',
+          });
+        }
         return;
       }
       const newProfileId = typeof j.profileId === 'string' ? j.profileId : '';
@@ -1040,6 +1094,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
                       config={c}
                       strategySlug={strategySlug}
                       isFollowing={followedConfigIdSet.has(c.id)}
+                      atFollowLimit={atFollowLimit}
                       followProfileId={followPid}
                       unfollowBusy={followPid != null && unfollowBusyProfileId === followPid}
                       onOpenDetails={() => {
@@ -1246,7 +1301,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
             <Button variant="outline" onClick={() => setAddDialogOpen(false)} disabled={addBusy}>
               Cancel
             </Button>
-            <Button onClick={() => void confirmAdd()} disabled={addBusy}>
+            <Button onClick={() => void confirmAdd()} disabled={addBusy || atFollowLimit}>
               {addBusy ? 'Following…' : 'Follow this portfolio'}
             </Button>
           </DialogFooter>
@@ -1281,6 +1336,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
               }
             : undefined
         }
+        followLimitReached={atFollowLimit}
         onFollow={() => {
           if (!detailConfig) return;
           const c = detailConfig;
@@ -1288,7 +1344,26 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
           setDetailConfig(null);
           openAddDialog(c);
         }}
+        onOpenNotificationSettings={
+          detailConfig && followedProfileIdByConfigId[detailConfig.id]
+            ? () => void openExploreNotificationSettings(followedProfileIdByConfigId[detailConfig.id]!)
+            : undefined
+        }
       />
+      {exploreAlertsProfileId && exploreAlertsInitial ? (
+        <PortfolioAlertsDialog
+          open
+          onOpenChange={(o) => {
+            if (!o) {
+              setExploreAlertsProfileId(null);
+              setExploreAlertsInitial(null);
+            }
+          }}
+          profileId={exploreAlertsProfileId}
+          initial={exploreAlertsInitial}
+          onSaved={() => void loadFollowedProfiles()}
+        />
+      ) : null}
       <PortfolioListSortDialog
         open={sortDialogOpen}
         onOpenChange={setSortDialogOpen}
@@ -1308,6 +1383,7 @@ function ConfigCard({
   config,
   strategySlug,
   isFollowing,
+  atFollowLimit,
   followProfileId,
   unfollowBusy,
   onOpenDetails,
@@ -1319,6 +1395,7 @@ function ConfigCard({
   config: RankedConfig;
   strategySlug: string;
   isFollowing: boolean;
+  atFollowLimit: boolean;
   followProfileId: string | null;
   unfollowBusy: boolean;
   onOpenDetails: () => void;
@@ -1390,7 +1467,21 @@ function ConfigCard({
             Remove from Your Portfolios.
           </TooltipContent>
         </Tooltip>
-      ) : isFollowing ? null : (
+      ) : isFollowing ? null : atFollowLimit ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="inline-flex">
+              <Button size="sm" className="h-8 gap-1 text-xs sm:h-7" disabled>
+                <Plus className="size-3" />
+                Follow
+              </Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-xs text-xs">
+            Follow limit reached (20). Unfollow one to make room.
+          </TooltipContent>
+        </Tooltip>
+      ) : (
         <Button size="sm" className="h-8 gap-1 text-xs sm:h-7" onClick={onAdd}>
           <Plus className="size-3" />
           Follow

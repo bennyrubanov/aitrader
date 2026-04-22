@@ -40,7 +40,12 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { PortfolioEntryDatePicker } from '@/components/platform/portfolio-entry-date-picker';
 import { portfolioEntryDateBounds } from '@/components/platform/portfolio-entry-date-utils';
 import { PortfolioRankingTooltipBody } from '@/components/tooltips';
@@ -80,12 +85,15 @@ import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import {
   invalidateUserPortfolioProfiles,
+  showFollowLimitToast,
   showPortfolioFollowToast,
 } from '@/components/platform/portfolio-unfollow-toast';
 import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
 import type { FullConfigPerformanceMetrics } from '@/lib/config-performance-chart';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
 import { loadRankedConfigsClient } from '@/lib/portfolio-configs-ranked-client';
+import { loadUserPortfolioProfilesClient } from '@/lib/user-portfolio-profiles-client';
+import { FOLLOW_LIMIT_ERROR_CODE, MAX_FOLLOWED_PORTFOLIOS } from '@/lib/follow-limits';
 import { setGuestDeclinedAccountNudgeThisSession } from '@/lib/guest-account-nudge-session';
 import {
   isPostOnboardingTourQueuePending,
@@ -431,6 +439,8 @@ export function PortfolioOnboardingDialog({
   } | null>(null);
   const [finaleLoading, setFinaleLoading] = useState(false);
   const [followPhase, setFollowPhase] = useState<'idle' | 'posting' | 'syncing'>('idle');
+  /** Active followed portfolio count (all models); loaded on celebrate step for follow cap UI. */
+  const [followedProfilesTotalCount, setFollowedProfilesTotalCount] = useState<number | null>(null);
   const [guestAccountDialogOpen, setGuestAccountDialogOpen] = useState(false);
   const [celebratePerf, setCelebratePerf] = useState<{
     computeStatus: 'ready' | 'in_progress' | 'failed' | 'empty' | 'unsupported';
@@ -505,6 +515,27 @@ export function PortfolioOnboardingDialog({
   useEffect(() => {
     if (isOnboardingDone) setGuestResumeEventsActive(false);
   }, [isOnboardingDone]);
+
+  useEffect(() => {
+    if (step !== 'celebrate' || !authState.isAuthenticated) {
+      setFollowedProfilesTotalCount(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const data = await loadUserPortfolioProfilesClient({ bypassCache: true });
+      if (cancelled) return;
+      const profiles = data?.profiles;
+      setFollowedProfilesTotalCount(Array.isArray(profiles) ? profiles.length : 0);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [step, authState.isAuthenticated]);
+
+  const celebrateFollowLimitReached =
+    followedProfilesTotalCount !== null &&
+    followedProfilesTotalCount >= MAX_FOLLOWED_PORTFOLIOS;
 
   const [strategies, setStrategies] = useState<OnboardingStrategyRow[]>([]);
   const [modelInceptionDate, setModelInceptionDate] = useState<string | null>(null);
@@ -779,6 +810,13 @@ export function PortfolioOnboardingDialog({
       openGuestAccountSaveDialog();
       return;
     }
+    if (
+      followedProfilesTotalCount !== null &&
+      followedProfilesTotalCount >= MAX_FOLLOWED_PORTFOLIOS
+    ) {
+      showFollowLimitToast();
+      return;
+    }
     setFollowPhase('posting');
     try {
       const entryYmd = draftEntryDate || localTodayYmd();
@@ -799,13 +837,18 @@ export function PortfolioOnboardingDialog({
         error?: string;
         profileId?: string;
         deduplicated?: boolean;
+        code?: string;
       };
       if (!res.ok) {
-        toast({
-          title: 'Could not follow portfolio',
-          description: typeof j.error === 'string' ? j.error : 'Try again later.',
-          variant: 'destructive',
-        });
+        if (j.code === FOLLOW_LIMIT_ERROR_CODE) {
+          showFollowLimitToast();
+        } else {
+          toast({
+            title: 'Could not follow portfolio',
+            description: typeof j.error === 'string' ? j.error : 'Try again later.',
+            variant: 'destructive',
+          });
+        }
         return;
       }
       const profileId = typeof j.profileId === 'string' ? j.profileId : '';
@@ -1813,32 +1856,56 @@ export function PortfolioOnboardingDialog({
                 )}
               </div>
               <OnboardingDialogFooter>
-                <div className="flex w-full items-center gap-1.5 sm:gap-2">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="-ml-2 h-auto min-w-0 flex-1 gap-1 px-2 text-[11px] text-muted-foreground hover:text-foreground sm:gap-1.5 sm:text-sm"
-                    onClick={() => goToStep('done')}
-                  >
-                    <ArrowLeft className="size-3.5" />
-                    <span className="truncate">Change selections</span>
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="ml-auto shrink-0 gap-0 px-2 text-[11px] sm:gap-1.5 sm:px-3 sm:text-sm"
-                    disabled={followPhase !== 'idle'}
-                    onClick={() => void handleFollowThisPortfolio()}
-                  >
-                    {followPhase === 'syncing'
-                      ? 'Adding to overview…'
-                      : followPhase === 'posting'
-                        ? 'Following…'
-                        : 'Follow this portfolio'}
-                    {followPhase === 'idle' ? <ArrowRight className="hidden size-3.5 sm:block" /> : null}
-                  </Button>
-                </div>
+                <TooltipProvider delayDuration={150}>
+                  <div className="flex w-full items-center gap-1.5 sm:gap-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="-ml-2 h-auto min-w-0 flex-1 gap-1 px-2 text-[11px] text-muted-foreground hover:text-foreground sm:gap-1.5 sm:text-sm"
+                      onClick={() => goToStep('done')}
+                    >
+                      <ArrowLeft className="size-3.5" />
+                      <span className="truncate">Change selections</span>
+                    </Button>
+                    {celebrateFollowLimitReached ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="ml-auto inline-flex shrink-0">
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="gap-0 px-2 text-[11px] sm:gap-1.5 sm:px-3 sm:text-sm"
+                              disabled
+                            >
+                              Follow this portfolio
+                            </Button>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-xs text-xs">
+                          Follow limit reached (20). Unfollow one to make room.
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="ml-auto shrink-0 gap-0 px-2 text-[11px] sm:gap-1.5 sm:px-3 sm:text-sm"
+                        disabled={followPhase !== 'idle'}
+                        onClick={() => void handleFollowThisPortfolio()}
+                      >
+                        {followPhase === 'syncing'
+                          ? 'Adding to overview…'
+                          : followPhase === 'posting'
+                            ? 'Following…'
+                            : 'Follow this portfolio'}
+                        {followPhase === 'idle' ? (
+                          <ArrowRight className="hidden size-3.5 sm:block" />
+                        ) : null}
+                      </Button>
+                    )}
+                  </div>
+                </TooltipProvider>
               </OnboardingDialogFooter>
             </div>
           )}

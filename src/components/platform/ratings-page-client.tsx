@@ -118,12 +118,19 @@ const RATINGS_TABLE_PADDING_PAID =
   '[&_th]:!px-2 sm:[&_th]:!px-3 [&_th]:!py-2.5 [&_td]:!px-2 sm:[&_td]:!px-3 [&_td]:!py-3';
 const RATINGS_TABLE_PADDING_FREE =
   '[&_th]:!px-2 sm:[&_th]:!px-3 [&_th]:!py-2.5 [&_td]:!px-2 sm:[&_td]:!px-3 [&_td]:!py-3';
-const STICKY_RANK_CELL = 'sticky left-0 z-10 bg-background [tr:hover_&]:bg-muted/50';
+const STICKY_RANK_CELL =
+  'sticky left-0 z-10 bg-background ' +
+  "before:pointer-events-none before:absolute before:inset-0 before:content-[''] before:transition-colors " +
+  '[tr:hover_&]:before:bg-muted/50 [tr[data-state=selected]_&]:before:bg-muted';
 const STICKY_SYMBOL_CELL =
-  'sticky bg-background border-r border-border/70 [tr:hover_&]:bg-muted/50 left-[var(--ratings-rank-width)] z-10';
+  'sticky bg-background border-r border-border/70 left-[var(--ratings-rank-width)] z-10 ' +
+  "before:pointer-events-none before:absolute before:inset-0 before:content-[''] before:transition-colors " +
+  '[tr:hover_&]:before:bg-muted/50 [tr[data-state=selected]_&]:before:bg-muted ' +
+  'shadow-[4px_0_6px_-4px_rgb(0_0_0/0.08)] dark:shadow-[4px_0_6px_-4px_rgb(0_0_0/0.3)]';
 const STICKY_RANK_HEAD = 'sticky left-0 !z-30 !bg-background';
 const STICKY_SYMBOL_HEAD =
-  'sticky left-[var(--ratings-rank-width)] !z-30 !bg-background border-r border-border/70';
+  'sticky left-[var(--ratings-rank-width)] !z-30 !bg-background border-r border-border/70 ' +
+  'shadow-[4px_0_6px_-4px_rgb(0_0_0/0.08)] dark:shadow-[4px_0_6px_-4px_rgb(0_0_0/0.3)]';
 
 /** Lock + “Paid plan” trigger; tooltip explains upgrade with primary CTA (premium rows, free tier). */
 function PaidPlanLockTooltip({
@@ -459,10 +466,11 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
   return (
     <TooltipProvider delayDuration={150}>
       <div
-        className="flex h-full min-h-0 flex-1 flex-col -mx-4 -my-4 md:-mx-6 md:-my-6"
+        className="flex h-full min-h-0 flex-1 flex-col"
         data-platform-tour="ratings-page-root"
+        data-workspace-page-flush="true"
       >
-        <div className="border-b border-border/70 bg-background px-4 py-3 sm:px-6">
+        <div className="border-b border-border/70 bg-background px-4 py-2.5 sm:px-6 sm:py-3">
           <div className="flex flex-wrap items-center gap-3">
             <div
               className={cn(
@@ -756,7 +764,7 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
             <div className="flex shrink-0 items-center justify-end gap-2 sm:justify-end">
               <Label
                 htmlFor="ratings-run-date-select"
-                className="mb-0 shrink-0 cursor-default whitespace-nowrap text-xs font-normal text-muted-foreground"
+                className="mb-0 shrink-0 cursor-default whitespace-nowrap text-xs font-normal text-muted-foreground sr-only sm:not-sr-only"
               >
                 {topRatedStocksActive ? 'Cumulative ratings as of' : 'Rating date'}
               </Label>
@@ -823,7 +831,7 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
         </div>
 
         {/* Table area */}
-        <div className="min-h-0 flex-1 overflow-auto overscroll-y-contain px-1 pb-4">
+        <div className="min-h-0 flex-1 overflow-auto overscroll-y-contain pb-4">
           {isStrategyLoading || isDateLoading ? (
             <div className="space-y-2 px-4 pt-4 sm:px-6">
               <Skeleton className="h-10 w-full" />
@@ -847,7 +855,7 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                       <TableRow>
                         <TableHead
                           className={cn(
-                            'w-[4.25rem] min-w-[4.25rem] max-w-[4.25rem] sm:w-[5.75rem] sm:min-w-[5.75rem] sm:max-w-[5.75rem] whitespace-nowrap',
+                            'w-[4.25rem] min-w-[4.25rem] max-w-[4.25rem] sm:w-[5.75rem] sm:min-w-[5.75rem] sm:max-w-[5.75rem] whitespace-nowrap !pl-3',
                             STICKY_RANK_HEAD
                           )}
                         >
@@ -916,7 +924,7 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                         const cumulativeBucket = bucketFromScore(row.cumulativeAvgScore);
                         return (
                           <TableRow key={row.stockId}>
-                            <TableCell className={cn('min-w-0 font-medium', STICKY_RANK_CELL)}>
+                            <TableCell className={cn('min-w-0 font-medium !pl-3', STICKY_RANK_CELL)}>
                               {rankColumnBlurred ? (
                                 <>
                                   <BlurredRankCellPlaceholder />
@@ -1028,7 +1036,7 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                       <TableRow>
                         <TableHead
                           className={cn(
-                            'w-[4.25rem] min-w-[4.25rem] max-w-[4.25rem] sm:w-[5.75rem] sm:min-w-[5.75rem] sm:max-w-[5.75rem] whitespace-nowrap',
+                            'w-[4.25rem] min-w-[4.25rem] max-w-[4.25rem] sm:w-[5.75rem] sm:min-w-[5.75rem] sm:max-w-[5.75rem] whitespace-nowrap !pl-3',
                             STICKY_RANK_HEAD
                           )}
                         >
@@ -1111,7 +1119,7 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
 
                         return (
                           <TableRow key={row.stockId}>
-                            <TableCell className={cn('min-w-0 font-medium', STICKY_RANK_CELL)}>
+                            <TableCell className={cn('min-w-0 font-medium !pl-3', STICKY_RANK_CELL)}>
                               {rankColumnBlurred ? (
                                 <>
                                   <BlurredRankCellPlaceholder />

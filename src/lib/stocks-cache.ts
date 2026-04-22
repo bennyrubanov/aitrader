@@ -3,6 +3,7 @@ import { createAdminClient } from '@/utils/supabase/admin';
 import type { Stock } from '@/types/stock';
 
 type StockRow = {
+  id: string;
   symbol: string;
   company_name: string | null;
   is_premium_stock: boolean;
@@ -11,6 +12,7 @@ type StockRow = {
 
 const mapStockRows = (rows: StockRow[]): Stock[] =>
   rows.map((row) => ({
+    id: row.id,
     symbol: row.symbol,
     name: row.company_name ?? row.symbol,
     isPremium: row.is_premium_stock,
@@ -21,7 +23,7 @@ const fetchAllStocksFromDB = async (): Promise<Stock[]> => {
   const supabase = createAdminClient();
   const fullSelect = await supabase
     .from('stocks')
-    .select('symbol, company_name, is_premium_stock, is_guest_visible')
+    .select('id, symbol, company_name, is_premium_stock, is_guest_visible')
     .order('symbol', { ascending: true });
 
   if (fullSelect.error || !fullSelect.data) {

@@ -9,6 +9,11 @@ import {
   insertUserPortfolioPositionsForRunDate,
   replaceUserPortfolioPositionsForRunDate,
 } from '@/lib/user-portfolio-entry';
+import {
+  FOLLOW_LIMIT_ERROR_CODE,
+  MAX_FOLLOWED_PORTFOLIOS,
+  followLimitReachedMessage,
+} from '@/lib/follow-limits';
 
 export const runtime = 'nodejs';
 
@@ -36,6 +41,12 @@ export async function GET() {
     notify_holdings_change,
     email_enabled,
     inapp_enabled,
+    notify_rebalance_inapp,
+    notify_rebalance_email,
+    notify_price_move_inapp,
+    notify_price_move_email,
+    notify_entries_exits_inapp,
+    notify_entries_exits_email,
     is_starting_portfolio,
     created_at,
     updated_at,
@@ -106,6 +117,12 @@ export async function GET() {
         notify_holdings_change: true,
         email_enabled: true,
         inapp_enabled: true,
+        notify_rebalance_inapp: true,
+        notify_rebalance_email: true,
+        notify_price_move_inapp: false,
+        notify_price_move_email: false,
+        notify_entries_exits_inapp: true,
+        notify_entries_exits_email: true,
       }));
     }
   } else {
@@ -217,6 +234,23 @@ export async function POST(req: Request) {
         deduplicated: true,
       });
     }
+  }
+
+  const { count: activeFollowCount, error: activeFollowCountErr } = await supabase
+    .from('user_portfolio_profiles')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', user.id)
+    .eq('is_active', true);
+
+  if (activeFollowCountErr) {
+    console.error('[user-portfolio-profile POST] follow limit count:', activeFollowCountErr.message);
+    return NextResponse.json({ error: 'Unable to verify follow limit.' }, { status: 500 });
+  }
+  if ((activeFollowCount ?? 0) >= MAX_FOLLOWED_PORTFOLIOS) {
+    return NextResponse.json(
+      { error: followLimitReachedMessage(), code: FOLLOW_LIMIT_ERROR_CODE },
+      { status: 409 }
+    );
   }
 
   const now = new Date().toISOString();
@@ -397,6 +431,24 @@ export async function PATCH(req: Request) {
   if (typeof body.inappEnabled === 'boolean') {
     updates.inapp_enabled = body.inappEnabled;
   }
+  if (typeof body.notifyRebalanceInapp === 'boolean') {
+    updates.notify_rebalance_inapp = body.notifyRebalanceInapp;
+  }
+  if (typeof body.notifyRebalanceEmail === 'boolean') {
+    updates.notify_rebalance_email = body.notifyRebalanceEmail;
+  }
+  if (typeof body.notifyPriceMoveInapp === 'boolean') {
+    updates.notify_price_move_inapp = body.notifyPriceMoveInapp;
+  }
+  if (typeof body.notifyPriceMoveEmail === 'boolean') {
+    updates.notify_price_move_email = body.notifyPriceMoveEmail;
+  }
+  if (typeof body.notifyEntriesExitsInapp === 'boolean') {
+    updates.notify_entries_exits_inapp = body.notifyEntriesExitsInapp;
+  }
+  if (typeof body.notifyEntriesExitsEmail === 'boolean') {
+    updates.notify_entries_exits_email = body.notifyEntriesExitsEmail;
+  }
   if (typeof body.investmentSize === 'number' && body.investmentSize > 0) {
     updates.investment_size = body.investmentSize;
   }
@@ -456,6 +508,40 @@ export async function PATCH(req: Request) {
     }
   }
 
+  const scopeChannelKeys = [
+    'notify_rebalance_inapp',
+    'notify_rebalance_email',
+    'notify_price_move_inapp',
+    'notify_price_move_email',
+    'notify_entries_exits_inapp',
+    'notify_entries_exits_email',
+  ] as const;
+  const touchedScopeChannel = scopeChannelKeys.some((k) => k in updates);
+  if (touchedScopeChannel && profileId) {
+    const { data: scopeCur, error: scopeErr } = await supabase
+      .from('user_portfolio_profiles')
+      .select(
+        'notify_rebalance_inapp, notify_rebalance_email, notify_entries_exits_inapp, notify_entries_exits_email'
+      )
+      .eq('id', profileId)
+      .eq('user_id', user.id)
+      .maybeSingle();
+    if (scopeErr) {
+      return NextResponse.json({ error: scopeErr.message }, { status: 500 });
+    }
+    if (scopeCur) {
+      const r = scopeCur as Record<string, boolean>;
+      const rbIn = (updates.notify_rebalance_inapp as boolean | undefined) ?? r.notify_rebalance_inapp;
+      const rbEm = (updates.notify_rebalance_email as boolean | undefined) ?? r.notify_rebalance_email;
+      const exIn =
+        (updates.notify_entries_exits_inapp as boolean | undefined) ?? r.notify_entries_exits_inapp;
+      const exEm =
+        (updates.notify_entries_exits_email as boolean | undefined) ?? r.notify_entries_exits_email;
+      updates.notify_rebalance = rbIn || rbEm;
+      updates.notify_holdings_change = exIn || exEm;
+    }
+  }
+
   if (updates.is_active === false) {
     if (!profileId) {
       return NextResponse.json({ error: 'profileId is required when deactivating.' }, { status: 400 });
@@ -475,6 +561,12 @@ export async function PATCH(req: Request) {
     typeof body.notifyHoldingsChange === 'boolean' ||
     typeof body.emailEnabled === 'boolean' ||
     typeof body.inappEnabled === 'boolean' ||
+    typeof body.notifyRebalanceInapp === 'boolean' ||
+    typeof body.notifyRebalanceEmail === 'boolean' ||
+    typeof body.notifyPriceMoveInapp === 'boolean' ||
+    typeof body.notifyPriceMoveEmail === 'boolean' ||
+    typeof body.notifyEntriesExitsInapp === 'boolean' ||
+    typeof body.notifyEntriesExitsEmail === 'boolean' ||
     (typeof body.investmentSize === 'number' && body.investmentSize > 0) ||
     typeof body.isActive === 'boolean' ||
     didReanchorOrStartChange;
@@ -483,6 +575,43 @@ export async function PATCH(req: Request) {
     if (!profileId) {
       return NextResponse.json({ error: 'profileId is required.' }, { status: 400 });
     }
+
+    if (updates.is_active === true) {
+      const { data: priorRow, error: priorErr } = await supabase
+        .from('user_portfolio_profiles')
+        .select('is_active')
+        .eq('id', profileId)
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (priorErr) {
+        return NextResponse.json({ error: priorErr.message }, { status: 500 });
+      }
+      if (!priorRow) {
+        return NextResponse.json({ error: 'Profile not found.' }, { status: 404 });
+      }
+      const wasInactive = (priorRow as { is_active: boolean }).is_active === false;
+      if (wasInactive) {
+        const { count: reactivateCount, error: reactivateCountErr } = await supabase
+          .from('user_portfolio_profiles')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .eq('is_active', true);
+        if (reactivateCountErr) {
+          console.error(
+            '[user-portfolio-profile PATCH] follow limit count:',
+            reactivateCountErr.message
+          );
+          return NextResponse.json({ error: 'Unable to verify follow limit.' }, { status: 500 });
+        }
+        if ((reactivateCount ?? 0) >= MAX_FOLLOWED_PORTFOLIOS) {
+          return NextResponse.json(
+            { error: followLimitReachedMessage(), code: FOLLOW_LIMIT_ERROR_CODE },
+            { status: 409 }
+          );
+        }
+      }
+    }
+
     const { data, error } = await supabase
       .from('user_portfolio_profiles')
       .update(updates)

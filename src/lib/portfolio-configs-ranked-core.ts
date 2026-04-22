@@ -146,21 +146,38 @@ export async function loadPortfolioConfigsRankedPayload(
   }
 
   const adminSupabase = createAdminClient();
-  const latestRawRunDate = await loadLatestRawRunDate(adminSupabase);
+  const [
+    { data: configsData },
+    snapshots,
+    { data: inceptionRow },
+    latestRawRunDate,
+  ] = await Promise.all([
+    supabase
+      .from('portfolio_configs')
+      .select('id, risk_level, rebalance_frequency, weighting_method, top_n, label, risk_label, is_default')
+      .order('risk_level', { ascending: true })
+      .order('rebalance_frequency', { ascending: true })
+      .order('weighting_method', { ascending: true }),
+    loadStrategyDailySeriesBulk(supabase as never, strategy.id),
+    supabase
+      .from('ai_run_batches')
+      .select('run_date')
+      .eq('strategy_id', strategy.id)
+      .order('run_date', { ascending: true })
+      .limit(1)
+      .maybeSingle(),
+    loadLatestRawRunDate(adminSupabase),
+  ]);
 
-  const { data: configsData } = await supabase
-    .from('portfolio_configs')
-    .select('id, risk_level, rebalance_frequency, weighting_method, top_n, label, risk_label, is_default')
-    .order('risk_level', { ascending: true })
-    .order('rebalance_frequency', { ascending: true })
-    .order('weighting_method', { ascending: true });
+  const modelInceptionDate =
+    typeof inceptionRow?.run_date === 'string' ? inceptionRow.run_date : null;
 
   const configs = (configsData ?? []) as ConfigRow[];
   if (configs.length === 0) {
     return {
       strategyId: strategy.id,
       strategyName: strategy.name ?? null,
-      modelInceptionDate: null,
+      modelInceptionDate,
       eligibleCount: 0,
       latestPerformanceDate: null,
       latestRawRunDate,
@@ -170,7 +187,6 @@ export async function loadPortfolioConfigsRankedPayload(
     };
   }
 
-  const snapshots = await loadStrategyDailySeriesBulk(supabase as never, strategy.id);
   const configsWithMetrics = configs.map((cfg) => {
     const snapshot = snapshots.get(cfg.id) ?? null;
     const metrics = snapshot?.metrics ?? {
@@ -373,7 +389,7 @@ export async function loadPortfolioConfigsRankedPayload(
   return {
     strategyId: strategy.id,
     strategyName: strategy.name ?? null,
-    modelInceptionDate: null,
+    modelInceptionDate,
     eligibleCount: compositeCount,
     latestPerformanceDate,
     latestRawRunDate,

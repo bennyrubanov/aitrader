@@ -222,6 +222,13 @@ create policy "Public read strategy cross sectional regressions"
   on public.strategy_cross_sectional_regressions for select
   using (true);
 
+alter table public.strategy_research_headlines enable row level security;
+
+drop policy if exists "Public read strategy research headlines" on public.strategy_research_headlines;
+create policy "Public read strategy research headlines"
+  on public.strategy_research_headlines for select
+  using (true);
+
 -- -------------------------------------------------------
 -- 14) Portfolio configs – public read
 -- -------------------------------------------------------

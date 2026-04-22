@@ -5,6 +5,8 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ArrowUpRight, Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { cn } from "@/lib/utils";
 import type { Stock } from "@/types/stock";
 
 type StockRow = Stock & { currentRating?: "buy" | "hold" | "sell" | null };
@@ -18,6 +20,8 @@ export function MiniStockSearch() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const inputRef = useRef<HTMLInputElement>(null);
+  const showKbdHints = !useIsMobile();
+  const [modKeyLabel, setModKeyLabel] = useState("Ctrl");
   const [query, setQuery] = useState("");
   const [isFocused, setIsFocused] = useState(false);
   const [stocks, setStocks] = useState<StockRow[]>([]);
@@ -39,6 +43,39 @@ export function MiniStockSearch() {
     if (ratingsUrlQuery === null) return;
     setQuery(ratingsUrlQuery);
   }, [ratingsUrlQuery]);
+
+  useEffect(() => {
+    if (typeof navigator === "undefined") return;
+    setModKeyLabel(/Mac|iPhone|iPad|iPod/i.test(navigator.userAgent) ? "⌘" : "Ctrl");
+  }, []);
+
+  useEffect(() => {
+    if (!showKbdHints) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!e.metaKey && !e.ctrlKey) return;
+      if (e.key !== "k" && e.key !== "K") return;
+
+      const t = e.target;
+      if (t instanceof HTMLElement && t.closest('[role="dialog"]')) return;
+      if (t instanceof HTMLElement && t.closest('[role="menu"]')) return;
+      if (t instanceof HTMLElement && t.closest('[role="listbox"]')) return;
+
+      const input = inputRef.current;
+      if (!input) return;
+
+      if (t === input) {
+        e.preventDefault();
+        input.select();
+        return;
+      }
+
+      e.preventDefault();
+      input.focus();
+      requestAnimationFrame(() => input.select());
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [showKbdHints]);
 
   const applyMiniQuery = useCallback(
     (value: string) => {
@@ -108,8 +145,12 @@ export function MiniStockSearch() {
           window.setTimeout(() => setIsFocused(false), 120);
         }}
         placeholder="Search rated stocks"
-        className={`h-8 pl-9 ${query ? "pr-9" : ""}`}
+        className={cn(
+          "h-8 pl-9",
+          query ? "pr-9" : showKbdHints ? "pr-[4.25rem]" : ""
+        )}
         aria-label="Search stocks in ratings"
+        aria-keyshortcuts={showKbdHints ? "Meta+K Control+K" : undefined}
       />
       {query ? (
         <button
@@ -124,6 +165,18 @@ export function MiniStockSearch() {
         >
           <X className="size-3.5" />
         </button>
+      ) : showKbdHints ? (
+        <span
+          className="pointer-events-none absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1 opacity-80"
+          aria-hidden
+        >
+          <kbd className="inline-flex h-5 min-w-5 items-center justify-center rounded-md border border-border bg-background px-1 font-sans text-[11px] font-semibold text-muted-foreground shadow-[0_1px_0_0_rgb(0_0_0/0.08)]">
+            {modKeyLabel}
+          </kbd>
+          <kbd className="inline-flex h-5 min-w-5 items-center justify-center rounded-md border border-border bg-background px-1 font-sans text-[11px] font-semibold text-muted-foreground shadow-[0_1px_0_0_rgb(0_0_0/0.08)]">
+            K
+          </kbd>
+        </span>
       ) : null}
       {isFocused && query.trim().length >= 2 && results.length === 0 ? (
         <div className="absolute left-0 right-0 top-10 z-50 rounded-md border bg-popover px-3 py-2 text-sm text-muted-foreground shadow-md">

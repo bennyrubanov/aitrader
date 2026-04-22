@@ -28,6 +28,8 @@ type SecondaryItem = {
 
 type NavSecondaryProps = {
   items: SecondaryItem[];
+  /** Extra rows rendered before `items` (same `SidebarMenu`). */
+  menuPrefix?: React.ReactNode;
 } & React.ComponentPropsWithoutRef<typeof SidebarGroup>;
 
 type SecondaryItemWithCollapsible = SecondaryItem & {
@@ -79,11 +81,12 @@ function NavSecondaryCollapsibleItem({ item }: { item: SecondaryItemWithCollapsi
   );
 }
 
-export function NavSecondary({ items, ...props }: NavSecondaryProps) {
+export function NavSecondary({ items, menuPrefix, ...props }: NavSecondaryProps) {
   return (
     <SidebarGroup {...props}>
       <SidebarGroupContent>
         <SidebarMenu>
+          {menuPrefix}
           {items.map((item) => (
             <SidebarMenuItem key={item.title}>
               {item.collapsible ? (
