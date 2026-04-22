@@ -74,7 +74,6 @@ import {
   type StrategyListItem,
   type HoldingItem,
   type QuintileSnapshot,
-  type MonthlyQuintileSnapshot,
 } from '@/lib/platform-performance-payload';
 import type { ConfigHoldingsSummary } from '@/lib/portfolio-config-holdings';
 import { formatStrategyDescriptionForDisplay } from '@/lib/format-strategy-description';
@@ -368,18 +367,6 @@ function PerformanceHoldingsCostBasisCell({
   );
 }
 
-/** YYYY-MM → short label for regression month picker */
-function formatMonthLabel(ym: string) {
-  const [y, m] = ym.split('-');
-  if (!y || !m) return ym;
-  const d = new Date(Date.UTC(Number(y), Number(m) - 1, 1));
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    year: 'numeric',
-    timeZone: 'UTC',
-  }).format(d);
-}
-
 function addDaysUtc(ymd: string, days: number): string {
   const [y, m, d] = ymd.split('-').map(Number);
   if (!y || !m || !d) return ymd;
@@ -393,6 +380,12 @@ function addDaysUtc(ymd: string, days: number): string {
 
 function addWeeksUtc(ymd: string, weeks: number): string {
   return addDaysUtc(ymd, weeks * 7);
+}
+
+function averageFinite(nums: Array<number | null | undefined>): number | null {
+  const finite = nums.filter((n): n is number => n != null && Number.isFinite(n));
+  if (!finite.length) return null;
+  return finite.reduce((sum, n) => sum + n, 0) / finite.length;
 }
 
 function oneWeekRealizationEndUtcFromDates(
@@ -415,22 +408,6 @@ function formatUtcHoldRangeOneWeek(
 ): string {
   const end = oneWeekRealizationEndUtcFromDates(formationYmd, allFormationDates, latestRunYmd);
   return formatUtcRangeLong(formationYmd, end);
-}
-
-/** Span from first weekly formation in month through end of the last included week’s hold. */
-function formatUtcHoldRangeMonthlyFromFormations(
-  monthY: string,
-  allFormationDates: string[],
-  latestRunYmd: string | null
-): string {
-  const dates = allFormationDates
-    .filter((d) => d.slice(0, 7) === monthY)
-    .sort((a, b) => a.localeCompare(b));
-  if (!dates.length) return '';
-  const start = dates[0]!;
-  const last = dates[dates.length - 1]!;
-  const end = oneWeekRealizationEndUtcFromDates(last, allFormationDates, latestRunYmd);
-  return formatUtcRangeLong(start, end);
 }
 
 function formatUtcHoldRangeFourWeek(formationYmd: string): string {
@@ -607,14 +584,13 @@ function PerformancePagePublicClientInner({
     setSidebarPortfolioConfig(null);
   }, [slug]);
   const [quintileDate, setQuintileDate] = useState<string | null>(null);
-  const [quintileView, setQuintileView] = useState<'weekly' | 'fourWeek'>('weekly');
-  type QuintileAverage = 'weekly' | 'monthly' | 'allTime';
-  const [quintileAverage, setQuintileAverage] = useState<QuintileAverage>('allTime');
-  const [quintileMonth, setQuintileMonth] = useState<string | null>(null);
+  const [quintileView, setQuintileView] = useState<'allTime' | 'fourWeek' | 'weekly'>('allTime');
   const [fourWeekQuintileDate, setFourWeekQuintileDate] = useState<string | null>(null);
   const [regressionDate, setRegressionDate] = useState<string | null>(null);
-  const [regressionView, setRegressionView] = useState<'weekly' | 'monthly'>('weekly');
-  const [regressionMonth, setRegressionMonth] = useState<string | null>(null);
+  const [regressionView, setRegressionView] = useState<'allTime' | 'fourWeek' | 'weekly'>(
+    'allTime'
+  );
+  const [fourWeekRegressionDate, setFourWeekRegressionDate] = useState<string | null>(null);
 
   const [holdings, setHoldings] = useState<HoldingItem[]>([]);
   const [holdingsAsOfDate, setHoldingsAsOfDate] = useState<string | null>(null);
@@ -641,10 +617,11 @@ function PerformancePagePublicClientInner({
 
   useEffect(() => {
     setQuintileDate(null);
-    setQuintileMonth(null);
     setFourWeekQuintileDate(null);
-    setQuintileView('weekly');
-    setQuintileAverage('allTime');
+    setQuintileView('allTime');
+    setRegressionDate(null);
+    setFourWeekRegressionDate(null);
+    setRegressionView('allTime');
   }, [slug]);
 
   const urlPortfolioSelection = useMemo(() => {
@@ -1118,20 +1095,12 @@ function PerformancePagePublicClientInner({
     [research?.quintileHistory]
   );
   const strategyLatestRunDate = payload.latestRunDate ?? null;
-  const monthlyQuintileHistory = useMemo(
-    () => research?.monthlyQuintiles ?? [],
-    [research?.monthlyQuintiles]
-  );
   const fourWeekQuintileHistory = useMemo(() => {
     const history = research?.fourWeekQuintileHistory ?? [];
     if (history.length > 0) return history;
     const latest = research?.fourWeekQuintiles;
     return latest ? [latest] : [];
   }, [research?.fourWeekQuintileHistory, research?.fourWeekQuintiles]);
-  const monthlyRegressionHistory = useMemo(
-    () => research?.monthlyRegressionHistory ?? [],
-    [research?.monthlyRegressionHistory]
-  );
 
   /** Weekly regression headline + stability (matches research payload). */
   const headerCrossSectionRegression = useMemo(() => {
@@ -1152,15 +1121,44 @@ function PerformancePagePublicClientInner({
     return regressionHistory.find((r) => r.runDate === target) ?? regressionHistory[0] ?? null;
   }, [research, regressionDate, regressionHistory]);
 
-  const selectedMonthlyRegression = useMemo(() => {
-    if (!monthlyRegressionHistory.length) return null;
-    const target = regressionMonth ?? monthlyRegressionHistory[0]?.month;
+  const fourWeekRegressionHistory = useMemo(() => {
+    if (!regressionHistory.length) return [];
+    const buckets: Array<{
+      mode: 'fourWeek';
+      startRunDate: string;
+      endRunDate: string;
+      weekCount: number;
+      sampleSize: number;
+      alpha: number | null;
+      beta: number | null;
+      rSquared: number | null;
+    }> = [];
+    for (let i = 0; i + 3 < regressionHistory.length; i += 4) {
+      const chunk = regressionHistory.slice(i, i + 4);
+      if (chunk.length < 4) continue;
+      buckets.push({
+        mode: 'fourWeek',
+        endRunDate: chunk[0]!.runDate,
+        startRunDate: chunk[chunk.length - 1]!.runDate,
+        weekCount: chunk.length,
+        sampleSize: averageFinite(chunk.map((r) => r.sampleSize)) ?? 0,
+        alpha: averageFinite(chunk.map((r) => r.alpha)),
+        beta: averageFinite(chunk.map((r) => r.beta)),
+        rSquared: averageFinite(chunk.map((r) => r.rSquared)),
+      });
+    }
+    return buckets;
+  }, [regressionHistory]);
+
+  const selectedFourWeekRegression = useMemo(() => {
+    if (!fourWeekRegressionHistory.length) return null;
+    const target = fourWeekRegressionDate ?? fourWeekRegressionHistory[0]?.endRunDate;
     return (
-      monthlyRegressionHistory.find((m) => m.month === target) ??
-      monthlyRegressionHistory[0] ??
+      fourWeekRegressionHistory.find((m) => m.endRunDate === target) ??
+      fourWeekRegressionHistory[0] ??
       null
     );
-  }, [monthlyRegressionHistory, regressionMonth]);
+  }, [fourWeekRegressionDate, fourWeekRegressionHistory]);
 
   const regressionDisplay = useMemo(() => {
     if (regressionView === 'weekly') {
@@ -1175,18 +1173,22 @@ function PerformancePagePublicClientInner({
         rSquared: r.rSquared,
       };
     }
-    const r = selectedMonthlyRegression;
-    if (!r) return null;
+    if (regressionView === 'fourWeek') {
+      const r = selectedFourWeekRegression;
+      if (!r) return null;
+      return r;
+    }
+    const summary = research?.regressionSummary;
+    if (!summary || summary.totalWeeks === 0) return null;
     return {
-      mode: 'monthly' as const,
-      month: r.month,
-      weekCount: r.weekCount,
-      sampleSize: r.sampleSize,
-      alpha: r.alpha,
-      beta: r.beta,
-      rSquared: r.rSquared,
+      mode: 'allTime' as const,
+      weekCount: summary.totalWeeks,
+      sampleSize: averageFinite(regressionHistory.map((r) => r.sampleSize)) ?? 0,
+      alpha: summary.avgAlphaAllWeeks,
+      beta: summary.avgBetaAllWeeks,
+      rSquared: summary.avgRsqAllWeeks,
     };
-  }, [regressionView, selectedWeeklyRegression, selectedMonthlyRegression]);
+  }, [regressionView, selectedWeeklyRegression, selectedFourWeekRegression, research?.regressionSummary, regressionHistory]);
 
   // Quintile data for selected date
   const selectedQuintileSnapshot: QuintileSnapshot | null = useMemo(() => {
@@ -1195,16 +1197,6 @@ function PerformancePagePublicClientInner({
     const target = quintileDate ?? history[0]?.runDate;
     return history.find((s) => s.runDate === target) ?? history[0] ?? null;
   }, [research, quintileDate]);
-
-  const selectedMonthlySnapshot: MonthlyQuintileSnapshot | null = useMemo(() => {
-    if (!monthlyQuintileHistory.length) return null;
-    const target = quintileMonth ?? monthlyQuintileHistory[0]?.month;
-    return (
-      monthlyQuintileHistory.find((m) => m.month === target) ??
-      monthlyQuintileHistory[0] ??
-      null
-    );
-  }, [monthlyQuintileHistory, quintileMonth]);
 
   const selectedFourWeekSnapshot: QuintileSnapshot | null = useMemo(() => {
     if (!fourWeekQuintileHistory.length) return null;
@@ -1216,8 +1208,7 @@ function PerformancePagePublicClientInner({
     );
   }, [fourWeekQuintileDate, fourWeekQuintileHistory]);
 
-  const isWeeklySmoothed = quintileView === 'weekly' && quintileAverage === 'monthly';
-  const isAllTimeQuintiles = quintileView === 'weekly' && quintileAverage === 'allTime';
+  const isAllTimeQuintiles = quintileView === 'allTime';
 
   const activeQuintileRows = useMemo(() => {
     if (quintileView === 'fourWeek') return selectedFourWeekSnapshot?.rows ?? [];
@@ -1230,26 +1221,14 @@ function PerformancePagePublicClientInner({
         })) ?? []
       );
     }
-    if (!isWeeklySmoothed) return selectedQuintileSnapshot?.rows ?? [];
-    return (
-      selectedMonthlySnapshot?.rows?.map((r) => ({
-        quintile: r.quintile,
-        stockCount: r.weekCount,
-        return: r.avgReturn,
-      })) ?? []
-    );
+    return selectedQuintileSnapshot?.rows ?? [];
   }, [
     isAllTimeQuintiles,
-    isWeeklySmoothed,
     quintileView,
     research?.quintileSummary?.rows,
     selectedFourWeekSnapshot?.rows,
-    selectedMonthlySnapshot?.rows,
     selectedQuintileSnapshot?.rows,
   ]);
-
-  const selectedMonthlyWeekCount = selectedMonthlySnapshot?.weekCount ?? 0;
-  const selectedMonthlyIsPartial = selectedMonthlyWeekCount > 0 && selectedMonthlyWeekCount < 3;
 
   const activeQuintileSpread = useMemo(() => {
     const rows = activeQuintileRows;
@@ -1268,38 +1247,20 @@ function PerformancePagePublicClientInner({
       return formatUtcHoldRangeFourWeek(start);
     }
     if (isAllTimeQuintiles) return null;
-    if (isWeeklySmoothed && selectedMonthlySnapshot) {
-      const text = formatUtcHoldRangeMonthlyFromFormations(
-        selectedMonthlySnapshot.month,
-        quintileFormationDates,
-        latestRun
-      );
-      return text || null;
-    }
     const start = selectedQuintileSnapshot?.runDate;
     if (!start) return null;
     const text = formatUtcHoldRangeOneWeek(start, quintileFormationDates, latestRun);
     return text || null;
   }, [
     quintileView,
-    isWeeklySmoothed,
     selectedFourWeekSnapshot?.runDate,
-    selectedMonthlySnapshot?.month,
     quintileFormationDates,
     selectedQuintileSnapshot?.runDate,
     strategyLatestRunDate,
   ]);
 
   const weeklyQuintileWinRate = research?.quintileWinRate ?? null;
-  const monthlyQuintileWinRate = research?.monthlyQuintileWinRate ?? null;
   const fourWeekQuintileWinRate = research?.fourWeekQuintileWinRate ?? null;
-  const selectedMonthlyRowsByQuintile = useMemo(() => {
-    const map = new Map<number, MonthlyQuintileSnapshot['rows'][number]>();
-    for (const row of selectedMonthlySnapshot?.rows ?? []) {
-      map.set(row.quintile, row);
-    }
-    return map;
-  }, [selectedMonthlySnapshot?.rows]);
 
   const outperformanceVsCap = useMemo(() => {
     if (!displayMetrics) return null;
@@ -2364,66 +2325,48 @@ function PerformancePagePublicClientInner({
                 <div>
                   <CardTitle className="text-base">Quintile analysis</CardTitle>
                   <CardDescription className="mt-1">
-                    Stocks split into 5 equal groups by AI-scored rank (Q1 = lowest rated, Q5 =
-                    highest rated). Weekly view shows the raw 1-week forward return signal; 4-week non-overlap
-                    checks whether the same forward return signal persists across a full 4-week hold. All-time view shows the
-                    model&apos;s average performance across every weekly snapshot; drill into <strong>This month</strong>
-                    or <strong>This week</strong> for specific periods.
+                    Each week all ~100 Nasdaq-100 stocks are sorted by AI-scored rank and split into 5
+                    equal buckets of ~20. Top 20% = Q5, Bottom 20% = Q1. Each row shows that
+                    bucket&apos;s average forward return.
                   </CardDescription>
                 </div>
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="space-y-2">
-                    <div className="inline-flex items-center gap-1 rounded-md border bg-card p-0.5 shadow-sm">
-                      <button
-                        type="button"
-                        onClick={() => setQuintileView('weekly')}
-                        className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                          quintileView === 'weekly'
-                            ? 'bg-trader-blue text-white'
-                            : 'text-muted-foreground hover:text-foreground'
-                        }`}
-                      >
-                        Weekly
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setQuintileView('fourWeek')}
-                        className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                          quintileView === 'fourWeek'
-                            ? 'bg-trader-blue text-white'
-                            : 'text-muted-foreground hover:text-foreground'
-                        }`}
-                      >
-                        4-week non-overlap
-                      </button>
-                    </div>
-                    {quintileView === 'weekly' && (
-                      <div className="flex items-center gap-1 rounded-md border bg-card p-0.5 shadow-sm text-xs">
-                        {(['allTime', 'monthly', 'weekly'] as const).map((value) => (
-                          <button
-                            key={value}
-                            type="button"
-                            onClick={() => setQuintileAverage(value)}
-                            className={cn(
-                              'px-2.5 py-1 rounded font-medium transition-colors',
-                              quintileAverage === value
-                                ? 'bg-trader-blue text-white'
-                                : 'text-muted-foreground hover:text-foreground'
-                            )}
-                          >
-                            {value === 'allTime'
-                              ? 'All-time'
-                              : value === 'monthly'
-                                ? 'This month'
-                                : 'This week'}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                  <div className="inline-flex items-center gap-1 rounded-md border bg-card p-0.5 shadow-sm">
+                    <button
+                      type="button"
+                      onClick={() => setQuintileView('allTime')}
+                      className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                        quintileView === 'allTime'
+                          ? 'bg-trader-blue text-white'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      All-time
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setQuintileView('fourWeek')}
+                      className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                        quintileView === 'fourWeek'
+                          ? 'bg-trader-blue text-white'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      4-week
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setQuintileView('weekly')}
+                      className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                        quintileView === 'weekly'
+                          ? 'bg-trader-blue text-white'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      Weekly
+                    </button>
                   </div>
-                  {quintileView === 'weekly' &&
-                    quintileAverage === 'weekly' &&
-                    (research?.quintileHistory?.length ?? 0) > 1 && (
+                  {quintileView === 'weekly' && (research?.quintileHistory?.length ?? 0) > 1 && (
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button
@@ -2476,89 +2419,6 @@ function PerformancePagePublicClientInner({
                               className={`flex flex-col items-start gap-0.5 py-2 ${active ? 'font-semibold bg-muted' : ''}`}
                             >
                               <span>{fmt.date(s.runDate)}</span>
-                              {sub ? (
-                                <span className="text-[10px] font-normal text-muted-foreground">
-                                  {compactHoldRangeEndLabel(sub)}
-                                </span>
-                              ) : null}
-                            </DropdownMenuItem>
-                          );
-                        })}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  )}
-                  {quintileView === 'weekly' &&
-                    quintileAverage === 'monthly' &&
-                    monthlyQuintileHistory.length > 1 && (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-auto min-h-7 max-w-full shrink-0 px-2 py-1.5 text-xs"
-                        >
-                          <div className="flex w-full min-w-0 items-start justify-between gap-2">
-                            <div className="min-w-0 flex flex-col items-start gap-0.5 text-left">
-                              <span className="truncate">
-                                Avg:{' '}
-                                {formatMonthLabel(
-                                  selectedMonthlySnapshot?.month ??
-                                    monthlyQuintileHistory[0]?.month ??
-                                    ''
-                                )}
-                                {selectedMonthlyIsPartial && (
-                                  <span className="text-[10px] text-muted-foreground">
-                                    {' '}
-                                    (partial)
-                                  </span>
-                                )}
-                              </span>
-                              {(() => {
-                                const mo =
-                                  selectedMonthlySnapshot?.month ??
-                                  monthlyQuintileHistory[0]?.month ??
-                                  '';
-                                const sub = mo
-                                  ? formatUtcHoldRangeMonthlyFromFormations(
-                                      mo,
-                                      quintileFormationDates,
-                                      strategyLatestRunDate
-                                    )
-                                  : '';
-                                return sub ? (
-                                  <span className="text-[10px] font-normal leading-snug text-muted-foreground">
-                                    {compactHoldRangeEndLabel(sub)}
-                                  </span>
-                                ) : null;
-                              })()}
-                            </div>
-                            <ChevronDown className="mt-0.5 size-3 shrink-0" />
-                          </div>
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="max-h-48 overflow-y-auto">
-                        {monthlyQuintileHistory.map((m) => {
-                          const sub = formatUtcHoldRangeMonthlyFromFormations(
-                            m.month,
-                            quintileFormationDates,
-                            strategyLatestRunDate
-                          );
-                          return (
-                            <DropdownMenuItem
-                              key={m.month}
-                              onSelect={() => setQuintileMonth(m.month)}
-                              className={`flex flex-col items-start gap-0.5 py-2 ${
-                                m.month === selectedMonthlySnapshot?.month
-                                  ? 'font-semibold bg-muted'
-                                  : m.weekCount < 3
-                                    ? 'text-muted-foreground'
-                                    : ''
-                              }`}
-                            >
-                              <span>
-                                {formatMonthLabel(m.month)}
-                                {m.weekCount < 3 ? ` (partial - ${m.weekCount}w)` : ''}
-                              </span>
                               {sub ? (
                                 <span className="text-[10px] font-normal text-muted-foreground">
                                   {compactHoldRangeEndLabel(sub)}
@@ -2635,7 +2495,7 @@ function PerformancePagePublicClientInner({
             </CardHeader>
             <CardContent>
               {/* Win rate summary */}
-              {quintileView === 'weekly' && quintileAverage === 'weekly' && weeklyQuintileWinRate && (
+              {quintileView === 'weekly' && weeklyQuintileWinRate && (
                 <div className="mb-4 rounded-lg border bg-muted/30 px-4 py-3">
                   <p className="text-sm font-medium">
                     Q5 outperformed Q1 in{' '}
@@ -2654,41 +2514,22 @@ function PerformancePagePublicClientInner({
                   </p>
                 </div>
               )}
-              {quintileView === 'weekly' && quintileAverage === 'monthly' && (
-                <div className="mb-4 rounded-lg border bg-muted/30 px-4 py-3 space-y-1.5">
-                  {weeklyQuintileWinRate && (
-                    <p className="text-sm">
-                      <span className="font-medium">Weekly win rate:</span>{' '}
-                      <span
-                        className={
-                          weeklyQuintileWinRate.rate >= 0.5 ? 'text-green-600' : 'text-red-500'
-                        }
-                      >
-                        {weeklyQuintileWinRate.wins}/{weeklyQuintileWinRate.total} (
-                        {Math.round(weeklyQuintileWinRate.rate * 100)}%)
-                      </span>
-                    </p>
-                  )}
-                  {monthlyQuintileWinRate && (
-                    <p className="text-sm">
-                      <span className="font-medium">Monthly-smoothed win rate:</span>{' '}
-                      <span
-                        className={
-                          monthlyQuintileWinRate.rate >= 0.5 ? 'text-green-600' : 'text-red-500'
-                        }
-                      >
-                        {monthlyQuintileWinRate.wins}/{monthlyQuintileWinRate.total} months (
-                        {Math.round(monthlyQuintileWinRate.rate * 100)}%)
-                      </span>
-                      <span className="text-muted-foreground">
-                        {' '}
-                        (months with ≥3 weekly snapshots)
-                      </span>
-                    </p>
-                  )}
-                  <p className="text-xs text-muted-foreground">
-                    Monthly smoothing averages weekly 1-week horizon quintile returns inside each
-                    calendar month.
+              {quintileView === 'allTime' && research?.quintileSummary?.avgSpread != null && (
+                <div className="mb-4 rounded-lg border bg-muted/30 px-4 py-3">
+                  <p className="text-sm font-medium">
+                    Q5 averaged{' '}
+                    <strong
+                      className={
+                        research.quintileSummary.avgSpread >= 0 ? 'text-green-600' : 'text-red-600'
+                      }
+                    >
+                      {fmt.pct(research.quintileSummary.avgSpread, 2)}
+                    </strong>{' '}
+                    more than Q1 per week across{' '}
+                    <strong>{research.quintileSummary.weeksObserved} weeks</strong>
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Average weekly Q5 minus Q1 across all weekly snapshots.
                   </p>
                 </div>
               )}
@@ -2701,9 +2542,18 @@ function PerformancePagePublicClientInner({
                         fourWeekQuintileWinRate.rate >= 0.5 ? 'text-green-600' : 'text-red-500'
                       }
                     >
-                      {fourWeekQuintileWinRate.wins} of {fourWeekQuintileWinRate.total} 4-week windows
+                      {fourWeekQuintileWinRate.wins} of {fourWeekQuintileWinRate.total}
                     </span>{' '}
-                    ({Math.round(fourWeekQuintileWinRate.rate * 100)}%)
+                    4-week windows{' '}
+                    (
+                    <span
+                      className={
+                        fourWeekQuintileWinRate.rate >= 0.5 ? 'text-green-600' : 'text-red-500'
+                      }
+                    >
+                      {Math.round(fourWeekQuintileWinRate.rate * 100)}%
+                    </span>
+                    )
                   </p>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     This checks whether the same formation ranking still differentiates returns over a
@@ -2731,11 +2581,6 @@ function PerformancePagePublicClientInner({
                             : 'Bottom 20%';
                   return (
                     <div className="space-y-1.5">
-                      <p className="text-[11px] text-muted-foreground">
-                        Each week all ~100 Nasdaq-100 stocks are sorted by latent rank and split into 5
-                        equal buckets of ~20. <strong>Top 20% = Q5</strong>, <strong>Bottom 20% = Q1</strong>.
-                        Each row shows that bucket&apos;s average forward return.
-                      </p>
                       <div className="rounded-lg border bg-card divide-y">
                         {rowsTopDown.map((row) => {
                           const isTop = row.quintile === 5;
@@ -2748,13 +2593,6 @@ function PerformancePagePublicClientInner({
                               ? `${row.stockCount} stocks`
                               : isAllTimeQuintiles
                                 ? `${row.stockCount}w avg`
-                                : isWeeklySmoothed
-                                ? (() => {
-                                    const m = selectedMonthlyRowsByQuintile.get(row.quintile);
-                                    return m
-                                      ? `${m.weekCount}w avg · ${m.stockTotal} obs`
-                                      : `${row.stockCount}w avg`;
-                                  })()
                                 : `${row.stockCount} stocks`;
                           return (
                             <div
@@ -2823,25 +2661,6 @@ function PerformancePagePublicClientInner({
                     : 'Quintile data is not available yet for this selection.'}
                 </p>
               )}
-
-              {isAllTimeQuintiles && research?.quintileSummary?.avgSpread != null && (
-                <p className="text-sm text-muted-foreground mt-3">
-                  Q5 averaged{' '}
-                  <strong
-                    className={
-                      research.quintileSummary.avgSpread >= 0 ? 'text-green-600' : 'text-red-600'
-                    }
-                  >
-                    {fmt.pct(research.quintileSummary.avgSpread, 2)}
-                  </strong>{' '}
-                  more than Q1 per week across{' '}
-                  <strong>{research.quintileSummary.weeksObserved} weeks</strong>
-                  {research.quintileSummary.winRate
-                    ? `, positive in ${research.quintileSummary.winRate.wins} of ${research.quintileSummary.winRate.total} (${Math.round(research.quintileSummary.winRate.rate * 100)}%)`
-                    : ''}
-                  . Higher-rated stocks outperformed lower-rated ones on average.
-                </p>
-              )}
               {!isAllTimeQuintiles && activeQuintileSpread != null && (
                 <p className="text-sm text-muted-foreground mt-3">
                   Q5 outperformed Q1 by{' '}
@@ -2856,24 +2675,12 @@ function PerformancePagePublicClientInner({
                           ? ` (${activeQuintileSpreadDateRangeText})`
                           : ''
                       }`
-                    : isWeeklySmoothed
-                      ? `on average in the selected calendar month${
-                          activeQuintileSpreadDateRangeText
-                            ? ` (${activeQuintileSpreadDateRangeText})`
-                            : ''
-                        }`
-                      : `that week${
-                          activeQuintileSpreadDateRangeText
-                            ? ` (${activeQuintileSpreadDateRangeText})`
-                            : ''
-                        }`}
-                  . A positive spread means higher-rated stocks outperformed lower-rated ones.
-                </p>
-              )}
-              {quintileAverage === 'monthly' && selectedMonthlyIsPartial && (
-                <p className="text-xs text-amber-700 dark:text-amber-400 mt-2">
-                  Partial month: this average is based on {selectedMonthlyWeekCount} weekly snapshot
-                  {selectedMonthlyWeekCount === 1 ? '' : 's'}.
+                    : `over the selected week${
+                        activeQuintileSpreadDateRangeText
+                          ? ` (${activeQuintileSpreadDateRangeText})`
+                          : ''
+                      }`}
+                  .
                 </p>
               )}
             </CardContent>
@@ -2889,8 +2696,6 @@ function PerformancePagePublicClientInner({
             const betaGood = beta > 0;
             const rSqGood = rSq >= 0.01;
             const alphaPct = (alpha * 100).toFixed(2);
-            const betaSpread = (beta * 10 * 100).toFixed(2);
-            const isWeekly = regressionDisplay.mode === 'weekly';
 
             return (
               <Card
@@ -2911,18 +2716,37 @@ function PerformancePagePublicClientInner({
                       <CardDescription className="mt-1">
                         Does the AI score actually predict which stocks will do better next week?
                       </CardDescription>
-                      {research?.regressionSummary && research.regressionSummary.totalWeeks > 0 && (
-                        <p className="text-xs text-muted-foreground mt-1">
-                          All-time avg β {fmt.num(research.regressionSummary.avgBetaAllWeeks, 4)}
-                          {' · '}All-time R² {fmt.num(research.regressionSummary.avgRsqAllWeeks, 4)}
-                          {' · '}β&gt;0 in{' '}
-                          {Math.round((research.regressionSummary.betaPositiveRate ?? 0) * 100)}% of{' '}
-                          {research.regressionSummary.totalWeeks} weeks
-                        </p>
-                      )}
+                    </div>
+                    <div className="rounded-lg border bg-muted/30 px-4 py-3 text-xs text-muted-foreground">
+                      Quick read: <strong>Beta</strong> tells you if higher AI scores lead to higher
+                      next-week returns, <strong>R&sup2;</strong> tells you how strong that
+                      relationship is, and <strong>Alpha</strong> is weekly market backdrop (not AI
+                      skill).
                     </div>
                     <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className="flex items-center gap-1 rounded-md border bg-card p-0.5 shadow-sm">
+                      <div className="inline-flex items-center gap-1 rounded-md border bg-card p-0.5 shadow-sm">
+                        <button
+                          type="button"
+                          onClick={() => setRegressionView('allTime')}
+                          className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                            regressionView === 'allTime'
+                              ? 'bg-trader-blue text-white'
+                              : 'text-muted-foreground hover:text-foreground'
+                          }`}
+                        >
+                          All-time
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setRegressionView('fourWeek')}
+                          className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                            regressionView === 'fourWeek'
+                              ? 'bg-trader-blue text-white'
+                              : 'text-muted-foreground hover:text-foreground'
+                          }`}
+                        >
+                          4-week
+                        </button>
                         <button
                           type="button"
                           onClick={() => setRegressionView('weekly')}
@@ -2934,19 +2758,8 @@ function PerformancePagePublicClientInner({
                         >
                           Weekly
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => setRegressionView('monthly')}
-                          className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                            regressionView === 'monthly'
-                              ? 'bg-trader-blue text-white'
-                              : 'text-muted-foreground hover:text-foreground'
-                          }`}
-                        >
-                          Monthly avg
-                        </button>
                       </div>
-                      {regressionView === 'weekly' && regressionHistory.length > 1 && (
+                      {regressionDisplay.mode === 'weekly' && regressionHistory.length > 1 && (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button
@@ -3005,7 +2818,8 @@ function PerformancePagePublicClientInner({
                           </DropdownMenuContent>
                         </DropdownMenu>
                       )}
-                      {regressionView === 'monthly' && monthlyRegressionHistory.length > 1 && (
+                      {regressionDisplay.mode === 'fourWeek' &&
+                        fourWeekRegressionHistory.length > 1 && (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button
@@ -3016,19 +2830,16 @@ function PerformancePagePublicClientInner({
                               <div className="flex w-full min-w-0 items-start justify-between gap-2">
                                 <div className="min-w-0 flex flex-col items-start gap-0.5 text-left">
                                   <span className="truncate">
-                                    Avg: {formatMonthLabel(regressionDisplay.month)}
+                                    to {fmt.date(regressionDisplay.endRunDate)}
                                   </span>
                                   {(() => {
-                                    const sub = formatUtcHoldRangeMonthlyFromFormations(
-                                      regressionDisplay.month,
-                                      regressionFormationDates,
-                                      strategyLatestRunDate
-                                    );
-                                    return sub ? (
+                                    if (regressionDisplay.mode !== 'fourWeek') return null;
+                                    return (
                                       <span className="text-[10px] font-normal leading-snug text-muted-foreground">
-                                        {compactHoldRangeEndLabel(sub)}
+                                        {fmt.date(regressionDisplay.startRunDate)} -{' '}
+                                        {fmt.date(regressionDisplay.endRunDate)}
                                       </span>
-                                    ) : null;
+                                    );
                                   })()}
                                 </div>
                                 <ChevronDown className="mt-0.5 size-3 shrink-0" />
@@ -3036,28 +2847,21 @@ function PerformancePagePublicClientInner({
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="max-h-48 overflow-y-auto">
-                            {monthlyRegressionHistory.map((m) => {
-                              const sub = formatUtcHoldRangeMonthlyFromFormations(
-                                m.month,
-                                regressionFormationDates,
-                                strategyLatestRunDate
-                              );
+                            {fourWeekRegressionHistory.map((m) => {
                               return (
                                 <DropdownMenuItem
-                                  key={m.month}
-                                  onSelect={() => setRegressionMonth(m.month)}
+                                  key={m.endRunDate}
+                                  onSelect={() => setFourWeekRegressionDate(m.endRunDate)}
                                   className={`flex flex-col items-start gap-0.5 py-2 ${
-                                    m.month === regressionDisplay.month
+                                    m.endRunDate === regressionDisplay.endRunDate
                                       ? 'font-semibold bg-muted'
                                       : ''
                                   }`}
                                 >
-                                  <span>{formatMonthLabel(m.month)}</span>
-                                  {sub ? (
-                                    <span className="text-[10px] font-normal text-muted-foreground">
-                                      {compactHoldRangeEndLabel(sub)}
-                                    </span>
-                                  ) : null}
+                                  <span>to {fmt.date(m.endRunDate)}</span>
+                                  <span className="text-[10px] font-normal text-muted-foreground">
+                                    {fmt.date(m.startRunDate)} - {fmt.date(m.endRunDate)}
+                                  </span>
                                 </DropdownMenuItem>
                               );
                             })}
@@ -3068,19 +2872,6 @@ function PerformancePagePublicClientInner({
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="rounded-lg border bg-muted/30 px-4 py-3 text-xs text-muted-foreground">
-                    Quick read: <strong>Beta</strong> tells you if higher AI scores lead to higher
-                    next-week returns, <strong>R&sup2;</strong> tells you how strong that
-                    relationship is, and <strong>Alpha</strong> is weekly market backdrop (not AI
-                    skill).
-                    {!isWeekly && (
-                      <span className="block mt-1.5">
-                        <strong>Monthly avg</strong> is the mean of those weekly regression
-                        coefficients across all runs in that calendar month.
-                      </span>
-                    )}
-                  </div>
-
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     {/* Beta */}
                     <div
@@ -3104,7 +2895,10 @@ function PerformancePagePublicClientInner({
                       <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
                         Extra next-week return per +1 on the AI score. Positive means the model is
                         working — higher-rated stocks outperform lower-rated ones.
-                        {!isWeekly && ' (Averaged across weeks in that month.)'}
+                        {regressionDisplay.mode === 'fourWeek' &&
+                          ' (Averaged across a non-overlapping 4-week bucket.)'}
+                        {regressionDisplay.mode === 'allTime' &&
+                          ' (Averaged across all weekly regressions in the backtest.)'}
                       </p>
                       <p className="text-[10px] text-muted-foreground mt-1.5 border-t pt-1.5">
                         <strong>Good:</strong> &gt; 0. <strong>Strong:</strong> &gt; 0.002.
@@ -3162,30 +2956,61 @@ function PerformancePagePublicClientInner({
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-                    <p>
-                      {isWeekly ? (
-                        <>
-                          Measured on {fmt.date(regressionDisplay.runDate)} &middot; n=
-                          {regressionDisplay.sampleSize} stocks
-                        </>
-                      ) : (
-                        <>
-                          Monthly average of {regressionDisplay.weekCount} weekly regressions
-                          &middot; {formatMonthLabel(regressionDisplay.month)} &middot; n≈
-                          {regressionDisplay.sampleSize} stocks
-                        </>
-                      )}
-                    </p>
-                    {effectiveStrategy && (
-                      <Link
-                        href={`/strategy-models/${effectiveStrategy.slug}#methodology-regression`}
-                        className="text-trader-blue hover:underline inline-flex items-center gap-1"
-                      >
-                        Full calculation details <ArrowRight className="size-3" />
-                      </Link>
+                  {regressionDisplay.mode === 'allTime' &&
+                    research?.regressionSummary &&
+                    research.regressionSummary.totalWeeks > 0 && (
+                      <div className="rounded-lg border bg-muted/20 p-3 text-sm">
+                        <p>
+                          β&gt;0 in{' '}
+                          <strong
+                            className={
+                              (research.regressionSummary.betaPositiveRate ?? 0) >= 0.5
+                                ? 'text-green-600'
+                                : 'text-red-500'
+                            }
+                          >
+                            {Math.round(
+                              (research.regressionSummary.betaPositiveRate ?? 0) *
+                                research.regressionSummary.totalWeeks
+                            )}{' '}
+                            of {research.regressionSummary.totalWeeks} weeks (
+                            {Math.round((research.regressionSummary.betaPositiveRate ?? 0) * 100)}%)
+                          </strong>{' '}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          n≈{fmt.num(regressionDisplay.sampleSize, 0)} stocks/wk across{' '}
+                          {research.regressionSummary.totalWeeks} weekly regressions.
+                        </p>
+                      </div>
                     )}
-                  </div>
+
+                  {regressionDisplay.mode !== 'allTime' && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                      <p>
+                        {regressionDisplay.mode === 'weekly' ? (
+                          <>
+                            Measured on {fmt.date(regressionDisplay.runDate)} &middot; n=
+                            {regressionDisplay.sampleSize} stocks
+                          </>
+                        ) : (
+                          <>
+                            4-week avg of {regressionDisplay.weekCount} weekly regressions &middot;{' '}
+                            {fmt.date(regressionDisplay.startRunDate)} -{' '}
+                            {fmt.date(regressionDisplay.endRunDate)} &middot; n≈
+                            {fmt.num(regressionDisplay.sampleSize, 0)} stocks/wk
+                          </>
+                        )}
+                      </p>
+                      {effectiveStrategy && (
+                        <Link
+                          href={`/strategy-models/${effectiveStrategy.slug}#methodology-regression`}
+                          className="text-trader-blue hover:underline inline-flex items-center gap-1"
+                        >
+                          Full calculation details <ArrowRight className="size-3" />
+                        </Link>
+                      )}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             );

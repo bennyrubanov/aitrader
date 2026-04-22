@@ -619,6 +619,7 @@ const buildPayloadForStrategy = async (
   const regressionSummary = computeRegressionSummary(
     allRegressionRows.map((r) => ({
       runDate: r.runDate,
+      alpha: r.alpha,
       beta: r.beta,
       rSquared: r.rSquared,
     }))
@@ -1141,6 +1142,7 @@ const getStrategyDetailCached = (slug: string) =>
         const regressionSummary = computeRegressionSummary(
           regressionRows.map((r) => ({
             runDate: r.run_date,
+            alpha: toNullableNumber(r.alpha),
             beta: toNullableNumber(r.beta),
             rSquared: toNullableNumber(r.r_squared),
           }))

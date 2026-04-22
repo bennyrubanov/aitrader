@@ -126,7 +126,7 @@ export async function GET() {
   const strategyIds = strategies.map((s) => s.id);
   const { data: regRows } = await supabase
     .from('strategy_cross_sectional_regressions')
-    .select('strategy_id, beta, r_squared, run_date')
+    .select('strategy_id, alpha, beta, r_squared, run_date')
     .in('strategy_id', strategyIds)
     .eq('horizon_weeks', 1)
     .order('run_date', { ascending: false });
@@ -134,7 +134,7 @@ export async function GET() {
   const latestBetaByStrategyId = new Map<string, number | null>();
   const regressionHistoryByStrategyId = new Map<
     string,
-    Array<{ runDate: string; beta: number | null; rSquared: number | null }>
+    Array<{ runDate: string; alpha: number | null; beta: number | null; rSquared: number | null }>
   >();
   for (const row of regRows ?? []) {
     const sid = row.strategy_id as string;
@@ -144,6 +144,7 @@ export async function GET() {
     const list = regressionHistoryByStrategyId.get(sid) ?? [];
     list.push({
       runDate: row.run_date as string,
+      alpha: toNullableNumber(row.alpha),
       beta: toNullableNumber(row.beta),
       rSquared: toNullableNumber(row.r_squared),
     });

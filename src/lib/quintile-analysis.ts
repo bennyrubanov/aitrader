@@ -33,6 +33,7 @@ export type QuintileSummary = {
 export type RegressionSummary = {
   latestBeta: number | null;
   avgBetaAllWeeks: number | null;
+  avgAlphaAllWeeks: number | null;
   medianBetaAllWeeks: number | null;
   avgBetaRecent8w: number | null;
   avgRsqAllWeeks: number | null;
@@ -42,7 +43,7 @@ export type RegressionSummary = {
 };
 
 export function computeRegressionSummary(
-  history: Array<{ runDate: string; beta: number | null; rSquared: number | null }>
+  history: Array<{ runDate: string; beta: number | null; alpha: number | null; rSquared: number | null }>
 ): RegressionSummary {
   const sorted = [...history].sort((a, b) => b.runDate.localeCompare(a.runDate));
   const betasAll = sorted
@@ -55,6 +56,9 @@ export function computeRegressionSummary(
   const rsqAll = sorted
     .map((r) => r.rSquared)
     .filter((b): b is number => b != null && Number.isFinite(b));
+  const alphasAll = sorted
+    .map((r) => r.alpha)
+    .filter((a): a is number => a != null && Number.isFinite(a));
   const rsqRecent = recent
     .map((r) => r.rSquared)
     .filter((b): b is number => b != null && Number.isFinite(b));
@@ -69,6 +73,7 @@ export function computeRegressionSummary(
   return {
     latestBeta: sorted[0]?.beta ?? null,
     avgBetaAllWeeks: mean(betasAll),
+    avgAlphaAllWeeks: mean(alphasAll),
     medianBetaAllWeeks: medianOf(betasAll),
     avgBetaRecent8w: mean(betasRecent),
     avgRsqAllWeeks: mean(rsqAll),

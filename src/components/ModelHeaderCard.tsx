@@ -364,9 +364,6 @@ export function ModelHeaderCard({
                   {wr && wr.total > 0
                     ? `Q5 beat Q1 in ${wr.wins} of ${wr.total} weeks (${pctFmt(wr.rate)})`
                     : `${q.weeksObserved} weeks observed`}
-                  {spread != null && Number.isFinite(spread)
-                    ? ` · latest ${fmtSignedPctFromDecimal(spread, 2)}`
-                    : ''}
                 </p>
               </>
             ) : wr && wr.total > 0 ? (

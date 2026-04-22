@@ -147,16 +147,16 @@ test('computeMonthlyQuintileWinRate excludes months with <3 weeks by default', (
 
 test('computeRegressionSummary aggregates betas and 8-week window', () => {
   const history = [
-    { runDate: '2026-04-18', beta: 0.1, rSquared: 0.2 },
-    { runDate: '2026-04-11', beta: -0.05, rSquared: 0.1 },
-    { runDate: '2026-04-04', beta: 0.02, rSquared: 0.05 },
-    { runDate: '2026-03-28', beta: 0.03, rSquared: 0.06 },
-    { runDate: '2026-03-21', beta: 0.04, rSquared: 0.07 },
-    { runDate: '2026-03-14', beta: -0.01, rSquared: 0.08 },
-    { runDate: '2026-03-07', beta: 0.06, rSquared: 0.09 },
-    { runDate: '2026-02-28', beta: 0.07, rSquared: 0.1 },
-    { runDate: '2026-02-21', beta: 0.08, rSquared: 0.11 },
-    { runDate: '2026-02-14', beta: 0.09, rSquared: 0.12 },
+    { runDate: '2026-04-18', alpha: 0.01, beta: 0.1, rSquared: 0.2 },
+    { runDate: '2026-04-11', alpha: -0.02, beta: -0.05, rSquared: 0.1 },
+    { runDate: '2026-04-04', alpha: 0.03, beta: 0.02, rSquared: 0.05 },
+    { runDate: '2026-03-28', alpha: 0.02, beta: 0.03, rSquared: 0.06 },
+    { runDate: '2026-03-21', alpha: 0.0, beta: 0.04, rSquared: 0.07 },
+    { runDate: '2026-03-14', alpha: -0.01, beta: -0.01, rSquared: 0.08 },
+    { runDate: '2026-03-07', alpha: 0.02, beta: 0.06, rSquared: 0.09 },
+    { runDate: '2026-02-28', alpha: 0.03, beta: 0.07, rSquared: 0.1 },
+    { runDate: '2026-02-21', alpha: 0.01, beta: 0.08, rSquared: 0.11 },
+    { runDate: '2026-02-14', alpha: -0.01, beta: 0.09, rSquared: 0.12 },
   ];
   const s = computeRegressionSummary(history);
   assert.equal(s.latestBeta, 0.1);
@@ -172,6 +172,9 @@ test('computeRegressionSummary aggregates betas and 8-week window', () => {
   const allRsq = [0.2, 0.1, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1, 0.11, 0.12];
   const expectedRAll = allRsq.reduce((a, b) => a + b, 0) / allRsq.length;
   assert.ok(s.avgRsqAllWeeks != null && Math.abs(s.avgRsqAllWeeks - expectedRAll) < 1e-9);
+  const allAlpha = [0.01, -0.02, 0.03, 0.02, 0.0, -0.01, 0.02, 0.03, 0.01, -0.01];
+  const expectedAlphaAll = allAlpha.reduce((a, b) => a + b, 0) / allAlpha.length;
+  assert.ok(s.avgAlphaAllWeeks != null && Math.abs(s.avgAlphaAllWeeks - expectedAlphaAll) < 1e-9);
 });
 
 test('computeQuintileSummary returns weighted spread and stock totals', () => {

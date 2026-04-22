@@ -32,6 +32,10 @@ import { useAuthState } from '@/components/auth/auth-state-context';
 import { NotificationsSettingsSection } from '@/components/platform/notifications-settings-section';
 import { requestPlatformPostOnboardingTourAgain } from '@/lib/platform-post-onboarding-tour';
 import { partitionNotificationsByRecency } from '@/lib/platform-notifications-sections';
+import {
+  invalidateNotificationSettingsCache,
+  prewarmNotificationSettings,
+} from '@/lib/notifications/settings-prewarm';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 
@@ -97,6 +101,7 @@ function NotificationsPanelInner({
   filteredItems,
   onRowActivate,
   onOpenSettingsPage,
+  onPrefetchSettingsPage,
 }: {
   variant: 'sheet' | 'menu';
   panelView: 'list' | 'settings';
@@ -108,6 +113,7 @@ function NotificationsPanelInner({
   filteredItems: NotifRow[];
   onRowActivate: (n: NotifRow) => void | Promise<void>;
   onOpenSettingsPage: (variant: 'sheet' | 'menu') => void;
+  onPrefetchSettingsPage: () => void;
 }) {
   const headerPad = variant === 'sheet' ? 'pr-12' : 'pr-1';
   const { last7Days, earlier } = partitionNotificationsByRecency(filteredItems);
@@ -184,7 +190,12 @@ function NotificationsPanelInner({
               size="icon"
               className="size-8 shrink-0 text-muted-foreground"
               aria-label="Notification settings"
-              onPointerDown={(e) => e.preventDefault()}
+              onMouseEnter={onPrefetchSettingsPage}
+              onFocus={onPrefetchSettingsPage}
+              onPointerDown={(e) => {
+                onPrefetchSettingsPage();
+                e.preventDefault();
+              }}
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -307,7 +318,7 @@ const BellTriggerButton = forwardRef<HTMLButtonElement, BellTriggerButtonProps>(
 });
 
 export function NotificationsBell() {
-  const { isAuthenticated, isLoaded } = useAuthState();
+  const { isAuthenticated, isLoaded, userId } = useAuthState();
   const router = useRouter();
   const isMobile = useIsMobile();
   const suppressNextMenuCloseRef = useRef(false);
@@ -337,11 +348,27 @@ export function NotificationsBell() {
     }
   }, []);
 
+  const prefetchSettingsPage = useCallback(() => {
+    router.prefetch('/platform/settings/notifications');
+  }, [router]);
+
   useEffect(() => {
+    if (!isLoaded) {
+      return;
+    }
+    if (!isAuthenticated || !userId) {
+      invalidateNotificationSettingsCache();
+      setItems([]);
+      setUnreadCount(0);
+      setLoading(false);
+      return;
+    }
+    prefetchSettingsPage();
+    prewarmNotificationSettings({ userId });
     void load();
     const t = setInterval(() => void load(), 60_000);
     return () => clearInterval(t);
-  }, [load]);
+  }, [isAuthenticated, isLoaded, load, prefetchSettingsPage, userId]);
 
   useEffect(() => {
     if (open) void load();
@@ -446,6 +473,7 @@ export function NotificationsBell() {
       filteredItems={filteredItems}
       onRowActivate={onRowActivate}
       onOpenSettingsPage={handleOpenSettingsPage}
+      onPrefetchSettingsPage={prefetchSettingsPage}
     />
   );
 

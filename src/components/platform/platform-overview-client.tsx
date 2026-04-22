@@ -3726,7 +3726,10 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                   />
                                 </div>
                               </div>
-                              <div className="relative min-w-0 rounded-xl border bg-background/60 p-3 sm:p-4">
+                              <div
+                                className="relative min-w-0 rounded-xl border bg-background/60 p-3 sm:p-4"
+                                data-platform-tour="overview-performance-chart"
+                              >
                                 {series.length > 1 ? (
                                   <div className="pb-11">
                                     <PerformanceChart
@@ -3789,7 +3792,10 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                 </Button>
                               </div>
                               <div className="min-w-0 space-y-2 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
-                                <div className="flex flex-col gap-2">
+                                <div
+                                  className="flex flex-col gap-2"
+                                  data-platform-tour="overview-portfolio-holdings"
+                                >
                                   <h4 className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                                     Portfolio holdings
                                   </h4>
@@ -4255,7 +4261,10 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                 )}
                                   </>
                                 )}
-                                <div className="pt-4 sm:pt-5">
+                                <div
+                                  className="pt-4 sm:pt-5"
+                                  data-platform-tour="overview-latest-rebalance-actions"
+                                >
                                   <TopPortfolioLatestRebalanceSection
                                     profileId={bp.id}
                                     weightingMethod={pc?.weighting_method}

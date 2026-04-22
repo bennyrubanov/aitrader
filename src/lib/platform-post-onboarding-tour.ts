@@ -50,7 +50,8 @@ export const PLATFORM_TOUR_SHELL_READY_ATTR = 'data-platform-tour-shell-ready';
 export const PLATFORM_POST_ONBOARDING_TOUR_DONE_KEY = 'aitrader_platform_area_tour_v1_done';
 
 export type PlatformPostOnboardingTourStepId =
-  | 'overview-top-portfolio'
+  | 'overview-portfolio-value-and-chart'
+  | 'overview-portfolio-holdings'
   | 'overview-rebalance-actions'
   | 'ratings'
   | 'your-portfolios'
@@ -68,23 +69,34 @@ export type PlatformPostOnboardingTourStep = {
 
 export const PLATFORM_POST_ONBOARDING_TOUR_STEPS: PlatformPostOnboardingTourStep[] = [
   {
-    id: 'overview-top-portfolio',
-    title: 'Overview — Top portfolio by performance',
-    body: 'Your overview highlights your best return since entry: performance, holdings, and key stats in one place.',
+    id: 'overview-portfolio-value-and-chart',
+    title: 'Overview — Portfolio value and chart',
+    body: 'Start on Overview to see your top portfolio value and performance chart since your selected entry date.',
     path: '',
     anchors: [
+      '[data-platform-tour="overview-portfolio-value-card"]',
+      '[data-platform-tour="overview-performance-chart"]',
       '[data-platform-tour="nav-overview"]',
-      '[data-platform-tour="overview-top-portfolio-panel"]',
+    ],
+  },
+  {
+    id: 'overview-portfolio-holdings',
+    title: 'Portfolio holdings',
+    body: 'Review the current holdings for your top portfolio and inspect position-level details.',
+    path: '',
+    anchors: [
+      '[data-platform-tour="overview-portfolio-holdings"]',
+      '[data-platform-tour="nav-overview"]',
     ],
   },
   {
     id: 'overview-rebalance-actions',
     title: 'Rebalance actions',
-    body: 'Use this section to see suggested buys and sells so you can align with the latest AI ratings on your schedule.',
+    body: 'Use latest rebalance actions to see suggested buys and sells vs your current portfolio entry.',
     path: '',
     anchors: [
-      '[data-platform-tour="nav-your-portfolios"]',
-      '[data-platform-tour="your-portfolios-rebalance-actions-first-portfolio"]',
+      '[data-platform-tour="overview-latest-rebalance-actions"]',
+      '[data-platform-tour="nav-overview"]',
     ],
   },
   {
@@ -123,8 +135,7 @@ export function getPlatformPostOnboardingTourNavigationPath(
   step: PlatformPostOnboardingTourStep,
   pathname: string | null
 ): string {
-  if (step.id === 'overview-top-portfolio') return platformOverviewPath('top-portfolio', pathname);
-  if (step.id === 'overview-rebalance-actions') return '/platform/your-portfolios#rebalance-actions';
+  if (step.id.startsWith('overview-')) return platformOverviewPath('top-portfolio', pathname);
   return step.path;
 }
 

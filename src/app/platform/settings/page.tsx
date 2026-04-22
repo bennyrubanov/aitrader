@@ -32,14 +32,18 @@ import {
 } from '@/components/account/downgrade-to-supporter-dialog';
 import { useAuthState, useRefreshAuthProfile } from '@/components/auth/auth-state-context';
 import { NotificationsSettingsSection } from '@/components/platform/notifications-settings-section';
+import {
+  hasCachedNewsletterStatus,
+  readCachedNewsletterStatus,
+  setCachedNewsletterStatus,
+  type NewsletterStatus,
+} from '@/lib/notifications/settings-prewarm';
 import { cn } from '@/lib/utils';
 
 type ProfileState = {
   email: string | null;
   fullName: string | null;
 };
-
-type NewsletterStatus = 'subscribed' | 'unsubscribed' | null;
 
 type SignInMethods = {
   google: boolean;
@@ -218,8 +222,12 @@ const SettingsPageContent = () => {
     email: null,
     fullName: null,
   });
-  const [newsletterStatus, setNewsletterStatus] = useState<NewsletterStatus>(null);
-  const [isLoadingNewsletter, setIsLoadingNewsletter] = useState(false);
+  const [newsletterStatus, setNewsletterStatus] = useState<NewsletterStatus>(() =>
+    readCachedNewsletterStatus(authState.userId)
+  );
+  const [isLoadingNewsletter, setIsLoadingNewsletter] = useState(
+    () => Boolean(authState.userId) && !hasCachedNewsletterStatus(authState.userId)
+  );
   const [isSavingNewsletter, setIsSavingNewsletter] = useState(false);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [isSigningUp, setIsSigningUp] = useState(false);
@@ -296,6 +304,9 @@ const SettingsPageContent = () => {
       id: authState.userId,
       email: authState.email.includes('@') ? authState.email : null,
     });
+    const cachedNewsletterStatus = readCachedNewsletterStatus(authState.userId);
+    setNewsletterStatus(cachedNewsletterStatus);
+    setIsLoadingNewsletter(!hasCachedNewsletterStatus(authState.userId));
     setProfile({
       email: authState.email.includes('@') ? authState.email : null,
       fullName: authState.name && authState.name !== 'Guest' ? authState.name : null,
@@ -364,10 +375,12 @@ const SettingsPageContent = () => {
 
       const supabase = getSupabaseBrowserClient();
       if (!supabase) {
+        setIsLoadingNewsletter(false);
         return;
       }
 
-      setIsLoadingNewsletter(true);
+      const hasCachedStatus = hasCachedNewsletterStatus(authState.userId);
+      setIsLoadingNewsletter(!hasCachedStatus);
       const { data: newsletterData, error: newsletterError } = await supabase
         .from('newsletter_subscribers')
         .select('status')
@@ -378,9 +391,9 @@ const SettingsPageContent = () => {
         return;
       }
 
-      setNewsletterStatus(
-        !newsletterError ? ((newsletterData?.status as NewsletterStatus) ?? null) : null
-      );
+      const nextStatus = !newsletterError ? ((newsletterData?.status as NewsletterStatus) ?? null) : null;
+      setCachedNewsletterStatus(authState.userId, nextStatus);
+      setNewsletterStatus(nextStatus);
       setIsLoadingNewsletter(false);
     };
 
@@ -728,6 +741,7 @@ const SettingsPageContent = () => {
       }
 
       setNewsletterStatus(targetStatus);
+      setCachedNewsletterStatus(authUser.id, targetStatus);
       if (targetStatus === 'subscribed') {
         localStorage.setItem('newsletter_subscribed', 'true');
       } else {

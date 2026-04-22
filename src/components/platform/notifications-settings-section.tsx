@@ -6,32 +6,17 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
-
-type Prefs = {
-  weekly_digest_enabled: boolean;
-  weekly_digest_email: boolean;
-  weekly_digest_inapp: boolean;
-  email_enabled: boolean;
-  inapp_enabled: boolean;
-};
-
-type ModelSub = {
-  strategy_id: string;
-  notify_rating_changes: boolean;
-  email_enabled: boolean;
-  inapp_enabled: boolean;
-  strategy_models: { slug: string; name: string } | { slug: string; name: string }[] | null;
-};
-
-type ProfileRow = {
-  id: string;
-  notify_rebalance: boolean;
-  notify_holdings_change: boolean;
-  email_enabled: boolean;
-  inapp_enabled: boolean;
-  strategy_models: { slug: string; name: string } | null;
-  portfolio_config: { label: string | null } | null;
-};
+import {
+  readCachedModelSubs,
+  readCachedPortfolioProfiles,
+  readCachedPrefs,
+  setCachedModelSubs,
+  setCachedPortfolioProfiles,
+  setCachedPrefs,
+  type ModelSub,
+  type Prefs,
+  type ProfileRow,
+} from '@/lib/notifications/settings-prewarm';
 
 function firstModel(
   m: ModelSub['strategy_models']
@@ -42,14 +27,13 @@ function firstModel(
 
 export function NotificationsSettingsSection() {
   const { toast } = useToast();
-  const [loading, setLoading] = useState(true);
-  const [prefs, setPrefs] = useState<Prefs | null>(null);
-  const [subs, setSubs] = useState<ModelSub[]>([]);
-  const [profiles, setProfiles] = useState<ProfileRow[]>([]);
+  const [prefs, setPrefs] = useState<Prefs | null>(() => readCachedPrefs());
+  const [subs, setSubs] = useState<ModelSub[]>(() => readCachedModelSubs() ?? []);
+  const [profiles, setProfiles] = useState<ProfileRow[]>(() => readCachedPortfolioProfiles() ?? []);
+  const [loading, setLoading] = useState(() => readCachedPrefs() == null);
   const [savingPrefs, setSavingPrefs] = useState(false);
 
   const load = useCallback(async () => {
-    setLoading(true);
     try {
       const [pRes, sRes, profRes] = await Promise.all([
         fetch('/api/platform/notification-preferences'),
@@ -59,14 +43,19 @@ export function NotificationsSettingsSection() {
       if (pRes.ok) {
         const j = (await pRes.json()) as { preferences: Prefs };
         setPrefs(j.preferences);
+        setCachedPrefs(j.preferences);
       }
       if (sRes.ok) {
         const j = (await sRes.json()) as { subscriptions: ModelSub[] };
-        setSubs(j.subscriptions ?? []);
+        const nextSubs = j.subscriptions ?? [];
+        setSubs(nextSubs);
+        setCachedModelSubs(nextSubs);
       }
       if (profRes.ok) {
         const j = (await profRes.json()) as { profiles: ProfileRow[] };
-        setProfiles(j.profiles ?? []);
+        const nextProfiles = j.profiles ?? [];
+        setProfiles(nextProfiles);
+        setCachedPortfolioProfiles(nextProfiles);
       }
     } finally {
       setLoading(false);
@@ -90,6 +79,7 @@ export function NotificationsSettingsSection() {
       if (!res.ok) throw new Error('Save failed');
       const j = (await res.json()) as { preferences: Prefs };
       setPrefs(j.preferences);
+      setCachedPrefs(j.preferences);
       toast({ title: 'Saved' });
     } catch {
       toast({ title: 'Could not save', variant: 'destructive' });
