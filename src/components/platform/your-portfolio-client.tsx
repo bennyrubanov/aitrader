@@ -2158,6 +2158,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   }, [configHoldingsRebalanceDates, holdingsRebalanceAnchorDate]);
 
   const holdingsCostBasisSnapshotsByDate = useMemo(() => {
+    void holdingsCacheVersion;
     const slug = strategySlug?.trim();
     const cfgId = selectedProfileConfigId;
     if (!slug || !cfgId || !userStartForHoldingsYmd) return {};
@@ -2216,7 +2217,14 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     setIsLoadingUserEntry(hasEntryDate);
     setIsLoadingPerf(!hasEntryDate && hasPerfConfig);
     setConfigHoldingsLoading(shouldLoadHoldings);
-  }, [selectedProfile?.id, selectedProfileConfigId, strategySlug, yourPortfoliosHoldingsPaid]);
+  }, [
+    selectedProfile?.id,
+    selectedProfile?.portfolio_config,
+    selectedProfile?.user_start_date,
+    selectedProfileConfigId,
+    strategySlug,
+    yourPortfoliosHoldingsPaid,
+  ]);
 
   const fetchYourPortfolioConfigHoldings = useCallback(
     async (asOf: string | null) => {
@@ -2303,14 +2311,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         }
       }
     },
-    [
-      selectedProfile?.id,
-      selectedProfileConfigId,
-      strategySlug,
-      yourPortfoliosHoldingsPaid,
-      selectedProfile?.user_start_date,
-      selectedProfile?.investment_size,
-    ]
+    [selectedProfile?.id, selectedProfileConfigId, strategySlug, yourPortfoliosHoldingsPaid]
   );
 
   useEffect(() => {
@@ -3176,7 +3177,23 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
               const rowRiskDot = SIDEBAR_RISK_DOT[rowRisk] ?? 'bg-muted';
               const rowRanked = rankedConfigForProfile(p, rankedBySlug);
               const rowStrategySlug = p.strategy_models?.slug ?? strategySlug;
-              const rowPerf = getSidebarRowPerf(p);
+              const baseRowPerf = getSidebarRowPerf(p);
+              // For the currently-selected profile on "Today", reflect the holdings-aligned
+              // value/return from the main card so sidebar ↔ card ↔ holdings all agree.
+              const rowPerf =
+                active &&
+                holdingsDateSelect === HOLDINGS_TODAY_SENTINEL &&
+                portfolioValueAmount != null
+                  ? {
+                      showLoading: false,
+                      valueStr: formatYourPortfolioCurrency(portfolioValueAmount),
+                      returnFr:
+                        portfolioValueDisplayTotalReturn != null &&
+                        Number.isFinite(portfolioValueDisplayTotalReturn)
+                          ? portfolioValueDisplayTotalReturn
+                          : baseRowPerf.returnFr,
+                    }
+                  : baseRowPerf;
               return (
                 <div
                   key={p.id}
@@ -3368,7 +3385,21 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                   const rowRiskDot = SIDEBAR_RISK_DOT[rowRisk] ?? 'bg-muted';
                   const rowRanked = rankedConfigForProfile(p, rankedBySlug);
                   const rowStrategySlug = p.strategy_models?.slug ?? strategySlug;
-                  const rowPerf = getSidebarRowPerf(p);
+                  const baseRowPerf = getSidebarRowPerf(p);
+                  const rowPerf =
+                    active &&
+                    holdingsDateSelect === HOLDINGS_TODAY_SENTINEL &&
+                    portfolioValueAmount != null
+                      ? {
+                          showLoading: false,
+                          valueStr: formatYourPortfolioCurrency(portfolioValueAmount),
+                          returnFr:
+                            portfolioValueDisplayTotalReturn != null &&
+                            Number.isFinite(portfolioValueDisplayTotalReturn)
+                              ? portfolioValueDisplayTotalReturn
+                              : baseRowPerf.returnFr,
+                        }
+                      : baseRowPerf;
                   return (
                     <div
                       key={p.id}
@@ -3601,6 +3632,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                           ? portfolioValueDisplayTotalReturn > 0
                           : undefined
                       }
+                      asOfCloseDate={holdingsPortfolioValueAsOfCloseLabel}
                     />
                     <SpotlightStatCard
                       tooltipKey="vs_sp500"

@@ -2498,6 +2498,12 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     spotlightHoldingsValuationMode,
   ]);
 
+  /**
+   * Align chart/endpoint with holdings block for "Today":
+   *  - holdings date strictly newer → append synthetic bar
+   *  - holdings date equals series last date but totals differ → replace last bar
+   *  - otherwise keep series untouched
+   */
   const effectiveTopSpotlightDisplaySeries = useMemo(() => {
     const pts = (topSpotlightOverview?.state.series ?? []) as PerformanceSeriesPoint[];
     if (!pts.length) return pts;
@@ -2505,21 +2511,29 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     const holdingsLatestYmd = topSpotlightHoldingsLatestRunDate;
     if (!holdingsLatestYmd) return pts;
     const last = pts[pts.length - 1]!;
-    if (holdingsLatestYmd <= last.date) return pts;
+    if (holdingsLatestYmd < last.date) return pts;
     const totalFromHoldings = liveTopSpotlightAllocation.totalCurrentValue;
     if (totalFromHoldings == null || !Number.isFinite(totalFromHoldings) || totalFromHoldings <= 0) {
       return pts;
     }
-    return [
-      ...pts,
-      {
-        date: holdingsLatestYmd,
-        aiTop20: totalFromHoldings,
-        nasdaq100CapWeight: last.nasdaq100CapWeight,
-        nasdaq100EqualWeight: last.nasdaq100EqualWeight,
-        sp500: last.sp500,
-      },
-    ];
+    const nextBar = {
+      date: holdingsLatestYmd,
+      aiTop20: totalFromHoldings,
+      nasdaq100CapWeight: last.nasdaq100CapWeight,
+      nasdaq100EqualWeight: last.nasdaq100EqualWeight,
+      sp500: last.sp500,
+    };
+    if (holdingsLatestYmd === last.date) {
+      if (
+        last.aiTop20 != null &&
+        Number.isFinite(last.aiTop20) &&
+        Math.abs(last.aiTop20 - totalFromHoldings) < 0.005
+      ) {
+        return pts;
+      }
+      return [...pts.slice(0, -1), nextBar];
+    }
+    return [...pts, nextBar];
   }, [
     topSpotlightOverview?.state.series,
     spotlightHoldingsDateSelect,
@@ -2561,6 +2575,8 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   }, [topSpotlightProfileId, topSpotlightUserStartYmd]);
 
   const spotlightCostBasisSnapshotsByDate = useMemo(() => {
+    // Subscribe to cache busts: body reads via getCachedExploreHoldings (mutable store).
+    void holdingsCacheVersion;
     if (!topSpotlightSlug?.trim() || !topSpotlightConfigId || !topSpotlightUserStartYmd) return {};
     if (!spotlightHoldingsMovementTimeline || !('data' in spotlightHoldingsMovementTimeline)) {
       return {};
@@ -3057,16 +3073,20 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                         : null;
                       const investmentSize = Number(bp.investment_size);
                       const { excessVsSp500 } = benchmarkStatsFromSeries(baseSeries);
-                      // When the synthetic tail is applied, recompute totalReturn from the effective
-                      // series so the $ value and parenthetical % stay consistent. Otherwise keep the
-                      // server-computed `st.totalReturn` over the full period.
-                      const hasSpotlightSyntheticTail =
+                      // When the effective series differs from the base series at its last bar
+                      // (appended or replaced), recompute totalReturn from the effective series so
+                      // `$` and `(pct)` agree. Otherwise keep server-computed `st.totalReturn`.
+                      const baseLastAi = baseSeries[baseSeries.length - 1]?.aiTop20 ?? null;
+                      const effLastAi = series[series.length - 1]?.aiTop20 ?? null;
+                      const hasSpotlightEffectiveOverride =
                         spotlightHoldingsDateSelect === HOLDINGS_TODAY_SENTINEL &&
-                        series.length > baseSeries.length;
+                        series.length > 0 &&
+                        (series.length > baseSeries.length ||
+                          (baseSeries.length > 0 && baseLastAi !== effLastAi));
                       let spotlightDisplayTotalReturn: number | null = st.totalReturn ?? null;
-                      if (hasSpotlightSyntheticTail) {
+                      if (hasSpotlightEffectiveOverride) {
                         const firstAi = series[0]?.aiTop20;
-                        const lastAi = series[series.length - 1]?.aiTop20;
+                        const lastAi = effLastAi;
                         if (
                           firstAi != null &&
                           lastAi != null &&
@@ -3168,6 +3188,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                           ? spotlightDisplayTotalReturn > 0
                                           : undefined
                                       }
+                                      asOfCloseDate={spotlightPortfolioValueAsOfCloseLabel}
                                     />
                                   </div>
                                   <SpotlightStatCard

@@ -962,6 +962,8 @@ export function ExplorePortfolioDetailDialog({
     rebalanceDates.length > 0 ? rebalanceDates[rebalanceDates.length - 1]! : null;
 
   const exploreRebalanceActionsTimeline = useMemo(() => {
+    // Subscribe to cache busts: body reads via getCachedExploreHoldings (mutable store).
+    void holdingsCacheRev;
     if (!config || !strategySlug?.trim() || visibleDates.length === 0) {
       return { rows: [] as Array<
         {
@@ -1021,6 +1023,7 @@ export function ExplorePortfolioDetailDialog({
   }, [config, strategySlug, visibleDates, rebalanceDates, selectedAsOf, holdings, explorePerfRows, holdingsCacheRev]);
 
   const explorePublicCostBasisByDate = useMemo(() => {
+    void holdingsCacheRev;
     if (!config?.id || !strategySlug?.trim() || !rebalanceDates.length || !explorePerfRows.length) {
       return {};
     }
@@ -1045,6 +1048,7 @@ export function ExplorePortfolioDetailDialog({
   }, [explorePerfSeries]);
 
   const exploreHoldingsTimeline = useMemo(() => {
+    void holdingsCacheRev;
     if (!config || !strategySlug?.trim() || visibleDates.length === 0) {
       return {
         rows: [] as Array<{

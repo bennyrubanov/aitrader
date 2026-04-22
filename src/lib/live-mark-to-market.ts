@@ -58,9 +58,10 @@ export async function loadLatestRawRunDate(
   return loadLatestRawRunDateCached(supabase);
 }
 
+type CachedFn = (...args: unknown[]) => unknown;
 const cacheFn =
-  (React as unknown as { cache?: <T extends (...args: any[]) => unknown>(fn: T) => T }).cache ??
-  (<T extends (...args: any[]) => unknown>(fn: T) => fn);
+  (React as unknown as { cache?: <T extends CachedFn>(fn: T) => T }).cache ??
+  (<T extends CachedFn>(fn: T) => fn);
 
 const loadLatestRawRunDateCached = cacheFn(
   async (supabase: SupabaseClient): Promise<string | null> => {

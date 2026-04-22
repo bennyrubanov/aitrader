@@ -1116,6 +1116,12 @@ function PerformancePagePublicClientInner({
   const displayMetricDecisionObservations =
     performanceHoldingsRankedRow?.metrics.decisionObservations ?? null;
 
+  /**
+   * Align chart/endpoint with holdings block for "Today":
+   *  - holdings date strictly newer → append synthetic bar
+   *  - holdings date equals series last date but totals differ → replace last bar
+   *  - otherwise keep series untouched
+   */
   const effectivePerformanceDisplaySeries = useMemo(() => {
     const pts = displaySeries as PerformanceSeriesPoint[];
     if (!pts.length) return pts;
@@ -1123,21 +1129,29 @@ function PerformancePagePublicClientInner({
     const holdingsLatestYmd = holdingsExploreLatestRunDate;
     if (!holdingsLatestYmd) return pts;
     const last = pts[pts.length - 1]!;
-    if (holdingsLatestYmd <= last.date) return pts;
+    if (holdingsLatestYmd < last.date) return pts;
     const totalFromHoldings = performanceLiveHoldingsAllocation.totalCurrentValue;
     if (totalFromHoldings == null || !Number.isFinite(totalFromHoldings) || totalFromHoldings <= 0) {
       return pts;
     }
-    return [
-      ...pts,
-      {
-        date: holdingsLatestYmd,
-        aiTop20: totalFromHoldings,
-        nasdaq100CapWeight: last.nasdaq100CapWeight,
-        nasdaq100EqualWeight: last.nasdaq100EqualWeight,
-        sp500: last.sp500,
-      },
-    ];
+    const nextBar = {
+      date: holdingsLatestYmd,
+      aiTop20: totalFromHoldings,
+      nasdaq100CapWeight: last.nasdaq100CapWeight,
+      nasdaq100EqualWeight: last.nasdaq100EqualWeight,
+      sp500: last.sp500,
+    };
+    if (holdingsLatestYmd === last.date) {
+      if (
+        last.aiTop20 != null &&
+        Number.isFinite(last.aiTop20) &&
+        Math.abs(last.aiTop20 - totalFromHoldings) < 0.005
+      ) {
+        return pts;
+      }
+      return [...pts.slice(0, -1), nextBar];
+    }
+    return [...pts, nextBar];
   }, [
     displaySeries,
     holdingsAsOfDate,
@@ -1473,11 +1487,15 @@ function PerformancePagePublicClientInner({
     if (!displayMetrics) return 'N/A';
     const base = displaySeries as PerformanceSeriesPoint[];
     const eff = effectivePerformanceDisplaySeries as PerformanceSeriesPoint[];
-    const hasSyntheticTail =
-      holdingsAsOfDate === null && eff.length > base.length;
-    if (hasSyntheticTail) {
+    const baseLast = base[base.length - 1]?.aiTop20 ?? null;
+    const effLast = eff[eff.length - 1]?.aiTop20 ?? null;
+    const hasEffectiveOverride =
+      holdingsAsOfDate === null &&
+      eff.length > 0 &&
+      (eff.length > base.length || (base.length > 0 && baseLast !== effLast));
+    if (hasEffectiveOverride) {
       const first = eff[0]?.aiTop20;
-      const last = eff[eff.length - 1]?.aiTop20;
+      const last = effLast;
       if (
         first != null &&
         last != null &&
