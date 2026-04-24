@@ -77,6 +77,7 @@ import { sharpeRatioValueClass } from '@/lib/sharpe-value-class';
 import Link from 'next/link';
 import {
   ArrowUpRight,
+  Bell,
   ChevronDown,
   ExternalLink,
   Lock,
@@ -1226,33 +1227,20 @@ export function ExplorePortfolioDetailDialog({
       : null;
 
   return (
-    <>
-      {stockChartSymbol ? (
-        <StockChartDialog
-          key={stockChartSymbol}
-          symbol={stockChartSymbol}
-          strategySlug={stockHistoryStrategySlug}
-          open
-          onOpenChange={(o) => {
-            if (!o) setStockChartSymbol(null);
-          }}
-          showDefaultTrigger={false}
-          footer={
-            <Button variant="outline" size="sm" asChild className="gap-1">
-              <a
-                href={`/stocks/${stockChartSymbol.toLowerCase()}`}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Full analysis
-                <ArrowUpRight className="size-3.5" />
-              </a>
-            </Button>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        showCloseButton={false}
+        className="flex h-[88dvh] max-h-[88dvh] w-[calc(100vw-1.5rem)] max-w-3xl flex-col gap-0 overflow-hidden p-0 sm:h-[75dvh] sm:max-h-[75dvh] sm:max-w-5xl"
+        onInteractOutside={(e) => {
+          if (stockChartSymbol) e.preventDefault();
+        }}
+        onEscapeKeyDown={(e) => {
+          if (stockChartSymbol) {
+            e.preventDefault();
+            setStockChartSymbol(null);
           }
-        />
-      ) : null}
-      <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[75dvh] max-h-[75dvh] w-[calc(100vw-1.5rem)] max-w-3xl flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl">
+        }}
+      >
         <DialogHeader className="sr-only">
           <DialogTitle>
             {config ? `${config.label} — ${strategyName}` : 'Portfolio details'}
@@ -1262,10 +1250,9 @@ export function ExplorePortfolioDetailDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {/* pr-14 clears default Dialog close (absolute right-4 top-4) */}
         {config ? (
           <>
-            <div className="hidden shrink-0 border-b pl-6 pr-14 pt-4 pb-4 space-y-2 lg:block">
+            <div className="hidden shrink-0 border-b pl-6 pr-6 pt-4 pb-4 space-y-2 lg:block">
               <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
                 <div className="min-w-0 flex-1 flex flex-wrap items-center gap-1.5 gap-y-1">
                   <span
@@ -1307,7 +1294,7 @@ export function ExplorePortfolioDetailDialog({
               ) : null}
             </div>
 
-            <div className="shrink-0 space-y-2 border-b pl-6 pr-14 pt-4 pb-3 lg:hidden">
+            <div className="shrink-0 space-y-2 border-b pl-6 pr-6 pt-4 pb-3 lg:hidden">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 break-words text-sm">
                 <span
                   className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-border/80 bg-muted/50 py-0.5 pl-2.5 pr-1.5 font-medium text-foreground"
@@ -2599,9 +2586,11 @@ export function ExplorePortfolioDetailDialog({
         </div>
 
         <div className="shrink-0 border-t px-6 py-3 flex justify-end gap-2 bg-muted/20">
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            Close
-          </Button>
+          {config && footerMode === 'manage' ? (
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Close
+            </Button>
+          ) : null}
           {config && footerMode === 'manage' && manageHref ? (
             <Button type="button" className="gap-1" asChild>
               <Link href={manageHref}>
@@ -2620,10 +2609,10 @@ export function ExplorePortfolioDetailDialog({
               variant="outline"
               className="gap-1"
               onClick={() => {
-                onOpenChange(false);
                 onOpenNotificationSettings();
               }}
             >
+              <Bell className="size-4 shrink-0" aria-hidden />
               Notification settings
             </Button>
           ) : null}
@@ -2671,8 +2660,33 @@ export function ExplorePortfolioDetailDialog({
             )
           ) : null}
         </div>
+
+        {stockChartSymbol ? (
+          <StockChartDialog
+            key={stockChartSymbol}
+            stackedOnDialog
+            symbol={stockChartSymbol}
+            strategySlug={stockHistoryStrategySlug}
+            open
+            onOpenChange={(o) => {
+              if (!o) setStockChartSymbol(null);
+            }}
+            showDefaultTrigger={false}
+            footer={
+              <Button variant="outline" size="sm" asChild className="gap-1">
+                <a
+                  href={`/stocks/${stockChartSymbol.toLowerCase()}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Full analysis
+                  <ArrowUpRight className="size-3.5" />
+                </a>
+              </Button>
+            }
+          />
+        ) : null}
       </DialogContent>
     </Dialog>
-    </>
   );
 }

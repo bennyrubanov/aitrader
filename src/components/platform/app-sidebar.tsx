@@ -2,7 +2,6 @@
 
 import type { ComponentType } from 'react';
 import { useEffect } from 'react';
-import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
@@ -249,10 +248,13 @@ export function AppSidebar() {
           onMouseEnter={() => router.prefetch('/')}
           onFocus={() => router.prefetch('/')}
           onPointerDown={() => router.prefetch('/')}
-          className="inline-flex w-fit items-center rounded-md p-1 hover:bg-sidebar-accent"
+          className="inline-flex w-fit items-center rounded-md px-1 py-0.5 hover:bg-sidebar-accent"
           aria-label="Go to home"
         >
-          <Image src="/favicon.ico" alt="AITrader home" width={24} height={24} />
+          <span className="text-xl font-bold leading-none tracking-tight text-sidebar-foreground">
+            <span className="text-trader-blue">AI</span>
+            <span>Trader</span>
+          </span>
         </Link>
       </SidebarHeader>
       <SidebarContent>

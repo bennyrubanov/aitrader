@@ -2,7 +2,8 @@
   "framework": "nextjs",
   "crons": [
     { "path": "/api/cron/daily", "schedule": "35 13 * * 1-5" },
-    { "path": "/api/cron/weekly-digest", "schedule": "0 21 * * 5" }
+    { "path": "/api/cron/weekly-digest", "schedule": "0 21 * * 5" },
+    { "path": "/api/cron/welcome-series", "schedule": "20 14 * * *" }
   ],
   "headers": [
     {

@@ -25,6 +25,7 @@ import { loadRankedConfigsClient } from '@/lib/portfolio-configs-ranked-client';
 export type PublicPortfolioPerfApiPayload = {
   computeStatus: 'ready' | 'in_progress' | 'failed' | 'empty' | 'unsupported';
   rows?: Array<{ run_date: string; [key: string]: unknown }>;
+  sharpeReturns?: number[];
   series: PerformanceSeriesPoint[];
   metrics: {
     sharpeRatio: number | null;
@@ -51,6 +52,7 @@ export type PublicConfigPerfSlice = {
   computeStatus: PublicPortfolioPerfApiPayload['computeStatus'];
   series: PerformanceSeriesPoint[];
   fullMetrics: FullConfigPerformanceMetrics | null;
+  sharpeReturns: number[];
   portfolioConfig: PortfolioConfigSlice | null;
   config: PublicPortfolioPerfApiPayload['config'];
 };
@@ -144,6 +146,7 @@ export function usePublicPortfolioConfigPerformance({
         setPerf({
           computeStatus: j.computeStatus ?? 'empty',
           rows: j.rows ?? [],
+          sharpeReturns: Array.isArray(j.sharpeReturns) ? j.sharpeReturns : [],
           series: j.series ?? [],
           metrics: j.metrics ?? null,
           fullMetrics: j.fullMetrics ?? null,
@@ -177,6 +180,7 @@ export function usePublicPortfolioConfigPerformance({
       computeStatus: perf?.computeStatus ?? 'empty',
       series: perf?.series ?? [],
       fullMetrics: perf?.fullMetrics ?? null,
+      sharpeReturns: perf?.sharpeReturns ?? [],
       portfolioConfig,
       config: perf?.config ?? null,
     });

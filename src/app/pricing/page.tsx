@@ -543,17 +543,29 @@ function PricingPageContent() {
                     <p className="mt-auto text-center text-sm text-muted-foreground">
                       Billing and cancellation are in{' '}
                       <Link
-                        href="/platform/settings"
-                        className="font-medium text-trader-blue underline-offset-4 hover:underline"
+                        href="/platform/settings/billing"
+                        className="font-medium text-trader-blue underline underline-offset-4 hover:underline"
                       >
                         Settings
                       </Link>
                       .
                     </p>
                   ) : isCurrentFreePlan ? (
-                    <Button disabled variant="secondary" className="w-full mt-auto">
-                      Current plan
-                    </Button>
+                    <div className="mt-auto flex w-full flex-col gap-3">
+                      <Button disabled variant="secondary" className="w-full">
+                        Current plan
+                      </Button>
+                      <p className="text-center text-sm text-muted-foreground">
+                        Billing and cancellation are in{' '}
+                        <Link
+                          href="/platform/settings/billing"
+                          className="font-medium text-trader-blue underline underline-offset-4 hover:underline"
+                        >
+                          Settings
+                        </Link>
+                        .
+                      </p>
+                    </div>
                   ) : (
                     <Button asChild variant="outline" className="w-full mt-auto">
                       <Link href="/platform/overview">
@@ -634,7 +646,7 @@ function PricingPageContent() {
                       <p className="mt-auto text-center text-sm text-muted-foreground">
                         A subscription change is already scheduled. See{' '}
                         <Link
-                          href="/platform/settings"
+                          href="/platform/settings/billing"
                           className="font-medium text-trader-blue underline-offset-4 hover:underline"
                         >
                           Settings
@@ -751,16 +763,6 @@ function PricingPageContent() {
                         >
                           Downgrade scheduled {formatBillingDate(stripeCurrentPeriodEnd)}
                         </Button>
-                      ) : !planChangeActionsLocked ? (
-                        <Button
-                          type="button"
-                          variant="destructive"
-                          size="sm"
-                          className="w-full"
-                          onClick={() => setDowngradeDialogOpen(true)}
-                        >
-                          Downgrade to Supporter
-                        </Button>
                       ) : null}
                     </div>
                   ) : subscriptionTier === 'supporter' ? (
@@ -768,7 +770,7 @@ function PricingPageContent() {
                       <p className="mt-auto text-center text-sm text-muted-foreground">
                         A subscription change is already scheduled. Use{' '}
                         <Link
-                          href="/platform/settings"
+                          href="/platform/settings/billing"
                           className="font-medium text-trader-blue underline-offset-4 hover:underline"
                         >
                           Settings

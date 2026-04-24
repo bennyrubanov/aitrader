@@ -15,6 +15,32 @@ export async function GET(req: Request) {
   }
 
   const admin = createAdminClient();
+
+  if (payload.scope === 'onboarding') {
+    const { error } = await admin
+      .from('user_welcome_email_progress')
+      .update({
+        unsubscribed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('user_id', payload.userId);
+
+    if (error) {
+      return new NextResponse(
+        `<!DOCTYPE html><html><body><p>Something went wrong. Please update preferences in Settings.</p></body></html>`,
+        { status: 500, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+      );
+    }
+
+    return new NextResponse(
+      `<!DOCTYPE html><html><body style="font-family:system-ui;padding:24px">
+      <p>You are unsubscribed from the onboarding email series.</p>
+      <p><a href="/platform/settings/notifications">Open notification settings</a></p>
+    </body></html>`,
+      { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+    );
+  }
+
   const { error } = await admin
     .from('user_notification_preferences')
     .upsert(

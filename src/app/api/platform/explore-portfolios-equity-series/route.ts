@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { loadStrategyDailySeriesBulk } from '@/lib/config-daily-series';
+import { buildConfigDailySeriesTailPoint, loadStrategyDailySeriesBulk } from '@/lib/config-daily-series';
 import { loadLatestRawRunDate } from '@/lib/live-mark-to-market';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
+import { syncMissingConfigHoldingsSnapshots } from '@/lib/portfolio-config-holdings-write';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { createPublicClient } from '@/utils/supabase/public';
 import { runWithSupabaseQueryCount } from '@/utils/supabase/query-counter';
@@ -30,7 +31,12 @@ export type ExplorePortfoliosEquitySeriesPayload = {
   strategyId: string;
   strategyName: string | null;
   dates: string[];
-  series: Array<{ configId: string; label: string; equities: number[] }>;
+  series: Array<{
+    configId: string;
+    label: string;
+    equities: number[];
+    livePoint: { date: string; aiTop20: number } | null;
+  }>;
   benchmarks: {
     nasdaq100Cap: number[];
     nasdaq100Equal: number[];
@@ -69,6 +75,19 @@ async function loadExplorePortfoliosEquitySeriesPayload(
   const dateSet = new Set<string>();
 
   const configRows = (configs ?? []) as ConfigRow[];
+  await Promise.allSettled(
+    configRows.map((cfg) =>
+      syncMissingConfigHoldingsSnapshots(adminSupabase as never, {
+        strategyId: strategy.id,
+        config: {
+          id: cfg.id,
+          top_n: Number(cfg.top_n ?? 20),
+          weighting_method: cfg.weighting_method,
+          rebalance_frequency: cfg.rebalance_frequency,
+        },
+      })
+    )
+  );
   const snapshots = await loadStrategyDailySeriesBulk(supabase as never, strategy.id);
   const missingAny = configRows.some((cfg) => !snapshots.has(cfg.id));
   const staleAny = Array.from(snapshots.values()).some(
@@ -144,9 +163,14 @@ async function loadExplorePortfoliosEquitySeriesPayload(
     sp500.push(ls);
   }
 
-  const seriesOut: Array<{ configId: string; label: string; equities: number[] }> = [];
+  const seriesOut: Array<{
+    configId: string;
+    label: string;
+    equities: number[];
+    livePoint: { date: string; aiTop20: number } | null;
+  }> = [];
 
-  for (const cfg of (configs ?? []) as ConfigRow[]) {
+  for (const cfg of configRows) {
     const points = byConfigDailySeries.get(cfg.id) ?? [];
     if (points.length === 0) continue;
     const byDate = new Map<string, number>();
@@ -167,7 +191,38 @@ async function loadExplorePortfoliosEquitySeriesPayload(
             rebalanceFrequency: cfg.rebalance_frequency,
           });
 
-    seriesOut.push({ configId: cfg.id, label, equities });
+    let livePoint: { date: string; aiTop20: number } | null = null;
+    const snapshot = snapshots.get(cfg.id);
+    const snapshotAsOf = snapshot?.asOfRunDate ?? null;
+    if (
+      latestRawRunDate != null &&
+      (snapshotAsOf == null || snapshotAsOf < latestRawRunDate)
+    ) {
+      try {
+        const tail = await buildConfigDailySeriesTailPoint(adminSupabase as never, {
+          strategyId: strategy.id,
+          config: {
+            id: cfg.id,
+            risk_level: Number(cfg.risk_level),
+            rebalance_frequency: String(cfg.rebalance_frequency),
+            weighting_method: String(cfg.weighting_method),
+          },
+          notionalSeries: points,
+        });
+        if (
+          tail?.date &&
+          tail.aiTop20 != null &&
+          Number.isFinite(Number(tail.aiTop20)) &&
+          Number(tail.aiTop20) > 0
+        ) {
+          livePoint = { date: tail.date, aiTop20: Number(tail.aiTop20) };
+        }
+      } catch {
+        /* best-effort */
+      }
+    }
+
+    seriesOut.push({ configId: cfg.id, label, equities, livePoint });
   }
 
   return {

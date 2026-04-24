@@ -985,10 +985,8 @@ export function SidebarPortfolioConfigPicker({
                                     className={cn(
                                       'rounded-lg border px-2.5 py-2 text-left transition-all hover:shadow-sm',
                                       isQuickPickActive
-                                        ? 'border-trader-blue bg-trader-blue/10 shadow-sm ring-2 ring-trader-blue/35 hover:border-trader-blue'
-                                        : pick.highlight
-                                          ? 'border-trader-blue/25 bg-trader-blue/[0.04] hover:border-trader-blue/50'
-                                          : 'border-border hover:border-foreground/20 hover:bg-muted/30'
+                                        ? 'border-trader-blue bg-trader-blue/10 shadow-sm hover:border-trader-blue'
+                                        : 'border-border hover:border-foreground/20 hover:bg-muted/30'
                                     )}
                                   >
                                     <p className="text-[11px] font-semibold leading-tight">

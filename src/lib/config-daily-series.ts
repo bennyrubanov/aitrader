@@ -84,6 +84,23 @@ type StrategyLike = {
   id: string;
 };
 
+export async function buildConfigDailySeriesTailPoint(
+  adminSupabase: SupabaseClient,
+  params: {
+    strategyId: string;
+    config: ConfigShape;
+    notionalSeries: PerformanceSeriesPoint[];
+  }
+): Promise<PerformanceSeriesPoint | null> {
+  return buildLatestMtmPointFromLastSnapshot(adminSupabase, {
+    strategyId: params.strategyId,
+    riskLevel: params.config.risk_level,
+    rebalanceFrequency: params.config.rebalance_frequency,
+    weightingMethod: params.config.weighting_method,
+    notionalSeries: params.notionalSeries,
+  });
+}
+
 const toNum = (v: unknown, fallback = 0): number => {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;

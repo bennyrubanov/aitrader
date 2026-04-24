@@ -148,7 +148,10 @@ import {
 } from '@/lib/portfolio-rebalance-date-select-ui';
 import { cn } from '@/lib/utils';
 import type { ConfigPerfRow } from '@/lib/portfolio-config-utils';
-import { buildConfigPerformanceChart } from '@/lib/config-performance-chart';
+import {
+  buildConfigPerformanceChart,
+  buildMetricsFromSeries,
+} from '@/lib/config-performance-chart';
 import {
   buildLiveHoldingsAllocationResult,
   type HoldingsValuationMode,
@@ -1046,6 +1049,7 @@ type ConfigPerfChartPoint = {
 
 type ConfigPerfApiResponse = {
   series?: ConfigPerfChartPoint[];
+  sharpeReturns?: number[];
   metrics?: {
     sharpeRatio: number | null;
     sharpeRatioDecisionCadence?: number | null;
@@ -1061,6 +1065,7 @@ type ConfigPerfApiResponse = {
 
 type UserEntryPerfApiResponse = {
   series?: ConfigPerfChartPoint[];
+  sharpeReturns?: number[];
   metrics?: {
     sharpeRatio: number | null;
     sharpeRatioDecisionCadence?: number | null;
@@ -1095,7 +1100,6 @@ type PresetConfig = {
   rebalanceFrequency: RebalanceFrequency;
   weightingMethod: 'equal' | 'cap';
   topN: number;
-  highlight?: boolean;
 };
 
 const PRESET_CONFIGS: PresetConfig[] = [
@@ -1107,7 +1111,6 @@ const PRESET_CONFIGS: PresetConfig[] = [
     rebalanceFrequency: 'weekly',
     weightingMethod: 'equal',
     topN: 20,
-    highlight: true,
   },
   {
     key: 'aggressive-weekly',
@@ -1341,11 +1344,7 @@ function PresetBentoGrid({
                 type="button"
                 disabled={disabled}
                 onClick={() => onPick(preset)}
-                className={`group relative rounded-xl border p-4 text-left transition-all hover:shadow-md disabled:opacity-60 ${
-                  preset.highlight
-                    ? 'border-trader-blue/30 bg-trader-blue/5 hover:border-trader-blue/60'
-                    : 'border-border hover:border-foreground/30'
-                }`}
+                className="group relative rounded-xl border border-border p-4 text-left transition-all hover:border-foreground/30 hover:shadow-md disabled:opacity-60"
               >
                 <p className="text-sm font-semibold pr-5">{preset.label}</p>
                 <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{preset.description}</p>
@@ -2052,6 +2051,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
           configComputeStatus: built.configComputeStatus,
           hasMultipleObservations: built.hasMultipleObservations,
           series: built.series,
+          sharpeReturns: raw.rows.map((row) => Number(row.net_return ?? 0)),
           metrics: built.metrics,
           userStartDate: built.userStartDate,
         } as UserEntryPerfApiResponse);
@@ -2384,36 +2384,17 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const displaySeries = selectedProfile?.user_start_date
     ? userEntrySeries
     : modelDisplaySeries;
+  const displaySharpeReturns = useMemo<number[]>(() => {
+    if (selectedProfile?.user_start_date) {
+      return userEntryPayload?.sharpeReturns ?? [];
+    }
+    if (perfPayload?.sharpeReturns && perfPayload.sharpeReturns.length > 0) {
+      return perfPayload.sharpeReturns;
+    }
+    return rawRows.map((row) => Number(row.net_return ?? 0));
+  }, [selectedProfile?.user_start_date, userEntryPayload?.sharpeReturns, perfPayload?.sharpeReturns, rawRows]);
 
   const userEntryMetricsFull = userEntryPayload?.metrics;
-
-  const benchmarkBench = useMemo(() => {
-    return benchmarkStatsFromYourPortfolioSeries(displaySeries as PerformanceSeriesPoint[]);
-  }, [displaySeries]);
-
-  const weeklyBeatRates = useMemo(() => {
-    const pts = displaySeries as PerformanceSeriesPoint[];
-    return {
-      ndxCap: computeWeeklyPctBeatingBenchmark(pts, 'nasdaq100CapWeight'),
-      sp500: computeWeeklyPctBeatingBenchmark(pts, 'sp500'),
-      ndxEq: computeWeeklyPctBeatingBenchmark(pts, 'nasdaq100EqualWeight'),
-    };
-  }, [displaySeries]);
-
-  const excessNdxForSpotlight = useMemo(() => {
-    if (
-      selectedProfile?.user_start_date &&
-      userEntryMetricsFull?.excessReturnVsNasdaqCap != null &&
-      Number.isFinite(userEntryMetricsFull.excessReturnVsNasdaqCap)
-    ) {
-      return userEntryMetricsFull.excessReturnVsNasdaqCap;
-    }
-    return benchmarkBench.excessVsNasdaqCap;
-  }, [
-    selectedProfile?.user_start_date,
-    userEntryMetricsFull?.excessReturnVsNasdaqCap,
-    benchmarkBench.excessVsNasdaqCap,
-  ]);
 
   const topN = selectedProfile?.portfolio_config?.top_n ?? 20;
 
@@ -2546,6 +2527,66 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     liveConfigHoldingsAllocation.totalCurrentValue,
   ]);
 
+  const effectiveDisplayMetrics = useMemo(
+    () => {
+      if (!displayMetrics) return null;
+      if (effectiveDisplaySeries === displaySeries) return displayMetrics;
+      const { metrics } = buildMetricsFromSeries(
+        effectiveDisplaySeries,
+        selectedProfile?.portfolio_config?.rebalance_frequency ?? 'weekly',
+        displaySharpeReturns
+      );
+      if (!metrics) return displayMetrics;
+      return {
+        ...displayMetrics,
+        totalReturn: metrics.totalReturn ?? displayMetrics.totalReturn,
+        cagr: metrics.cagr ?? displayMetrics.cagr,
+        maxDrawdown: metrics.maxDrawdown ?? displayMetrics.maxDrawdown,
+        sharpeRatio: metrics.sharpeRatio ?? displayMetrics.sharpeRatio,
+        sharpeRatioDecisionCadence:
+          metrics.sharpeRatioDecisionCadence ??
+          displayMetrics.sharpeRatioDecisionCadence ??
+          null,
+        weeklyObservations: metrics.weeklyObservations ?? displayMetrics.weeklyObservations,
+      };
+    },
+    [
+      displayMetrics,
+      displaySeries,
+      effectiveDisplaySeries,
+      selectedProfile?.portfolio_config?.rebalance_frequency,
+      displaySharpeReturns,
+    ]
+  );
+
+  const benchmarkBench = useMemo(() => {
+    return benchmarkStatsFromYourPortfolioSeries(effectiveDisplaySeries as PerformanceSeriesPoint[]);
+  }, [effectiveDisplaySeries]);
+
+  const weeklyBeatRates = useMemo(() => {
+    const pts = effectiveDisplaySeries as PerformanceSeriesPoint[];
+    return {
+      ndxCap: computeWeeklyPctBeatingBenchmark(pts, 'nasdaq100CapWeight'),
+      sp500: computeWeeklyPctBeatingBenchmark(pts, 'sp500'),
+      ndxEq: computeWeeklyPctBeatingBenchmark(pts, 'nasdaq100EqualWeight'),
+    };
+  }, [effectiveDisplaySeries]);
+
+  const excessNdxForSpotlight = useMemo(() => {
+    if (
+      selectedProfile?.user_start_date &&
+      userEntryMetricsFull?.excessReturnVsNasdaqCap != null &&
+      Number.isFinite(userEntryMetricsFull.excessReturnVsNasdaqCap)
+    ) {
+      return userEntryMetricsFull.excessReturnVsNasdaqCap;
+    }
+    return benchmarkBench.excessVsNasdaqCap;
+  }, [
+    selectedProfile?.user_start_date,
+    userEntryMetricsFull?.excessReturnVsNasdaqCap,
+    benchmarkBench.excessVsNasdaqCap,
+  ]);
+
   const portfolioValueAmount = useMemo(() => {
     const pts = effectiveDisplaySeries as PerformanceSeriesPoint[];
     return computeYourPortfolioValue(
@@ -2555,35 +2596,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     );
   }, [effectiveDisplaySeries, selectedProfile?.investment_size, selectedProfile?.user_start_date]);
 
-  /**
-   * Parenthetical % for Portfolio value: when the effective series differs from the base
-   * (either appended or last point replaced) we recompute last/first so the % matches
-   * the displayed $ value. Otherwise use server-computed `displayMetrics.totalReturn`.
-   */
-  const portfolioValueDisplayTotalReturn = useMemo<number | null>(() => {
-    const base = displaySeries as PerformanceSeriesPoint[];
-    const eff = effectiveDisplaySeries as PerformanceSeriesPoint[];
-    const baseLast = base[base.length - 1]?.aiTop20 ?? null;
-    const effLast = eff[eff.length - 1]?.aiTop20 ?? null;
-    const hasEffectiveOverride =
-      holdingsDateSelect === HOLDINGS_TODAY_SENTINEL &&
-      eff.length > 0 &&
-      (eff.length > base.length || (base.length > 0 && baseLast !== effLast));
-    if (hasEffectiveOverride) {
-      const first = eff[0]?.aiTop20;
-      const last = effLast;
-      if (
-        first != null &&
-        last != null &&
-        Number.isFinite(first) &&
-        Number.isFinite(last) &&
-        first > 0
-      ) {
-        return last / first - 1;
-      }
-    }
-    return displayMetrics?.totalReturn ?? null;
-  }, [displaySeries, effectiveDisplaySeries, holdingsDateSelect, displayMetrics?.totalReturn]);
+  const portfolioValueDisplayTotalReturn = effectiveDisplayMetrics?.totalReturn ?? null;
 
   const holdingsPortfolioValueAsOfCloseLabel = useMemo(() => {
     const pts = displaySeries as PerformanceSeriesPoint[];
@@ -2918,7 +2931,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     selectedProfile?.id,
     activeComputeStatus,
     perfLoading,
-    displayMetrics,
+    effectiveDisplayMetrics,
     portfolioValueAmount,
     weeklyBeatRates,
     excessNdxForSpotlight,
@@ -3612,103 +3625,114 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                       className="flex max-h-[min(42vh,300px)] min-h-0 flex-col gap-2 overflow-y-auto lg:max-h-none lg:flex-1"
                     >
                       <div ref={yourPortfolioMetricsInnerRef} className="flex flex-col gap-2">
-                    <SpotlightStatCard
-                      tooltipKey="portfolio_value"
-                      label="Portfolio value"
-                      value={
-                        portfolioValueAmount != null
-                          ? formatYourPortfolioCurrency(portfolioValueAmount)
-                          : '—'
-                      }
-                      valueSuffix={
-                        portfolioValueAmount != null
-                          ? ` (${spotlightFmt.pct(portfolioValueDisplayTotalReturn)})`
-                          : undefined
-                      }
-                      suffixPositive={
-                        portfolioValueAmount != null &&
-                        portfolioValueDisplayTotalReturn != null &&
-                        Number.isFinite(portfolioValueDisplayTotalReturn)
-                          ? portfolioValueDisplayTotalReturn > 0
-                          : undefined
-                      }
-                      asOfCloseDate={holdingsPortfolioValueAsOfCloseLabel}
-                    />
-                    <SpotlightStatCard
-                      tooltipKey="vs_sp500"
-                      label="Performance vs S&P 500 (cap)"
-                      value={spotlightFmt.pct(benchmarkBench.excessVsSp500)}
-                      positive={
-                        benchmarkBench.excessVsSp500 != null &&
-                        Number.isFinite(benchmarkBench.excessVsSp500)
-                          ? benchmarkBench.excessVsSp500 > 0
-                          : undefined
-                      }
-                    />
-                    <div className="rounded-lg border bg-card px-2 py-2">
-                      <div className="flex items-start justify-between gap-1">
-                        <p className="min-w-0 flex-1 text-[10px] font-medium uppercase leading-tight tracking-wide text-muted-foreground">
-                          Entry date
-                        </p>
-                        {selectedProfile ? (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="size-6 shrink-0 -mr-1 -mt-0.5 text-muted-foreground hover:text-foreground"
-                            aria-label="Entry settings"
-                            onClick={() => setEntrySettingsOpen(true)}
-                          >
-                            <Settings2 className="size-3.5" aria-hidden />
-                          </Button>
-                        ) : null}
+                    {/* Below lg the metrics strip is full-width — use two columns on phones/tablets; lg:contents keeps the narrow sidebar as a single column. */}
+                    <div className="grid min-w-0 grid-cols-2 gap-2 lg:contents">
+                      <div className="min-w-0 lg:contents">
+                        <SpotlightStatCard
+                          tooltipKey="portfolio_value"
+                          label="Portfolio value"
+                          value={
+                            portfolioValueAmount != null
+                              ? formatYourPortfolioCurrency(portfolioValueAmount)
+                              : '—'
+                          }
+                          valueSuffix={
+                            portfolioValueAmount != null
+                              ? ` (${spotlightFmt.pct(portfolioValueDisplayTotalReturn)})`
+                              : undefined
+                          }
+                          suffixPositive={
+                            portfolioValueAmount != null &&
+                            portfolioValueDisplayTotalReturn != null &&
+                            Number.isFinite(portfolioValueDisplayTotalReturn)
+                              ? portfolioValueDisplayTotalReturn > 0
+                              : undefined
+                          }
+                          asOfCloseDate={holdingsPortfolioValueAsOfCloseLabel}
+                        />
                       </div>
-                      <p className="text-sm font-semibold tabular-nums leading-tight text-foreground">
-                        {selectedProfile?.user_start_date?.trim()
-                          ? formatYmdDisplay(selectedProfile.user_start_date.trim())
-                          : '—'}
-                      </p>
-                    </div>
-                    <div className="rounded-lg border bg-card px-2 py-2">
-                      <div className="flex items-start justify-between gap-1">
-                        <p className="min-w-0 flex-1 text-[10px] font-medium uppercase leading-tight tracking-wide text-muted-foreground">
-                          Initial investment
-                        </p>
-                        {selectedProfile ? (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="size-6 shrink-0 -mr-1 -mt-0.5 text-muted-foreground hover:text-foreground"
-                            aria-label="Entry settings"
-                            onClick={() => setEntrySettingsOpen(true)}
-                          >
-                            <Settings2 className="size-3.5" aria-hidden />
-                          </Button>
-                        ) : null}
+                      <div className="min-w-0 lg:contents">
+                        <SpotlightStatCard
+                          tooltipKey="vs_sp500"
+                          label="Performance vs S&P 500 (cap)"
+                          value={spotlightFmt.pct(benchmarkBench.excessVsSp500)}
+                          positive={
+                            benchmarkBench.excessVsSp500 != null &&
+                            Number.isFinite(benchmarkBench.excessVsSp500)
+                              ? benchmarkBench.excessVsSp500 > 0
+                              : undefined
+                          }
+                        />
                       </div>
-                      <p className="text-sm font-semibold tabular-nums leading-tight text-foreground">
-                        {num(selectedProfile?.investment_size) > 0
-                          ? formatYourPortfolioCurrency(num(selectedProfile?.investment_size))
-                          : '—'}
-                      </p>
+                      <div className="min-w-0 lg:contents">
+                        <div className="rounded-lg border bg-card px-2 py-2">
+                          <div className="flex items-start justify-between gap-1">
+                            <p className="min-w-0 flex-1 text-[10px] font-medium uppercase leading-tight tracking-wide text-muted-foreground">
+                              Entry date
+                            </p>
+                            {selectedProfile ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="size-6 shrink-0 -mr-1 -mt-0.5 text-muted-foreground hover:text-foreground"
+                                aria-label="Entry settings"
+                                onClick={() => setEntrySettingsOpen(true)}
+                              >
+                                <Settings2 className="size-3.5" aria-hidden />
+                              </Button>
+                            ) : null}
+                          </div>
+                          <p className="text-sm font-semibold tabular-nums leading-tight text-foreground">
+                            {selectedProfile?.user_start_date?.trim()
+                              ? formatYmdDisplay(selectedProfile.user_start_date.trim())
+                              : '—'}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="min-w-0 lg:contents">
+                        <div className="rounded-lg border bg-card px-2 py-2">
+                          <div className="flex items-start justify-between gap-1">
+                            <p className="min-w-0 flex-1 text-[10px] font-medium uppercase leading-tight tracking-wide text-muted-foreground">
+                              Initial investment
+                            </p>
+                            {selectedProfile ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="size-6 shrink-0 -mr-1 -mt-0.5 text-muted-foreground hover:text-foreground"
+                                aria-label="Entry settings"
+                                onClick={() => setEntrySettingsOpen(true)}
+                              >
+                                <Settings2 className="size-3.5" aria-hidden />
+                              </Button>
+                            ) : null}
+                          </div>
+                          <p className="text-sm font-semibold tabular-nums leading-tight text-foreground">
+                            {num(selectedProfile?.investment_size) > 0
+                              ? formatYourPortfolioCurrency(num(selectedProfile?.investment_size))
+                              : '—'}
+                          </p>
+                        </div>
+                      </div>
                     </div>
                     <SpotlightStatCard
                       tooltipKey="sharpe_ratio"
                       label="Sharpe ratio"
-                      value={spotlightFmt.num(displayMetrics?.sharpeRatio)}
+                      value={spotlightFmt.num(effectiveDisplayMetrics?.sharpeRatio)}
                       valueClassName={
-                        displayMetrics?.sharpeRatio != null &&
-                        Number.isFinite(displayMetrics.sharpeRatio)
-                          ? sharpeRatioValueClass(displayMetrics.sharpeRatio)
+                        effectiveDisplayMetrics?.sharpeRatio != null &&
+                        Number.isFinite(effectiveDisplayMetrics.sharpeRatio)
+                          ? sharpeRatioValueClass(effectiveDisplayMetrics.sharpeRatio)
                           : undefined
                       }
                       afterLabel={
                         <MetricReadinessPill
                           kind="sharpe"
-                          value={displayMetrics?.sharpeRatio ?? null}
+                          value={effectiveDisplayMetrics?.sharpeRatio ?? null}
                           weeksOfData={
-                            displayMetrics?.weeklyObservations ??
+                            effectiveDisplayMetrics?.weeklyObservations ??
                             (selectedProfile?.user_start_date ? undefined : rawRows.length)
                           }
                         />
@@ -3717,18 +3741,19 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                     <SpotlightStatCard
                       tooltipKey="cagr"
                       label="CAGR"
-                      value={spotlightFmt.pct(displayMetrics?.cagr)}
+                      value={spotlightFmt.pct(effectiveDisplayMetrics?.cagr)}
                       positive={
-                        displayMetrics?.cagr != null && Number.isFinite(displayMetrics.cagr)
-                          ? displayMetrics.cagr > 0
+                        effectiveDisplayMetrics?.cagr != null &&
+                        Number.isFinite(effectiveDisplayMetrics.cagr)
+                          ? effectiveDisplayMetrics.cagr > 0
                           : undefined
                       }
                       afterLabel={
                         <MetricReadinessPill
                           kind="cagr"
-                          value={displayMetrics?.cagr ?? null}
+                          value={effectiveDisplayMetrics?.cagr ?? null}
                           weeksOfData={
-                            displayMetrics?.weeklyObservations ??
+                            effectiveDisplayMetrics?.weeklyObservations ??
                             (selectedProfile?.user_start_date ? undefined : rawRows.length)
                           }
                         />
@@ -3737,11 +3762,11 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                     <SpotlightStatCard
                       tooltipKey="max_drawdown"
                       label="Max drawdown"
-                      value={spotlightFmt.pct(displayMetrics?.maxDrawdown)}
+                      value={spotlightFmt.pct(effectiveDisplayMetrics?.maxDrawdown)}
                       positive={
-                        displayMetrics?.maxDrawdown != null &&
-                        Number.isFinite(displayMetrics.maxDrawdown)
-                          ? displayMetrics.maxDrawdown > -0.2
+                        effectiveDisplayMetrics?.maxDrawdown != null &&
+                        Number.isFinite(effectiveDisplayMetrics.maxDrawdown)
+                          ? effectiveDisplayMetrics.maxDrawdown > -0.2
                           : undefined
                       }
                     />
@@ -4501,10 +4526,8 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                           className={cn(
                             'rounded-lg border px-2.5 py-2 text-left transition-all hover:shadow-sm',
                             isQuickPickActive
-                              ? 'border-trader-blue bg-trader-blue/10 shadow-sm ring-2 ring-trader-blue/35 hover:border-trader-blue'
-                              : pick.highlight
-                                ? 'border-trader-blue/25 bg-trader-blue/[0.04] hover:border-trader-blue/50'
-                                : 'border-border hover:border-foreground/20 hover:bg-muted/30'
+                              ? 'border-trader-blue bg-trader-blue/10 shadow-sm hover:border-trader-blue'
+                              : 'border-border hover:border-foreground/20 hover:bg-muted/30'
                           )}
                         >
                           <p className="text-[11px] font-semibold leading-tight">{pick.label}</p>

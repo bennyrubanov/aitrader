@@ -85,7 +85,22 @@ function normalize(d: unknown): ExploreEquitySeriesPayload {
       : null;
   return {
     dates,
-    series: Array.isArray(input.series) ? input.series : [],
+    series: Array.isArray(input.series)
+      ? input.series.map((row) => {
+          const lp = row?.livePoint;
+          const validLivePoint =
+            lp &&
+            typeof lp.date === 'string' &&
+            Number.isFinite(Number(lp.aiTop20)) &&
+            Number(lp.aiTop20) > 0
+              ? { date: lp.date, aiTop20: Number(lp.aiTop20) }
+              : null;
+          return {
+            ...row,
+            livePoint: validLivePoint,
+          };
+        })
+      : [],
     benchmarks: benchmarksValid,
   };
 }

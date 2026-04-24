@@ -199,6 +199,30 @@ export function buildMetricsFromSeries(
   return { metrics, fullMetrics };
 }
 
+/**
+ * Returns `serverMetrics` verbatim when `effectiveSeries === rawSeries` (no tail),
+ * otherwise recomputes metrics from `effectiveSeries`.
+ */
+export function applyEffectiveSeriesToMetrics(
+  serverMetrics: FullConfigPerformanceMetrics | null,
+  rawSeries: PerformanceSeriesPoint[],
+  effectiveSeries: PerformanceSeriesPoint[],
+  rebalanceFrequency: string,
+  sharpeReturns: number[]
+): FullConfigPerformanceMetrics | null {
+  if (!serverMetrics) return null;
+  if (effectiveSeries === rawSeries) return serverMetrics;
+  const { fullMetrics } = buildMetricsFromSeries(effectiveSeries, rebalanceFrequency, sharpeReturns);
+  if (!fullMetrics) return serverMetrics;
+  if (!sharpeReturns.length) {
+    return {
+      ...fullMetrics,
+      sharpeRatioDecisionCadence: serverMetrics.sharpeRatioDecisionCadence,
+    };
+  }
+  return fullMetrics;
+}
+
 function scaleConfigEquities(row: ConfigPerfRow, scale: number): PerformanceSeriesPoint {
   return {
     date: row.run_date,

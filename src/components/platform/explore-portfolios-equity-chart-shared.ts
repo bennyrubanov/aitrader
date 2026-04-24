@@ -2,6 +2,7 @@ export type ExploreEquitySeriesRow = {
   configId: string;
   label: string;
   equities: number[];
+  livePoint?: { date: string; aiTop20: number } | null;
   /** Sidebar risk dot; defaults to 3 if missing */
   riskLevel?: number;
 };

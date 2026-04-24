@@ -176,6 +176,7 @@ export async function GET(req: Request) {
         configId,
         computeStatus,
         rows,
+        sharpeReturns: sharpeReturnsFromRows,
         series,
         metrics,
         fullMetrics,

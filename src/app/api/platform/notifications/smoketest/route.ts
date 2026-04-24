@@ -12,6 +12,12 @@ import {
   buildStockRatingWeeklyEmailHtml,
   buildWeeklyDigestEmailHtml,
 } from '@/lib/notifications/email-templates';
+import {
+  buildWelcomeEmailHtml,
+  buildWelcomePaidTransitionEmail,
+  WELCOME_SMOKETEST_KINDS,
+  type WelcomeSmoketestKind,
+} from '@/lib/notifications/welcome-email-templates';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -38,7 +44,7 @@ export const dynamic = 'force-dynamic';
  *     → send via Gmail SMTP only (bypasses Resend)
  */
 
-type EmailKind =
+type CoreEmailKind =
   | 'rating-changes'
   | 'rebalance'
   | 'model-ratings-ready'
@@ -48,7 +54,9 @@ type EmailKind =
   | 'curated-digest'
   | 'weekly-digest';
 
-const ALL_KINDS: EmailKind[] = [
+type SmoketestKind = CoreEmailKind | WelcomeSmoketestKind;
+
+const CORE_KINDS: CoreEmailKind[] = [
   'rating-changes',
   'rebalance',
   'model-ratings-ready',
@@ -58,6 +66,8 @@ const ALL_KINDS: EmailKind[] = [
   'curated-digest',
   'weekly-digest',
 ];
+
+const ALL_KINDS: SmoketestKind[] = [...CORE_KINDS, ...WELCOME_SMOKETEST_KINDS];
 
 const DEFAULT_RECIPIENT = 'tryaitrader@gmail.com';
 
@@ -80,18 +90,18 @@ function isAuthorized(req: Request): AuthResult {
   return { ok: true };
 }
 
-function parseKinds(param: string | null): { kinds: EmailKind[]; invalid: string[] } {
+function parseKinds(param: string | null): { kinds: SmoketestKind[]; invalid: string[] } {
   if (!param) return { kinds: ALL_KINDS, invalid: [] };
   const requested = param
     .split(',')
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
-  const valid = new Set<EmailKind>(ALL_KINDS);
-  const kinds: EmailKind[] = [];
+  const valid = new Set<SmoketestKind>(ALL_KINDS);
+  const kinds: SmoketestKind[] = [];
   const invalid: string[] = [];
   for (const r of requested) {
-    if (valid.has(r as EmailKind)) {
-      kinds.push(r as EmailKind);
+    if (valid.has(r as SmoketestKind)) {
+      kinds.push(r as SmoketestKind);
     } else {
       invalid.push(r);
     }
@@ -100,7 +110,7 @@ function parseKinds(param: string | null): { kinds: EmailKind[]; invalid: string
 }
 
 type RenderedEmail = {
-  kind: EmailKind;
+  kind: SmoketestKind;
   subject: string;
   html: string;
   text: string;
@@ -293,6 +303,57 @@ function renderSamples(): RenderedEmail[] {
     });
   }
 
+  const onboardingUnsubscribeUrl = `${base}/api/platform/notifications/unsubscribe?token=TEST`;
+  const welcomeFirstName = 'Alex';
+
+  const pushWelcome = (kind: WelcomeSmoketestKind, tier: 'free' | 'supporter' | 'outperformer', step: 1 | 2 | 3 | 4) => {
+    const { html, text, subject } = buildWelcomeEmailHtml({
+      tier,
+      step,
+      firstName: welcomeFirstName,
+      siteBase: base,
+      settingsUrl,
+      onboardingUnsubscribeUrl,
+    });
+    out.push({
+      kind,
+      subject: `${SUBJECT_PREFIX}${subject}`,
+      html,
+      text,
+      unsubscribeUrl: onboardingUnsubscribeUrl,
+    });
+  };
+
+  pushWelcome('welcome-free-1', 'free', 1);
+  pushWelcome('welcome-free-2', 'free', 2);
+  pushWelcome('welcome-free-3', 'free', 3);
+  pushWelcome('welcome-free-4', 'free', 4);
+  pushWelcome('welcome-supporter-1', 'supporter', 1);
+  pushWelcome('welcome-supporter-2', 'supporter', 2);
+  pushWelcome('welcome-supporter-3', 'supporter', 3);
+  pushWelcome('welcome-supporter-4', 'supporter', 4);
+  pushWelcome('welcome-outperformer-1', 'outperformer', 1);
+  pushWelcome('welcome-outperformer-2', 'outperformer', 2);
+  pushWelcome('welcome-outperformer-3', 'outperformer', 3);
+  pushWelcome('welcome-outperformer-4', 'outperformer', 4);
+
+  for (const paidTier of ['supporter', 'outperformer'] as const) {
+    const { html, text, subject } = buildWelcomePaidTransitionEmail({
+      paidTier,
+      firstName: welcomeFirstName,
+      siteBase: base,
+      settingsUrl,
+      onboardingUnsubscribeUrl,
+    });
+    out.push({
+      kind: `welcome-transition-${paidTier}` as WelcomeSmoketestKind,
+      subject: `${SUBJECT_PREFIX}${subject}`,
+      html,
+      text,
+      unsubscribeUrl: onboardingUnsubscribeUrl,
+    });
+  }
+
   return out;
 }
 
@@ -331,7 +392,7 @@ export async function GET(req: Request) {
   }
 
   const results: Array<{
-    kind: EmailKind;
+    kind: SmoketestKind;
     subject: string;
     ok: boolean;
     error?: string;

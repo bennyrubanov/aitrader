@@ -8,6 +8,7 @@ import {
   ChevronDown,
   CircleHelp,
   LayoutGrid,
+  ListFilter,
   Lock,
   Search,
   X,
@@ -34,6 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
@@ -173,6 +175,168 @@ function PaidPlanLockTooltip({
   );
 }
 
+function RatingsStrategyModelPicker({
+  strategies,
+  selectedStrategySlug,
+  selectedStrategyName,
+  defaultStrategySlug,
+  canUseStrategyFilter,
+  onStrategyChange,
+  variant,
+}: {
+  strategies: StrategyListItem[];
+  selectedStrategySlug: string;
+  selectedStrategyName: string;
+  defaultStrategySlug: string;
+  canUseStrategyFilter: boolean;
+  onStrategyChange: (slug: string) => void;
+  variant: 'toolbar' | 'sheet';
+}) {
+  const outerClass =
+    variant === 'sheet'
+      ? 'flex w-full min-w-0 flex-col gap-2'
+      : 'flex min-w-0 max-w-xs flex-1 items-center gap-2 sm:max-w-[min(100%,20rem)]';
+  const triggerClass =
+    variant === 'sheet'
+      ? 'h-9 w-full min-w-0 justify-between gap-2 text-left text-sm'
+      : 'h-8 min-w-0 flex-1 justify-between gap-2 text-left text-sm';
+
+  return (
+    <div className={outerClass}>
+      {variant === 'toolbar' ? (
+        <span className="sr-only shrink-0 whitespace-nowrap text-xs text-muted-foreground md:not-sr-only">
+          Strategy model
+        </span>
+      ) : (
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Strategy model
+        </span>
+      )}
+      {canUseStrategyFilter ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className={triggerClass}>
+              <span className="truncate">{selectedStrategyName}</span>
+              <div className="flex shrink-0 items-center gap-1">
+                {selectedStrategySlug === strategies[0]?.slug ? (
+                  <Badge className="border-0 bg-trader-blue px-1.5 py-0 text-[10px] text-white">Top</Badge>
+                ) : null}
+                <ChevronDown className="size-3.5" />
+              </div>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-64">
+            {strategies.map((strategy, index) => (
+              <DropdownMenuItem
+                key={strategy.slug}
+                onSelect={() => {
+                  if (strategy.slug !== selectedStrategySlug) {
+                    onStrategyChange(strategy.slug);
+                  }
+                }}
+                className="flex cursor-pointer flex-col items-stretch gap-1.5 py-2"
+              >
+                <div className="flex min-w-0 flex-col items-start gap-0.5">
+                  <div className="flex w-full items-center gap-1.5">
+                    <span className="text-sm font-medium">{strategy.name}</span>
+                    {index === 0 ? (
+                      <Badge className="ml-auto border-0 bg-trader-blue px-1.5 py-0 text-[10px] text-white">
+                        Top
+                      </Badge>
+                    ) : null}
+                  </div>
+                  <span className="text-xs text-muted-foreground">
+                    {strategyModelDropdownSubtitle(strategy)}
+                  </span>
+                </div>
+                <Link
+                  href={`/strategy-models/${strategy.slug}`}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+                  onPointerDown={(e) => e.preventDefault()}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  View model details
+                  <ArrowUpRight className="size-3.5 shrink-0" />
+                </Link>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : (
+        <div className={variant === 'sheet' ? 'w-full min-w-0' : 'min-w-0 flex-1'}>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className={cn(triggerClass, 'w-full')}
+                aria-label="Strategy model"
+              >
+                <span className="truncate">{selectedStrategyName}</span>
+                <div className="flex shrink-0 items-center gap-1">
+                  <ChevronDown className="size-3.5 shrink-0" />
+                </div>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-64">
+              {strategies.map((strategy, index) => {
+                const isDefaultModel = strategy.slug === defaultStrategySlug;
+                return (
+                  <DropdownMenuItem
+                    key={strategy.slug}
+                    disabled={!isDefaultModel}
+                    onSelect={() => {
+                      if (isDefaultModel && strategy.slug !== selectedStrategySlug) {
+                        onStrategyChange(strategy.slug);
+                      }
+                    }}
+                    className="flex cursor-pointer flex-col items-stretch gap-1.5 py-2"
+                  >
+                    <div className="flex min-w-0 flex-col items-start gap-0.5">
+                      <div className="flex w-full items-center gap-1.5">
+                        <span className="text-sm font-medium">{strategy.name}</span>
+                        {index === 0 ? (
+                          <Badge className="ml-auto border-0 bg-trader-blue px-1.5 py-0 text-[10px] text-white">
+                            Top
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="ml-auto gap-0.5 px-1.5 py-0 text-[10px] font-medium">
+                            <Lock className="size-2.5" aria-hidden />
+                            Outperformer
+                          </Badge>
+                        )}
+                      </div>
+                      <span className="text-xs text-muted-foreground">
+                        {strategyModelDropdownSubtitle(strategy)}
+                      </span>
+                    </div>
+                    <Link
+                      href={`/strategy-models/${strategy.slug}`}
+                      className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+                      onPointerDown={(e) => e.preventDefault()}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      View model details
+                      <ArrowUpRight className="size-3.5 shrink-0" />
+                    </Link>
+                  </DropdownMenuItem>
+                );
+              })}
+              <div className="border-t px-2 py-2 text-[11px] text-muted-foreground">
+                Outperformer unlocks switching between models.{' '}
+                <Link href="/pricing" className="font-medium text-foreground underline-offset-2 hover:underline">
+                  Compare plans
+                </Link>
+              </div>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function RatingsPageClient({ initialData, strategies }: RatingsPageClientProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -204,6 +368,7 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
     initialData.modelInceptionDate ?? null
   );
   const [topRatedStocksActive, setTopRatedStocksActive] = useState(false);
+  const [mobileRatingsFiltersOpen, setMobileRatingsFiltersOpen] = useState(false);
 
   const access = useMemo(() => getAppAccessState(authState), [authState]);
   const canUseStrategyFilter = canUseRatingsStrategyFilter(access);
@@ -370,6 +535,9 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
     return `${shown} of ${total} stocks`;
   }, [rows.length, filteredRows.length]);
 
+  const ratingsMobileSheetFilterCount =
+    (bucketFilter !== 'all' ? 1 : 0) + (topRatedStocksActive ? 1 : 0);
+
   useEffect(() => { setVisibleCount(PAGE_SIZE); }, [query, bucketFilter, topRatedStocksActive]);
 
   const handleStrategyChange = useCallback(async (value: string) => {
@@ -471,7 +639,53 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
         data-workspace-page-flush="true"
       >
         <div className="border-b border-border/70 bg-background px-4 py-2.5 sm:px-6 sm:py-3">
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2 lg:hidden">
+            <div className="relative min-w-0 flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    clearSearchQuery();
+                  }
+                }}
+                placeholder="Search anything"
+                className={`h-8 pl-9 text-sm ${query ? 'pr-9' : ''}`}
+              />
+              {query ? (
+                <button
+                  type="button"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  aria-label="Clear search"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={clearSearchQuery}
+                >
+                  <X className="size-3.5" />
+                </button>
+              ) : null}
+            </div>
+            <span className="shrink-0 whitespace-nowrap text-xs tabular-nums text-muted-foreground">
+              {headerStockCountLabel}
+            </span>
+          </div>
+          {ratingsAccessMode === 'free' ? (
+            <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[11px] text-muted-foreground lg:hidden">
+              <span className="min-w-0 leading-snug">
+                Upgrade to unlock full ratings, rankings, history, and analyses for all stocks.
+              </span>
+              <Button
+                size="sm"
+                className="h-7 shrink-0 border-0 bg-trader-blue px-2.5 text-xs font-medium text-white hover:bg-trader-blue/90 dark:bg-trader-blue dark:hover:bg-trader-blue/90"
+                asChild
+              >
+                <Link href="/pricing">Upgrade</Link>
+              </Button>
+            </div>
+          ) : null}
+
+          <div className="hidden lg:flex lg:flex-wrap lg:items-center lg:gap-3">
             <div
               className={cn(
                 'flex min-w-0 gap-2 sm:gap-3',
@@ -578,140 +792,20 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
             </div>
 
             <div className="ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2">
-              <div className="flex min-w-0 max-w-xs flex-1 items-center gap-2 sm:max-w-[min(100%,20rem)]">
-                <span className="sr-only shrink-0 whitespace-nowrap text-xs text-muted-foreground md:not-sr-only">
-                  Strategy model
-                </span>
-                {canUseStrategyFilter ? (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="sm" className="h-8 min-w-0 flex-1 justify-between gap-2 text-left text-sm">
-                      <span className="truncate">{selectedStrategyName}</span>
-                      <div className="flex shrink-0 items-center gap-1">
-                        {selectedStrategySlug === strategies[0]?.slug ? (
-                          <Badge className="border-0 bg-trader-blue px-1.5 py-0 text-[10px] text-white">
-                            Top
-                          </Badge>
-                        ) : null}
-                        <ChevronDown className="size-3.5" />
-                      </div>
-                    </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="min-w-64">
-                    {strategies.map((strategy, index) => (
-                      <DropdownMenuItem
-                        key={strategy.slug}
-                        onSelect={() => {
-                          if (strategy.slug !== selectedStrategySlug) {
-                            void handleStrategyChange(strategy.slug);
-                          }
-                        }}
-                        className="flex cursor-pointer flex-col items-stretch gap-1.5 py-2"
-                      >
-                        <div className="flex min-w-0 flex-col items-start gap-0.5">
-                          <div className="flex w-full items-center gap-1.5">
-                            <span className="text-sm font-medium">{strategy.name}</span>
-                            {index === 0 ? (
-                              <Badge className="ml-auto border-0 bg-trader-blue px-1.5 py-0 text-[10px] text-white">
-                                Top
-                              </Badge>
-                            ) : null}
-                          </div>
-                          <span className="text-xs text-muted-foreground">
-                            {strategyModelDropdownSubtitle(strategy)}
-                          </span>
-                        </div>
-                        <Link
-                          href={`/strategy-models/${strategy.slug}`}
-                          className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
-                          onPointerDown={(e) => e.preventDefault()}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          View model details
-                          <ArrowUpRight className="size-3.5 shrink-0" />
-                        </Link>
-                      </DropdownMenuItem>
-                    ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                ) : (
-                  <div className="min-w-0 flex-1">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-8 w-full min-w-0 justify-between gap-2 text-left text-sm"
-                          aria-label="Strategy model"
-                        >
-                          <span className="truncate">{selectedStrategyName}</span>
-                          <div className="flex shrink-0 items-center gap-1">
-                            <ChevronDown className="size-3.5 shrink-0" />
-                          </div>
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="min-w-64">
-                        {strategies.map((strategy, index) => {
-                          const isDefaultModel = strategy.slug === defaultStrategy.slug;
-                          return (
-                            <DropdownMenuItem
-                              key={strategy.slug}
-                              disabled={!isDefaultModel}
-                              onSelect={() => {
-                                if (isDefaultModel && strategy.slug !== selectedStrategySlug) {
-                                  void handleStrategyChange(strategy.slug);
-                                }
-                              }}
-                              className="flex cursor-pointer flex-col items-stretch gap-1.5 py-2"
-                            >
-                              <div className="flex min-w-0 flex-col items-start gap-0.5">
-                                <div className="flex w-full items-center gap-1.5">
-                                  <span className="text-sm font-medium">{strategy.name}</span>
-                                  {index === 0 ? (
-                                    <Badge className="ml-auto border-0 bg-trader-blue px-1.5 py-0 text-[10px] text-white">
-                                      Top
-                                    </Badge>
-                                  ) : (
-                                    <Badge
-                                      variant="outline"
-                                      className="ml-auto gap-0.5 px-1.5 py-0 text-[10px] font-medium"
-                                    >
-                                      <Lock className="size-2.5" aria-hidden />
-                                      Outperformer
-                                    </Badge>
-                                  )}
-                                </div>
-                                <span className="text-xs text-muted-foreground">
-                                  {strategyModelDropdownSubtitle(strategy)}
-                                </span>
-                              </div>
-                              <Link
-                                href={`/strategy-models/${strategy.slug}`}
-                                className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
-                                onPointerDown={(e) => e.preventDefault()}
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                View model details
-                                <ArrowUpRight className="size-3.5 shrink-0" />
-                              </Link>
-                            </DropdownMenuItem>
-                          );
-                        })}
-                        <div className="border-t px-2 py-2 text-[11px] text-muted-foreground">
-                          Outperformer unlocks switching between models.{' '}
-                          <Link href="/pricing" className="font-medium text-foreground underline-offset-2 hover:underline">
-                            Compare plans
-                          </Link>
-                        </div>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                )}
-              </div>
+              <RatingsStrategyModelPicker
+                strategies={strategies}
+                selectedStrategySlug={selectedStrategySlug}
+                selectedStrategyName={selectedStrategyName}
+                defaultStrategySlug={defaultStrategy.slug}
+                canUseStrategyFilter={canUseStrategyFilter}
+                onStrategyChange={(slug) => {
+                  void handleStrategyChange(slug);
+                }}
+                variant="toolbar"
+              />
             </div>
           </div>
-          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="mt-3 hidden flex-col gap-2 sm:flex-row sm:items-center sm:justify-between lg:flex">
             <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
               <div className="relative flex-1 sm:max-w-xs">
                 <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -830,8 +924,214 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
           </div>
         </div>
 
+        <button
+          type="button"
+          className="fixed bottom-6 right-4 z-40 flex items-center gap-2 rounded-full bg-trader-blue px-4 py-2.5 text-sm font-medium text-white shadow-lg lg:hidden"
+          onClick={() => setMobileRatingsFiltersOpen(true)}
+          aria-label="Open filters"
+        >
+          <ListFilter className="size-4 shrink-0" aria-hidden />
+          Filters
+          {ratingsMobileSheetFilterCount > 0 ? (
+            <span className="rounded-full bg-white/20 px-1.5 text-[10px] font-semibold tabular-nums">
+              {ratingsMobileSheetFilterCount}
+            </span>
+          ) : null}
+        </button>
+        <Sheet open={mobileRatingsFiltersOpen} onOpenChange={setMobileRatingsFiltersOpen}>
+          <SheetContent
+            side="right"
+            className="flex w-[min(100vw-1rem,22rem)] flex-col gap-0 overflow-hidden p-0 pt-10"
+          >
+            <SheetHeader className="shrink-0 border-b px-4 pb-3 text-left sm:px-6">
+              <SheetTitle>Filters</SheetTitle>
+            </SheetHeader>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-4 pb-6 pt-4 sm:px-6">
+              <div className="space-y-6">
+                <RatingsStrategyModelPicker
+                  strategies={strategies}
+                  selectedStrategySlug={selectedStrategySlug}
+                  selectedStrategyName={selectedStrategyName}
+                  defaultStrategySlug={defaultStrategy.slug}
+                  canUseStrategyFilter={canUseStrategyFilter}
+                  onStrategyChange={(slug) => {
+                    void handleStrategyChange(slug);
+                  }}
+                  variant="sheet"
+                />
+                <div className="space-y-2 border-t border-border pt-4">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    View
+                  </span>
+                  {ratingsAccessMode === 'free' ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="inline-flex w-full shrink-0">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled
+                            className="h-9 w-full gap-1.5 px-2.5 pl-3 text-xs font-medium text-muted-foreground"
+                            aria-label="Top rated view — requires a paid plan"
+                          >
+                            <Lock className="size-3.5 shrink-0" aria-hidden />
+                            Top rated
+                          </Button>
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-xs text-xs">
+                        Upgrade to a paid plan for rankings and the cumulative top-rated leaderboard.
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : fullRatingsAccess ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className={cn(
+                        'h-9 w-full shrink-0 gap-1.5 px-2.5 pl-3 text-xs transition-shadow',
+                        topRatedStocksActive
+                          ? 'border-trader-blue bg-trader-blue font-semibold text-white shadow-md hover:bg-trader-blue/90 hover:text-white dark:border-trader-blue dark:bg-trader-blue dark:text-white dark:hover:bg-trader-blue/90'
+                          : 'font-medium text-muted-foreground hover:border-border hover:bg-muted/60 hover:text-foreground'
+                      )}
+                      aria-pressed={topRatedStocksActive}
+                      aria-label={
+                        topRatedStocksActive
+                          ? 'Top rated view on — switch to default table'
+                          : 'Top rated view — cumulative leaderboard'
+                      }
+                      onClick={(e) => {
+                        if ((e.target as HTMLElement).closest('[data-top-rated-help-sheet]')) return;
+                        setTopRatedStocksActive((v) => !v);
+                      }}
+                    >
+                      <LayoutGrid
+                        className={cn('shrink-0', topRatedStocksActive ? 'size-4' : 'size-3.5')}
+                        aria-hidden
+                      />
+                      Top rated
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span
+                            data-top-rated-help-sheet
+                            className={cn(
+                              '-mr-0.5 ml-0.5 inline-flex shrink-0 cursor-help rounded-sm p-0.5',
+                              topRatedStocksActive
+                                ? 'text-white/80 hover:text-white'
+                                : 'text-muted-foreground hover:text-foreground'
+                            )}
+                            aria-label="About the top rated view"
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <CircleHelp className="size-3.5 shrink-0" aria-hidden />
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-xs text-xs">
+                          {topRatedViewTooltip}
+                        </TooltipContent>
+                      </Tooltip>
+                    </Button>
+                  ) : null}
+                </div>
+                <div className="space-y-2 border-t border-border pt-4">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Rating bucket
+                  </span>
+                  <div className="flex flex-wrap items-center gap-1 rounded-md border p-0.5">
+                    {BUCKET_FILTERS.map((bf) => (
+                      <button
+                        key={bf.value}
+                        type="button"
+                        onClick={() => setBucketFilter(bf.value)}
+                        className={`rounded-sm px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                          bucketFilter === bf.value
+                            ? 'bg-primary text-primary-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        {bf.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Showing {visibleRows.length} of {filteredRows.length} in this view
+                  </p>
+                </div>
+                <div className="space-y-2 border-t border-border pt-4">
+                  <Label
+                    htmlFor="ratings-run-date-select-mobile"
+                    className="text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                  >
+                    {topRatedStocksActive ? 'Cumulative ratings as of' : 'Rating date'}
+                  </Label>
+                  <Select
+                    value={
+                      selectedRunDate && availableRunDates.includes(selectedRunDate)
+                        ? selectedRunDate
+                        : undefined
+                    }
+                    onValueChange={(v) => {
+                      if (v) void handleRunDateSelect(v);
+                    }}
+                    disabled={ratingsRunDateSelectDisabled}
+                  >
+                    {ratingsAccessMode === 'free' ? (
+                      <Tooltip delayDuration={200}>
+                        <TooltipTrigger asChild>
+                          <span className="inline-flex w-full cursor-help rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+                            <SelectTrigger
+                              id="ratings-run-date-select-mobile"
+                              aria-label="Ratings run date — upgrade for history"
+                              className="h-9 w-full shrink-0 pointer-events-none text-xs"
+                            >
+                              <SelectValue placeholder={availableRunDates.length ? 'Run date' : 'No dates'} />
+                            </SelectTrigger>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent
+                          side="top"
+                          align="start"
+                          className="pointer-events-auto w-[min(100vw-2rem,18rem)] border-border p-3 text-left shadow-lg"
+                        >
+                          <p className="mb-2.5 text-xs leading-snug text-popover-foreground">
+                            Rating history and past run dates are available on Supporter or Outperformer plans.
+                          </p>
+                          <Button
+                            size="sm"
+                            className="h-8 w-full gap-1 border-0 bg-trader-blue font-medium text-white hover:bg-trader-blue/90 dark:bg-trader-blue dark:hover:bg-trader-blue/90"
+                            asChild
+                          >
+                            <Link href="/pricing">Upgrade</Link>
+                          </Button>
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      <SelectTrigger
+                        id="ratings-run-date-select-mobile"
+                        aria-label="Ratings run date"
+                        className="h-9 w-full shrink-0 text-xs"
+                      >
+                        <SelectValue placeholder={availableRunDates.length ? 'Run date' : 'No dates'} />
+                      </SelectTrigger>
+                    )}
+                    <SelectContent align="start">
+                      {availableRunDates.map((d) => (
+                        <SelectItem key={d} value={d} className="text-xs">
+                          {formatRunDate(d)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+          </SheetContent>
+        </Sheet>
+
         {/* Table area */}
-        <div className="min-h-0 flex-1 overflow-auto overscroll-y-contain pb-4">
+        <div className="min-h-0 flex-1 overflow-auto overscroll-y-contain pb-24 lg:pb-4">
           {isStrategyLoading || isDateLoading ? (
             <div className="space-y-2 px-4 pt-4 sm:px-6">
               <Skeleton className="h-10 w-full" />
@@ -847,7 +1147,7 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                   <Table
                     noScrollWrapper
                     className={cn(
-                      'w-full min-w-[920px] border-separate border-spacing-0 table-auto [--ratings-rank-width:4.25rem] sm:[--ratings-rank-width:5.75rem]',
+                      'w-full min-w-[920px] max-lg:w-max max-lg:min-w-0 border-separate border-spacing-0 table-auto [--ratings-rank-width:4.25rem] sm:[--ratings-rank-width:5.75rem]',
                       rankColumnBlurred ? RATINGS_TABLE_PADDING_FREE : RATINGS_TABLE_PADDING_PAID
                     )}
                   >
@@ -1028,7 +1328,7 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                   <Table
                     noScrollWrapper
                     className={cn(
-                      'w-full min-w-[1100px] border-separate border-spacing-0 table-auto [--ratings-rank-width:4.25rem] sm:[--ratings-rank-width:5.75rem]',
+                      'w-full min-w-[1100px] max-lg:w-max max-lg:min-w-0 border-separate border-spacing-0 table-auto [--ratings-rank-width:4.25rem] sm:[--ratings-rank-width:5.75rem]',
                       rankColumnBlurred ? RATINGS_TABLE_PADDING_FREE : RATINGS_TABLE_PADDING_PAID
                     )}
                   >

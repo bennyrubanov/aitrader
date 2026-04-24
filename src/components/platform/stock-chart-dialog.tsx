@@ -22,6 +22,7 @@ import Link from 'next/link';
 import { Expand, Lock } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import {
   Dialog,
   DialogContent,
@@ -681,6 +682,8 @@ export function StockChartDialog({
   onOpenChange: onOpenChangeProp,
   showDefaultTrigger = true,
   footer,
+  /** When opened from another dialog, avoid Escape / outside dismiss bubbling to the parent. */
+  stackedOnDialog = false,
 }: {
   symbol: string;
   strategySlug?: string | null;
@@ -691,6 +694,7 @@ export function StockChartDialog({
   showDefaultTrigger?: boolean;
   /** Renders below the chart, right-aligned (e.g. link to full stock analysis). */
   footer?: ReactNode;
+  stackedOnDialog?: boolean;
 }) {
   const { isAuthenticated, isLoaded, subscriptionTier } = useAuthState();
   const chartAuthSegment = !isLoaded ? 'pending' : !isAuthenticated ? 'guest' : subscriptionTier;
@@ -715,7 +719,33 @@ export function StockChartDialog({
           </Button>
         </DialogTrigger>
       ) : null}
-      <DialogContent className="w-[calc(100vw-1rem)] max-w-3xl sm:w-full">
+      <DialogContent
+        className={cn(
+          'w-[calc(100vw-1rem)] max-w-3xl sm:w-full',
+          stackedOnDialog && 'z-[60]'
+        )}
+        onEscapeKeyDown={
+          stackedOnDialog
+            ? (e) => {
+                e.stopPropagation();
+              }
+            : undefined
+        }
+        onPointerDownOutside={
+          stackedOnDialog
+            ? (e) => {
+                e.stopPropagation();
+              }
+            : undefined
+        }
+        onInteractOutside={
+          stackedOnDialog
+            ? (e) => {
+                e.stopPropagation();
+              }
+            : undefined
+        }
+      >
         {open ? (
           <>
             <StockPriceRatingChart

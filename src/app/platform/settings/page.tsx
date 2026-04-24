@@ -844,7 +844,7 @@ const SettingsPageContent = () => {
       className={cn(
         'mx-auto w-full pt-2 md:pt-4',
         authState.isLoaded
-          ? 'flex h-full min-h-0 min-w-0 w-full max-w-5xl flex-1 flex-col gap-6 md:flex-row md:items-stretch md:overflow-hidden md:overscroll-y-contain md:max-h-full lg:gap-10'
+          ? 'flex min-h-0 min-w-0 w-full max-w-5xl flex-col gap-6 max-md:h-auto max-md:flex-none md:h-full md:max-h-full md:flex-1 md:flex-row md:items-stretch md:overflow-hidden md:overscroll-y-contain lg:gap-10'
           : 'max-w-2xl space-y-6'
       )}
     >
@@ -861,31 +861,34 @@ const SettingsPageContent = () => {
         className={cn(
           'min-w-0 space-y-6',
           authState.isLoaded
-            ? 'flex min-h-0 min-w-0 flex-1 flex-col md:max-w-2xl md:overflow-y-auto md:overscroll-y-contain md:pl-6 lg:pl-8 md:h-full md:max-h-full md:min-h-0'
+            ? 'flex min-h-0 min-w-0 flex-col md:max-w-2xl md:flex-1 md:overflow-y-auto md:overscroll-y-contain md:pl-6 lg:pl-8 md:h-full md:max-h-full md:min-h-0'
             : 'mx-auto max-w-2xl'
         )}
       >
-        <h1 className="text-2xl font-semibold tracking-tight md:hidden">Settings</h1>
+        {/* Mobile: sticky band so section chips stay above the card body (layout + scroll). */}
+        <div className="sticky top-0 z-20 -mx-1 space-y-3 border-b border-border/60 bg-background px-1 pb-3 pt-0 shadow-sm md:hidden">
+          <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
 
-        {authState.isLoaded && (
-          <div className="-mx-1 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] md:hidden [&::-webkit-scrollbar]:hidden">
-            {settingsTocItems.map((item) => (
-              <button
-                type="button"
-                key={item.id}
-                className={cn(
-                  'shrink-0 rounded-full border bg-card px-3 py-1.5 text-xs font-medium transition-colors',
-                  item.id === activeSection
-                    ? 'border-foreground/30 text-foreground'
-                    : 'border-border text-muted-foreground hover:border-trader-blue/40 hover:text-foreground'
-                )}
-                onClick={() => selectSection(item.id)}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-        )}
+          {authState.isLoaded && (
+            <div className="-mx-1 flex gap-2 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {settingsTocItems.map((item) => (
+                <button
+                  type="button"
+                  key={item.id}
+                  className={cn(
+                    'shrink-0 rounded-full border bg-card px-3 py-1.5 text-xs font-medium transition-colors',
+                    item.id === activeSection
+                      ? 'border-foreground/30 text-foreground'
+                      : 'border-border text-muted-foreground hover:border-trader-blue/40 hover:text-foreground'
+                  )}
+                  onClick={() => selectSection(item.id)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         {!authState.isLoaded ? (
           <div className="flex items-center justify-center py-16">
@@ -992,8 +995,8 @@ const SettingsPageContent = () => {
               </div>
               <div className="grid grid-cols-[100px_1fr] items-center gap-x-4 px-5 py-3 text-sm sm:grid-cols-[120px_1fr]">
                 <span className="text-muted-foreground">Plan</span>
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <span className="inline-flex max-w-[min(12rem,45vw)] min-w-0 shrink items-center rounded-full border border-border px-2.5 py-0.5">
+                <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+                  <span className="inline-flex max-w-full min-w-0 shrink-0 items-center rounded-full border border-border px-2.5 py-0.5 sm:max-w-[min(12rem,45vw)]">
                     <PlanLabel
                       isPremium={authState.hasPremiumAccess}
                       subscriptionTier={authState.subscriptionTier}
@@ -1004,7 +1007,7 @@ const SettingsPageContent = () => {
                   {authState.hasPremiumAccess &&
                     (authState.stripeRecurringInterval === 'month' ||
                       authState.stripeRecurringInterval === 'year') && (
-                      <span className="shrink-0 text-xs text-muted-foreground">
+                      <span className="min-w-0 max-w-full flex-1 break-words text-xs leading-snug text-muted-foreground">
                         {authState.stripeRecurringInterval === 'month'
                           ? 'Billed monthly.'
                           : 'Billed yearly.'}

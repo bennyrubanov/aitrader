@@ -8,7 +8,6 @@ export type PortfolioExploreQuickPick = {
   rebalanceFrequency: RebalanceFrequency;
   weightingMethod: 'equal' | 'cap';
   topN: number;
-  highlight?: boolean;
 };
 
 export const PORTFOLIO_EXPLORE_QUICK_PICKS: PortfolioExploreQuickPick[] = [
@@ -20,7 +19,6 @@ export const PORTFOLIO_EXPLORE_QUICK_PICKS: PortfolioExploreQuickPick[] = [
     rebalanceFrequency: 'weekly',
     weightingMethod: 'equal',
     topN: 20,
-    highlight: true,
   },
   {
     key: 'aggressive-weekly',

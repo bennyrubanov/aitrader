@@ -211,6 +211,7 @@ export type PlatformPerformancePayload = {
     modelName: string | null;
   } | null;
   latestRunDate?: string | null;
+  sharpeReturns?: number[];
   series: SeriesPoint[];
   metrics: {
     startingCapital: number;
@@ -477,6 +478,7 @@ const buildPayloadForStrategy = async (
   if (performanceError || !performanceData?.length) {
     return {
       strategy: baseStrategy,
+      sharpeReturns: [],
       series: [],
       metrics: null,
       latestActions: [],
@@ -681,6 +683,7 @@ const buildPayloadForStrategy = async (
   return {
     strategy: baseStrategy,
     latestRunDate,
+    sharpeReturns: weeklyNetReturns,
     series,
     metrics,
     latestActions,

@@ -49,6 +49,10 @@ function pickPrice(map: SymbolPriceMap, key: string): number | null {
  *
  * `totalCurrentValue` is the sum of positive row `currentValue`s when that sum is finite and positive
  * (can be set even when `hasCompleteCoverage` is false, e.g. partial live MTM fallbacks to weight dollars).
+ *
+ * Invariant: client surfaces build an effective portfolio series by append/replace on `aiTop20` only,
+ * while benchmark legs stay as-of the last server point (or are carried forward on an appended tail date).
+ * See `.cursor/rules/performance-stats-single-source.mdc` (§2 and §5) for the canonical behavior.
  */
 export function buildLiveHoldingsAllocationResult(
   holdings: HoldingItem[],

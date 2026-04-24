@@ -1,0 +1,164 @@
+---
+description: Canonical methodology for portfolio-value and performance stats — one effective equity series drives every displayed number
+globs: src/components/performance/**, src/components/platform/**, src/lib/config-performance-chart.ts, src/lib/live-holdings-allocation.ts, src/lib/live-mark-to-market.ts, src/lib/config-daily-series.ts, src/lib/portfolio-config-holdings*.ts, src/app/api/platform/explore-portfolio-config-holdings/**, src/app/api/platform/explore-portfolios-equity-series/**
+alwaysApply: false
+---
+
+# Performance stats — single-source-series methodology
+
+Future contributors (human or AI) touching any surface that displays a
+portfolio value, total return, Sharpe, CAGR, max drawdown, pct-weeks-beating,
+or any benchmark comparative should read this first. It explains _why_ the
+effective-series pattern exists and what keeps the displayed numbers
+internally consistent.
+
+## 1. The "single-source series" rule
+
+For any portfolio + date range shown in the UI, there is exactly **one equity
+path** — a list of `PerformanceSeriesPoint { date, aiTop20,
+nasdaq100CapWeight, nasdaq100EqualWeight, sp500 }`. Every displayed number on
+that surface — headline card, flip cards, tables, mini-charts, sidebar rows
+— MUST be derived from that same series.
+
+If a headline `$` value is drawn from series A and its accompanying `%` is
+drawn from metrics computed off series B, they drift whenever the live tail
+runs ahead of the server-cached snapshot. That has happened repeatedly on
+`/platform/your-portfolios`, `/platform` (overview spotlight),
+`/performance/[slug]`, and can happen on the `/strategy-models/[slug]` explore
+chart too. The fix is always the same: **pick the effective series once,
+recompute metrics from it, and thread that object through the entire
+component tree.**
+
+## 2. What "effective series" means
+
+Given a server-computed `displaySeries` and a holdings API response containing
+`totalCurrentValue` + `latestRunDate`, the client produces an
+`effectiveDisplaySeries` whose last point matches the most-recent priced
+valuation of the current basket. The rule:
+
+- If `holdingsDateSelect !== HOLDINGS_TODAY_SENTINEL`, effective = display (no
+  live tail when a historical date is selected).
+- Else if `holdingsLatestYmd > last.date`, **append** a new point
+  `{ date: holdingsLatestYmd, aiTop20: totalCurrentValue, benchmarks: copy
+  from last }`.
+- Else if `holdingsLatestYmd === last.date` and
+  `|totalCurrentValue − last.aiTop20| > $0.005`, **replace** the last point's
+  `aiTop20` with `totalCurrentValue` (benchmarks preserved).
+- Else effective = display (return the same array reference so downstream
+  reference-equality short-circuits fire).
+
+`totalCurrentValue` is produced by `buildLiveHoldingsAllocationResult(...)` in
+[`src/lib/live-holdings-allocation.ts`](mdc:src/lib/live-holdings-allocation.ts)
+as `sum(weight_i * (notional / asOf_price_i) * latest_price_i)`, where
+`notional`, `asOf_price_i`, and weights all come from the same stored
+rebalance snapshot as the server's daily MTM walk. This is possible because
+`syncMissingConfigHoldingsSnapshots()`
+([`src/lib/portfolio-config-holdings-write.ts`](mdc:src/lib/portfolio-config-holdings-write.ts))
+self-heals `strategy_portfolio_config_holdings` gaps on every read path that
+could diverge — see `/api/platform/explore-portfolio-config-holdings` and
+`ensureConfigDailySeries` in
+[`src/lib/config-daily-series.ts`](mdc:src/lib/config-daily-series.ts).
+
+## 3. The canonical derivation
+
+The function that turns a series into the full metric bundle already exists:
+
+```ts
+// src/lib/config-performance-chart.ts
+export function buildMetricsFromSeries(
+  series: PerformanceSeriesPoint[],
+  rebalanceFrequency: string,
+  sharpeReturns: number[]
+): {
+  metrics: ConfigChartMetrics | null;
+  fullMetrics: FullConfigPerformanceMetrics | null;
+}
+```
+
+It returns:
+
+- `totalReturn`, `cagr`, `maxDrawdown`, `endingValue`, `startingCapital`
+- `sharpeRatio` (weekly-MTM) and `sharpeRatioDecisionCadence` (from
+  `sharpeReturns`)
+- `weeklyObservations`
+- `pctWeeksBeatingNasdaq100`, `pctWeeksBeatingSp500`,
+  `pctWeeksBeatingNasdaq100EqualWeight`
+- `pctMonthsBeatingNasdaq100`
+- `benchmarks.{nasdaq100CapWeight, nasdaq100EqualWeight,
+  sp500}.{endingValue, totalReturn, cagr, maxDrawdown}`
+
+Feeding this function the **effective** series instead of the raw one yields
+`effectiveDisplayMetrics` — an internally-consistent bundle that the entire
+page can consume without drift. Use the
+`applyEffectiveSeriesToMetrics(serverMetrics, rawSeries, effectiveSeries,
+rebalanceFrequency, sharpeReturns)` helper (also in
+`config-performance-chart.ts`) so the reference-equality short-circuit is
+shared across surfaces.
+
+## 4. `sharpeReturns` — what to pass
+
+`sharpeReturns` is the array of rebalance-cadence net returns used for
+decision-cadence Sharpe; it is cadence-dimensional and must NOT be re-derived
+from the effective series (which may include a sub-cadence tail). Pass the
+existing `sharpeReturns` untouched when recomputing — decision Sharpe is
+unaffected by a one-day live tail because the tail isn't a rebalance event.
+If the effective series _replaces_ the last rebalance bar rather than
+appending, decision Sharpe also remains valid because the last rebalance's
+net return is independent of the replaced end-of-day price; the weekly-MTM
+leg is the only Sharpe that needs recomputing, and `buildMetricsFromSeries`
+handles that automatically.
+
+## 5. Benchmarks
+
+When only `aiTop20` changes on the last bar (because `totalCurrentValue`
+prices the AI basket at latest close but benchmarks aren't tailed),
+`benchmarks.*.totalReturn` from `effectiveDisplayMetrics` matches the
+un-tailed values at the same `lastPoint.date`. That's correct behavior:
+vs-benchmark comparatives compare like-for-like end-of-day snapshots. If the
+tail adds a new later date, benchmarks on that date are copied from the
+previous bar; document this in a comment near the tail construction so
+readers know benchmark totalReturn on the tailed date is a **float**, not a
+re-pricing.
+
+## 6. Data-side invariants (don't regress)
+
+- `strategy_portfolio_config_holdings` must have a JSONB row for every
+  `ai_run_batches.run_date` that falls within the config's cadence.
+  `syncMissingConfigHoldingsSnapshots` fills gaps on demand.
+- Cache invalidation on fill: delete the config's
+  `portfolio_config_daily_series` row + `revalidateTag('mtm-walk-inputs')` and
+  `revalidateTag('mtm-walk-inputs:' + strategyId)`. `revalidateTag` must be
+  dynamically imported (`await import('next/cache')`) so this module can be
+  pulled through the Client Component import graph.
+- Holdings API and server MTM walk read the same stored snapshot, so the
+  effective-tail basket equals the server basket.
+
+## 7. Multi-config (explore) surfaces
+
+Multi-config surfaces — `ExplorePortfoliosEquityChart` and any similar
+bulk-render view — cannot afford a per-config live fetch on render. Per
+[daily-snapshot-invariant](mdc:.cursor/rules/daily-snapshot-invariant.mdc),
+they bulk-read `portfolio_config_daily_series` via `loadStrategyDailySeriesBulk`.
+The stored series's last point IS the latest live-MTM point (produced by
+`buildLatestMtmPointFromLastSnapshot` inside `computeConfigDailySeries`), so
+**as long as the snapshot is current** the explore chart's last-bar value
+equals the effective-series last value on the single-config surfaces.
+
+If alignment between explore and single-config surfaces is required while
+snapshots are stale, the server endpoint should compute **just the tail**
+(`buildLatestMtmPointFromLastSnapshot(config)` — cheap, no full walk) for
+each stale config and attach it to the payload; the client then applies the
+append/replace rule from §2 on render. This is the correct pattern;
+fanning out `ensureConfigDailySeries()` per config is forbidden.
+
+## 8. When to use this rule
+
+Touch this rule any time you:
+
+- Add or modify a number (`$`, `%`, ratio) displayed on `/performance/[slug]`,
+  `/platform/your-portfolios`, `/platform` overview, or
+  `/strategy-models/[slug]` explore.
+- Change `buildLatestMtmPointFromLastSnapshot`,
+  `buildLiveHoldingsAllocationResult`, `buildMetricsFromSeries`, or
+  `syncMissingConfigHoldingsSnapshots`.
+- Wire a new client component to a portfolio performance payload.

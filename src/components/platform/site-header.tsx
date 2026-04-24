@@ -200,7 +200,8 @@ export function SiteHeader() {
           <MiniStockSearch />
         </Suspense>
 
-        <div className="flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1">
+          {isLoaded && isAuthenticated ? <NotificationsBell /> : null}
           <ThemeToggle />
           {isLoaded && !isAuthenticated ? (
             <Suspense
@@ -210,11 +211,7 @@ export function SiteHeader() {
             >
               <SiteHeaderGuestAuth />
             </Suspense>
-          ) : (
-            <div className="hidden sm:flex sm:items-center">
-              <NotificationsBell />
-            </div>
-          )}
+          ) : null}
         </div>
       </div>
     </header>

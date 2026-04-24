@@ -230,10 +230,8 @@ function ExploreQuickPicksSection({
               className={cn(
                 'rounded-lg border px-3 py-2.5 text-left transition-all hover:shadow-sm',
                 isQuickPickActive
-                  ? 'border-trader-blue bg-trader-blue/10 shadow-sm ring-2 ring-trader-blue/35 hover:border-trader-blue'
-                  : pick.highlight
-                    ? 'border-trader-blue/25 bg-trader-blue/[0.04] hover:border-trader-blue/50'
-                    : 'border-border hover:border-foreground/20 hover:bg-muted/30'
+                  ? 'border-trader-blue bg-trader-blue/10 shadow-sm hover:border-trader-blue'
+                  : 'border-border hover:border-foreground/20 hover:bg-muted/30'
               )}
             >
               <p className="text-xs font-semibold truncate">{pick.label}</p>
@@ -946,103 +944,184 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-y-contain px-1 py-1 lg:h-full lg:max-h-full lg:min-h-0 lg:pl-8">
           {/* Toolbar: list/chart + sort / chart context (no title — filters live in sidebar) */}
           <div className="px-4 py-2 sm:px-6 sm:py-2.5">
-            <div className="flex flex-wrap items-center justify-between gap-2 gap-y-2">
-              <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
-                {!isLoading && filteredConfigs.length > 0 ? (
-                  browseMode === 'list' ? (
-                    <>
+            {!isLoading && filteredConfigs.length > 0 ? (
+              <>
+                {/* Mobile: one row — sort (or chart label) + list/chart toggle; short labels; meta below */}
+                <div className="flex flex-col gap-2 md:hidden">
+                  <div className="flex min-w-0 flex-row items-stretch gap-2">
+                    {browseMode === 'list' ? (
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
-                        className="relative h-8 shrink-0 gap-1.5 overflow-visible pr-2.5 text-xs"
+                        className="relative h-9 shrink-0 gap-1.5 self-center overflow-visible pr-2.5 text-xs"
                         onClick={() => setSortDialogOpen(true)}
                       >
                         <ArrowUpDown className="size-3.5 shrink-0" aria-hidden />
                         Sort
                         <PortfolioListSortActiveIndicator metric={sortMetric} className="-right-1.5 -top-1.5" />
                       </Button>
-                      {activeFilterCount > 0 ? (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
-                          onClick={clearFilters}
-                        >
-                          <FilterX className="size-3.5 shrink-0" aria-hidden />
-                          Clear filters
-                          <span className="rounded-full bg-primary/15 px-1.5 text-[10px] font-semibold tabular-nums text-foreground">
-                            {activeFilterCount}
-                          </span>
-                        </Button>
-                      ) : null}
-                      <span className="text-xs text-muted-foreground">
-                        {filteredConfigs.length} portfolio{filteredConfigs.length !== 1 ? 's' : ''}
-                        {activeFilterCount > 0 ? ' matching filters' : ''}
-                      </span>
-                    </>
-                  ) : (
-                    <div className="flex flex-wrap items-center gap-2 min-w-0">
-                      <LineChart
-                        className="size-4 shrink-0 text-trader-blue dark:text-trader-blue-light"
-                        aria-hidden
-                      />
-                      <span className="text-sm font-semibold text-foreground">Portfolio values</span>
-                      {activeFilterCount > 0 ? (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
-                          onClick={clearFilters}
-                        >
-                          <FilterX className="size-3.5 shrink-0" aria-hidden />
-                          Clear filters
-                          <span className="rounded-full bg-primary/15 px-1.5 text-[10px] font-semibold tabular-nums text-foreground">
-                            {activeFilterCount}
-                          </span>
-                        </Button>
-                      ) : null}
-                      <span className="text-xs text-muted-foreground">
-                        {filteredConfigs.length} portfolio{filteredConfigs.length !== 1 ? 's' : ''}
-                        {activeFilterCount > 0 ? ' matching filters' : ''}
-                      </span>
+                    ) : (
+                      <div className="flex shrink-0 items-center gap-1.5 self-center py-0.5">
+                        <LineChart
+                          className="size-4 shrink-0 text-trader-blue dark:text-trader-blue-light"
+                          aria-hidden
+                        />
+                        <span className="whitespace-nowrap text-sm font-semibold text-foreground">
+                          Portfolio
+                        </span>
+                      </div>
+                    )}
+                    <div className="inline-flex min-h-9 min-w-0 flex-1 gap-1 rounded-md border bg-muted/30 p-0.5">
+                      <button
+                        type="button"
+                        onClick={() => setBrowseMode('list')}
+                        aria-label="Rankings list"
+                        className={cn(
+                          'inline-flex min-h-9 min-w-0 flex-1 items-center justify-center gap-1.5 rounded px-2 py-1.5 text-center text-[11px] font-medium transition-colors',
+                          browseMode === 'list'
+                            ? 'bg-background text-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground'
+                        )}
+                      >
+                        <LayoutList className="size-3.5 shrink-0" aria-hidden />
+                        List
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setBrowseMode('chart')}
+                        aria-label="Values chart"
+                        className={cn(
+                          'inline-flex min-h-9 min-w-0 flex-1 items-center justify-center gap-1.5 rounded px-2 py-1.5 text-center text-[11px] font-medium transition-colors',
+                          browseMode === 'chart'
+                            ? 'bg-background text-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground'
+                        )}
+                      >
+                        <LineChart className="size-3.5 shrink-0" aria-hidden />
+                        Chart
+                      </button>
                     </div>
-                  )
-                ) : null}
-              </div>
-              {!isLoading && filteredConfigs.length > 0 ? (
-                <div className="inline-flex max-w-full flex-wrap items-center justify-center gap-1 rounded-md border bg-muted/30 p-0.5">
-                  <button
-                    type="button"
-                    onClick={() => setBrowseMode('list')}
-                    className={cn(
-                      'inline-flex min-h-9 items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-center text-[11px] font-medium transition-colors sm:px-3 sm:text-xs',
-                      browseMode === 'list'
-                        ? 'bg-background text-foreground shadow-sm'
-                        : 'text-muted-foreground hover:text-foreground'
-                    )}
-                  >
-                    <LayoutList className="size-3.5 shrink-0" aria-hidden />
-                    Rankings list
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setBrowseMode('chart')}
-                    className={cn(
-                      'inline-flex min-h-9 items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-center text-[11px] font-medium transition-colors sm:px-3 sm:text-xs',
-                      browseMode === 'chart'
-                        ? 'bg-background text-foreground shadow-sm'
-                        : 'text-muted-foreground hover:text-foreground'
-                    )}
-                  >
-                    <LineChart className="size-3.5 shrink-0" aria-hidden />
-                    Values chart
-                  </button>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {activeFilterCount > 0 ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                        onClick={clearFilters}
+                      >
+                        <FilterX className="size-3.5 shrink-0" aria-hidden />
+                        Clear filters
+                        <span className="rounded-full bg-primary/15 px-1.5 text-[10px] font-semibold tabular-nums text-foreground">
+                          {activeFilterCount}
+                        </span>
+                      </Button>
+                    ) : null}
+                    <span className="text-xs text-muted-foreground">
+                      {filteredConfigs.length} portfolio{filteredConfigs.length !== 1 ? 's' : ''}
+                      {activeFilterCount > 0 ? ' matching filters' : ''}
+                    </span>
+                  </div>
                 </div>
-              ) : null}
-            </div>
+
+                {/* md+: sort / chart context left, full toggle labels right */}
+                <div className="hidden flex-wrap items-center justify-between gap-2 gap-y-2 md:flex">
+                  <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
+                    {browseMode === 'list' ? (
+                      <>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="relative h-8 shrink-0 gap-1.5 overflow-visible pr-2.5 text-xs"
+                          onClick={() => setSortDialogOpen(true)}
+                        >
+                          <ArrowUpDown className="size-3.5 shrink-0" aria-hidden />
+                          Sort
+                          <PortfolioListSortActiveIndicator metric={sortMetric} className="-right-1.5 -top-1.5" />
+                        </Button>
+                        {activeFilterCount > 0 ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                            onClick={clearFilters}
+                          >
+                            <FilterX className="size-3.5 shrink-0" aria-hidden />
+                            Clear filters
+                            <span className="rounded-full bg-primary/15 px-1.5 text-[10px] font-semibold tabular-nums text-foreground">
+                              {activeFilterCount}
+                            </span>
+                          </Button>
+                        ) : null}
+                        <span className="text-xs text-muted-foreground">
+                          {filteredConfigs.length} portfolio{filteredConfigs.length !== 1 ? 's' : ''}
+                          {activeFilterCount > 0 ? ' matching filters' : ''}
+                        </span>
+                      </>
+                    ) : (
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <LineChart
+                          className="size-4 shrink-0 text-trader-blue dark:text-trader-blue-light"
+                          aria-hidden
+                        />
+                        <span className="text-sm font-semibold text-foreground">Portfolio values</span>
+                        {activeFilterCount > 0 ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                            onClick={clearFilters}
+                          >
+                            <FilterX className="size-3.5 shrink-0" aria-hidden />
+                            Clear filters
+                            <span className="rounded-full bg-primary/15 px-1.5 text-[10px] font-semibold tabular-nums text-foreground">
+                              {activeFilterCount}
+                            </span>
+                          </Button>
+                        ) : null}
+                        <span className="text-xs text-muted-foreground">
+                          {filteredConfigs.length} portfolio{filteredConfigs.length !== 1 ? 's' : ''}
+                          {activeFilterCount > 0 ? ' matching filters' : ''}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="inline-flex max-w-full flex-wrap items-center justify-center gap-1 rounded-md border bg-muted/30 p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setBrowseMode('list')}
+                      className={cn(
+                        'inline-flex min-h-9 items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-center text-[11px] font-medium transition-colors sm:px-3 sm:text-xs',
+                        browseMode === 'list'
+                          ? 'bg-background text-foreground shadow-sm'
+                          : 'text-muted-foreground hover:text-foreground'
+                      )}
+                    >
+                      <LayoutList className="size-3.5 shrink-0" aria-hidden />
+                      Rankings list
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBrowseMode('chart')}
+                      className={cn(
+                        'inline-flex min-h-9 items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-center text-[11px] font-medium transition-colors sm:px-3 sm:text-xs',
+                        browseMode === 'chart'
+                          ? 'bg-background text-foreground shadow-sm'
+                          : 'text-muted-foreground hover:text-foreground'
+                      )}
+                    >
+                      <LineChart className="size-3.5 shrink-0" aria-hidden />
+                      Values chart
+                    </button>
+                  </div>
+                </div>
+              </>
+            ) : null}
           </div>
 
           <div className="flex-1 space-y-4 px-4 pb-8 pt-2.5 sm:px-6 sm:pb-10 sm:pt-3">
@@ -1537,9 +1616,9 @@ function ConfigCard({
             </span>
           </div>
           {config.badges.length > 0 ? (
-            <div className="flex min-w-0 flex-col gap-1 overflow-x-auto">
+            <div className="flex min-w-0 flex-row flex-wrap items-center gap-1.5 gap-y-1">
               {config.badges.map((b) => (
-                <div key={b} className="min-w-0 w-max max-w-full whitespace-nowrap">
+                <div key={b} className="min-w-0 shrink-0">
                   <PortfolioConfigBadgePill name={b} strategySlug={strategySlug} />
                 </div>
               ))}

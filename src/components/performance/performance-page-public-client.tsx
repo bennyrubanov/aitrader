@@ -118,6 +118,7 @@ import {
   usePublicPortfolioConfigPerformance,
   type PublicConfigPerfSlice,
 } from '@/components/platform/use-public-portfolio-config-performance';
+import { applyEffectiveSeriesToMetrics } from '@/lib/config-performance-chart';
 import { type PortfolioConfigSlice } from '@/components/platform/portfolio-config-controls';
 import { SidebarPortfolioConfigPicker } from '@/components/platform/sidebar-portfolio-config-picker';
 import { StrategyModelSidebarDropdown } from '@/components/platform/strategy-model-sidebar-dropdown';
@@ -1029,9 +1030,9 @@ function PerformancePagePublicClientInner({
   ]);
 
   const effectiveStrategy = payload.strategy ?? null;
-  const series = payload.series ?? [];
-  const metrics = payload.metrics ?? null;
-  const research = payload.research ?? null;
+  const series = useMemo(() => payload.series ?? [], [payload.series]);
+  const metrics = useMemo(() => payload.metrics ?? null, [payload.metrics]);
+  const research = useMemo(() => payload.research ?? null, [payload.research]);
 
   const headerQuintileInsight = useMemo((): ModelHeaderQuintileInsight | null => {
     const history = research?.quintileHistory ?? [];
@@ -1111,8 +1112,12 @@ function PerformancePagePublicClientInner({
           : series,
     [configMetricsReady, configPerfSlice, slug, portfolioPerf.portfolioConfig, series]
   );
-  const displayMetricWeeklyObservations =
-    performanceHoldingsRankedRow?.metrics.weeklyObservations ?? null;
+  const displaySharpeReturns: number[] = useMemo(() => {
+    if (slug && portfolioPerf.portfolioConfig != null) {
+      return configPerfSlice?.sharpeReturns ?? [];
+    }
+    return payload.sharpeReturns ?? [];
+  }, [slug, portfolioPerf.portfolioConfig, configPerfSlice?.sharpeReturns, payload.sharpeReturns]);
   const displayMetricDecisionObservations =
     performanceHoldingsRankedRow?.metrics.decisionObservations ?? null;
 
@@ -1158,6 +1163,29 @@ function PerformancePagePublicClientInner({
     holdingsExploreLatestRunDate,
     performanceLiveHoldingsAllocation.totalCurrentValue,
   ]);
+
+  const effectiveDisplayMetrics = useMemo(
+    () =>
+      applyEffectiveSeriesToMetrics(
+        displayMetrics,
+        displaySeries,
+        effectivePerformanceDisplaySeries,
+        effectiveStrategy?.rebalanceFrequency ?? 'weekly',
+        displaySharpeReturns
+      ),
+    [
+      displayMetrics,
+      displaySeries,
+      effectivePerformanceDisplaySeries,
+      effectiveStrategy?.rebalanceFrequency,
+      displaySharpeReturns,
+    ]
+  );
+
+  const displayMetricWeeklyObservations =
+    effectiveDisplayMetrics?.weeklyObservations ??
+    performanceHoldingsRankedRow?.metrics.weeklyObservations ??
+    null;
 
   const latestDisplayDate =
     effectivePerformanceDisplaySeries.length > 0
@@ -1460,31 +1488,31 @@ function PerformancePagePublicClientInner({
   const fourWeekQuintileWinRate = research?.fourWeekQuintileWinRate ?? null;
 
   const outperformanceVsCap = useMemo(() => {
-    if (!displayMetrics) return null;
-    const ai = displayMetrics.totalReturn;
-    const cap = displayMetrics.benchmarks.nasdaq100CapWeight.totalReturn;
+    if (!effectiveDisplayMetrics) return null;
+    const ai = effectiveDisplayMetrics.totalReturn;
+    const cap = effectiveDisplayMetrics.benchmarks.nasdaq100CapWeight.totalReturn;
     if (ai === null || cap === null) return null;
     return ai - cap;
-  }, [displayMetrics]);
+  }, [effectiveDisplayMetrics]);
 
   const outperformanceVsSp500 = useMemo(() => {
-    if (!displayMetrics) return null;
-    const ai = displayMetrics.totalReturn;
-    const sp500 = displayMetrics.benchmarks.sp500.totalReturn;
+    if (!effectiveDisplayMetrics) return null;
+    const ai = effectiveDisplayMetrics.totalReturn;
+    const sp500 = effectiveDisplayMetrics.benchmarks.sp500.totalReturn;
     if (ai === null || sp500 === null) return null;
     return ai - sp500;
-  }, [displayMetrics]);
+  }, [effectiveDisplayMetrics]);
 
   const outperformanceVsNasdaqEqual = useMemo(() => {
-    if (!displayMetrics) return null;
-    const ai = displayMetrics.totalReturn;
-    const ndxEqual = displayMetrics.benchmarks.nasdaq100EqualWeight.totalReturn;
+    if (!effectiveDisplayMetrics) return null;
+    const ai = effectiveDisplayMetrics.totalReturn;
+    const ndxEqual = effectiveDisplayMetrics.benchmarks.nasdaq100EqualWeight.totalReturn;
     if (ai === null || ndxEqual === null) return null;
     return ai - ndxEqual;
-  }, [displayMetrics]);
+  }, [effectiveDisplayMetrics]);
 
   const overviewHeadlinePortfolioValue = useMemo(() => {
-    if (!displayMetrics) return 'N/A';
+    if (!effectiveDisplayMetrics) return 'N/A';
     const base = displaySeries as PerformanceSeriesPoint[];
     const eff = effectivePerformanceDisplaySeries as PerformanceSeriesPoint[];
     const baseLast = base[base.length - 1]?.aiTop20 ?? null;
@@ -1506,10 +1534,15 @@ function PerformancePagePublicClientInner({
         return `${perfFormatUsd(last)} (${fmt.pct(last / first - 1)})`;
       }
     }
-    if (displayMetrics.endingValue == null || !Number.isFinite(displayMetrics.endingValue)) return 'N/A';
-    return `${perfFormatUsd(displayMetrics.endingValue)} (${fmt.pct(displayMetrics.totalReturn)})`;
+    if (
+      effectiveDisplayMetrics.endingValue == null ||
+      !Number.isFinite(effectiveDisplayMetrics.endingValue)
+    ) {
+      return 'N/A';
+    }
+    return `${perfFormatUsd(effectiveDisplayMetrics.endingValue)} (${fmt.pct(effectiveDisplayMetrics.totalReturn)})`;
   }, [
-    displayMetrics,
+    effectiveDisplayMetrics,
     displaySeries,
     effectivePerformanceDisplaySeries,
     holdingsAsOfDate,
@@ -1830,7 +1863,7 @@ function PerformancePagePublicClientInner({
                         invested ? ` ($10k invested on ${invested})` : ''
                       } through the latest rebalance, net of trading costs. The cumulative return is shown in parentheses.`;
                     })()}
-                    positive={(displayMetrics.totalReturn ?? 0) > 0}
+                    positive={(effectiveDisplayMetrics?.totalReturn ?? 0) > 0}
                   />
                   <FlipCard
                     label="Performance vs S&P 500 (cap)"
@@ -1843,13 +1876,13 @@ function PerformancePagePublicClientInner({
                     afterLabel={
                       <MetricReadinessPill
                         kind="sharpe"
-                        value={displayMetrics.sharpeRatio}
+                        value={effectiveDisplayMetrics?.sharpeRatio ?? null}
                         weeksOfData={displayMetricWeeklyObservations}
                       />
                     }
-                    value={fmt.num(displayMetrics.sharpeRatio)}
+                    value={fmt.num(effectiveDisplayMetrics?.sharpeRatio)}
                     explanation="Holding-period Sharpe asks: 'How smooth is the investor experience over time?' It compares average weekly return to weekly volatility (annualized at sqrt(52)). Above 1.0 is generally considered good for a stock strategy. Higher is better."
-                    positive={(displayMetrics.sharpeRatio ?? 0) > 1}
+                    positive={(effectiveDisplayMetrics?.sharpeRatio ?? 0) > 1}
                     positiveTone="brand"
                   />
                 </div>
@@ -1859,19 +1892,19 @@ function PerformancePagePublicClientInner({
                     afterLabel={
                       <MetricReadinessPill
                         kind="cagr"
-                        value={displayMetrics.cagr}
+                        value={effectiveDisplayMetrics?.cagr ?? null}
                         weeksOfData={displayMetricWeeklyObservations}
                       />
                     }
-                    value={fmt.pct(displayMetrics.cagr)}
+                    value={fmt.pct(effectiveDisplayMetrics?.cagr)}
                     explanation="Annualized compound growth rate. If the strategy grew at this exact pace every calendar year since inception, this is the annual return you would have seen."
-                    positive={(displayMetrics.cagr ?? 0) > 0}
+                    positive={(effectiveDisplayMetrics?.cagr ?? 0) > 0}
                   />
                   <FlipCard
                     label="Max drawdown"
-                    value={fmt.pct(displayMetrics.maxDrawdown)}
+                    value={fmt.pct(effectiveDisplayMetrics?.maxDrawdown)}
                     explanation="The worst peak-to-trough decline since inception. If you had invested at the peak and sold at the worst point, this is how much you would have lost. Closer to zero is better."
-                    positive={(displayMetrics.maxDrawdown ?? 0) > -0.2}
+                    positive={(effectiveDisplayMetrics?.maxDrawdown ?? 0) > -0.2}
                   />
                 </div>
               </div>
@@ -1884,17 +1917,17 @@ function PerformancePagePublicClientInner({
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                     <FlipCard
                       label="Decision-cadence Sharpe"
-                      value={fmt.num(displayMetrics.sharpeRatioDecisionCadence)}
+                      value={fmt.num(effectiveDisplayMetrics?.sharpeRatioDecisionCadence)}
                       explanation="Decision-unit Sharpe asks: 'How good are this strategy's decisions?' Each observation is one rebalance-period net return (one independent bet), annualized at the strategy's rebalance cadence. It complements holding-period Sharpe."
                       afterLabel={
                         <MetricReadinessPill
                           kind="sharpe-decision"
-                          value={displayMetrics.sharpeRatioDecisionCadence}
+                          value={effectiveDisplayMetrics?.sharpeRatioDecisionCadence ?? null}
                           weeksOfData={displayMetricDecisionObservations}
                           rebalanceFrequency={effectiveStrategy?.rebalanceFrequency}
                         />
                       }
-                      positive={(displayMetrics.sharpeRatioDecisionCadence ?? 0) > 1}
+                      positive={(effectiveDisplayMetrics?.sharpeRatioDecisionCadence ?? 0) > 1}
                       positiveTone="brand"
                     />
                     <FlipCard
@@ -1911,21 +1944,21 @@ function PerformancePagePublicClientInner({
                     />
                     <FlipCard
                       label="% weeks beating Nasdaq-100 (cap)"
-                      value={fmt.pct(displayMetrics.pctWeeksBeatingNasdaq100, 0)}
+                      value={fmt.pct(effectiveDisplayMetrics?.pctWeeksBeatingNasdaq100, 0)}
                       explanation="How often this portfolio's weekly return exceeded the Nasdaq-100 cap-weighted index's weekly return. 50% means it matched the benchmark half the time week by week. Above 50% means it wins more weeks than it loses."
-                      positive={(displayMetrics.pctWeeksBeatingNasdaq100 ?? 0) > 0.5}
+                      positive={(effectiveDisplayMetrics?.pctWeeksBeatingNasdaq100 ?? 0) > 0.5}
                     />
                     <FlipCard
                       label="% weeks beating S&P 500 (cap)"
-                      value={fmt.pct(displayMetrics.pctWeeksBeatingSp500, 0)}
+                      value={fmt.pct(effectiveDisplayMetrics?.pctWeeksBeatingSp500, 0)}
                       explanation="How often this portfolio's weekly return exceeded the S&P 500 cap-weighted benchmark's weekly return. Above 50% means it wins more weeks than it loses."
-                      positive={(displayMetrics.pctWeeksBeatingSp500 ?? 0) > 0.5}
+                      positive={(effectiveDisplayMetrics?.pctWeeksBeatingSp500 ?? 0) > 0.5}
                     />
                     <FlipCard
                       label="% weeks beating Nasdaq-100 (equal)"
-                      value={fmt.pct(displayMetrics.pctWeeksBeatingNasdaq100EqualWeight, 0)}
+                      value={fmt.pct(effectiveDisplayMetrics?.pctWeeksBeatingNasdaq100EqualWeight, 0)}
                       explanation="How often this portfolio's weekly return exceeded the Nasdaq-100 equal-weight benchmark's weekly return. Above 50% means it wins more weeks than it loses."
-                      positive={(displayMetrics.pctWeeksBeatingNasdaq100EqualWeight ?? 0) > 0.5}
+                      positive={(effectiveDisplayMetrics?.pctWeeksBeatingNasdaq100EqualWeight ?? 0) > 0.5}
                     />
                   </div>
                 </div>
@@ -2242,22 +2275,22 @@ function PerformancePagePublicClientInner({
             <div className="grid grid-cols-2 gap-3">
               <FlipCard
                 label="Total return"
-                value={fmt.pct(displayMetrics.totalReturn)}
+                value={fmt.pct(effectiveDisplayMetrics?.totalReturn)}
                 explanation="How much the $10,000 starting capital has grown over the full period since inception."
-                positive={(displayMetrics.totalReturn ?? 0) > 0}
+                positive={(effectiveDisplayMetrics?.totalReturn ?? 0) > 0}
               />
               <FlipCard
                 label="CAGR"
                 afterLabel={
                   <MetricReadinessPill
                     kind="cagr"
-                    value={displayMetrics.cagr}
+                    value={effectiveDisplayMetrics?.cagr ?? null}
                     weeksOfData={displayMetricWeeklyObservations}
                   />
                 }
-                value={fmt.pct(displayMetrics.cagr)}
+                value={fmt.pct(effectiveDisplayMetrics?.cagr)}
                 explanation="Annualized compound growth rate — what the portfolio's growth would look like if it grew at this pace every year."
-                positive={(displayMetrics.cagr ?? 0) > 0}
+                positive={(effectiveDisplayMetrics?.cagr ?? 0) > 0}
               />
             </div>
             <div className="rounded-lg border bg-muted/30 overflow-hidden">
@@ -2309,11 +2342,11 @@ function PerformancePagePublicClientInner({
                       </div>
                     </TableCell>
                     <TableCell className="text-right font-semibold">
-                      {fmt.pct(displayMetrics.totalReturn)}
+                      {fmt.pct(effectiveDisplayMetrics?.totalReturn)}
                     </TableCell>
-                    <TableCell className="text-right">{fmt.pct(displayMetrics.cagr)}</TableCell>
+                    <TableCell className="text-right">{fmt.pct(effectiveDisplayMetrics?.cagr)}</TableCell>
                     <TableCell className="text-right">
-                      {fmt.pct(displayMetrics.maxDrawdown)}
+                      {fmt.pct(effectiveDisplayMetrics?.maxDrawdown)}
                     </TableCell>
                   </TableRow>
                   <TableRow>
@@ -2321,13 +2354,13 @@ function PerformancePagePublicClientInner({
                       Nasdaq-100 (cap-weighted)
                     </TableCell>
                     <TableCell className="text-right">
-                      {fmt.pct(displayMetrics.benchmarks.nasdaq100CapWeight.totalReturn)}
+                      {fmt.pct(effectiveDisplayMetrics?.benchmarks.nasdaq100CapWeight.totalReturn)}
                     </TableCell>
                     <TableCell className="text-right">
-                      {fmt.pct(displayMetrics.benchmarks.nasdaq100CapWeight.cagr)}
+                      {fmt.pct(effectiveDisplayMetrics?.benchmarks.nasdaq100CapWeight.cagr)}
                     </TableCell>
                     <TableCell className="text-right">
-                      {fmt.pct(displayMetrics.benchmarks.nasdaq100CapWeight.maxDrawdown)}
+                      {fmt.pct(effectiveDisplayMetrics?.benchmarks.nasdaq100CapWeight.maxDrawdown)}
                     </TableCell>
                   </TableRow>
                   <TableRow>
@@ -2335,13 +2368,13 @@ function PerformancePagePublicClientInner({
                       Nasdaq-100 (equal-weighted)
                     </TableCell>
                     <TableCell className="text-right">
-                      {fmt.pct(displayMetrics.benchmarks.nasdaq100EqualWeight.totalReturn)}
+                      {fmt.pct(effectiveDisplayMetrics?.benchmarks.nasdaq100EqualWeight.totalReturn)}
                     </TableCell>
                     <TableCell className="text-right">
-                      {fmt.pct(displayMetrics.benchmarks.nasdaq100EqualWeight.cagr)}
+                      {fmt.pct(effectiveDisplayMetrics?.benchmarks.nasdaq100EqualWeight.cagr)}
                     </TableCell>
                     <TableCell className="text-right">
-                      {fmt.pct(displayMetrics.benchmarks.nasdaq100EqualWeight.maxDrawdown)}
+                      {fmt.pct(effectiveDisplayMetrics?.benchmarks.nasdaq100EqualWeight.maxDrawdown)}
                     </TableCell>
                   </TableRow>
                   <TableRow>
@@ -2349,13 +2382,13 @@ function PerformancePagePublicClientInner({
                       S&amp;P 500 (cap-weighted)
                     </TableCell>
                     <TableCell className="text-right">
-                      {fmt.pct(displayMetrics.benchmarks.sp500.totalReturn)}
+                      {fmt.pct(effectiveDisplayMetrics?.benchmarks.sp500.totalReturn)}
                     </TableCell>
                     <TableCell className="text-right">
-                      {fmt.pct(displayMetrics.benchmarks.sp500.cagr)}
+                      {fmt.pct(effectiveDisplayMetrics?.benchmarks.sp500.cagr)}
                     </TableCell>
                     <TableCell className="text-right">
-                      {fmt.pct(displayMetrics.benchmarks.sp500.maxDrawdown)}
+                      {fmt.pct(effectiveDisplayMetrics?.benchmarks.sp500.maxDrawdown)}
                     </TableCell>
                   </TableRow>
                 </TableBody>
@@ -2368,7 +2401,7 @@ function PerformancePagePublicClientInner({
                 <CumulativeReturnsChart
                   series={effectivePerformanceDisplaySeries}
                   strategyName={portfolioPerf.chartTitle}
-                  startingCapital={displayMetrics.startingCapital}
+                  startingCapital={effectiveDisplayMetrics?.startingCapital ?? 10_000}
                 />
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <WeeklyReturnsChart
@@ -2415,22 +2448,22 @@ function PerformancePagePublicClientInner({
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
               <FlipCard
                 label="Max drawdown"
-                value={fmt.pct(displayMetrics.maxDrawdown)}
+                value={fmt.pct(effectiveDisplayMetrics?.maxDrawdown)}
                 explanation="The largest peak-to-trough decline in portfolio value. A drawdown of -20% means the portfolio fell 20% from its peak before recovering. Closer to 0% is better."
-                positive={(displayMetrics.maxDrawdown ?? 0) > -0.25}
+                positive={(effectiveDisplayMetrics?.maxDrawdown ?? 0) > -0.25}
               />
               <FlipCard
                 label="Sharpe ratio"
                 afterLabel={
                   <MetricReadinessPill
                     kind="sharpe"
-                    value={displayMetrics.sharpeRatio}
+                    value={effectiveDisplayMetrics?.sharpeRatio ?? null}
                     weeksOfData={displayMetricWeeklyObservations}
                   />
                 }
-                value={fmt.num(displayMetrics.sharpeRatio)}
+                value={fmt.num(effectiveDisplayMetrics?.sharpeRatio)}
                 explanation="Holding-period Sharpe asks: 'How smooth is the investor experience over time?' It compares average weekly return to weekly volatility (annualized at sqrt(52)). Above 1.0 is generally considered good for a stock strategy."
-                positive={(displayMetrics.sharpeRatio ?? 0) > 1}
+                positive={(effectiveDisplayMetrics?.sharpeRatio ?? 0) > 1}
                 positiveTone="brand"
               />
               <FlipCard
@@ -2438,14 +2471,14 @@ function PerformancePagePublicClientInner({
                 afterLabel={
                   <MetricReadinessPill
                     kind="sharpe-decision"
-                    value={displayMetrics.sharpeRatioDecisionCadence}
+                    value={effectiveDisplayMetrics?.sharpeRatioDecisionCadence ?? null}
                     weeksOfData={displayMetricDecisionObservations}
                     rebalanceFrequency={effectiveStrategy?.rebalanceFrequency}
                   />
                 }
-                value={fmt.num(displayMetrics.sharpeRatioDecisionCadence)}
+                value={fmt.num(effectiveDisplayMetrics?.sharpeRatioDecisionCadence)}
                 explanation="Decision-unit Sharpe asks: 'How good are this strategy's decisions?' Each observation is one rebalance-period net return (one independent bet), annualized at the strategy's rebalance cadence. It complements the holding-period Sharpe."
-                positive={(displayMetrics.sharpeRatioDecisionCadence ?? 0) > 1}
+                positive={(effectiveDisplayMetrics?.sharpeRatioDecisionCadence ?? 0) > 1}
                 positiveTone="brand"
               />
             </div>
@@ -2490,33 +2523,33 @@ function PerformancePagePublicClientInner({
             </div>
             <Skeleton className="h-[220px] w-full rounded-lg" />
           </div>
-        ) : displayMetrics?.pctWeeksBeatingNasdaq100 != null ||
-          displayMetrics?.pctWeeksBeatingSp500 != null ||
-          displayMetrics?.pctWeeksBeatingNasdaq100EqualWeight != null ? (
+        ) : effectiveDisplayMetrics?.pctWeeksBeatingNasdaq100 != null ||
+          effectiveDisplayMetrics?.pctWeeksBeatingSp500 != null ||
+          effectiveDisplayMetrics?.pctWeeksBeatingNasdaq100EqualWeight != null ? (
           <div className="space-y-4">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              {displayMetrics.pctWeeksBeatingNasdaq100 != null && (
+              {effectiveDisplayMetrics?.pctWeeksBeatingNasdaq100 != null && (
                 <FlipCard
                   label="% weeks outperforming Nasdaq-100 (cap-weighted)"
-                  value={fmt.pct(displayMetrics.pctWeeksBeatingNasdaq100, 0)}
+                  value={fmt.pct(effectiveDisplayMetrics?.pctWeeksBeatingNasdaq100, 0)}
                   explanation="Share of weeks where the portfolio beat the Nasdaq-100 cap-weighted benchmark. Above 50% means it wins more weeks than it loses."
-                  positive={(displayMetrics.pctWeeksBeatingNasdaq100 ?? 0) > 0.5}
+                  positive={(effectiveDisplayMetrics?.pctWeeksBeatingNasdaq100 ?? 0) > 0.5}
                 />
               )}
-              {displayMetrics.pctWeeksBeatingSp500 != null && (
+              {effectiveDisplayMetrics?.pctWeeksBeatingSp500 != null && (
                 <FlipCard
                   label="% weeks outperforming S&P 500 (cap-weighted)"
-                  value={fmt.pct(displayMetrics.pctWeeksBeatingSp500, 0)}
+                  value={fmt.pct(effectiveDisplayMetrics?.pctWeeksBeatingSp500, 0)}
                   explanation="Share of weeks where the portfolio beat the S&P 500 cap-weighted benchmark. Above 50% means it wins more weeks than it loses."
-                  positive={(displayMetrics.pctWeeksBeatingSp500 ?? 0) > 0.5}
+                  positive={(effectiveDisplayMetrics?.pctWeeksBeatingSp500 ?? 0) > 0.5}
                 />
               )}
-              {displayMetrics.pctWeeksBeatingNasdaq100EqualWeight != null && (
+              {effectiveDisplayMetrics?.pctWeeksBeatingNasdaq100EqualWeight != null && (
                 <FlipCard
                   label="% weeks outperforming Nasdaq-100 (equal-weighted)"
-                  value={fmt.pct(displayMetrics.pctWeeksBeatingNasdaq100EqualWeight, 0)}
+                  value={fmt.pct(effectiveDisplayMetrics?.pctWeeksBeatingNasdaq100EqualWeight, 0)}
                   explanation="Share of weeks where the portfolio beat the Nasdaq-100 equal-weight benchmark. Above 50% means it wins more weeks than it loses."
-                  positive={(displayMetrics.pctWeeksBeatingNasdaq100EqualWeight ?? 0) > 0.5}
+                  positive={(effectiveDisplayMetrics?.pctWeeksBeatingNasdaq100EqualWeight ?? 0) > 0.5}
                 />
               )}
             </div>
@@ -3362,3 +3395,4 @@ function PerformancePagePublicClientInner({
 export function PerformancePagePublicClient(props: Props) {
   return <PerformancePagePublicClientInner {...props} />;
 }
+

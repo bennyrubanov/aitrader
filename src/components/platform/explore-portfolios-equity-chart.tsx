@@ -11,7 +11,6 @@ import {
 } from 'react';
 import { CartesianGrid, Line, LineChart, ReferenceLine, Tooltip, XAxis, YAxis } from 'recharts';
 import { ChartContainer } from '@/components/ui/chart';
-import type { RiskLevel } from '@/components/portfolio-config';
 import {
   dataKeyForExploreConfig,
   formatModelInceptionFootnoteDate,
@@ -59,7 +58,8 @@ type ExploreSidebarListRow =
       configId: string;
       label: string;
       value: number;
-      riskLevel?: number;
+      /** Same as the chart line for this config (`colorForConfigId`). */
+      lineColor: string;
       portfolioRank: number;
     }
   | {
@@ -69,22 +69,6 @@ type ExploreSidebarListRow =
       value: number;
       color: string;
     };
-
-function clampRiskLevel(n: number | undefined): RiskLevel {
-  const r = Math.round(Number(n));
-  if (r < 1) return 1;
-  if (r > 6) return 6;
-  return r as RiskLevel;
-}
-
-const RISK_DOT: Record<RiskLevel, { dot: string; rowActive: string }> = {
-  1: { dot: 'bg-emerald-500', rowActive: 'ring-2 ring-emerald-500/50 bg-emerald-500/10' },
-  2: { dot: 'bg-lime-500', rowActive: 'ring-2 ring-lime-500/50 bg-lime-500/10' },
-  3: { dot: 'bg-amber-500', rowActive: 'ring-2 ring-amber-500/50 bg-amber-500/10' },
-  4: { dot: 'bg-orange-500', rowActive: 'ring-2 ring-orange-500/50 bg-orange-500/10' },
-  5: { dot: 'bg-orange-600', rowActive: 'ring-2 ring-orange-600/50 bg-orange-600/10' },
-  6: { dot: 'bg-rose-600', rowActive: 'ring-2 ring-rose-600/50 bg-rose-600/10' },
-};
 
 function colorForConfigId(id: string): string {
   let h = 0;
@@ -141,6 +125,36 @@ function formatEquityAxisTick(v: number): string {
 function formatEquityTooltipValue(v: number): string {
   if (Math.abs(v - 10_000) < 1) return '$10,000';
   return `$${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+}
+
+/** Same relative measure as `RelativeOutperformanceChart` in mini-charts: (port growth / bm growth − 1)×100. */
+function cumulativeOutperfPct(
+  portAtStart: number,
+  portAtDate: number,
+  bmAtStart: number,
+  bmAtDate: number
+): number | null {
+  if (
+    !Number.isFinite(portAtStart) ||
+    !Number.isFinite(portAtDate) ||
+    !Number.isFinite(bmAtStart) ||
+    !Number.isFinite(bmAtDate) ||
+    portAtStart <= 0 ||
+    bmAtStart <= 0 ||
+    bmAtDate <= 0
+  ) {
+    return null;
+  }
+  const aiGrowth = portAtDate / portAtStart;
+  const bmGrowth = bmAtDate / bmAtStart;
+  if (!Number.isFinite(bmGrowth) || bmGrowth === 0) return null;
+  return ((aiGrowth / bmGrowth) - 1) * 100;
+}
+
+function formatSignedPct1(v: number): string {
+  if (!Number.isFinite(v)) return '—';
+  const sign = v >= 0 ? '+' : '';
+  return `${sign}${v.toFixed(1)}%`;
 }
 
 /** Scroll `el` within `root` only — avoids `scrollIntoView` scrolling outer page columns. */
@@ -222,18 +236,81 @@ export function ExplorePortfoliosEquityChart({
     [series, visibleConfigIds]
   );
 
+  const { effectiveDates, effectiveSeries } = useMemo(() => {
+    if (!dates.length || !visibleSeries.length) {
+      return { effectiveDates: dates, effectiveSeries: visibleSeries };
+    }
+    const lastDate = dates[dates.length - 1]!;
+    let appendDate: string | null = null;
+    for (const s of visibleSeries) {
+      const lp = s.livePoint;
+      if (lp?.date && lp.date > lastDate && (appendDate == null || lp.date > appendDate)) {
+        appendDate = lp.date;
+      }
+    }
+    const nextDates = appendDate ? [...dates, appendDate] : dates;
+    const nextSeries = visibleSeries.map((s) => {
+      const lp = s.livePoint;
+      if (!lp || !Number.isFinite(lp.aiTop20) || lp.aiTop20 <= 0) {
+        if (!appendDate) return s;
+        const lastEq = s.equities[s.equities.length - 1] ?? 10_000;
+        return { ...s, equities: [...s.equities, lastEq] };
+      }
+      const eq = [...s.equities];
+      if (lp.date === lastDate) {
+        const i = dates.length - 1;
+        const current = eq[i];
+        if (current == null || !Number.isFinite(current) || Math.abs(current - lp.aiTop20) > 0.005) {
+          eq[i] = lp.aiTop20;
+          return { ...s, equities: eq };
+        }
+        return s;
+      }
+      if (appendDate && lp.date === appendDate) {
+        eq.push(lp.aiTop20);
+        return { ...s, equities: eq };
+      }
+      if (appendDate) {
+        const lastEq = eq[eq.length - 1] ?? 10_000;
+        eq.push(lastEq);
+        return { ...s, equities: eq };
+      }
+      return s;
+    });
+    return { effectiveDates: nextDates, effectiveSeries: nextSeries };
+  }, [dates, visibleSeries]);
+
   const benchmarksValid =
     benchmarks != null &&
     benchmarks.nasdaq100Cap.length === dates.length &&
     benchmarks.nasdaq100Equal.length === dates.length &&
     benchmarks.sp500.length === dates.length;
 
-  const datesStart = dates[0] ?? '';
-  const datesEnd = dates.length ? dates[dates.length - 1]! : '';
+  const effectiveBenchmarks = useMemo(() => {
+    if (!benchmarksValid || !benchmarks) return null;
+    if (effectiveDates.length <= dates.length) return benchmarks;
+    const capLast = benchmarks.nasdaq100Cap[benchmarks.nasdaq100Cap.length - 1] ?? 10_000;
+    const eqLast = benchmarks.nasdaq100Equal[benchmarks.nasdaq100Equal.length - 1] ?? 10_000;
+    const spLast = benchmarks.sp500[benchmarks.sp500.length - 1] ?? 10_000;
+    return {
+      nasdaq100Cap: [...benchmarks.nasdaq100Cap, capLast],
+      nasdaq100Equal: [...benchmarks.nasdaq100Equal, eqLast],
+      sp500: [...benchmarks.sp500, spLast],
+    };
+  }, [benchmarksValid, benchmarks, dates.length, effectiveDates.length]);
+
+  const effectiveBenchmarksValid =
+    effectiveBenchmarks != null &&
+    effectiveBenchmarks.nasdaq100Cap.length === effectiveDates.length &&
+    effectiveBenchmarks.nasdaq100Equal.length === effectiveDates.length &&
+    effectiveBenchmarks.sp500.length === effectiveDates.length;
+
+  const datesStart = effectiveDates[0] ?? '';
+  const datesEnd = effectiveDates.length ? effectiveDates[effectiveDates.length - 1]! : '';
   useEffect(() => {
-    if (!benchmarksValid || !dates.length) return;
+    if (!effectiveBenchmarksValid || !effectiveDates.length) return;
     setHiddenBenchmarkKeys(new Set());
-  }, [benchmarksValid, dates.length, datesStart, datesEnd]);
+  }, [effectiveBenchmarksValid, effectiveDates.length, datesStart, datesEnd]);
 
   const toggleBenchmarkSeries = useCallback((key: ExploreBenchmarkKey) => {
     setHiddenBenchmarkKeys((prev) => {
@@ -248,21 +325,21 @@ export function ExplorePortfoliosEquityChart({
     const keys: string[] = [];
     const chCfg: Record<string, { label: string; color: string }> = {};
 
-    for (const s of visibleSeries) {
+    for (const s of effectiveSeries) {
       const k = dataKeyForExploreConfig(s.configId);
       keys.push(k);
       chCfg[k] = { label: s.label, color: colorForConfigId(s.configId) };
     }
 
-    const allBmKeys: ExploreBenchmarkKey[] = benchmarksValid ? [...EXPLORE_BM_ORDER] : [];
+    const allBmKeys: ExploreBenchmarkKey[] = effectiveBenchmarksValid ? [...EXPLORE_BM_ORDER] : [];
     const bmKeys = allBmKeys.filter((k) => !hiddenBenchmarkKeys.has(k));
 
     for (const k of bmKeys) {
       chCfg[k] = EXPLORE_BM_CONFIG[k];
     }
 
-    const filteredDates = filterDates(dates, range);
-    const dateIndex = new Map(dates.map((d, i) => [d, i]));
+    const filteredDates = filterDates(effectiveDates, range);
+    const dateIndex = new Map(effectiveDates.map((d, i) => [d, i]));
 
     const rows = filteredDates.map((d) => {
       const i = dateIndex.get(d) ?? 0;
@@ -270,41 +347,48 @@ export function ExplorePortfoliosEquityChart({
         date: d,
         shortDate: formatDisplayDate(d),
       };
-      for (const s of visibleSeries) {
+      for (const s of effectiveSeries) {
         const k = dataKeyForExploreConfig(s.configId);
         row[k] = s.equities[i] ?? 10_000;
       }
-      if (benchmarksValid && benchmarks) {
-        row[EXPLORE_BM_KEYS.cap] = benchmarks.nasdaq100Cap[i] ?? 10_000;
-        row[EXPLORE_BM_KEYS.eq] = benchmarks.nasdaq100Equal[i] ?? 10_000;
-        row[EXPLORE_BM_KEYS.sp] = benchmarks.sp500[i] ?? 10_000;
+      if (effectiveBenchmarksValid && effectiveBenchmarks) {
+        row[EXPLORE_BM_KEYS.cap] = effectiveBenchmarks.nasdaq100Cap[i] ?? 10_000;
+        row[EXPLORE_BM_KEYS.eq] = effectiveBenchmarks.nasdaq100Equal[i] ?? 10_000;
+        row[EXPLORE_BM_KEYS.sp] = effectiveBenchmarks.sp500[i] ?? 10_000;
       }
       return row;
     });
 
     return { chartData: rows, dataKeys: keys, chartConfig: chCfg, benchmarkKeys: bmKeys };
-  }, [dates, range, visibleSeries, benchmarks, benchmarksValid, hiddenBenchmarkKeys]);
+  }, [
+    effectiveDates,
+    range,
+    effectiveSeries,
+    effectiveBenchmarks,
+    effectiveBenchmarksValid,
+    hiddenBenchmarkKeys,
+  ]);
 
   const latestIdx = chartData.length > 0 ? chartData.length - 1 : null;
 
   /** Picker pills/sidebar: nominal $ at last API date (unchanged when chart range is zoomed). */
   const pickerLatestRow = useMemo(() => {
-    if (!isPicker || !dates.length || !visibleSeries.length) return null;
-    const i = dates.length - 1;
+    if (!isPicker || !effectiveDates.length || !effectiveSeries.length) return null;
+    const i = effectiveDates.length - 1;
     const row: Record<string, string | number> = {
-      date: dates[i]!,
-      shortDate: formatDisplayDate(dates[i]!),
+      date: effectiveDates[i]!,
+      shortDate: formatDisplayDate(effectiveDates[i]!),
     };
-    for (const s of visibleSeries) {
+    for (const s of effectiveSeries) {
       row[dataKeyForExploreConfig(s.configId)] = s.equities[i] ?? 10_000;
     }
-    if (benchmarksValid && benchmarks) {
-      row[EXPLORE_BM_KEYS.cap] = benchmarks.nasdaq100Cap[i] ?? 10_000;
-      row[EXPLORE_BM_KEYS.eq] = benchmarks.nasdaq100Equal[i] ?? 10_000;
-      row[EXPLORE_BM_KEYS.sp] = benchmarks.sp500[i] ?? 10_000;
+    if (effectiveBenchmarksValid && effectiveBenchmarks) {
+      row[EXPLORE_BM_KEYS.cap] = effectiveBenchmarks.nasdaq100Cap[i] ?? 10_000;
+      row[EXPLORE_BM_KEYS.eq] = effectiveBenchmarks.nasdaq100Equal[i] ?? 10_000;
+      row[EXPLORE_BM_KEYS.sp] = effectiveBenchmarks.sp500[i] ?? 10_000;
     }
     return row;
-  }, [isPicker, dates, visibleSeries, benchmarks, benchmarksValid]);
+  }, [isPicker, effectiveDates, effectiveSeries, effectiveBenchmarks, effectiveBenchmarksValid]);
 
   const effectiveIndex = isPicker
     ? null
@@ -321,30 +405,77 @@ export function ExplorePortfoliosEquityChart({
       ? chartData[displayValueIndex]
       : null;
 
-  const sidebarSourceIndex = effectiveIndex;
+  /** Narrow layout: always show a date column (defaults to latest); wide layout: only while hover/pin. */
+  const sidebarValueIndex =
+    isPicker ? null : isNarrowLayout ? (effectiveIndex ?? latestIdx) : effectiveIndex;
+
+  const averageBenchOutperformance = useMemo(() => {
+    if (isPicker || !effectiveBenchmarksValid || !effectiveBenchmarks || !displayValueRow) return null;
+    const d = displayValueRow.date;
+    if (typeof d !== 'string') return null;
+    const dateIdx = effectiveDates.indexOf(d);
+    if (dateIdx < 0 || effectiveSeries.length === 0) return null;
+    const bmSp0 = effectiveBenchmarks.sp500[0];
+    const bmSpT = effectiveBenchmarks.sp500[dateIdx];
+    const bmNd0 = effectiveBenchmarks.nasdaq100Cap[0];
+    const bmNdT = effectiveBenchmarks.nasdaq100Cap[dateIdx];
+    if (
+      ![bmSp0, bmSpT, bmNd0, bmNdT].every(
+        (x) => typeof x === 'number' && Number.isFinite(x) && x > 0
+      )
+    ) {
+      return null;
+    }
+    const vsSp: number[] = [];
+    const vsNd: number[] = [];
+    for (const s of effectiveSeries) {
+      const e0 = s.equities[0];
+      const eT = s.equities[dateIdx];
+      const oSp = cumulativeOutperfPct(e0, eT, bmSp0, bmSpT);
+      const oNd = cumulativeOutperfPct(e0, eT, bmNd0, bmNdT);
+      if (oSp != null && oNd != null) {
+        vsSp.push(oSp);
+        vsNd.push(oNd);
+      }
+    }
+    if (!vsSp.length) return null;
+    const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+    return {
+      vsSp500: mean(vsSp),
+      vsNasdaqCap: mean(vsNd),
+      atShortDate: String(displayValueRow.shortDate),
+    };
+  }, [
+    isPicker,
+    effectiveBenchmarksValid,
+    effectiveBenchmarks,
+    displayValueRow,
+    effectiveDates,
+    effectiveSeries,
+  ]);
 
   const sidebarRows = useMemo((): ExploreSidebarListRow[] => {
-    const row = isPicker ? pickerLatestRow : sidebarSourceIndex != null ? chartData[sidebarSourceIndex] : null;
+    const row = isPicker ? pickerLatestRow : sidebarValueIndex != null ? chartData[sidebarValueIndex] : null;
     if (!row) return [];
 
     const portfolios: Omit<Extract<ExploreSidebarListRow, { kind: 'portfolio' }>, 'portfolioRank'>[] =
       dataKeys
         .map((k) => {
-          const s = visibleSeries.find((x) => dataKeyForExploreConfig(x.configId) === k);
+          const s = effectiveSeries.find((x) => dataKeyForExploreConfig(x.configId) === k);
           return {
             kind: 'portfolio' as const,
             dataKey: k,
             configId: s?.configId ?? '',
             label: chartConfig[k]?.label ?? k,
             value: Number(row[k]),
-            riskLevel: s?.riskLevel,
+            lineColor: chartConfig[k]?.color ?? CHART_NEUTRAL_REFERENCE_STROKE,
           };
         })
         .filter((r) => r.configId)
         .filter((r) => Number.isFinite(r.value));
 
     const visibleBmKeys = EXPLORE_BM_ORDER.filter((k) => !hiddenBenchmarkKeys.has(k));
-    const benchmarks: Extract<ExploreSidebarListRow, { kind: 'benchmark' }>[] = benchmarksValid
+    const benchmarks: Extract<ExploreSidebarListRow, { kind: 'benchmark' }>[] = effectiveBenchmarksValid
       ? visibleBmKeys.map((k) => {
           const cfg = EXPLORE_BM_CONFIG[k];
           const v = Number(row[k]);
@@ -370,12 +501,12 @@ export function ExplorePortfoliosEquityChart({
   }, [
     isPicker,
     pickerLatestRow,
-    sidebarSourceIndex,
+    sidebarValueIndex,
     chartData,
     dataKeys,
-    visibleSeries,
+    effectiveSeries,
     chartConfig,
-    benchmarksValid,
+    effectiveBenchmarksValid,
     hiddenBenchmarkKeys,
   ]);
 
@@ -488,7 +619,7 @@ export function ExplorePortfoliosEquityChart({
     );
   }
 
-  if (visibleSeries.length === 0) {
+  if (effectiveSeries.length === 0) {
     return (
       <div
         className={cn(
@@ -503,9 +634,10 @@ export function ExplorePortfoliosEquityChart({
 
   const sidebarDateLabel = isPicker
     ? (pickerLatestRow?.shortDate ?? '—')
-    : effectiveIndex != null
-      ? (chartData[effectiveIndex]?.shortDate ?? '—')
-      : null;
+    : (() => {
+        const idx = isNarrowLayout ? (effectiveIndex ?? latestIdx) : effectiveIndex;
+        return idx != null ? (chartData[idx]?.shortDate ?? '—') : null;
+      })();
 
   const pinnedXLabel =
     !isPicker &&
@@ -536,7 +668,49 @@ export function ExplorePortfoliosEquityChart({
         </div>
       </div>
 
-      {benchmarksValid && displayValueRow ? (
+      {!isPicker && averageBenchOutperformance ? (
+        <div className="rounded-lg border border-border/80 bg-muted/20 px-3 py-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Average portfolio vs benchmark
+          </p>
+          <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+            Mean of visible portfolios through{' '}
+            <span className="font-medium text-foreground">{averageBenchOutperformance.atShortDate}</span>
+            : cumulative growth since $10k inception vs each benchmark (same basis as the homepage
+            relative outperformance chart).
+          </p>
+          <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1.5 text-sm">
+            <div className="flex min-w-0 items-baseline gap-2">
+              <span className="shrink-0 text-xs text-muted-foreground">S&amp;P 500 (cap)</span>
+              <span
+                className={cn(
+                  'font-semibold tabular-nums',
+                  averageBenchOutperformance.vsSp500 >= 0
+                    ? 'text-emerald-600 dark:text-emerald-500'
+                    : 'text-rose-600 dark:text-rose-500'
+                )}
+              >
+                {formatSignedPct1(averageBenchOutperformance.vsSp500)}
+              </span>
+            </div>
+            <div className="flex min-w-0 items-baseline gap-2">
+              <span className="shrink-0 text-xs text-muted-foreground">Nasdaq-100 (cap)</span>
+              <span
+                className={cn(
+                  'font-semibold tabular-nums',
+                  averageBenchOutperformance.vsNasdaqCap >= 0
+                    ? 'text-emerald-600 dark:text-emerald-500'
+                    : 'text-rose-600 dark:text-rose-500'
+                )}
+              >
+                {formatSignedPct1(averageBenchOutperformance.vsNasdaqCap)}
+              </span>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {effectiveBenchmarksValid && displayValueRow ? (
         <div className="flex flex-wrap gap-1.5">
           {EXPLORE_BM_ORDER.map((k) => {
             const cfg = EXPLORE_BM_CONFIG[k];
@@ -635,7 +809,7 @@ export function ExplorePortfoliosEquityChart({
               />
               {dataKeys.map((k) => {
                 const cfgId =
-                  visibleSeries.find((s) => dataKeyForExploreConfig(s.configId) === k)?.configId ??
+                  effectiveSeries.find((s) => dataKeyForExploreConfig(s.configId) === k)?.configId ??
                   '';
                 const sel = selectedConfigId === cfgId;
                 const lineHover = hoveredLineKey === k;
@@ -819,7 +993,7 @@ export function ExplorePortfoliosEquityChart({
                 {isPicker ? (
                   'No portfolio lines in view.'
                 ) : isNarrowLayout ? (
-                  'Tap the chart to see portfolio values.'
+                  'No portfolio lines in view.'
                 ) : (
                   <>
                     <strong className="font-semibold text-foreground">Hover</strong> over the chart
@@ -876,8 +1050,6 @@ export function ExplorePortfoliosEquityChart({
                       </li>
                     );
                   }
-                  const risk = clampRiskLevel(r.riskLevel);
-                  const riskStyle = RISK_DOT[risk];
                   return (
                     <li key={r.configId}>
                       <button
@@ -896,7 +1068,7 @@ export function ExplorePortfoliosEquityChart({
                           'flex w-full items-center gap-2 rounded-md border border-transparent px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted/70 hover:border-border',
                           selectedConfigId === r.configId &&
                             'border-trader-blue/30 bg-trader-blue/5',
-                          rowActive && riskStyle.rowActive
+                          rowActive && 'ring-2 ring-primary/25 bg-muted/40'
                         )}
                       >
                         <span
@@ -908,7 +1080,8 @@ export function ExplorePortfoliosEquityChart({
                           {r.portfolioRank}
                         </span>
                         <span
-                          className={cn('size-1.5 shrink-0 rounded-full', riskStyle.dot)}
+                          className="size-1.5 shrink-0 rounded-full"
+                          style={{ backgroundColor: r.lineColor }}
                           aria-hidden
                         />
                         <span

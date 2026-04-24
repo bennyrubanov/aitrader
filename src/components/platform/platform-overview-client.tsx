@@ -132,6 +132,7 @@ import {
   sleepMs,
   useExploreHoldingsCacheVersion,
 } from '@/lib/portfolio-config-holdings-cache';
+import { buildMetricsFromSeries } from '@/lib/config-performance-chart';
 import { loadRankedConfigsClient } from '@/lib/portfolio-configs-ranked-client';
 import { loadUserPortfolioProfilesClient } from '@/lib/user-portfolio-profiles-client';
 import {
@@ -2541,6 +2542,27 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     liveTopSpotlightAllocation.totalCurrentValue,
   ]);
 
+  const effectiveTopSpotlightState = useMemo(() => {
+    const st = topSpotlightOverview?.state;
+    if (!st) return null;
+    const rawSeries = (st.series ?? []) as PerformanceSeriesPoint[];
+    if (effectiveTopSpotlightDisplaySeries === rawSeries) return st;
+    const { metrics } = buildMetricsFromSeries(
+      effectiveTopSpotlightDisplaySeries,
+      topSpotlightOverview?.profile.portfolio_config?.rebalance_frequency ?? 'weekly',
+      []
+    );
+    if (!metrics) return st;
+    return {
+      ...st,
+      totalReturn: metrics.totalReturn ?? st.totalReturn,
+      cagr: metrics.cagr ?? st.cagr,
+      maxDrawdown: metrics.maxDrawdown ?? st.maxDrawdown,
+      sharpeRatio: metrics.sharpeRatio ?? st.sharpeRatio,
+      weeklyObservations: metrics.weeklyObservations ?? st.weeklyObservations,
+    };
+  }, [topSpotlightOverview, effectiveTopSpotlightDisplaySeries]);
+
   const spotlightPortfolioValueAsOfCloseLabel = useMemo(() => {
     const pts = topSpotlightOverview?.state.series ?? [];
     const ymd =
@@ -3042,7 +3064,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                   ) : topSpotlightOverview ? (
                     (() => {
                       const bp = topSpotlightOverview.profile;
-                      const st = topSpotlightOverview.state;
+                      const st = effectiveTopSpotlightState ?? topSpotlightOverview.state;
                       const baseSeries = st.series ?? [];
                       const series = effectiveTopSpotlightDisplaySeries;
                       const val = computeOverviewPortfolioValue(
@@ -3072,31 +3094,8 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                           })
                         : null;
                       const investmentSize = Number(bp.investment_size);
-                      const { excessVsSp500 } = benchmarkStatsFromSeries(baseSeries);
-                      // When the effective series differs from the base series at its last bar
-                      // (appended or replaced), recompute totalReturn from the effective series so
-                      // `$` and `(pct)` agree. Otherwise keep server-computed `st.totalReturn`.
-                      const baseLastAi = baseSeries[baseSeries.length - 1]?.aiTop20 ?? null;
-                      const effLastAi = series[series.length - 1]?.aiTop20 ?? null;
-                      const hasSpotlightEffectiveOverride =
-                        spotlightHoldingsDateSelect === HOLDINGS_TODAY_SENTINEL &&
-                        series.length > 0 &&
-                        (series.length > baseSeries.length ||
-                          (baseSeries.length > 0 && baseLastAi !== effLastAi));
-                      let spotlightDisplayTotalReturn: number | null = st.totalReturn ?? null;
-                      if (hasSpotlightEffectiveOverride) {
-                        const firstAi = series[0]?.aiTop20;
-                        const lastAi = effLastAi;
-                        if (
-                          firstAi != null &&
-                          lastAi != null &&
-                          Number.isFinite(firstAi) &&
-                          Number.isFinite(lastAi) &&
-                          firstAi > 0
-                        ) {
-                          spotlightDisplayTotalReturn = lastAi / firstAi - 1;
-                        }
-                      }
+                      const { excessVsSp500 } = benchmarkStatsFromSeries(series);
+                      const spotlightDisplayTotalReturn: number | null = st.totalReturn ?? null;
                       return (
                         <section className="rounded-xl border border-border bg-card/50 p-4 sm:p-5 lg:h-[calc(100svh-14.75rem)] lg:overflow-hidden">
                           <div className="mb-2 flex min-w-0 items-start justify-between gap-3">

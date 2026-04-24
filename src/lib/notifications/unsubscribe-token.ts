@@ -1,12 +1,15 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 
-type Payload = { userId: string; scope: 'all' };
+/** `all` = master notification email off; `onboarding` = stop welcome series only. */
+export type UnsubscribeScope = 'all' | 'onboarding';
+
+export type UnsubscribePayload = { userId: string; scope: UnsubscribeScope };
 
 function getSecret() {
   return process.env.NOTIFICATIONS_UNSUBSCRIBE_SECRET ?? '';
 }
 
-export function signUnsubscribePayload(payload: Payload): string {
+export function signUnsubscribePayload(payload: UnsubscribePayload): string {
   const secret = getSecret();
   if (!secret) return '';
   const body = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
@@ -14,7 +17,7 @@ export function signUnsubscribePayload(payload: Payload): string {
   return `${body}.${sig}`;
 }
 
-export function verifyUnsubscribePayload(token: string): Payload | null {
+export function verifyUnsubscribePayload(token: string): UnsubscribePayload | null {
   const secret = getSecret();
   if (!secret || !token.includes('.')) return null;
   const lastDot = token.lastIndexOf('.');
@@ -25,8 +28,17 @@ export function verifyUnsubscribePayload(token: string): Payload | null {
   const b = Buffer.from(expected);
   if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
   try {
-    const parsed = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as Payload;
-    if (parsed?.userId && parsed.scope === 'all') return parsed;
+    const parsed = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as {
+      userId?: string;
+      scope?: string;
+    };
+    if (!parsed?.userId) return null;
+    if (parsed.scope === 'onboarding') {
+      return { userId: parsed.userId, scope: 'onboarding' };
+    }
+    if (parsed.scope === 'all' || parsed.scope == null) {
+      return { userId: parsed.userId, scope: 'all' };
+    }
   } catch {
     return null;
   }
