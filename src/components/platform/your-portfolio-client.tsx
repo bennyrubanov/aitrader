@@ -112,6 +112,7 @@ import {
   prefetchExploreHoldingsDates,
   sleepMs,
   useExploreHoldingsCacheVersion,
+  type ExploreHoldingsLivePoint,
 } from '@/lib/portfolio-config-holdings-cache';
 import {
   buildHoldingMovementTableRows,
@@ -235,14 +236,16 @@ function YourPortfolioCostBasisCell({
   const gap = snapshot?.incompleteFirstDateBySymbol[sym];
   if (gap) {
     return (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className="cursor-help tabular-nums text-muted-foreground">—</span>
-        </TooltipTrigger>
-        <TooltipContent side="top" className="max-w-xs text-xs">
-          {costBasisIncompleteTooltip(gap)}
-        </TooltipContent>
-      </Tooltip>
+      <TooltipProvider delayDuration={150}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="cursor-help tabular-nums text-muted-foreground">—</span>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-xs text-xs">
+            {costBasisIncompleteTooltip(gap)}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
     );
   }
   const total = snapshot?.costBasisBySymbol[sym] ?? 0;
@@ -734,21 +737,23 @@ function PortfolioRebalanceActionsTable({
             </TableCell>
             <TableCell className="w-0 min-w-[4rem] px-1.5 py-1.5 text-left align-middle whitespace-nowrap">
               {r.companyName && r.companyName !== r.symbol ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Link
-                      href={`/stocks/${r.symbol.toLowerCase()}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="block truncate font-medium text-foreground hover:underline"
-                    >
-                      {r.symbol}
-                    </Link>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="max-w-xs text-left">
-                    {r.companyName}
-                  </TooltipContent>
-                </Tooltip>
+                <TooltipProvider delayDuration={150}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Link
+                        href={`/stocks/${r.symbol.toLowerCase()}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block truncate font-medium text-foreground hover:underline"
+                      >
+                        {r.symbol}
+                      </Link>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-xs text-left">
+                      {r.companyName}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               ) : (
                 <Link
                   href={`/stocks/${r.symbol.toLowerCase()}`}
@@ -1263,27 +1268,29 @@ function SidebarPortfolioBadgeIcon({
   );
 
   return (
-    <Tooltip delayDuration={200}>
-      <TooltipTrigger asChild>{trigger}</TooltipTrigger>
-      <TooltipContent
-        side="top"
-        className="max-w-[min(22rem,calc(100vw-2rem))] text-xs leading-relaxed"
-      >
-        <div className="space-y-2">
-          <p className="text-sm font-semibold leading-snug text-foreground">{name}</p>
-          {tip ? <p>{tip}</p> : null}
-          {rankingHowHref ? (
-            <Link
-              href={rankingHowHref}
-              className="inline-flex font-medium text-trader-blue underline-offset-2 hover:underline dark:text-trader-blue-light"
-              onClick={(e) => e.stopPropagation()}
-            >
-              Composite ranking — how it works
-            </Link>
-          ) : null}
-        </div>
-      </TooltipContent>
-    </Tooltip>
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>{trigger}</TooltipTrigger>
+        <TooltipContent
+          side="top"
+          className="max-w-[min(22rem,calc(100vw-2rem))] text-xs leading-relaxed"
+        >
+          <div className="space-y-2">
+            <p className="text-sm font-semibold leading-snug text-foreground">{name}</p>
+            {tip ? <p>{tip}</p> : null}
+            {rankingHowHref ? (
+              <Link
+                href={rankingHowHref}
+                className="inline-flex font-medium text-trader-blue underline-offset-2 hover:underline dark:text-trader-blue-light"
+                onClick={(e) => e.stopPropagation()}
+              >
+                Composite ranking — how it works
+              </Link>
+            ) : null}
+          </div>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
 
@@ -1464,6 +1471,9 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   >({});
   const [configHoldingsRebalanceDates, setConfigHoldingsRebalanceDates] = useState<string[]>([]);
   const [configHoldingsLatestRunDate, setConfigHoldingsLatestRunDate] = useState<string | null>(null);
+  const [configHoldingsLivePoint, setConfigHoldingsLivePoint] = useState<ExploreHoldingsLivePoint | null>(
+    null
+  );
   const configHoldingsLenRef = useRef(0);
   configHoldingsLenRef.current = configHoldings.length;
 
@@ -2197,6 +2207,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     setConfigHoldingsLatestPriceBySymbol({});
     setConfigHoldingsRebalanceDates([]);
     setConfigHoldingsLatestRunDate(null);
+    setConfigHoldingsLivePoint(null);
     setConfigHoldingsRefreshing(false);
     setHoldingsDateSelect(HOLDINGS_TODAY_SENTINEL);
 
@@ -2240,6 +2251,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         setConfigHoldingsLatestPriceBySymbol({});
         setConfigHoldingsRebalanceDates([]);
         setConfigHoldingsLatestRunDate(null);
+        setConfigHoldingsLivePoint(null);
         setConfigHoldingsLoading(false);
         setConfigHoldingsRefreshing(false);
         return;
@@ -2264,6 +2276,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         setConfigHoldingsLatestPriceBySymbol(syncHit.latestPriceBySymbol);
         setConfigHoldingsRebalanceDates(syncHit.rebalanceDates);
         setConfigHoldingsLatestRunDate(syncHit.latestRunDate ?? null);
+        setConfigHoldingsLivePoint(syncHit.livePoint ?? null);
         setConfigHoldingsLoading(false);
         setConfigHoldingsRefreshing(false);
         prefetchExploreHoldingsDates(slug, configId, syncHit.rebalanceDates);
@@ -2288,6 +2301,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
           setConfigHoldingsLatestPriceBySymbol({});
           setConfigHoldingsRebalanceDates([]);
           setConfigHoldingsLatestRunDate(null);
+          setConfigHoldingsLivePoint(null);
         } else {
           if (useRefreshChrome) {
             const elapsed = Date.now() - started;
@@ -2302,6 +2316,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
           setConfigHoldingsLatestPriceBySymbol(data.latestPriceBySymbol);
           setConfigHoldingsRebalanceDates(data.rebalanceDates);
           setConfigHoldingsLatestRunDate(data.latestRunDate ?? null);
+          setConfigHoldingsLivePoint(data.livePoint ?? null);
           prefetchExploreHoldingsDates(slug, configId, data.rebalanceDates);
         }
       } finally {
@@ -2323,6 +2338,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       setConfigHoldingsLatestPriceBySymbol({});
       setConfigHoldingsRebalanceDates([]);
       setConfigHoldingsLatestRunDate(null);
+      setConfigHoldingsLivePoint(null);
       setConfigHoldingsLoading(false);
       setConfigHoldingsRefreshing(false);
       setHoldingsDateSelect(HOLDINGS_TODAY_SENTINEL);
@@ -2394,8 +2410,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     return rawRows.map((row) => Number(row.net_return ?? 0));
   }, [selectedProfile?.user_start_date, userEntryPayload?.sharpeReturns, perfPayload?.sharpeReturns, rawRows]);
 
-  const userEntryMetricsFull = userEntryPayload?.metrics;
-
   const topN = selectedProfile?.portfolio_config?.top_n ?? 20;
 
   const holdingsMovementSlice = useMemo(() => {
@@ -2421,7 +2435,8 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     return Object.keys(map).length ? map : null;
   }, [holdingsDateSelect, holdingsMovementSlice]);
 
-  const holdingsAsOfNotional = useMemo(() => {
+  /** Notional for live allocation math — anchored to raw `displaySeries` (not the tailed series). */
+  const holdingsAllocationBaseNotional = useMemo(() => {
     const investmentSize = num(selectedProfile?.investment_size);
     const pts = (displaySeries as PerformanceSeriesPoint[]) ?? [];
     const asOf = configHoldingsAsOf;
@@ -2466,7 +2481,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const liveConfigHoldingsAllocation = useMemo(() => {
     return buildLiveHoldingsAllocationResult(
       configHoldings,
-      holdingsAsOfNotional,
+      holdingsAllocationBaseNotional,
       configHoldingsAsOfPriceBySymbol,
       configHoldingsLatestPriceBySymbol,
       holdingsValuationMode,
@@ -2476,7 +2491,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     );
   }, [
     configHoldings,
-    holdingsAsOfNotional,
+    holdingsAllocationBaseNotional,
     configHoldingsAsOfPriceBySymbol,
     configHoldingsLatestPriceBySymbol,
     holdingsValuationMode,
@@ -2492,6 +2507,45 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
    */
   const effectiveDisplaySeries = useMemo(() => {
     const pts = displaySeries as PerformanceSeriesPoint[];
+    const userStartYmd = selectedProfile?.user_start_date?.trim() ?? null;
+    const investmentSizeNum = Number(selectedProfile?.investment_size ?? 0);
+    const totalFromHoldingsEarly = liveConfigHoldingsAllocation.totalCurrentValue;
+    const holdingsLatestYmdEarly = configHoldingsLatestRunDate;
+    if (
+      holdingsDateSelect === HOLDINGS_TODAY_SENTINEL &&
+      pts.length <= 1 &&
+      userStartYmd &&
+      Number.isFinite(investmentSizeNum) &&
+      investmentSizeNum > 0 &&
+      holdingsLatestYmdEarly != null &&
+      holdingsLatestYmdEarly > userStartYmd &&
+      totalFromHoldingsEarly != null &&
+      Number.isFinite(totalFromHoldingsEarly) &&
+      totalFromHoldingsEarly > 0
+    ) {
+      const lastPt = pts[0];
+      const lp = configHoldingsLivePoint;
+      return [
+        {
+          date: userStartYmd,
+          aiTop20: investmentSizeNum,
+          nasdaq100CapWeight: investmentSizeNum,
+          nasdaq100EqualWeight: investmentSizeNum,
+          sp500: investmentSizeNum,
+        },
+        {
+          date: holdingsLatestYmdEarly,
+          aiTop20: totalFromHoldingsEarly,
+          nasdaq100CapWeight:
+            lp?.nasdaq100CapWeight != null ? lp.nasdaq100CapWeight : (lastPt?.nasdaq100CapWeight ?? investmentSizeNum),
+          nasdaq100EqualWeight:
+            lp?.nasdaq100EqualWeight != null
+              ? lp.nasdaq100EqualWeight
+              : (lastPt?.nasdaq100EqualWeight ?? investmentSizeNum),
+          sp500: lp?.sp500 != null ? lp.sp500 : (lastPt?.sp500 ?? investmentSizeNum),
+        },
+      ];
+    }
     if (!pts.length) return pts;
     if (holdingsDateSelect !== HOLDINGS_TODAY_SENTINEL) return pts;
     const holdingsLatestYmd = configHoldingsLatestRunDate;
@@ -2502,12 +2556,15 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     if (totalFromHoldings == null || !Number.isFinite(totalFromHoldings) || totalFromHoldings <= 0) {
       return pts;
     }
+    const lpTail = configHoldingsLivePoint;
     const nextBar = {
       date: holdingsLatestYmd,
       aiTop20: totalFromHoldings,
-      nasdaq100CapWeight: last.nasdaq100CapWeight,
-      nasdaq100EqualWeight: last.nasdaq100EqualWeight,
-      sp500: last.sp500,
+      nasdaq100CapWeight:
+        lpTail?.nasdaq100CapWeight != null ? lpTail.nasdaq100CapWeight : last.nasdaq100CapWeight,
+      nasdaq100EqualWeight:
+        lpTail?.nasdaq100EqualWeight != null ? lpTail.nasdaq100EqualWeight : last.nasdaq100EqualWeight,
+      sp500: lpTail?.sp500 != null ? lpTail.sp500 : last.sp500,
     };
     if (holdingsLatestYmd === last.date) {
       if (
@@ -2524,7 +2581,10 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     displaySeries,
     holdingsDateSelect,
     configHoldingsLatestRunDate,
+    configHoldingsLivePoint,
     liveConfigHoldingsAllocation.totalCurrentValue,
+    selectedProfile?.investment_size,
+    selectedProfile?.user_start_date,
   ]);
 
   const effectiveDisplayMetrics = useMemo(
@@ -2559,6 +2619,46 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     ]
   );
 
+  /** Display / holdings-line notional from effective series (matches main card when tailed). */
+  const holdingsAsOfNotional = useMemo(() => {
+    const investmentSize = num(selectedProfile?.investment_size);
+    const pts = (effectiveDisplaySeries as PerformanceSeriesPoint[]) ?? [];
+    const asOf = configHoldingsAsOf;
+
+    if (holdingsDateSelect !== HOLDINGS_TODAY_SENTINEL && holdingsMovementSlice) {
+      const n =
+        holdingsMovementSlice.notionalAtCurrRebalanceEnd ??
+        holdingsMovementSlice.movementNotional ??
+        null;
+      if (n != null && Number.isFinite(n) && n > 0) return n;
+    }
+
+    if (asOf && holdingsRebalanceAnchorDate && asOf === holdingsRebalanceAnchorDate) {
+      return investmentSize;
+    }
+    if (asOf && pts.length > 0) {
+      const exact = pts.find((p) => p.date === asOf)?.aiTop20;
+      if (exact != null && Number.isFinite(exact) && exact > 0) return exact;
+      let onOrBefore: number | null = null;
+      for (const p of pts) {
+        if (p.date <= asOf && Number.isFinite(p.aiTop20) && p.aiTop20 > 0) {
+          onOrBefore = p.aiTop20;
+        }
+      }
+      if (onOrBefore != null) return onOrBefore;
+    }
+    const latest = pts[pts.length - 1]?.aiTop20;
+    if (latest != null && Number.isFinite(latest) && latest > 0) return latest;
+    return investmentSize;
+  }, [
+    effectiveDisplaySeries,
+    configHoldingsAsOf,
+    selectedProfile?.investment_size,
+    holdingsRebalanceAnchorDate,
+    holdingsDateSelect,
+    holdingsMovementSlice,
+  ]);
+
   const benchmarkBench = useMemo(() => {
     return benchmarkStatsFromYourPortfolioSeries(effectiveDisplaySeries as PerformanceSeriesPoint[]);
   }, [effectiveDisplaySeries]);
@@ -2573,33 +2673,52 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   }, [effectiveDisplaySeries]);
 
   const excessNdxForSpotlight = useMemo(() => {
-    if (
-      selectedProfile?.user_start_date &&
-      userEntryMetricsFull?.excessReturnVsNasdaqCap != null &&
-      Number.isFinite(userEntryMetricsFull.excessReturnVsNasdaqCap)
-    ) {
-      return userEntryMetricsFull.excessReturnVsNasdaqCap;
-    }
     return benchmarkBench.excessVsNasdaqCap;
-  }, [
-    selectedProfile?.user_start_date,
-    userEntryMetricsFull?.excessReturnVsNasdaqCap,
-    benchmarkBench.excessVsNasdaqCap,
-  ]);
+  }, [benchmarkBench.excessVsNasdaqCap]);
 
   const portfolioValueAmount = useMemo(() => {
     const pts = effectiveDisplaySeries as PerformanceSeriesPoint[];
-    return computeYourPortfolioValue(
+    const fromSeries = computeYourPortfolioValue(
       pts,
       num(selectedProfile?.investment_size),
       selectedProfile?.user_start_date ?? null
     );
-  }, [effectiveDisplaySeries, selectedProfile?.investment_size, selectedProfile?.user_start_date]);
+    if (fromSeries != null && Number.isFinite(fromSeries) && fromSeries > 0) return fromSeries;
+    if (
+      liveConfigHoldingsAllocation.totalCurrentValue != null &&
+      Number.isFinite(liveConfigHoldingsAllocation.totalCurrentValue) &&
+      liveConfigHoldingsAllocation.totalCurrentValue > 0
+    ) {
+      return liveConfigHoldingsAllocation.totalCurrentValue;
+    }
+    return configHoldings.length > 0 && holdingsAllocationBaseNotional > 0
+      ? holdingsAllocationBaseNotional
+      : null;
+  }, [
+    effectiveDisplaySeries,
+    selectedProfile?.investment_size,
+    selectedProfile?.user_start_date,
+    liveConfigHoldingsAllocation.totalCurrentValue,
+    configHoldings.length,
+    holdingsAllocationBaseNotional,
+  ]);
 
-  const portfolioValueDisplayTotalReturn = effectiveDisplayMetrics?.totalReturn ?? null;
+  const portfolioValueDisplayTotalReturn = useMemo(() => {
+    if (effectiveDisplayMetrics?.totalReturn != null) return effectiveDisplayMetrics.totalReturn;
+    const invested = num(selectedProfile?.investment_size);
+    if (
+      portfolioValueAmount != null &&
+      Number.isFinite(portfolioValueAmount) &&
+      portfolioValueAmount > 0 &&
+      invested > 0
+    ) {
+      return portfolioValueAmount / invested - 1;
+    }
+    return null;
+  }, [effectiveDisplayMetrics?.totalReturn, portfolioValueAmount, selectedProfile?.investment_size]);
 
   const holdingsPortfolioValueAsOfCloseLabel = useMemo(() => {
-    const pts = displaySeries as PerformanceSeriesPoint[];
+    const pts = effectiveDisplaySeries as PerformanceSeriesPoint[];
     const ymd =
       holdingsDateSelect === HOLDINGS_TODAY_SENTINEL
         ? configHoldingsLatestRunDate ?? pts[pts.length - 1]?.date ?? null
@@ -2610,18 +2729,36 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     } catch {
       return null;
     }
-  }, [holdingsDateSelect, displaySeries, configHoldingsLatestRunDate]);
+  }, [holdingsDateSelect, effectiveDisplaySeries, configHoldingsLatestRunDate]);
 
   const holdingsPortfolioValueLineAmount = useMemo(() => {
     if (holdingsDateSelect === HOLDINGS_TODAY_SENTINEL) {
-      return liveConfigHoldingsAllocation.totalCurrentValue ?? holdingsAsOfNotional;
+      const eff = effectiveDisplaySeries as PerformanceSeriesPoint[];
+      const effLast = eff[eff.length - 1]?.aiTop20;
+      if (effLast != null && Number.isFinite(effLast) && effLast > 0) {
+        return effLast;
+      }
+      return liveConfigHoldingsAllocation.totalCurrentValue ?? holdingsAllocationBaseNotional;
     }
     return holdingsAsOfNotional;
   }, [
     holdingsDateSelect,
+    effectiveDisplaySeries,
     liveConfigHoldingsAllocation.totalCurrentValue,
+    holdingsAllocationBaseNotional,
     holdingsAsOfNotional,
   ]);
+
+  const chartInitialNotional = useMemo(() => {
+    const firstSeriesValue = (effectiveDisplaySeries as PerformanceSeriesPoint[] | undefined)?.[0]
+      ?.aiTop20;
+    if (firstSeriesValue != null && Number.isFinite(firstSeriesValue) && firstSeriesValue > 0) {
+      return firstSeriesValue;
+    }
+    return num(selectedProfile?.investment_size) > 0
+      ? num(selectedProfile?.investment_size)
+      : YOUR_PORTFOLIOS_MODEL_INITIAL;
+  }, [effectiveDisplaySeries, selectedProfile?.investment_size]);
 
   const costBasisRebalanceDate = useMemo(() => {
     if (holdingsDateSelect === HOLDINGS_TODAY_SENTINEL) return configHoldingsAsOf;
@@ -3048,15 +3185,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     : null;
 
   const chartStrategyName = 'Your portfolio';
-  const chartInitialNotional = (() => {
-    const firstSeriesValue = (displaySeries as PerformanceSeriesPoint[] | undefined)?.[0]?.aiTop20;
-    if (firstSeriesValue != null && Number.isFinite(firstSeriesValue) && firstSeriesValue > 0) {
-      return firstSeriesValue;
-    }
-    return num(selectedProfile?.investment_size) > 0
-      ? num(selectedProfile?.investment_size)
-      : YOUR_PORTFOLIOS_MODEL_INITIAL;
-  })();
 
   return (
     <div
@@ -3588,7 +3716,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                 <p className="font-medium">No model snapshot for that entry</p>
                 <p className="text-xs mt-1">Pick an entry on or after the strategy&apos;s first rebalance.</p>
               </div>
-            ) : activeComputeStatus === 'empty' ? (
+            ) : activeComputeStatus === 'empty' && portfolioValueAmount == null ? (
               <div className="mx-5 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground sm:mx-7">
                 <p className="font-medium">Performance data computing…</p>
                 <p className="text-xs mt-1">
@@ -3624,10 +3752,11 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                       ref={yourPortfolioMetricsScrollRef}
                       className="flex max-h-[min(42vh,300px)] min-h-0 flex-col gap-2 overflow-y-auto lg:max-h-none lg:flex-1"
                     >
-                      <div ref={yourPortfolioMetricsInnerRef} className="flex flex-col gap-2">
-                    {/* Below lg the metrics strip is full-width — use two columns on phones/tablets; lg:contents keeps the narrow sidebar as a single column. */}
-                    <div className="grid min-w-0 grid-cols-2 gap-2 lg:contents">
-                      <div className="min-w-0 lg:contents">
+                      <div
+                        ref={yourPortfolioMetricsInnerRef}
+                        className="grid min-w-0 grid-cols-2 gap-2 lg:grid-cols-1 [&>*]:min-w-0"
+                      >
+                    {/* Two columns below lg; single column in the fixed-width sidebar at lg+. */}
                         <SpotlightStatCard
                           tooltipKey="portfolio_value"
                           label="Portfolio value"
@@ -3650,8 +3779,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                           }
                           asOfCloseDate={holdingsPortfolioValueAsOfCloseLabel}
                         />
-                      </div>
-                      <div className="min-w-0 lg:contents">
                         <SpotlightStatCard
                           tooltipKey="vs_sp500"
                           label="Performance vs S&P 500 (cap)"
@@ -3663,8 +3790,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                               : undefined
                           }
                         />
-                      </div>
-                      <div className="min-w-0 lg:contents">
                         <div className="rounded-lg border bg-card px-2 py-2">
                           <div className="flex items-start justify-between gap-1">
                             <p className="min-w-0 flex-1 text-[10px] font-medium uppercase leading-tight tracking-wide text-muted-foreground">
@@ -3689,8 +3814,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                               : '—'}
                           </p>
                         </div>
-                      </div>
-                      <div className="min-w-0 lg:contents">
                         <div className="rounded-lg border bg-card px-2 py-2">
                           <div className="flex items-start justify-between gap-1">
                             <p className="min-w-0 flex-1 text-[10px] font-medium uppercase leading-tight tracking-wide text-muted-foreground">
@@ -3715,8 +3838,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                               : '—'}
                           </p>
                         </div>
-                      </div>
-                    </div>
                     <SpotlightStatCard
                       tooltipKey="sharpe_ratio"
                       label="Sharpe ratio"

@@ -51,7 +51,7 @@ export function NavMain({
   labelClassName,
   groupClassName,
 }: NavMainProps) {
-  const { state, isMobile } = useSidebar();
+  const { state, isMobile, setOpenMobile } = useSidebar();
 
   return (
     <SidebarGroup className={groupClassName}>
@@ -67,6 +67,9 @@ export function NavMain({
                 target="_blank"
                 rel="noopener noreferrer"
                 className={roadmapSoonBadgeClass}
+                onClick={() => {
+                  if (isMobile) setOpenMobile(false);
+                }}
               >
                 {item.badge}
               </a>
@@ -135,7 +138,10 @@ export function NavMain({
                     onMouseEnter={() => item.onPrefetch?.(item.url!)}
                     onFocus={() => item.onPrefetch?.(item.url!)}
                     onPointerDown={() => item.onNavigate?.(item.url!)}
-                    onClick={() => item.onNavigate?.(item.url!)}
+                    onClick={() => {
+                      item.onNavigate?.(item.url!);
+                      if (isMobile) setOpenMobile(false);
+                    }}
                   >
                     {content}
                   </Link>

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -46,6 +46,7 @@ import { PlanLabel } from "@/components/account/plan-label";
 import { navigateWithFallback } from "@/lib/client-navigation";
 import { STRATEGY_CONFIG } from "@/lib/strategyConfig";
 import { shouldPersistSignInReturnPath } from "@/lib/auth-redirect";
+import type { SubscriptionTier } from "@/lib/auth-state";
 
 const platformNavItems: PlatformNavItem[] = [
   { label: "Performance", href: `/performance/${STRATEGY_CONFIG.slug}`, icon: Gauge },
@@ -80,6 +81,149 @@ type NavItem = {
 
 type PlatformNavItem = NavItem & { trailingArrow?: boolean };
 
+function NavbarAccountDropdown({
+  account,
+  hasPremiumAccess,
+  subscriptionTier,
+  onSignOut,
+  isSigningOut,
+}: {
+  account: { name: string; email: string; avatar?: string | null };
+  hasPremiumAccess: boolean;
+  subscriptionTier: SubscriptionTier;
+  onSignOut: () => void | Promise<void>;
+  isSigningOut: boolean;
+}) {
+  const router = useRouter();
+  const [avatarLoaded, setAvatarLoaded] = useState(false);
+  const lastAvatarSrcRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const next = account.avatar?.trim() ? account.avatar.trim() : null;
+    if (next === lastAvatarSrcRef.current) return;
+    lastAvatarSrcRef.current = next;
+    setAvatarLoaded(false);
+  }, [account.avatar]);
+
+  const accountInitials = useMemo(() => {
+    const source = account.name || account.email || "U";
+    const parts = source.split(" ").filter(Boolean);
+    if (parts.length >= 2) {
+      return `${parts[0][0] ?? ""}${parts[1][0] ?? ""}`.toUpperCase();
+    }
+    return (source[0] ?? "U").toUpperCase();
+  }, [account.name, account.email]);
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background/80 transition-colors hover:bg-muted"
+          aria-label="Open account menu"
+        >
+          <div className="relative">
+            {!avatarLoaded && account.avatar && (
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-[-2px] rounded-full border border-trader-blue/30 animate-pulse"
+              />
+            )}
+            <Avatar className="h-7 w-7">
+              <AvatarImage
+                src={account.avatar ?? undefined}
+                alt={account.name}
+                className={`transition-opacity duration-300 ${avatarLoaded ? "opacity-100" : "opacity-0"}`}
+                onLoad={() => setAvatarLoaded(true)}
+              />
+              <AvatarFallback>{accountInitials}</AvatarFallback>
+            </Avatar>
+          </div>
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent className="w-56 rounded-lg" align="end" sideOffset={8}>
+        <DropdownMenuLabel className="p-0 font-normal">
+          <div className="flex items-center gap-2 px-2 py-1.5 text-left text-sm">
+            <div className="relative">
+              {!avatarLoaded && account.avatar && (
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-[-2px] rounded-full border border-trader-blue/30 animate-pulse"
+                />
+              )}
+              <Avatar className="h-7 w-7">
+                <AvatarImage
+                  src={account.avatar ?? undefined}
+                  alt={account.name}
+                  className={`transition-opacity duration-300 ${avatarLoaded ? "opacity-100" : "opacity-0"}`}
+                  onLoad={() => setAvatarLoaded(true)}
+                />
+                <AvatarFallback>{accountInitials}</AvatarFallback>
+              </Avatar>
+            </div>
+            <div className="grid flex-1 text-left leading-tight">
+              <span className="truncate font-medium">{account.name}</span>
+              <span className="truncate text-xs text-muted-foreground">{account.email}</span>
+            </div>
+          </div>
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup>
+          <DropdownMenuItem
+            onSelect={() =>
+              navigateWithFallback(
+                (href) => router.push(href),
+                hasPremiumAccess ? "/platform/settings" : "/pricing"
+              )
+            }
+            className="gap-2"
+          >
+            <PlanLabel isPremium={hasPremiumAccess} subscriptionTier={subscriptionTier} />
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup>
+          <DropdownMenuItem
+            onSelect={() =>
+              navigateWithFallback((href) => router.push(href), "/platform/settings/account")
+            }
+            className="gap-2"
+          >
+            <BadgeCheck className="size-4 text-muted-foreground" />
+            Account
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={() =>
+              navigateWithFallback((href) => router.push(href), "/platform/settings/billing")
+            }
+            className="gap-2"
+          >
+            <CreditCard className="size-4 text-muted-foreground" />
+            Billing
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={() =>
+              navigateWithFallback(
+                (href) => router.push(href),
+                "/platform/settings/notifications"
+              )
+            }
+            className="gap-2"
+          >
+            <Bell className="size-4 text-muted-foreground" />
+            Notifications
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={onSignOut} disabled={isSigningOut}>
+          <LogOut className="size-4 text-muted-foreground" />
+          {isSigningOut ? "Logging out..." : "Log out"}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 const MARKETING_PREFETCH_ROUTES = [
   "/",
   "/strategy-models",
@@ -107,7 +251,6 @@ const Navbar: React.FC = () => {
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [hasHydrated, setHasHydrated] = useState(false);
-  const [avatarLoaded, setAvatarLoaded] = useState(false);
   const [openMenu, setOpenMenu] = useState<"platform" | "resources" | "company" | null>(null);
   const pathname = usePathname();
   /** Avoid nav active-state hydration mismatches when SSR pathname and client usePathname() disagree. */
@@ -126,10 +269,6 @@ const Navbar: React.FC = () => {
     email: authState.email,
     avatar: authState.avatar,
   };
-
-  useEffect(() => {
-    setAvatarLoaded(false);
-  }, [account.avatar]);
 
   useEffect(() => {
     setIsNavigatingToSignIn(false);
@@ -253,124 +392,6 @@ const Navbar: React.FC = () => {
     `inline-flex items-center gap-1 transition-colors ${
       active ? "text-foreground" : "text-muted-foreground hover:text-foreground"
     }`;
-
-  const accountInitials = (() => {
-    const source = account.name || account.email || "U";
-    const parts = source.split(" ").filter(Boolean);
-    if (parts.length >= 2) {
-      return `${parts[0][0] ?? ""}${parts[1][0] ?? ""}`.toUpperCase();
-    }
-    return (source[0] ?? "U").toUpperCase();
-  })();
-
-  const AccountDropdown = ({ mobile = false }: { mobile?: boolean }) => (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background/80 transition-colors hover:bg-muted"
-          aria-label="Open account menu"
-        >
-          <div className="relative">
-            {!avatarLoaded && account.avatar && (
-              <span
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-[-2px] rounded-full border border-trader-blue/30 animate-pulse"
-              />
-            )}
-            <Avatar className="h-7 w-7">
-              <AvatarImage
-                src={account.avatar}
-                alt={account.name}
-                className={`transition-opacity duration-300 ${avatarLoaded ? "opacity-100" : "opacity-0"}`}
-                onLoad={() => setAvatarLoaded(true)}
-              />
-              <AvatarFallback>{accountInitials}</AvatarFallback>
-            </Avatar>
-          </div>
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-56 rounded-lg" align="end" sideOffset={8}>
-        <DropdownMenuLabel className="p-0 font-normal">
-          <div className="flex items-center gap-2 px-2 py-1.5 text-left text-sm">
-            <div className="relative">
-              {!avatarLoaded && account.avatar && (
-                <span
-                  aria-hidden="true"
-                  className="pointer-events-none absolute inset-[-2px] rounded-full border border-trader-blue/30 animate-pulse"
-                />
-              )}
-              <Avatar className="h-7 w-7">
-                <AvatarImage
-                  src={account.avatar}
-                  alt={account.name}
-                  className={`transition-opacity duration-300 ${avatarLoaded ? "opacity-100" : "opacity-0"}`}
-                  onLoad={() => setAvatarLoaded(true)}
-                />
-                <AvatarFallback>{accountInitials}</AvatarFallback>
-              </Avatar>
-            </div>
-            <div className="grid flex-1 text-left leading-tight">
-              <span className="truncate font-medium">{account.name}</span>
-              <span className="truncate text-xs text-muted-foreground">{account.email}</span>
-            </div>
-          </div>
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <DropdownMenuGroup>
-          <DropdownMenuItem
-            onSelect={() =>
-              navigateWithFallback(
-                (href) => router.push(href),
-                hasPremiumAccess ? "/platform/settings" : "/pricing"
-              )
-            }
-            className="gap-2"
-          >
-            <PlanLabel isPremium={hasPremiumAccess} subscriptionTier={subscriptionTier} />
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuGroup>
-              <DropdownMenuItem
-                onSelect={() =>
-                  navigateWithFallback((href) => router.push(href), "/platform/settings/account")
-                }
-                className="gap-2"
-              >
-            <BadgeCheck className="size-4 text-muted-foreground" />
-            Account
-          </DropdownMenuItem>
-              <DropdownMenuItem
-                onSelect={() =>
-                  navigateWithFallback((href) => router.push(href), "/platform/settings/billing")
-                }
-                className="gap-2"
-              >
-            <CreditCard className="size-4 text-muted-foreground" />
-            Billing
-          </DropdownMenuItem>
-              <DropdownMenuItem
-                onSelect={() =>
-                  navigateWithFallback(
-                    (href) => router.push(href),
-                    "/platform/settings/notifications"
-                  )
-                }
-                className="gap-2"
-              >
-            <Bell className="size-4 text-muted-foreground" />
-            Notifications
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={handleSignOut} className="gap-2" disabled={isSigningOut}>
-          <LogOut className="size-4 text-muted-foreground" />
-          {isSigningOut ? "Logging out..." : "Log out"}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
 
   return (
     <header
@@ -552,7 +573,15 @@ const Navbar: React.FC = () => {
 
           <div className="hidden items-center gap-2 md:flex">
             <ThemeToggle className="rounded-full" />
-            {showAuthenticatedUi && <AccountDropdown />}
+            {showAuthenticatedUi ? (
+              <NavbarAccountDropdown
+                account={account}
+                hasPremiumAccess={hasPremiumAccess}
+                subscriptionTier={subscriptionTier}
+                onSignOut={handleSignOut}
+                isSigningOut={isSigningOut}
+              />
+            ) : null}
             {showGuestUi && (
               <Button
                 variant="outline"
@@ -586,7 +615,15 @@ const Navbar: React.FC = () => {
 
           <div className="flex items-center gap-2 md:hidden">
             <ThemeToggle className="rounded-full" />
-            {showAuthenticatedUi && <AccountDropdown mobile />}
+            {showAuthenticatedUi ? (
+              <NavbarAccountDropdown
+                account={account}
+                hasPremiumAccess={hasPremiumAccess}
+                subscriptionTier={subscriptionTier}
+                onSignOut={handleSignOut}
+                isSigningOut={isSigningOut}
+              />
+            ) : null}
             <Sheet open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
               <SheetTrigger asChild>
                 <Button variant="outline" size="icon" className="rounded-full" aria-label="Open navigation menu">

@@ -131,6 +131,7 @@ import {
   prefetchExploreHoldingsDates,
   sleepMs,
   useExploreHoldingsCacheVersion,
+  type ExploreHoldingsLivePoint,
 } from '@/lib/portfolio-config-holdings-cache';
 import { buildMetricsFromSeries } from '@/lib/config-performance-chart';
 import { loadRankedConfigsClient } from '@/lib/portfolio-configs-ranked-client';
@@ -489,14 +490,16 @@ function SpotlightCostBasisCell({
   const gap = snapshot?.incompleteFirstDateBySymbol[sym];
   if (gap) {
     return (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className="cursor-help tabular-nums text-muted-foreground">—</span>
-        </TooltipTrigger>
-        <TooltipContent side="top" className="max-w-xs text-xs">
-          {costBasisIncompleteTooltip(gap)}
-        </TooltipContent>
-      </Tooltip>
+      <TooltipProvider delayDuration={150}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="cursor-help tabular-nums text-muted-foreground">—</span>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-xs text-xs">
+            {costBasisIncompleteTooltip(gap)}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
     );
   }
   const total = snapshot?.costBasisBySymbol[sym] ?? 0;
@@ -660,6 +663,8 @@ function OverviewPortfolioTile({
   headerRight,
   interactive = true,
   yourPortfoliosHref,
+  /** When this tile is the top-spotlight profile, use the same effective series / return as the spotlight panel. */
+  liveOverride = null,
 }: {
   profile: ProfileRow;
   rankedBySlug: Record<string, RankedBundle>;
@@ -670,10 +675,15 @@ function OverviewPortfolioTile({
   interactive?: boolean;
   /** Footer link to open this profile on Your portfolios. */
   yourPortfoliosHref?: string | null;
+  liveOverride?: {
+    series: PerformanceSeriesPoint[];
+    totalReturn: number | null;
+    valueAsOfLabel: string | null;
+  } | null;
 }) {
   const cfg = p.portfolio_config;
   const st = cardState[p.id];
-  const series = st?.series ?? [];
+  const series = liveOverride?.series ?? st?.series ?? [];
   const spark = series.map((x) => x.aiTop20);
   const sparkNasdaqCap = series.map((x) => x.nasdaq100CapWeight);
   const slug = p.strategy_models?.slug;
@@ -687,7 +697,7 @@ function OverviewPortfolioTile({
       rebalanceFrequency: cfg.rebalance_frequency,
     });
   const configBadges = rankedCfg?.badges ?? [];
-  const { excessVsNasdaqCap } = benchmarkStatsFromSeries(st?.series);
+  const { excessVsNasdaqCap } = benchmarkStatsFromSeries(series);
   const riskTitle =
     cfg && ((cfg.risk_label && cfg.risk_label.trim()) || RISK_LABELS[cfg.risk_level as RiskLevel]);
   const riskDot =
@@ -700,7 +710,7 @@ function OverviewPortfolioTile({
       : null;
   const investmentLabel = formatOverviewInvestmentSize(p.investment_size);
   const portfolioValueAmount = computeOverviewPortfolioValue(
-    st?.series,
+    series,
     Number(p.investment_size),
     p.user_start_date
   );
@@ -709,6 +719,15 @@ function OverviewPortfolioTile({
     : portfolioValueAmount != null
       ? formatOverviewCurrency(portfolioValueAmount)
       : '—';
+
+  const tileTotalReturn = liveOverride?.totalReturn ?? st?.totalReturn ?? null;
+  const rawCardSeries = st?.series ?? [];
+  const tileAsOfCloseYmd =
+    liveOverride?.valueAsOfLabel != null
+      ? null
+      : rawCardSeries.length > 0
+        ? rawCardSeries[rawCardSeries.length - 1]!.date
+        : null;
 
   const isInteractive = interactive !== false;
 
@@ -805,10 +824,20 @@ function OverviewPortfolioTile({
               <span>{st?.loading ? '…' : portfolioValueDisplay}</span>
               {!st?.loading ? (
                 <span className="text-sm font-semibold text-muted-foreground">
-                  {fmt.pct(st?.totalReturn ?? null)}
+                  {fmt.pct(tileTotalReturn)}
                 </span>
               ) : null}
             </p>
+            {!st?.loading && (liveOverride?.valueAsOfLabel || tileAsOfCloseYmd) ? (
+              <p className="mt-0.5 text-[9px] leading-tight text-muted-foreground">
+                As of close
+                {liveOverride?.valueAsOfLabel
+                  ? ` · ${liveOverride.valueAsOfLabel}`
+                  : tileAsOfCloseYmd
+                    ? ` · ${formatYmdDisplay(tileAsOfCloseYmd)}`
+                    : null}
+              </p>
+            ) : null}
           </div>
           <div className="rounded-xl border bg-background/60 px-2.5 py-2">
             <p className="text-[9px] uppercase leading-tight text-muted-foreground">
@@ -1228,21 +1257,23 @@ function RebalanceActionsTable({
                   </TableCell>
                   <TableCell className="w-0 min-w-[4rem] px-1.5 py-1.5 text-left align-middle whitespace-nowrap">
                     {r.companyName && r.companyName !== r.symbol ? (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Link
-                            href={`/stocks/${r.symbol.toLowerCase()}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="block truncate font-medium text-foreground hover:underline"
-                          >
-                            {r.symbol}
-                          </Link>
-                        </TooltipTrigger>
-                        <TooltipContent side="top" className="max-w-xs text-left">
-                          {r.companyName}
-                        </TooltipContent>
-                      </Tooltip>
+                      <TooltipProvider delayDuration={150}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Link
+                              href={`/stocks/${r.symbol.toLowerCase()}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="block truncate font-medium text-foreground hover:underline"
+                            >
+                              {r.symbol}
+                            </Link>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-xs text-left">
+                            {r.companyName}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
                     ) : (
                       <Link
                         href={`/stocks/${r.symbol.toLowerCase()}`}
@@ -1566,6 +1597,8 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   const [topSpotlightHoldingsLatestRunDate, setTopSpotlightHoldingsLatestRunDate] = useState<
     string | null
   >(null);
+  const [topSpotlightHoldingsLivePoint, setTopSpotlightHoldingsLivePoint] =
+    useState<ExploreHoldingsLivePoint | null>(null);
   const [spotlightHoldingsDateSelect, setSpotlightHoldingsDateSelect] =
     useState<string>(HOLDINGS_TODAY_SENTINEL);
   const spotlightHoldingsRequestIdRef = useRef(0);
@@ -2285,6 +2318,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
         setTopSpotlightLatestPriceBySymbol({});
         setTopSpotlightRebalanceDates([]);
         setTopSpotlightHoldingsLatestRunDate(null);
+        setTopSpotlightHoldingsLivePoint(null);
         setTopSpotlightHoldingsLoading(false);
         setTopSpotlightHoldingsRefreshing(false);
         return;
@@ -2303,6 +2337,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
         setTopSpotlightLatestPriceBySymbol(syncHit.latestPriceBySymbol);
         setTopSpotlightRebalanceDates(syncHit.rebalanceDates);
         setTopSpotlightHoldingsLatestRunDate(syncHit.latestRunDate ?? null);
+        setTopSpotlightHoldingsLivePoint(syncHit.livePoint ?? null);
         setTopSpotlightHoldingsLoading(false);
         setTopSpotlightHoldingsRefreshing(false);
         prefetchExploreHoldingsDates(slug, configId, syncHit.rebalanceDates);
@@ -2327,6 +2362,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
           setTopSpotlightLatestPriceBySymbol({});
           setTopSpotlightRebalanceDates([]);
           setTopSpotlightHoldingsLatestRunDate(null);
+          setTopSpotlightHoldingsLivePoint(null);
         } else {
           if (useRefreshChrome) {
             const elapsed = Date.now() - started;
@@ -2341,6 +2377,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
           setTopSpotlightLatestPriceBySymbol(data.latestPriceBySymbol);
           setTopSpotlightRebalanceDates(data.rebalanceDates);
           setTopSpotlightHoldingsLatestRunDate(data.latestRunDate ?? null);
+          setTopSpotlightHoldingsLivePoint(data.livePoint ?? null);
           prefetchExploreHoldingsDates(slug, configId, data.rebalanceDates);
         }
       } finally {
@@ -2362,6 +2399,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
       setTopSpotlightLatestPriceBySymbol({});
       setTopSpotlightRebalanceDates([]);
       setTopSpotlightHoldingsLatestRunDate(null);
+      setTopSpotlightHoldingsLivePoint(null);
       setTopSpotlightHoldingsLoading(false);
       setTopSpotlightHoldingsRefreshing(false);
       setSpotlightHoldingsDateSelect(HOLDINGS_TODAY_SENTINEL);
@@ -2449,7 +2487,8 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     return topSpotlightRebalanceDates.slice(0, idx + 1);
   }, [topSpotlightRebalanceDates, spotlightHoldingsRebalanceAnchorDate]);
 
-  const spotlightHoldingsAsOfNotional = useMemo(() => {
+  /** Anchored to raw user-entry series for `buildLiveHoldingsAllocationResult` (not the tailed series). */
+  const spotlightHoldingsAllocationBaseNotional = useMemo(() => {
     const investmentSize = Number(topSpotlightOverview?.profile.investment_size);
     const pts = topSpotlightOverview?.state.series ?? [];
     const asOf = topSpotlightHoldingsAsOf;
@@ -2486,14 +2525,14 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   const liveTopSpotlightAllocation = useMemo(() => {
     return buildLiveHoldingsAllocationResult(
       topSpotlightHoldings,
-      spotlightHoldingsAsOfNotional,
+      spotlightHoldingsAllocationBaseNotional,
       topSpotlightAsOfPriceBySymbol,
       topSpotlightLatestPriceBySymbol,
       spotlightHoldingsValuationMode
     );
   }, [
     topSpotlightHoldings,
-    spotlightHoldingsAsOfNotional,
+    spotlightHoldingsAllocationBaseNotional,
     topSpotlightAsOfPriceBySymbol,
     topSpotlightLatestPriceBySymbol,
     spotlightHoldingsValuationMode,
@@ -2517,12 +2556,15 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     if (totalFromHoldings == null || !Number.isFinite(totalFromHoldings) || totalFromHoldings <= 0) {
       return pts;
     }
+    const lp = topSpotlightHoldingsLivePoint;
     const nextBar = {
       date: holdingsLatestYmd,
       aiTop20: totalFromHoldings,
-      nasdaq100CapWeight: last.nasdaq100CapWeight,
-      nasdaq100EqualWeight: last.nasdaq100EqualWeight,
-      sp500: last.sp500,
+      nasdaq100CapWeight:
+        lp?.nasdaq100CapWeight != null ? lp.nasdaq100CapWeight : last.nasdaq100CapWeight,
+      nasdaq100EqualWeight:
+        lp?.nasdaq100EqualWeight != null ? lp.nasdaq100EqualWeight : last.nasdaq100EqualWeight,
+      sp500: lp?.sp500 != null ? lp.sp500 : last.sp500,
     };
     if (holdingsLatestYmd === last.date) {
       if (
@@ -2539,6 +2581,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     topSpotlightOverview?.state.series,
     spotlightHoldingsDateSelect,
     topSpotlightHoldingsLatestRunDate,
+    topSpotlightHoldingsLivePoint,
     liveTopSpotlightAllocation.totalCurrentValue,
   ]);
 
@@ -2563,11 +2606,48 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     };
   }, [topSpotlightOverview, effectiveTopSpotlightDisplaySeries]);
 
+  /** Display / table notional from effective series (matches headline card when tailed). */
+  const spotlightHoldingsDisplayNotional = useMemo(() => {
+    const investmentSize = Number(topSpotlightOverview?.profile.investment_size);
+    const pts = effectiveTopSpotlightDisplaySeries as PerformanceSeriesPoint[];
+    const asOf = topSpotlightHoldingsAsOf;
+    if (
+      asOf &&
+      spotlightHoldingsRebalanceAnchorDate &&
+      asOf === spotlightHoldingsRebalanceAnchorDate &&
+      Number.isFinite(investmentSize) &&
+      investmentSize > 0
+    ) {
+      return investmentSize;
+    }
+    if (asOf && pts.length > 0) {
+      const exact = pts.find((p) => p.date === asOf)?.aiTop20;
+      if (exact != null && Number.isFinite(exact) && exact > 0) return exact;
+      let onOrBefore: number | null = null;
+      for (const p of pts) {
+        if (p.date <= asOf && Number.isFinite(p.aiTop20) && p.aiTop20 > 0) {
+          onOrBefore = p.aiTop20;
+        }
+      }
+      if (onOrBefore != null) return onOrBefore;
+    }
+    const latest = pts[pts.length - 1]?.aiTop20;
+    if (latest != null && Number.isFinite(latest) && latest > 0) return latest;
+    return Number.isFinite(investmentSize) && investmentSize > 0
+      ? investmentSize
+      : Number(topSpotlightOverview?.profile.investment_size);
+  }, [
+    topSpotlightOverview,
+    effectiveTopSpotlightDisplaySeries,
+    topSpotlightHoldingsAsOf,
+    spotlightHoldingsRebalanceAnchorDate,
+  ]);
+
   const spotlightPortfolioValueAsOfCloseLabel = useMemo(() => {
-    const pts = topSpotlightOverview?.state.series ?? [];
+    const eff = effectiveTopSpotlightDisplaySeries as PerformanceSeriesPoint[];
     const ymd =
       spotlightHoldingsDateSelect === HOLDINGS_TODAY_SENTINEL
-        ? topSpotlightHoldingsLatestRunDate ?? pts[pts.length - 1]?.date ?? null
+        ? topSpotlightHoldingsLatestRunDate ?? eff[eff.length - 1]?.date ?? null
         : spotlightHoldingsDateSelect;
     if (!ymd || typeof ymd !== 'string') return null;
     try {
@@ -2575,7 +2655,11 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     } catch {
       return null;
     }
-  }, [spotlightHoldingsDateSelect, topSpotlightOverview?.state.series, topSpotlightHoldingsLatestRunDate]);
+  }, [
+    spotlightHoldingsDateSelect,
+    effectiveTopSpotlightDisplaySeries,
+    topSpotlightHoldingsLatestRunDate,
+  ]);
 
   useEffect(() => {
     if (!topSpotlightProfileId || !topSpotlightUserStartYmd) {
@@ -2648,13 +2732,22 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
 
   const spotlightPortfolioValueLineAmount = useMemo(() => {
     if (spotlightHoldingsDateSelect === HOLDINGS_TODAY_SENTINEL) {
-      return liveTopSpotlightAllocation.totalCurrentValue ?? spotlightHoldingsAsOfNotional;
+      const eff = effectiveTopSpotlightDisplaySeries as PerformanceSeriesPoint[];
+      const effLast = eff[eff.length - 1]?.aiTop20;
+      if (effLast != null && Number.isFinite(effLast) && effLast > 0) {
+        return effLast;
+      }
+      return (
+        liveTopSpotlightAllocation.totalCurrentValue ?? spotlightHoldingsAllocationBaseNotional
+      );
     }
-    return spotlightHoldingsAsOfNotional;
+    return spotlightHoldingsDisplayNotional;
   }, [
     spotlightHoldingsDateSelect,
+    effectiveTopSpotlightDisplaySeries,
     liveTopSpotlightAllocation.totalCurrentValue,
-    spotlightHoldingsAsOfNotional,
+    spotlightHoldingsAllocationBaseNotional,
+    spotlightHoldingsDisplayNotional,
   ]);
 
   const effectiveSpotlightRebalanceForMovement = useMemo(() => {
@@ -3065,7 +3158,6 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                     (() => {
                       const bp = topSpotlightOverview.profile;
                       const st = effectiveTopSpotlightState ?? topSpotlightOverview.state;
-                      const baseSeries = st.series ?? [];
                       const series = effectiveTopSpotlightDisplaySeries;
                       const val = computeOverviewPortfolioValue(
                         series,
@@ -3073,8 +3165,8 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                         bp.user_start_date
                       );
                       const initialNotional =
-                        baseSeries.length > 0 && baseSeries[0]!.aiTop20 > 0
-                          ? baseSeries[0]!.aiTop20
+                        series.length > 0 && series[0]!.aiTop20 > 0
+                          ? series[0]!.aiTop20
                           : Number(bp.investment_size) > 0
                             ? Number(bp.investment_size)
                             : OVERVIEW_MODEL_INITIAL;
@@ -4108,6 +4200,19 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                         const assignedId = overviewSlotAssignments.get(slot);
                         const showClear = p != null && assignedId === p.id;
                         const canPickPortfolio = profiles.length > 0 && authState.isAuthenticated;
+                        const tileLiveOverride =
+                          p &&
+                          topSpotlightOverview &&
+                          topSpotlightProfileId === p.id &&
+                          effectiveTopSpotlightDisplaySeries.length > 0
+                            ? {
+                                series: effectiveTopSpotlightDisplaySeries,
+                                totalReturn:
+                                  (effectiveTopSpotlightState ?? topSpotlightOverview.state)
+                                    .totalReturn ?? null,
+                                valueAsOfLabel: spotlightPortfolioValueAsOfCloseLabel,
+                              }
+                            : null;
                         return (
                           <div key={slot} className="flex h-full min-h-0 min-w-0 flex-col">
                             {p ? (
@@ -4115,6 +4220,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                 profile={p}
                                 rankedBySlug={rankedBySlug}
                                 cardState={cardState}
+                                liveOverride={tileLiveOverride}
                                 onOpenDetail={openPortfolioDetail}
                                 headerRight={
                                   showClear && !isGuestLocalProfileId(p.id) ? (

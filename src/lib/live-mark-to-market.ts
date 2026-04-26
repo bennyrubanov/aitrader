@@ -97,6 +97,13 @@ type Benchmarks = Pick<
 type SnapshotHolding = { symbol: string; weight: number };
 type RebalanceSnapshot = { date: string; notional: number; holdings: SnapshotHolding[] };
 
+/** Loaded NDX / NDXE / SPX closes from `benchmark_daily_prices` for a window. */
+export type BenchmarkCloses = {
+  ndxRows: StooqCsvRow[];
+  eqqRows: StooqCsvRow[];
+  spxRows: StooqCsvRow[];
+};
+
 function computeTurnoverSnapshotHoldings(prev: SnapshotHolding[], next: SnapshotHolding[]): number {
   const prevMap = new Map(prev.map((h) => [h.symbol.toUpperCase(), h.weight]));
   const currMap = new Map(next.map((h) => [h.symbol.toUpperCase(), h.weight]));
@@ -114,6 +121,7 @@ export type ConfigMtmWalkInputs = {
   holdingsByDate: Map<string, SnapshotHolding[]>;
   tradingDates: string[];
   pricesByDate: Map<string, SymbolPriceMap>;
+  closes: BenchmarkCloses;
 };
 
 type ConfigMtmWalkInputsSerialized = {
@@ -122,6 +130,7 @@ type ConfigMtmWalkInputsSerialized = {
   holdingsEntries: Array<[string, SnapshotHolding[]]>;
   tradingDates: string[];
   priceEntries: Array<[string, SymbolPriceMap]>;
+  closes: BenchmarkCloses;
 };
 
 async function loadConfigWalkInputsUncached(
@@ -207,10 +216,19 @@ async function loadConfigWalkInputsUncached(
     [...holdingsByDate.values()].flatMap((arr) => arr.map((h) => h.symbol))
   );
   const earliestRebal = rebalanceDatesAsc[0]!;
-  const { tradingDates, pricesByDate } = await loadRawPricesForSymbolsFromDate(
+  const { tradingDates: rawTradingDates, pricesByDate } = await loadRawPricesForSymbolsFromDate(
     supabase,
     earliestRebal,
     unionSymbols
+  );
+
+  const queryStart = isoDateMinusCalendarDays(earliestRebal, 400);
+  const closes = await loadBenchmarkClosesWindow(supabase, queryStart, latestRunDate);
+  const canonicalCalendar = closes.ndxRows
+    .map((r) => r.date)
+    .filter((d) => d >= earliestRebal);
+  const tradingDates = [...new Set([...canonicalCalendar, ...rawTradingDates])].sort((a, b) =>
+    a.localeCompare(b)
   );
 
   return {
@@ -219,6 +237,7 @@ async function loadConfigWalkInputsUncached(
     holdingsEntries: [...holdingsByDate.entries()],
     tradingDates,
     priceEntries: [...pricesByDate.entries()],
+    closes,
   };
 }
 
@@ -272,6 +291,7 @@ export const loadConfigWalkInputsForMtm = cacheFn(
         holdingsByDate: toMap(serialized.holdingsEntries),
         tradingDates: serialized.tradingDates,
         pricesByDate: toMap(serialized.priceEntries),
+        closes: serialized.closes,
       };
     } catch {
       // Fallback for non-Next runtimes (e.g. local scripts) where unstable_cache is unavailable.
@@ -290,6 +310,7 @@ export const loadConfigWalkInputsForMtm = cacheFn(
         holdingsByDate: toMap(serialized.holdingsEntries),
         tradingDates: serialized.tradingDates,
         pricesByDate: toMap(serialized.priceEntries),
+        closes: serialized.closes,
       };
     }
   }
@@ -382,52 +403,6 @@ function isoDateMinusCalendarDays(iso: string, calendarDays: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-async function buildBenchmarksByDate(
-  supabase: SupabaseClient,
-  dates: string[],
-  baseDate: string,
-  baseBenchmarks: Benchmarks
-): Promise<Map<string, Benchmarks>> {
-  const result = new Map<string, Benchmarks>();
-  if (dates.length === 0) return result;
-
-  const minBound = [baseDate, ...dates].reduce((a, b) => (a < b ? a : b));
-  const maxDate = dates.reduce((a, b) => (a > b ? a : b));
-  const queryStart = isoDateMinusCalendarDays(minBound, 400);
-
-  const { ndxRows, eqqRows, spxRows } = await loadBenchmarkClosesWindow(
-    supabase,
-    queryStart,
-    maxDate
-  );
-
-  if (!ndxRows.length || !eqqRows.length || !spxRows.length) return result;
-
-  const ndxBase = getCloseOnOrBefore(ndxRows, baseDate).close;
-  const eqqBase = getCloseOnOrBefore(eqqRows, baseDate).close;
-  const spxBase = getCloseOnOrBefore(spxRows, baseDate).close;
-  if (!ndxBase || !eqqBase || !spxBase) return result;
-
-  for (const d of dates) {
-    const ndxClose = getCloseOnOrBefore(ndxRows, d).close;
-    const eqqClose = getCloseOnOrBefore(eqqRows, d).close;
-    const spxClose = getCloseOnOrBefore(spxRows, d).close;
-    if (!ndxClose || !eqqClose || !spxClose) continue;
-    result.set(d, {
-      nasdaq100CapWeight: baseBenchmarks.nasdaq100CapWeight * (ndxClose / ndxBase),
-      nasdaq100EqualWeight: baseBenchmarks.nasdaq100EqualWeight * (eqqClose / eqqBase),
-      sp500: baseBenchmarks.sp500 * (spxClose / spxBase),
-    });
-  }
-  return result;
-}
-
-type BenchmarkCloses = {
-  ndxRows: StooqCsvRow[];
-  eqqRows: StooqCsvRow[];
-  spxRows: StooqCsvRow[];
-};
-
 const loadBenchmarkClosesWindow = cacheFn(
   async (supabase: SupabaseClient, queryStart: string, maxDate: string): Promise<BenchmarkCloses> => {
     const symbols = [
@@ -467,7 +442,52 @@ const loadBenchmarkClosesWindow = cacheFn(
   }
 );
 
-function buildDailySeriesFromSnapshots(
+export function buildBenchmarksByDateFromCloses(
+  dates: string[],
+  baseDate: string,
+  baseBenchmarks: Benchmarks,
+  closes: BenchmarkCloses
+): Map<string, Benchmarks> {
+  const result = new Map<string, Benchmarks>();
+  if (dates.length === 0) return result;
+
+  const { ndxRows, eqqRows, spxRows } = closes;
+  if (!ndxRows.length || !eqqRows.length || !spxRows.length) return result;
+
+  const ndxBase = getCloseOnOrBefore(ndxRows, baseDate).close;
+  const eqqBase = getCloseOnOrBefore(eqqRows, baseDate).close;
+  const spxBase = getCloseOnOrBefore(spxRows, baseDate).close;
+  if (!ndxBase || !eqqBase || !spxBase) return result;
+
+  for (const d of dates) {
+    const ndxClose = getCloseOnOrBefore(ndxRows, d).close;
+    const eqqClose = getCloseOnOrBefore(eqqRows, d).close;
+    const spxClose = getCloseOnOrBefore(spxRows, d).close;
+    if (!ndxClose || !eqqClose || !spxClose) continue;
+    result.set(d, {
+      nasdaq100CapWeight: baseBenchmarks.nasdaq100CapWeight * (ndxClose / ndxBase),
+      nasdaq100EqualWeight: baseBenchmarks.nasdaq100EqualWeight * (eqqClose / eqqBase),
+      sp500: baseBenchmarks.sp500 * (spxClose / spxBase),
+    });
+  }
+  return result;
+}
+
+async function buildBenchmarksByDate(
+  supabase: SupabaseClient,
+  dates: string[],
+  baseDate: string,
+  baseBenchmarks: Benchmarks
+): Promise<Map<string, Benchmarks>> {
+  if (dates.length === 0) return new Map();
+  const minBound = [baseDate, ...dates].reduce((a, b) => (a < b ? a : b));
+  const maxDate = dates.reduce((a, b) => (a > b ? a : b));
+  const queryStart = isoDateMinusCalendarDays(minBound, 400);
+  const closes = await loadBenchmarkClosesWindow(supabase, queryStart, maxDate);
+  return buildBenchmarksByDateFromCloses(dates, baseDate, baseBenchmarks, closes);
+}
+
+export function buildDailySeriesFromSnapshots(
   snapshotsAsc: RebalanceSnapshot[],
   tradingDates: string[],
   pricesByDate: Map<string, SymbolPriceMap>,
@@ -481,12 +501,22 @@ function buildDailySeriesFromSnapshots(
   let nextSnapshotDate: string | null = null;
   let unitsBySymbol = new Map<string, number>();
   const lastPriceBySymbol = new Map<string, number>();
+  const lastObservedAtBySymbol = new Map<string, string>();
+  const MAX_FORWARD_FILL_DAYS = 7;
 
-  const computeRunningValue = (): number | null => {
+  const computeRunningValue = (currentDate: string): number | null => {
     let total = 0;
     for (const [symbol, units] of unitsBySymbol.entries()) {
       const px = lastPriceBySymbol.get(symbol) ?? null;
       if (px == null || !Number.isFinite(px) || px <= 0) return null;
+      const lastDate = lastObservedAtBySymbol.get(symbol);
+      if (!lastDate) return null;
+      if (calendarDaysBetweenUtc(lastDate, currentDate) > MAX_FORWARD_FILL_DAYS) {
+        console.warn(
+          `[live-mtm] stale forward-fill: symbol=${symbol} lastObserved=${lastDate} currentDate=${currentDate}`
+        );
+        return null;
+      }
       total += units * px;
     }
     return Number.isFinite(total) && total > 0 ? total : null;
@@ -510,7 +540,11 @@ function buildDailySeriesFromSnapshots(
     const datePrices = pricesByDate.get(date) ?? {};
     for (const [symbol, px] of Object.entries(datePrices)) {
       const n = toFinitePositive(px);
-      if (n != null) lastPriceBySymbol.set(symbol.toUpperCase(), n);
+      if (n != null) {
+        const upper = symbol.toUpperCase();
+        lastPriceBySymbol.set(upper, n);
+        lastObservedAtBySymbol.set(upper, date);
+      }
     }
 
     while (snapshotIdx + 1 < snapshotsAsc.length && snapshotsAsc[snapshotIdx + 1]!.date <= date) {
@@ -524,7 +558,7 @@ function buildDailySeriesFromSnapshots(
         currentSnapshot = ok ? sn : null;
         if (!ok) unitsBySymbol = new Map();
       } else {
-        const preValue = computeRunningValue();
+        const preValue = computeRunningValue(date);
         if (preValue == null || prevSnap == null) {
           currentSnapshot = null;
           unitsBySymbol = new Map();
@@ -545,7 +579,7 @@ function buildDailySeriesFromSnapshots(
     if (snapshotIdx === 0 && date === currentSnapshot.date) {
       portfolioValue = currentSnapshot.notional;
     } else {
-      portfolioValue = computeRunningValue();
+      portfolioValue = computeRunningValue(date);
     }
     if (portfolioValue == null) continue;
     const bench = benchmarksByDate.get(date) ?? fallbackBenchmarks;
@@ -582,8 +616,14 @@ export async function buildDailyMarkedToMarketSeriesForConfig(
   );
   if (!inputs) return null;
 
-  const { latestRunDate, rebalanceDatesAsc, holdingsByDate, tradingDates: allTradingDates, pricesByDate: allPricesByDate } =
-    inputs;
+  const {
+    latestRunDate,
+    rebalanceDatesAsc,
+    holdingsByDate,
+    tradingDates: allTradingDates,
+    pricesByDate: allPricesByDate,
+    closes,
+  } = inputs;
 
   const minDate = params.startDate ?? params.notionalSeries[0]!.date;
   const inRange = rebalanceDatesAsc.filter((d) => d >= minDate && d <= latestRunDate);
@@ -628,7 +668,7 @@ export async function buildDailyMarkedToMarketSeriesForConfig(
 
   const benchmarksByDate = params.skipBenchmarkDrift
     ? new Map<string, Benchmarks>()
-    : await buildBenchmarksByDate(supabase, tradingDates, start, baseBenchmarks);
+    : buildBenchmarksByDateFromCloses(tradingDates, start, baseBenchmarks, closes);
 
   let series = buildDailySeriesFromSnapshots(
     snapshots,
@@ -826,7 +866,24 @@ export async function buildDailyMarkedToMarketSeriesForStrategy(
     snapshots.flatMap((s) => s.holdings.map((h) => h.symbol.toUpperCase()))
   );
   const start = snapshots[0]!.date;
-  const { tradingDates, pricesByDate } = await loadRawPricesForSymbolsFromDate(supabase, start, symbols);
+  const { tradingDates: rawTradingDates, pricesByDate } = await loadRawPricesForSymbolsFromDate(
+    supabase,
+    start,
+    symbols
+  );
+  if (!pricesByDate.size) return null;
+
+  const latestRunDate =
+    (await loadLatestRawRunDate(supabase)) ??
+    params.notionalSeries[params.notionalSeries.length - 1]!.date;
+  const queryStart = isoDateMinusCalendarDays(start, 400);
+  const closes = await loadBenchmarkClosesWindow(supabase, queryStart, latestRunDate);
+  const canonicalCalendar = closes.ndxRows
+    .map((r) => r.date)
+    .filter((d) => d >= start);
+  const tradingDates = [...new Set([...canonicalCalendar, ...rawTradingDates])].sort((a, b) =>
+    a.localeCompare(b)
+  );
   if (!tradingDates.length) return null;
 
   const baseBenchmarks =
@@ -836,7 +893,12 @@ export async function buildDailyMarkedToMarketSeriesForStrategy(
       nasdaq100EqualWeight: params.notionalSeries[0]!.nasdaq100EqualWeight,
       sp500: params.notionalSeries[0]!.sp500,
     };
-  const benchmarksByDate = await buildBenchmarksByDate(supabase, tradingDates, start, baseBenchmarks);
+  const benchmarksByDate = buildBenchmarksByDateFromCloses(
+    tradingDates,
+    start,
+    baseBenchmarks,
+    closes
+  );
 
   return buildDailySeriesFromSnapshots(
     snapshots,

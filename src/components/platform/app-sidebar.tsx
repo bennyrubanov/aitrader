@@ -31,6 +31,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarSeparator,
+  useSidebar,
 } from '@/components/ui/sidebar';
 import { NavMain } from '@/components/platform/nav-main';
 import { NavSecondary } from '@/components/platform/nav-secondary';
@@ -118,6 +119,10 @@ const isItemActive = (pathname: string, href: string) => {
 export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
+  const { isMobile, setOpenMobile } = useSidebar();
+  const closeMobileSidebar = () => {
+    if (isMobile) setOpenMobile(false);
+  };
   const authState = useAuthState();
   const account = {
     name: authState.name,
@@ -221,6 +226,7 @@ export function AppSidebar() {
   };
 
   const handleSignUp = () => {
+    closeMobileSidebar();
     openPath('/sign-up?next=/platform/overview');
   };
 
@@ -241,13 +247,14 @@ export function AppSidebar() {
       variant="inset"
       collapsible="icon"
     >
-      <SidebarHeader className="md:hidden">
+      <SidebarHeader className="md:hidden pt-4">
         <Link
           href="/"
           prefetch
           onMouseEnter={() => router.prefetch('/')}
           onFocus={() => router.prefetch('/')}
           onPointerDown={() => router.prefetch('/')}
+          onClick={() => closeMobileSidebar()}
           className="inline-flex w-fit items-center rounded-md px-1 py-0.5 hover:bg-sidebar-accent"
           aria-label="Go to home"
         >
@@ -296,7 +303,7 @@ export function AppSidebar() {
                 <SidebarMenuItem>
                   {account.isAuthenticated ? (
                     <SidebarMenuButton asChild size="sm" tooltip="Upgrade to a paid plan">
-                      <Link href="/pricing">
+                      <Link href="/pricing" onClick={() => closeMobileSidebar()}>
                         <span
                           className="flex shrink-0 items-center gap-1"
                           aria-hidden
@@ -333,7 +340,12 @@ export function AppSidebar() {
               ) : null}
               <SidebarMenuItem>
                 <SidebarMenuButton asChild size="sm" tooltip="Performance (public)">
-                  <Link href="/performance" target="_blank" rel="noopener noreferrer">
+                  <Link
+                    href="/performance"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => closeMobileSidebar()}
+                  >
                     <BarChart3 className="size-4 shrink-0" />
                     <span className={SIDEBAR_MENU_TRAILING_CLASSNAME}>
                       <span className="min-w-0 flex-1 truncate">Performance</span>
@@ -344,7 +356,12 @@ export function AppSidebar() {
               </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton asChild size="sm" tooltip="Strategy models & methodology (public)">
-                  <Link href="/strategy-models" target="_blank" rel="noopener noreferrer">
+                  <Link
+                    href="/strategy-models"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => closeMobileSidebar()}
+                  >
                     <Cpu className="size-4 shrink-0" />
                     <span className={SIDEBAR_MENU_TRAILING_CLASSNAME}>
                       <span className="min-w-0 flex-1 truncate">Strategy models</span>

@@ -21,6 +21,10 @@ import { computeWeeklyConsistencyVsNasdaqCap } from '@/lib/user-entry-performanc
 
 const INITIAL_CAPITAL = 10_000;
 
+/** Rate-limit recomputes when cached snapshot is `empty` (per-request path). */
+const D3_RECOMPUTE_BACKOFF_MS = 5 * 60 * 1000;
+const d3RecentEmptyRecomputes = new Map<string, number>();
+
 export const CONFIG_DAILY_SERIES_CACHE_TAG = 'config-daily-series';
 
 export type DailySeriesDataStatus = 'ready' | 'early' | 'empty' | 'failed' | 'pending';
@@ -245,6 +249,29 @@ export async function computeConfigDailySeries(
   const baseStatus = mapStatusToDataStatus(params.computeStatus);
   const sortedRows = [...params.rows].sort((a, b) => a.run_date.localeCompare(b.run_date));
   if (!sortedRows.length || baseStatus === 'failed' || baseStatus === 'empty') {
+    if (baseStatus !== 'failed') {
+      const { count: perfRowCount } = await adminSupabase
+        .from('strategy_portfolio_config_performance')
+        .select('run_date', { count: 'exact', head: true })
+        .eq('strategy_id', params.strategyId)
+        .eq('config_id', params.config.id);
+
+      if ((perfRowCount ?? 0) > 0) {
+        console.warn(
+          `[config-daily-series] refusing to persist empty for ` +
+            `${params.strategyId}/${params.config.id}: received ${sortedRows.length} rows ` +
+            `but DB has ${perfRowCount}; downgrading to 'early'`
+        );
+        return {
+          strategyId: params.strategyId,
+          configId: params.config.id,
+          asOfRunDate: params.asOfRunDate,
+          dataStatus: 'early',
+          series: [],
+          metrics: emptyConfigMetrics(params.rawObservationCount),
+        };
+      }
+    }
     return {
       strategyId: params.strategyId,
       configId: params.config.id,
@@ -670,7 +697,13 @@ export async function ensureConfigDailySeries(
   const latestRawRunDate = await loadLatestRawRunDate(adminSupabase);
   if (!latestRawRunDate) return null;
   const existing = await loadConfigDailySeries(adminSupabase, params.strategyId, params.config.id);
-  if (existing && existing.asOfRunDate === latestRawRunDate) return existing;
+  if (existing && existing.asOfRunDate === latestRawRunDate) {
+    if (existing.dataStatus !== 'empty') return existing;
+    const d3Key = `${params.strategyId}:${params.config.id}`;
+    const d3Last = d3RecentEmptyRecomputes.get(d3Key) ?? 0;
+    if (Date.now() - d3Last < D3_RECOMPUTE_BACKOFF_MS) return existing;
+    d3RecentEmptyRecomputes.set(d3Key, Date.now());
+  }
 
   // Self-heal: fill in any rebalance holdings snapshots that are missing before rebuilding the
   // daily series. The MTM walk reads from `strategy_portfolio_config_holdings`; if a new
@@ -754,7 +787,11 @@ export async function refreshDailySeriesSnapshotsForStrategy(
   let skippedConfigRows = 0;
   for (const cfg of configs) {
     const existing = existingMap.get(cfg.id);
-    if (existing && existing.asOfRunDate === latestRawRunDate) {
+    if (
+      existing &&
+      existing.asOfRunDate === latestRawRunDate &&
+      existing.dataStatus !== 'empty'
+    ) {
       skippedConfigRows += 1;
       continue;
     }
@@ -816,12 +853,22 @@ export function sliceAndScale(
   if (!sliced.length) return [];
   const base = sliced[0]!;
   if (!Number.isFinite(base.aiTop20) || base.aiTop20 <= 0) return [];
-  const scale = investmentSize / base.aiTop20;
+  const aiScale = investmentSize / base.aiTop20;
+  const ndxCapScale =
+    Number.isFinite(base.nasdaq100CapWeight) && base.nasdaq100CapWeight > 0
+      ? investmentSize / base.nasdaq100CapWeight
+      : aiScale;
+  const ndxEqScale =
+    Number.isFinite(base.nasdaq100EqualWeight) && base.nasdaq100EqualWeight > 0
+      ? investmentSize / base.nasdaq100EqualWeight
+      : aiScale;
+  const spxScale =
+    Number.isFinite(base.sp500) && base.sp500 > 0 ? investmentSize / base.sp500 : aiScale;
   return sliced.map((point) => ({
     date: point.date,
-    aiTop20: point.aiTop20 * scale,
-    nasdaq100CapWeight: point.nasdaq100CapWeight * scale,
-    nasdaq100EqualWeight: point.nasdaq100EqualWeight * scale,
-    sp500: point.sp500 * scale,
+    aiTop20: point.aiTop20 * aiScale,
+    nasdaq100CapWeight: point.nasdaq100CapWeight * ndxCapScale,
+    nasdaq100EqualWeight: point.nasdaq100EqualWeight * ndxEqScale,
+    sp500: point.sp500 * spxScale,
   }));
 }

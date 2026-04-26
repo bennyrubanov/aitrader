@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { ExplorePortfoliosEquityChart } from '@/components/platform/explore-portfolios-equity-chart';
 import type {
   ExploreBenchmarkSeries,
+  ExploreEquitySeriesLivePoint,
   ExploreEquitySeriesRow,
 } from '@/components/platform/explore-portfolios-equity-chart-shared';
 import { ExplorePortfolioDetailDialog } from '@/components/platform/explore-portfolio-detail-dialog';
@@ -520,7 +521,9 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
   }, [riskFilter, weightFilter]);
 
   useEffect(() => {
-    void loadExploreEquitySeries(strategySlug);
+    void loadExploreEquitySeries(strategySlug).then((p) => {
+      if (p) setEquitySeriesPayload(p);
+    });
   }, [strategySlug]);
 
   useEffect(() => {
@@ -545,6 +548,39 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
       cancelled = true;
     };
   }, [browseMode, strategySlug, equitySeriesPayload]);
+
+  const livePointByConfigId = useMemo(() => {
+    const m = new Map<string, ExploreEquitySeriesLivePoint>();
+    const rows =
+      equitySeriesPayload?.series ?? getCachedExploreEquitySeries(strategySlug)?.series;
+    if (!rows?.length) return m;
+    for (const row of rows) {
+      const lp = row.livePoint;
+      if (
+        lp &&
+        typeof lp.date === 'string' &&
+        lp.date.trim() &&
+        typeof lp.aiTop20 === 'number' &&
+        Number.isFinite(lp.aiTop20) &&
+        lp.aiTop20 > 0
+      ) {
+        m.set(row.configId, {
+          date: lp.date.trim(),
+          aiTop20: lp.aiTop20,
+          nasdaq100CapWeight:
+            lp.nasdaq100CapWeight != null && Number.isFinite(Number(lp.nasdaq100CapWeight))
+              ? Number(lp.nasdaq100CapWeight)
+              : null,
+          nasdaq100EqualWeight:
+            lp.nasdaq100EqualWeight != null && Number.isFinite(Number(lp.nasdaq100EqualWeight))
+              ? Number(lp.nasdaq100EqualWeight)
+              : null,
+          sp500: lp.sp500 != null && Number.isFinite(Number(lp.sp500)) ? Number(lp.sp500) : null,
+        });
+      }
+    }
+    return m;
+  }, [equitySeriesPayload, strategySlug]);
 
   const filteredConfigs = useMemo(() => {
     let out = [...configs];
@@ -948,13 +984,13 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
               <>
                 {/* Mobile: one row — sort (or chart label) + list/chart toggle; short labels; meta below */}
                 <div className="flex flex-col gap-2 md:hidden">
-                  <div className="flex min-w-0 flex-row items-stretch gap-2">
+                  <div className="flex min-w-0 flex-row items-center justify-between gap-2">
                     {browseMode === 'list' ? (
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
-                        className="relative h-9 shrink-0 gap-1.5 self-center overflow-visible pr-2.5 text-xs"
+                        className="relative h-9 shrink-0 gap-1.5 overflow-visible pr-2.5 text-xs"
                         onClick={() => setSortDialogOpen(true)}
                       >
                         <ArrowUpDown className="size-3.5 shrink-0" aria-hidden />
@@ -962,7 +998,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
                         <PortfolioListSortActiveIndicator metric={sortMetric} className="-right-1.5 -top-1.5" />
                       </Button>
                     ) : (
-                      <div className="flex shrink-0 items-center gap-1.5 self-center py-0.5">
+                      <div className="flex shrink-0 items-center gap-1.5 py-0.5">
                         <LineChart
                           className="size-4 shrink-0 text-trader-blue dark:text-trader-blue-light"
                           aria-hidden
@@ -972,13 +1008,13 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
                         </span>
                       </div>
                     )}
-                    <div className="inline-flex min-h-9 min-w-0 flex-1 gap-1 rounded-md border bg-muted/30 p-0.5">
+                    <div className="inline-flex shrink-0 gap-0.5 rounded-md border bg-muted/30 p-0.5">
                       <button
                         type="button"
                         onClick={() => setBrowseMode('list')}
                         aria-label="Rankings list"
                         className={cn(
-                          'inline-flex min-h-9 min-w-0 flex-1 items-center justify-center gap-1.5 rounded px-2 py-1.5 text-center text-[11px] font-medium transition-colors',
+                          'inline-flex h-9 shrink-0 items-center justify-center gap-1 rounded px-2.5 text-[11px] font-medium transition-colors',
                           browseMode === 'list'
                             ? 'bg-background text-foreground shadow-sm'
                             : 'text-muted-foreground hover:text-foreground'
@@ -992,7 +1028,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
                         onClick={() => setBrowseMode('chart')}
                         aria-label="Values chart"
                         className={cn(
-                          'inline-flex min-h-9 min-w-0 flex-1 items-center justify-center gap-1.5 rounded px-2 py-1.5 text-center text-[11px] font-medium transition-colors',
+                          'inline-flex h-9 shrink-0 items-center justify-center gap-1 rounded px-2.5 text-[11px] font-medium transition-colors',
                           browseMode === 'chart'
                             ? 'bg-background text-foreground shadow-sm'
                             : 'text-muted-foreground hover:text-foreground'
@@ -1171,6 +1207,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
                       key={c.id}
                       listDomId={`explore-config-${c.id}`}
                       config={c}
+                      livePoint={livePointByConfigId.get(c.id) ?? null}
                       strategySlug={strategySlug}
                       isFollowing={followedConfigIdSet.has(c.id)}
                       atFollowLimit={atFollowLimit}
@@ -1394,6 +1431,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
           if (!o) setDetailConfig(null);
         }}
         config={detailConfig}
+        liveTail={detailConfig ? livePointByConfigId.get(detailConfig.id) ?? null : null}
         strategySlug={strategySlug}
         strategyName={strategyName}
         strategyIsTop={strategyIsTop}
@@ -1460,6 +1498,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
 function ConfigCard({
   listDomId,
   config,
+  livePoint = null,
   strategySlug,
   isFollowing,
   atFollowLimit,
@@ -1472,6 +1511,8 @@ function ConfigCard({
 }: {
   listDomId?: string;
   config: RankedConfig;
+  /** From explore equity-series payload when newer than stored daily snapshot (same tail as chart). */
+  livePoint?: ExploreEquitySeriesLivePoint | null;
   strategySlug: string;
   isFollowing: boolean;
   atFollowLimit: boolean;
@@ -1500,8 +1541,6 @@ function ConfigCard({
 
   useEffect(() => () => clearHoverPrefetchTimer(), [clearHoverPrefetchTimer]);
 
-  const showMetricBlock = config.dataStatus !== 'empty';
-  const isLimited = config.dataStatus === 'early';
   const weeklyObservations = config.metrics.weeklyObservations;
   const riskColor = CONFIG_CARD_RISK_DOT[config.riskLevel as RiskLevel] ?? 'bg-muted';
   const riskTitle =
@@ -1511,9 +1550,20 @@ function ConfigCard({
     config.metrics.endingValueSp500 != null
       ? config.metrics.endingValueSp500 / INITIAL_CAPITAL - 1
       : null;
+  const cardEndingValue =
+    livePoint?.aiTop20 ??
+    config.metrics.endingValuePortfolio ??
+    (config.metrics.totalReturn != null ? INITIAL_CAPITAL * (1 + config.metrics.totalReturn) : null);
+  const cardTotalReturn =
+    cardEndingValue != null && Number.isFinite(cardEndingValue)
+      ? cardEndingValue / INITIAL_CAPITAL - 1
+      : (config.metrics.totalReturn ?? null);
+  const hasEffectiveValue = cardEndingValue != null && Number.isFinite(cardEndingValue);
+  const showMetricBlock = config.dataStatus !== 'empty' || hasEffectiveValue;
+  const isLimited = config.dataStatus === 'early';
   const outperformanceVsSp500Cap =
-    config.metrics.totalReturn != null && benchSp500TotalReturn != null
-      ? config.metrics.totalReturn - benchSp500TotalReturn
+    cardTotalReturn != null && benchSp500TotalReturn != null
+      ? cardTotalReturn - benchSp500TotalReturn
       : null;
 
   const followUnfollowButtons = (
@@ -1640,21 +1690,16 @@ function ConfigCard({
                     <div className="min-w-0 cursor-default">
                       <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Value</p>
                       <p className="mt-0.5 text-xs font-semibold tabular-nums text-foreground">
-                        {fmtUsd(
-                          config.metrics.endingValuePortfolio ??
-                            (config.metrics.totalReturn != null
-                              ? INITIAL_CAPITAL * (1 + config.metrics.totalReturn)
-                              : null)
-                        )}{' '}
+                        {fmtUsd(cardEndingValue)}{' '}
                         <span
                           className={cn(
                             'font-semibold',
-                            (config.metrics.totalReturn ?? 0) >= 0
+                            (cardTotalReturn ?? 0) >= 0
                               ? 'text-green-600 dark:text-green-400'
                               : 'text-red-600 dark:text-red-400'
                           )}
                         >
-                          ({fmt(config.metrics.totalReturn, 'pct')})
+                          ({fmt(cardTotalReturn, 'pct')})
                         </span>
                       </p>
                     </div>
@@ -1789,28 +1834,18 @@ function ConfigCard({
                       </p>
                       <p
                         className="text-xs font-semibold tabular-nums mt-0.5 text-foreground truncate"
-                        title={`${fmtUsd(
-                          config.metrics.endingValuePortfolio ??
-                            (config.metrics.totalReturn != null
-                              ? INITIAL_CAPITAL * (1 + config.metrics.totalReturn)
-                              : null)
-                        )} (${fmt(config.metrics.totalReturn, 'pct')})`}
+                        title={`${fmtUsd(cardEndingValue)} (${fmt(cardTotalReturn, 'pct')})`}
                       >
-                        {fmtUsd(
-                          config.metrics.endingValuePortfolio ??
-                            (config.metrics.totalReturn != null
-                              ? INITIAL_CAPITAL * (1 + config.metrics.totalReturn)
-                              : null)
-                        )}{' '}
+                        {fmtUsd(cardEndingValue)}{' '}
                         <span
                           className={cn(
                             'font-semibold',
-                            (config.metrics.totalReturn ?? 0) >= 0
+                            (cardTotalReturn ?? 0) >= 0
                               ? 'text-green-600 dark:text-green-400'
                               : 'text-red-600 dark:text-red-400'
                           )}
                         >
-                          ({fmt(config.metrics.totalReturn, 'pct')})
+                          ({fmt(cardTotalReturn, 'pct')})
                         </span>
                       </p>
                     </div>

@@ -80,6 +80,8 @@ function isWelcomeNotification(n: NotifRow): boolean {
 
 function shouldOpenDetailDialog(n: NotifRow): boolean {
   if (isWelcomeNotification(n)) return true;
+  /** In-app digest stores `href` for settings, but the digest text lives in `body` — open dialog first. */
+  if (n.type === 'weekly_digest') return true;
   const href = typeof n.data?.href === 'string' ? n.data.href : null;
   if (href) return false;
   return Boolean(n.body?.trim());
@@ -399,6 +401,9 @@ export function NotificationsBell() {
       if (variant === 'menu') {
         suppressNextMenuCloseRef.current = true;
       }
+      if (variant === 'sheet') {
+        setOpen(false);
+      }
       router.push('/platform/settings/notifications');
       if (variant === 'menu') {
         // Keep desktop dropdown open while route changes.
@@ -418,7 +423,8 @@ export function NotificationsBell() {
       setUnreadCount((c) => Math.max(0, c - 1));
     }
     setDetail(next);
-  }, []);
+    if (isMobile) setOpen(false);
+  }, [isMobile]);
 
   const navigateToHref = useCallback(
     async (n: NotifRow, href: string) => {
@@ -524,13 +530,13 @@ export function NotificationsBell() {
       )}
 
       <Dialog open={detail != null} onOpenChange={(o) => !o && setDetail(null)}>
-        <DialogContent className="max-h-[min(90vh,32rem)] overflow-y-auto sm:max-w-md">
+        <DialogContent className="max-h-[min(90vh,32rem)] w-[min(100vw-1rem,22rem)] max-w-[22rem] overflow-y-auto sm:w-full sm:max-w-md">
           {detail ? (
             <>
               <DialogHeader>
                 <DialogTitle>{detail.title}</DialogTitle>
                 {detail.body ? (
-                  <DialogDescription className="text-left text-sm text-muted-foreground">
+                  <DialogDescription className="whitespace-pre-wrap text-left text-sm text-muted-foreground">
                     {detail.body}
                   </DialogDescription>
                 ) : (
@@ -559,7 +565,11 @@ export function NotificationsBell() {
                       void navigateToHref(detail, href);
                     }}
                   >
-                    {isWelcomeNotification(detail) ? 'Go to overview' : 'Go to related page'}
+                    {isWelcomeNotification(detail)
+                      ? 'Go to overview'
+                      : detail.type === 'weekly_digest'
+                        ? 'Notification settings'
+                        : 'Go to related page'}
                   </Button>
                 ) : null}
               </DialogFooter>

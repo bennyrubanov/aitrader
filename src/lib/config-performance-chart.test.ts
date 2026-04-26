@@ -156,3 +156,46 @@ test('applyEffectiveSeriesToMetrics appended tail recomputes benchmark total ret
       1e-12
   );
 });
+
+test('applyEffectiveSeriesToMetrics endingValue always equals effective series last aiTop20', () => {
+  const rawSeries: PerformanceSeriesPoint[] = [
+    {
+      date: '2026-04-01',
+      aiTop20: 10_000,
+      nasdaq100CapWeight: 10_000,
+      nasdaq100EqualWeight: 10_000,
+      sp500: 10_000,
+    },
+    {
+      date: '2026-04-10',
+      aiTop20: 10_200,
+      nasdaq100CapWeight: 10_100,
+      nasdaq100EqualWeight: 10_110,
+      sp500: 10_090,
+    },
+  ];
+  const effectiveSeries: PerformanceSeriesPoint[] = [
+    ...rawSeries,
+    {
+      date: '2026-04-11',
+      aiTop20: 10_555,
+      nasdaq100CapWeight: 10_100,
+      nasdaq100EqualWeight: 10_110,
+      sp500: 10_090,
+    },
+  ];
+  const sharpeReturns = [0.01];
+  const serverMetrics = mustMetrics(rawSeries, sharpeReturns);
+  const resolved = applyEffectiveSeriesToMetrics(
+    serverMetrics,
+    rawSeries,
+    effectiveSeries,
+    'weekly',
+    sharpeReturns
+  );
+  assert.ok(resolved);
+  const last = effectiveSeries[effectiveSeries.length - 1]!.aiTop20;
+  assert.equal(resolved.endingValue, last);
+  assert.ok(resolved.totalReturn != null);
+  assert.ok(Math.abs(resolved.totalReturn - (last! / 10_000 - 1)) < 1e-9);
+});

@@ -8,6 +8,7 @@ import {
   SIDEBAR_MENU_TRAILING_CLASSNAME,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from '@/components/ui/sidebar';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
@@ -23,6 +24,7 @@ function useShowKbdHints() {
 
 export function SidebarFeedbackMenuSlot() {
   const pathname = usePathname();
+  const { isMobile, setOpenMobile } = useSidebar();
   const { toast } = useToast();
   const showKbdHints = useShowKbdHints();
   const [modKeyLabel, setModKeyLabel] = useState('Ctrl');
@@ -128,7 +130,10 @@ export function SidebarFeedbackMenuSlot() {
           size="sm"
           tooltip="Feedback"
           aria-keyshortcuts={showKbdHints ? 'F' : undefined}
-          onClick={() => setOpen(true)}
+          onClick={() => {
+            setOpen(true);
+            if (isMobile) setOpenMobile(false);
+          }}
           className="border border-sidebar-border bg-sidebar-accent/40 shadow-none hover:bg-sidebar-accent"
         >
           <MessageSquare className="size-4 shrink-0" />

@@ -122,7 +122,19 @@ export async function GET(req: Request) {
         },
       })
     : null;
-  const userSeries = sliceAndScale(snapshot?.series ?? [], userStart, investmentSize);
+  let userSeries = sliceAndScale(snapshot?.series ?? [], userStart, investmentSize);
+  if (userSeries.length === 0 || userSeries[0]!.date > userStart) {
+    userSeries = [
+      {
+        date: userStart,
+        aiTop20: investmentSize,
+        nasdaq100CapWeight: investmentSize,
+        nasdaq100EqualWeight: investmentSize,
+        sp500: investmentSize,
+      },
+      ...userSeries,
+    ];
+  }
   const userSeriesMetrics = buildMetricsFromSeries(userSeries, rebalanceFrequency, []).metrics;
   const hasMultipleObservations = userSeries.length >= 2;
   const built = {

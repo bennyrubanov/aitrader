@@ -866,26 +866,28 @@ const SettingsPageContent = () => {
         )}
       >
         {/* Mobile: sticky band so section chips stay above the card body (layout + scroll). */}
-        <div className="sticky top-0 z-20 -mx-1 space-y-3 border-b border-border/60 bg-background px-1 pb-3 pt-0 shadow-sm md:hidden">
-          <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
+        <div className="sticky top-0 z-20 pb-3 pt-0 md:hidden">
+          <h1 className="sr-only">Settings</h1>
 
           {authState.isLoaded && (
-            <div className="-mx-1 flex gap-2 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {settingsTocItems.map((item) => (
-                <button
-                  type="button"
-                  key={item.id}
-                  className={cn(
-                    'shrink-0 rounded-full border bg-card px-3 py-1.5 text-xs font-medium transition-colors',
-                    item.id === activeSection
-                      ? 'border-foreground/30 text-foreground'
-                      : 'border-border text-muted-foreground hover:border-trader-blue/40 hover:text-foreground'
-                  )}
-                  onClick={() => selectSection(item.id)}
-                >
-                  {item.label}
-                </button>
-              ))}
+            <div className="overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <div className="mx-auto flex w-max gap-2">
+                {settingsTocItems.map((item) => (
+                  <button
+                    type="button"
+                    key={item.id}
+                    className={cn(
+                      'shrink-0 rounded-full border bg-card px-3 py-1.5 text-xs font-medium transition-colors',
+                      item.id === activeSection
+                        ? 'border-foreground/30 text-foreground'
+                        : 'border-border text-muted-foreground hover:border-trader-blue/40 hover:text-foreground'
+                    )}
+                    onClick={() => selectSection(item.id)}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -969,7 +971,7 @@ const SettingsPageContent = () => {
                       {savedNameNormalized || 'Not set'}
                     </span>
                     <Pencil
-                      className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+                      className="size-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground"
                       aria-hidden
                     />
                   </button>

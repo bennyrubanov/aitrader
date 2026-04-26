@@ -39,8 +39,10 @@ valuation of the current basket. The rule:
 - If `holdingsDateSelect !== HOLDINGS_TODAY_SENTINEL`, effective = display (no
   live tail when a historical date is selected).
 - Else if `holdingsLatestYmd > last.date`, **append** a new point
-  `{ date: holdingsLatestYmd, aiTop20: totalCurrentValue, benchmarks: copy
-  from last }`.
+  `{ date: holdingsLatestYmd, aiTop20: totalCurrentValue, benchmarks: prefer
+  server `livePoint.nasdaq*` / `livePoint.sp500` from
+  `/api/platform/explore-portfolio-config-holdings` when present; fall back to
+  `last.*` only when `livePoint` is missing }`.
 - Else if `holdingsLatestYmd === last.date` and
   `|totalCurrentValue − last.aiTop20| > $0.005`, **replace** the last point's
   `aiTop20` with `totalCurrentValue` (benchmarks preserved).
@@ -115,12 +117,21 @@ prices the AI basket at latest close but benchmarks aren't tailed),
 `benchmarks.*.totalReturn` from `effectiveDisplayMetrics` matches the
 un-tailed values at the same `lastPoint.date`. That's correct behavior:
 vs-benchmark comparatives compare like-for-like end-of-day snapshots. If the
-tail adds a new later date, benchmarks on that date are copied from the
-previous bar; document this in a comment near the tail construction so
-readers know benchmark totalReturn on the tailed date is a **float**, not a
-re-pricing.
+tail adds a new later date, benchmark legs on that bar should come from the
+server-emitted `livePoint` (same MTM path as `buildConfigDailySeriesTailPoint`)
+when available; copying `last.*` is only a graceful degradation when `livePoint`
+is absent.
 
-## 6. Data-side invariants (don't regress)
+## 6. Price source (not intraday)
+
+All “live” portfolio and holding valuations use **previous-close** prices: the
+holdings API sets `latestPriceBySymbol` from the max `run_date` in
+`nasdaq_100_daily_raw` (same basis as `loadLatestRawRunDate` in the MTM walk).
+There is **no** intraday quote fetch on any UI surface. The “live tail” only
+re-values the basket at that most recent **daily** close — it is not a
+real-time mark.
+
+## 7. Data-side invariants (don't regress)
 
 - `strategy_portfolio_config_holdings` must have a JSONB row for every
   `ai_run_batches.run_date` that falls within the config's cadence.
@@ -132,8 +143,22 @@ re-pricing.
   pulled through the Client Component import graph.
 - Holdings API and server MTM walk read the same stored snapshot, so the
   effective-tail basket equals the server basket.
+- `sliceAndScale` ([`src/lib/config-daily-series.ts`](mdc:src/lib/config-daily-series.ts))
+  rebases each of the four series (`aiTop20`, `nasdaq100CapWeight`,
+  `nasdaq100EqualWeight`, `sp500`) to `investmentSize` **independently** at the
+  entry anchor (no single shared scale factor across all four).
+- `computeConfigDailySeries` must not persist `data_status='empty'` when
+  `strategy_portfolio_config_performance` has rows for that config; if the
+  in-memory rows array is empty but a head-count on the perf table is `> 0`,
+  downgrade to `'early'` (DB maps to `'ready'`) instead of a sticky empty row.
+- `ensureConfigDailySeries` and `refreshDailySeriesSnapshotsForStrategy` must
+  treat an existing snapshot with `data_status='empty'` as a cache-miss and
+  recompute even when `asOfRunDate` matches `latestRawRunDate`. The
+  per-request path (`ensureConfigDailySeries`) rate-limits those recomputes per
+  `(strategyId, configId)` (5 minutes) to avoid hot loops when upstream is
+  genuinely empty; the bulk cron path does not need that backoff.
 
-## 7. Multi-config (explore) surfaces
+## 8. Multi-config (explore) surfaces
 
 Multi-config surfaces — `ExplorePortfoliosEquityChart` and any similar
 bulk-render view — cannot afford a per-config live fetch on render. Per
@@ -151,7 +176,34 @@ each stale config and attach it to the payload; the client then applies the
 append/replace rule from §2 on render. This is the correct pattern;
 fanning out `ensureConfigDailySeries()` per config is forbidden.
 
-## 8. When to use this rule
+**Explore list + detail dialog (no extra ranked-API compute):** the
+`/api/platform/explore-portfolios-equity-series` response includes optional
+`livePoint` per `configId`. The explore client builds `livePointByConfigId` and
+passes the matching `livePoint` into each list `ConfigCard` and as `liveTail`
+on `ExplorePortfolioDetailDialog` so **headline portfolio $ / total return**
+match the values chart’s effective last point. Sharpe, CAGR, and max drawdown
+on list cards stay on the ranked snapshot (`RankedConfig.metrics`) — they are
+cadence-sized and are not moved by a one-day tail.
+
+**Two payload patterns:** `/api/platform/explore-portfolios-equity-series` emits
+per-config `livePoint` with `date`, `aiTop20`, and optional benchmark fields
+(`nasdaq100CapWeight`, `nasdaq100EqualWeight`, `sp500`); the explore client overlays it onto
+**headline portfolio $ / total return** on `ConfigCard` and
+`ExplorePortfolioDetailDialog`. `/api/platform/portfolio-configs-ranked` emits
+`RankedConfig.metrics` straight from `portfolio_config_daily_series`. Consumers
+that **aggregate across configs** (`/api/platform/strategy-models-ranked`,
+landing-page `ExperimentSection`, `ModelHeaderCard` on `/strategy-models/[slug]`,
+explore filters such as `filterBeatSp500`) intentionally do **not** use a
+`livePoint`-style overlay: (1) the daily cron ingests prices and then runs
+`refreshDailySeriesSnapshotsForStrategy` in the same handler
+([`src/app/api/cron/daily/route.ts`](mdc:src/app/api/cron/daily/route.ts)), so
+snapshot `asOfRunDate` stays aligned with `latestRawRunDate` before cache
+revalidation; (2) those surfaces show no same-page headline `$ / %` pair for a
+single config — nothing for §1 drift to fix; (3) landing-page
+`LandingPerformanceSection` charts read the same stored series as the ranked
+payload, so chart vs stats card stay coherent.
+
+## 9. When to use this rule
 
 Touch this rule any time you:
 
@@ -162,3 +214,37 @@ Touch this rule any time you:
   `buildLiveHoldingsAllocationResult`, `buildMetricsFromSeries`, or
   `syncMissingConfigHoldingsSnapshots`.
 - Wire a new client component to a portfolio performance payload.
+
+The landing page (`/`) is **intentionally out of scope** for this rule: it only
+shows cross-config aggregates tied to `RankedConfig.metrics`, and its performance
+carousel uses the same `portfolio_config_daily_series` source. If a future change
+adds a **single-config** headline `$` or total return % on `/`, that surface must
+follow §2–§4 (effective series threaded through the component tree).
+
+## 10. Same-page convergence checklist (manual PR review)
+
+For one selected portfolio with **Today** holdings and a possible synthetic
+tail, every **dollar** and **total return %** on the same page must agree:
+
+- **`/performance/[slug]`:** Key-metrics FlipCard headline; At-a-glance
+  “Portfolio value”; overview `PerformanceChart` last point; holdings
+  `HoldingsPortfolioValueLine`; holdings table row $ (sum = line). All use
+  `effectivePerformanceDisplaySeries` / `effectiveDisplayMetrics` (or
+  `buildLiveHoldingsAllocationResult` notional chained from the same
+  effective last point for display).
+- **`/platform/your-portfolios`:** Main portfolio value card; sidebar row
+  override when selected; holdings line; `PerformanceChart` `initialNotional`
+  from effective series first point; vs-benchmark stats from
+  `effectiveDisplaySeries` / `effectiveDisplayMetrics` (no mixed API-only
+  excess returns).
+- **`/platform` overview:** Spotlight portfolio value, chart, holdings line,
+  and the **matching** overview tile (same profile id) use the same effective
+  spotlight series; other tiles show an explicit “As of close · …” date from
+  raw `cardState.series` last point.
+- **`/platform/explore-portfolios`:** List card Value ($ / %), values chart
+  last point, and detail dialog headline use the same `livePoint` tail when
+  present.
+
+Invariant: `applyEffectiveSeriesToMetrics(...).endingValue ===
+effectiveSeries[effectiveSeries.length - 1].aiTop20` (see
+`src/lib/config-performance-chart.test.ts`).

@@ -90,6 +90,7 @@ import {
   prefetchExploreHoldingsDates,
   getCachedExploreHoldings,
   useExploreHoldingsCacheVersion,
+  type ExploreHoldingsLivePoint,
 } from '@/lib/portfolio-config-holdings-cache';
 import {
   buildLiveHoldingsAllocationResult,
@@ -680,6 +681,9 @@ function PerformancePagePublicClientInner({
   );
   const [holdingsRebalanceDates, setHoldingsRebalanceDates] = useState<string[]>([]);
   const [holdingsExploreLatestRunDate, setHoldingsExploreLatestRunDate] = useState<string | null>(null);
+  const [holdingsExploreLivePoint, setHoldingsExploreLivePoint] = useState<ExploreHoldingsLivePoint | null>(
+    null
+  );
   const [holdingsLoading, setHoldingsLoading] = useState(true);
 
   const holdingsSectionLabel = entitledToHoldings ? 'Portfolio holdings' : 'Top rated stocks';
@@ -830,6 +834,7 @@ function PerformancePagePublicClientInner({
       setHoldingsAsOfPriceBySymbol({});
       setHoldingsLatestPriceBySymbol({});
       setHoldingsExploreLatestRunDate(null);
+      setHoldingsExploreLivePoint(null);
       setHoldingsLoading(false);
       return;
     }
@@ -841,6 +846,7 @@ function PerformancePagePublicClientInner({
       setHoldingsAsOfPriceBySymbol({});
       setHoldingsLatestPriceBySymbol({});
       setHoldingsExploreLatestRunDate(null);
+      setHoldingsExploreLivePoint(null);
       setHoldingsLoading(false);
       return;
     }
@@ -860,12 +866,14 @@ function PerformancePagePublicClientInner({
         setHoldingsAsOfPriceBySymbol({});
         setHoldingsLatestPriceBySymbol({});
         setHoldingsExploreLatestRunDate(null);
+        setHoldingsExploreLivePoint(null);
       } else {
         setHoldings(data.holdings);
         setHoldingsAsOfPriceBySymbol(data.asOfPriceBySymbol);
         setHoldingsLatestPriceBySymbol(data.latestPriceBySymbol);
         setHoldingsRebalanceDates(data.rebalanceDates);
         setHoldingsExploreLatestRunDate(data.latestRunDate ?? null);
+        setHoldingsExploreLivePoint(data.livePoint ?? null);
         const row = performanceHoldingsRankedRow;
         setHoldingsConfigSummary(
           row
@@ -933,7 +941,8 @@ function PerformancePagePublicClientInner({
     return performancePublicCostBasisByDate[d] ?? null;
   }, [performanceHoldingsAsOfYmd, performancePublicCostBasisByDate]);
 
-  const performanceHoldingsModelNotional = useMemo(() => {
+  /** Notional for `buildLiveHoldingsAllocationResult` — anchored to raw `displaySeries` (not the tailed series). */
+  const performanceHoldingsAllocationBaseNotional = useMemo(() => {
     if (holdingsAsOfDate === null) {
       const pts = configPerfSlice?.series ?? [];
       const last = pts[pts.length - 1]?.aiTop20;
@@ -960,16 +969,16 @@ function PerformancePagePublicClientInner({
 
   const performanceHoldingsAllocationNotional = useMemo(() => {
     if (holdingsAsOfDate === null) {
-      return performanceHoldingsModelNotional;
+      return performanceHoldingsAllocationBaseNotional;
     }
     const cb = performanceSelectedCostBasis?.portfolioValue;
     if (cb != null && Number.isFinite(cb) && cb > 0) {
       return cb;
     }
-    return performanceHoldingsModelNotional;
+    return performanceHoldingsAllocationBaseNotional;
   }, [
     holdingsAsOfDate,
-    performanceHoldingsModelNotional,
+    performanceHoldingsAllocationBaseNotional,
     performanceSelectedCostBasis?.portfolioValue,
   ]);
 
@@ -979,7 +988,7 @@ function PerformancePagePublicClientInner({
   const performanceLiveHoldingsAllocation = useMemo(() => {
     const notional =
       holdingsAsOfDate === null
-        ? performanceHoldingsModelNotional
+        ? performanceHoldingsAllocationBaseNotional
         : performanceHoldingsAllocationNotional;
     return buildLiveHoldingsAllocationResult(
       holdings,
@@ -991,42 +1000,11 @@ function PerformancePagePublicClientInner({
   }, [
     holdings,
     holdingsAsOfDate,
-    performanceHoldingsModelNotional,
+    performanceHoldingsAllocationBaseNotional,
     performanceHoldingsAllocationNotional,
     holdingsAsOfPriceBySymbol,
     holdingsLatestPriceBySymbol,
     performanceHoldingsValuationMode,
-  ]);
-
-  const performanceHoldingsAsOfCloseLabel = useMemo(() => {
-    const seriesPts = configPerfSlice?.series;
-    const ymd =
-      holdingsAsOfDate === null
-        ? holdingsExploreLatestRunDate ??
-          (seriesPts?.length ? seriesPts[seriesPts.length - 1]!.date : null)
-        : performanceHoldingsAsOfYmd;
-    if (!ymd) return null;
-    try {
-      return displayDateFormatter.format(new Date(`${ymd}T12:00:00.000Z`));
-    } catch {
-      return null;
-    }
-  }, [holdingsAsOfDate, configPerfSlice?.series, performanceHoldingsAsOfYmd, holdingsExploreLatestRunDate]);
-
-  const performanceHoldingsPortfolioValue = useMemo(() => {
-    if (holdingsAsOfDate === null) {
-      return performanceLiveHoldingsAllocation.totalCurrentValue ?? performanceHoldingsModelNotional;
-    }
-    const cb = performanceSelectedCostBasis?.portfolioValue;
-    if (cb != null && Number.isFinite(cb) && cb > 0) {
-      return cb;
-    }
-    return performanceHoldingsModelNotional;
-  }, [
-    holdingsAsOfDate,
-    performanceLiveHoldingsAllocation.totalCurrentValue,
-    performanceHoldingsModelNotional,
-    performanceSelectedCostBasis?.portfolioValue,
   ]);
 
   const effectiveStrategy = payload.strategy ?? null;
@@ -1139,12 +1117,15 @@ function PerformancePagePublicClientInner({
     if (totalFromHoldings == null || !Number.isFinite(totalFromHoldings) || totalFromHoldings <= 0) {
       return pts;
     }
+    const lp = holdingsExploreLivePoint;
     const nextBar = {
       date: holdingsLatestYmd,
       aiTop20: totalFromHoldings,
-      nasdaq100CapWeight: last.nasdaq100CapWeight,
-      nasdaq100EqualWeight: last.nasdaq100EqualWeight,
-      sp500: last.sp500,
+      nasdaq100CapWeight:
+        lp?.nasdaq100CapWeight != null ? lp.nasdaq100CapWeight : last.nasdaq100CapWeight,
+      nasdaq100EqualWeight:
+        lp?.nasdaq100EqualWeight != null ? lp.nasdaq100EqualWeight : last.nasdaq100EqualWeight,
+      sp500: lp?.sp500 != null ? lp.sp500 : last.sp500,
     };
     if (holdingsLatestYmd === last.date) {
       if (
@@ -1161,7 +1142,85 @@ function PerformancePagePublicClientInner({
     displaySeries,
     holdingsAsOfDate,
     holdingsExploreLatestRunDate,
+    holdingsExploreLivePoint,
     performanceLiveHoldingsAllocation.totalCurrentValue,
+  ]);
+
+  const performanceCfgRowsEffective = useMemo(
+    () => chartSeriesToPerfRowsForRebase(effectivePerformanceDisplaySeries as PerformanceSeriesPoint[]),
+    [effectivePerformanceDisplaySeries]
+  );
+
+  /** Display notional / headline alignment — last point of effective series (matches FlipCard / at-a-glance). */
+  const performanceHoldingsModelNotional = useMemo(() => {
+    if (holdingsAsOfDate === null) {
+      const eff = effectivePerformanceDisplaySeries as PerformanceSeriesPoint[];
+      const last = eff[eff.length - 1]?.aiTop20;
+      if (last != null && Number.isFinite(last) && last > 0) return last;
+      return performanceHoldingsAllocationBaseNotional;
+    }
+    if (!performanceHoldingsAsOfYmd || performanceCfgRowsEffective.length === 0) {
+      return PERFORMANCE_MODEL_INITIAL;
+    }
+    return (
+      rebasedEndingEquityAtRunDate(
+        performanceCfgRowsEffective,
+        null,
+        PERFORMANCE_MODEL_INITIAL,
+        performanceHoldingsAsOfYmd
+      ) ?? PERFORMANCE_MODEL_INITIAL
+    );
+  }, [
+    holdingsAsOfDate,
+    effectivePerformanceDisplaySeries,
+    performanceHoldingsAsOfYmd,
+    performanceCfgRowsEffective,
+    performanceHoldingsAllocationBaseNotional,
+  ]);
+
+  const performanceHoldingsAsOfCloseLabel = useMemo(() => {
+    const eff = effectivePerformanceDisplaySeries as PerformanceSeriesPoint[];
+    const ymd =
+      holdingsAsOfDate === null
+        ? holdingsExploreLatestRunDate ??
+          (eff.length ? eff[eff.length - 1]!.date : null)
+        : performanceHoldingsAsOfYmd;
+    if (!ymd) return null;
+    try {
+      return displayDateFormatter.format(new Date(`${ymd}T12:00:00.000Z`));
+    } catch {
+      return null;
+    }
+  }, [
+    holdingsAsOfDate,
+    effectivePerformanceDisplaySeries,
+    performanceHoldingsAsOfYmd,
+    holdingsExploreLatestRunDate,
+  ]);
+
+  const performanceHoldingsPortfolioValue = useMemo(() => {
+    if (holdingsAsOfDate === null) {
+      const eff = effectivePerformanceDisplaySeries as PerformanceSeriesPoint[];
+      const effLast = eff[eff.length - 1]?.aiTop20;
+      if (effLast != null && Number.isFinite(effLast) && effLast > 0) {
+        return effLast;
+      }
+      return (
+        performanceLiveHoldingsAllocation.totalCurrentValue ?? performanceHoldingsAllocationBaseNotional
+      );
+    }
+    const cb = performanceSelectedCostBasis?.portfolioValue;
+    if (cb != null && Number.isFinite(cb) && cb > 0) {
+      return cb;
+    }
+    return performanceHoldingsModelNotional;
+  }, [
+    holdingsAsOfDate,
+    effectivePerformanceDisplaySeries,
+    performanceLiveHoldingsAllocation.totalCurrentValue,
+    performanceHoldingsAllocationBaseNotional,
+    performanceHoldingsModelNotional,
+    performanceSelectedCostBasis?.portfolioValue,
   ]);
 
   const effectiveDisplayMetrics = useMemo(
@@ -1181,6 +1240,22 @@ function PerformancePagePublicClientInner({
       displaySharpeReturns,
     ]
   );
+
+  const portfolioAtAGlanceEffectiveMetricsOverride = useMemo(() => {
+    if (!slug || !configMetricsReady || !effectiveDisplayMetrics) return null;
+    const em = effectiveDisplayMetrics;
+    return {
+      fullMetrics: em,
+      metrics: {
+        sharpeRatio: em.sharpeRatio,
+        sharpeRatioDecisionCadence: em.sharpeRatioDecisionCadence,
+        weeklyObservations: em.weeklyObservations,
+        totalReturn: em.totalReturn,
+        cagr: em.cagr,
+        maxDrawdown: em.maxDrawdown,
+      },
+    };
+  }, [slug, configMetricsReady, effectiveDisplayMetrics]);
 
   const displayMetricWeeklyObservations =
     effectiveDisplayMetrics?.weeklyObservations ??
@@ -1661,6 +1736,7 @@ function PerformancePagePublicClientInner({
             strategySlug={slug}
             endingValueRank={portfolioPerf.portfolioEndingValueRank}
             endingValueRankPeerCount={portfolioPerf.portfolioEndingValueRankPeers}
+            effectiveMetricsOverride={portfolioAtAGlanceEffectiveMetricsOverride}
           />
         </section>
       ) : null}
@@ -1728,6 +1804,7 @@ function PerformancePagePublicClientInner({
             <ConfigPerformanceChartBlock
               className="rounded-xl border bg-card p-4"
               chartSeries={portfolioPerf.chartSeries}
+              seriesOverride={effectivePerformanceDisplaySeries}
               configChartReady={portfolioPerf.configChartReady}
               useFallbackTrack={portfolioPerf.useFallbackTrack}
               perf={portfolioPerf.perf}
@@ -3395,4 +3472,5 @@ function PerformancePagePublicClientInner({
 export function PerformancePagePublicClient(props: Props) {
   return <PerformancePagePublicClientInner {...props} />;
 }
+
 

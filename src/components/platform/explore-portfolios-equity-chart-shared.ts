@@ -1,8 +1,16 @@
+export type ExploreEquitySeriesLivePoint = {
+  date: string;
+  aiTop20: number;
+  nasdaq100CapWeight: number | null;
+  nasdaq100EqualWeight: number | null;
+  sp500: number | null;
+};
+
 export type ExploreEquitySeriesRow = {
   configId: string;
   label: string;
   equities: number[];
-  livePoint?: { date: string; aiTop20: number } | null;
+  livePoint?: ExploreEquitySeriesLivePoint | null;
   /** Sidebar risk dot; defaults to 3 if missing */
   riskLevel?: number;
 };

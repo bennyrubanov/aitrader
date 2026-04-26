@@ -82,6 +82,11 @@ function NavSecondaryCollapsibleItem({ item }: { item: SecondaryItemWithCollapsi
 }
 
 export function NavSecondary({ items, menuPrefix, ...props }: NavSecondaryProps) {
+  const { isMobile, setOpenMobile } = useSidebar();
+  const closeMobileSidebar = () => {
+    if (isMobile) setOpenMobile(false);
+  };
+
   return (
     <SidebarGroup {...props}>
       <SidebarGroupContent>
@@ -92,7 +97,13 @@ export function NavSecondary({ items, menuPrefix, ...props }: NavSecondaryProps)
               {item.collapsible ? (
                 <NavSecondaryCollapsibleItem item={{ ...item, collapsible: item.collapsible }} />
               ) : item.onClick ? (
-                <SidebarMenuButton size="sm" onClick={item.onClick}>
+                <SidebarMenuButton
+                  size="sm"
+                  onClick={() => {
+                    item.onClick?.();
+                    closeMobileSidebar();
+                  }}
+                >
                   <item.icon className="size-4 shrink-0" />
                   <span className={SIDEBAR_MENU_TRAILING_CLASSNAME}>
                     <span className="min-w-0 flex-1 truncate">{item.title}</span>
@@ -100,7 +111,7 @@ export function NavSecondary({ items, menuPrefix, ...props }: NavSecondaryProps)
                 </SidebarMenuButton>
               ) : (
                 <SidebarMenuButton asChild size="sm">
-                  <Link href={item.url}>
+                  <Link href={item.url} onClick={closeMobileSidebar}>
                     <item.icon className="size-4 shrink-0" />
                     <span className={SIDEBAR_MENU_TRAILING_CLASSNAME}>
                       <span className="min-w-0 flex-1 truncate">{item.title}</span>

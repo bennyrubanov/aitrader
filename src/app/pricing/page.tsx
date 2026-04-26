@@ -749,22 +749,9 @@ function PricingPageContent() {
                     ))}
                   </ul>
                   {isCurrentPlan('outperformer') ? (
-                    <div className="mt-auto flex w-full flex-col gap-2">
-                      <Button disabled variant="secondary" className="w-full">
-                        Current plan
-                      </Button>
-                      {stripePendingTier === 'supporter' ? (
-                        <Button
-                          type="button"
-                          variant="destructive"
-                          size="sm"
-                          className="w-full"
-                          onClick={() => setScheduledDowngradeDetailOpen(true)}
-                        >
-                          Downgrade scheduled {formatBillingDate(stripeCurrentPeriodEnd)}
-                        </Button>
-                      ) : null}
-                    </div>
+                    <Button disabled variant="secondary" className="w-full mt-auto">
+                      Current plan
+                    </Button>
                   ) : subscriptionTier === 'supporter' ? (
                     planChangeActionsLocked ? (
                       <p className="mt-auto text-center text-sm text-muted-foreground">

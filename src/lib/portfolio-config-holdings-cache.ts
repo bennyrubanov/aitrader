@@ -5,6 +5,14 @@ import {
   type UserPortfolioProfilesInvalidateDetail,
 } from '@/components/platform/portfolio-unfollow-toast';
 
+export type ExploreHoldingsLivePoint = {
+  date: string;
+  aiTop20: number;
+  nasdaq100CapWeight: number | null;
+  nasdaq100EqualWeight: number | null;
+  sp500: number | null;
+};
+
 export type ExploreHoldingsPayload = {
   holdings: HoldingItem[];
   asOfDate: string | null;
@@ -13,6 +21,8 @@ export type ExploreHoldingsPayload = {
   rebalanceDates: string[];
   asOfPriceBySymbol: Record<string, number | null>;
   latestPriceBySymbol: Record<string, number | null>;
+  /** Previous-close MTM tail with benchmark legs for client synthetic series. */
+  livePoint?: ExploreHoldingsLivePoint | null;
 };
 
 type ExploreHoldingsTimelineEntry = {
@@ -211,12 +221,32 @@ function rememberTimeline(
       rebalanceDates,
       asOfPriceBySymbol: entry.asOfPriceBySymbol ?? {},
       latestPriceBySymbol,
+      livePoint: null,
     };
     rememberValue(cacheKeyExploreHoldings(s, configId, d), payload);
     if (payload.asOfDate) {
       rememberValue(cacheKeyExploreHoldings(s, configId, payload.asOfDate), payload);
     }
   }
+}
+
+function normalizeLivePoint(raw: ExploreHoldingsApiResponse['livePoint']): ExploreHoldingsLivePoint | null {
+  if (!raw || typeof raw.date !== 'string' || !DATE_RE.test(raw.date)) return null;
+  const ai = Number(raw.aiTop20);
+  if (!Number.isFinite(ai) || ai <= 0) return null;
+  return {
+    date: raw.date,
+    aiTop20: ai,
+    nasdaq100CapWeight:
+      raw.nasdaq100CapWeight != null && Number.isFinite(Number(raw.nasdaq100CapWeight))
+        ? Number(raw.nasdaq100CapWeight)
+        : null,
+    nasdaq100EqualWeight:
+      raw.nasdaq100EqualWeight != null && Number.isFinite(Number(raw.nasdaq100EqualWeight))
+        ? Number(raw.nasdaq100EqualWeight)
+        : null,
+    sp500: raw.sp500 != null && Number.isFinite(Number(raw.sp500)) ? Number(raw.sp500) : null,
+  };
 }
 
 function normalizePayload(data: ExploreHoldingsApiResponse): ExploreHoldingsPayload {
@@ -230,6 +260,7 @@ function normalizePayload(data: ExploreHoldingsApiResponse): ExploreHoldingsPayl
     rebalanceDates: Array.isArray(data.rebalanceDates) ? data.rebalanceDates : [],
     asOfPriceBySymbol: data.asOfPriceBySymbol ?? {},
     latestPriceBySymbol: data.latestPriceBySymbol ?? {},
+    livePoint: normalizeLivePoint(data.livePoint),
   };
 }
 

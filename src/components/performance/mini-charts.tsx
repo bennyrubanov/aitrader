@@ -9,6 +9,7 @@ import {
   CartesianGrid,
   Line,
   LineChart,
+  ReferenceArea,
   ReferenceLine,
   XAxis,
   YAxis,
@@ -71,6 +72,46 @@ function shortDate(d: string) {
   const parsed = new Date(`${d}T00:00:00Z`);
   if (Number.isNaN(parsed.getTime())) return d;
   return chartDateFormatter.format(parsed);
+}
+
+/**
+ * Return the YYYY-MM-DD of the Friday of the ISO week containing `isoYmd`.
+ * Used to normalize x-axis labels on weekly Sharpe charts so the cadence reads as
+ * a consistent week-over-week step regardless of which weekday the underlying daily
+ * MTM series happens to end on (the daily walk can have gaps, so a given ISO week's
+ * "last observation" may land on Mon, Wed, Fri, etc.).
+ */
+function isoWeekFriday(isoYmd: string): string {
+  const d = new Date(`${isoYmd}T12:00:00Z`);
+  if (Number.isNaN(d.getTime())) return isoYmd;
+  const dayOfWeek = d.getUTCDay(); // Sun=0..Sat=6
+  const isoMondayIndex = (dayOfWeek + 6) % 7; // Mon=0..Sun=6
+  const offsetToFriday = 4 - isoMondayIndex; // can be negative for Sat/Sun
+  const friday = new Date(d);
+  friday.setUTCDate(d.getUTCDate() + offsetToFriday);
+  const yyyy = friday.getUTCFullYear();
+  const mm = String(friday.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(friday.getUTCDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+const compactSharpeFormatter = new Intl.NumberFormat('en-US', {
+  notation: 'compact',
+  maximumFractionDigits: 1,
+});
+
+/**
+ * Format Sharpe-like ratio tick labels. Uses compact ("1.5K", "942K") for large
+ * magnitudes which can occur in low-variance/early-history Top-N portfolios, and
+ * decimal precision otherwise so normal Sharpe values remain readable.
+ */
+function formatSharpeTick(v: number): string {
+  if (!Number.isFinite(v)) return '';
+  const abs = Math.abs(v);
+  if (abs >= 1000) return compactSharpeFormatter.format(v);
+  if (abs >= 100) return v.toFixed(0);
+  if (abs >= 10) return v.toFixed(1);
+  return v.toFixed(2);
 }
 
 // ── Weekly Returns Bar Chart ──────────────────────────────────────────────────
@@ -252,7 +293,10 @@ export const ROLLING_SHARPE_WINDOW_WEEKS = 12;
 
 /** Equity curve points: inception row + one per week → need W+1 points for the first rolling estimate. */
 export const ROLLING_SHARPE_MIN_SERIES_LENGTH = ROLLING_SHARPE_WINDOW_WEEKS + 1;
-export const CUMULATIVE_SHARPE_MIN_SERIES_LENGTH = MIN_OBS_FOR_SHARPE + 1;
+/** The cumulative Sharpe trend chart needs at least two finite Sharpe points to draw a line.
+ *  That means: inception + (MIN_OBS_FOR_SHARPE + 1) weekly closes → MIN_OBS_FOR_SHARPE + 1 weekly
+ *  returns → 2 valid expanding-window Sharpe values. */
+export const CUMULATIVE_SHARPE_MIN_SERIES_LENGTH = MIN_OBS_FOR_SHARPE + 2;
 
 function seriesLineLabels(strategyName?: string): Record<ReturnsKey, string> {
   return {
@@ -625,23 +669,25 @@ export function CumulativeSharpeRatioChart({
     });
   };
 
-  const { sharpeData, weeklyReturnCount } = useMemo(() => {
+  const { sharpeData, weeklyReturnCount, inceptionDate, firstDataDate } = useMemo(() => {
     const keys = Object.keys(RETURNS_SERIES) as ReturnsKey[];
-    if (series.length < 2) {
-      return {
-        sharpeData: [] as Array<{ date: string } & Record<ReturnsKey, number | null>>,
-        weeklyReturnCount: 0,
-      };
-    }
+    const empty = {
+      sharpeData: [] as Array<{ date: string } & Record<ReturnsKey, number | null>>,
+      weeklyReturnCount: 0,
+      inceptionDate: null as string | null,
+      firstDataDate: null as string | null,
+    };
+    if (series.length < 2) return empty;
 
     const weeklySeries = downsampleSeriesToIsoWeek(series);
     if (weeklySeries.length < 2) {
-      return {
-        sharpeData: [] as Array<{ date: string } & Record<ReturnsKey, number | null>>,
-        weeklyReturnCount: 0,
-      };
+      return { ...empty, inceptionDate: weeklySeries[0]?.date ?? null };
     }
 
+    // Weekly returns: math from real values, but the date *label* is normalized to
+    // the canonical ISO-week Friday so the X axis renders a steady weekly cadence
+    // even when the underlying daily series ended mid-week (e.g. a Monday rebalance
+    // bar followed by a tail-appended live Friday).
     const weeklyReturns = weeklySeries.slice(1).map((point, i) => {
       const prev = weeklySeries[i]!;
       const safe = (p: number, c: number) => (p > 0 ? c / p - 1 : 0);
@@ -651,14 +697,29 @@ export function CumulativeSharpeRatioChart({
         nasdaq100EqualWeight: safe(prev.nasdaq100EqualWeight, point.nasdaq100EqualWeight),
         sp500: safe(prev.sp500, point.sp500),
       };
-      return { date: point.date, ...row };
+      return { date: isoWeekFriday(point.date), ...row };
     });
 
+    const inception = weeklySeries[0]?.date ?? null;
     const result: Array<{ date: string } & Record<ReturnsKey, number | null>> = [];
-    for (let i = 0; i < weeklyReturns.length; i++) {
-      const row: Record<string, string | number | null> = {
-        date: shortDate(weeklyReturns[i]!.date),
-      };
+
+    // Leading null row at the inception date. With `connectNulls` the line skips it,
+    // so it costs us only one X-axis slot but lets us shade a "warm-up" zone via
+    // ReferenceArea between the inception row and the first plottable Sharpe row.
+    if (inception) {
+      const inceptionRow: Record<string, string | number | null> = { date: shortDate(inception) };
+      for (const key of keys) inceptionRow[key] = null;
+      result.push(inceptionRow as { date: string } & Record<ReturnsKey, number | null>);
+    }
+
+    // Sharpe needs at least MIN_OBS_FOR_SHARPE returns, so the first plottable
+    // expanding-window index is i = MIN_OBS_FOR_SHARPE - 1 (the 8th weekly return).
+    const firstPlottableIndex = MIN_OBS_FOR_SHARPE - 1;
+    let firstPlottedDate: string | null = null;
+    for (let i = firstPlottableIndex; i < weeklyReturns.length; i++) {
+      const formatted = shortDate(weeklyReturns[i]!.date);
+      if (firstPlottedDate === null) firstPlottedDate = formatted;
+      const row: Record<string, string | number | null> = { date: formatted };
       for (const key of keys) {
         const window = weeklyReturns.slice(0, i + 1).map((w) => w[key]);
         row[key] = computeSharpeAnnualized(window, 52);
@@ -666,7 +727,12 @@ export function CumulativeSharpeRatioChart({
       result.push(row as { date: string } & Record<ReturnsKey, number | null>);
     }
 
-    return { sharpeData: result, weeklyReturnCount: weeklyReturns.length };
+    return {
+      sharpeData: result,
+      weeklyReturnCount: weeklyReturns.length,
+      inceptionDate: inception,
+      firstDataDate: firstPlottedDate,
+    };
   }, [series]);
 
   const sharpeYDomain = useMemo((): [number, number] | ['auto', 'auto'] => {
@@ -725,8 +791,9 @@ export function CumulativeSharpeRatioChart({
       <>
         <p className="text-sm font-semibold mb-1">Holding-period Sharpe over time</p>
         <p className="text-xs text-muted-foreground mb-3">
-          Uses every weekly return since inception. Shows how smooth risk/return has looked over time;
-          mirrors the Sharpe shown in Key metrics, with the line starting at week {MIN_OBS_FOR_SHARPE}.
+          Annualized Sharpe from inception through each week — mirrors the Sharpe in Key metrics. The
+          chart begins once the strategy has at least {MIN_OBS_FOR_SHARPE} weekly returns, the minimum
+          for a stable estimate.
         </p>
         <div className="h-[260px] w-full rounded-md border border-dashed flex items-center justify-center px-4 text-center text-xs text-muted-foreground">
           {emptyBody}
@@ -736,14 +803,19 @@ export function CumulativeSharpeRatioChart({
     return embedded ? emptyInner : <div className="rounded-lg border bg-card p-4">{emptyInner}</div>;
   }
 
+  const warmupWeeks = MIN_OBS_FOR_SHARPE;
+  const inceptionLabel = inceptionDate ? shortDate(inceptionDate) : null;
+  const showWarmupBand = Boolean(inceptionLabel && firstDataDate && inceptionLabel !== firstDataDate);
+
   const inner: ReactNode = (
     <>
       <p className="text-sm font-semibold mb-1">Holding-period Sharpe over time</p>
       <p className="text-xs text-muted-foreground mb-3">
-        Uses every weekly return since inception. Shows how smooth risk/return has looked over time;
-        mirrors the Sharpe shown in Key metrics, with the line starting at week {MIN_OBS_FOR_SHARPE}.
+        Annualized Sharpe from inception through each week — mirrors the Sharpe in Key metrics. The
+        line begins once the strategy has at least {warmupWeeks} weekly returns, the minimum for a
+        stable estimate; the shaded band on the left marks that warm-up window.
       </p>
-      <div className="flex flex-wrap gap-1.5 mb-3">
+      <div className="flex flex-wrap items-center gap-1.5 mb-3">
         {(Object.entries(RETURNS_SERIES) as [ReturnsKey, (typeof RETURNS_SERIES)[ReturnsKey]][]).map(
           ([key, cfg]) => (
             <button
@@ -772,7 +844,36 @@ export function CumulativeSharpeRatioChart({
         <LineChart data={sharpeData} margin={{ top: 4, right: 8, left: 4, bottom: 4 }}>
           <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />
           <XAxis dataKey="date" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
-          <YAxis domain={sharpeYDomain} tick={{ fontSize: 10 }} width={40} />
+          <YAxis
+            domain={sharpeYDomain}
+            tick={{ fontSize: 10 }}
+            width={56}
+            tickFormatter={formatSharpeTick}
+          />
+          {showWarmupBand && inceptionLabel && firstDataDate ? (
+            <ReferenceArea
+              x1={inceptionLabel}
+              x2={firstDataDate}
+              fill={CHART_NEUTRAL_REFERENCE_STROKE}
+              fillOpacity={0.08}
+              strokeOpacity={0}
+              ifOverflow="visible"
+              label={{
+                value: `↞ ${warmupWeeks}-week warm-up`,
+                position: 'insideTopLeft',
+                fontSize: 9,
+                fill: CHART_NEUTRAL_REFERENCE_STROKE,
+              }}
+            />
+          ) : null}
+          {showWarmupBand && firstDataDate ? (
+            <ReferenceLine
+              x={firstDataDate}
+              stroke={CHART_NEUTRAL_REFERENCE_STROKE}
+              strokeDasharray="2 3"
+              strokeOpacity={0.55}
+            />
+          ) : null}
           <ReferenceLine
             y={1}
             stroke={CHART_NEUTRAL_REFERENCE_STROKE}
@@ -804,7 +905,7 @@ export function CumulativeSharpeRatioChart({
               dataKey={key}
               stroke={RETURNS_SERIES[key].color}
               strokeWidth={key === 'aiTop20' ? 2.5 : 1.75}
-              dot={sharpeData.length <= 2 ? { r: 2.5 } : false}
+              dot={aiSharpePointCount <= 2 ? { r: 2.5 } : false}
               hide={hiddenSh.has(key)}
               connectNulls
             />
@@ -813,6 +914,7 @@ export function CumulativeSharpeRatioChart({
       </ChartContainer>
       <p className="text-[11px] text-muted-foreground mt-2">
         Sharpe = mean weekly return ÷ volatility from inception to that week, scaled to a 52-week year.
+        {inceptionLabel ? ` Strategy inception: ${inceptionLabel}.` : null}
       </p>
     </>
   );

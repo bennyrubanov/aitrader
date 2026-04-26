@@ -28,6 +28,14 @@ type HoldingsTimelineEntry = {
   asOfPriceBySymbol: SymbolPriceMap;
 };
 
+type ExploreHoldingsLivePoint = {
+  date: string;
+  aiTop20: number;
+  nasdaq100CapWeight: number | null;
+  nasdaq100EqualWeight: number | null;
+  sp500: number | null;
+};
+
 type ExploreHoldingsApiResponse = {
   holdings: Awaited<ReturnType<typeof getPortfolioConfigHoldings>>['holdings'];
   asOfDate: string | null;
@@ -37,6 +45,7 @@ type ExploreHoldingsApiResponse = {
   rebalanceDates: string[];
   asOfPriceBySymbol: SymbolPriceMap;
   latestPriceBySymbol: SymbolPriceMap;
+  livePoint?: ExploreHoldingsLivePoint | null;
   timelineVersion?: number;
   byDate?: Record<string, HoldingsTimelineEntry>;
 };
@@ -352,6 +361,56 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  let livePoint: ExploreHoldingsLivePoint | null = null;
+  if (!asOfRunDate && requestedDatesInput.length === 0) {
+    try {
+      const { ensureConfigDailySeries, buildConfigDailySeriesTailPoint } = await import(
+        '@/lib/config-daily-series'
+      );
+      const snapshot = await ensureConfigDailySeries(admin, {
+        strategyId: strategy.id,
+        config: {
+          id: configId,
+          risk_level: riskLevel,
+          rebalance_frequency: String(cfg.rebalance_frequency),
+          weighting_method: String(cfg.weighting_method),
+        },
+      });
+      if (snapshot?.series?.length) {
+        const tail = await buildConfigDailySeriesTailPoint(admin, {
+          strategyId: strategy.id,
+          config: {
+            id: configId,
+            risk_level: riskLevel,
+            rebalance_frequency: String(cfg.rebalance_frequency),
+            weighting_method: String(cfg.weighting_method),
+          },
+          notionalSeries: snapshot.series,
+        });
+        if (
+          tail?.date &&
+          tail.aiTop20 != null &&
+          Number.isFinite(Number(tail.aiTop20)) &&
+          Number(tail.aiTop20) > 0
+        ) {
+          livePoint = {
+            date: tail.date,
+            aiTop20: Number(tail.aiTop20),
+            nasdaq100CapWeight: Number.isFinite(Number(tail.nasdaq100CapWeight))
+              ? Number(tail.nasdaq100CapWeight)
+              : null,
+            nasdaq100EqualWeight: Number.isFinite(Number(tail.nasdaq100EqualWeight))
+              ? Number(tail.nasdaq100EqualWeight)
+              : null,
+            sp500: Number.isFinite(Number(tail.sp500)) ? Number(tail.sp500) : null,
+          };
+        }
+      }
+    } catch {
+      livePoint = null;
+    }
+  }
+
   const response: ExploreHoldingsApiResponse = {
     holdings,
     asOfDate,
@@ -360,6 +419,7 @@ export async function GET(req: NextRequest) {
     rebalanceDates,
     asOfPriceBySymbol,
     latestPriceBySymbol,
+    livePoint,
     ...(requestedDates.length > 0 ? { timelineVersion: 1, byDate: byDate ?? {} } : {}),
   };
   holdingsResponseCache.set(responseCacheKey, {

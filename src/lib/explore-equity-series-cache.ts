@@ -93,7 +93,23 @@ function normalize(d: unknown): ExploreEquitySeriesPayload {
             typeof lp.date === 'string' &&
             Number.isFinite(Number(lp.aiTop20)) &&
             Number(lp.aiTop20) > 0
-              ? { date: lp.date, aiTop20: Number(lp.aiTop20) }
+              ? {
+                  date: lp.date,
+                  aiTop20: Number(lp.aiTop20),
+                  nasdaq100CapWeight:
+                    lp.nasdaq100CapWeight != null && Number.isFinite(Number(lp.nasdaq100CapWeight))
+                      ? Number(lp.nasdaq100CapWeight)
+                      : null,
+                  nasdaq100EqualWeight:
+                    lp.nasdaq100EqualWeight != null &&
+                    Number.isFinite(Number(lp.nasdaq100EqualWeight))
+                      ? Number(lp.nasdaq100EqualWeight)
+                      : null,
+                  sp500:
+                    lp.sp500 != null && Number.isFinite(Number(lp.sp500))
+                      ? Number(lp.sp500)
+                      : null,
+                }
               : null;
           return {
             ...row,

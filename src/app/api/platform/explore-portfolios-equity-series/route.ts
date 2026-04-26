@@ -27,6 +27,14 @@ const toNum = (v: unknown): number => {
   return Number.isFinite(n) ? n : INITIAL_CAPITAL;
 };
 
+type ExploreEquitySeriesLivePoint = {
+  date: string;
+  aiTop20: number;
+  nasdaq100CapWeight: number | null;
+  nasdaq100EqualWeight: number | null;
+  sp500: number | null;
+};
+
 export type ExplorePortfoliosEquitySeriesPayload = {
   strategyId: string;
   strategyName: string | null;
@@ -35,7 +43,7 @@ export type ExplorePortfoliosEquitySeriesPayload = {
     configId: string;
     label: string;
     equities: number[];
-    livePoint: { date: string; aiTop20: number } | null;
+    livePoint: ExploreEquitySeriesLivePoint | null;
   }>;
   benchmarks: {
     nasdaq100Cap: number[];
@@ -167,7 +175,7 @@ async function loadExplorePortfoliosEquitySeriesPayload(
     configId: string;
     label: string;
     equities: number[];
-    livePoint: { date: string; aiTop20: number } | null;
+    livePoint: ExploreEquitySeriesLivePoint | null;
   }> = [];
 
   for (const cfg of configRows) {
@@ -191,7 +199,7 @@ async function loadExplorePortfoliosEquitySeriesPayload(
             rebalanceFrequency: cfg.rebalance_frequency,
           });
 
-    let livePoint: { date: string; aiTop20: number } | null = null;
+    let livePoint: ExploreEquitySeriesLivePoint | null = null;
     const snapshot = snapshots.get(cfg.id);
     const snapshotAsOf = snapshot?.asOfRunDate ?? null;
     if (
@@ -215,7 +223,17 @@ async function loadExplorePortfoliosEquitySeriesPayload(
           Number.isFinite(Number(tail.aiTop20)) &&
           Number(tail.aiTop20) > 0
         ) {
-          livePoint = { date: tail.date, aiTop20: Number(tail.aiTop20) };
+          livePoint = {
+            date: tail.date,
+            aiTop20: Number(tail.aiTop20),
+            nasdaq100CapWeight: Number.isFinite(Number(tail.nasdaq100CapWeight))
+              ? Number(tail.nasdaq100CapWeight)
+              : null,
+            nasdaq100EqualWeight: Number.isFinite(Number(tail.nasdaq100EqualWeight))
+              ? Number(tail.nasdaq100EqualWeight)
+              : null,
+            sp500: Number.isFinite(Number(tail.sp500)) ? Number(tail.sp500) : null,
+          };
         }
       } catch {
         /* best-effort */

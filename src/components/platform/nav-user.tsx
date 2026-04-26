@@ -7,6 +7,7 @@ import {
   Bell,
   ChevronsUpDown,
   CreditCard,
+  KeyRound,
   LogOut,
   UserPlus,
 } from "lucide-react";
@@ -56,7 +57,13 @@ export function NavUser({
 }: NavUserProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const { isMobile, sidebarMode, setSidebarHoverExpanded, setSidebarNavMenuOpen } = useSidebar();
+  const {
+    isMobile,
+    sidebarMode,
+    setSidebarHoverExpanded,
+    setSidebarNavMenuOpen,
+    setOpenMobile,
+  } = useSidebar();
 
   const initials = useMemo(() => {
     const source = user.name || user.email || "U";
@@ -74,9 +81,11 @@ export function NavUser({
         window.history.pushState(null, "", href);
         window.dispatchEvent(new PopStateEvent("popstate"));
       }
+      if (isMobile) setOpenMobile(false);
       return;
     }
     router.push(href);
+    if (isMobile) setOpenMobile(false);
   };
 
   if (!user.isAuthenticated) {
@@ -85,7 +94,10 @@ export function NavUser({
         <SidebarMenuItem>
           <SidebarMenuButton
             size="lg"
-            onClick={onSignUp}
+            onClick={() => {
+              onSignUp();
+              if (isMobile) setOpenMobile(false);
+            }}
             className="bg-sidebar-accent/60 hover:bg-sidebar-accent"
           >
             <Avatar className="h-7 w-7 shrink-0 rounded-full">
@@ -153,7 +165,13 @@ export function NavUser({
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem onSelect={onUpgrade} className="gap-2">
+              <DropdownMenuItem
+                onSelect={() => {
+                  onUpgrade();
+                  if (isMobile) setOpenMobile(false);
+                }}
+                className="gap-2"
+              >
                 <PlanLabel
                   isPremium={user.isPremium}
                   subscriptionTier={user.subscriptionTier}
@@ -171,6 +189,13 @@ export function NavUser({
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="cursor-pointer gap-2"
+                onSelect={() => goToSettingsSection("/platform/settings/security")}
+              >
+                  <KeyRound className="size-4 text-muted-foreground" />
+                  Security
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="cursor-pointer gap-2"
                 onSelect={() => goToSettingsSection("/platform/settings/billing")}
               >
                   <CreditCard className="size-4 text-muted-foreground" />
@@ -185,7 +210,13 @@ export function NavUser({
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={onSignOut} className="gap-2">
+            <DropdownMenuItem
+              onSelect={() => {
+                onSignOut();
+                if (isMobile) setOpenMobile(false);
+              }}
+              className="gap-2"
+            >
               <LogOut className="size-4 text-muted-foreground" />
               Log out
             </DropdownMenuItem>

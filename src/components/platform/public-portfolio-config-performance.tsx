@@ -29,6 +29,7 @@ import {
   WeightingMethodTooltipContent,
 } from '@/components/tooltips';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
+import type { FullConfigPerformanceMetrics } from '@/lib/config-performance-chart';
 import { headerStatSentiment } from '@/lib/header-stat-sentiment';
 import { isoWeekBucketKey } from '@/lib/metrics-annualization';
 
@@ -110,6 +111,8 @@ export function PortfolioAtAGlanceCard({
   endingValueRank = null,
   endingValueRankPeerCount = 0,
   badges = [],
+  /** When set (e.g. live-tailed effective metrics), overrides `perf.metrics` / `perf.fullMetrics` for displayed rows. */
+  effectiveMetricsOverride = null,
 }: {
   className?: string;
   portfolioConfig: PortfolioConfigSlice | null;
@@ -124,9 +127,13 @@ export function PortfolioAtAGlanceCard({
   endingValueRankPeerCount?: number;
   /** From ranked config match (Top ranked, Default, etc.) */
   badges?: string[];
+  effectiveMetricsOverride?: {
+    fullMetrics: FullConfigPerformanceMetrics | null;
+    metrics: PublicPortfolioPerfApiPayload['metrics'] | null;
+  } | null;
 }) {
-  const m = perf?.metrics;
-  const fm = perf?.fullMetrics;
+  const m = effectiveMetricsOverride?.metrics ?? perf?.metrics;
+  const fm = effectiveMetricsOverride?.fullMetrics ?? perf?.fullMetrics;
   // `perf.series` can be either weekly net-return points or daily mark-to-market
   // (the API swaps in daily when available), so count unique ISO weeks to get a
   // cadence-independent weeks-of-history value for the readiness pill.
@@ -466,6 +473,7 @@ export function PortfolioAtAGlanceCard({
 export function ConfigPerformanceChartBlock({
   className,
   chartSeries,
+  seriesOverride,
   configChartReady,
   useFallbackTrack,
   perf,
@@ -476,6 +484,8 @@ export function ConfigPerformanceChartBlock({
 }: {
   className?: string;
   chartSeries: PerformanceSeriesPoint[];
+  /** When non-empty, used for the chart instead of `chartSeries` (e.g. effective live-tailed series). */
+  seriesOverride?: PerformanceSeriesPoint[] | null;
   configChartReady: boolean;
   useFallbackTrack: boolean;
   perf: PublicPortfolioPerfApiPayload | null;
@@ -484,9 +494,12 @@ export function ConfigPerformanceChartBlock({
   chartTitle: string;
   statusMessage: string | null;
 }) {
+  const resolvedSeries =
+    seriesOverride != null && seriesOverride.length >= 1 ? seriesOverride : chartSeries;
+
   return (
     <div className={className}>
-      {chartSeries.length >= 1 ? (
+      {resolvedSeries.length >= 1 ? (
         <div className="space-y-2">
           {perf?.isHoldingPeriod && perf?.computeStatus === 'ready' && (
             <p className="text-[11px] text-muted-foreground rounded-md border border-blue-500/25 bg-blue-500/5 px-3 py-2">
@@ -499,13 +512,13 @@ export function ConfigPerformanceChartBlock({
               {' '}Performance reflects price movement of the held stocks.
             </p>
           )}
-          {!perf?.isHoldingPeriod && perf?.computeStatus === 'ready' && chartSeries.length === 1 && (
+          {!perf?.isHoldingPeriod && perf?.computeStatus === 'ready' && resolvedSeries.length === 1 && (
             <p className="text-[11px] text-muted-foreground rounded-md border border-amber-500/25 bg-amber-500/5 px-3 py-2">
               Only <strong>one</strong> data point is in the database so far. The chart will grow as more
               periods are recorded.
             </p>
           )}
-          <PerformanceChart series={chartSeries} strategyName={chartTitle} hideDrawdown />
+          <PerformanceChart series={resolvedSeries} strategyName={chartTitle} hideDrawdown />
         </div>
       ) : (
         <div className="flex flex-col items-center justify-center min-h-[200px] rounded-lg border bg-muted/30 px-4 py-8 text-center text-sm text-muted-foreground">

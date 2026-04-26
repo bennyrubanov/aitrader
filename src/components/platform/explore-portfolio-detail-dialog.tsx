@@ -56,6 +56,7 @@ import {
   rebasedEndingEquityAtRunDate,
   type PortfolioMovementLine,
 } from '@/lib/portfolio-movement';
+import type { ExploreEquitySeriesLivePoint } from '@/components/platform/explore-portfolios-equity-chart-shared';
 import { buildLiveHoldingsAllocationResult } from '@/lib/live-holdings-allocation';
 import {
   buildPublicModelCostBasisSnapshotsFromHoldings,
@@ -164,14 +165,16 @@ function ExploreCostBasisCell({
   const gap = snapshot?.incompleteFirstDateBySymbol[sym];
   if (gap) {
     return (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className="cursor-help tabular-nums text-muted-foreground">—</span>
-        </TooltipTrigger>
-        <TooltipContent side="top" className="max-w-xs text-xs">
-          {costBasisIncompleteTooltip(gap)}
-        </TooltipContent>
-      </Tooltip>
+      <TooltipProvider delayDuration={150}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="cursor-help tabular-nums text-muted-foreground">—</span>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-xs text-xs">
+            {costBasisIncompleteTooltip(gap)}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
     );
   }
   const total = snapshot?.costBasisBySymbol[sym] ?? 0;
@@ -620,6 +623,7 @@ export function ExplorePortfolioDetailDialog({
   open,
   onOpenChange,
   config,
+  liveTail = null,
   strategySlug,
   strategyName,
   strategyIsTop,
@@ -637,6 +641,8 @@ export function ExplorePortfolioDetailDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   config: RankedConfig | null;
+  /** Same `livePoint` tail as explore equity chart / list cards (previous-close MTM). */
+  liveTail?: ExploreEquitySeriesLivePoint | null;
   strategySlug: string;
   strategyName: string;
   /** True when this model is first in the ranked strategies list (same as sidebar "Top"). */
@@ -1042,11 +1048,17 @@ export function ExplorePortfolioDetailDialog({
   }, [config?.id, strategySlug, rebalanceDates, explorePerfRows, holdingsCacheRev]);
 
   const exploreLatestModelPortfolioValue = useMemo(() => {
+    const mm = config?.metrics;
+    const fromRanked =
+      liveTail?.aiTop20 ??
+      mm?.endingValuePortfolio ??
+      (mm?.totalReturn != null ? INITIAL_CAPITAL * (1 + mm.totalReturn) : null);
+    if (fromRanked != null && Number.isFinite(fromRanked) && fromRanked > 0) return fromRanked;
     const pts = explorePerfSeries;
     const last = pts[pts.length - 1]?.aiTop20;
     if (last == null || !Number.isFinite(last) || last <= 0) return null;
     return last;
-  }, [explorePerfSeries]);
+  }, [config?.metrics, liveTail, explorePerfSeries]);
 
   const exploreHoldingsTimeline = useMemo(() => {
     void holdingsCacheRev;
@@ -1177,34 +1189,36 @@ export function ExplorePortfolioDetailDialog({
   const showPerfMetrics = Boolean(config && config.dataStatus !== 'empty' && config.metrics);
   const m = config?.metrics;
 
-  const endingVal =
-    m?.endingValuePortfolio ??
-    (m?.totalReturn != null ? INITIAL_CAPITAL * (1 + m.totalReturn) : null);
+  const endingVal = exploreLatestModelPortfolioValue;
+  const headlineTotalReturn =
+    endingVal != null && Number.isFinite(endingVal) && endingVal > 0
+      ? endingVal / INITIAL_CAPITAL - 1
+      : (m?.totalReturn ?? null);
   const headlinePortfolioValue =
     endingVal != null && Number.isFinite(endingVal)
-      ? `${fmtUsd(endingVal)} (${fmtPct(m?.totalReturn)})`
+      ? `${fmtUsd(endingVal)} (${fmtPct(headlineTotalReturn)})`
       : '—';
 
   const benchNasdaqTotalReturn =
     m?.endingValueMarket != null ? m.endingValueMarket / INITIAL_CAPITAL - 1 : null;
   const outperformanceVsNasdaq =
-    m?.totalReturn != null && benchNasdaqTotalReturn != null
-      ? m.totalReturn - benchNasdaqTotalReturn
+    headlineTotalReturn != null && benchNasdaqTotalReturn != null
+      ? headlineTotalReturn - benchNasdaqTotalReturn
       : null;
 
   const benchSp500TotalReturn =
     m?.endingValueSp500 != null ? m.endingValueSp500 / INITIAL_CAPITAL - 1 : null;
   const outperformanceVsSp500 =
-    m?.totalReturn != null && benchSp500TotalReturn != null
-      ? m.totalReturn - benchSp500TotalReturn
+    headlineTotalReturn != null && benchSp500TotalReturn != null
+      ? headlineTotalReturn - benchSp500TotalReturn
       : null;
   const benchNasdaqEqualTotalReturn =
     m?.endingValueNasdaq100EqualWeight != null
       ? m.endingValueNasdaq100EqualWeight / INITIAL_CAPITAL - 1
       : exploreFullMetrics?.benchmarks.nasdaq100EqualWeight.totalReturn ?? null;
   const outperformanceVsNasdaqEqual =
-    m?.totalReturn != null && benchNasdaqEqualTotalReturn != null
-      ? m.totalReturn - benchNasdaqEqualTotalReturn
+    headlineTotalReturn != null && benchNasdaqEqualTotalReturn != null
+      ? headlineTotalReturn - benchNasdaqEqualTotalReturn
       : null;
   const pctWeeksBeatingSp500 =
     m?.pctWeeksBeatingSp500 ?? exploreFullMetrics?.pctWeeksBeatingSp500 ?? null;
