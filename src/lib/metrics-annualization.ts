@@ -17,7 +17,7 @@ export function isoWeekBucketKey(isoYmd: string): string {
 
 export type SeriesPointLike = {
   date: string;
-  aiTop20: number;
+  aiPortfolio: number;
   nasdaq100CapWeight: number;
   nasdaq100EqualWeight: number;
   sp500: number;
@@ -78,12 +78,12 @@ export function computeSharpeAnnualized(
  * Uses ISO-week closes, week-over-week simple returns, and sqrt(52) annualization.
  */
 export function computeWeeklyMtmSharpe(
-  series: { date: string; aiTop20: number }[]
+  series: { date: string; aiPortfolio: number }[]
 ): { sharpe: number | null; weeklyObservations: number } {
   if (!series.length) return { sharpe: null, weeklyObservations: 0 };
   const padded: SeriesPointLike[] = series.map((p) => ({
     date: p.date,
-    aiTop20: p.aiTop20,
+    aiPortfolio: p.aiPortfolio,
     nasdaq100CapWeight: 0,
     nasdaq100EqualWeight: 0,
     sp500: 0,
@@ -92,8 +92,8 @@ export function computeWeeklyMtmSharpe(
   if (weekly.length < 2) return { sharpe: null, weeklyObservations: 0 };
   const returns: number[] = [];
   for (let i = 1; i < weekly.length; i++) {
-    const prev = weekly[i - 1]!.aiTop20;
-    const curr = weekly[i]!.aiTop20;
+    const prev = weekly[i - 1]!.aiPortfolio;
+    const curr = weekly[i]!.aiPortfolio;
     if (prev > 0 && Number.isFinite(prev) && Number.isFinite(curr)) {
       returns.push(curr / prev - 1);
     }

@@ -15,7 +15,7 @@ internally consistent.
 ## 1. The "single-source series" rule
 
 For any portfolio + date range shown in the UI, there is exactly **one equity
-path** — a list of `PerformanceSeriesPoint { date, aiTop20,
+path** — a list of `PerformanceSeriesPoint { date, aiPortfolio,
 nasdaq100CapWeight, nasdaq100EqualWeight, sp500 }`. Every displayed number on
 that surface — headline card, flip cards, tables, mini-charts, sidebar rows
 — MUST be derived from that same series.
@@ -29,6 +29,11 @@ chart too. The fix is always the same: **pick the effective series once,
 recompute metrics from it, and thread that object through the entire
 component tree.**
 
+Whether the first visible point of that equity path renders as the model's
+post-cost inception ($9,985) or as the viewer's investment size ($10,000) is
+covered separately by §11; this section assumes that choice has already been
+made and the same series is used everywhere on the page.
+
 ## 2. What "effective series" means
 
 Given a server-computed `displaySeries` and a holdings API response containing
@@ -38,22 +43,44 @@ valuation of the current basket. The rule:
 
 - If `holdingsDateSelect !== HOLDINGS_TODAY_SENTINEL`, effective = display (no
   live tail when a historical date is selected).
-- Else if `holdingsLatestYmd > last.date`, **append** a new point
-  `{ date: holdingsLatestYmd, aiTop20: totalCurrentValue, benchmarks: prefer
-  server `livePoint.nasdaq*` / `livePoint.sp500` from
-  `/api/platform/explore-portfolio-config-holdings` when present; fall back to
-  `last.*` only when `livePoint` is missing }`.
-- Else if `holdingsLatestYmd === last.date` and
-  `|totalCurrentValue − last.aiTop20| > $0.005`, **replace** the last point's
-  `aiTop20` with `totalCurrentValue` (benchmarks preserved).
+- Else if `holdingsLatestYmd > last.date`, **append** a new point with
+  `date: holdingsLatestYmd`; `aiPortfolio`: prefer finite-positive server
+  `livePoint.aiPortfolio`, else `buildLiveHoldingsAllocationResult(...).totalCurrentValue`;
+  benchmark legs: prefer `livePoint.nasdaq*` / `livePoint.sp500` from
+  `/api/platform/explore-portfolio-config-holdings` when present, else `last.*`.
+  Server-emitted `livePoint.aiPortfolio` and benchmark legs are lifted by §11's
+  per-leg factors before they leave the API, and
+  `buildLiveHoldingsAllocationResult(...).totalCurrentValue` is lifted by the
+  scale-invariance noted below; both fallbacks therefore agree on lifted
+  dollars.
+- Else if `holdingsLatestYmd === last.date` and the same tail `aiPortfolio` differs
+  from `last.aiPortfolio` by more than `$0.005`, **replace** the last point's
+  `aiPortfolio` with that tail value (benchmarks preserved).
 - Else effective = display (return the same array reference so downstream
   reference-equality short-circuits fire).
 
-`totalCurrentValue` is produced by `buildLiveHoldingsAllocationResult(...)` in
+`buildLiveHoldingsAllocationResult(...)` in
 [`src/lib/live-holdings-allocation.ts`](mdc:src/lib/live-holdings-allocation.ts)
-as `sum(weight_i * (notional / asOf_price_i) * latest_price_i)`, where
-`notional`, `asOf_price_i`, and weights all come from the same stored
-rebalance snapshot as the server's daily MTM walk. This is possible because
+computes `totalCurrentValue` as
+`sum(weight_i × (notional / asOfPx_i) × latestPx_i)` in `mode: 'live'`. The
+`notional` argument (aka `rebalanceDateNotional`) **MUST** be the **chart
+series's** `aiPortfolio` **at the latest rebalance date** — the same
+`run_date` whose snapshot supplies `weights`, `asOfPriceBySymbol`, and
+holdings. After §11's display rebase the chart series is on the lifted
+scale, and `buildLiveHoldingsAllocationResult` is scale-invariant
+(`notional × Σ(weight_i × latestPx_i / asOfPx_i)`), so a lifted `notional`
+produces a lifted `totalCurrentValue` that stays coherent with the rest of
+the lifted chart and the §2 synthetic tail. It must
+**not** be today's MTM, the chart's last `aiPortfolio`, or
+`effectiveSeries[effectiveSeries.length - 1].aiPortfolio` (after
+`continuous-daily-mtm-calendar`, that last point is already today's MTM;
+passing it as `notional` double-counts rebalance→today price growth). This anti-pattern is independent of §11's display rebase — passing today's MTM as notional double-counts price growth on either scale.
+
+The canonical accessor is `pts.find(p.date === latestRebalanceDate)?.aiPortfolio`,
+with an on-or-before fallback; see `holdingsAllocationBaseNotional` in
+[`src/components/platform/your-portfolio-client.tsx`](mdc:src/components/platform/your-portfolio-client.tsx)
+and `spotlightHoldingsAllocationBaseNotional` in
+[`src/components/platform/platform-overview-client.tsx`](mdc:src/components/platform/platform-overview-client.tsx).
 `syncMissingConfigHoldingsSnapshots()`
 ([`src/lib/portfolio-config-holdings-write.ts`](mdc:src/lib/portfolio-config-holdings-write.ts))
 self-heals `strategy_portfolio_config_holdings` gaps on every read path that
@@ -112,7 +139,7 @@ handles that automatically.
 
 ## 5. Benchmarks
 
-When only `aiTop20` changes on the last bar (because `totalCurrentValue`
+When only `aiPortfolio` changes on the last bar (because `totalCurrentValue`
 prices the AI basket at latest close but benchmarks aren't tailed),
 `benchmarks.*.totalReturn` from `effectiveDisplayMetrics` matches the
 un-tailed values at the same `lastPoint.date`. That's correct behavior:
@@ -143,10 +170,12 @@ real-time mark.
   pulled through the Client Component import graph.
 - Holdings API and server MTM walk read the same stored snapshot, so the
   effective-tail basket equals the server basket.
-- `sliceAndScale` ([`src/lib/config-daily-series.ts`](mdc:src/lib/config-daily-series.ts))
-  rebases each of the four series (`aiTop20`, `nasdaq100CapWeight`,
-  `nasdaq100EqualWeight`, `sp500`) to `investmentSize` **independently** at the
-  entry anchor (no single shared scale factor across all four).
+- `rebaseSeriesForDisplay` ([`src/lib/config-daily-series.ts`](mdc:src/lib/config-daily-series.ts))
+  is the canonical chart-display rebase helper. Anchors the four legs
+  (`aiPortfolio`, `nasdaq100CapWeight`, `nasdaq100EqualWeight`, `sp500`)
+  **independently** at `displayInitial` on the baseline date (no single
+  shared scale factor across all four). `sliceAndScale` is a `@deprecated`
+  wrapper that calls it. See §11 for when each anchor is used.
 - `computeConfigDailySeries` must not persist `data_status='empty'` when
   `strategy_portfolio_config_performance` has rows for that config; if the
   in-memory rows array is empty but a head-count on the perf table is `> 0`,
@@ -157,6 +186,18 @@ real-time mark.
   per-request path (`ensureConfigDailySeries`) rate-limits those recomputes per
   `(strategyId, configId)` (5 minutes) to avoid hot loops when upstream is
   genuinely empty; the bulk cron path does not need that backoff.
+- `buildLiveHoldingsAllocationResult` (`mode: 'live'`) requires
+  `rebalanceDateNotional` to equal the **chart series's** `aiPortfolio` at
+  the rebalance date that produced the snapshot in `asOfPriceBySymbol`.
+  After `continuous-daily-mtm-calendar` the daily-series last point **is**
+  today's MTM; using it as `notional` inflates row `currentValue` and
+  `totalCurrentValue` by the rebalance→today growth factor (e.g. ~33% on a
+  one-stock basket whose holding ran +33%). The function is scale-invariant
+  in `notional`, so it works correctly whether the chart series is on the
+  raw model scale or on §11's lifted scale; the rebalance-date anchor is
+  what matters. On `/performance`, mirror `holdingsAllocationBaseNotional`
+  (include `holdingsRebalanceDates` in the `useMemo` deps that computes the
+  notional).
 
 ## 8. Multi-config (explore) surfaces
 
@@ -186,7 +227,7 @@ on list cards stay on the ranked snapshot (`RankedConfig.metrics`) — they are
 cadence-sized and are not moved by a one-day tail.
 
 **Two payload patterns:** `/api/platform/explore-portfolios-equity-series` emits
-per-config `livePoint` with `date`, `aiTop20`, and optional benchmark fields
+per-config `livePoint` with `date`, `aiPortfolio`, and optional benchmark fields
 (`nasdaq100CapWeight`, `nasdaq100EqualWeight`, `sp500`); the explore client overlays it onto
 **headline portfolio $ / total return** on `ConfigCard` and
 `ExplorePortfolioDetailDialog`. `/api/platform/portfolio-configs-ranked` emits
@@ -229,9 +270,11 @@ tail, every **dollar** and **total return %** on the same page must agree:
 - **`/performance/[slug]`:** Key-metrics FlipCard headline; At-a-glance
   “Portfolio value”; overview `PerformanceChart` last point; holdings
   `HoldingsPortfolioValueLine`; holdings table row $ (sum = line). All use
-  `effectivePerformanceDisplaySeries` / `effectiveDisplayMetrics` (or
-  `buildLiveHoldingsAllocationResult` notional chained from the same
-  effective last point for display).
+  `effectivePerformanceDisplaySeries` / `effectiveDisplayMetrics`. The
+  synthetic tail's `aiPortfolio` comes from server `livePoint.aiPortfolio` when
+  present, else `buildLiveHoldingsAllocationResult(...).totalCurrentValue`; the
+  `notional` passed to that function is anchored at the **latest rebalance
+  date** per §2, never at the chart's last point.
 - **`/platform/your-portfolios`:** Main portfolio value card; sidebar row
   override when selected; holdings line; `PerformanceChart` `initialNotional`
   from effective series first point; vs-benchmark stats from
@@ -246,5 +289,70 @@ tail, every **dollar** and **total return %** on the same page must agree:
   present.
 
 Invariant: `applyEffectiveSeriesToMetrics(...).endingValue ===
-effectiveSeries[effectiveSeries.length - 1].aiTop20` (see
+effectiveSeries[effectiveSeries.length - 1].aiPortfolio` (see
 `src/lib/config-performance-chart.test.ts`).
+
+Additional invariant from §11: every surface above shows the **same first-bar
+dollars** for the same portfolio + entry date + investment size — `$10,000`
+on hypothetical surfaces (`/performance/[slug]`, `/platform/explore-portfolios`)
+and `investmentSize` on user-rebased surfaces (`/platform/your-portfolios`,
+`/platform` overview, guest preview). Differences between any two surfaces
+on the same portfolio's portfolio value or total return % are a regression
+of §11.
+
+## 11. Display anchor — every chart's first point is the dollars you put in
+
+Underlying simulation math is unchanged: model series in
+`portfolio_config_daily_series` and `portfolio_strategy_daily_series` anchor
+at $9,985 = `INITIAL_CAPITAL × (1 − 15 bps)` at model inception, and live
+MTM values from `buildLiveHoldingsAllocationResult` and
+`buildLatestMtmPointFromLastSnapshot` are produced in those same model
+dollars. The 15 bps entry trade cost is a real economic event and stays in
+the simulation.
+
+The **chart-display** layer reanchors the series so the first visible point
+renders at the dollars the viewer is mentally putting in:
+
+- Hypothetical surfaces (`/performance/[slug]`,
+  `/platform/explore-portfolios`): first point = `INITIAL_CAPITAL` ($10,000).
+- User-rebased surfaces (`/platform/your-portfolios`, `/platform` overview,
+  guest preview): first point = `investmentSize` at `userStart`.
+
+Canonical helper: `rebaseSeriesForDisplay(series, { anchorDate?,
+displayInitial })` in `src/lib/config-daily-series.ts`. Per-leg independent
+scale (matches §7). Walks back to a `≤ anchorDate` baseline and prepends a
+synthetic point at exactly `anchorDate` when no snapshot row lands there;
+the synthetic point's four legs are all `displayInitial`, and subsequent
+points are scaled by the per-leg factor of the baseline so each benchmark
+preserves co-movement.
+
+Live-tail point in §2 must be lifted by the same per-leg factor as the rest
+of the series before it is appended/replaced. Equivalently: rebase the
+snapshot series first, then run the §2 effective-series logic against the
+lifted series. Server endpoints lift before returning JSON:
+
+- `/api/platform/portfolio-config-performance`
+- `/api/platform/explore-portfolios-equity-series` (lifts both series and
+  `livePoint`; `notionalSeries` passed to `buildConfigDailySeriesTailPoint`
+  remains the **raw** snapshot to keep that helper in model dollars)
+- `/api/platform/user-portfolio-performance`
+- `buildGuestUserEntryPerformancePayload`
+
+The 15 bps cost surfaces as a slight drag in the line's slope, NOT as a
+different starting dollar. Headline portfolio value, cards, tooltips, and
+chart all consume the rebased series, so dollar figures agree across pages
+for the same portfolio + entry date + investment size.
+
+**Forbidden:** any `× (1 − 15 bps)` factor on display dollars. The constant
+`USER_ENTRY_TRANSACTION_COST_RATE` no longer exists in
+`config-performance-chart.ts` or `portfolio-movement.ts`. Do not reintroduce
+it. The simulation-side equivalent (`transactionCostBps = 15` in
+`portfolio-config-compute-core.ts` and `TRANSACTION_COST_RATE` in
+`live-mark-to-market.ts`) is the only acceptable home for that magic number.
+
+**Required: same effective series everywhere on a page.** Combine §2 (live
+tail) with this rule: lift first, then apply effective-series logic.
+`buildMetricsFromSeries` is called on the lifted series so `endingValue` /
+`startingCapital` reflect lifted dollars; total return %, CAGR, max
+drawdown, Sharpe, beat-rates are scale-invariant and are unchanged by the
+lift.

@@ -30,7 +30,7 @@ type HoldingsTimelineEntry = {
 
 type ExploreHoldingsLivePoint = {
   date: string;
-  aiTop20: number;
+  aiPortfolio: number;
   nasdaq100CapWeight: number | null;
   nasdaq100EqualWeight: number | null;
   sp500: number | null;
@@ -389,13 +389,13 @@ export async function GET(req: NextRequest) {
         });
         if (
           tail?.date &&
-          tail.aiTop20 != null &&
-          Number.isFinite(Number(tail.aiTop20)) &&
-          Number(tail.aiTop20) > 0
+          tail.aiPortfolio != null &&
+          Number.isFinite(Number(tail.aiPortfolio)) &&
+          Number(tail.aiPortfolio) > 0
         ) {
           livePoint = {
             date: tail.date,
-            aiTop20: Number(tail.aiTop20),
+            aiPortfolio: Number(tail.aiPortfolio),
             nasdaq100CapWeight: Number.isFinite(Number(tail.nasdaq100CapWeight))
               ? Number(tail.nasdaq100CapWeight)
               : null,

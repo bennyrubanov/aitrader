@@ -945,7 +945,19 @@ function PerformancePagePublicClientInner({
   const performanceHoldingsAllocationBaseNotional = useMemo(() => {
     if (holdingsAsOfDate === null) {
       const pts = configPerfSlice?.series ?? [];
-      const last = pts[pts.length - 1]?.aiTop20;
+      const asOf = holdingsRebalanceDates[0] ?? null;
+      if (asOf && pts.length > 0) {
+        const exact = pts.find((p) => p.date === asOf)?.aiPortfolio;
+        if (exact != null && Number.isFinite(exact) && exact > 0) return exact;
+        let onOrBefore: number | null = null;
+        for (const p of pts) {
+          if (p.date <= asOf && Number.isFinite(p.aiPortfolio) && p.aiPortfolio > 0) {
+            onOrBefore = p.aiPortfolio;
+          }
+        }
+        if (onOrBefore != null) return onOrBefore;
+      }
+      const last = pts[pts.length - 1]?.aiPortfolio;
       if (last != null && Number.isFinite(last) && last > 0) return last;
       return PERFORMANCE_MODEL_INITIAL;
     }
@@ -965,6 +977,7 @@ function PerformancePagePublicClientInner({
     performanceHoldingsAsOfYmd,
     performanceCfgRowsForCostBasis,
     configPerfSlice?.series,
+    holdingsRebalanceDates,
   ]);
 
   const performanceHoldingsAllocationNotional = useMemo(() => {
@@ -1113,14 +1126,18 @@ function PerformancePagePublicClientInner({
     if (!holdingsLatestYmd) return pts;
     const last = pts[pts.length - 1]!;
     if (holdingsLatestYmd < last.date) return pts;
+    const lp = holdingsExploreLivePoint;
     const totalFromHoldings = performanceLiveHoldingsAllocation.totalCurrentValue;
-    if (totalFromHoldings == null || !Number.isFinite(totalFromHoldings) || totalFromHoldings <= 0) {
+    const tailAiTop20 =
+      lp?.aiPortfolio != null && Number.isFinite(lp.aiPortfolio) && lp.aiPortfolio > 0
+        ? lp.aiPortfolio
+        : totalFromHoldings;
+    if (tailAiTop20 == null || !Number.isFinite(tailAiTop20) || tailAiTop20 <= 0) {
       return pts;
     }
-    const lp = holdingsExploreLivePoint;
     const nextBar = {
       date: holdingsLatestYmd,
-      aiTop20: totalFromHoldings,
+      aiPortfolio: tailAiTop20,
       nasdaq100CapWeight:
         lp?.nasdaq100CapWeight != null ? lp.nasdaq100CapWeight : last.nasdaq100CapWeight,
       nasdaq100EqualWeight:
@@ -1129,9 +1146,9 @@ function PerformancePagePublicClientInner({
     };
     if (holdingsLatestYmd === last.date) {
       if (
-        last.aiTop20 != null &&
-        Number.isFinite(last.aiTop20) &&
-        Math.abs(last.aiTop20 - totalFromHoldings) < 0.005
+        last.aiPortfolio != null &&
+        Number.isFinite(last.aiPortfolio) &&
+        Math.abs(last.aiPortfolio - tailAiTop20) < 0.005
       ) {
         return pts;
       }
@@ -1155,7 +1172,7 @@ function PerformancePagePublicClientInner({
   const performanceHoldingsModelNotional = useMemo(() => {
     if (holdingsAsOfDate === null) {
       const eff = effectivePerformanceDisplaySeries as PerformanceSeriesPoint[];
-      const last = eff[eff.length - 1]?.aiTop20;
+      const last = eff[eff.length - 1]?.aiPortfolio;
       if (last != null && Number.isFinite(last) && last > 0) return last;
       return performanceHoldingsAllocationBaseNotional;
     }
@@ -1201,7 +1218,7 @@ function PerformancePagePublicClientInner({
   const performanceHoldingsPortfolioValue = useMemo(() => {
     if (holdingsAsOfDate === null) {
       const eff = effectivePerformanceDisplaySeries as PerformanceSeriesPoint[];
-      const effLast = eff[eff.length - 1]?.aiTop20;
+      const effLast = eff[eff.length - 1]?.aiPortfolio;
       if (effLast != null && Number.isFinite(effLast) && effLast > 0) {
         return effLast;
       }
@@ -1590,14 +1607,14 @@ function PerformancePagePublicClientInner({
     if (!effectiveDisplayMetrics) return 'N/A';
     const base = displaySeries as PerformanceSeriesPoint[];
     const eff = effectivePerformanceDisplaySeries as PerformanceSeriesPoint[];
-    const baseLast = base[base.length - 1]?.aiTop20 ?? null;
-    const effLast = eff[eff.length - 1]?.aiTop20 ?? null;
+    const baseLast = base[base.length - 1]?.aiPortfolio ?? null;
+    const effLast = eff[eff.length - 1]?.aiPortfolio ?? null;
     const hasEffectiveOverride =
       holdingsAsOfDate === null &&
       eff.length > 0 &&
       (eff.length > base.length || (base.length > 0 && baseLast !== effLast));
     if (hasEffectiveOverride) {
-      const first = eff[0]?.aiTop20;
+      const first = eff[0]?.aiPortfolio;
       const last = effLast;
       if (
         first != null &&

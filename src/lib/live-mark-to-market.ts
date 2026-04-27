@@ -326,12 +326,12 @@ function toMap<K, V>(entries: Array<[K, V]> | undefined | null): Map<K, V> {
 
 function pickNotionalAtOrBefore(series: PerformanceSeriesPoint[], date: string): number | null {
   if (series.length === 0) return null;
-  const exact = series.find((p) => p.date === date)?.aiTop20;
+  const exact = series.find((p) => p.date === date)?.aiPortfolio;
   if (exact != null && Number.isFinite(exact) && exact > 0) return exact;
   let onOrBefore: number | null = null;
   for (const p of series) {
-    if (p.date <= date && Number.isFinite(p.aiTop20) && p.aiTop20 > 0) {
-      onOrBefore = p.aiTop20;
+    if (p.date <= date && Number.isFinite(p.aiPortfolio) && p.aiPortfolio > 0) {
+      onOrBefore = p.aiPortfolio;
     }
   }
   return onOrBefore;
@@ -585,7 +585,7 @@ export function buildDailySeriesFromSnapshots(
     const bench = benchmarksByDate.get(date) ?? fallbackBenchmarks;
     series.push({
       date,
-      aiTop20: portfolioValue,
+      aiPortfolio: portfolioValue,
       nasdaq100CapWeight: bench.nasdaq100CapWeight,
       nasdaq100EqualWeight: bench.nasdaq100EqualWeight,
       sp500: bench.sp500,
@@ -685,7 +685,7 @@ export async function buildDailyMarkedToMarketSeriesForConfig(
       series = [
         {
           date: minDate,
-          aiTop20: n,
+          aiPortfolio: n,
           nasdaq100CapWeight: b.nasdaq100CapWeight,
           nasdaq100EqualWeight: b.nasdaq100EqualWeight,
           sp500: b.sp500,
@@ -814,7 +814,7 @@ export async function buildLatestMtmPointFromLastSnapshot(
 
   return {
     date: latestRunDate,
-    aiTop20: portfolioValue,
+    aiPortfolio: portfolioValue,
     nasdaq100CapWeight: bench.nasdaq100CapWeight,
     nasdaq100EqualWeight: bench.nasdaq100EqualWeight,
     sp500: bench.sp500,

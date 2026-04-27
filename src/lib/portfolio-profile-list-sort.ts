@@ -140,7 +140,7 @@ function portfolioValueFromSeries(
   userStartDate: string | null | undefined
 ): number | null {
   if (!series?.length) return null;
-  const last = series[series.length - 1]?.aiTop20;
+  const last = series[series.length - 1]?.aiPortfolio;
   if (last == null || !Number.isFinite(last) || last <= 0) return null;
   if (userStartDate && String(userStartDate).trim()) {
     return last;

@@ -156,11 +156,11 @@ const GUEST_MAIN_CHART_DATA = [
 
 const GUEST_CHART_TIME_RANGES = ['1M', '3M', '6M', 'YTD', 'All'] as const;
 
-type GuestChartSeriesKey = 'aiTop20' | 'nasdaq100CapWeight' | 'nasdaq100EqualWeight' | 'sp500';
+type GuestChartSeriesKey = 'aiPortfolio' | 'nasdaq100CapWeight' | 'nasdaq100EqualWeight' | 'sp500';
 
 function guestMainChartConfig(strategyName: string): ChartConfig {
   return {
-    aiTop20: { label: strategyName, color: CHART_PORTFOLIO_SERIES_COLOR },
+    aiPortfolio: { label: strategyName, color: CHART_PORTFOLIO_SERIES_COLOR },
     nasdaq100CapWeight: {
       label: 'Nasdaq-100 (cap-weighted)',
       color: CHART_INDEX_SERIES_COLORS.nasdaq100CapWeight,
@@ -174,7 +174,7 @@ function guestMainChartConfig(strategyName: string): ChartConfig {
 }
 
 const GUEST_CHART_SERIES_KEYS: GuestChartSeriesKey[] = [
-  'aiTop20',
+  'aiPortfolio',
   'nasdaq100CapWeight',
   'nasdaq100EqualWeight',
   'sp500',

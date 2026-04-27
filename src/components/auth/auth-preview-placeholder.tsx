@@ -142,19 +142,19 @@ function formatBucket(bucket: "buy" | "hold" | "sell" | null): string {
   return bucket.charAt(0).toUpperCase() + bucket.slice(1);
 }
 
-/** Nasdaq / S&P curves are shared across configs; swap only portfolio (aiTop20) values by date. */
+/** Nasdaq / S&P curves are shared across configs; swap only portfolio (aiPortfolio) values by date. */
 function mergeBenchmarkBaseWithAiLine(
   benchmarkBase: PerformanceSeriesPoint[],
   aiFrom: PerformanceSeriesPoint[]
 ): PerformanceSeriesPoint[] {
   if (!benchmarkBase.length || !aiFrom.length) return aiFrom.length ? aiFrom : benchmarkBase;
-  const aiByDate = new Map(aiFrom.map((p) => [p.date, p.aiTop20]));
+  const aiByDate = new Map(aiFrom.map((p) => [p.date, p.aiPortfolio]));
   for (const row of benchmarkBase) {
     if (!aiByDate.has(row.date)) return aiFrom;
   }
   return benchmarkBase.map((row) => ({
     ...row,
-    aiTop20: aiByDate.get(row.date)!,
+    aiPortfolio: aiByDate.get(row.date)!,
   }));
 }
 

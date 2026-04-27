@@ -7,6 +7,7 @@ import type { PortfolioConfig } from '@/components/portfolio-config/portfolio-co
 import type { PerformanceSeriesPoint, StrategyListItem } from '@/lib/platform-performance-payload';
 import type { ConfigPerfRow } from '@/lib/portfolio-config-utils';
 import { buildMetricsFromSeries, buildUserEntryConfigTrack } from '@/lib/config-performance-chart';
+import { rebaseSeriesForDisplay } from '@/lib/config-daily-series';
 import {
   computeExcessReturnVsNasdaqCap,
   computeExcessReturnVsNasdaqEqual,
@@ -162,37 +163,11 @@ function buildUserEntryTrackFromModelSeries(
   userStart: string,
   investmentSize: number
 ): { series: PerformanceSeriesPoint[]; hasMultipleObservations: boolean } {
-  if (!modelSeries.length || !Number.isFinite(investmentSize) || investmentSize <= 0) {
-    return { series: [], hasMultipleObservations: false };
-  }
-  const sorted = [...modelSeries].sort((a, b) => a.date.localeCompare(b.date));
-  let base: PerformanceSeriesPoint | null = null;
-  for (const p of sorted) {
-    if (p.date <= userStart) base = p;
-    else break;
-  }
-  if (!base || base.aiTop20 <= 0) {
-    return { series: [], hasMultipleObservations: false };
-  }
-  const scale = investmentSize / base.aiTop20;
-  const future = sorted.filter((p) => p.date > userStart);
-  const rebased: PerformanceSeriesPoint[] = [
-    {
-      date: userStart,
-      aiTop20: investmentSize,
-      nasdaq100CapWeight: investmentSize,
-      nasdaq100EqualWeight: investmentSize,
-      sp500: investmentSize,
-    },
-    ...future.map((p) => ({
-      date: p.date,
-      aiTop20: p.aiTop20 * scale,
-      nasdaq100CapWeight: p.nasdaq100CapWeight * scale,
-      nasdaq100EqualWeight: p.nasdaq100EqualWeight * scale,
-      sp500: p.sp500 * scale,
-    })),
-  ];
-  return { series: rebased, hasMultipleObservations: rebased.length >= 2 };
+  const series = rebaseSeriesForDisplay(modelSeries, {
+    anchorDate: userStart,
+    displayInitial: investmentSize,
+  });
+  return { series, hasMultipleObservations: series.length >= 2 };
 }
 
 /**

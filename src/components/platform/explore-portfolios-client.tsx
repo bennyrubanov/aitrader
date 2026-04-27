@@ -560,13 +560,13 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
         lp &&
         typeof lp.date === 'string' &&
         lp.date.trim() &&
-        typeof lp.aiTop20 === 'number' &&
-        Number.isFinite(lp.aiTop20) &&
-        lp.aiTop20 > 0
+        typeof lp.aiPortfolio === 'number' &&
+        Number.isFinite(lp.aiPortfolio) &&
+        lp.aiPortfolio > 0
       ) {
         m.set(row.configId, {
           date: lp.date.trim(),
-          aiTop20: lp.aiTop20,
+          aiPortfolio: lp.aiPortfolio,
           nasdaq100CapWeight:
             lp.nasdaq100CapWeight != null && Number.isFinite(Number(lp.nasdaq100CapWeight))
               ? Number(lp.nasdaq100CapWeight)
@@ -1551,7 +1551,7 @@ function ConfigCard({
       ? config.metrics.endingValueSp500 / INITIAL_CAPITAL - 1
       : null;
   const cardEndingValue =
-    livePoint?.aiTop20 ??
+    livePoint?.aiPortfolio ??
     config.metrics.endingValuePortfolio ??
     (config.metrics.totalReturn != null ? INITIAL_CAPITAL * (1 + config.metrics.totalReturn) : null);
   const cardTotalReturn =

@@ -167,7 +167,10 @@ function safeSeries(value: unknown): PerformanceSeriesPoint[] {
       if (!date) return null;
       return {
         date,
-        aiTop20: toNum(raw.aiTop20, INITIAL_CAPITAL),
+        aiPortfolio: toNum(
+          raw.aiPortfolio ?? (raw as { aiTop20?: unknown }).aiTop20,
+          INITIAL_CAPITAL
+        ),
         nasdaq100CapWeight: toNum(raw.nasdaq100CapWeight, INITIAL_CAPITAL),
         nasdaq100EqualWeight: toNum(raw.nasdaq100EqualWeight, INITIAL_CAPITAL),
         sp500: toNum(raw.sp500, INITIAL_CAPITAL),
@@ -669,7 +672,7 @@ export async function ensureStrategyDailySeries(
   }>;
   const weeklySeries: PerformanceSeriesPoint[] = perfRows.map((row) => ({
     date: row.run_date,
-    aiTop20: toNum(row.ending_equity, INITIAL_CAPITAL),
+    aiPortfolio: toNum(row.ending_equity, INITIAL_CAPITAL),
     nasdaq100CapWeight: toNum(row.nasdaq100_cap_weight_equity, INITIAL_CAPITAL),
     nasdaq100EqualWeight: toNum(row.nasdaq100_equal_weight_equity, INITIAL_CAPITAL),
     sp500: toNum(row.sp500_equity, INITIAL_CAPITAL),
@@ -842,33 +845,107 @@ export async function refreshDailySeriesSnapshotsForStrategy(
   };
 }
 
+/**
+ * Display-only rebase. Anchors the four legs of `series` at `displayInitial` on the
+ * baseline date, using per-leg scale factors so each benchmark preserves its own
+ * trajectory relative to the anchor. Underlying simulation values are untouched.
+ *
+ * Cases:
+ *   - `anchorDate` omitted → baseline is `series[0]`. The returned array starts on
+ *     `series[0].date` with all four legs lifted to `displayInitial`.
+ *   - `anchorDate` matches a snapshot date exactly → that snapshot point is the
+ *     baseline; the returned array starts on `anchorDate`.
+ *   - `anchorDate` falls between snapshot dates (or before the first one but a
+ *     `≤ anchorDate` point exists) → walk back to the latest point with
+ *     `date ≤ anchorDate` as baseline, prepend a synthetic point at exactly
+ *     `anchorDate` with all four legs equal to `displayInitial`, then emit every
+ *     `date > anchorDate` snapshot point scaled by the per-leg factors.
+ *   - `anchorDate` predates every snapshot point → return [] (caller must handle).
+ *   - empty `series` or non-positive `displayInitial` → return [].
+ */
+export function rebaseSeriesForDisplay(
+  series: PerformanceSeriesPoint[],
+  opts: { anchorDate?: string; displayInitial: number }
+): PerformanceSeriesPoint[] {
+  const { anchorDate, displayInitial } = opts;
+  if (!series.length || !Number.isFinite(displayInitial) || displayInitial <= 0) return [];
+
+  const sorted = [...series].sort((a, b) => a.date.localeCompare(b.date));
+
+  let baseline: PerformanceSeriesPoint;
+  let future: PerformanceSeriesPoint[];
+  let prependSynthetic: boolean;
+  let outFirstDate: string;
+
+  if (!anchorDate) {
+    baseline = sorted[0]!;
+    future = sorted.slice(1);
+    prependSynthetic = false;
+    outFirstDate = baseline.date;
+  } else {
+    let baseIdx = -1;
+    for (let i = 0; i < sorted.length; i++) {
+      if (sorted[i]!.date <= anchorDate) baseIdx = i;
+      else break;
+    }
+    if (baseIdx < 0) return [];
+    baseline = sorted[baseIdx]!;
+    future = sorted.slice(baseIdx + 1).filter((p) => p.date > anchorDate);
+    prependSynthetic = baseline.date !== anchorDate;
+    outFirstDate = anchorDate;
+  }
+
+  if (!Number.isFinite(baseline.aiPortfolio) || baseline.aiPortfolio <= 0) return [];
+
+  const aiScale = displayInitial / baseline.aiPortfolio;
+  const capScale =
+    Number.isFinite(baseline.nasdaq100CapWeight) && baseline.nasdaq100CapWeight > 0
+      ? displayInitial / baseline.nasdaq100CapWeight
+      : aiScale;
+  const eqScale =
+    Number.isFinite(baseline.nasdaq100EqualWeight) && baseline.nasdaq100EqualWeight > 0
+      ? displayInitial / baseline.nasdaq100EqualWeight
+      : aiScale;
+  const spxScale =
+    Number.isFinite(baseline.sp500) && baseline.sp500 > 0
+      ? displayInitial / baseline.sp500
+      : aiScale;
+
+  const out: PerformanceSeriesPoint[] = [];
+  if (prependSynthetic) {
+    out.push({
+      date: outFirstDate,
+      aiPortfolio: displayInitial,
+      nasdaq100CapWeight: displayInitial,
+      nasdaq100EqualWeight: displayInitial,
+      sp500: displayInitial,
+    });
+  } else {
+    out.push({
+      date: outFirstDate,
+      aiPortfolio: baseline.aiPortfolio * aiScale,
+      nasdaq100CapWeight: baseline.nasdaq100CapWeight * capScale,
+      nasdaq100EqualWeight: baseline.nasdaq100EqualWeight * eqScale,
+      sp500: baseline.sp500 * spxScale,
+    });
+  }
+  for (const p of future) {
+    out.push({
+      date: p.date,
+      aiPortfolio: p.aiPortfolio * aiScale,
+      nasdaq100CapWeight: p.nasdaq100CapWeight * capScale,
+      nasdaq100EqualWeight: p.nasdaq100EqualWeight * eqScale,
+      sp500: p.sp500 * spxScale,
+    });
+  }
+  return out;
+}
+
+/** @deprecated Use {@link rebaseSeriesForDisplay} with `anchorDate: userStartDate, displayInitial: investmentSize`. */
 export function sliceAndScale(
   series: PerformanceSeriesPoint[],
   userStartDate: string,
   investmentSize: number
 ): PerformanceSeriesPoint[] {
-  if (!series.length || !Number.isFinite(investmentSize) || investmentSize <= 0) return [];
-  const sorted = [...series].sort((a, b) => a.date.localeCompare(b.date));
-  const sliced = sorted.filter((p) => p.date >= userStartDate);
-  if (!sliced.length) return [];
-  const base = sliced[0]!;
-  if (!Number.isFinite(base.aiTop20) || base.aiTop20 <= 0) return [];
-  const aiScale = investmentSize / base.aiTop20;
-  const ndxCapScale =
-    Number.isFinite(base.nasdaq100CapWeight) && base.nasdaq100CapWeight > 0
-      ? investmentSize / base.nasdaq100CapWeight
-      : aiScale;
-  const ndxEqScale =
-    Number.isFinite(base.nasdaq100EqualWeight) && base.nasdaq100EqualWeight > 0
-      ? investmentSize / base.nasdaq100EqualWeight
-      : aiScale;
-  const spxScale =
-    Number.isFinite(base.sp500) && base.sp500 > 0 ? investmentSize / base.sp500 : aiScale;
-  return sliced.map((point) => ({
-    date: point.date,
-    aiTop20: point.aiTop20 * aiScale,
-    nasdaq100CapWeight: point.nasdaq100CapWeight * ndxCapScale,
-    nasdaq100EqualWeight: point.nasdaq100EqualWeight * ndxEqScale,
-    sp500: point.sp500 * spxScale,
-  }));
+  return rebaseSeriesForDisplay(series, { anchorDate: userStartDate, displayInitial: investmentSize });
 }

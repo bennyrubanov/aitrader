@@ -7,7 +7,7 @@ import {
 
 export type ExploreHoldingsLivePoint = {
   date: string;
-  aiTop20: number;
+  aiPortfolio: number;
   nasdaq100CapWeight: number | null;
   nasdaq100EqualWeight: number | null;
   sp500: number | null;
@@ -232,11 +232,12 @@ function rememberTimeline(
 
 function normalizeLivePoint(raw: ExploreHoldingsApiResponse['livePoint']): ExploreHoldingsLivePoint | null {
   if (!raw || typeof raw.date !== 'string' || !DATE_RE.test(raw.date)) return null;
-  const ai = Number(raw.aiTop20);
+  const rawRec = raw as Record<string, unknown>;
+  const ai = Number(rawRec.aiPortfolio ?? rawRec.aiTop20);
   if (!Number.isFinite(ai) || ai <= 0) return null;
   return {
     date: raw.date,
-    aiTop20: ai,
+    aiPortfolio: ai,
     nasdaq100CapWeight:
       raw.nasdaq100CapWeight != null && Number.isFinite(Number(raw.nasdaq100CapWeight))
         ? Number(raw.nasdaq100CapWeight)

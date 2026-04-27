@@ -30,7 +30,7 @@ export function computeWeeklyPctBeatingBenchmark(
       byWeek.set(weekKey, {
         weekKey,
         lastDate: p.date,
-        port: p.aiTop20,
+        port: p.aiPortfolio,
         bench,
       });
     }
@@ -66,8 +66,8 @@ export function computeExcessReturnVsNasdaqCap(series: PerformanceSeriesPoint[])
   if (series.length < 2) return null;
   const a = series[0]!;
   const b = series[series.length - 1]!;
-  if (a.aiTop20 <= 0 || a.nasdaq100CapWeight <= 0 || b.nasdaq100CapWeight <= 0) return null;
-  const portRet = b.aiTop20 / a.aiTop20 - 1;
+  if (a.aiPortfolio <= 0 || a.nasdaq100CapWeight <= 0 || b.nasdaq100CapWeight <= 0) return null;
+  const portRet = b.aiPortfolio / a.aiPortfolio - 1;
   const capRet = b.nasdaq100CapWeight / a.nasdaq100CapWeight - 1;
   if (!Number.isFinite(portRet) || !Number.isFinite(capRet)) return null;
   return portRet - capRet;
@@ -77,8 +77,8 @@ export function computeExcessReturnVsNasdaqEqual(series: PerformanceSeriesPoint[
   if (series.length < 2) return null;
   const a = series[0]!;
   const b = series[series.length - 1]!;
-  if (a.aiTop20 <= 0 || a.nasdaq100EqualWeight <= 0 || b.nasdaq100EqualWeight <= 0) return null;
-  const portRet = b.aiTop20 / a.aiTop20 - 1;
+  if (a.aiPortfolio <= 0 || a.nasdaq100EqualWeight <= 0 || b.nasdaq100EqualWeight <= 0) return null;
+  const portRet = b.aiPortfolio / a.aiPortfolio - 1;
   const eqRet = b.nasdaq100EqualWeight / a.nasdaq100EqualWeight - 1;
   if (!Number.isFinite(portRet) || !Number.isFinite(eqRet)) return null;
   return portRet - eqRet;

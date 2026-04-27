@@ -1050,12 +1050,12 @@ export function ExplorePortfolioDetailDialog({
   const exploreLatestModelPortfolioValue = useMemo(() => {
     const mm = config?.metrics;
     const fromRanked =
-      liveTail?.aiTop20 ??
+      liveTail?.aiPortfolio ??
       mm?.endingValuePortfolio ??
       (mm?.totalReturn != null ? INITIAL_CAPITAL * (1 + mm.totalReturn) : null);
     if (fromRanked != null && Number.isFinite(fromRanked) && fromRanked > 0) return fromRanked;
     const pts = explorePerfSeries;
-    const last = pts[pts.length - 1]?.aiTop20;
+    const last = pts[pts.length - 1]?.aiPortfolio;
     if (last == null || !Number.isFinite(last) || last <= 0) return null;
     return last;
   }, [config?.metrics, liveTail, explorePerfSeries]);
@@ -1097,10 +1097,10 @@ export function ExplorePortfolioDetailDialog({
       explorePerfSeries.length > 0 ? explorePerfSeries[explorePerfSeries.length - 1]! : null;
     const lastBarEquity =
       lastBar != null &&
-      lastBar.aiTop20 != null &&
-      Number.isFinite(lastBar.aiTop20) &&
-      lastBar.aiTop20 > 0
-        ? lastBar.aiTop20
+      lastBar.aiPortfolio != null &&
+      Number.isFinite(lastBar.aiPortfolio) &&
+      lastBar.aiPortfolio > 0
+        ? lastBar.aiPortfolio
         : null;
 
     for (const date of visibleDates) {
@@ -1484,7 +1484,7 @@ export function ExplorePortfolioDetailDialog({
               ) : explorePerfSeries.length >= 1 ? (
                 <PerformanceChart
                   series={explorePerfSeries}
-                  seriesLabelOverrides={{ aiTop20: 'This Portfolio' }}
+                  seriesLabelOverrides={{ aiPortfolio: 'This Portfolio' }}
                   hideDrawdown
                   nominalDollars
                   chipsInControlsRow

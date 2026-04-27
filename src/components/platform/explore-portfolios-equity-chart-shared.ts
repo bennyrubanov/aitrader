@@ -1,6 +1,6 @@
 export type ExploreEquitySeriesLivePoint = {
   date: string;
-  aiTop20: number;
+  aiPortfolio: number;
   nasdaq100CapWeight: number | null;
   nasdaq100EqualWeight: number | null;
   sp500: number | null;

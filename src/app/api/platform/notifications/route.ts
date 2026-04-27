@@ -25,7 +25,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ count: count ?? 0 });
   }
 
-  const limit = Math.min(50, Math.max(1, Number(url.searchParams.get('limit')) || 20));
+  const limit = Math.min(60, Math.max(1, Number(url.searchParams.get('limit')) || 20));
   const cursor = url.searchParams.get('cursor');
   const type = url.searchParams.get('type');
   const unreadOnly = url.searchParams.get('unreadOnly') === '1';

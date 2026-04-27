@@ -2,13 +2,13 @@
  * Rolling peak drawdown (% from high) for each series — same math as the overview PerformanceChart drawdown view.
  */
 
-export type EquityCurveKey = 'aiTop20' | 'nasdaq100CapWeight' | 'nasdaq100EqualWeight' | 'sp500';
+export type EquityCurveKey = 'aiPortfolio' | 'nasdaq100CapWeight' | 'nasdaq100EqualWeight' | 'sp500';
 
 export type EquityCurvePoint = { date: string } & Record<EquityCurveKey, number>;
 
 export function toDrawdownPercentSeries(series: EquityCurvePoint[]): EquityCurvePoint[] {
   const peaks: Record<EquityCurveKey, number> = {
-    aiTop20: 0,
+    aiPortfolio: 0,
     nasdaq100CapWeight: 0,
     nasdaq100EqualWeight: 0,
     sp500: 0,

@@ -353,6 +353,8 @@ export function NotificationsBell() {
       const j = (await res.json()) as { items: NotifRow[]; unreadCount: number };
       setItems(j.items ?? []);
       setUnreadCount(typeof j.unreadCount === 'number' ? j.unreadCount : 0);
+    } catch {
+      // Offline, connection reset, or dev reload — avoid unhandled rejection; keep prior list.
     } finally {
       setLoading(false);
     }

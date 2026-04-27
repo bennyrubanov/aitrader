@@ -47,7 +47,7 @@ export type SeriesPoint = PerformanceSeriesPoint;
 
 /** Shared with overview chart / cumulative returns (line colors & default labels). */
 const RETURNS_SERIES = {
-  aiTop20: { label: 'AI Strategy', color: CHART_PORTFOLIO_SERIES_COLOR },
+  aiPortfolio: { label: 'AI Strategy', color: CHART_PORTFOLIO_SERIES_COLOR },
   nasdaq100CapWeight: {
     label: 'Nasdaq-100 (cap-weighted)',
     color: CHART_INDEX_SERIES_COLORS.nasdaq100CapWeight,
@@ -132,10 +132,10 @@ export function WeeklyReturnsChart({
       .slice(1)
       .map((point, i) => {
         const prev = weekly[i]!;
-        if (!(prev.aiTop20 > 0)) return null;
+        if (!(prev.aiPortfolio > 0)) return null;
         return {
           date: shortDate(point.date),
-          aiReturn: ((point.aiTop20 / prev.aiTop20) - 1) * 100,
+          aiReturn: ((point.aiPortfolio / prev.aiPortfolio) - 1) * 100,
         };
       })
       .filter((r): r is { date: string; aiReturn: number } => r != null);
@@ -196,7 +196,7 @@ export function CagrOverTimeChart({
         if (years == null || years < MIN_YEARS_FOR_CAGR_OVER_TIME_POINT) {
           return null;
         }
-        const aiPct = computePerformanceCagr(s0.aiTop20, point.aiTop20, s0.date, point.date);
+        const aiPct = computePerformanceCagr(s0.aiPortfolio, point.aiPortfolio, s0.date, point.date);
         const ndxPct = computePerformanceCagr(
           s0.nasdaq100CapWeight,
           point.nasdaq100CapWeight,
@@ -300,7 +300,7 @@ export const CUMULATIVE_SHARPE_MIN_SERIES_LENGTH = MIN_OBS_FOR_SHARPE + 2;
 
 function seriesLineLabels(strategyName?: string): Record<ReturnsKey, string> {
   return {
-    aiTop20: strategyName ?? RETURNS_SERIES.aiTop20.label,
+    aiPortfolio: strategyName ?? RETURNS_SERIES.aiPortfolio.label,
     nasdaq100CapWeight: RETURNS_SERIES.nasdaq100CapWeight.label,
     nasdaq100EqualWeight: RETURNS_SERIES.nasdaq100EqualWeight.label,
     sp500: RETURNS_SERIES.sp500.label,
@@ -387,7 +387,7 @@ export function DrawdownOverTimeChart({
               }`}
             >
               <span className="size-2 rounded-full shrink-0" style={{ background: cfg.color }} />
-              {key === 'aiTop20' ? ddLabels.aiTop20 : cfg.label}
+              {key === 'aiPortfolio' ? ddLabels.aiPortfolio : cfg.label}
             </button>
           )
         )}
@@ -427,7 +427,7 @@ export function DrawdownOverTimeChart({
               type="monotone"
               dataKey={key}
               stroke={RETURNS_SERIES[key].color}
-              strokeWidth={key === 'aiTop20' ? 2.5 : 1.75}
+              strokeWidth={key === 'aiPortfolio' ? 2.5 : 1.75}
               dot={false}
               hide={hiddenDd.has(key)}
               connectNulls
@@ -480,7 +480,7 @@ export function RollingSharpeRatioChart({
       const prev = weeklySeries[i]!;
       const safe = (p: number, c: number) => (p > 0 ? c / p - 1 : 0);
       const row: Record<ReturnsKey, number> = {
-        aiTop20: safe(prev.aiTop20, point.aiTop20),
+        aiPortfolio: safe(prev.aiPortfolio, point.aiPortfolio),
         nasdaq100CapWeight: safe(prev.nasdaq100CapWeight, point.nasdaq100CapWeight),
         nasdaq100EqualWeight: safe(prev.nasdaq100EqualWeight, point.nasdaq100EqualWeight),
         sp500: safe(prev.sp500, point.sp500),
@@ -586,7 +586,7 @@ export function RollingSharpeRatioChart({
               }`}
             >
               <span className="size-2 rounded-full shrink-0" style={{ background: cfg.color }} />
-              {key === 'aiTop20' ? ddLabels.aiTop20 : cfg.label}
+              {key === 'aiPortfolio' ? ddLabels.aiPortfolio : cfg.label}
             </button>
           )
         )}
@@ -632,7 +632,7 @@ export function RollingSharpeRatioChart({
               type="monotone"
               dataKey={key}
               stroke={RETURNS_SERIES[key].color}
-              strokeWidth={key === 'aiTop20' ? 2.5 : 1.75}
+              strokeWidth={key === 'aiPortfolio' ? 2.5 : 1.75}
               dot={sharpeData.length <= 2 ? { r: 2.5 } : false}
               hide={hiddenSh.has(key)}
               connectNulls
@@ -692,7 +692,7 @@ export function CumulativeSharpeRatioChart({
       const prev = weeklySeries[i]!;
       const safe = (p: number, c: number) => (p > 0 ? c / p - 1 : 0);
       const row: Record<ReturnsKey, number> = {
-        aiTop20: safe(prev.aiTop20, point.aiTop20),
+        aiPortfolio: safe(prev.aiPortfolio, point.aiPortfolio),
         nasdaq100CapWeight: safe(prev.nasdaq100CapWeight, point.nasdaq100CapWeight),
         nasdaq100EqualWeight: safe(prev.nasdaq100EqualWeight, point.nasdaq100EqualWeight),
         sp500: safe(prev.sp500, point.sp500),
@@ -766,7 +766,7 @@ export function CumulativeSharpeRatioChart({
   const aiSharpePointCount = useMemo(
     () =>
       sharpeData.reduce((count, row) => {
-        const value = row.aiTop20;
+        const value = row.aiPortfolio;
         return typeof value === 'number' && Number.isFinite(value) ? count + 1 : count;
       }, 0),
     [sharpeData]
@@ -827,7 +827,7 @@ export function CumulativeSharpeRatioChart({
               }`}
             >
               <span className="size-2 rounded-full shrink-0" style={{ background: cfg.color }} />
-              {key === 'aiTop20' ? ddLabels.aiTop20 : cfg.label}
+              {key === 'aiPortfolio' ? ddLabels.aiPortfolio : cfg.label}
             </button>
           )
         )}
@@ -904,7 +904,7 @@ export function CumulativeSharpeRatioChart({
               type="monotone"
               dataKey={key}
               stroke={RETURNS_SERIES[key].color}
-              strokeWidth={key === 'aiTop20' ? 2.5 : 1.75}
+              strokeWidth={key === 'aiPortfolio' ? 2.5 : 1.75}
               dot={aiSharpePointCount <= 2 ? { r: 2.5 } : false}
               hide={hiddenSh.has(key)}
               connectNulls
@@ -1044,7 +1044,7 @@ export function CumulativeReturnsChart({
     if (series.length < 2) return [];
     return series.map((point) => ({
       date: shortDate(point.date),
-      aiTop20: ((point.aiTop20 / startingCapital) - 1) * 100,
+      aiPortfolio: ((point.aiPortfolio / startingCapital) - 1) * 100,
       nasdaq100CapWeight: ((point.nasdaq100CapWeight / startingCapital) - 1) * 100,
       nasdaq100EqualWeight: ((point.nasdaq100EqualWeight / startingCapital) - 1) * 100,
       sp500: ((point.sp500 / startingCapital) - 1) * 100,
@@ -1054,7 +1054,7 @@ export function CumulativeReturnsChart({
   if (data.length < 2) return null;
 
   const labels: Record<ReturnsKey, string> = {
-    aiTop20: strategyName ?? 'AI Strategy',
+    aiPortfolio: strategyName ?? 'AI Strategy',
     nasdaq100CapWeight: RETURNS_SERIES.nasdaq100CapWeight.label,
     nasdaq100EqualWeight: RETURNS_SERIES.nasdaq100EqualWeight.label,
     sp500: RETURNS_SERIES.sp500.label,
@@ -1078,7 +1078,7 @@ export function CumulativeReturnsChart({
               }`}
             >
               <span className="size-2 rounded-full shrink-0" style={{ background: cfg.color }} />
-              {key === 'aiTop20' ? labels.aiTop20 : cfg.label}
+              {key === 'aiPortfolio' ? labels.aiPortfolio : cfg.label}
             </button>
           )
         )}
@@ -1115,10 +1115,10 @@ export function CumulativeReturnsChart({
                 type="monotone"
                 dataKey={key}
                 stroke={cfg.color}
-                strokeWidth={key === 'aiTop20' ? 2.5 : 1.5}
+                strokeWidth={key === 'aiPortfolio' ? 2.5 : 1.5}
                 dot={false}
                 hide={hidden.has(key)}
-                strokeDasharray={key === 'aiTop20' ? undefined : '4 2'}
+                strokeDasharray={key === 'aiPortfolio' ? undefined : '4 2'}
               />
             )
           )}
@@ -1173,7 +1173,7 @@ export function RelativeOutperformanceChart({
     if (series.length < 2) return [];
     const base = series[0];
     return series.map((point) => {
-      const aiGrowth = point.aiTop20 / base.aiTop20;
+      const aiGrowth = point.aiPortfolio / base.aiPortfolio;
       return {
         date: shortDate(point.date),
         vsNdxCap: ((aiGrowth / (point.nasdaq100CapWeight / base.nasdaq100CapWeight)) - 1) * 100,

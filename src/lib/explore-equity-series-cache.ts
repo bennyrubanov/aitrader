@@ -88,14 +88,19 @@ function normalize(d: unknown): ExploreEquitySeriesPayload {
     series: Array.isArray(input.series)
       ? input.series.map((row) => {
           const lp = row?.livePoint;
+          const lpRec =
+            lp && typeof lp === 'object' ? (lp as Record<string, unknown>) : null;
+          const aiLiveRaw =
+            lpRec != null ? (lpRec.aiPortfolio ?? lpRec.aiTop20) : undefined;
+          const aiLiveNum = Number(aiLiveRaw);
           const validLivePoint =
             lp &&
             typeof lp.date === 'string' &&
-            Number.isFinite(Number(lp.aiTop20)) &&
-            Number(lp.aiTop20) > 0
+            Number.isFinite(aiLiveNum) &&
+            aiLiveNum > 0
               ? {
                   date: lp.date,
-                  aiTop20: Number(lp.aiTop20),
+                  aiPortfolio: aiLiveNum,
                   nasdaq100CapWeight:
                     lp.nasdaq100CapWeight != null && Number.isFinite(Number(lp.nasdaq100CapWeight))
                       ? Number(lp.nasdaq100CapWeight)

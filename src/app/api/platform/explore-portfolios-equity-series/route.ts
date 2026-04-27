@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { buildConfigDailySeriesTailPoint, loadStrategyDailySeriesBulk } from '@/lib/config-daily-series';
+import {
+  buildConfigDailySeriesTailPoint,
+  loadStrategyDailySeriesBulk,
+  rebaseSeriesForDisplay,
+} from '@/lib/config-daily-series';
 import { loadLatestRawRunDate } from '@/lib/live-mark-to-market';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
 import { syncMissingConfigHoldingsSnapshots } from '@/lib/portfolio-config-holdings-write';
@@ -29,7 +33,7 @@ const toNum = (v: unknown): number => {
 
 type ExploreEquitySeriesLivePoint = {
   date: string;
-  aiTop20: number;
+  aiPortfolio: number;
   nasdaq100CapWeight: number | null;
   nasdaq100EqualWeight: number | null;
   sp500: number | null;
@@ -116,8 +120,10 @@ async function loadExplorePortfoliosEquitySeriesPayload(
   const seriesByConfigId = new Map<string, PerformanceSeriesPoint[]>();
   for (const cfg of configRows) {
     const snapshot = snapshots.get(cfg.id);
-    const series = snapshot?.series ?? [];
-    if (series.length > 0) seriesByConfigId.set(cfg.id, series);
+    const raw = snapshot?.series ?? [];
+    if (raw.length === 0) continue;
+    const lifted = rebaseSeriesForDisplay(raw, { displayInitial: INITIAL_CAPITAL });
+    if (lifted.length > 0) seriesByConfigId.set(cfg.id, lifted);
   }
 
   for (const cfg of configRows) {
@@ -182,7 +188,7 @@ async function loadExplorePortfoliosEquitySeriesPayload(
     const points = byConfigDailySeries.get(cfg.id) ?? [];
     if (points.length === 0) continue;
     const byDate = new Map<string, number>();
-    for (const p of points) byDate.set(p.date, toNum(p.aiTop20));
+    for (const p of points) byDate.set(p.date, toNum(p.aiPortfolio));
 
     let last = INITIAL_CAPITAL;
     const equities = dates.map((d) => {
@@ -207,6 +213,7 @@ async function loadExplorePortfoliosEquitySeriesPayload(
       (snapshotAsOf == null || snapshotAsOf < latestRawRunDate)
     ) {
       try {
+        const rawPoints = snapshot?.series ?? [];
         const tail = await buildConfigDailySeriesTailPoint(adminSupabase as never, {
           strategyId: strategy.id,
           config: {
@@ -215,24 +222,45 @@ async function loadExplorePortfoliosEquitySeriesPayload(
             rebalance_frequency: String(cfg.rebalance_frequency),
             weighting_method: String(cfg.weighting_method),
           },
-          notionalSeries: points,
+          notionalSeries: rawPoints,
         });
         if (
           tail?.date &&
-          tail.aiTop20 != null &&
-          Number.isFinite(Number(tail.aiTop20)) &&
-          Number(tail.aiTop20) > 0
+          tail.aiPortfolio != null &&
+          Number.isFinite(Number(tail.aiPortfolio)) &&
+          Number(tail.aiPortfolio) > 0
         ) {
+          const rawFirst = rawPoints[0];
+          const aiScale =
+            rawFirst && Number.isFinite(rawFirst.aiPortfolio) && rawFirst.aiPortfolio > 0
+              ? INITIAL_CAPITAL / rawFirst.aiPortfolio
+              : 1;
+          const capScale =
+            rawFirst &&
+            Number.isFinite(rawFirst.nasdaq100CapWeight) &&
+            rawFirst.nasdaq100CapWeight > 0
+              ? INITIAL_CAPITAL / rawFirst.nasdaq100CapWeight
+              : aiScale;
+          const eqScale =
+            rawFirst &&
+            Number.isFinite(rawFirst.nasdaq100EqualWeight) &&
+            rawFirst.nasdaq100EqualWeight > 0
+              ? INITIAL_CAPITAL / rawFirst.nasdaq100EqualWeight
+              : aiScale;
+          const spxScale =
+            rawFirst && Number.isFinite(rawFirst.sp500) && rawFirst.sp500 > 0
+              ? INITIAL_CAPITAL / rawFirst.sp500
+              : aiScale;
           livePoint = {
             date: tail.date,
-            aiTop20: Number(tail.aiTop20),
+            aiPortfolio: Number(tail.aiPortfolio) * aiScale,
             nasdaq100CapWeight: Number.isFinite(Number(tail.nasdaq100CapWeight))
-              ? Number(tail.nasdaq100CapWeight)
+              ? Number(tail.nasdaq100CapWeight) * capScale
               : null,
             nasdaq100EqualWeight: Number.isFinite(Number(tail.nasdaq100EqualWeight))
-              ? Number(tail.nasdaq100EqualWeight)
+              ? Number(tail.nasdaq100EqualWeight) * eqScale
               : null,
-            sp500: Number.isFinite(Number(tail.sp500)) ? Number(tail.sp500) : null,
+            sp500: Number.isFinite(Number(tail.sp500)) ? Number(tail.sp500) * spxScale : null,
           };
         }
       } catch {

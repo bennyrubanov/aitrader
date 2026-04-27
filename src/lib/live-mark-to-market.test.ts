@@ -45,11 +45,11 @@ test('buildDailySeriesFromSnapshots forward-fills missing raw days within stalen
   );
   assert.equal(series.length, 3);
   assert.equal(series[0]!.date, '2026-01-01');
-  assert.equal(series[0]!.aiTop20, 10_000);
+  assert.equal(series[0]!.aiPortfolio, 10_000);
   assert.equal(series[1]!.date, '2026-01-02');
-  assert.equal(series[1]!.aiTop20, 10_000);
+  assert.equal(series[1]!.aiPortfolio, 10_000);
   assert.equal(series[2]!.date, '2026-01-03');
-  assert.equal(series[2]!.aiTop20, 11_000);
+  assert.equal(series[2]!.aiPortfolio, 11_000);
 });
 
 test('buildDailySeriesFromSnapshots skips days when forward-fill exceeds MAX_FORWARD_FILL_DAYS', () => {

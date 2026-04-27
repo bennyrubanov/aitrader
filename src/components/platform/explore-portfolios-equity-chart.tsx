@@ -251,7 +251,7 @@ export function ExplorePortfoliosEquityChart({
     const nextDates = appendDate ? [...dates, appendDate] : dates;
     const nextSeries = visibleSeries.map((s) => {
       const lp = s.livePoint;
-      if (!lp || !Number.isFinite(lp.aiTop20) || lp.aiTop20 <= 0) {
+      if (!lp || !Number.isFinite(lp.aiPortfolio) || lp.aiPortfolio <= 0) {
         if (!appendDate) return s;
         const lastEq = s.equities[s.equities.length - 1] ?? 10_000;
         return { ...s, equities: [...s.equities, lastEq] };
@@ -260,14 +260,14 @@ export function ExplorePortfoliosEquityChart({
       if (lp.date === lastDate) {
         const i = dates.length - 1;
         const current = eq[i];
-        if (current == null || !Number.isFinite(current) || Math.abs(current - lp.aiTop20) > 0.005) {
-          eq[i] = lp.aiTop20;
+        if (current == null || !Number.isFinite(current) || Math.abs(current - lp.aiPortfolio) > 0.005) {
+          eq[i] = lp.aiPortfolio;
           return { ...s, equities: eq };
         }
         return s;
       }
       if (appendDate && lp.date === appendDate) {
-        eq.push(lp.aiTop20);
+        eq.push(lp.aiPortfolio);
         return { ...s, equities: eq };
       }
       if (appendDate) {

@@ -242,7 +242,7 @@ export function buildPublicModelCostBasisSnapshotsFromHoldings(params: {
 /** Minimal `ConfigPerfRow[]` for `rebasedEndingEquityAtRunDate` when only chart series exists. */
 export function chartSeriesToPerfRowsForRebase(series: PerformanceSeriesPoint[]): ConfigPerfRow[] {
   return series
-    .filter((p) => p.date && Number.isFinite(p.aiTop20) && p.aiTop20 > 0)
+    .filter((p) => p.date && Number.isFinite(p.aiPortfolio) && p.aiPortfolio > 0)
     .map((p) => ({
       run_date: p.date,
       strategy_status: 'ready',
@@ -250,7 +250,7 @@ export function chartSeriesToPerfRowsForRebase(series: PerformanceSeriesPoint[])
       net_return: null,
       gross_return: null,
       starting_equity: null,
-      ending_equity: p.aiTop20,
+      ending_equity: p.aiPortfolio,
       holdings_count: null,
       turnover: null,
       transaction_cost_bps: null,

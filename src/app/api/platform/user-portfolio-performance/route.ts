@@ -13,7 +13,7 @@ import { createAdminClient } from '@/utils/supabase/admin';
 import { runWithSupabaseQueryCount } from '@/utils/supabase/query-counter';
 import { getPortfolioRunDates } from '@/lib/platform-performance-payload';
 import { buildMetricsFromSeries } from '@/lib/config-performance-chart';
-import { ensureConfigDailySeries, sliceAndScale } from '@/lib/config-daily-series';
+import { ensureConfigDailySeries, rebaseSeriesForDisplay } from '@/lib/config-daily-series';
 import { pickHoldingsRunDate } from '@/lib/user-portfolio-entry';
 import {
   computeExcessReturnVsNasdaqCap,
@@ -122,19 +122,10 @@ export async function GET(req: Request) {
         },
       })
     : null;
-  let userSeries = sliceAndScale(snapshot?.series ?? [], userStart, investmentSize);
-  if (userSeries.length === 0 || userSeries[0]!.date > userStart) {
-    userSeries = [
-      {
-        date: userStart,
-        aiTop20: investmentSize,
-        nasdaq100CapWeight: investmentSize,
-        nasdaq100EqualWeight: investmentSize,
-        sp500: investmentSize,
-      },
-      ...userSeries,
-    ];
-  }
+  const userSeries = rebaseSeriesForDisplay(snapshot?.series ?? [], {
+    anchorDate: userStart,
+    displayInitial: investmentSize,
+  });
   const userSeriesMetrics = buildMetricsFromSeries(userSeries, rebalanceFrequency, []).metrics;
   const hasMultipleObservations = userSeries.length >= 2;
   const built = {

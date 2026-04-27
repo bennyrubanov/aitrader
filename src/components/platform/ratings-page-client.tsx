@@ -1210,7 +1210,7 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                         >
                           Price vs rating
                         </TableHead>
-                        <TableHead className="w-[1%] min-w-[7.25rem] whitespace-nowrap text-right">
+                        <TableHead className="w-[1%] min-w-[7.25rem] whitespace-nowrap !pr-4 text-right">
                           Full analysis
                         </TableHead>
                       </TableRow>
@@ -1308,7 +1308,7 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                                 }
                               />
                             </TableCell>
-                            <TableCell className="min-w-0 text-right">
+                            <TableCell className="min-w-0 !pr-4 text-right">
                               <Button variant="ghost" size="sm" asChild className="h-7 gap-1 px-2 text-xs">
                                 <Link
                                   href={`/stocks/${row.symbol.toLowerCase()}`}
@@ -1370,34 +1370,26 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                         >
                           Symbol
                         </TableHead>
-                        <TableHead className="hidden min-w-0 max-w-[7rem] whitespace-nowrap lg:table-cell">
+                        <TableHead className="hidden whitespace-nowrap lg:table-cell lg:min-w-[8.5rem] lg:max-w-[10rem]">
                           Company
                         </TableHead>
-                        <TableHead className="min-w-[5.5rem] whitespace-nowrap">Price</TableHead>
-                        <TableHead
-                          className={cn(
-                            'min-w-[8.5rem] whitespace-nowrap',
-                            rankColumnBlurred ? '!pr-0' : '!pr-1.5'
-                          )}
-                        >
+                        <TableHead className="min-w-[5.5rem] whitespace-nowrap lg:min-w-[7rem]">Price</TableHead>
+                        <TableHead className="min-w-[8.5rem] whitespace-nowrap">
                           AI rating
                         </TableHead>
-                        <TableHead
-                          className={cn(
-                            'min-w-[9rem] whitespace-nowrap !pr-2 text-center align-middle',
-                            rankColumnBlurred ? '!pl-0' : '!pl-1'
-                          )}
-                          aria-label="Price vs rating"
-                        >
-                          Price vs rating
-                        </TableHead>
-                        <TableHead className="hidden min-w-[9rem] max-w-[min(14rem,18vw)] xl:table-cell">
+                        <TableHead className="hidden xl:table-cell xl:min-w-[9rem] xl:max-w-[12rem]">
                           Analysis summary
                         </TableHead>
                         <TableHead className="hidden min-w-[6rem] max-w-[min(10rem,12vw)] xl:table-cell">
                           Risks
                         </TableHead>
-                        <TableHead className="w-[1%] min-w-[7.25rem] whitespace-nowrap text-right">
+                        <TableHead
+                          className="min-w-[9rem] whitespace-nowrap !pr-2 text-center align-middle"
+                          aria-label="Price vs rating"
+                        >
+                          Price vs rating
+                        </TableHead>
+                        <TableHead className="w-[1%] min-w-[7.25rem] whitespace-nowrap !pr-4 text-right">
                           Full analysis
                         </TableHead>
                       </TableRow>
@@ -1456,7 +1448,7 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                                 ) : null}
                               </div>
                             </TableCell>
-                            <TableCell className="hidden min-w-0 max-w-[7rem] overflow-hidden text-muted-foreground lg:table-cell">
+                            <TableCell className="hidden overflow-hidden text-muted-foreground lg:table-cell lg:min-w-[8.5rem] lg:max-w-[10rem]">
                               {companyFull ? (
                                 <Tooltip>
                                   <TooltipTrigger asChild>
@@ -1470,17 +1462,15 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                                 <span className="text-muted-foreground">-</span>
                               )}
                             </TableCell>
-                            <TableCell>
+                            <TableCell className="lg:min-w-[7rem]">
                               <div className="leading-tight">
                                 <span className="tabular-nums font-medium">{row.lastPrice ?? '-'}</span>
-                                <span className="block text-[11px] text-muted-foreground">
+                                <span className="block text-[11px] text-muted-foreground lg:whitespace-nowrap">
                                   {row.priceDate ? formatRunDate(row.priceDate) : ''}
                                 </span>
                               </div>
                             </TableCell>
-                            <TableCell
-                              className={rankColumnBlurred ? '!pr-0' : '!pr-1.5'}
-                            >
+                            <TableCell>
                               {lockedPremium ? (
                                 <PaidPlanLockTooltip />
                               ) : (
@@ -1504,26 +1494,7 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                                 </span>
                               )}
                             </TableCell>
-                            <TableCell
-                              className={cn(
-                                'min-w-[9rem] !pr-2 text-center',
-                                rankColumnBlurred ? '!pl-0' : '!pl-1'
-                              )}
-                            >
-                              {lockedPremium ? (
-                                <div className="flex justify-center">
-                                  <PaidPlanLockTooltip contentAlign="center" />
-                                </div>
-                              ) : (
-                                <StockChartDialog
-                                  symbol={row.symbol}
-                                  strategySlug={
-                                    selectedStrategySlug === defaultStrategy.slug ? null : selectedStrategySlug
-                                  }
-                                />
-                              )}
-                            </TableCell>
-                            <TableCell className="hidden min-w-0 align-middle xl:table-cell">
+                            <TableCell className="hidden align-middle xl:table-cell xl:max-w-[12rem]">
                               {lockedPremium ? (
                                 <div className="flex min-h-10 items-center">
                                   <PaidPlanLockTooltip />
@@ -1586,7 +1557,21 @@ export function RatingsPageClient({ initialData, strategies }: RatingsPageClient
                                 <span className="text-muted-foreground">-</span>
                               )}
                             </TableCell>
-                            <TableCell className="text-right">
+                            <TableCell className="min-w-[9rem] !pr-2 text-center">
+                              {lockedPremium ? (
+                                <div className="flex justify-center">
+                                  <PaidPlanLockTooltip contentAlign="center" />
+                                </div>
+                              ) : (
+                                <StockChartDialog
+                                  symbol={row.symbol}
+                                  strategySlug={
+                                    selectedStrategySlug === defaultStrategy.slug ? null : selectedStrategySlug
+                                  }
+                                />
+                              )}
+                            </TableCell>
+                            <TableCell className="!pr-4 text-right">
                               {lockedPremium ? (
                                 <div className="flex justify-end">
                                   <PaidPlanLockTooltip contentAlign="end" />

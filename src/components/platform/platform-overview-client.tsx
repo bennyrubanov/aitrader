@@ -522,7 +522,7 @@ function computeOverviewPortfolioValue(
   userStartDate: string | null
 ): number | null {
   if (!series?.length) return null;
-  const last = series[series.length - 1]?.aiTop20;
+  const last = series[series.length - 1]?.aiPortfolio;
   if (last == null || !Number.isFinite(last) || last <= 0) return null;
   if (userStartDate && String(userStartDate).trim()) {
     return last;
@@ -544,10 +544,10 @@ function benchmarkStatsFromSeries(series: PerformanceSeriesPoint[] | undefined):
   }
   const f = series[0]!;
   const l = series[series.length - 1]!;
-  if (f.aiTop20 <= 0 || f.nasdaq100CapWeight <= 0 || l.nasdaq100CapWeight <= 0) {
+  if (f.aiPortfolio <= 0 || f.nasdaq100CapWeight <= 0 || l.nasdaq100CapWeight <= 0) {
     return { excessVsNasdaqCap: null, excessVsNasdaqEqual: null, excessVsSp500: null };
   }
-  const portRet = l.aiTop20 / f.aiTop20 - 1;
+  const portRet = l.aiPortfolio / f.aiPortfolio - 1;
   const benchRet = l.nasdaq100CapWeight / f.nasdaq100CapWeight - 1;
   let excessVsNasdaqEqual: number | null = null;
   if (f.nasdaq100EqualWeight > 0 && l.nasdaq100EqualWeight > 0) {
@@ -684,7 +684,7 @@ function OverviewPortfolioTile({
   const cfg = p.portfolio_config;
   const st = cardState[p.id];
   const series = liveOverride?.series ?? st?.series ?? [];
-  const spark = series.map((x) => x.aiTop20);
+  const spark = series.map((x) => x.aiPortfolio);
   const sparkNasdaqCap = series.map((x) => x.nasdaq100CapWeight);
   const slug = p.strategy_models?.slug;
   const bundle = slug ? rankedBySlug[slug] : undefined;
@@ -2502,17 +2502,17 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
       return investmentSize;
     }
     if (asOf && pts.length > 0) {
-      const exact = pts.find((p) => p.date === asOf)?.aiTop20;
+      const exact = pts.find((p) => p.date === asOf)?.aiPortfolio;
       if (exact != null && Number.isFinite(exact) && exact > 0) return exact;
       let onOrBefore: number | null = null;
       for (const p of pts) {
-        if (p.date <= asOf && Number.isFinite(p.aiTop20) && p.aiTop20 > 0) {
-          onOrBefore = p.aiTop20;
+        if (p.date <= asOf && Number.isFinite(p.aiPortfolio) && p.aiPortfolio > 0) {
+          onOrBefore = p.aiPortfolio;
         }
       }
       if (onOrBefore != null) return onOrBefore;
     }
-    const latest = pts[pts.length - 1]?.aiTop20;
+    const latest = pts[pts.length - 1]?.aiPortfolio;
     if (latest != null && Number.isFinite(latest) && latest > 0) return latest;
     return Number.isFinite(investmentSize) && investmentSize > 0
       ? investmentSize
@@ -2559,7 +2559,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     const lp = topSpotlightHoldingsLivePoint;
     const nextBar = {
       date: holdingsLatestYmd,
-      aiTop20: totalFromHoldings,
+      aiPortfolio: totalFromHoldings,
       nasdaq100CapWeight:
         lp?.nasdaq100CapWeight != null ? lp.nasdaq100CapWeight : last.nasdaq100CapWeight,
       nasdaq100EqualWeight:
@@ -2568,9 +2568,9 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     };
     if (holdingsLatestYmd === last.date) {
       if (
-        last.aiTop20 != null &&
-        Number.isFinite(last.aiTop20) &&
-        Math.abs(last.aiTop20 - totalFromHoldings) < 0.005
+        last.aiPortfolio != null &&
+        Number.isFinite(last.aiPortfolio) &&
+        Math.abs(last.aiPortfolio - totalFromHoldings) < 0.005
       ) {
         return pts;
       }
@@ -2621,17 +2621,17 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
       return investmentSize;
     }
     if (asOf && pts.length > 0) {
-      const exact = pts.find((p) => p.date === asOf)?.aiTop20;
+      const exact = pts.find((p) => p.date === asOf)?.aiPortfolio;
       if (exact != null && Number.isFinite(exact) && exact > 0) return exact;
       let onOrBefore: number | null = null;
       for (const p of pts) {
-        if (p.date <= asOf && Number.isFinite(p.aiTop20) && p.aiTop20 > 0) {
-          onOrBefore = p.aiTop20;
+        if (p.date <= asOf && Number.isFinite(p.aiPortfolio) && p.aiPortfolio > 0) {
+          onOrBefore = p.aiPortfolio;
         }
       }
       if (onOrBefore != null) return onOrBefore;
     }
-    const latest = pts[pts.length - 1]?.aiTop20;
+    const latest = pts[pts.length - 1]?.aiPortfolio;
     if (latest != null && Number.isFinite(latest) && latest > 0) return latest;
     return Number.isFinite(investmentSize) && investmentSize > 0
       ? investmentSize
@@ -2733,7 +2733,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   const spotlightPortfolioValueLineAmount = useMemo(() => {
     if (spotlightHoldingsDateSelect === HOLDINGS_TODAY_SENTINEL) {
       const eff = effectiveTopSpotlightDisplaySeries as PerformanceSeriesPoint[];
-      const effLast = eff[eff.length - 1]?.aiTop20;
+      const effLast = eff[eff.length - 1]?.aiPortfolio;
       if (effLast != null && Number.isFinite(effLast) && effLast > 0) {
         return effLast;
       }
@@ -3165,8 +3165,8 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                         bp.user_start_date
                       );
                       const initialNotional =
-                        series.length > 0 && series[0]!.aiTop20 > 0
-                          ? series[0]!.aiTop20
+                        series.length > 0 && series[0]!.aiPortfolio > 0
+                          ? series[0]!.aiPortfolio
                           : Number(bp.investment_size) > 0
                             ? Number(bp.investment_size)
                             : OVERVIEW_MODEL_INITIAL;

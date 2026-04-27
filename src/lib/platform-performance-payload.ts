@@ -171,7 +171,7 @@ type RegressionRow = {
 
 export type PerformanceSeriesPoint = {
   date: string;
-  aiTop20: number;
+  aiPortfolio: number;
   nasdaq100CapWeight: number;
   nasdaq100EqualWeight: number;
   sp500: number;
@@ -492,7 +492,7 @@ const buildPayloadForStrategy = async (
 
   let series: SeriesPoint[] = perfRows.map((row) => ({
     date: row.run_date,
-    aiTop20: toNumber(row.ending_equity, INITIAL_CAPITAL),
+    aiPortfolio: toNumber(row.ending_equity, INITIAL_CAPITAL),
     nasdaq100CapWeight: toNumber(row.nasdaq100_cap_weight_equity, INITIAL_CAPITAL),
     nasdaq100EqualWeight: toNumber(row.nasdaq100_equal_weight_equity, INITIAL_CAPITAL),
     sp500: toNumber(row.sp500_equity, INITIAL_CAPITAL),
@@ -521,7 +521,7 @@ const buildPayloadForStrategy = async (
   // Use INITIAL_CAPITAL as the start value for all return calculations.
   // The first row's ending_equity already includes the first week's return,
   // so measuring from it would skip that week.
-  const totalReturnAi = lastPoint ? computeTotalReturn(INITIAL_CAPITAL, lastPoint.aiTop20) : null;
+  const totalReturnAi = lastPoint ? computeTotalReturn(INITIAL_CAPITAL, lastPoint.aiPortfolio) : null;
   const totalReturnCap = lastPoint
     ? computeTotalReturn(INITIAL_CAPITAL, lastPoint.nasdaq100CapWeight)
     : null;
@@ -534,26 +534,26 @@ const buildPayloadForStrategy = async (
     firstPoint && lastPoint
       ? {
           startingCapital: INITIAL_CAPITAL,
-          endingValue: lastPoint.aiTop20,
+          endingValue: lastPoint.aiPortfolio,
           totalReturn: totalReturnAi,
-          cagr: cagrGated(INITIAL_CAPITAL, lastPoint.aiTop20, firstDate, lastDate),
-          maxDrawdown: computeMaxDrawdown(series.map((p) => p.aiTop20)),
+          cagr: cagrGated(INITIAL_CAPITAL, lastPoint.aiPortfolio, firstDate, lastDate),
+          maxDrawdown: computeMaxDrawdown(series.map((p) => p.aiPortfolio)),
           sharpeRatio: weeklyMtm.sharpe,
           sharpeRatioDecisionCadence: computeSharpeAnnualized(weeklyNetReturns, sharpePeriods),
           weeklyObservations: weeklyMtm.weeklyObservations,
           pctWeeksBeatingNasdaq100: computePctWeeksBeatingNasdaq100(
-            weeklySeriesForPct.map((p) => ({ aiValue: p.aiTop20, benchmarkValue: p.nasdaq100CapWeight }))
+            weeklySeriesForPct.map((p) => ({ aiValue: p.aiPortfolio, benchmarkValue: p.nasdaq100CapWeight }))
           ),
           pctWeeksBeatingSp500: computePctWeeksBeatingNasdaq100(
-            weeklySeriesForPct.map((p) => ({ aiValue: p.aiTop20, benchmarkValue: p.sp500 }))
+            weeklySeriesForPct.map((p) => ({ aiValue: p.aiPortfolio, benchmarkValue: p.sp500 }))
           ),
           pctWeeksBeatingNasdaq100EqualWeight: computePctWeeksBeatingNasdaq100(
-            weeklySeriesForPct.map((p) => ({ aiValue: p.aiTop20, benchmarkValue: p.nasdaq100EqualWeight }))
+            weeklySeriesForPct.map((p) => ({ aiValue: p.aiPortfolio, benchmarkValue: p.nasdaq100EqualWeight }))
           ),
           pctMonthsBeatingNasdaq100: computePctMonthsBeating(
             weeklySeriesForPct.map((p) => ({
               date: p.date,
-              aiValue: p.aiTop20,
+              aiValue: p.aiPortfolio,
               benchmarkValue: p.nasdaq100CapWeight,
             }))
           ),
@@ -961,7 +961,7 @@ const getStrategiesListCached = unstable_cache(
           const weeklyMtm = computeWeeklyMtmSharpe(
             rows.map((r) => ({
               date: r.run_date,
-              aiTop20: toNumber(r.ending_equity, INITIAL_CAPITAL),
+              aiPortfolio: toNumber(r.ending_equity, INITIAL_CAPITAL),
             }))
           );
           const firstRow = rows[0];
@@ -1160,7 +1160,7 @@ const getStrategyDetailCached = (slug: string) =>
         const weeklyMtm = computeWeeklyMtmSharpe(
           perfRows.map((r) => ({
             date: r.run_date,
-            aiTop20: toNumber(r.ending_equity, INITIAL_CAPITAL),
+            aiPortfolio: toNumber(r.ending_equity, INITIAL_CAPITAL),
           }))
         );
         const firstRow = perfRows[0];

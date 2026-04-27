@@ -21,7 +21,7 @@ import { toDrawdownPercentSeries } from '@/lib/performance-series-drawdown';
 
 type PerformancePoint = {
   date: string;
-  aiTop20: number;
+  aiPortfolio: number;
   nasdaq100CapWeight: number;
   nasdaq100EqualWeight: number;
   sp500: number;
@@ -38,7 +38,7 @@ const displayDateFormatter = new Intl.DateTimeFormat('en-US', {
 });
 
 const SERIES_CONFIG: Record<string, { label: string; color: string; defaultVisible: boolean }> = {
-  aiTop20: { label: 'AI Strategy', color: CHART_PORTFOLIO_SERIES_COLOR, defaultVisible: true },
+  aiPortfolio: { label: 'AI Strategy', color: CHART_PORTFOLIO_SERIES_COLOR, defaultVisible: true },
   nasdaq100CapWeight: {
     label: 'Nasdaq-100 (cap)',
     color: CHART_INDEX_SERIES_COLORS.nasdaq100CapWeight,
@@ -53,13 +53,13 @@ const SERIES_CONFIG: Record<string, { label: string; color: string; defaultVisib
 };
 
 export type PerformanceChartSeriesKey =
-  | 'aiTop20'
+  | 'aiPortfolio'
   | 'nasdaq100CapWeight'
   | 'nasdaq100EqualWeight'
   | 'sp500';
 
 const ALL_SERIES_KEYS: PerformanceChartSeriesKey[] = [
-  'aiTop20',
+  'aiPortfolio',
   'nasdaq100CapWeight',
   'nasdaq100EqualWeight',
   'sp500',
@@ -129,7 +129,7 @@ function rebaseSeries(series: PerformancePoint[], initialNotional: number): Perf
   const n = Number.isFinite(initialNotional) && initialNotional > 0 ? initialNotional : DEFAULT_INITIAL_NOTIONAL;
   return series.map((p) => ({
     date: p.date,
-    aiTop20: base.aiTop20 > 0 ? (p.aiTop20 / base.aiTop20) * n : 0,
+    aiPortfolio: base.aiPortfolio > 0 ? (p.aiPortfolio / base.aiPortfolio) * n : 0,
     nasdaq100CapWeight:
       base.nasdaq100CapWeight > 0 ? (p.nasdaq100CapWeight / base.nasdaq100CapWeight) * n : 0,
     nasdaq100EqualWeight:
@@ -269,7 +269,7 @@ export function PerformanceChart({
             idx === 0
               ? {
                   ...p,
-                  aiTop20: firstPointDisplay,
+                  aiPortfolio: firstPointDisplay,
                   nasdaq100CapWeight: firstPointDisplay,
                   nasdaq100EqualWeight: firstPointDisplay,
                   sp500: firstPointDisplay,
@@ -324,8 +324,8 @@ export function PerformanceChart({
         label: seriesLabelOverrides?.[key] ?? base.label,
       };
     }
-    if (strategyName && out.aiTop20) {
-      out.aiTop20 = { ...out.aiTop20, label: strategyName };
+    if (strategyName && out.aiPortfolio) {
+      out.aiPortfolio = { ...out.aiPortfolio, label: strategyName };
     }
     return out;
   }, [chartSeriesKeys, strategyName, seriesLabelOverrides]);
@@ -485,7 +485,7 @@ export function PerformanceChart({
             }
           />
           {chartSeriesKeys.map((key) => {
-            const baseStroke = key === 'aiTop20' ? 2.5 : 1.75;
+            const baseStroke = key === 'aiPortfolio' ? 2.5 : 1.75;
             const emphasized = emphasizedSeriesKey === key && !hidden.has(key);
             return (
               <Line
@@ -495,7 +495,7 @@ export function PerformanceChart({
                 stroke={config[key]!.color}
                 strokeWidth={emphasized ? baseStroke + 0.55 : baseStroke}
                 strokeOpacity={1}
-                dot={usePointMarkers ? { r: key === 'aiTop20' ? 5 : 3.5, strokeWidth: 1 } : false}
+                dot={usePointMarkers ? { r: key === 'aiPortfolio' ? 5 : 3.5, strokeWidth: 1 } : false}
                 hide={hidden.has(key)}
                 connectNulls
                 isAnimationActive={!disableLineAnimation}

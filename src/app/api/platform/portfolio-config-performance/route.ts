@@ -31,7 +31,7 @@ import {
   prependModelInceptionToConfigRows,
 } from '@/lib/portfolio-config-utils';
 import { buildConfigPerformanceChart, buildMetricsFromSeries } from '@/lib/config-performance-chart';
-import { ensureConfigDailySeries } from '@/lib/config-daily-series';
+import { ensureConfigDailySeries, rebaseSeriesForDisplay } from '@/lib/config-daily-series';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
 import { triggerPortfolioConfigCompute } from '@/lib/trigger-config-compute';
 
@@ -139,7 +139,10 @@ export async function GET(req: Request) {
       if (snapshot?.series && snapshot.series.length >= 2) {
         series = snapshot.series;
       }
+    }
 
+    if (series.length > 0) {
+      series = rebaseSeriesForDisplay(series, { displayInitial: 10_000 });
       const fromSeries = buildMetricsFromSeries(series, frequency, sharpeReturnsFromRows);
       metrics = fromSeries.metrics;
       fullMetrics = fromSeries.fullMetrics;

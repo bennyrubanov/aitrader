@@ -24,9 +24,6 @@ import type { PlatformPerformancePayload } from '@/lib/platform-performance-payl
 
 const INITIAL_CAPITAL = 10_000;
 
-/** Matches `TRANSACTION_COST_RATE` in live-mark-to-market / entry turnover in portfolio-config-compute-core. */
-const USER_ENTRY_TRANSACTION_COST_RATE = 15 / 10_000;
-
 function toNumber(value: unknown, fallback = 0): number {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : fallback;
@@ -76,12 +73,12 @@ function buildFullMetricsFromSeries(
   const lastPoint = series[series.length - 1]!;
   const firstDate = firstPoint.date;
   const lastDate = lastPoint.date;
-  const aiStart = firstPoint.aiTop20;
+  const aiStart = firstPoint.aiPortfolio;
   const capStart = firstPoint.nasdaq100CapWeight;
   const eqStart = firstPoint.nasdaq100EqualWeight;
   const spStart = firstPoint.sp500;
 
-  const totalReturnAi = computeTotalReturn(aiStart, lastPoint.aiTop20);
+  const totalReturnAi = computeTotalReturn(aiStart, lastPoint.aiPortfolio);
   const totalReturnCap = computeTotalReturn(capStart, lastPoint.nasdaq100CapWeight);
   const totalReturnEqual = computeTotalReturn(eqStart, lastPoint.nasdaq100EqualWeight);
   const totalReturnSp = computeTotalReturn(spStart, lastPoint.sp500);
@@ -95,26 +92,26 @@ function buildFullMetricsFromSeries(
 
   return {
     startingCapital: aiStart,
-    endingValue: lastPoint.aiTop20,
+    endingValue: lastPoint.aiPortfolio,
     totalReturn: totalReturnAi,
-    cagr: cagrGated(aiStart, lastPoint.aiTop20, firstDate, lastDate),
-    maxDrawdown: computeMaxDrawdown(series.map((p) => p.aiTop20)),
+    cagr: cagrGated(aiStart, lastPoint.aiPortfolio, firstDate, lastDate),
+    maxDrawdown: computeMaxDrawdown(series.map((p) => p.aiPortfolio)),
     sharpeRatio: weeklyMtm.sharpe,
     sharpeRatioDecisionCadence: decisionSharpe,
     weeklyObservations: weeklyMtm.weeklyObservations,
     pctWeeksBeatingNasdaq100: computePctWeeksBeatingNasdaq100(
-      weeklySeries.map((p) => ({ aiValue: p.aiTop20, benchmarkValue: p.nasdaq100CapWeight }))
+      weeklySeries.map((p) => ({ aiValue: p.aiPortfolio, benchmarkValue: p.nasdaq100CapWeight }))
     ),
     pctWeeksBeatingSp500: computePctWeeksBeatingNasdaq100(
-      weeklySeries.map((p) => ({ aiValue: p.aiTop20, benchmarkValue: p.sp500 }))
+      weeklySeries.map((p) => ({ aiValue: p.aiPortfolio, benchmarkValue: p.sp500 }))
     ),
     pctWeeksBeatingNasdaq100EqualWeight: computePctWeeksBeatingNasdaq100(
-      weeklySeries.map((p) => ({ aiValue: p.aiTop20, benchmarkValue: p.nasdaq100EqualWeight }))
+      weeklySeries.map((p) => ({ aiValue: p.aiPortfolio, benchmarkValue: p.nasdaq100EqualWeight }))
     ),
     pctMonthsBeatingNasdaq100: computePctMonthsBeating(
       weeklySeries.map((p) => ({
         date: p.date,
-        aiValue: p.aiTop20,
+        aiValue: p.aiPortfolio,
         benchmarkValue: p.nasdaq100CapWeight,
       }))
     ),
@@ -188,9 +185,9 @@ export function buildMetricsFromSeries(
     periodsPerYearFromRebalanceFrequency(rebalanceFrequency)
   );
   const metrics: ConfigChartMetrics = {
-    totalReturn: computeTotalReturn(firstPoint.aiTop20, lastPoint.aiTop20),
-    cagr: cagrGated(firstPoint.aiTop20, lastPoint.aiTop20, firstDate, lastDate),
-    maxDrawdown: computeMaxDrawdown(series.map((p) => p.aiTop20)),
+    totalReturn: computeTotalReturn(firstPoint.aiPortfolio, lastPoint.aiPortfolio),
+    cagr: cagrGated(firstPoint.aiPortfolio, lastPoint.aiPortfolio, firstDate, lastDate),
+    maxDrawdown: computeMaxDrawdown(series.map((p) => p.aiPortfolio)),
     sharpeRatio: weeklyMtm.sharpe,
     sharpeRatioDecisionCadence: decisionSharpe,
     weeklyObservations: weeklyMtm.weeklyObservations,
@@ -226,7 +223,7 @@ export function applyEffectiveSeriesToMetrics(
 function scaleConfigEquities(row: ConfigPerfRow, scale: number): PerformanceSeriesPoint {
   return {
     date: row.run_date,
-    aiTop20: toNumber(row.ending_equity, INITIAL_CAPITAL) * scale,
+    aiPortfolio: toNumber(row.ending_equity, INITIAL_CAPITAL) * scale,
     nasdaq100CapWeight: toNumber(row.nasdaq100_cap_weight_equity, INITIAL_CAPITAL) * scale,
     nasdaq100EqualWeight: toNumber(row.nasdaq100_equal_weight_equity, INITIAL_CAPITAL) * scale,
     sp500: toNumber(row.sp500_equity, INITIAL_CAPITAL) * scale,
@@ -237,8 +234,9 @@ function scaleConfigEquities(row: ConfigPerfRow, scale: number): PerformanceSeri
  * Personal-track config series rebased to the user's entry date and investment size.
  * Uses the latest ready config row on or before the entry date as the baseline, then
  * applies all later ready config rows on the same scaled strategy path.
- * The inserted entry-date baseline is post-cost notional (investmentSize × (1 − 15 bps))
- * so it matches stored weekly sim economics and Explore daily MTM.
+ * The inserted entry-date baseline is `investmentSize` so chart dollars match every other
+ * user-rebased surface; the 15 bps entry cost stays in the underlying simulation and is
+ * reflected in the slope of subsequent points.
  */
 export function buildUserEntryConfigTrack(
   rows: ConfigPerfRow[],
@@ -283,13 +281,12 @@ export function buildUserEntryConfigTrack(
     return empty;
   }
 
-  const postCostNotional = investmentSize * (1 - USER_ENTRY_TRANSACTION_COST_RATE);
-  const scale = postCostNotional / baseEnd;
+  const scale = investmentSize / baseEnd;
   const futureRows = readyRows.slice(baseIndex + 1);
   const series: PerformanceSeriesPoint[] = [
     {
       date: userStartDate,
-      aiTop20: postCostNotional,
+      aiPortfolio: investmentSize,
       nasdaq100CapWeight: toNumber(baseRow.nasdaq100_cap_weight_equity, INITIAL_CAPITAL) * scale,
       nasdaq100EqualWeight: toNumber(baseRow.nasdaq100_equal_weight_equity, INITIAL_CAPITAL) * scale,
       sp500: toNumber(baseRow.sp500_equity, INITIAL_CAPITAL) * scale,
@@ -320,7 +317,7 @@ export function buildUserEntryConfigTrack(
 
 /**
  * Rows on/after user_start_date, all equity columns scaled so the first row's strategy
- * ending equity equals post-cost notional (same rule as {@link buildUserEntryConfigTrack}).
+ * ending equity equals `investmentSize` (display anchor; see §11 of performance-stats-single-source).
  */
 export function filterAndRebaseConfigRows(
   rows: ConfigPerfRow[],
@@ -334,7 +331,7 @@ export function filterAndRebaseConfigRows(
   const firstEnd = toNumber(from[0]!.ending_equity, INITIAL_CAPITAL);
   if (firstEnd <= 0) return from;
 
-  const k = (investmentSize * (1 - USER_ENTRY_TRANSACTION_COST_RATE)) / firstEnd;
+  const k = investmentSize / firstEnd;
   return from.map((r) => ({
     ...r,
     starting_equity: toNumber(r.starting_equity, INITIAL_CAPITAL) * k,
@@ -361,7 +358,7 @@ export function buildConfigPerformanceChart(
 
   const series: PerformanceSeriesPoint[] = sorted.map((row) => ({
     date: row.run_date,
-    aiTop20: toNumber(row.ending_equity, INITIAL_CAPITAL),
+    aiPortfolio: toNumber(row.ending_equity, INITIAL_CAPITAL),
     nasdaq100CapWeight: toNumber(row.nasdaq100_cap_weight_equity, INITIAL_CAPITAL),
     nasdaq100EqualWeight: toNumber(row.nasdaq100_equal_weight_equity, INITIAL_CAPITAL),
     sp500: toNumber(row.sp500_equity, INITIAL_CAPITAL),
@@ -379,9 +376,9 @@ export function buildConfigPerformanceChart(
 
   const weeklyMtm = computeWeeklyMtmSharpe(series);
   const metrics: ConfigChartMetrics = {
-    totalReturn: computeTotalReturn(INITIAL_CAPITAL, lastPoint.aiTop20),
-    cagr: cagrGated(INITIAL_CAPITAL, lastPoint.aiTop20, firstDate, lastDate),
-    maxDrawdown: computeMaxDrawdown(series.map((p) => p.aiTop20)),
+    totalReturn: computeTotalReturn(INITIAL_CAPITAL, lastPoint.aiPortfolio),
+    cagr: cagrGated(INITIAL_CAPITAL, lastPoint.aiPortfolio, firstDate, lastDate),
+    maxDrawdown: computeMaxDrawdown(series.map((p) => p.aiPortfolio)),
     sharpeRatio: weeklyMtm.sharpe,
     sharpeRatioDecisionCadence: computeSharpeAnnualized(
       netReturns,

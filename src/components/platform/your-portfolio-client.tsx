@@ -283,7 +283,7 @@ function computeYourPortfolioValue(
   userStartDate: string | null | undefined
 ): number | null {
   if (!series?.length) return null;
-  const last = series[series.length - 1]?.aiTop20;
+  const last = series[series.length - 1]?.aiPortfolio;
   if (last == null || !Number.isFinite(last) || last <= 0) return null;
   if (userStartDate && String(userStartDate).trim()) {
     return last;
@@ -424,10 +424,10 @@ function benchmarkStatsFromYourPortfolioSeries(series: PerformanceSeriesPoint[] 
   }
   const f = series[0]!;
   const l = series[series.length - 1]!;
-  if (f.aiTop20 <= 0 || f.nasdaq100CapWeight <= 0 || l.nasdaq100CapWeight <= 0) {
+  if (f.aiPortfolio <= 0 || f.nasdaq100CapWeight <= 0 || l.nasdaq100CapWeight <= 0) {
     return { excessVsNasdaqCap: null, excessVsNasdaqEqual: null, excessVsSp500: null };
   }
-  const portRet = l.aiTop20 / f.aiTop20 - 1;
+  const portRet = l.aiPortfolio / f.aiPortfolio - 1;
   const benchRet = l.nasdaq100CapWeight / f.nasdaq100CapWeight - 1;
   let excessVsNasdaqEqual: number | null = null;
   if (f.nasdaq100EqualWeight > 0 && l.nasdaq100EqualWeight > 0) {
@@ -1046,7 +1046,7 @@ function PortfolioRebalanceActionsTimeline({
 
 type ConfigPerfChartPoint = {
   date: string;
-  aiTop20: number;
+  aiPortfolio: number;
   nasdaq100CapWeight: number;
   nasdaq100EqualWeight: number;
   sp500: number;
@@ -2453,17 +2453,17 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       return investmentSize;
     }
     if (asOf && pts.length > 0) {
-      const exact = pts.find((p) => p.date === asOf)?.aiTop20;
+      const exact = pts.find((p) => p.date === asOf)?.aiPortfolio;
       if (exact != null && Number.isFinite(exact) && exact > 0) return exact;
       let onOrBefore: number | null = null;
       for (const p of pts) {
-        if (p.date <= asOf && Number.isFinite(p.aiTop20) && p.aiTop20 > 0) {
-          onOrBefore = p.aiTop20;
+        if (p.date <= asOf && Number.isFinite(p.aiPortfolio) && p.aiPortfolio > 0) {
+          onOrBefore = p.aiPortfolio;
         }
       }
       if (onOrBefore != null) return onOrBefore;
     }
-    const latest = pts[pts.length - 1]?.aiTop20;
+    const latest = pts[pts.length - 1]?.aiPortfolio;
     if (latest != null && Number.isFinite(latest) && latest > 0) return latest;
     return investmentSize;
   }, [
@@ -2528,14 +2528,14 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       return [
         {
           date: userStartYmd,
-          aiTop20: investmentSizeNum,
+          aiPortfolio: investmentSizeNum,
           nasdaq100CapWeight: investmentSizeNum,
           nasdaq100EqualWeight: investmentSizeNum,
           sp500: investmentSizeNum,
         },
         {
           date: holdingsLatestYmdEarly,
-          aiTop20: totalFromHoldingsEarly,
+          aiPortfolio: totalFromHoldingsEarly,
           nasdaq100CapWeight:
             lp?.nasdaq100CapWeight != null ? lp.nasdaq100CapWeight : (lastPt?.nasdaq100CapWeight ?? investmentSizeNum),
           nasdaq100EqualWeight:
@@ -2559,7 +2559,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     const lpTail = configHoldingsLivePoint;
     const nextBar = {
       date: holdingsLatestYmd,
-      aiTop20: totalFromHoldings,
+      aiPortfolio: totalFromHoldings,
       nasdaq100CapWeight:
         lpTail?.nasdaq100CapWeight != null ? lpTail.nasdaq100CapWeight : last.nasdaq100CapWeight,
       nasdaq100EqualWeight:
@@ -2568,9 +2568,9 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     };
     if (holdingsLatestYmd === last.date) {
       if (
-        last.aiTop20 != null &&
-        Number.isFinite(last.aiTop20) &&
-        Math.abs(last.aiTop20 - totalFromHoldings) < 0.005
+        last.aiPortfolio != null &&
+        Number.isFinite(last.aiPortfolio) &&
+        Math.abs(last.aiPortfolio - totalFromHoldings) < 0.005
       ) {
         return pts;
       }
@@ -2637,17 +2637,17 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       return investmentSize;
     }
     if (asOf && pts.length > 0) {
-      const exact = pts.find((p) => p.date === asOf)?.aiTop20;
+      const exact = pts.find((p) => p.date === asOf)?.aiPortfolio;
       if (exact != null && Number.isFinite(exact) && exact > 0) return exact;
       let onOrBefore: number | null = null;
       for (const p of pts) {
-        if (p.date <= asOf && Number.isFinite(p.aiTop20) && p.aiTop20 > 0) {
-          onOrBefore = p.aiTop20;
+        if (p.date <= asOf && Number.isFinite(p.aiPortfolio) && p.aiPortfolio > 0) {
+          onOrBefore = p.aiPortfolio;
         }
       }
       if (onOrBefore != null) return onOrBefore;
     }
-    const latest = pts[pts.length - 1]?.aiTop20;
+    const latest = pts[pts.length - 1]?.aiPortfolio;
     if (latest != null && Number.isFinite(latest) && latest > 0) return latest;
     return investmentSize;
   }, [
@@ -2734,7 +2734,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const holdingsPortfolioValueLineAmount = useMemo(() => {
     if (holdingsDateSelect === HOLDINGS_TODAY_SENTINEL) {
       const eff = effectiveDisplaySeries as PerformanceSeriesPoint[];
-      const effLast = eff[eff.length - 1]?.aiTop20;
+      const effLast = eff[eff.length - 1]?.aiPortfolio;
       if (effLast != null && Number.isFinite(effLast) && effLast > 0) {
         return effLast;
       }
@@ -2751,7 +2751,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
 
   const chartInitialNotional = useMemo(() => {
     const firstSeriesValue = (effectiveDisplaySeries as PerformanceSeriesPoint[] | undefined)?.[0]
-      ?.aiTop20;
+      ?.aiPortfolio;
     if (firstSeriesValue != null && Number.isFinite(firstSeriesValue) && firstSeriesValue > 0) {
       return firstSeriesValue;
     }

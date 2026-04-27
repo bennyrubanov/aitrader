@@ -205,23 +205,23 @@ export function RatingsGuestPreview({ signInHref, signUpHref }: Props) {
                     <TableHead className="min-w-[3.75rem] max-w-[5.5rem] whitespace-nowrap">
                       Symbol
                     </TableHead>
-                    <TableHead className="hidden min-w-0 max-w-[7rem] whitespace-nowrap lg:table-cell">
+                    <TableHead className="hidden whitespace-nowrap lg:table-cell lg:min-w-[8.5rem] lg:max-w-[10rem]">
                       Company
                     </TableHead>
-                    <TableHead className="min-w-[5.5rem] whitespace-nowrap">Price</TableHead>
-                    <TableHead className="min-w-[8.5rem] whitespace-nowrap !pr-1.5">
+                    <TableHead className="min-w-[5.5rem] whitespace-nowrap lg:min-w-[7rem]">Price</TableHead>
+                    <TableHead className="min-w-[8.5rem] whitespace-nowrap">
                       AI rating
                     </TableHead>
-                    <TableHead className="min-w-[9rem] whitespace-nowrap !pl-1 !pr-2 text-center align-middle">
-                      Price vs rating
-                    </TableHead>
-                    <TableHead className="hidden min-w-[9rem] max-w-[min(14rem,18vw)] xl:table-cell">
+                    <TableHead className="hidden xl:table-cell xl:min-w-[9rem] xl:max-w-[12rem]">
                       Analysis summary
                     </TableHead>
                     <TableHead className="hidden min-w-[6rem] max-w-[min(10rem,12vw)] xl:table-cell">
                       Risks
                     </TableHead>
-                    <TableHead className="w-[1%] min-w-[7.25rem] whitespace-nowrap text-right">
+                    <TableHead className="min-w-[9rem] whitespace-nowrap !pr-2 text-center align-middle">
+                      Price vs rating
+                    </TableHead>
+                    <TableHead className="w-[1%] min-w-[7.25rem] whitespace-nowrap !pr-4 text-right">
                       Full analysis
                     </TableHead>
                   </TableRow>
@@ -265,20 +265,20 @@ function FakeRatingsRow({
           {row.symbol}
         </MaskedValue>
       </TableCell>
-      <TableCell className="hidden min-w-0 max-w-[7rem] overflow-hidden text-muted-foreground lg:table-cell">
+      <TableCell className="hidden overflow-hidden text-muted-foreground lg:table-cell lg:min-w-[8.5rem] lg:max-w-[10rem]">
         <MaskedValue className="block max-w-full truncate">{row.company}</MaskedValue>
       </TableCell>
-      <TableCell>
+      <TableCell className="lg:min-w-[7rem]">
         <div className="leading-tight">
           <MaskedValue className="tabular-nums font-medium">
             <span>{row.price}</span>
           </MaskedValue>
-          <span className="mt-0.5 block text-[11px] text-muted-foreground">
+          <span className="mt-0.5 block text-[11px] text-muted-foreground lg:whitespace-nowrap">
             <MaskedValue>{row.priceDateLabel}</MaskedValue>
           </span>
         </div>
       </TableCell>
-      <TableCell className="!pr-1.5">
+      <TableCell>
         <span className="inline-flex flex-wrap items-center gap-1.5">
           <MaskedValue className="tabular-nums font-medium">{row.score}</MaskedValue>
           <MaskedValue className="text-[11px] tabular-nums text-muted-foreground">
@@ -289,7 +289,13 @@ function FakeRatingsRow({
           </Badge>
         </span>
       </TableCell>
-      <TableCell className="min-w-[9rem] !pl-1 !pr-2 text-center">
+      <TableCell className="hidden xl:table-cell xl:max-w-[12rem]">
+        <MaskedSnippetBars lines={2} />
+      </TableCell>
+      <TableCell className="hidden xl:table-cell xl:max-w-[10rem]">
+        <MaskedSnippetBars lines={2} />
+      </TableCell>
+      <TableCell className="min-w-[9rem] !pr-2 text-center">
         <span className="mx-auto inline-flex h-8 w-20 items-center justify-center rounded-md bg-muted/30 px-1">
           <MaskedValue>
             <span className="inline-flex h-5 items-end gap-px">
@@ -302,13 +308,7 @@ function FakeRatingsRow({
           </MaskedValue>
         </span>
       </TableCell>
-      <TableCell className="hidden min-w-0 xl:table-cell">
-        <MaskedSnippetBars lines={2} />
-      </TableCell>
-      <TableCell className="hidden min-w-0 xl:table-cell">
-        <MaskedSnippetBars lines={2} />
-      </TableCell>
-      <TableCell className="text-right">
+      <TableCell className="!pr-4 text-right">
         <span className="inline-flex h-7 items-center justify-end px-2 text-xs text-muted-foreground">
           Preview
         </span>
