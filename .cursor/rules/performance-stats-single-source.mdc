@@ -1,6 +1,6 @@
 ---
 description: Canonical methodology for portfolio-value and performance stats — one effective equity series drives every displayed number
-globs: src/components/performance/**, src/components/platform/**, src/lib/config-performance-chart.ts, src/lib/live-holdings-allocation.ts, src/lib/live-mark-to-market.ts, src/lib/config-daily-series.ts, src/lib/portfolio-config-holdings*.ts, src/app/api/platform/explore-portfolio-config-holdings/**, src/app/api/platform/explore-portfolios-equity-series/**
+globs: src/components/performance/**, src/components/platform/**, src/lib/config-performance-chart.ts, src/lib/live-holdings-allocation.ts, src/lib/live-mark-to-market.ts, src/lib/config-daily-series.ts, src/lib/portfolio-config-holdings*.ts, src/lib/portfolio-configs-ranked-core.ts, src/app/api/platform/explore-portfolio-config-holdings/**, src/app/api/platform/explore-portfolios-equity-series/**
 alwaysApply: false
 ---
 
@@ -24,8 +24,8 @@ If a headline `$` value is drawn from series A and its accompanying `%` is
 drawn from metrics computed off series B, they drift whenever the live tail
 runs ahead of the server-cached snapshot. That has happened repeatedly on
 `/platform/your-portfolios`, `/platform` (overview spotlight),
-`/performance/[slug]`, and can happen on the `/strategy-models/[slug]` explore
-chart too. The fix is always the same: **pick the effective series once,
+`/performance/[slug]`, including its portfolio-values section. The fix is always the same:
+**pick the effective series once,
 recompute metrics from it, and thread that object through the entire
 component tree.**
 
@@ -36,28 +36,16 @@ made and the same series is used everywhere on the page.
 
 ## 2. What "effective series" means
 
-Given a server-computed `displaySeries` and a holdings API response containing
-`totalCurrentValue` + `latestRunDate`, the client produces an
-`effectiveDisplaySeries` whose last point matches the most-recent priced
-valuation of the current basket. The rule:
+The daily snapshot is the canonical previous-close series. In steady state,
+`effectiveDisplaySeries` is a pass-through to the server-computed
+`displaySeries`, and every headline value reads the last point of that series.
 
-- If `holdingsDateSelect !== HOLDINGS_TODAY_SENTINEL`, effective = display (no
-  live tail when a historical date is selected).
-- Else if `holdingsLatestYmd > last.date`, **append** a new point with
-  `date: holdingsLatestYmd`; `aiPortfolio`: prefer finite-positive server
-  `livePoint.aiPortfolio`, else `buildLiveHoldingsAllocationResult(...).totalCurrentValue`;
-  benchmark legs: prefer `livePoint.nasdaq*` / `livePoint.sp500` from
-  `/api/platform/explore-portfolio-config-holdings` when present, else `last.*`.
-  Server-emitted `livePoint.aiPortfolio` and benchmark legs are lifted by §11's
-  per-leg factors before they leave the API, and
-  `buildLiveHoldingsAllocationResult(...).totalCurrentValue` is lifted by the
-  scale-invariance noted below; both fallbacks therefore agree on lifted
-  dollars.
-- Else if `holdingsLatestYmd === last.date` and the same tail `aiPortfolio` differs
-  from `last.aiPortfolio` by more than `$0.005`, **replace** the last point's
-  `aiPortfolio` with that tail value (benchmarks preserved).
-- Else effective = display (return the same array reference so downstream
-  reference-equality short-circuits fire).
+The old client-side append/replace live-tail pattern is no longer a steady-state
+UI mechanism. It is only acceptable as a brief stale-snapshot safety net for
+bulk endpoints that explicitly emit `livePoint` while
+`snapshot.asOfRunDate < latestRawRunDate`; once the cron rewrites
+`portfolio_config_daily_series`, the snapshot's last point is the source of
+truth again.
 
 `buildLiveHoldingsAllocationResult(...)` in
 [`src/lib/live-holdings-allocation.ts`](mdc:src/lib/live-holdings-allocation.ts)
@@ -69,8 +57,8 @@ series's** `aiPortfolio` **at the latest rebalance date** — the same
 holdings. After §11's display rebase the chart series is on the lifted
 scale, and `buildLiveHoldingsAllocationResult` is scale-invariant
 (`notional × Σ(weight_i × latestPx_i / asOfPx_i)`), so a lifted `notional`
-produces a lifted `totalCurrentValue` that stays coherent with the rest of
-the lifted chart and the §2 synthetic tail. It must
+produces a lifted `totalCurrentValue` that stays coherent with row-level
+holdings values. It must
 **not** be today's MTM, the chart's last `aiPortfolio`, or
 `effectiveSeries[effectiveSeries.length - 1].aiPortfolio` (after
 `continuous-daily-mtm-calendar`, that last point is already today's MTM;
@@ -128,35 +116,26 @@ shared across surfaces.
 
 `sharpeReturns` is the array of rebalance-cadence net returns used for
 decision-cadence Sharpe; it is cadence-dimensional and must NOT be re-derived
-from the effective series (which may include a sub-cadence tail). Pass the
-existing `sharpeReturns` untouched when recomputing — decision Sharpe is
-unaffected by a one-day live tail because the tail isn't a rebalance event.
-If the effective series _replaces_ the last rebalance bar rather than
-appending, decision Sharpe also remains valid because the last rebalance's
-net return is independent of the replaced end-of-day price; the weekly-MTM
-leg is the only Sharpe that needs recomputing, and `buildMetricsFromSeries`
-handles that automatically.
+from the effective series. Pass the existing `sharpeReturns` untouched when
+recomputing. In steady state, the snapshot series already includes the latest
+previous-close MTM point, so decision-cadence Sharpe stays tied to rebalance
+events while `buildMetricsFromSeries` handles the weekly-MTM leg.
 
 ## 5. Benchmarks
 
-When only `aiPortfolio` changes on the last bar (because `totalCurrentValue`
-prices the AI basket at latest close but benchmarks aren't tailed),
-`benchmarks.*.totalReturn` from `effectiveDisplayMetrics` matches the
-un-tailed values at the same `lastPoint.date`. That's correct behavior:
-vs-benchmark comparatives compare like-for-like end-of-day snapshots. If the
-tail adds a new later date, benchmark legs on that bar should come from the
-server-emitted `livePoint` (same MTM path as `buildConfigDailySeriesTailPoint`)
-when available; copying `last.*` is only a graceful degradation when `livePoint`
-is absent.
+Benchmark legs come from the same stored snapshot series as `aiPortfolio`.
+Because the daily cron rewrites the snapshot after raw price and benchmark
+ingestion, vs-benchmark comparatives compare like-for-like previous-close
+snapshots. If a bulk endpoint emits a temporary stale-snapshot `livePoint`, its
+benchmark legs must come from the same MTM path as
+`buildConfigDailySeriesTailPoint`.
 
 ## 6. Price source (not intraday)
 
-All “live” portfolio and holding valuations use **previous-close** prices: the
+All portfolio and holding valuations use **previous-close** prices: the
 holdings API sets `latestPriceBySymbol` from the max `run_date` in
 `nasdaq_100_daily_raw` (same basis as `loadLatestRawRunDate` in the MTM walk).
-There is **no** intraday quote fetch on any UI surface. The “live tail” only
-re-values the basket at that most recent **daily** close — it is not a
-real-time mark.
+There is **no** intraday quote fetch on any UI surface.
 
 ## 7. Data-side invariants (don't regress)
 
@@ -180,12 +159,17 @@ real-time mark.
   `strategy_portfolio_config_performance` has rows for that config; if the
   in-memory rows array is empty but a head-count on the perf table is `> 0`,
   downgrade to `'early'` (DB maps to `'ready'`) instead of a sticky empty row.
-- `ensureConfigDailySeries` and `refreshDailySeriesSnapshotsForStrategy` must
-  treat an existing snapshot with `data_status='empty'` as a cache-miss and
-  recompute even when `asOfRunDate` matches `latestRawRunDate`. The
-  per-request path (`ensureConfigDailySeries`) rate-limits those recomputes per
-  `(strategyId, configId)` (5 minutes) to avoid hot loops when upstream is
-  genuinely empty; the bulk cron path does not need that backoff.
+- `ensureConfigDailySeries` must treat an existing snapshot with
+  `data_status='empty'` as a cache-miss and recompute even when `asOfRunDate`
+  matches `latestRawRunDate`. The per-request path rate-limits those recomputes
+  per `(strategyId, configId)` (5 minutes) to avoid hot loops when upstream is
+  genuinely empty.
+- `refreshDailySeriesSnapshotsForStrategy` is the cron writer and MUST
+  recompute every active config for the current `latestRawRunDate`; do not skip
+  just because an existing snapshot has the same `asOfRunDate`. Raw prices for
+  a given `run_date` can be corrected or re-ingested after the first snapshot
+  write. The daily cron must invoke this refresh only after
+  `nasdaq_100_daily_raw` and `benchmark_daily_prices` ingestion for the day.
 - `buildLiveHoldingsAllocationResult` (`mode: 'live'`) requires
   `rebalanceDateNotional` to equal the **chart series's** `aiPortfolio` at
   the rebalance date that produced the snapshot in `asOfPriceBySymbol`.
@@ -201,80 +185,99 @@ real-time mark.
 
 ## 8. Multi-config (explore) surfaces
 
-Multi-config surfaces — `ExplorePortfoliosEquityChart` and any similar
-bulk-render view — cannot afford a per-config live fetch on render. Per
+Multi-config surfaces — `ExplorePortfoliosEquityChart`, portfolio pickers,
+ranked cards, and any similar bulk-render view — cannot afford a per-config
+live fetch on render. Per
 [daily-snapshot-invariant](mdc:.cursor/rules/daily-snapshot-invariant.mdc),
 they bulk-read `portfolio_config_daily_series` via `loadStrategyDailySeriesBulk`.
 The stored series's last point IS the latest live-MTM point (produced by
-`buildLatestMtmPointFromLastSnapshot` inside `computeConfigDailySeries`), so
-**as long as the snapshot is current** the explore chart's last-bar value
-equals the effective-series last value on the single-config surfaces.
+`buildLatestMtmPointFromLastSnapshot` inside `computeConfigDailySeries`), and
+the cron freshness invariant in §7 keeps that snapshot current.
+
+For hypothetical $10k surfaces, the displayed latest-close value must converge:
+the explore values chart last bar, `/performance` page body,
+`/performance/[slug]#portfolio-values`, performance portfolio picker rows,
+explore list cards, and explore detail dialog all read the same previous-close
+value after §11's $10k display lift. User-rebased surfaces such as
+`/platform/your-portfolios` and `/platform` overview use the same raw snapshot
+source but rebase to `investmentSize` at `userStart`; compare those surfaces
+only after normalizing for the same entry date and investment size.
 
 If alignment between explore and single-config surfaces is required while
 snapshots are stale, the server endpoint should compute **just the tail**
 (`buildLatestMtmPointFromLastSnapshot(config)` — cheap, no full walk) for
-each stale config and attach it to the payload; the client then applies the
-append/replace rule from §2 on render. This is the correct pattern;
-fanning out `ensureConfigDailySeries()` per config is forbidden.
+each stale config and attach it to the payload. This is a temporary safety net
+for the window before the cron snapshot rewrite, not the steady-state source of
+truth. Fanning out `ensureConfigDailySeries()` per config is forbidden.
 
 **Explore list + detail dialog (no extra ranked-API compute):** the
 `/api/platform/explore-portfolios-equity-series` response includes optional
 `livePoint` per `configId`. The explore client builds `livePointByConfigId` and
 passes the matching `livePoint` into each list `ConfigCard` and as `liveTail`
-on `ExplorePortfolioDetailDialog` so **headline portfolio $ / total return**
-match the values chart’s effective last point. Sharpe, CAGR, and max drawdown
-on list cards stay on the ranked snapshot (`RankedConfig.metrics`) — they are
-cadence-sized and are not moved by a one-day tail.
+on `ExplorePortfolioDetailDialog` only when the daily-series snapshot is stale.
+In steady state those `livePoint` values are null and **headline portfolio $ /
+total return** come from `RankedConfig.metrics.endingValuePortfolio`, matching
+the values chart's $10k-lifted snapshot last point. Sharpe, CAGR, and max
+drawdown on list cards also stay on the ranked snapshot
+(`RankedConfig.metrics`).
 
 **Two payload patterns:** `/api/platform/explore-portfolios-equity-series` emits
 per-config `livePoint` with `date`, `aiPortfolio`, and optional benchmark fields
-(`nasdaq100CapWeight`, `nasdaq100EqualWeight`, `sp500`); the explore client overlays it onto
-**headline portfolio $ / total return** on `ConfigCard` and
-`ExplorePortfolioDetailDialog`. `/api/platform/portfolio-configs-ranked` emits
-`RankedConfig.metrics` straight from `portfolio_config_daily_series`. Consumers
-that **aggregate across configs** (`/api/platform/strategy-models-ranked`,
-landing-page `ExperimentSection`, `ModelHeaderCard` on `/strategy-models/[slug]`,
-explore filters such as `filterBeatSp500`) intentionally do **not** use a
-`livePoint`-style overlay: (1) the daily cron ingests prices and then runs
-`refreshDailySeriesSnapshotsForStrategy` in the same handler
-([`src/app/api/cron/daily/route.ts`](mdc:src/app/api/cron/daily/route.ts)), so
-snapshot `asOfRunDate` stays aligned with `latestRawRunDate` before cache
-revalidation; (2) those surfaces show no same-page headline `$ / %` pair for a
-single config — nothing for §1 drift to fix; (3) landing-page
-`LandingPerformanceSection` charts read the same stored series as the ranked
-payload, so chart vs stats card stay coherent.
+(`nasdaq100CapWeight`, `nasdaq100EqualWeight`, `sp500`) only for stale
+snapshots. `/api/platform/portfolio-configs-ranked` emits `RankedConfig.metrics`
+from `portfolio_config_daily_series`, but
+`loadPortfolioConfigsRankedPayload` first replaces
+`endingValuePortfolio`, `endingValueMarket`,
+`endingValueNasdaq100EqualWeight`, and `endingValueSp500` with the last point
+of `rebaseSeriesForDisplay(snapshot.series, { displayInitial: 10_000 })`.
+Persisted snapshot metrics remain raw model-NAV; the ranked API response is
+display-anchored. Scale-invariant fields (`totalReturn`, `cagr`,
+`sharpeRatio`, `maxDrawdown`, beat rates, observations) stay unchanged.
+
+Consumers that **aggregate across configs**
+(`/api/platform/strategy-models-ranked`, landing-page `ExperimentSection`,
+`ModelHeaderCard` on `/performance/[slug]`, explore filters such as
+`filterBeatSp500`) intentionally do not use a per-request overlay; they are
+coherent because the daily cron rewrites the snapshot after price and benchmark
+ingestion and then revalidates caches. They should treat
+`RankedConfig.metrics.endingValue*` as already display-anchored and must not
+apply another 15 bps lift or haircut.
 
 ## 9. When to use this rule
 
 Touch this rule any time you:
 
 - Add or modify a number (`$`, `%`, ratio) displayed on `/performance/[slug]`,
-  `/platform/your-portfolios`, `/platform` overview, or
-  `/strategy-models/[slug]` explore.
+  `/platform/your-portfolios`, `/platform` overview,
+  `/platform/explore-portfolios`, portfolio picker rows, or
+  `/performance/[slug]#portfolio-values`.
 - Change `buildLatestMtmPointFromLastSnapshot`,
-  `buildLiveHoldingsAllocationResult`, `buildMetricsFromSeries`, or
-  `syncMissingConfigHoldingsSnapshots`.
+  `buildLiveHoldingsAllocationResult`, `buildMetricsFromSeries`,
+  `loadPortfolioConfigsRankedPayload`, or `syncMissingConfigHoldingsSnapshots`.
 - Wire a new client component to a portfolio performance payload.
 
-The landing page (`/`) is **intentionally out of scope** for this rule: it only
-shows cross-config aggregates tied to `RankedConfig.metrics`, and its performance
-carousel uses the same `portfolio_config_daily_series` source. If a future change
-adds a **single-config** headline `$` or total return % on `/`, that surface must
-follow §2–§4 (effective series threaded through the component tree).
+The landing page (`/`) is out of scope for the **same-page selected-portfolio
+checklist** in §10, but not for the ranked-metric display contract: any landing
+page card that consumes `RankedConfig.metrics.endingValue*` receives those
+values already lifted by `/api/platform/portfolio-configs-ranked`. Its
+performance carousel uses the same `portfolio_config_daily_series` source. If a
+future change adds a **single-config** headline `$` or total return % on `/`,
+that surface must follow §2–§4 (effective series threaded through the component
+tree).
 
 ## 10. Same-page convergence checklist (manual PR review)
 
-For one selected portfolio with **Today** holdings and a possible synthetic
-tail, every **dollar** and **total return %** on the same page must agree:
+For one selected portfolio with **Today** holdings, every **dollar** and
+**total return %** on the same page must agree:
 
 - **`/performance/[slug]`:** Key-metrics FlipCard headline; At-a-glance
   “Portfolio value”; overview `PerformanceChart` last point; holdings
-  `HoldingsPortfolioValueLine`; holdings table row $ (sum = line). All use
-  `effectivePerformanceDisplaySeries` / `effectiveDisplayMetrics`. The
-  synthetic tail's `aiPortfolio` comes from server `livePoint.aiPortfolio` when
-  present, else `buildLiveHoldingsAllocationResult(...).totalCurrentValue`; the
-  `notional` passed to that function is anchored at the **latest rebalance
-  date** per §2, never at the chart's last point.
+  `HoldingsPortfolioValueLine`; holdings table row $ (sum = line). Headline
+  values and charts use `effectivePerformanceDisplaySeries` /
+  `effectiveDisplayMetrics`, which pass through the rebased snapshot series in
+  steady state. Any holdings-row valuation that calls
+  `buildLiveHoldingsAllocationResult(...)` must anchor `notional` at the
+  **latest rebalance date** per §2, never at the chart's last point.
 - **`/platform/your-portfolios`:** Main portfolio value card; sidebar row
   override when selected; holdings line; `PerformanceChart` `initialNotional`
   from effective series first point; vs-benchmark stats from
@@ -285,8 +288,8 @@ tail, every **dollar** and **total return %** on the same page must agree:
   spotlight series; other tiles show an explicit “As of close · …” date from
   raw `cardState.series` last point.
 - **`/platform/explore-portfolios`:** List card Value ($ / %), values chart
-  last point, and detail dialog headline use the same `livePoint` tail when
-  present.
+  last point, and detail dialog headline use the same snapshot last point;
+  `livePoint` is only a stale-snapshot safety net.
 
 Invariant: `applyEffectiveSeriesToMetrics(...).endingValue ===
 effectiveSeries[effectiveSeries.length - 1].aiPortfolio` (see
@@ -328,21 +331,28 @@ the synthetic point's four legs are all `displayInitial`, and subsequent
 points are scaled by the per-leg factor of the baseline so each benchmark
 preserves co-movement.
 
-Live-tail point in §2 must be lifted by the same per-leg factor as the rest
-of the series before it is appended/replaced. Equivalently: rebase the
-snapshot series first, then run the §2 effective-series logic against the
-lifted series. Server endpoints lift before returning JSON:
+Any temporary stale-snapshot `livePoint` from §8 must be lifted by the same
+per-leg factor as the rest of the series before it is used. Server endpoints
+lift before returning JSON:
 
 - `/api/platform/portfolio-config-performance`
+- `/api/platform/portfolio-configs-ranked` / `loadPortfolioConfigsRankedPayload`
+  — lift `RankedConfig.metrics.endingValuePortfolio` and the benchmark
+  `endingValue*` legs to the $10k display anchor by per-leg-rebasing
+  `snapshot.series` with `rebaseSeriesForDisplay`. Build
+  `benchmarkEndingValues` / `liveTail.benchmark` from the same lifted last
+  point. Persisted `portfolio_config_daily_series.metrics` stays in raw
+  model-NAV dollars; ranking payloads lift once at the API boundary because
+  picker rows, explore cards, explore detail, and cross-config rank/comparison
+  helpers divide these ending values by `INITIAL_CAPITAL`.
 - `/api/platform/explore-portfolios-equity-series` (lifts both series and
   `livePoint`; `notionalSeries` passed to `buildConfigDailySeriesTailPoint`
   remains the **raw** snapshot to keep that helper in model dollars)
 - `/api/platform/explore-portfolio-config-holdings` — optional `livePoint` is
   lifted to the same **inception $10k** display scale via
   `liftTailPointForDisplay` (per-leg factors from `snapshot.series[0]`).
-  User-anchored chart tails must not copy `livePoint` benchmark legs onto a
-  user-rebased series; use the prior bar’s benchmark values (`last.*`) when
-  appending a synthetic tail (graceful degradation per §5).
+  User-anchored pages should prefer the snapshot series in steady state rather
+  than appending a per-request chart tail.
 - `/api/platform/user-portfolio-performance`
 - `buildGuestUserEntryPerformancePayload`
 

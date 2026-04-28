@@ -17,12 +17,29 @@ import {
   BadgeCheck,
   CheckCircle2,
   ChevronDown,
+  Cpu,
   ExternalLink,
+  FileText,
+  FilterX,
+  LayoutList,
+  LineChart,
+  ListFilter,
   Lock,
   ShieldCheck,
   Star,
   TrendingUp,
 } from 'lucide-react';
+import type {
+  RankedConfig,
+} from '@/app/api/platform/portfolio-configs-ranked/route';
+import {
+  ExplorePortfoliosEquityChart,
+} from '@/components/platform/explore-portfolios-equity-chart';
+import type {
+  ExploreBenchmarkSeries,
+  ExploreEquitySeriesRow,
+} from '@/components/platform/explore-portfolios-equity-chart-shared';
+import { ExplorePortfolioFilterControls } from '@/components/platform/explore-portfolio-filter-controls';
 import { HoldingRankWithChange } from '@/components/platform/holding-rank-with-change';
 import { MetricReadinessPill } from '@/components/platform/metric-readiness-pill';
 import { Button } from '@/components/ui/button';
@@ -56,10 +73,20 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 import { ContentPageLayout } from '@/components/ContentPageLayout';
 import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import { Disclaimer } from '@/components/Disclaimer';
-import { ModelHeaderCard, type ModelHeaderQuintileInsight } from '@/components/ModelHeaderCard';
+import { ModelHeaderCard } from '@/components/ModelHeaderCard';
 import {
   CagrOverTimeChart,
   CumulativeSharpeRatioChart,
@@ -90,7 +117,6 @@ import {
   prefetchExploreHoldingsDates,
   getCachedExploreHoldings,
   useExploreHoldingsCacheVersion,
-  type ExploreHoldingsLivePoint,
 } from '@/lib/portfolio-config-holdings-cache';
 import {
   buildLiveHoldingsAllocationResult,
@@ -150,6 +176,9 @@ const PerformanceChart = dynamic(
 const PERFORMANCE_TOC_BASE = [
   { id: 'strategy-model', label: 'Strategy model' },
   { id: 'selected-portfolio', label: 'Selected portfolio' },
+  { id: 'portfolio-values', label: 'Portfolio values' },
+  { id: 'model-overview', label: 'Model overview' },
+  { id: 'model-overview-prompt-design', label: '↳ Prompt design' },
   { id: 'overview', label: 'Performance overview' },
   { id: 'what-you-see', label: 'What you are looking at' },
   { id: 'holdings', label: 'Portfolio holdings' },
@@ -288,6 +317,366 @@ function perfFormatUsd(amount: number): string {
   }).format(amount);
 }
 
+function ConfigRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="flex justify-between gap-4 border-b py-1.5 text-sm last:border-0">
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      <span className={cn('truncate text-right font-medium', mono ? 'font-mono text-xs' : '')}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+const PROMPT_KEY_POINTS = [
+  'Scores each stock from -5 (very unattractive) to +5 (very attractive) relative to the next ~30 days of expected performance.',
+  'Uses a single live web search per stock to gather the latest 30 days of news, earnings, guidance, analyst revisions, and market reactions.',
+  'Graded on a curve against all other Nasdaq-100 members, not rated in isolation.',
+  'Assigns a continuous latent rank from 0 to 1 as the fine-grained ordinal signal that drives portfolio construction.',
+  'Maps scores to buy, hold, and sell buckets for transparency; the actual sort is by latent rank.',
+  'Requires explicit risks per rating, including uncertainty, model error, or conflicting signals.',
+  'Tracks change from the prior week and explains bucket changes when they happen.',
+];
+
+function ModelOverviewSections({
+  strategy,
+  hrefBase,
+}: {
+  strategy: NonNullable<PlatformPerformancePayload['strategy']>;
+  hrefBase: string;
+}) {
+  return (
+    <section id="model-overview" className="mb-10 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]">
+      <h2 className="group mb-4 flex items-center gap-2 text-2xl font-bold tracking-tight">
+        <Cpu className="size-5 shrink-0 text-trader-blue" /> Model overview
+        <SectionHeadingAnchor fragmentId="model-overview" hrefBase={hrefBase} copyAbsoluteUrlOnClick />
+      </h2>
+
+      <div id="model-overview-ai" className="mb-10 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]">
+        <div className="divide-y rounded-lg border bg-card p-5">
+          <ConfigRow label="Provider" value={strategy.modelProvider ?? 'OpenAI'} />
+          <ConfigRow label="Model" value={strategy.modelName ?? 'N/A'} mono />
+          <ConfigRow label="Universe" value="NASDAQ-100 (all ~100 members)" />
+          <ConfigRow label="Stocks rated per run" value="100" />
+          <ConfigRow label="Rating scale" value="-5 to +5 (integer) + latent rank 0-1" />
+          <ConfigRow label="Data per stock" value="Live web search, last 30 days" />
+          <ConfigRow label="Run frequency" value={strategy.rebalanceFrequency} />
+        </div>
+      </div>
+
+      <div
+        id="model-overview-prompt-design"
+        className="mb-10 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
+      >
+        <h3 className="group mb-3 flex items-center gap-2 text-xl font-bold">
+          <FileText className="size-5 shrink-0 text-trader-blue" /> Prompt design
+          <SectionHeadingAnchor
+            fragmentId="model-overview-prompt-design"
+            hrefBase={hrefBase}
+            copyAbsoluteUrlOnClick
+          />
+        </h3>
+        <p className="mb-3 text-sm text-muted-foreground">
+          Every stock is evaluated using the same structured prompt. Key instructions:
+        </p>
+        <ul className="space-y-2">
+          {PROMPT_KEY_POINTS.map((point) => (
+            <li key={point} className="flex items-start gap-2 text-sm text-foreground/80">
+              <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-trader-blue" />
+              {point}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  );
+}
+
+function rankedConfigMatchesSlice(config: RankedConfig, slice: PortfolioConfigSlice | null) {
+  return (
+    slice != null &&
+    config.riskLevel === slice.riskLevel &&
+    config.rebalanceFrequency === slice.rebalanceFrequency &&
+    config.weightingMethod === slice.weightingMethod
+  );
+}
+
+function rankedConfigToSlice(config: RankedConfig): PortfolioConfigSlice {
+  return {
+    riskLevel: config.riskLevel as PortfolioConfigSlice['riskLevel'],
+    rebalanceFrequency: config.rebalanceFrequency as PortfolioConfigSlice['rebalanceFrequency'],
+    weightingMethod: config.weightingMethod as PortfolioConfigSlice['weightingMethod'],
+  };
+}
+
+function PortfolioValuesSection({
+  slug,
+  rankedConfigs,
+  selectedPortfolioConfig,
+  onPortfolioConfigChange,
+  sectionHrefBase,
+}: {
+  slug: string;
+  rankedConfigs: RankedConfig[];
+  selectedPortfolioConfig: PortfolioConfigSlice | null;
+  onPortfolioConfigChange: (next: PortfolioConfigSlice) => void;
+  sectionHrefBase: string;
+}) {
+  const [browseMode, setBrowseMode] = useState<'list' | 'chart'>('list');
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filterBeatNasdaq, setFilterBeatNasdaq] = useState(false);
+  const [filterBeatSp500, setFilterBeatSp500] = useState(false);
+  const [riskFilter, setRiskFilter] = useState<RiskLevel | null>(null);
+  const [freqFilter, setFreqFilter] = useState<RebalanceFrequency | null>(null);
+  const [weightFilter, setWeightFilter] = useState<'equal' | 'cap' | null>(null);
+  const [equitySeriesPayload, setEquitySeriesPayload] = useState<{
+    dates: string[];
+    series: ExploreEquitySeriesRow[];
+    benchmarks: ExploreBenchmarkSeries | null;
+  } | null>(null);
+  const [equitySeriesLoading, setEquitySeriesLoading] = useState(false);
+
+  useEffect(() => {
+    if (riskFilter === 6 && weightFilter === 'cap') setWeightFilter(null);
+  }, [riskFilter, weightFilter]);
+
+  useEffect(() => {
+    if (browseMode !== 'chart' || equitySeriesPayload != null) return;
+    let cancelled = false;
+    setEquitySeriesLoading(true);
+    void fetch(`/api/platform/explore-portfolios-equity-series?slug=${encodeURIComponent(slug)}`)
+      .then((r) => r.json())
+      .then((d: { dates?: string[]; series?: ExploreEquitySeriesRow[]; benchmarks?: ExploreBenchmarkSeries }) => {
+        if (cancelled) return;
+        const dates = d.dates ?? [];
+        const bm = d.benchmarks;
+        const benchmarks =
+          bm &&
+          bm.nasdaq100Cap.length === dates.length &&
+          bm.nasdaq100Equal.length === dates.length &&
+          bm.sp500.length === dates.length
+            ? bm
+            : null;
+        setEquitySeriesPayload({ dates, series: d.series ?? [], benchmarks });
+      })
+      .catch(() => {
+        if (!cancelled) setEquitySeriesPayload({ dates: [], series: [], benchmarks: null });
+      })
+      .finally(() => {
+        if (!cancelled) setEquitySeriesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [browseMode, equitySeriesPayload, slug]);
+
+  const filteredConfigs = useMemo(() => {
+    let out = rankedConfigs;
+    if (filterBeatNasdaq) out = out.filter((c) => c.metrics.beatsMarket === true);
+    if (filterBeatSp500) out = out.filter((c) => c.metrics.beatsSp500 === true);
+    if (riskFilter != null) out = out.filter((c) => c.riskLevel === riskFilter);
+    if (freqFilter != null) out = out.filter((c) => c.rebalanceFrequency === freqFilter);
+    if (weightFilter != null) out = out.filter((c) => c.weightingMethod === weightFilter);
+    return out;
+  }, [rankedConfigs, filterBeatNasdaq, filterBeatSp500, riskFilter, freqFilter, weightFilter]);
+
+  const activeFilterCount =
+    Number(filterBeatNasdaq) +
+    Number(filterBeatSp500) +
+    Number(riskFilter != null) +
+    Number(freqFilter != null) +
+    Number(weightFilter != null);
+
+  const clearFilters = useCallback(() => {
+    setFilterBeatNasdaq(false);
+    setFilterBeatSp500(false);
+    setRiskFilter(null);
+    setFreqFilter(null);
+    setWeightFilter(null);
+  }, []);
+
+  const visibleConfigIds = useMemo(() => new Set(filteredConfigs.map((c) => c.id)), [filteredConfigs]);
+  const selectedConfig = useMemo(
+    () => rankedConfigs.find((c) => rankedConfigMatchesSlice(c, selectedPortfolioConfig)) ?? null,
+    [rankedConfigs, selectedPortfolioConfig]
+  );
+  const sortedRows = useMemo(
+    () =>
+      [...filteredConfigs].sort(
+        (a, b) =>
+          (b.metrics.endingValuePortfolio ?? Number.NEGATIVE_INFINITY) -
+          (a.metrics.endingValuePortfolio ?? Number.NEGATIVE_INFINITY)
+      ),
+    [filteredConfigs]
+  );
+
+  return (
+    <section id="portfolio-values" className="mb-10 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="group flex flex-wrap items-center gap-x-1 text-2xl font-bold tracking-tight">
+            Portfolio values
+            <SectionHeadingAnchor
+              fragmentId="portfolio-values"
+              hrefBase={sectionHrefBase}
+              copyAbsoluteUrlOnClick
+            />
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Compare the model&apos;s portfolio presets, then select one for the rest of this page.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <div className="inline-flex items-center gap-1 rounded-md border bg-muted/30 p-0.5">
+            <button
+              type="button"
+              onClick={() => setBrowseMode('list')}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-medium transition-colors',
+                browseMode === 'list' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              <LayoutList className="size-3.5" /> List
+            </button>
+            <button
+              type="button"
+              onClick={() => setBrowseMode('chart')}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-medium transition-colors',
+                browseMode === 'chart' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              <LineChart className="size-3.5" /> Chart
+            </button>
+          </div>
+          <Dialog open={filtersOpen} onOpenChange={setFiltersOpen}>
+            <DialogTrigger asChild>
+              <Button type="button" variant="outline" size="sm" className="gap-1.5">
+                <ListFilter className="size-3.5" />
+                Filters
+                {activeFilterCount > 0 ? (
+                  <span className="rounded-full bg-primary/15 px-1.5 text-[10px] font-semibold tabular-nums text-foreground">
+                    {activeFilterCount}
+                  </span>
+                ) : null}
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>Filter portfolios</DialogTitle>
+                <DialogDescription>
+                  Narrow the portfolio list and chart without changing the selected model.
+                </DialogDescription>
+              </DialogHeader>
+              <ExplorePortfolioFilterControls
+                filterBeatNasdaq={filterBeatNasdaq}
+                filterBeatSp500={filterBeatSp500}
+                onFilterBeatNasdaqChange={setFilterBeatNasdaq}
+                onFilterBeatSp500Change={setFilterBeatSp500}
+                riskFilter={riskFilter}
+                freqFilter={freqFilter}
+                weightFilter={weightFilter}
+                onRiskChange={setRiskFilter}
+                onFreqChange={setFreqFilter}
+                onWeightChange={setWeightFilter}
+              />
+              <DialogFooter className="gap-2 sm:justify-between">
+                <Button type="button" variant="ghost" size="sm" onClick={clearFilters} className="gap-1.5">
+                  <FilterX className="size-3.5" /> Clear filters
+                </Button>
+                <DialogClose asChild>
+                  <Button type="button" size="sm">Done</Button>
+                </DialogClose>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
+      </div>
+
+      <div className="rounded-xl border bg-card p-3 sm:p-4">
+        {rankedConfigs.length === 0 ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">Portfolio values are loading.</p>
+        ) : filteredConfigs.length === 0 ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">
+            No portfolios match the selected filters.
+          </p>
+        ) : browseMode === 'chart' ? (
+          equitySeriesLoading || equitySeriesPayload == null ? (
+            <Skeleton className="h-[360px] w-full rounded-lg" />
+          ) : (
+            <ExplorePortfoliosEquityChart
+              variant="performancePicker"
+              dates={equitySeriesPayload.dates}
+              series={equitySeriesPayload.series.map((s) => ({
+                ...s,
+                riskLevel: rankedConfigs.find((c) => c.id === s.configId)?.riskLevel ?? 3,
+              }))}
+              benchmarks={equitySeriesPayload.benchmarks}
+              visibleConfigIds={visibleConfigIds}
+              selectedConfigId={selectedConfig?.id ?? null}
+              onSelectConfig={(configId) => {
+                const found = rankedConfigs.find((c) => c.id === configId);
+                if (found) onPortfolioConfigChange(rankedConfigToSlice(found));
+              }}
+            />
+          )
+        ) : (
+          <div className="max-h-[28rem] space-y-2 overflow-y-auto pr-1">
+            {sortedRows.map((config, index) => {
+              const selected = config.id === selectedConfig?.id;
+              const riskColor = RETURNS_TABLE_RISK_DOT[config.riskLevel as RiskLevel] ?? 'bg-muted';
+              return (
+                <button
+                  key={config.id}
+                  type="button"
+                  onClick={() => onPortfolioConfigChange(rankedConfigToSlice(config))}
+                  className={cn(
+                    'flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors',
+                    selected
+                      ? 'border-primary/50 bg-primary/[0.06] ring-1 ring-primary/25'
+                      : 'border-border/50 hover:bg-muted/30'
+                  )}
+                >
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted/60 text-sm font-bold tabular-nums">
+                    {index + 1}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-background/80 px-2 py-0.5 text-[11px] font-semibold text-foreground">
+                        <span className={cn('size-1.5 rounded-full', riskColor)} aria-hidden />
+                        {config.riskLabel || RISK_LABELS[config.riskLevel as RiskLevel]}
+                      </span>
+                      <span className="text-sm font-semibold text-foreground">{config.label}</span>
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-right text-xs tabular-nums">
+                    <span className="block text-muted-foreground">
+                      $10k {'->'}{' '}
+                      <span className="font-bold text-foreground">
+                        {perfFormatUsd(config.metrics.endingValuePortfolio ?? 0)}
+                      </span>
+                    </span>
+                    {config.metrics.totalReturn != null ? (
+                      <span
+                        className={cn(
+                          'font-medium',
+                          config.metrics.totalReturn >= 0 ? 'text-green-600' : 'text-red-600'
+                        )}
+                      >
+                        {fmt.pct(config.metrics.totalReturn)}
+                      </span>
+                    ) : null}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function PublicPerformanceHoldingsLoadingSkeleton({
   sectionLabel,
   sectionHrefBase,
@@ -373,40 +762,6 @@ function PublicPerformanceReturnsLoadingSkeleton() {
             </div>
           </div>
         ))}
-      </div>
-      <div className="rounded-lg border bg-muted/30 overflow-hidden">
-        <div className="space-y-2 border-b p-4">
-          <Skeleton className="h-4 w-40 rounded-sm" />
-          <Skeleton className="h-3 w-64 max-w-full rounded-sm" />
-        </div>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Strategy / Benchmark</TableHead>
-              <TableHead className="text-right">Total return</TableHead>
-              <TableHead className="text-right">CAGR</TableHead>
-              <TableHead className="text-right">Max drawdown</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {Array.from({ length: 4 }).map((_, idx) => (
-              <TableRow key={`returns-table-skeleton-${idx}`}>
-                <TableCell>
-                  <Skeleton className="h-4 w-36 rounded-sm" />
-                </TableCell>
-                <TableCell className="text-right">
-                  <Skeleton className="ml-auto h-4 w-16 rounded-sm" />
-                </TableCell>
-                <TableCell className="text-right">
-                  <Skeleton className="ml-auto h-4 w-14 rounded-sm" />
-                </TableCell>
-                <TableCell className="text-right">
-                  <Skeleton className="ml-auto h-4 w-20 rounded-sm" />
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
       </div>
       <Skeleton className="h-[240px] w-full rounded-lg" />
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -680,10 +1035,6 @@ function PerformancePagePublicClientInner({
     null
   );
   const [holdingsRebalanceDates, setHoldingsRebalanceDates] = useState<string[]>([]);
-  const [holdingsExploreLatestRunDate, setHoldingsExploreLatestRunDate] = useState<string | null>(null);
-  const [holdingsExploreLivePoint, setHoldingsExploreLivePoint] = useState<ExploreHoldingsLivePoint | null>(
-    null
-  );
   const [holdingsLoading, setHoldingsLoading] = useState(true);
 
   const holdingsSectionLabel = entitledToHoldings ? 'Portfolio holdings' : 'Top rated stocks';
@@ -833,8 +1184,6 @@ function PerformancePagePublicClientInner({
       setHoldingsRebalanceDates([]);
       setHoldingsAsOfPriceBySymbol({});
       setHoldingsLatestPriceBySymbol({});
-      setHoldingsExploreLatestRunDate(null);
-      setHoldingsExploreLivePoint(null);
       setHoldingsLoading(false);
       return;
     }
@@ -845,8 +1194,6 @@ function PerformancePagePublicClientInner({
       setHoldingsRebalanceDates([]);
       setHoldingsAsOfPriceBySymbol({});
       setHoldingsLatestPriceBySymbol({});
-      setHoldingsExploreLatestRunDate(null);
-      setHoldingsExploreLivePoint(null);
       setHoldingsLoading(false);
       return;
     }
@@ -865,15 +1212,11 @@ function PerformancePagePublicClientInner({
         setHoldingsRebalanceDates([]);
         setHoldingsAsOfPriceBySymbol({});
         setHoldingsLatestPriceBySymbol({});
-        setHoldingsExploreLatestRunDate(null);
-        setHoldingsExploreLivePoint(null);
       } else {
         setHoldings(data.holdings);
         setHoldingsAsOfPriceBySymbol(data.asOfPriceBySymbol);
         setHoldingsLatestPriceBySymbol(data.latestPriceBySymbol);
         setHoldingsRebalanceDates(data.rebalanceDates);
-        setHoldingsExploreLatestRunDate(data.latestRunDate ?? null);
-        setHoldingsExploreLivePoint(data.livePoint ?? null);
         const row = performanceHoldingsRankedRow;
         setHoldingsConfigSummary(
           row
@@ -1025,33 +1368,6 @@ function PerformancePagePublicClientInner({
   const metrics = useMemo(() => payload.metrics ?? null, [payload.metrics]);
   const research = useMemo(() => payload.research ?? null, [payload.research]);
 
-  const headerQuintileInsight = useMemo((): ModelHeaderQuintileInsight | null => {
-    const history = research?.quintileHistory ?? [];
-    const summary = research?.quintileSummary;
-    const qwr = research?.quintileWinRate;
-    const hasWin =
-      qwr != null &&
-      typeof qwr.total === 'number' &&
-      qwr.total > 0 &&
-      typeof qwr.wins === 'number' &&
-      Number.isFinite(qwr.rate);
-    const latest = history[0];
-    let latestWeekSpread: number | null = null;
-    if (latest?.rows?.length) {
-      const q1 = latest.rows.find((r) => r.quintile === 1)?.return;
-      const q5 = latest.rows.find((r) => r.quintile === 5)?.return;
-      if (typeof q1 === 'number' && typeof q5 === 'number') latestWeekSpread = q5 - q1;
-    }
-    if (!hasWin && (latestWeekSpread == null || !Number.isFinite(latestWeekSpread))) return null;
-    return {
-      winRate: hasWin ? { wins: qwr!.wins, total: qwr!.total, rate: qwr!.rate } : null,
-      avgSpread: summary?.avgSpread ?? null,
-      weeksObserved: summary?.weeksObserved ?? 0,
-      latestWeekSpread,
-      latestWeekRunDate: latest?.runDate ?? null,
-    };
-  }, [research]);
-
   const configMetricsReady =
     Boolean(slug) &&
     !portfolioPerf.perfLoading &&
@@ -1112,56 +1428,11 @@ function PerformancePagePublicClientInner({
   const displayMetricDecisionObservations =
     performanceHoldingsRankedRow?.metrics.decisionObservations ?? null;
 
-  /**
-   * Align chart/endpoint with holdings block for "Today":
-   *  - holdings date strictly newer → append synthetic bar
-   *  - holdings date equals series last date but totals differ → replace last bar
-   *  - otherwise keep series untouched
-   */
-  const effectivePerformanceDisplaySeries = useMemo(() => {
-    const pts = displaySeries as PerformanceSeriesPoint[];
-    if (!pts.length) return pts;
-    if (holdingsAsOfDate !== null) return pts;
-    const holdingsLatestYmd = holdingsExploreLatestRunDate;
-    if (!holdingsLatestYmd) return pts;
-    const last = pts[pts.length - 1]!;
-    if (holdingsLatestYmd < last.date) return pts;
-    const lp = holdingsExploreLivePoint;
-    const totalFromHoldings = performanceLiveHoldingsAllocation.totalCurrentValue;
-    const tailAiTop20 =
-      lp?.aiPortfolio != null && Number.isFinite(lp.aiPortfolio) && lp.aiPortfolio > 0
-        ? lp.aiPortfolio
-        : totalFromHoldings;
-    if (tailAiTop20 == null || !Number.isFinite(tailAiTop20) || tailAiTop20 <= 0) {
-      return pts;
-    }
-    const nextBar = {
-      date: holdingsLatestYmd,
-      aiPortfolio: tailAiTop20,
-      nasdaq100CapWeight:
-        lp?.nasdaq100CapWeight != null ? lp.nasdaq100CapWeight : last.nasdaq100CapWeight,
-      nasdaq100EqualWeight:
-        lp?.nasdaq100EqualWeight != null ? lp.nasdaq100EqualWeight : last.nasdaq100EqualWeight,
-      sp500: lp?.sp500 != null ? lp.sp500 : last.sp500,
-    };
-    if (holdingsLatestYmd === last.date) {
-      if (
-        last.aiPortfolio != null &&
-        Number.isFinite(last.aiPortfolio) &&
-        Math.abs(last.aiPortfolio - tailAiTop20) < 0.005
-      ) {
-        return pts;
-      }
-      return [...pts.slice(0, -1), nextBar];
-    }
-    return [...pts, nextBar];
-  }, [
-    displaySeries,
-    holdingsAsOfDate,
-    holdingsExploreLatestRunDate,
-    holdingsExploreLivePoint,
-    performanceLiveHoldingsAllocation.totalCurrentValue,
-  ]);
+  /** Daily snapshot is the canonical previous-close series; all headline stats derive from it. */
+  const effectivePerformanceDisplaySeries = useMemo(
+    () => displaySeries as PerformanceSeriesPoint[],
+    [displaySeries]
+  );
 
   const performanceCfgRowsEffective = useMemo(
     () => chartSeriesToPerfRowsForRebase(effectivePerformanceDisplaySeries as PerformanceSeriesPoint[]),
@@ -1199,8 +1470,7 @@ function PerformancePagePublicClientInner({
     const eff = effectivePerformanceDisplaySeries as PerformanceSeriesPoint[];
     const ymd =
       holdingsAsOfDate === null
-        ? holdingsExploreLatestRunDate ??
-          (eff.length ? eff[eff.length - 1]!.date : null)
+        ? (eff.length ? eff[eff.length - 1]!.date : null)
         : performanceHoldingsAsOfYmd;
     if (!ymd) return null;
     try {
@@ -1212,7 +1482,6 @@ function PerformancePagePublicClientInner({
     holdingsAsOfDate,
     effectivePerformanceDisplaySeries,
     performanceHoldingsAsOfYmd,
-    holdingsExploreLatestRunDate,
   ]);
 
   const performanceHoldingsPortfolioValue = useMemo(() => {
@@ -1222,9 +1491,7 @@ function PerformancePagePublicClientInner({
       if (effLast != null && Number.isFinite(effLast) && effLast > 0) {
         return effLast;
       }
-      return (
-        performanceLiveHoldingsAllocation.totalCurrentValue ?? performanceHoldingsAllocationBaseNotional
-      );
+      return null;
     }
     const cb = performanceSelectedCostBasis?.portfolioValue;
     if (cb != null && Number.isFinite(cb) && cb > 0) {
@@ -1234,8 +1501,6 @@ function PerformancePagePublicClientInner({
   }, [
     holdingsAsOfDate,
     effectivePerformanceDisplaySeries,
-    performanceLiveHoldingsAllocation.totalCurrentValue,
-    performanceHoldingsAllocationBaseNotional,
     performanceHoldingsModelNotional,
     performanceSelectedCostBasis?.portfolioValue,
   ]);
@@ -1660,7 +1925,7 @@ function PerformancePagePublicClientInner({
                   <span>
                     Top performing strategy model{' '}
                     <Link
-                      href={`/strategy-models/${STRATEGY_CONFIG.slug}#model-ranking`}
+                      href={`/whitepaper/${STRATEGY_CONFIG.slug}#model-ranking`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="group inline-flex items-center font-medium text-trader-blue dark:text-trader-blue-light underline-offset-2 transition hover:underline"
@@ -1680,7 +1945,7 @@ function PerformancePagePublicClientInner({
                 size="sm"
                 className="w-full justify-start gap-1.5 text-xs h-7 px-1"
               >
-                <Link href={`/strategy-models/${effectiveStrategy.slug}`}>
+                <Link href={`/performance/${effectiveStrategy.slug}#model-overview`}>
                   <ExternalLink className="size-3 shrink-0" />
                   How this model works
                 </Link>
@@ -1706,6 +1971,7 @@ function PerformancePagePublicClientInner({
   return (
     <ContentPageLayout
       title="Performance"
+      hideTitle
       tableOfContents={performanceTableOfContents}
       sidebarSlot={sidebarSlot}
       tocPosition="right"
@@ -1730,7 +1996,6 @@ function PerformancePagePublicClientInner({
             modelName={effectiveStrategy.modelName}
             variant="performance"
             beatMarketSlug={effectiveStrategy.slug}
-            quintileHeaderInsight={headerQuintileInsight}
             crossSectionRegression={headerCrossSectionRegression}
             researchValidationHref="#research-signal-strength"
           />
@@ -1756,6 +2021,20 @@ function PerformancePagePublicClientInner({
             effectiveMetricsOverride={portfolioAtAGlanceEffectiveMetricsOverride}
           />
         </section>
+      ) : null}
+
+      {slug ? (
+        <PortfolioValuesSection
+          slug={slug}
+          rankedConfigs={portfolioPerf.rankedConfigs}
+          selectedPortfolioConfig={portfolioPerf.portfolioConfig}
+          onPortfolioConfigChange={setSidebarPortfolioConfig}
+          sectionHrefBase={sectionHrefBase}
+        />
+      ) : null}
+
+      {effectiveStrategy ? (
+        <ModelOverviewSections strategy={effectiveStrategy} hrefBase={sectionHrefBase} />
       ) : null}
 
       {/* ── A: Overview ─────────────────────────────────────────────────── */}
@@ -1910,6 +2189,110 @@ function PerformancePagePublicClientInner({
             </AccordionItem>
           </Accordion>
         )}
+
+        {!overviewPortfolioDataLoading && displayMetrics ? (
+          <div className="rounded-lg border bg-muted/30 overflow-hidden">
+            <div className="border-b p-4">
+              <p className="text-sm font-medium">Compared to benchmarks</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                All returns measured from{' '}
+                {effectiveStrategy?.startDate ? fmt.date(effectiveStrategy.startDate) : 'inception'}{' '}
+                to {latestDisplayDate ? fmt.date(latestDisplayDate) : 'present'}.
+              </p>
+            </div>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Strategy / Benchmark</TableHead>
+                  <TableHead className="text-right">Total return</TableHead>
+                  <TableHead className="text-right">CAGR</TableHead>
+                  <TableHead className="text-right">Max drawdown</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <TableRow className="bg-trader-blue/5">
+                  <TableCell className="font-medium">
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                        <span>{effectiveStrategy?.name ?? 'AI Strategy'}</span>
+                        {returnsBenchmarkTablePortfolioLine ? (
+                          <span className="inline-flex items-center gap-1.5 text-xs font-normal text-muted-foreground">
+                            <span
+                              className={cn(
+                                'size-1.5 shrink-0 rounded-full',
+                                returnsBenchmarkTablePortfolioLine.dotClass
+                              )}
+                              aria-hidden
+                            />
+                            <span>{returnsBenchmarkTablePortfolioLine.label}</span>
+                          </span>
+                        ) : null}
+                      </div>
+                      {outperformanceVsCap != null && (
+                        <div
+                          className={`text-xs font-normal ${outperformanceVsCap >= 0 ? 'text-green-600' : 'text-red-500'}`}
+                        >
+                          {outperformanceVsCap >= 0 ? '+' : ''}
+                          {(outperformanceVsCap * 100).toFixed(1)}% vs Nasdaq-100 (cap-weighted,
+                          cumulative)
+                        </div>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right font-semibold">
+                    {fmt.pct(effectiveDisplayMetrics?.totalReturn)}
+                  </TableCell>
+                  <TableCell className="text-right">{fmt.pct(effectiveDisplayMetrics?.cagr)}</TableCell>
+                  <TableCell className="text-right">
+                    {fmt.pct(effectiveDisplayMetrics?.maxDrawdown)}
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="text-muted-foreground">
+                    Nasdaq-100 (cap-weighted)
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {fmt.pct(effectiveDisplayMetrics?.benchmarks.nasdaq100CapWeight.totalReturn)}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {fmt.pct(effectiveDisplayMetrics?.benchmarks.nasdaq100CapWeight.cagr)}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {fmt.pct(effectiveDisplayMetrics?.benchmarks.nasdaq100CapWeight.maxDrawdown)}
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="text-muted-foreground">
+                    Nasdaq-100 (equal-weighted)
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {fmt.pct(effectiveDisplayMetrics?.benchmarks.nasdaq100EqualWeight.totalReturn)}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {fmt.pct(effectiveDisplayMetrics?.benchmarks.nasdaq100EqualWeight.cagr)}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {fmt.pct(effectiveDisplayMetrics?.benchmarks.nasdaq100EqualWeight.maxDrawdown)}
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="text-muted-foreground">
+                    S&amp;P 500 (cap-weighted)
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {fmt.pct(effectiveDisplayMetrics?.benchmarks.sp500.totalReturn)}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {fmt.pct(effectiveDisplayMetrics?.benchmarks.sp500.cagr)}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {fmt.pct(effectiveDisplayMetrics?.benchmarks.sp500.maxDrawdown)}
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </div>
+        ) : null}
 
         {slug && configPerfSlice?.computeStatus === 'in_progress' && !configMetricsReady && (
           <p className="text-xs text-amber-700 dark:text-amber-400">
@@ -2386,107 +2769,6 @@ function PerformancePagePublicClientInner({
                 explanation="Annualized compound growth rate — what the portfolio's growth would look like if it grew at this pace every year."
                 positive={(effectiveDisplayMetrics?.cagr ?? 0) > 0}
               />
-            </div>
-            <div className="rounded-lg border bg-muted/30 overflow-hidden">
-              <div className="p-4 border-b">
-                <p className="text-sm font-medium">Compared to benchmarks</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  All returns measured from{' '}
-                  {effectiveStrategy?.startDate ? fmt.date(effectiveStrategy.startDate) : 'inception'}{' '}
-                  to {latestDisplayDate ? fmt.date(latestDisplayDate) : 'present'}.
-                </p>
-              </div>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Strategy / Benchmark</TableHead>
-                    <TableHead className="text-right">Total return</TableHead>
-                    <TableHead className="text-right">CAGR</TableHead>
-                    <TableHead className="text-right">Max drawdown</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  <TableRow className="bg-trader-blue/5">
-                    <TableCell className="font-medium">
-                      <div className="space-y-1">
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                          <span>{effectiveStrategy?.name ?? 'AI Strategy'}</span>
-                          {returnsBenchmarkTablePortfolioLine ? (
-                            <span className="inline-flex items-center gap-1.5 text-xs font-normal text-muted-foreground">
-                              <span
-                                className={cn(
-                                  'size-1.5 shrink-0 rounded-full',
-                                  returnsBenchmarkTablePortfolioLine.dotClass
-                                )}
-                                aria-hidden
-                              />
-                              <span>{returnsBenchmarkTablePortfolioLine.label}</span>
-                            </span>
-                          ) : null}
-                        </div>
-                        {outperformanceVsCap != null && (
-                          <div
-                            className={`text-xs font-normal ${outperformanceVsCap >= 0 ? 'text-green-600' : 'text-red-500'}`}
-                          >
-                            {outperformanceVsCap >= 0 ? '+' : ''}
-                            {(outperformanceVsCap * 100).toFixed(1)}% vs Nasdaq-100 (cap-weighted,
-                            cumulative)
-                          </div>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right font-semibold">
-                      {fmt.pct(effectiveDisplayMetrics?.totalReturn)}
-                    </TableCell>
-                    <TableCell className="text-right">{fmt.pct(effectiveDisplayMetrics?.cagr)}</TableCell>
-                    <TableCell className="text-right">
-                      {fmt.pct(effectiveDisplayMetrics?.maxDrawdown)}
-                    </TableCell>
-                  </TableRow>
-                  <TableRow>
-                    <TableCell className="text-muted-foreground">
-                      Nasdaq-100 (cap-weighted)
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {fmt.pct(effectiveDisplayMetrics?.benchmarks.nasdaq100CapWeight.totalReturn)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {fmt.pct(effectiveDisplayMetrics?.benchmarks.nasdaq100CapWeight.cagr)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {fmt.pct(effectiveDisplayMetrics?.benchmarks.nasdaq100CapWeight.maxDrawdown)}
-                    </TableCell>
-                  </TableRow>
-                  <TableRow>
-                    <TableCell className="text-muted-foreground">
-                      Nasdaq-100 (equal-weighted)
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {fmt.pct(effectiveDisplayMetrics?.benchmarks.nasdaq100EqualWeight.totalReturn)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {fmt.pct(effectiveDisplayMetrics?.benchmarks.nasdaq100EqualWeight.cagr)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {fmt.pct(effectiveDisplayMetrics?.benchmarks.nasdaq100EqualWeight.maxDrawdown)}
-                    </TableCell>
-                  </TableRow>
-                  <TableRow>
-                    <TableCell className="text-muted-foreground">
-                      S&amp;P 500 (cap-weighted)
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {fmt.pct(effectiveDisplayMetrics?.benchmarks.sp500.totalReturn)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {fmt.pct(effectiveDisplayMetrics?.benchmarks.sp500.cagr)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {fmt.pct(effectiveDisplayMetrics?.benchmarks.sp500.maxDrawdown)}
-                    </TableCell>
-                  </TableRow>
-                </TableBody>
-              </Table>
             </div>
 
             {/* Returns charts */}
@@ -3388,7 +3670,7 @@ function PerformancePagePublicClientInner({
                       </p>
                       {effectiveStrategy && (
                         <Link
-                          href={`/strategy-models/${effectiveStrategy.slug}#methodology-regression`}
+                          href={`/whitepaper/${effectiveStrategy.slug}#methodology-regression`}
                           className="text-trader-blue hover:underline inline-flex items-center gap-1"
                         >
                           Full calculation details <ArrowRight className="size-3" />
@@ -3414,7 +3696,7 @@ function PerformancePagePublicClientInner({
             returns. We test this hypothesis live.{' '}
             {effectiveStrategy && (
               <Link
-                href={`/strategy-models/${effectiveStrategy.slug}`}
+                href={`/whitepaper/${effectiveStrategy.slug}`}
                 className="text-trader-blue hover:underline inline-flex items-center gap-1"
               >
                 See how this model works <ArrowRight className="size-3" />
@@ -3463,19 +3745,18 @@ function PerformancePagePublicClientInner({
         </p>
       </section>
 
-      {/* ── Link to model ────────────────────────────────────────────────── */}
+      {/* ── Link to whitepaper ───────────────────────────────────────────── */}
       {effectiveStrategy && (
         <div className="rounded-xl border border-trader-blue/20 bg-trader-blue/5 p-6 flex flex-col sm:flex-row items-start sm:items-center gap-4 mb-8">
           <div className="flex-1">
-            <p className="font-semibold mb-1">Want to understand how this model works?</p>
+            <p className="font-semibold mb-1">Want the methodology notes?</p>
             <p className="text-sm text-muted-foreground">
-              See the full methodology, AI model configuration, prompt design, and scientific
-              grounding.
+              See the full methodology, portfolio-ranking rules, and scientific grounding.
             </p>
           </div>
           <Button asChild>
-            <Link href={`/strategy-models/${effectiveStrategy.slug}`} className="gap-2 shrink-0">
-              Model details <ArrowRight className="size-4" />
+            <Link href={`/whitepaper/${effectiveStrategy.slug}`} className="gap-2 shrink-0">
+              Whitepaper <ArrowRight className="size-4" />
             </Link>
           </Button>
         </div>

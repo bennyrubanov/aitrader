@@ -12,7 +12,7 @@ import {
   ChevronDown,
   CircleHelp,
   CreditCard,
-  FlaskConical,
+  FileText,
   Gauge,
   Landmark,
   LayoutDashboard,
@@ -50,7 +50,7 @@ import type { SubscriptionTier } from "@/lib/auth-state";
 
 const platformNavItems: PlatformNavItem[] = [
   { label: "Performance", href: `/performance/${STRATEGY_CONFIG.slug}`, icon: Gauge },
-  { label: "Strategy Models", href: "/strategy-models", icon: FlaskConical },
+  { label: "Whitepaper", href: "/whitepaper", icon: FileText },
   { label: "Pricing & Features", href: "/pricing", icon: Landmark },
   {
     label: "Explore Platform",
@@ -226,7 +226,7 @@ function NavbarAccountDropdown({
 
 const MARKETING_PREFETCH_ROUTES = [
   "/",
-  "/strategy-models",
+  "/whitepaper",
   "/performance",
   "/platform/overview",
   "/platform/settings",
@@ -384,7 +384,7 @@ const Navbar: React.FC = () => {
   const isPlatformActive =
     navPathReady &&
     (pathname.startsWith("/platform") ||
-      pathname.startsWith("/strategy-models") ||
+      pathname.startsWith("/whitepaper") ||
       pathname.startsWith("/performance") ||
       pathname === "/pricing");
 

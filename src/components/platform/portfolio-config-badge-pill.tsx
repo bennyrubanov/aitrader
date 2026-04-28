@@ -21,7 +21,7 @@ export function PortfolioConfigBadgePill({ name, className, strategySlug }: Prop
   const styles = portfolioConfigBadgeClassName(name);
   const slugForLinks = strategySlug?.trim() || STRATEGY_CONFIG.slug;
   const rankingHowHref =
-    name === 'Top ranked' ? `/strategy-models/${slugForLinks}#portfolio-ranking-how` : null;
+    name === 'Top ranked' ? `/whitepaper/${slugForLinks}#portfolio-ranking-how` : null;
 
   const pill = (
     <span

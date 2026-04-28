@@ -604,7 +604,7 @@ const StockDetailClient = ({
                               <span>
                                 Top performing strategy model{' '}
                                 <Link
-                                  href={`/strategy-models/${STRATEGY_CONFIG.slug}#model-ranking`}
+                                  href={`/whitepaper/${STRATEGY_CONFIG.slug}#model-ranking`}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="group inline-flex items-center font-medium text-trader-blue dark:text-trader-blue-light underline-offset-2 transition hover:underline"
@@ -624,7 +624,7 @@ const StockDetailClient = ({
                             size="sm"
                             className="w-full justify-start gap-1.5 text-xs h-7 px-1"
                           >
-                            <Link href={`/strategy-models/${effectivePickerStrategy.slug}`}>
+                            <Link href={`/performance/${effectivePickerStrategy.slug}`}>
                               <ExternalLink className="size-3 shrink-0" />
                               How this model works
                             </Link>

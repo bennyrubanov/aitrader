@@ -775,29 +775,17 @@ export async function refreshDailySeriesSnapshotsForStrategy(
     };
   }
 
-  const [{ data: configsData }, existingMap] = await Promise.all([
-    adminSupabase
-      .from('portfolio_configs')
-      .select('id, risk_level, rebalance_frequency, weighting_method')
-      .order('risk_level', { ascending: true })
-      .order('rebalance_frequency', { ascending: true })
-      .order('weighting_method', { ascending: true }),
-    loadStrategyDailySeriesBulk(adminSupabase, params.strategyId),
-  ]);
+  const { data: configsData } = await adminSupabase
+    .from('portfolio_configs')
+    .select('id, risk_level, rebalance_frequency, weighting_method')
+    .order('risk_level', { ascending: true })
+    .order('rebalance_frequency', { ascending: true })
+    .order('weighting_method', { ascending: true });
 
   const configs = (configsData ?? []) as ConfigShape[];
   const toWrite: ConfigDailySeriesSnapshot[] = [];
-  let skippedConfigRows = 0;
+  const skippedConfigRows = 0;
   for (const cfg of configs) {
-    const existing = existingMap.get(cfg.id);
-    if (
-      existing &&
-      existing.asOfRunDate === latestRawRunDate &&
-      existing.dataStatus !== 'empty'
-    ) {
-      skippedConfigRows += 1;
-      continue;
-    }
     const perf = await getConfigPerformance(adminSupabase as never, params.strategyId, cfg.id);
     const withInception = await prependModelInceptionToConfigRows(
       adminSupabase as never,

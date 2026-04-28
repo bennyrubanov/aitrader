@@ -1918,24 +1918,7 @@ const handleRequest = async (req: Request) => {
       }
       digestMeta.snapshotIsNew = snapshot.isNew;
       digestMeta.snapshotMembers = snapshotStocks.length;
-      const { data: activeStrategies, error: activeStrategiesError } = await supabase
-        .from('strategy_models')
-        .select('id, slug')
-        .eq('status', 'active');
-      if (activeStrategiesError) {
-        recordCronError('Active strategies load failed (daily snapshot)', activeStrategiesError);
-      }
       let dailySeriesConfigsWritten = 0;
-      for (const activeStrategy of activeStrategies ?? []) {
-        const dailySnapshot = await refreshDailySeriesSnapshotsForStrategy(supabase as never, {
-          strategyId: String(activeStrategy.id),
-        });
-        dailySeriesConfigsWritten += dailySnapshot.writtenConfigRows;
-        log(
-          'DAILY SNAPSHOT',
-          `strategy=${String(activeStrategy.slug ?? activeStrategy.id)} configs_written=${dailySnapshot.writtenConfigRows} configs_skipped=${dailySnapshot.skippedConfigRows} strategy_written=${dailySnapshot.wroteStrategyRow}`
-        );
-      }
 
       let notificationsPriceMove: { profilesChecked: number; inappInserted: number; emailsSent: number } | null =
         null;
@@ -1956,6 +1939,24 @@ const handleRequest = async (req: Request) => {
         }
       } catch (priceMoveErr) {
         recordCronError('Notifications fan-out (price move) failed', priceMoveErr);
+      }
+
+      const { data: activeStrategies, error: activeStrategiesError } = await supabase
+        .from('strategy_models')
+        .select('id, slug')
+        .eq('status', 'active');
+      if (activeStrategiesError) {
+        recordCronError('Active strategies load failed (daily snapshot)', activeStrategiesError);
+      }
+      for (const activeStrategy of activeStrategies ?? []) {
+        const dailySnapshot = await refreshDailySeriesSnapshotsForStrategy(supabase as never, {
+          strategyId: String(activeStrategy.id),
+        });
+        dailySeriesConfigsWritten += dailySnapshot.writtenConfigRows;
+        log(
+          'DAILY SNAPSHOT',
+          `strategy=${String(activeStrategy.slug ?? activeStrategy.id)} configs_written=${dailySnapshot.writtenConfigRows} configs_skipped=${dailySnapshot.skippedConfigRows} strategy_written=${dailySnapshot.wroteStrategyRow}`
+        );
       }
 
       log(
@@ -2967,10 +2968,12 @@ const handleRequest = async (req: Request) => {
     revalidateTag('mtm-walk-inputs');
     revalidateTag(RANKED_CONFIGS_CACHE_TAG);
     revalidateTag(`${RANKED_CONFIGS_CACHE_TAG}:${strategy.slug}`);
-    revalidatePath('/strategy-models');
+    revalidatePath('/performance');
+    revalidatePath('/whitepaper');
     // Revalidate per-slug performance and model detail pages
     revalidatePath('/performance/[slug]', 'page');
-    revalidatePath('/strategy-models/[slug]', 'page');
+    revalidatePath('/performance/[slug]', 'page');
+    revalidatePath('/whitepaper/[slug]', 'page');
 
     const summary = {
       ok: results.filter((result) => result.status === 'ok').length,

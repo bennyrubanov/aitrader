@@ -7,5 +7,5 @@ export function hrefYourPortfolio(profileId: string) {
 }
 
 export function hrefStrategyModel(slug: string) {
-  return `/strategy-models/${encodeURIComponent(slug)}`;
+  return `/performance/${encodeURIComponent(slug)}`;
 }

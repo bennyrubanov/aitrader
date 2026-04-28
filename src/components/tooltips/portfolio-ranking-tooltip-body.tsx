@@ -35,7 +35,7 @@ export function PortfolioRankingTooltipBody({
     <div className="space-y-2">
       <p className="leading-snug">{main}</p>
       <Link
-        href={`/strategy-models/${encodeURIComponent(strategySlug)}#portfolio-ranking-how`}
+        href={`/whitepaper/${encodeURIComponent(strategySlug)}#portfolio-ranking-how`}
         target="_blank"
         rel="noopener noreferrer"
         className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"

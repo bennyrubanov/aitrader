@@ -6,7 +6,6 @@ import {
   ArrowRight,
   Baby,
   BarChart2,
-  BarChart3,
   Bot,
   ExternalLink,
   LineChart,
@@ -23,8 +22,8 @@ import { type StrategyListItem } from '@/lib/platform-performance-payload';
 import { type RankedStrategyModel } from '@/app/api/platform/strategy-models-ranked/route';
 import { cn } from '@/lib/utils';
 import {
+  hasAvgSp500ExcessInsight,
   pickBeatSlotToReplace,
-  type ModelHeaderQuintileInsight,
 } from '@/components/model-header-card-insights';
 
 const fmt = {
@@ -51,111 +50,54 @@ function fmtSignedPctFromDecimal(v: number | null, digits = 2): string {
   return `${v >= 0 ? '+' : ''}${(v * 100).toFixed(digits)}%`;
 }
 
-function QuintileInsightMini({
+function AvgSp500ExcessMini({
   statsLoading,
-  insight,
+  avgExcessVsSp500,
+  slug,
 }: {
   statsLoading: boolean;
-  insight: ModelHeaderQuintileInsight;
+  avgExcessVsSp500: number | null;
+  slug: string;
 }) {
-  const wr = insight.winRate;
-  const avgSpread = insight.avgSpread;
-  const avgSpreadFinite = avgSpread != null && Number.isFinite(avgSpread);
-  const spread = insight.latestWeekSpread;
-  const showWin = wr != null && wr.total > 0;
-
+  const showValue = hasAvgSp500ExcessInsight(avgExcessVsSp500);
   return (
     <div>
       <p className="text-[10px] font-semibold text-muted-foreground mb-1 leading-snug">
-        Q5 - Q1 · all-time avg
+        Avg. excess vs S&amp;P 500 (cap)
       </p>
       {statsLoading ? (
         <div className="h-10 w-20 rounded-md bg-muted animate-pulse mt-1" />
-      ) : avgSpreadFinite ? (
+      ) : showValue ? (
         <>
           <p
             className={cn(
               'text-lg font-bold tabular-nums tracking-tight',
-              avgSpread > 0
+              avgExcessVsSp500 > 0
                 ? 'text-green-600 dark:text-green-400'
-                : avgSpread < 0
+                : avgExcessVsSp500 < 0
                   ? 'text-red-600 dark:text-red-400'
                   : 'text-foreground'
             )}
           >
-            {fmtSignedPctFromDecimal(avgSpread, 2)}
+            {fmtSignedPctFromDecimal(avgExcessVsSp500, 1)}
           </p>
           <p className="text-[10px] text-muted-foreground mt-0.5">
-            {showWin
-              ? `Q5>Q1 in ${Math.round(wr.rate * 100)}% of ${insight.weeksObserved}w`
-              : `${insight.weeksObserved}w observed`}
-            {spread != null && Number.isFinite(spread)
-              ? ` · latest ${fmtSignedPctFromDecimal(spread, 2)}`
-              : ''}
+            Mean portfolio return above index
           </p>
-        </>
-      ) : showWin ? (
-        <>
-          <p
-            className={cn(
-              'text-lg font-bold tabular-nums tracking-tight',
-              wr!.rate > 0.5
-                ? 'text-green-600 dark:text-green-400'
-                : wr!.rate < 0.5
-                  ? 'text-red-600 dark:text-red-400'
-                  : 'text-foreground'
-            )}
+          <Link
+            href={`/performance/${slug}#returns`}
+            className="mt-1.5 inline-flex items-center gap-0.5 text-[10px] font-medium text-trader-blue hover:underline dark:text-trader-blue-light"
           >
-            {Math.round(wr!.rate * 100)}%
-          </p>
-          <p className="text-[10px] text-muted-foreground mt-0.5">
-            <span className="font-medium text-foreground tabular-nums">{wr!.wins}</span>
-            {' of '}
-            <span className="font-medium text-foreground tabular-nums">{wr!.total}</span>
-            {' weeks Q5 outperformed Q1'}
-          </p>
-        </>
-      ) : spread != null && Number.isFinite(spread) ? (
-        <>
-          <p
-            className={cn(
-              'text-lg font-bold tabular-nums tracking-tight',
-              spread > 0
-                ? 'text-green-600 dark:text-green-400'
-                : spread < 0
-                  ? 'text-red-600 dark:text-red-400'
-                  : 'text-foreground'
-            )}
-          >
-            {fmtSignedPctFromDecimal(spread, 2)}
-          </p>
-          <p className="text-[10px] text-muted-foreground mt-0.5">
-            Q5 minus Q1
-            {insight.latestWeekRunDate ? (
-              <>
-                {' · '}
-                <span className="font-medium text-foreground tabular-nums">
-                  {fmt.date(insight.latestWeekRunDate)}
-                </span>
-              </>
-            ) : null}
-          </p>
+            Benchmark returns
+            <ArrowRight className="size-2.5 shrink-0" />
+          </Link>
         </>
       ) : (
         <>
           <p className="text-lg font-bold tabular-nums text-muted-foreground">—</p>
-          <p className="text-[10px] text-muted-foreground mt-0.5">No quintile data yet.</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">S&amp;P series not ready yet.</p>
         </>
       )}
-      {!statsLoading && (avgSpreadFinite || showWin || (spread != null && Number.isFinite(spread))) ? (
-        <Link
-          href={`/strategy-models/${STRATEGY_CONFIG.slug}#methodology-quintiles`}
-          className="mt-1.5 inline-flex items-center gap-0.5 text-[10px] font-medium text-trader-blue hover:underline dark:text-trader-blue-light"
-        >
-          What this is
-          <ArrowRight className="size-2.5 shrink-0" />
-        </Link>
-      ) : null}
     </div>
   );
 }
@@ -224,8 +166,8 @@ export function StrategyModelsClient({ strategies }: Props) {
 
   return (
     <ContentPageLayout
-      title="Strategy Models"
-      subtitle="Versioned AI strategy models, each tracked independently from first run."
+      title="Performance"
+      subtitle="Choose a strategy model, then inspect its live forward-only portfolio performance."
     >
       {/* Top bar */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
@@ -266,7 +208,7 @@ export function StrategyModelsClient({ strategies }: Props) {
 
       {sort === 'performance' ? (
         <Link
-          href={`/strategy-models/${STRATEGY_CONFIG.slug}#model-ranking`}
+          href={`/whitepaper/${STRATEGY_CONFIG.slug}#model-ranking`}
           className="mb-6 inline-flex items-center gap-1 text-sm font-medium text-trader-blue hover:underline dark:text-trader-blue-light"
         >
           How we rank models
@@ -288,21 +230,6 @@ export function StrategyModelsClient({ strategies }: Props) {
             const ranked = rankedBySlug.get(strategy.slug);
             const statsLoading = rankedStrategies === null;
 
-            const quintileInsight: ModelHeaderQuintileInsight | null =
-              ranked &&
-              (ranked.quintileWeeksObserved > 0 ||
-                ranked.quintileWinRate != null ||
-                (ranked.quintileLatestWeekSpread != null &&
-                  Number.isFinite(ranked.quintileLatestWeekSpread)))
-                ? {
-                    winRate: ranked.quintileWinRate,
-                    avgSpread: ranked.quintileAvgSpread,
-                    weeksObserved: ranked.quintileWeeksObserved,
-                    latestWeekSpread: ranked.quintileLatestWeekSpread,
-                    latestWeekRunDate: ranked.quintileLatestWeekRunDate,
-                  }
-                : null;
-
             const replaceSlot = pickBeatSlotToReplace(
               {
                 pct: ranked?.beatNasdaqPct ?? null,
@@ -312,11 +239,12 @@ export function StrategyModelsClient({ strategies }: Props) {
                 pct: ranked?.beatSp500Pct ?? null,
                 comparable: ranked?.beatSp500Comparable ?? 0,
               },
-              quintileInsight,
+              ranked?.avgExcessVsSp500 ?? null,
               statsLoading,
               null
             );
-            const effectiveReplaceSlot = quintileInsight ? (replaceSlot ?? 'nasdaq') : null;
+            const hasAvgInsight = Boolean(ranked && hasAvgSp500ExcessInsight(ranked.avgExcessVsSp500));
+            const effectiveReplaceSlot = hasAvgInsight ? (replaceSlot ?? 'nasdaq') : null;
 
             return (
               <article
@@ -364,10 +292,11 @@ export function StrategyModelsClient({ strategies }: Props) {
 
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div>
-                          {effectiveReplaceSlot === 'nasdaq' && quintileInsight ? (
-                            <QuintileInsightMini
+                          {effectiveReplaceSlot === 'nasdaq' && hasAvgInsight ? (
+                            <AvgSp500ExcessMini
                               statsLoading={statsLoading}
-                              insight={quintileInsight}
+                              avgExcessVsSp500={ranked!.avgExcessVsSp500}
+                              slug={strategy.slug}
                             />
                           ) : (
                             <>
@@ -413,10 +342,11 @@ export function StrategyModelsClient({ strategies }: Props) {
                           )}
                         </div>
                         <div>
-                          {effectiveReplaceSlot === 'sp500' && quintileInsight ? (
-                            <QuintileInsightMini
+                          {effectiveReplaceSlot === 'sp500' && hasAvgInsight ? (
+                            <AvgSp500ExcessMini
                               statsLoading={statsLoading}
-                              insight={quintileInsight}
+                              avgExcessVsSp500={ranked!.avgExcessVsSp500}
+                              slug={strategy.slug}
                             />
                           ) : (
                             <>
@@ -497,7 +427,7 @@ export function StrategyModelsClient({ strategies }: Props) {
                                       : ''}
                                   </p>
                                   <Link
-                                    href={`/strategy-models/${STRATEGY_CONFIG.slug}#methodology-regression`}
+                                    href={`/whitepaper/${STRATEGY_CONFIG.slug}#methodology-regression`}
                                     className="mt-1.5 inline-flex items-center gap-0.5 text-[10px] font-medium text-trader-blue hover:underline dark:text-trader-blue-light"
                                   >
                                     What this is
@@ -519,16 +449,16 @@ export function StrategyModelsClient({ strategies }: Props) {
                     {/* CTA buttons */}
                     <div className="flex flex-row sm:flex-col gap-2 shrink-0 sm:items-end sm:justify-center">
                       <Button asChild size="sm">
-                        <Link href={`/strategy-models/${strategy.slug}`} className="gap-1.5">
+                        <Link href={`/performance/${strategy.slug}`} className="gap-1.5">
                           <Bot className="size-3.5 shrink-0" />
-                          Model details
+                          Open model
                           <ArrowRight className="size-3.5 shrink-0" />
                         </Link>
                       </Button>
                       <Button asChild variant="outline" size="sm">
-                        <Link href={`/performance/${strategy.slug}`} className="gap-1.5">
+                        <Link href={`/whitepaper/${strategy.slug}`} className="gap-1.5">
                           <LineChart className="size-3.5 shrink-0" />
-                          See performance
+                          Whitepaper
                         </Link>
                       </Button>
                     </div>

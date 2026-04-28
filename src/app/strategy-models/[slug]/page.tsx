@@ -5,8 +5,6 @@ import {
   ArrowLeft,
   ArrowRight,
   BookOpen,
-  CheckCircle2,
-  Cpu,
   FileText,
   FlaskConical,
   Info,
@@ -32,7 +30,7 @@ export async function generateMetadata({ params }: Props) {
   const detail = await getStrategyDetail(slug);
   if (!detail) return {};
   return {
-    title: `${detail.name} | Strategy Models | AITrader`,
+    title: `${detail.name} | Whitepaper | AITrader`,
     description:
       detail.description ??
       `${detail.name} strategy model — configuration, methodology, and performance.`,
@@ -40,9 +38,7 @@ export async function generateMetadata({ params }: Props) {
 }
 
 const MODEL_DETAIL_TOC = [
-  { id: 'model-overview', label: 'Model overview' },
-  { id: 'model-overview-prompt-design', label: '↳ Prompt design' },
-  { id: 'model-overview-how-it-works', label: '↳ How it works' },
+  { id: 'model-overview-how-it-works', label: 'How it works' },
   { id: 'model-ranking', label: 'Model ranking' },
   { id: 'methodology', label: 'Methodology' },
   { id: 'portfolios', label: '↳ Portfolios' },
@@ -57,24 +53,13 @@ const MODEL_DETAIL_TOC = [
   { id: 'scientific-grounding', label: 'Scientific grounding' },
 ];
 
-function ConfigRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="flex justify-between gap-4 text-sm py-1.5 border-b last:border-0">
-      <span className="text-muted-foreground shrink-0">{label}</span>
-      <span className={`font-medium text-right truncate ${mono ? 'font-mono text-xs' : ''}`}>
-        {value}
-      </span>
-    </div>
-  );
-}
-
 export default async function StrategyModelDetailPage({ params }: Props) {
   const { slug } = await params;
   const [detail, strategies] = await Promise.all([getStrategyDetail(slug), getStrategiesList()]);
 
   if (!detail) notFound();
 
-  const strategyPageHrefBase = `/strategy-models/${slug}`;
+  const strategyPageHrefBase = `/whitepaper/${slug}`;
   const isTop = strategies[0]?.id === detail.id;
 
   const headerCrossSectionRegression =
@@ -87,16 +72,6 @@ export default async function StrategyModelDetailPage({ params }: Props) {
           totalWeeks: detail.regressionSummary.totalWeeks,
         }
       : null;
-
-  const PROMPT_KEY_POINTS = [
-    `Scores each stock from −5 (very unattractive) to +5 (very attractive) relative to the next ~30 days of expected performance.`,
-    `Uses a single live web search per stock to gather the latest 30 days of news, earnings, guidance, analyst revisions, and market reactions.`,
-    `Graded on a curve against all other Nasdaq-100 members (not rated in isolation). A +3 means the stock looks meaningfully better than most of the index right now, regardless of whether the overall market is up or down.`,
-    `Assigns a continuous latent rank (0 to 1) as a fine-grained ordinal signal. This is what drives how the portfolio is built from ratings (not the integer score directly).`,
-    `Maps scores to buckets for transparency: buy (≥ +2), hold (−1 to +1), sell (≤ −2). Buckets are a readability layer; the actual sort is by latent rank.`,
-    `Requires 2 to 6 explicit risks per rating. At least one must address information uncertainty, model error, or conflicting signals.`,
-    `Tracks change from the prior week's rating. If the bucket changes, the model must explain why.`,
-  ];
 
   return (
     <ContentPageLayout
@@ -117,7 +92,7 @@ export default async function StrategyModelDetailPage({ params }: Props) {
       {/* Back link */}
       <div className="mb-6">
         <Link
-          href="/strategy-models"
+          href="/performance"
           className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft className="size-3.5" /> All strategy models
@@ -138,120 +113,55 @@ export default async function StrategyModelDetailPage({ params }: Props) {
           modelName={detail.modelName}
           variant="model"
           beatMarketSlug={slug}
-          quintileHeaderInsight={
-            detail.quintileSummary.weeksObserved > 0 ||
-            detail.quintileWinRate != null ||
-            (detail.quintileLatestWeekSpread != null &&
-              Number.isFinite(detail.quintileLatestWeekSpread))
-              ? {
-                  winRate: detail.quintileWinRate,
-                  avgSpread: detail.quintileSummary.avgSpread,
-                  weeksObserved: detail.quintileSummary.weeksObserved,
-                  latestWeekSpread: detail.quintileLatestWeekSpread,
-                  latestWeekRunDate: detail.quintileLatestWeekRunDate,
-                }
-              : null
-          }
-          quintileInsightHref={`/performance/${slug}#research-validation`}
           crossSectionRegression={headerCrossSectionRegression}
           researchValidationHref={`/performance/${slug}#research-signal-strength`}
         />
       </div>
 
-      {/* ── Model overview (AI model, prompt, pipeline) ─────── */}
       <section
-        id="model-overview"
+        id="model-overview-how-it-works"
         className="mb-10 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
       >
-        <h2 className="group text-2xl font-bold tracking-tight mb-4 flex items-center gap-2">
-          <Cpu className="size-5 text-trader-blue shrink-0" /> Model overview
-          <SectionHeadingAnchor fragmentId="model-overview" hrefBase={strategyPageHrefBase} />
+        <h2 className="group mb-4 flex items-center gap-2 text-2xl font-bold tracking-tight">
+          <FlaskConical className="size-5 shrink-0 text-trader-blue" /> How it works
+          <SectionHeadingAnchor
+            fragmentId="model-overview-how-it-works"
+            hrefBase={strategyPageHrefBase}
+          />
         </h2>
-
-        <div
-          id="model-overview-ai"
-          className="mb-10 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
-        >
-          <div className="rounded-lg border bg-card p-5 divide-y">
-            <ConfigRow label="Provider" value={detail.modelProvider ?? 'OpenAI'} />
-            <ConfigRow label="Model" value={detail.modelName ?? 'N/A'} mono />
-            <ConfigRow label="Universe" value={`${detail.indexName.toUpperCase()} (all ~100 members)`} />
-            <ConfigRow label="Stocks rated per run" value="100" />
-            <ConfigRow label="Rating scale" value="−5 to +5 (integer) + latent rank 0–1" />
-            <ConfigRow label="Data per stock" value="Live web search, last 30 days" />
-            <ConfigRow label="Run frequency" value={detail.rebalanceFrequency} />
-          </div>
-        </div>
-
-        <div
-          id="model-overview-prompt-design"
-          className="mb-10 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
-        >
-          <h3 className="group text-xl font-bold mb-3 flex items-center gap-2">
-            <FileText className="size-5 text-trader-blue shrink-0" /> Prompt design
-            <SectionHeadingAnchor
-              fragmentId="model-overview-prompt-design"
-              hrefBase={strategyPageHrefBase}
-            />
-          </h3>
-          <p className="text-sm text-muted-foreground mb-3">
-            Every stock is evaluated using the same structured prompt. Key instructions:
-          </p>
-          <ul className="space-y-2">
-            {PROMPT_KEY_POINTS.map((point) => (
-              <li key={point} className="flex items-start gap-2 text-sm text-foreground/80">
-                <CheckCircle2 className="size-4 text-trader-blue shrink-0 mt-0.5" />
-                {point}
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        <div
-          id="model-overview-how-it-works"
-          className="mb-10 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
-        >
-          <h3 className="group text-xl font-bold mb-4 flex items-center gap-2">
-            <FlaskConical className="size-5 text-trader-blue shrink-0" /> How it works
-            <SectionHeadingAnchor
-              fragmentId="model-overview-how-it-works"
-              hrefBase={strategyPageHrefBase}
-            />
-          </h3>
-          <div className="space-y-3">
-            {[
-              {
-                step: '1',
-                title: 'Universe selection',
-                body: `We evaluate all ~100 current members of the Nasdaq-100 every week. The Nasdaq-100 is a curated index of the largest non-financial US companies — high liquidity, broad sector coverage, and globally recognized names. This gives the AI enough diversity to surface real cross-sectional signal.`,
-              },
-              {
-                step: '2',
-                title: 'AI scoring',
-                body: `Each stock receives a live web search for the latest 30 days of news, earnings, guidance, and analyst revisions. The AI scores it from −5 to +5 relative to the other 99 stocks — not in isolation. This cross-sectional comparison is what makes the signal useful: the AI doesn't need to predict the market, just which stocks look stronger than the rest. It also outputs a continuous latent rank (0–1) for fine-grained ordering.`,
-              },
-              {
-                step: '3',
-                title: 'Portfolio selection',
-                body: `Stocks are sorted by latent rank (highest = most attractive). Your portfolio settings determine how many top-ranked stocks to hold (Top 5 through Top 30) and how to weight them (equal or cap weight). No discretionary overrides — same inputs produce the same portfolio every rebalance.`,
-              },
-              {
-                step: '4',
-                title: 'Cost deduction',
-                body: `Every rebalance, we compute portfolio turnover (how much changed). We then deduct ${detail.transactionCostBps} basis points per unit of turnover from the gross return. This keeps results grounded in what you would actually earn after trading. Returns shown are pre-tax.`,
-              },
-            ].map(({ step, title, body }) => (
-              <div key={step} className="flex gap-4 rounded-lg border bg-card p-5">
-                <div className="size-7 rounded-full bg-trader-blue/10 text-trader-blue font-bold text-sm flex items-center justify-center shrink-0 mt-0.5">
-                  {step}
-                </div>
-                <div>
-                  <p className="font-semibold mb-1">{title}</p>
-                  <p className="text-sm text-foreground/80 leading-relaxed">{body}</p>
-                </div>
+        <div className="space-y-3">
+          {[
+            {
+              step: '1',
+              title: 'Universe selection',
+              body: `We evaluate all ~100 current members of the Nasdaq-100 every week. The Nasdaq-100 is a curated index of the largest non-financial US companies — high liquidity, broad sector coverage, and globally recognized names. This gives the AI enough diversity to surface real cross-sectional signal.`,
+            },
+            {
+              step: '2',
+              title: 'AI scoring',
+              body: `Each stock receives a live web search for the latest 30 days of news, earnings, guidance, and analyst revisions. The AI scores it from −5 to +5 relative to the other 99 stocks — not in isolation. This cross-sectional comparison is what makes the signal useful: the AI doesn't need to predict the market, just which stocks look stronger than the rest. It also outputs a continuous latent rank (0–1) for fine-grained ordering.`,
+            },
+            {
+              step: '3',
+              title: 'Portfolio selection',
+              body: `Stocks are sorted by latent rank (highest = most attractive). Your portfolio settings determine how many top-ranked stocks to hold (Top 5 through Top 30) and how to weight them (equal or cap weight). No discretionary overrides — same inputs produce the same portfolio every rebalance.`,
+            },
+            {
+              step: '4',
+              title: 'Cost deduction',
+              body: `Every rebalance, we compute portfolio turnover (how much changed). We then deduct ${detail.transactionCostBps} basis points per unit of turnover from the gross return. This keeps results grounded in what you would actually earn after trading. Returns shown are pre-tax.`,
+            },
+          ].map(({ step, title, body }) => (
+            <div key={step} className="flex gap-4 rounded-lg border bg-card p-5">
+              <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-trader-blue/10 text-sm font-bold text-trader-blue">
+                {step}
               </div>
-            ))}
-          </div>
+              <div>
+                <p className="mb-1 font-semibold">{title}</p>
+                <p className="text-sm leading-relaxed text-foreground/80">{body}</p>
+              </div>
+            </div>
+          ))}
         </div>
       </section>
 
@@ -1016,7 +926,7 @@ export default async function StrategyModelDetailPage({ params }: Props) {
         </div>
         <div className="flex items-center justify-between gap-3">
           <Button asChild variant="ghost">
-            <Link href="/strategy-models">
+            <Link href="/performance">
               <ArrowLeft className="size-4 mr-1" /> All models
             </Link>
           </Button>

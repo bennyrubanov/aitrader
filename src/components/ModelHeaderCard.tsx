@@ -2,16 +2,13 @@
 
 import { useEffect, useState, type ComponentType, type ReactNode } from 'react';
 import Link from 'next/link';
-import { Activity, ArrowRight, BarChart3, LayoutGrid, Star, TrendingUp } from 'lucide-react';
+import { Activity, ArrowRight, BarChart3, Star, TrendingUp } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import {
-  pickBeatSlotToReplace,
-  type ModelHeaderQuintileInsight,
-} from '@/components/model-header-card-insights';
-
-export type { ModelHeaderQuintileInsight };
+import { pickBeatSlotToReplace } from '@/components/model-header-card-insights';
+import { avgExcessReturnVsSp500FromConfigs } from '@/lib/avg-excess-vs-sp500';
+import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
 
 export type ModelHeaderStat = {
   label: string;
@@ -42,11 +39,6 @@ type ModelHeaderCardProps = {
    */
   beatMarketSlug?: string | null;
   /**
-   * Q5 vs Q1 headline stats. When set and benchmark outperformance rates are comparable, the lower
-   * outperformance slot (Nasdaq vs S&P) is replaced by this card; tie → S&P slot.
-   */
-  quintileHeaderInsight?: ModelHeaderQuintileInsight | null;
-  /**
    * Latest weekly cross-sectional regression headline (beta). When set, an extra insight card
    * links to `researchValidationHref` for full methodology.
    */
@@ -59,8 +51,8 @@ type ModelHeaderCardProps = {
   } | null;
   /** Same-page anchor for regression detail (performance page uses `#research-signal-strength`). */
   researchValidationHref?: string;
-  /** Anchor for Q5 vs Q1 insight card when shown (quintiles live under research validation). */
-  quintileInsightHref?: string;
+  /** Link for the avg S&P excess insight CTA (defaults to `/performance/{slug}#returns`). */
+  sp500ExcessInsightHref?: string;
   /** Secondary metrics (e.g. selected or top-ranked portfolio) below the insight cards. */
   detailStats?: ModelHeaderStat[];
   /**
@@ -74,10 +66,6 @@ type ModelHeaderCardProps = {
    * When true, the model name is not shown as a heading (use when the page already has an `h1`).
    */
   omitTitle?: boolean;
-};
-
-type RankedApiConfig = {
-  metrics: { beatsMarket: boolean | null; beatsSp500?: boolean | null };
 };
 
 function slugGradient(slug: string): string {
@@ -119,7 +107,7 @@ function fmtRegressionStat(n: number | null, fractionDigits: number): string {
   return n.toFixed(fractionDigits);
 }
 
-function computeBeatSummary(configs: RankedApiConfig[]): {
+function computeBeatSummary(configs: RankedConfig[]): {
   pct: number | null;
   beating: number;
   comparable: number;
@@ -131,7 +119,7 @@ function computeBeatSummary(configs: RankedApiConfig[]): {
   return { pct, beating, comparable: comparable.length };
 }
 
-function computeBeatSp500Summary(configs: RankedApiConfig[]): {
+function computeBeatSp500Summary(configs: RankedConfig[]): {
   pct: number | null;
   beating: number;
   comparable: number;
@@ -230,19 +218,20 @@ export function ModelHeaderCard({
   startDate,
   weeklyRunCount,
   beatMarketSlug,
-  quintileHeaderInsight,
   crossSectionRegression,
   researchValidationHref = '#research-validation',
-  quintileInsightHref = '#research-validation',
+  sp500ExcessInsightHref: sp500ExcessInsightHrefProp,
   detailStats,
   stats,
   variant,
   omitTitle = false,
 }: ModelHeaderCardProps) {
   const shortName = name.split(' ')[0] ?? name;
+  const sp500ExcessInsightHref = sp500ExcessInsightHrefProp ?? `/performance/${slug}#returns`;
 
   const [beatLoading, setBeatLoading] = useState(Boolean(beatMarketSlug));
   const [beatError, setBeatError] = useState<string | null>(null);
+  const [avgExcessVsSp500, setAvgExcessVsSp500] = useState<number | null>(null);
   const [beatSummary, setBeatSummary] = useState<{
     pct: number | null;
     beating: number;
@@ -259,6 +248,7 @@ export function ModelHeaderCard({
       setBeatLoading(false);
       setBeatSummary(null);
       setSp500BeatSummary(null);
+      setAvgExcessVsSp500(null);
       setBeatError(null);
       return;
     }
@@ -266,6 +256,7 @@ export function ModelHeaderCard({
     const ac = new AbortController();
     setBeatLoading(true);
     setBeatError(null);
+    setAvgExcessVsSp500(null);
 
     (async () => {
       try {
@@ -277,17 +268,20 @@ export function ModelHeaderCard({
           setBeatError('Could not load portfolio comparison');
           setBeatSummary(null);
           setSp500BeatSummary(null);
+          setAvgExcessVsSp500(null);
           return;
         }
-        const data = (await res.json()) as { configs?: RankedApiConfig[] };
+        const data = (await res.json()) as { configs?: RankedConfig[] };
         const configs = data.configs ?? [];
         setBeatSummary(computeBeatSummary(configs));
         setSp500BeatSummary(computeBeatSp500Summary(configs));
+        setAvgExcessVsSp500(avgExcessReturnVsSp500FromConfigs(configs));
       } catch (e) {
         if ((e as Error).name === 'AbortError') return;
         setBeatError('Could not load portfolio comparison');
         setBeatSummary(null);
         setSp500BeatSummary(null);
+        setAvgExcessVsSp500(null);
       } finally {
         if (!ac.signal.aborted) setBeatLoading(false);
       }
@@ -319,114 +313,42 @@ export function ModelHeaderCard({
 
   const replaceBeatSlot =
     showBeatCard && beatSummary && sp500BeatSummary
-      ? pickBeatSlotToReplace(
-          beatSummary,
-          sp500BeatSummary,
-          quintileHeaderInsight,
-          beatLoading,
-          beatError
-        )
+      ? pickBeatSlotToReplace(beatSummary, sp500BeatSummary, avgExcessVsSp500, beatLoading, beatError)
       : null;
 
-  const quintileInsightEl =
-    replaceBeatSlot &&
-    quintileHeaderInsight &&
-    (() => {
-      const q = quintileHeaderInsight;
-      const wr = q.winRate;
-      const avgSpread = q.avgSpread;
-      const showAvg = avgSpread != null && Number.isFinite(avgSpread);
-      const spread = q.latestWeekSpread;
-      const pctFmt = (v: number | null) => (v == null ? '—' : `${Math.round(v * 100)}%`);
-
-      return (
-        <InsightCardShell
-          icon={LayoutGrid}
-          title="Q5 vs Q1"
-          subtitle="Signal — average weekly Q5 minus Q1"
-        >
-          <div className="mt-1">
-            {showAvg ? (
-              <>
-                <p
-                  className={cn(
-                    insightHighlightClass,
-                    avgSpread > 0
-                      ? 'text-green-600 dark:text-green-400'
-                      : avgSpread < 0
-                        ? 'text-red-600 dark:text-red-400'
-                        : 'text-foreground'
-                  )}
-                >
-                  {fmtSignedPctFromDecimal(avgSpread, 2)}
-                </p>
-                <p className="text-xs leading-snug text-muted-foreground">
-                  {wr && wr.total > 0
-                    ? `Q5 beat Q1 in ${wr.wins} of ${wr.total} weeks (${pctFmt(wr.rate)})`
-                    : `${q.weeksObserved} weeks observed`}
-                </p>
-              </>
-            ) : wr && wr.total > 0 ? (
-              <>
-                <p
-                  className={cn(
-                    insightHighlightClass,
-                    wr.rate > 0.5
-                      ? 'text-green-600 dark:text-green-400'
-                      : wr.rate < 0.5
-                        ? 'text-red-600 dark:text-red-400'
-                        : 'text-foreground'
-                  )}
-                >
-                  {Math.round(wr.rate * 100)}%
-                </p>
-                <p className="text-xs leading-relaxed text-muted-foreground">
-                  <span className="font-medium text-foreground tabular-nums">{wr.wins}</span>
-                  {' of '}
-                  <span className="font-medium text-foreground tabular-nums">{wr.total}</span>
-                  {' weeks, Q5 (top-rated) outperformed Q1 (bottom-rated)'}
-                </p>
-              </>
-            ) : spread != null && Number.isFinite(spread) ? (
-              <>
-                <p
-                  className={cn(
-                    insightHighlightClass,
-                    spread > 0
-                      ? 'text-green-600 dark:text-green-400'
-                      : spread < 0
-                        ? 'text-red-600 dark:text-red-400'
-                        : 'text-foreground'
-                  )}
-                >
-                  {fmtSignedPctFromDecimal(spread, 2)}
-                </p>
-                <p className="text-xs leading-relaxed text-muted-foreground">
-                  Q5 minus Q1 return
-                  {q.latestWeekRunDate ? (
-                    <>
-                      {' · Week of '}
-                      <span className="font-medium text-foreground tabular-nums">
-                        {fmt.date(q.latestWeekRunDate)}
-                      </span>
-                    </>
-                  ) : null}
-                </p>
-              </>
-            ) : (
-              <p className={cn(insightHighlightClass, 'text-muted-foreground')}>—</p>
+  const sp500AvgExcessInsightEl =
+    replaceBeatSlot && avgExcessVsSp500 != null && Number.isFinite(avgExcessVsSp500) ? (
+      <InsightCardShell
+        icon={TrendingUp}
+        title="Avg. excess vs S&P 500"
+        subtitle="Mean portfolio return above index (cap-weight)"
+      >
+        <div className="mt-1">
+          <p
+            className={cn(
+              insightHighlightClass,
+              avgExcessVsSp500 > 0
+                ? 'text-green-600 dark:text-green-400'
+                : avgExcessVsSp500 < 0
+                  ? 'text-red-600 dark:text-red-400'
+                  : 'text-foreground'
             )}
-            <Link
-              href={quintileInsightHref}
-              className="mt-auto inline-flex items-center gap-1 text-xs font-medium text-trader-blue hover:underline dark:text-trader-blue-light"
-            >
-              Quintile analysis
-              <ArrowRight className="size-3" />
-            </Link>
-          </div>
-        </InsightCardShell>
-      );
-    })();
+          >
+            {fmtSignedPctFromDecimal(avgExcessVsSp500, 1)}
+          </p>
+          <p className="text-xs leading-snug text-muted-foreground">
+            Averaged across portfolio configurations with S&amp;P 500 benchmark data since initiation
+          </p>
+          <Link
+            href={sp500ExcessInsightHref}
+            className="mt-auto inline-flex items-center gap-1 text-xs font-medium text-trader-blue hover:underline dark:text-trader-blue-light"
+          >
+            Returns vs benchmarks
+            <ArrowRight className="size-3" />
+          </Link>
+        </div>
+      </InsightCardShell>
+    ) : null;
 
   const insightCardCount = (showBeatCard ? 2 : 0) + (showRegressionCards ? 1 : 0);
   const gridColsClass =
@@ -497,7 +419,7 @@ export function ModelHeaderCard({
         <div className="flex items-center gap-2 shrink-0">
           {variant === 'performance' && (
             <Button asChild size="sm" variant="outline" className="gap-1.5">
-              <Link href={`/strategy-models/${slug}`}>
+              <Link href={`/performance/${slug}#model-overview`}>
                 Model details <ArrowRight className="size-3.5" />
               </Link>
             </Button>
@@ -524,7 +446,7 @@ export function ModelHeaderCard({
             'md:items-stretch'
           )}
         >
-          {showBeatCard && replaceBeatSlot === 'nasdaq' ? quintileInsightEl : null}
+          {showBeatCard && replaceBeatSlot === 'nasdaq' ? sp500AvgExcessInsightEl : null}
           {showBeatCard && replaceBeatSlot !== 'nasdaq' ? (
             <InsightCardShell
               icon={BarChart3}
@@ -578,7 +500,7 @@ export function ModelHeaderCard({
             </InsightCardShell>
           ) : null}
 
-          {showBeatCard && replaceBeatSlot === 'sp500' ? quintileInsightEl : null}
+          {showBeatCard && replaceBeatSlot === 'sp500' ? sp500AvgExcessInsightEl : null}
           {showBeatCard && replaceBeatSlot !== 'sp500' ? (
             <InsightCardShell
               icon={BarChart3}

@@ -15,7 +15,7 @@ export const DEFAULT_POST_AUTH_PATH = "/platform/overview";
  */
 const SIGN_IN_RETURN_PREFIXES = [
   "/performance",
-  "/strategy-models",
+  "/whitepaper",
   "/stocks",
   "/platform",
   "/pricing",

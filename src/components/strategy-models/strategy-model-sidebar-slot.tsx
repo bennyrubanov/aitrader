@@ -62,7 +62,7 @@ export function StrategyModelSidebarSlot({
                 key={strategy.id}
                 onSelect={() => {
                   if (strategy.slug !== currentSlug) {
-                    router.push(`/strategy-models/${strategy.slug}`);
+                    router.push(`/performance/${strategy.slug}`);
                   }
                 }}
                 className="flex flex-col items-start gap-0.5 py-2"
@@ -91,7 +91,7 @@ export function StrategyModelSidebarSlot({
         </Button>
 
         <Button asChild variant="ghost" size="sm" className="w-full justify-start gap-1.5 text-xs h-7 px-1">
-          <Link href="/strategy-models">
+          <Link href="/performance">
             <ArrowRight className="size-3" />
             All strategy models
           </Link>

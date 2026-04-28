@@ -1,6 +1,7 @@
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
 import {
   loadStrategyDailySeriesBulk,
+  rebaseSeriesForDisplay,
   type ConfigDailySeriesMetrics,
 } from '@/lib/config-daily-series';
 import { loadLatestRawRunDate } from '@/lib/live-mark-to-market';
@@ -114,6 +115,28 @@ function benchmarkEndingValuesFromSeriesPoint(p: PerformanceSeriesPoint): Benchm
 
 type LiveTail = { date: string; benchmark: BenchmarkEndingValues };
 
+export function liftRankedMetricsForDisplay(
+  metrics: ConfigMetrics,
+  series: PerformanceSeriesPoint[]
+): { metrics: ConfigMetrics; displayLast: PerformanceSeriesPoint | null } {
+  const lifted = rebaseSeriesForDisplay(series, { displayInitial: INITIAL_CAPITAL });
+  const displayLast = lifted.length > 0 ? lifted[lifted.length - 1]! : null;
+  if (!displayLast) {
+    return { metrics, displayLast: null };
+  }
+
+  return {
+    metrics: {
+      ...metrics,
+      endingValuePortfolio: displayLast.aiPortfolio,
+      endingValueMarket: displayLast.nasdaq100CapWeight,
+      endingValueNasdaq100EqualWeight: displayLast.nasdaq100EqualWeight,
+      endingValueSp500: displayLast.sp500,
+    },
+    displayLast,
+  };
+}
+
 function normalize(values: (number | null)[], higherIsBetter: boolean): (number | null)[] {
   const valid = values.filter((v): v is number => v !== null && Number.isFinite(v));
   if (valid.length === 0) return values.map(() => null);
@@ -189,7 +212,7 @@ export async function loadPortfolioConfigsRankedPayload(
 
   const configsWithMetrics = configs.map((cfg) => {
     const snapshot = snapshots.get(cfg.id) ?? null;
-    const metrics = snapshot?.metrics ?? {
+    const rawMetrics = snapshot?.metrics ?? {
       sharpeRatio: null,
       sharpeRatioDecisionCadence: null,
       cagr: null,
@@ -211,9 +234,14 @@ export async function loadPortfolioConfigsRankedPayload(
     const status = snapshot?.dataStatus ?? 'empty';
     const dataStatus: 'ready' | 'early' | 'empty' =
       status === 'ready' ? 'ready' : status === 'empty' ? 'empty' : 'early';
-    const last = snapshot?.series?.length ? snapshot.series[snapshot.series.length - 1] : null;
-    const liveTail = last
-      ? ({ date: last.date, benchmark: benchmarkEndingValuesFromSeriesPoint(last) } satisfies LiveTail)
+    const { metrics, displayLast } = snapshot?.series?.length
+      ? liftRankedMetricsForDisplay(rawMetrics, snapshot.series)
+      : { metrics: rawMetrics, displayLast: null };
+    const liveTail = displayLast
+      ? ({
+          date: displayLast.date,
+          benchmark: benchmarkEndingValuesFromSeriesPoint(displayLast),
+        } satisfies LiveTail)
       : null;
     return { cfg, metrics, dataStatus, liveTail };
   });

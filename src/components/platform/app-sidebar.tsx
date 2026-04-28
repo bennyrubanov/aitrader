@@ -153,7 +153,7 @@ export function AppSidebar() {
       '/platform/settings',
       '/performance',
       '/pricing',
-      '/strategy-models',
+      '/performance',
     ];
     const prefetchAllRoutes = () => {
       prefetchTargets.forEach((href) => {
@@ -355,16 +355,16 @@ export function AppSidebar() {
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild size="sm" tooltip="Strategy models & methodology (public)">
+                <SidebarMenuButton asChild size="sm" tooltip="Whitepaper (public)">
                   <Link
-                    href="/strategy-models"
+                    href="/whitepaper"
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={() => closeMobileSidebar()}
                   >
                     <Cpu className="size-4 shrink-0" />
                     <span className={SIDEBAR_MENU_TRAILING_CLASSNAME}>
-                      <span className="min-w-0 flex-1 truncate">Strategy models</span>
+                      <span className="min-w-0 flex-1 truncate">Whitepaper</span>
                       <ArrowUpRight className="ml-auto size-3.5 shrink-0 text-muted-foreground" />
                     </span>
                   </Link>

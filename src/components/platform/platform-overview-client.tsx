@@ -1593,9 +1593,6 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     Record<string, number | null>
   >({});
   const [topSpotlightRebalanceDates, setTopSpotlightRebalanceDates] = useState<string[]>([]);
-  const [topSpotlightHoldingsLatestRunDate, setTopSpotlightHoldingsLatestRunDate] = useState<
-    string | null
-  >(null);
   const [spotlightHoldingsDateSelect, setSpotlightHoldingsDateSelect] =
     useState<string>(HOLDINGS_TODAY_SENTINEL);
   const spotlightHoldingsRequestIdRef = useRef(0);
@@ -2314,7 +2311,6 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
         setTopSpotlightAsOfPriceBySymbol({});
         setTopSpotlightLatestPriceBySymbol({});
         setTopSpotlightRebalanceDates([]);
-        setTopSpotlightHoldingsLatestRunDate(null);
         setTopSpotlightHoldingsLoading(false);
         setTopSpotlightHoldingsRefreshing(false);
         return;
@@ -2332,7 +2328,6 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
         setTopSpotlightAsOfPriceBySymbol(syncHit.asOfPriceBySymbol);
         setTopSpotlightLatestPriceBySymbol(syncHit.latestPriceBySymbol);
         setTopSpotlightRebalanceDates(syncHit.rebalanceDates);
-        setTopSpotlightHoldingsLatestRunDate(syncHit.latestRunDate ?? null);
         setTopSpotlightHoldingsLoading(false);
         setTopSpotlightHoldingsRefreshing(false);
         prefetchExploreHoldingsDates(slug, configId, syncHit.rebalanceDates);
@@ -2356,7 +2351,6 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
           setTopSpotlightAsOfPriceBySymbol({});
           setTopSpotlightLatestPriceBySymbol({});
           setTopSpotlightRebalanceDates([]);
-          setTopSpotlightHoldingsLatestRunDate(null);
         } else {
           if (useRefreshChrome) {
             const elapsed = Date.now() - started;
@@ -2370,7 +2364,6 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
           setTopSpotlightAsOfPriceBySymbol(data.asOfPriceBySymbol);
           setTopSpotlightLatestPriceBySymbol(data.latestPriceBySymbol);
           setTopSpotlightRebalanceDates(data.rebalanceDates);
-          setTopSpotlightHoldingsLatestRunDate(data.latestRunDate ?? null);
           prefetchExploreHoldingsDates(slug, configId, data.rebalanceDates);
         }
       } finally {
@@ -2391,7 +2384,6 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
       setTopSpotlightAsOfPriceBySymbol({});
       setTopSpotlightLatestPriceBySymbol({});
       setTopSpotlightRebalanceDates([]);
-      setTopSpotlightHoldingsLatestRunDate(null);
       setTopSpotlightHoldingsLoading(false);
       setTopSpotlightHoldingsRefreshing(false);
       setSpotlightHoldingsDateSelect(HOLDINGS_TODAY_SENTINEL);
@@ -2530,48 +2522,11 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     spotlightHoldingsValuationMode,
   ]);
 
-  /**
-   * Align chart/endpoint with holdings block for "Today":
-   *  - holdings date strictly newer → append synthetic bar
-   *  - holdings date equals series last date but totals differ → replace last bar
-   *  - otherwise keep series untouched
-   */
-  const effectiveTopSpotlightDisplaySeries = useMemo(() => {
-    const pts = (topSpotlightOverview?.state.series ?? []) as PerformanceSeriesPoint[];
-    if (!pts.length) return pts;
-    if (spotlightHoldingsDateSelect !== HOLDINGS_TODAY_SENTINEL) return pts;
-    const holdingsLatestYmd = topSpotlightHoldingsLatestRunDate;
-    if (!holdingsLatestYmd) return pts;
-    const last = pts[pts.length - 1]!;
-    if (holdingsLatestYmd < last.date) return pts;
-    const totalFromHoldings = liveTopSpotlightAllocation.totalCurrentValue;
-    if (totalFromHoldings == null || !Number.isFinite(totalFromHoldings) || totalFromHoldings <= 0) {
-      return pts;
-    }
-    const nextBar = {
-      date: holdingsLatestYmd,
-      aiPortfolio: totalFromHoldings,
-      nasdaq100CapWeight: last.nasdaq100CapWeight,
-      nasdaq100EqualWeight: last.nasdaq100EqualWeight,
-      sp500: last.sp500,
-    };
-    if (holdingsLatestYmd === last.date) {
-      if (
-        last.aiPortfolio != null &&
-        Number.isFinite(last.aiPortfolio) &&
-        Math.abs(last.aiPortfolio - totalFromHoldings) < 0.005
-      ) {
-        return pts;
-      }
-      return [...pts.slice(0, -1), nextBar];
-    }
-    return [...pts, nextBar];
-  }, [
-    topSpotlightOverview?.state.series,
-    spotlightHoldingsDateSelect,
-    topSpotlightHoldingsLatestRunDate,
-    liveTopSpotlightAllocation.totalCurrentValue,
-  ]);
+  /** Daily snapshot is the canonical previous-close series; overview spotlight reads it directly. */
+  const effectiveTopSpotlightDisplaySeries = useMemo(
+    () => (topSpotlightOverview?.state.series ?? []) as PerformanceSeriesPoint[],
+    [topSpotlightOverview?.state.series]
+  );
 
   const effectiveTopSpotlightState = useMemo(() => {
     const st = topSpotlightOverview?.state;
@@ -2635,7 +2590,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     const eff = effectiveTopSpotlightDisplaySeries as PerformanceSeriesPoint[];
     const ymd =
       spotlightHoldingsDateSelect === HOLDINGS_TODAY_SENTINEL
-        ? topSpotlightHoldingsLatestRunDate ?? eff[eff.length - 1]?.date ?? null
+        ? eff[eff.length - 1]?.date ?? null
         : spotlightHoldingsDateSelect;
     if (!ymd || typeof ymd !== 'string') return null;
     try {
@@ -2646,7 +2601,6 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   }, [
     spotlightHoldingsDateSelect,
     effectiveTopSpotlightDisplaySeries,
-    topSpotlightHoldingsLatestRunDate,
   ]);
 
   useEffect(() => {
@@ -2725,16 +2679,12 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
       if (effLast != null && Number.isFinite(effLast) && effLast > 0) {
         return effLast;
       }
-      return (
-        liveTopSpotlightAllocation.totalCurrentValue ?? spotlightHoldingsAllocationBaseNotional
-      );
+      return null;
     }
     return spotlightHoldingsDisplayNotional;
   }, [
     spotlightHoldingsDateSelect,
     effectiveTopSpotlightDisplaySeries,
-    liveTopSpotlightAllocation.totalCurrentValue,
-    spotlightHoldingsAllocationBaseNotional,
     spotlightHoldingsDisplayNotional,
   ]);
 

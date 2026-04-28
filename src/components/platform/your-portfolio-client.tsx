@@ -1282,7 +1282,7 @@ function SidebarPortfolioBadgeIcon({
   const Icon = SIDEBAR_BADGE_ICON[name] ?? HelpCircle;
   const slugForLinks = strategySlug.trim() || STRATEGY_CONFIG.slug;
   const rankingHowHref =
-    name === 'Top ranked' ? `/strategy-models/${slugForLinks}#portfolio-ranking-how` : null;
+    name === 'Top ranked' ? `/whitepaper/${slugForLinks}#portfolio-ranking-how` : null;
 
   const trigger = (
     <span
@@ -1501,7 +1501,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     Record<string, number | null>
   >({});
   const [configHoldingsRebalanceDates, setConfigHoldingsRebalanceDates] = useState<string[]>([]);
-  const [configHoldingsLatestRunDate, setConfigHoldingsLatestRunDate] = useState<string | null>(null);
   const configHoldingsLenRef = useRef(0);
   configHoldingsLenRef.current = configHoldings.length;
 
@@ -2236,7 +2235,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     setConfigHoldingsAsOfPriceBySymbol({});
     setConfigHoldingsLatestPriceBySymbol({});
     setConfigHoldingsRebalanceDates([]);
-    setConfigHoldingsLatestRunDate(null);
     setConfigHoldingsRefreshing(false);
     setHoldingsDateSelect(HOLDINGS_TODAY_SENTINEL);
 
@@ -2279,7 +2277,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         setConfigHoldingsAsOfPriceBySymbol({});
         setConfigHoldingsLatestPriceBySymbol({});
         setConfigHoldingsRebalanceDates([]);
-        setConfigHoldingsLatestRunDate(null);
         setConfigHoldingsLoading(false);
         setConfigHoldingsRefreshing(false);
         return;
@@ -2303,7 +2300,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         setConfigHoldingsAsOfPriceBySymbol(syncHit.asOfPriceBySymbol);
         setConfigHoldingsLatestPriceBySymbol(syncHit.latestPriceBySymbol);
         setConfigHoldingsRebalanceDates(syncHit.rebalanceDates);
-        setConfigHoldingsLatestRunDate(syncHit.latestRunDate ?? null);
         setConfigHoldingsLoading(false);
         setConfigHoldingsRefreshing(false);
         prefetchExploreHoldingsDates(slug, configId, syncHit.rebalanceDates);
@@ -2327,7 +2323,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
           setConfigHoldingsAsOfPriceBySymbol({});
           setConfigHoldingsLatestPriceBySymbol({});
           setConfigHoldingsRebalanceDates([]);
-          setConfigHoldingsLatestRunDate(null);
         } else {
           if (useRefreshChrome) {
             const elapsed = Date.now() - started;
@@ -2341,7 +2336,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
           setConfigHoldingsAsOfPriceBySymbol(data.asOfPriceBySymbol);
           setConfigHoldingsLatestPriceBySymbol(data.latestPriceBySymbol);
           setConfigHoldingsRebalanceDates(data.rebalanceDates);
-          setConfigHoldingsLatestRunDate(data.latestRunDate ?? null);
           prefetchExploreHoldingsDates(slug, configId, data.rebalanceDates);
         }
       } finally {
@@ -2362,7 +2356,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       setConfigHoldingsAsOfPriceBySymbol({});
       setConfigHoldingsLatestPriceBySymbol({});
       setConfigHoldingsRebalanceDates([]);
-      setConfigHoldingsLatestRunDate(null);
       setConfigHoldingsLoading(false);
       setConfigHoldingsRefreshing(false);
       setHoldingsDateSelect(HOLDINGS_TODAY_SENTINEL);
@@ -2414,8 +2407,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const userEntrySeries = userEntryPayload?.series ?? [];
   const userEntryMetrics = userEntryPayload?.metrics ?? null;
   const selectedProfileHasEntryDate = Boolean(selectedProfile?.user_start_date?.trim());
-  const canUseSelectedProfileValueFallback =
-    !selectedProfileHasEntryDate || userEntrySeries.length > 0;
 
   const modelDisplayMetrics = perfPayload?.metrics ?? modelChart.metrics ?? null;
   const modelDisplaySeries =
@@ -2525,87 +2516,11 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     holdingsTargetDollarsBySymbol,
   ]);
 
-  /**
-   * Align the chart/endpoint with the holdings block for "Today":
-   *  - holdings date strictly newer than series → append a synthetic last bar
-   *  - holdings date equals series last date but totals differ → replace the
-   *    last bar so the card, chart endpoint, and holdings row sum all agree
-   *  - otherwise keep the server-computed series untouched
-   */
-  const effectiveDisplaySeries = useMemo(() => {
-    const pts = displaySeries as PerformanceSeriesPoint[];
-    const userStartYmd = selectedProfile?.user_start_date?.trim() ?? null;
-    const investmentSizeNum = Number(selectedProfile?.investment_size ?? 0);
-    const totalFromHoldingsEarly = liveConfigHoldingsAllocation.totalCurrentValue;
-    const holdingsLatestYmdEarly = configHoldingsLatestRunDate;
-    if (
-      !isLoadingUserEntry &&
-      holdingsDateSelect === HOLDINGS_TODAY_SENTINEL &&
-      pts.length <= 1 &&
-      userStartYmd &&
-      Number.isFinite(investmentSizeNum) &&
-      investmentSizeNum > 0 &&
-      holdingsLatestYmdEarly != null &&
-      holdingsLatestYmdEarly > userStartYmd &&
-      totalFromHoldingsEarly != null &&
-      Number.isFinite(totalFromHoldingsEarly) &&
-      totalFromHoldingsEarly > 0
-    ) {
-      const lastPt = pts[0];
-      return [
-        {
-          date: userStartYmd,
-          aiPortfolio: investmentSizeNum,
-          nasdaq100CapWeight: investmentSizeNum,
-          nasdaq100EqualWeight: investmentSizeNum,
-          sp500: investmentSizeNum,
-        },
-        {
-          date: holdingsLatestYmdEarly,
-          aiPortfolio: totalFromHoldingsEarly,
-          nasdaq100CapWeight: lastPt?.nasdaq100CapWeight ?? investmentSizeNum,
-          nasdaq100EqualWeight: lastPt?.nasdaq100EqualWeight ?? investmentSizeNum,
-          sp500: lastPt?.sp500 ?? investmentSizeNum,
-        },
-      ];
-    }
-    if (!pts.length) return pts;
-    if (holdingsDateSelect !== HOLDINGS_TODAY_SENTINEL) return pts;
-    const holdingsLatestYmd = configHoldingsLatestRunDate;
-    if (!holdingsLatestYmd) return pts;
-    const last = pts[pts.length - 1]!;
-    if (holdingsLatestYmd < last.date) return pts;
-    const totalFromHoldings = liveConfigHoldingsAllocation.totalCurrentValue;
-    if (totalFromHoldings == null || !Number.isFinite(totalFromHoldings) || totalFromHoldings <= 0) {
-      return pts;
-    }
-    const nextBar = {
-      date: holdingsLatestYmd,
-      aiPortfolio: totalFromHoldings,
-      nasdaq100CapWeight: last.nasdaq100CapWeight,
-      nasdaq100EqualWeight: last.nasdaq100EqualWeight,
-      sp500: last.sp500,
-    };
-    if (holdingsLatestYmd === last.date) {
-      if (
-        last.aiPortfolio != null &&
-        Number.isFinite(last.aiPortfolio) &&
-        Math.abs(last.aiPortfolio - totalFromHoldings) < 0.005
-      ) {
-        return pts;
-      }
-      return [...pts.slice(0, -1), nextBar];
-    }
-    return [...pts, nextBar];
-  }, [
-    displaySeries,
-    holdingsDateSelect,
-    configHoldingsLatestRunDate,
-    liveConfigHoldingsAllocation.totalCurrentValue,
-    selectedProfile?.investment_size,
-    selectedProfile?.user_start_date,
-    isLoadingUserEntry,
-  ]);
+  /** Daily snapshot is the canonical previous-close series; user entry code rebases it. */
+  const effectiveDisplaySeries = useMemo(
+    () => displaySeries as PerformanceSeriesPoint[],
+    [displaySeries]
+  );
 
   const effectiveDisplayMetrics = useMemo(
     () => {
@@ -2704,27 +2619,11 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       selectedProfile?.user_start_date ?? null
     );
     if (fromSeries != null && Number.isFinite(fromSeries) && fromSeries > 0) return fromSeries;
-    if (
-      liveConfigHoldingsAllocation.totalCurrentValue != null &&
-      Number.isFinite(liveConfigHoldingsAllocation.totalCurrentValue) &&
-      liveConfigHoldingsAllocation.totalCurrentValue > 0 &&
-      canUseSelectedProfileValueFallback
-    ) {
-      return liveConfigHoldingsAllocation.totalCurrentValue;
-    }
-    return canUseSelectedProfileValueFallback &&
-      configHoldings.length > 0 &&
-      holdingsAllocationBaseNotional > 0
-      ? holdingsAllocationBaseNotional
-      : null;
+    return null;
   }, [
     effectiveDisplaySeries,
     selectedProfile?.investment_size,
     selectedProfile?.user_start_date,
-    liveConfigHoldingsAllocation.totalCurrentValue,
-    canUseSelectedProfileValueFallback,
-    configHoldings.length,
-    holdingsAllocationBaseNotional,
   ]);
 
   const portfolioValueDisplayTotalReturn = useMemo(() => {
@@ -2745,7 +2644,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     const pts = effectiveDisplaySeries as PerformanceSeriesPoint[];
     const ymd =
       holdingsDateSelect === HOLDINGS_TODAY_SENTINEL
-        ? configHoldingsLatestRunDate ?? pts[pts.length - 1]?.date ?? null
+        ? pts[pts.length - 1]?.date ?? null
         : holdingsDateSelect;
     if (!ymd || typeof ymd !== 'string') return null;
     try {
@@ -2753,7 +2652,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     } catch {
       return null;
     }
-  }, [holdingsDateSelect, effectiveDisplaySeries, configHoldingsLatestRunDate]);
+  }, [holdingsDateSelect, effectiveDisplaySeries]);
 
   const holdingsPortfolioValueLineAmount = useMemo(() => {
     if (holdingsDateSelect === HOLDINGS_TODAY_SENTINEL) {
@@ -3299,7 +3198,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                   className="h-7 w-full justify-start gap-1.5 px-1 text-xs"
                 >
                   <Link
-                    href={`/strategy-models/${selectedProfile?.strategy_models?.slug ?? strategySlug}`}
+                    href={`/performance/${selectedProfile?.strategy_models?.slug ?? strategySlug}#model-overview`}
                   >
                     <ExternalLink className="size-3 shrink-0" />
                     How this model works
@@ -3500,7 +3399,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                       className="h-7 w-full justify-start gap-1.5 px-1 text-xs"
                     >
                       <Link
-                        href={`/strategy-models/${selectedProfile?.strategy_models?.slug ?? strategySlug}`}
+                        href={`/performance/${selectedProfile?.strategy_models?.slug ?? strategySlug}#model-overview`}
                       >
                         <ExternalLink className="size-3 shrink-0" />
                         How this model works

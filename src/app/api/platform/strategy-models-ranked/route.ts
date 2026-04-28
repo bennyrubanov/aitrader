@@ -7,6 +7,7 @@ import {
   getStrategiesList,
 } from '@/lib/platform-performance-payload';
 import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
+import { avgExcessReturnVsSp500FromConfigs } from '@/lib/avg-excess-vs-sp500';
 import { createPublicClient } from '@/utils/supabase/public';
 
 export const runtime = 'nodejs';
@@ -31,21 +32,6 @@ function summarizeBeatsSp500(configs: RankedConfig[]) {
   const pct =
     comparable.length > 0 ? Math.round((1000 * beating) / comparable.length) / 10 : null;
   return { beatSp500Pct: pct, beatSp500Beating: beating, beatSp500Comparable: comparable.length };
-}
-
-const INITIAL_CAPITAL = 10_000;
-
-function avgExcessReturnVsSp500(configs: RankedConfig[]): number | null {
-  const excess: number[] = [];
-  for (const c of configs) {
-    const tr = c.metrics.totalReturn;
-    const sp = c.metrics.endingValueSp500;
-    if (tr == null || !Number.isFinite(tr) || sp == null || sp <= 0) continue;
-    const spRet = sp / INITIAL_CAPITAL - 1;
-    if (!Number.isFinite(spRet)) continue;
-    excess.push(tr - spRet);
-  }
-  return excess.length > 0 ? excess.reduce((s, v) => s + v, 0) / excess.length : null;
 }
 
 function internalOrigin(): string {
@@ -231,7 +217,7 @@ export async function GET() {
         medianConfigSharpe: median(sharpes),
         bestConfigSharpe: sharpes.length ? Math.max(...sharpes) : null,
         eligibleConfigCount: eligible.length,
-        avgExcessVsSp500: avgExcessReturnVsSp500(configs),
+        avgExcessVsSp500: avgExcessReturnVsSp500FromConfigs(configs),
         latestBeta,
         avgBetaAllWeeks: regSummary.avgBetaAllWeeks,
         avgBetaRecent8w: regSummary.avgBetaRecent8w,

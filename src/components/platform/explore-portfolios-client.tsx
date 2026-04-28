@@ -889,7 +889,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
                   size="sm"
                   className="w-full justify-start gap-1.5 text-xs h-7 px-1"
                 >
-                  <Link href={`/strategy-models/${strategySlug}`}>
+                  <Link href={`/performance/${strategySlug}#model-overview`}>
                     <ExternalLink className="size-3 shrink-0" />
                     How this model works
                   </Link>
@@ -1171,11 +1171,17 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
 
             {/* Config list or multi-line equity chart */}
             {isLoading ? (
-              <div className="space-y-3">
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <Skeleton key={i} className="h-32 w-full" />
-                ))}
-              </div>
+              browseMode === 'chart' ? (
+                <div className="rounded-xl border bg-card p-4">
+                  <Skeleton className="h-[380px] w-full rounded-lg" />
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <Skeleton key={i} className="h-32 w-full" />
+                  ))}
+                </div>
+              )
             ) : filteredConfigs.length === 0 ? (
               <div className="rounded-lg border border-dashed p-12 text-center text-sm text-muted-foreground">
                 No portfolios match the selected filters.
@@ -1263,7 +1269,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
                         size="sm"
                         className="h-7 w-full justify-start gap-1.5 px-1 text-xs"
                       >
-                        <Link href={`/strategy-models/${strategySlug}`}>
+                        <Link href={`/performance/${strategySlug}#model-overview`}>
                           <ExternalLink className="size-3 shrink-0" />
                           How this model works
                         </Link>

@@ -59,7 +59,7 @@ export const PORTFOLIO_LIST_METRIC_OPTION_DETAILS: PortfolioListMetricOptionDeta
     description:
       'Blend of Sharpe, total return, consistency, drawdown, and excess vs Nasdaq-100 cap within this list (CAGR is shown separately).',
     inlineDetailsLink: {
-      href: `/strategy-models/${STRATEGY_CONFIG.slug}#portfolio-ranking-how`,
+      href: `/whitepaper/${STRATEGY_CONFIG.slug}#portfolio-ranking-how`,
       label: 'More details',
     },
   },

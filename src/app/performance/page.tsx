@@ -1,17 +1,17 @@
-import { redirect } from 'next/navigation';
-import { getCanonicalPerformancePathIfNeeded } from '@/lib/performance-canonical-url-server';
-import { getPlatformPerformancePayload } from '@/lib/platform-performance-payload';
+import { getStrategiesList } from '@/lib/platform-performance-payload';
+import { StrategyModelsClient } from '@/components/strategy-models/strategy-models-client';
 
-// Redirect /performance to the default strategy model's performance page
+export const revalidate = 300;
+
+export const metadata = {
+  title: 'Performance | AITrader',
+  description:
+    'Browse AI trading strategy models. Compare portfolio outperformance rates vs benchmarks, then open full performance for any model.',
+};
+
 const PerformancePage = async () => {
-  const payload = await getPlatformPerformancePayload();
-  const slug = payload.strategy?.slug;
-  if (slug) {
-    const canonical = await getCanonicalPerformancePathIfNeeded(slug, '');
-    redirect(canonical ?? `/performance/${slug}`);
-  }
-  // Fallback: render inline if no slug available (e.g. no data yet)
-  redirect('/strategy-models');
+  const strategies = await getStrategiesList();
+  return <StrategyModelsClient strategies={strategies} />;
 };
 
 export default PerformancePage;

@@ -250,7 +250,7 @@ function RatingsStrategyModelPicker({
                   </span>
                 </div>
                 <Link
-                  href={`/strategy-models/${strategy.slug}`}
+                  href={`/performance/${strategy.slug}`}
                   className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
                   onPointerDown={(e) => e.preventDefault()}
                   onClick={(e) => e.stopPropagation()}
@@ -312,7 +312,7 @@ function RatingsStrategyModelPicker({
                       </span>
                     </div>
                     <Link
-                      href={`/strategy-models/${strategy.slug}`}
+                      href={`/performance/${strategy.slug}`}
                       className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
                       onPointerDown={(e) => e.preventDefault()}
                       onClick={(e) => e.stopPropagation()}

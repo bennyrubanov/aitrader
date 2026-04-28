@@ -501,7 +501,7 @@ export function YourPortfoliosGuestPreview({ signInHref, signUpHref }: Props) {
                   size="sm"
                   className="h-7 w-full justify-start gap-1.5 px-1 text-xs"
                 >
-                  <Link href={`/strategy-models/${STRATEGY_CONFIG.slug}`}>
+                  <Link href={`/performance/${STRATEGY_CONFIG.slug}#model-overview`}>
                     <ExternalLink className="size-3 shrink-0" />
                     How this model works
                   </Link>

@@ -79,10 +79,10 @@ const ContactPage = () => {
                     </li>
                     <li>
                       <Link
-                        href="/strategy-models"
+                        href="/whitepaper"
                         className="font-medium text-trader-blue hover:underline"
                       >
-                        Strategy Models
+                        Whitepaper
                       </Link>
                       <p className="text-muted-foreground text-sm mt-1">
                         Explore the scientific foundation behind our strategy models.
