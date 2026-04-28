@@ -41,7 +41,7 @@ type CacheEntry<T> = {
 };
 
 /** Data entries use this prefix; meta keys use `${CACHE_PREFIX}.meta.*`. */
-const CACHE_PREFIX = 'aitrader.platform.cache.v2.explore-holdings';
+const CACHE_PREFIX = 'aitrader.platform.cache.v3.explore-holdings';
 const LRU_STORAGE_KEY = `${CACHE_PREFIX}.meta.lru`;
 const V1_SESSION_PREFIX = 'aitrader.platform.cache.v1.explore-holdings.';
 

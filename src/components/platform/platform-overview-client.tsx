@@ -131,7 +131,6 @@ import {
   prefetchExploreHoldingsDates,
   sleepMs,
   useExploreHoldingsCacheVersion,
-  type ExploreHoldingsLivePoint,
 } from '@/lib/portfolio-config-holdings-cache';
 import { buildMetricsFromSeries } from '@/lib/config-performance-chart';
 import { loadRankedConfigsClient } from '@/lib/portfolio-configs-ranked-client';
@@ -1597,8 +1596,6 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   const [topSpotlightHoldingsLatestRunDate, setTopSpotlightHoldingsLatestRunDate] = useState<
     string | null
   >(null);
-  const [topSpotlightHoldingsLivePoint, setTopSpotlightHoldingsLivePoint] =
-    useState<ExploreHoldingsLivePoint | null>(null);
   const [spotlightHoldingsDateSelect, setSpotlightHoldingsDateSelect] =
     useState<string>(HOLDINGS_TODAY_SENTINEL);
   const spotlightHoldingsRequestIdRef = useRef(0);
@@ -2318,7 +2315,6 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
         setTopSpotlightLatestPriceBySymbol({});
         setTopSpotlightRebalanceDates([]);
         setTopSpotlightHoldingsLatestRunDate(null);
-        setTopSpotlightHoldingsLivePoint(null);
         setTopSpotlightHoldingsLoading(false);
         setTopSpotlightHoldingsRefreshing(false);
         return;
@@ -2337,7 +2333,6 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
         setTopSpotlightLatestPriceBySymbol(syncHit.latestPriceBySymbol);
         setTopSpotlightRebalanceDates(syncHit.rebalanceDates);
         setTopSpotlightHoldingsLatestRunDate(syncHit.latestRunDate ?? null);
-        setTopSpotlightHoldingsLivePoint(syncHit.livePoint ?? null);
         setTopSpotlightHoldingsLoading(false);
         setTopSpotlightHoldingsRefreshing(false);
         prefetchExploreHoldingsDates(slug, configId, syncHit.rebalanceDates);
@@ -2362,7 +2357,6 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
           setTopSpotlightLatestPriceBySymbol({});
           setTopSpotlightRebalanceDates([]);
           setTopSpotlightHoldingsLatestRunDate(null);
-          setTopSpotlightHoldingsLivePoint(null);
         } else {
           if (useRefreshChrome) {
             const elapsed = Date.now() - started;
@@ -2377,7 +2371,6 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
           setTopSpotlightLatestPriceBySymbol(data.latestPriceBySymbol);
           setTopSpotlightRebalanceDates(data.rebalanceDates);
           setTopSpotlightHoldingsLatestRunDate(data.latestRunDate ?? null);
-          setTopSpotlightHoldingsLivePoint(data.livePoint ?? null);
           prefetchExploreHoldingsDates(slug, configId, data.rebalanceDates);
         }
       } finally {
@@ -2399,7 +2392,6 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
       setTopSpotlightLatestPriceBySymbol({});
       setTopSpotlightRebalanceDates([]);
       setTopSpotlightHoldingsLatestRunDate(null);
-      setTopSpotlightHoldingsLivePoint(null);
       setTopSpotlightHoldingsLoading(false);
       setTopSpotlightHoldingsRefreshing(false);
       setSpotlightHoldingsDateSelect(HOLDINGS_TODAY_SENTINEL);
@@ -2556,15 +2548,12 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     if (totalFromHoldings == null || !Number.isFinite(totalFromHoldings) || totalFromHoldings <= 0) {
       return pts;
     }
-    const lp = topSpotlightHoldingsLivePoint;
     const nextBar = {
       date: holdingsLatestYmd,
       aiPortfolio: totalFromHoldings,
-      nasdaq100CapWeight:
-        lp?.nasdaq100CapWeight != null ? lp.nasdaq100CapWeight : last.nasdaq100CapWeight,
-      nasdaq100EqualWeight:
-        lp?.nasdaq100EqualWeight != null ? lp.nasdaq100EqualWeight : last.nasdaq100EqualWeight,
-      sp500: lp?.sp500 != null ? lp.sp500 : last.sp500,
+      nasdaq100CapWeight: last.nasdaq100CapWeight,
+      nasdaq100EqualWeight: last.nasdaq100EqualWeight,
+      sp500: last.sp500,
     };
     if (holdingsLatestYmd === last.date) {
       if (
@@ -2581,7 +2570,6 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     topSpotlightOverview?.state.series,
     spotlightHoldingsDateSelect,
     topSpotlightHoldingsLatestRunDate,
-    topSpotlightHoldingsLivePoint,
     liveTopSpotlightAllocation.totalCurrentValue,
   ]);
 

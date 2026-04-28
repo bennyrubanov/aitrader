@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
-import { computeConfigDailySeries, rebaseSeriesForDisplay, sliceAndScale } from '@/lib/config-daily-series';
+import {
+  computeConfigDailySeries,
+  liftTailPointForDisplay,
+  rebaseSeriesForDisplay,
+  sliceAndScale,
+} from '@/lib/config-daily-series';
 import type { ConfigPerfRow } from '@/lib/portfolio-config-utils';
 
 test('sliceAndScale anchors each series independently at investmentSize at entry date', () => {
@@ -96,6 +101,53 @@ test('rebaseSeriesForDisplay returns [] for empty series or non-positive display
   ];
   assert.equal(rebaseSeriesForDisplay(series, { displayInitial: 0 }).length, 0);
   assert.equal(rebaseSeriesForDisplay(series, { displayInitial: -1 }).length, 0);
+});
+
+test('liftTailPointForDisplay lifts raw tail to displayInitial using per-leg factors from rawFirst', () => {
+  const rawFirst: PerformanceSeriesPoint = {
+    date: '2026-01-01',
+    aiPortfolio: 9985,
+    nasdaq100CapWeight: 10000,
+    nasdaq100EqualWeight: 10000,
+    sp500: 10000,
+  };
+  const tail: PerformanceSeriesPoint = {
+    date: '2026-01-05',
+    aiPortfolio: 10_000,
+    nasdaq100CapWeight: 10_020,
+    nasdaq100EqualWeight: 10_010,
+    sp500: 10_005,
+  };
+  const out = liftTailPointForDisplay(rawFirst, tail, 10_000);
+  const aiFactor = 10_000 / 9985;
+  assert.equal(out.date, '2026-01-05');
+  assert.ok(Math.abs(out.aiPortfolio - 10_000 * aiFactor) < 1e-6);
+  assert.ok(Math.abs((out.nasdaq100CapWeight ?? 0) - 10_020) < 1e-6);
+  assert.ok(Math.abs((out.nasdaq100EqualWeight ?? 0) - 10_010) < 1e-6);
+  assert.ok(Math.abs((out.sp500 ?? 0) - 10_005) < 1e-6);
+});
+
+test('liftTailPointForDisplay uses single aiScale when all rawFirst legs match (uniform inception anchor)', () => {
+  const rawFirst: PerformanceSeriesPoint = {
+    date: '2026-01-01',
+    aiPortfolio: 9985,
+    nasdaq100CapWeight: 9985,
+    nasdaq100EqualWeight: 9985,
+    sp500: 9985,
+  };
+  const tail: PerformanceSeriesPoint = {
+    date: '2026-01-05',
+    aiPortfolio: 10_000,
+    nasdaq100CapWeight: 10_000,
+    nasdaq100EqualWeight: 10_000,
+    sp500: 10_000,
+  };
+  const out = liftTailPointForDisplay(rawFirst, tail, 10_000);
+  const k = 10_000 / 9985;
+  assert.ok(Math.abs(out.aiPortfolio - 10_000 * k) < 1e-6);
+  assert.ok(Math.abs((out.nasdaq100CapWeight ?? 0) - 10_000 * k) < 1e-6);
+  assert.ok(Math.abs((out.nasdaq100EqualWeight ?? 0) - 10_000 * k) < 1e-6);
+  assert.ok(Math.abs((out.sp500 ?? 0) - 10_000 * k) < 1e-6);
 });
 
 test('computeConfigDailySeries downgrades to early when perf rows exist on disk but rows array is empty', async () => {

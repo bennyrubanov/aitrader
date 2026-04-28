@@ -9,12 +9,16 @@ import {
   paidHoldingsPlanRequiredResponse,
   strategyModelNotOnPlanResponse,
 } from '@/lib/server-entitlements';
+import { liftTailPointForDisplay } from '@/lib/config-daily-series';
+import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { createClient } from '@/utils/supabase/server';
 import { createPublicClient } from '@/utils/supabase/public';
 
 export const runtime = 'nodejs';
 export const revalidate = 300;
+
+const DISPLAY_INITIAL_CAPITAL = 10_000;
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -215,7 +219,7 @@ export async function GET(req: NextRequest) {
   }
 
   const responseCacheKey = [
-    'explore-holdings-v3',
+    'explore-holdings-v4',
     tier,
     strategy.id,
     configId,
@@ -393,17 +397,8 @@ export async function GET(req: NextRequest) {
           Number.isFinite(Number(tail.aiPortfolio)) &&
           Number(tail.aiPortfolio) > 0
         ) {
-          livePoint = {
-            date: tail.date,
-            aiPortfolio: Number(tail.aiPortfolio),
-            nasdaq100CapWeight: Number.isFinite(Number(tail.nasdaq100CapWeight))
-              ? Number(tail.nasdaq100CapWeight)
-              : null,
-            nasdaq100EqualWeight: Number.isFinite(Number(tail.nasdaq100EqualWeight))
-              ? Number(tail.nasdaq100EqualWeight)
-              : null,
-            sp500: Number.isFinite(Number(tail.sp500)) ? Number(tail.sp500) : null,
-          };
+          const rawFirst = snapshot.series[0]!;
+          livePoint = liftTailPointForDisplay(rawFirst, tail as PerformanceSeriesPoint, DISPLAY_INITIAL_CAPITAL);
         }
       }
     } catch {

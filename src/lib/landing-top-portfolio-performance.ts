@@ -1,6 +1,6 @@
 import { unstable_cache } from 'next/cache';
 import { RISK_TOP_N } from '@/components/portfolio-config';
-import { ensureConfigDailySeries } from '@/lib/config-daily-series';
+import { ensureConfigDailySeries, rebaseSeriesForDisplay } from '@/lib/config-daily-series';
 import { loadPortfolioConfigsRankedPayload } from '@/lib/portfolio-configs-ranked-core';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
@@ -14,6 +14,8 @@ import {
 import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { createPublicClient } from '@/utils/supabase/public';
+
+const INITIAL_CAPITAL = 10_000;
 
 /** Use with `revalidateTag` after `strategy_portfolio_config_performance` / weekly benchmark updates (cron, backfill). */
 export const LANDING_TOP_PORTFOLIO_PERFORMANCE_CACHE_TAG = 'landing-top-portfolio-performance';
@@ -89,7 +91,11 @@ async function loadLandingTopPortfolioPerformanceUncached(): Promise<LandingTopP
       weighting_method: portfolioSlice.weightingMethod,
     },
   });
-  const series = snapshot?.series ?? [];
+  const rawSeries = snapshot?.series ?? [];
+  const series =
+    rawSeries.length > 0
+      ? rebaseSeriesForDisplay(rawSeries, { displayInitial: INITIAL_CAPITAL })
+      : [];
 
   return {
     series,

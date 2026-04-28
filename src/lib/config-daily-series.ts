@@ -845,6 +845,70 @@ export async function refreshDailySeriesSnapshotsForStrategy(
   };
 }
 
+/** Per-leg scale factors from a raw snapshot baseline point to `displayInitial` (§11). */
+function perLegDisplayScales(
+  baseline: PerformanceSeriesPoint,
+  displayInitial: number
+): { aiScale: number; capScale: number; eqScale: number; spxScale: number } {
+  const aiScale =
+    Number.isFinite(baseline.aiPortfolio) && baseline.aiPortfolio > 0
+      ? displayInitial / baseline.aiPortfolio
+      : 1;
+  const capScale =
+    Number.isFinite(baseline.nasdaq100CapWeight) && baseline.nasdaq100CapWeight > 0
+      ? displayInitial / baseline.nasdaq100CapWeight
+      : aiScale;
+  const eqScale =
+    Number.isFinite(baseline.nasdaq100EqualWeight) && baseline.nasdaq100EqualWeight > 0
+      ? displayInitial / baseline.nasdaq100EqualWeight
+      : aiScale;
+  const spxScale =
+    Number.isFinite(baseline.sp500) && baseline.sp500 > 0 ? displayInitial / baseline.sp500 : aiScale;
+  return { aiScale, capScale, eqScale, spxScale };
+}
+
+/** Same shape as explore holdings / explore equity `livePoint` payloads (benchmark legs optional). */
+export type LiftedDisplayTailPoint = {
+  date: string;
+  aiPortfolio: number;
+  nasdaq100CapWeight: number | null;
+  nasdaq100EqualWeight: number | null;
+  sp500: number | null;
+};
+
+/**
+ * Lift a single MTM tail point from raw snapshot dollars to `displayInitial`-anchored
+ * display dollars using the same per-leg factors as {@link rebaseSeriesForDisplay}.
+ * `rawFirst` is typically `snapshot.series[0]` (model post-cost inception scale).
+ */
+export function liftTailPointForDisplay(
+  rawFirst: PerformanceSeriesPoint,
+  tail: PerformanceSeriesPoint,
+  displayInitial: number
+): LiftedDisplayTailPoint {
+  if (!Number.isFinite(displayInitial) || displayInitial <= 0) {
+    return {
+      date: tail.date,
+      aiPortfolio: tail.aiPortfolio,
+      nasdaq100CapWeight: Number.isFinite(tail.nasdaq100CapWeight) ? tail.nasdaq100CapWeight : null,
+      nasdaq100EqualWeight: Number.isFinite(tail.nasdaq100EqualWeight) ? tail.nasdaq100EqualWeight : null,
+      sp500: Number.isFinite(tail.sp500) ? tail.sp500 : null,
+    };
+  }
+  const { aiScale, capScale, eqScale, spxScale } = perLegDisplayScales(rawFirst, displayInitial);
+  return {
+    date: tail.date,
+    aiPortfolio: Number(tail.aiPortfolio) * aiScale,
+    nasdaq100CapWeight: Number.isFinite(Number(tail.nasdaq100CapWeight))
+      ? Number(tail.nasdaq100CapWeight) * capScale
+      : null,
+    nasdaq100EqualWeight: Number.isFinite(Number(tail.nasdaq100EqualWeight))
+      ? Number(tail.nasdaq100EqualWeight) * eqScale
+      : null,
+    sp500: Number.isFinite(Number(tail.sp500)) ? Number(tail.sp500) * spxScale : null,
+  };
+}
+
 /**
  * Display-only rebase. Anchors the four legs of `series` at `displayInitial` on the
  * baseline date, using per-leg scale factors so each benchmark preserves its own
@@ -897,19 +961,7 @@ export function rebaseSeriesForDisplay(
 
   if (!Number.isFinite(baseline.aiPortfolio) || baseline.aiPortfolio <= 0) return [];
 
-  const aiScale = displayInitial / baseline.aiPortfolio;
-  const capScale =
-    Number.isFinite(baseline.nasdaq100CapWeight) && baseline.nasdaq100CapWeight > 0
-      ? displayInitial / baseline.nasdaq100CapWeight
-      : aiScale;
-  const eqScale =
-    Number.isFinite(baseline.nasdaq100EqualWeight) && baseline.nasdaq100EqualWeight > 0
-      ? displayInitial / baseline.nasdaq100EqualWeight
-      : aiScale;
-  const spxScale =
-    Number.isFinite(baseline.sp500) && baseline.sp500 > 0
-      ? displayInitial / baseline.sp500
-      : aiScale;
+  const { aiScale, capScale, eqScale, spxScale } = perLegDisplayScales(baseline, displayInitial);
 
   const out: PerformanceSeriesPoint[] = [];
   if (prependSynthetic) {

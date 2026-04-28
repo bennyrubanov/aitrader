@@ -92,6 +92,9 @@ function hrefFromRow(n: NotifRow): string | null {
   return href && href.trim() ? href.trim() : null;
 }
 
+/** Refetch notifications at most this often when not forced (daily cadence; saves API + Supabase). */
+const NOTIFICATIONS_STALE_MS = 15 * 60 * 1000;
+
 async function markNotificationRead(id: string): Promise<void> {
   await fetch(`/api/platform/notifications/${id}`, {
     method: 'PATCH',
@@ -339,20 +342,35 @@ export function NotificationsBell() {
   const [filter, setFilter] = useState<FilterId>('all');
   const [panelView, setPanelView] = useState<'list' | 'settings'>('list');
   const [detail, setDetail] = useState<NotifRow | null>(null);
+  const lastLoadedAtRef = useRef<number | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
+    if (
+      !force &&
+      lastLoadedAtRef.current != null &&
+      Date.now() - lastLoadedAtRef.current < NOTIFICATIONS_STALE_MS
+    ) {
+      return;
+    }
     setLoading(true);
     try {
       const res = await fetch('/api/platform/notifications?limit=60');
       if (res.status === 401) {
         setItems([]);
         setUnreadCount(0);
+        lastLoadedAtRef.current = null;
         return;
       }
       if (!res.ok) return;
-      const j = (await res.json()) as { items: NotifRow[]; unreadCount: number };
-      setItems(j.items ?? []);
-      setUnreadCount(typeof j.unreadCount === 'number' ? j.unreadCount : 0);
+      const j = (await res.json()) as { items: NotifRow[]; unreadCount?: number };
+      const nextItems = j.items ?? [];
+      setItems(nextItems);
+      const unread =
+        typeof j.unreadCount === 'number'
+          ? j.unreadCount
+          : nextItems.filter((row) => row.read_at == null).length;
+      setUnreadCount(unread);
+      lastLoadedAtRef.current = Date.now();
     } catch {
       // Offline, connection reset, or dev reload — avoid unhandled rejection; keep prior list.
     } finally {
@@ -373,17 +391,31 @@ export function NotificationsBell() {
       setItems([]);
       setUnreadCount(0);
       setLoading(false);
+      lastLoadedAtRef.current = null;
       return;
     }
     prefetchSettingsPage();
     prewarmNotificationSettings({ userId });
-    void load();
-    const t = setInterval(() => void load(), 60_000);
-    return () => clearInterval(t);
+    void load(true);
   }, [isAuthenticated, isLoaded, load, prefetchSettingsPage, userId]);
 
   useEffect(() => {
-    if (open) void load();
+    if (!isLoaded || !isAuthenticated || !userId) return;
+    const onVisibility = () => {
+      if (document.hidden) return;
+      void load(false);
+    };
+    const onFocus = () => void load(false);
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [isAuthenticated, isLoaded, load, userId]);
+
+  useEffect(() => {
+    if (open) void load(false);
   }, [open, load]);
 
   useEffect(() => {
@@ -439,7 +471,7 @@ export function NotificationsBell() {
       }
       setOpen(false);
       router.push(href);
-      void load();
+      void load(true);
     },
     [load, router]
   );
@@ -465,7 +497,7 @@ export function NotificationsBell() {
     setDetail(null);
     setOpen(false);
     router.push('/platform');
-    void load();
+    void load(true);
   }, [load, router]);
 
   if (!isLoaded || !isAuthenticated) return null;

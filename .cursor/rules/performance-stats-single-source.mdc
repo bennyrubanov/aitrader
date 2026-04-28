@@ -318,8 +318,10 @@ renders at the dollars the viewer is mentally putting in:
 - User-rebased surfaces (`/platform/your-portfolios`, `/platform` overview,
   guest preview): first point = `investmentSize` at `userStart`.
 
-Canonical helper: `rebaseSeriesForDisplay(series, { anchorDate?,
-displayInitial })` in `src/lib/config-daily-series.ts`. Per-leg independent
+Canonical helpers in `src/lib/config-daily-series.ts`:
+`rebaseSeriesForDisplay(series, { anchorDate?, displayInitial })` and
+`liftTailPointForDisplay(rawFirst, tail, displayInitial)` for a single MTM
+tail row. Per-leg independent
 scale (matches §7). Walks back to a `≤ anchorDate` baseline and prepends a
 synthetic point at exactly `anchorDate` when no snapshot row lands there;
 the synthetic point's four legs are all `displayInitial`, and subsequent
@@ -335,6 +337,12 @@ lifted series. Server endpoints lift before returning JSON:
 - `/api/platform/explore-portfolios-equity-series` (lifts both series and
   `livePoint`; `notionalSeries` passed to `buildConfigDailySeriesTailPoint`
   remains the **raw** snapshot to keep that helper in model dollars)
+- `/api/platform/explore-portfolio-config-holdings` — optional `livePoint` is
+  lifted to the same **inception $10k** display scale via
+  `liftTailPointForDisplay` (per-leg factors from `snapshot.series[0]`).
+  User-anchored chart tails must not copy `livePoint` benchmark legs onto a
+  user-rebased series; use the prior bar’s benchmark values (`last.*`) when
+  appending a synthetic tail (graceful degradation per §5).
 - `/api/platform/user-portfolio-performance`
 - `buildGuestUserEntryPerformancePayload`
 

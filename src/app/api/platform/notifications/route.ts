@@ -7,6 +7,8 @@ const unauthorized = () => NextResponse.json({ error: 'Unauthorized' }, { status
 
 export async function GET(req: Request) {
   const supabase = await createClient();
+  // Prefer local JWT verification when SDK exposes it; @supabase/supabase-js@2.93
+  // has no auth.getClaims() — getUser() validates with GoTrue (one HTTPS hop).
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -51,15 +53,15 @@ export async function GET(req: Request) {
   const items = hasMore ? list.slice(0, limit) : list;
   const nextCursor = hasMore && items.length ? (items[items.length - 1] as { created_at: string }).created_at : null;
 
-  const { count: unreadCount } = await supabase
-    .from('notifications')
-    .select('id', { count: 'exact', head: true })
-    .eq('user_id', user.id)
-    .is('read_at', null);
+  const unreadInPage = items.reduce(
+    (n, r) => (r.read_at == null ? n + 1 : n),
+    0
+  );
 
   return NextResponse.json({
     items,
     nextCursor,
-    unreadCount: unreadCount ?? 0,
+    // First page only: bell uses limit=60 and badge caps at 9+; avoids a second PostgREST count query.
+    ...(cursor == null ? { unreadCount: unreadInPage } : {}),
   });
 }

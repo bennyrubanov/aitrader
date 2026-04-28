@@ -112,7 +112,6 @@ import {
   prefetchExploreHoldingsDates,
   sleepMs,
   useExploreHoldingsCacheVersion,
-  type ExploreHoldingsLivePoint,
 } from '@/lib/portfolio-config-holdings-cache';
 import {
   buildHoldingMovementTableRows,
@@ -319,6 +318,38 @@ function getSidebarRowPerf(p: UserPortfolioProfileRow): {
   const valueStr = v != null && Number.isFinite(v) ? formatYourPortfolioCurrency(v) : null;
   const returnFr = r != null && Number.isFinite(r) ? r : null;
   return { showLoading: false, valueStr, returnFr };
+}
+
+type SidebarRowPerf = ReturnType<typeof getSidebarRowPerf>;
+
+/** Active row on "Today": avoid flashing pre-tail server $/% before live-tail override is ready. */
+function deriveActiveRowPerf(args: {
+  active: boolean;
+  baseRowPerf: SidebarRowPerf;
+  holdingsDateSelect: string;
+  portfolioValueAmount: number | null;
+  portfolioValueDisplayTotalReturn: number | null;
+  configHoldingsLoading: boolean;
+  hasHoldings: boolean;
+}): SidebarRowPerf {
+  const overrideIntended =
+    args.active && args.holdingsDateSelect === HOLDINGS_TODAY_SENTINEL;
+  if (!overrideIntended) return args.baseRowPerf;
+  if (args.portfolioValueAmount != null) {
+    return {
+      showLoading: false,
+      valueStr: formatYourPortfolioCurrency(args.portfolioValueAmount),
+      returnFr:
+        args.portfolioValueDisplayTotalReturn != null &&
+        Number.isFinite(args.portfolioValueDisplayTotalReturn)
+          ? args.portfolioValueDisplayTotalReturn
+          : args.baseRowPerf.returnFr,
+    };
+  }
+  if (args.configHoldingsLoading || args.hasHoldings) {
+    return { showLoading: true, valueStr: null, returnFr: null };
+  }
+  return args.baseRowPerf;
 }
 
 function SidebarRowPerfLoadingSkeleton() {
@@ -1471,9 +1502,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   >({});
   const [configHoldingsRebalanceDates, setConfigHoldingsRebalanceDates] = useState<string[]>([]);
   const [configHoldingsLatestRunDate, setConfigHoldingsLatestRunDate] = useState<string | null>(null);
-  const [configHoldingsLivePoint, setConfigHoldingsLivePoint] = useState<ExploreHoldingsLivePoint | null>(
-    null
-  );
   const configHoldingsLenRef = useRef(0);
   configHoldingsLenRef.current = configHoldings.length;
 
@@ -1499,6 +1527,8 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const [userEntryPayload, setUserEntryPayload] = useState<UserEntryPerfApiResponse | null>(null);
   const [isLoadingUserEntry, setIsLoadingUserEntry] = useState(false);
   const userEntryRequestIdRef = useRef(0);
+  const [hasSettledInitialSelectedPortfolioLoad, setHasSettledInitialSelectedPortfolioLoad] =
+    useState(false);
   const [entrySettingsOpen, setEntrySettingsOpen] = useState(false);
   const [portfolioAlertsOpen, setPortfolioAlertsOpen] = useState(false);
   const [holdingsRowChartSymbol, setHoldingsRowChartSymbol] = useState<string | null>(null);
@@ -2207,7 +2237,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     setConfigHoldingsLatestPriceBySymbol({});
     setConfigHoldingsRebalanceDates([]);
     setConfigHoldingsLatestRunDate(null);
-    setConfigHoldingsLivePoint(null);
     setConfigHoldingsRefreshing(false);
     setHoldingsDateSelect(HOLDINGS_TODAY_SENTINEL);
 
@@ -2251,7 +2280,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         setConfigHoldingsLatestPriceBySymbol({});
         setConfigHoldingsRebalanceDates([]);
         setConfigHoldingsLatestRunDate(null);
-        setConfigHoldingsLivePoint(null);
         setConfigHoldingsLoading(false);
         setConfigHoldingsRefreshing(false);
         return;
@@ -2276,7 +2304,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         setConfigHoldingsLatestPriceBySymbol(syncHit.latestPriceBySymbol);
         setConfigHoldingsRebalanceDates(syncHit.rebalanceDates);
         setConfigHoldingsLatestRunDate(syncHit.latestRunDate ?? null);
-        setConfigHoldingsLivePoint(syncHit.livePoint ?? null);
         setConfigHoldingsLoading(false);
         setConfigHoldingsRefreshing(false);
         prefetchExploreHoldingsDates(slug, configId, syncHit.rebalanceDates);
@@ -2301,7 +2328,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
           setConfigHoldingsLatestPriceBySymbol({});
           setConfigHoldingsRebalanceDates([]);
           setConfigHoldingsLatestRunDate(null);
-          setConfigHoldingsLivePoint(null);
         } else {
           if (useRefreshChrome) {
             const elapsed = Date.now() - started;
@@ -2316,7 +2342,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
           setConfigHoldingsLatestPriceBySymbol(data.latestPriceBySymbol);
           setConfigHoldingsRebalanceDates(data.rebalanceDates);
           setConfigHoldingsLatestRunDate(data.latestRunDate ?? null);
-          setConfigHoldingsLivePoint(data.livePoint ?? null);
           prefetchExploreHoldingsDates(slug, configId, data.rebalanceDates);
         }
       } finally {
@@ -2338,7 +2363,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       setConfigHoldingsLatestPriceBySymbol({});
       setConfigHoldingsRebalanceDates([]);
       setConfigHoldingsLatestRunDate(null);
-      setConfigHoldingsLivePoint(null);
       setConfigHoldingsLoading(false);
       setConfigHoldingsRefreshing(false);
       setHoldingsDateSelect(HOLDINGS_TODAY_SENTINEL);
@@ -2389,15 +2413,18 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
 
   const userEntrySeries = userEntryPayload?.series ?? [];
   const userEntryMetrics = userEntryPayload?.metrics ?? null;
+  const selectedProfileHasEntryDate = Boolean(selectedProfile?.user_start_date?.trim());
+  const canUseSelectedProfileValueFallback =
+    !selectedProfileHasEntryDate || userEntrySeries.length > 0;
 
   const modelDisplayMetrics = perfPayload?.metrics ?? modelChart.metrics ?? null;
   const modelDisplaySeries =
     perfPayload?.series && perfPayload.series.length > 0 ? perfPayload.series : modelChart.series;
 
-  const displayMetrics = selectedProfile?.user_start_date
+  const displayMetrics = selectedProfileHasEntryDate
     ? userEntryMetrics
     : modelDisplayMetrics;
-  const displaySeries = selectedProfile?.user_start_date
+  const displaySeries = selectedProfileHasEntryDate
     ? userEntrySeries
     : modelDisplaySeries;
   const displaySharpeReturns = useMemo<number[]>(() => {
@@ -2512,6 +2539,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     const totalFromHoldingsEarly = liveConfigHoldingsAllocation.totalCurrentValue;
     const holdingsLatestYmdEarly = configHoldingsLatestRunDate;
     if (
+      !isLoadingUserEntry &&
       holdingsDateSelect === HOLDINGS_TODAY_SENTINEL &&
       pts.length <= 1 &&
       userStartYmd &&
@@ -2524,7 +2552,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       totalFromHoldingsEarly > 0
     ) {
       const lastPt = pts[0];
-      const lp = configHoldingsLivePoint;
       return [
         {
           date: userStartYmd,
@@ -2536,13 +2563,9 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         {
           date: holdingsLatestYmdEarly,
           aiPortfolio: totalFromHoldingsEarly,
-          nasdaq100CapWeight:
-            lp?.nasdaq100CapWeight != null ? lp.nasdaq100CapWeight : (lastPt?.nasdaq100CapWeight ?? investmentSizeNum),
-          nasdaq100EqualWeight:
-            lp?.nasdaq100EqualWeight != null
-              ? lp.nasdaq100EqualWeight
-              : (lastPt?.nasdaq100EqualWeight ?? investmentSizeNum),
-          sp500: lp?.sp500 != null ? lp.sp500 : (lastPt?.sp500 ?? investmentSizeNum),
+          nasdaq100CapWeight: lastPt?.nasdaq100CapWeight ?? investmentSizeNum,
+          nasdaq100EqualWeight: lastPt?.nasdaq100EqualWeight ?? investmentSizeNum,
+          sp500: lastPt?.sp500 ?? investmentSizeNum,
         },
       ];
     }
@@ -2556,15 +2579,12 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     if (totalFromHoldings == null || !Number.isFinite(totalFromHoldings) || totalFromHoldings <= 0) {
       return pts;
     }
-    const lpTail = configHoldingsLivePoint;
     const nextBar = {
       date: holdingsLatestYmd,
       aiPortfolio: totalFromHoldings,
-      nasdaq100CapWeight:
-        lpTail?.nasdaq100CapWeight != null ? lpTail.nasdaq100CapWeight : last.nasdaq100CapWeight,
-      nasdaq100EqualWeight:
-        lpTail?.nasdaq100EqualWeight != null ? lpTail.nasdaq100EqualWeight : last.nasdaq100EqualWeight,
-      sp500: lpTail?.sp500 != null ? lpTail.sp500 : last.sp500,
+      nasdaq100CapWeight: last.nasdaq100CapWeight,
+      nasdaq100EqualWeight: last.nasdaq100EqualWeight,
+      sp500: last.sp500,
     };
     if (holdingsLatestYmd === last.date) {
       if (
@@ -2581,10 +2601,10 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     displaySeries,
     holdingsDateSelect,
     configHoldingsLatestRunDate,
-    configHoldingsLivePoint,
     liveConfigHoldingsAllocation.totalCurrentValue,
     selectedProfile?.investment_size,
     selectedProfile?.user_start_date,
+    isLoadingUserEntry,
   ]);
 
   const effectiveDisplayMetrics = useMemo(
@@ -2687,11 +2707,14 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     if (
       liveConfigHoldingsAllocation.totalCurrentValue != null &&
       Number.isFinite(liveConfigHoldingsAllocation.totalCurrentValue) &&
-      liveConfigHoldingsAllocation.totalCurrentValue > 0
+      liveConfigHoldingsAllocation.totalCurrentValue > 0 &&
+      canUseSelectedProfileValueFallback
     ) {
       return liveConfigHoldingsAllocation.totalCurrentValue;
     }
-    return configHoldings.length > 0 && holdingsAllocationBaseNotional > 0
+    return canUseSelectedProfileValueFallback &&
+      configHoldings.length > 0 &&
+      holdingsAllocationBaseNotional > 0
       ? holdingsAllocationBaseNotional
       : null;
   }, [
@@ -2699,6 +2722,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     selectedProfile?.investment_size,
     selectedProfile?.user_start_date,
     liveConfigHoldingsAllocation.totalCurrentValue,
+    canUseSelectedProfileValueFallback,
     configHoldings.length,
     holdingsAllocationBaseNotional,
   ]);
@@ -2972,8 +2996,12 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       : (perfPayload?.computeStatus ?? 'empty');
 
   const userEntryStatus = userEntryPayload?.computeStatus;
+  const selectedProfileNeedsEntryPayload = Boolean(selectedProfile?.user_start_date?.trim());
   const perfLoading = selectedProfile?.user_start_date
     ? isLoadingUserEntry
+    : isLoadingPerf;
+  const selectedPortfolioInitialDataLoading = selectedProfileNeedsEntryPayload
+    ? isLoadingUserEntry || userEntryPayload == null
     : isLoadingPerf;
   const activeComputeStatus =
     selectedProfile?.user_start_date
@@ -2995,6 +3023,19 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                       ? 'in_progress'
                       : 'empty'
       : modelComputeStatus;
+
+  useEffect(() => {
+    if (!authState.isLoaded || !authState.isAuthenticated) return;
+    if (isLoadingProfiles || !selectedProfile) return;
+    if (selectedPortfolioInitialDataLoading) return;
+    setHasSettledInitialSelectedPortfolioLoad(true);
+  }, [
+    authState.isLoaded,
+    authState.isAuthenticated,
+    isLoadingProfiles,
+    selectedProfile,
+    selectedPortfolioInitialDataLoading,
+  ]);
 
   const yourPortfolioMetricsScrollRef = useRef<HTMLDivElement | null>(null);
   const yourPortfolioMetricsInnerRef = useRef<HTMLDivElement | null>(null);
@@ -3135,6 +3176,14 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   }
 
   if (isLoadingProfiles) {
+    return <YourPortfoliosSkeletonShell />;
+  }
+
+  if (
+    !hasSettledInitialSelectedPortfolioLoad &&
+    selectedProfile &&
+    selectedPortfolioInitialDataLoading
+  ) {
     return <YourPortfoliosSkeletonShell />;
   }
 
@@ -3319,22 +3368,15 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
               const rowRanked = rankedConfigForProfile(p, rankedBySlug);
               const rowStrategySlug = p.strategy_models?.slug ?? strategySlug;
               const baseRowPerf = getSidebarRowPerf(p);
-              // For the currently-selected profile on "Today", reflect the holdings-aligned
-              // value/return from the main card so sidebar ↔ card ↔ holdings all agree.
-              const rowPerf =
-                active &&
-                holdingsDateSelect === HOLDINGS_TODAY_SENTINEL &&
-                portfolioValueAmount != null
-                  ? {
-                      showLoading: false,
-                      valueStr: formatYourPortfolioCurrency(portfolioValueAmount),
-                      returnFr:
-                        portfolioValueDisplayTotalReturn != null &&
-                        Number.isFinite(portfolioValueDisplayTotalReturn)
-                          ? portfolioValueDisplayTotalReturn
-                          : baseRowPerf.returnFr,
-                    }
-                  : baseRowPerf;
+              const rowPerf = deriveActiveRowPerf({
+                active,
+                baseRowPerf,
+                holdingsDateSelect,
+                portfolioValueAmount,
+                portfolioValueDisplayTotalReturn,
+                configHoldingsLoading,
+                hasHoldings: configHoldings.length > 0,
+              });
               return (
                 <div
                   key={p.id}
@@ -3527,20 +3569,15 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                   const rowRanked = rankedConfigForProfile(p, rankedBySlug);
                   const rowStrategySlug = p.strategy_models?.slug ?? strategySlug;
                   const baseRowPerf = getSidebarRowPerf(p);
-                  const rowPerf =
-                    active &&
-                    holdingsDateSelect === HOLDINGS_TODAY_SENTINEL &&
-                    portfolioValueAmount != null
-                      ? {
-                          showLoading: false,
-                          valueStr: formatYourPortfolioCurrency(portfolioValueAmount),
-                          returnFr:
-                            portfolioValueDisplayTotalReturn != null &&
-                            Number.isFinite(portfolioValueDisplayTotalReturn)
-                              ? portfolioValueDisplayTotalReturn
-                              : baseRowPerf.returnFr,
-                        }
-                      : baseRowPerf;
+                  const rowPerf = deriveActiveRowPerf({
+                    active,
+                    baseRowPerf,
+                    holdingsDateSelect,
+                    portfolioValueAmount,
+                    portfolioValueDisplayTotalReturn,
+                    configHoldingsLoading,
+                    hasHoldings: configHoldings.length > 0,
+                  });
                   return (
                     <div
                       key={p.id}

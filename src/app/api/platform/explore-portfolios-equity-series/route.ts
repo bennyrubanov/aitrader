@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
   buildConfigDailySeriesTailPoint,
+  liftTailPointForDisplay,
   loadStrategyDailySeriesBulk,
   rebaseSeriesForDisplay,
 } from '@/lib/config-daily-series';
@@ -230,38 +231,8 @@ async function loadExplorePortfoliosEquitySeriesPayload(
           Number.isFinite(Number(tail.aiPortfolio)) &&
           Number(tail.aiPortfolio) > 0
         ) {
-          const rawFirst = rawPoints[0];
-          const aiScale =
-            rawFirst && Number.isFinite(rawFirst.aiPortfolio) && rawFirst.aiPortfolio > 0
-              ? INITIAL_CAPITAL / rawFirst.aiPortfolio
-              : 1;
-          const capScale =
-            rawFirst &&
-            Number.isFinite(rawFirst.nasdaq100CapWeight) &&
-            rawFirst.nasdaq100CapWeight > 0
-              ? INITIAL_CAPITAL / rawFirst.nasdaq100CapWeight
-              : aiScale;
-          const eqScale =
-            rawFirst &&
-            Number.isFinite(rawFirst.nasdaq100EqualWeight) &&
-            rawFirst.nasdaq100EqualWeight > 0
-              ? INITIAL_CAPITAL / rawFirst.nasdaq100EqualWeight
-              : aiScale;
-          const spxScale =
-            rawFirst && Number.isFinite(rawFirst.sp500) && rawFirst.sp500 > 0
-              ? INITIAL_CAPITAL / rawFirst.sp500
-              : aiScale;
-          livePoint = {
-            date: tail.date,
-            aiPortfolio: Number(tail.aiPortfolio) * aiScale,
-            nasdaq100CapWeight: Number.isFinite(Number(tail.nasdaq100CapWeight))
-              ? Number(tail.nasdaq100CapWeight) * capScale
-              : null,
-            nasdaq100EqualWeight: Number.isFinite(Number(tail.nasdaq100EqualWeight))
-              ? Number(tail.nasdaq100EqualWeight) * eqScale
-              : null,
-            sp500: Number.isFinite(Number(tail.sp500)) ? Number(tail.sp500) * spxScale : null,
-          };
+          const rawFirst = rawPoints[0]!;
+          livePoint = liftTailPointForDisplay(rawFirst, tail!, INITIAL_CAPITAL);
         }
       } catch {
         /* best-effort */
