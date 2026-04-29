@@ -41,6 +41,7 @@ import { cn } from '@/lib/utils';
 import type { StockNewsItem } from '@/lib/stock-news';
 import { formatDistanceToNow } from 'date-fns';
 import { RiskTextWithLinks } from '@/components/platform/risk-text-with-links';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 /** Stable across SSR and browser (avoid `toLocaleString()` default TZ mismatch). */
 const newsPublishedAbsoluteFormatter = new Intl.DateTimeFormat('en-US', {
@@ -193,9 +194,58 @@ function StockSidebarSearch({
 }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const blurTimeoutRef = useRef<number | null>(null);
+  const showKbdHints = !useIsMobile();
+  const [modKeyLabel, setModKeyLabel] = useState('Ctrl');
   const [query, setQuery] = useState('');
   const [isFocused, setIsFocused] = useState(false);
   const [stocks, setStocks] = useState<StockListItem[]>([]);
+  const [activeOptionIndex, setActiveOptionIndex] = useState(-1);
+
+  const cancelPendingBlur = React.useCallback(() => {
+    if (blurTimeoutRef.current) {
+      window.clearTimeout(blurTimeoutRef.current);
+      blurTimeoutRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => cancelPendingBlur();
+  }, [cancelPendingBlur]);
+
+  useEffect(() => {
+    if (typeof navigator === 'undefined') return;
+    setModKeyLabel(/Mac|iPhone|iPad|iPod/i.test(navigator.userAgent) ? '⌘' : 'Ctrl');
+  }, []);
+
+  useEffect(() => {
+    if (!showKbdHints) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!event.metaKey && !event.ctrlKey) return;
+      if (event.key !== 'k' && event.key !== 'K') return;
+
+      const target = event.target;
+      if (target instanceof HTMLElement && target.closest('[role="dialog"]')) return;
+      if (target instanceof HTMLElement && target.closest('[role="menu"]')) return;
+      if (target instanceof HTMLElement && target.closest('[role="listbox"]')) return;
+
+      const input = inputRef.current;
+      if (!input) return;
+
+      if (target === input) {
+        event.preventDefault();
+        input.select();
+        return;
+      }
+
+      event.preventDefault();
+      input.focus();
+      requestAnimationFrame(() => input.select());
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [showKbdHints]);
 
   useEffect(() => {
     if (!authLoaded) return;
@@ -226,9 +276,35 @@ function StockSidebarSearch({
       .slice(0, 8);
   }, [currentSymbol, query, stocks]);
 
+  const listboxId = 'stock-sidebar-search-listbox';
+  const listOpen = isFocused && filteredStocks.length > 0;
+
+  useEffect(() => {
+    setActiveOptionIndex((prev) => {
+      if (filteredStocks.length === 0) return -1;
+      if (prev >= filteredStocks.length) return filteredStocks.length - 1;
+      return prev;
+    });
+  }, [filteredStocks]);
+
+  useEffect(() => {
+    if (!listOpen || activeOptionIndex < 0) return;
+    document
+      .getElementById(`stock-sidebar-search-option-${activeOptionIndex}`)
+      ?.scrollIntoView({ block: 'nearest' });
+  }, [activeOptionIndex, listOpen]);
+
   const clearSearch = () => {
     setQuery('');
+    setActiveOptionIndex(-1);
     setIsFocused(false);
+  };
+
+  const openStockPage = (symbol: string) => {
+    setQuery('');
+    setActiveOptionIndex(-1);
+    setIsFocused(false);
+    router.push(`/stocks/${symbol.toLowerCase()}`);
   };
 
   const submitSearch = (event: React.FormEvent) => {
@@ -237,12 +313,14 @@ function StockSidebarSearch({
     if (!normalizedQuery) return;
 
     const exactMatch = stocks.find((stock) => stock.symbol.toUpperCase() === normalizedQuery);
-    const fallbackMatch = filteredStocks[0];
+    const highlightedMatch =
+      activeOptionIndex >= 0 && activeOptionIndex < filteredStocks.length
+        ? filteredStocks[activeOptionIndex]
+        : null;
+    const fallbackMatch = highlightedMatch ?? filteredStocks[0];
     const match = exactMatch ?? fallbackMatch;
     if (match) {
-      setQuery('');
-      setIsFocused(false);
-      router.push(`/stocks/${match.symbol.toLowerCase()}`);
+      openStockPage(match.symbol);
     }
   };
 
@@ -259,18 +337,68 @@ function StockSidebarSearch({
         <Input
           ref={inputRef}
           id="stock-sidebar-search"
+          role="combobox"
+          aria-expanded={listOpen}
+          aria-controls={listOpen ? listboxId : undefined}
+          aria-autocomplete="list"
+          aria-activedescendant={
+            listOpen && activeOptionIndex >= 0
+              ? `stock-sidebar-search-option-${activeOptionIndex}`
+              : undefined
+          }
           type="text"
           value={query}
           placeholder="Ticker or company"
-          className="h-10 rounded-lg border-border bg-background pl-9 pr-9 text-sm shadow-sm focus-visible:border-border focus-visible:ring-0 focus-visible:ring-offset-0"
-          onChange={(event) => setQuery(event.target.value)}
-          onFocus={() => setIsFocused(true)}
-          onBlur={() => setTimeout(() => setIsFocused(false), 150)}
+          className={cn(
+            'h-10 rounded-lg border-border bg-background pl-9 text-sm shadow-sm focus-visible:border-border focus-visible:ring-0 focus-visible:ring-offset-0',
+            query ? 'pr-9' : showKbdHints ? 'pr-[4.25rem]' : 'pr-9'
+          )}
+          aria-keyshortcuts={showKbdHints ? 'Meta+K Control+K' : undefined}
+          onChange={(event) => {
+            cancelPendingBlur();
+            setActiveOptionIndex(-1);
+            setQuery(event.target.value);
+            setIsFocused(true);
+          }}
+          onFocus={() => {
+            cancelPendingBlur();
+            setIsFocused(true);
+          }}
+          onBlur={() => {
+            cancelPendingBlur();
+            blurTimeoutRef.current = window.setTimeout(() => {
+              setIsFocused(false);
+              blurTimeoutRef.current = null;
+            }, 150);
+          }}
           onKeyDown={(event) => {
-            if (event.key !== 'Escape') return;
-            event.preventDefault();
-            clearSearch();
-            event.currentTarget.blur();
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              clearSearch();
+              event.currentTarget.blur();
+              return;
+            }
+
+            if (!listOpen) return;
+
+            if (event.key === 'ArrowDown') {
+              event.preventDefault();
+              setActiveOptionIndex((index) =>
+                index < filteredStocks.length - 1 ? index + 1 : filteredStocks.length - 1
+              );
+              return;
+            }
+
+            if (event.key === 'ArrowUp') {
+              event.preventDefault();
+              setActiveOptionIndex((index) => (index > 0 ? index - 1 : -1));
+              return;
+            }
+
+            if (event.key === 'Enter' && activeOptionIndex >= 0) {
+              event.preventDefault();
+              openStockPage(filteredStocks[activeOptionIndex].symbol);
+            }
           }}
         />
         {query ? (
@@ -286,21 +414,46 @@ function StockSidebarSearch({
           >
             <X className="size-3.5" aria-hidden />
           </button>
+        ) : showKbdHints ? (
+          <span
+            className="pointer-events-none absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1 opacity-80"
+            aria-hidden
+          >
+            <kbd className="inline-flex h-5 min-w-5 items-center justify-center rounded-md border border-border bg-background px-1 font-sans text-[11px] font-semibold text-muted-foreground shadow-[0_1px_0_0_rgb(0_0_0/0.08)]">
+              {modKeyLabel}
+            </kbd>
+            <kbd className="inline-flex h-5 min-w-5 items-center justify-center rounded-md border border-border bg-background px-1 font-sans text-[11px] font-semibold text-muted-foreground shadow-[0_1px_0_0_rgb(0_0_0/0.08)]">
+              K
+            </kbd>
+          </span>
         ) : null}
       </div>
-      {isFocused && filteredStocks.length > 0 ? (
-        <div className="absolute left-0 right-0 z-30 mt-1 max-h-72 overflow-y-auto rounded-xl border border-border bg-card p-1.5 text-left shadow-elevated">
-          {filteredStocks.map((stock) => (
+      {listOpen ? (
+        <div
+          id={listboxId}
+          role="listbox"
+          aria-label="Stock matches"
+          className="absolute left-0 right-0 z-30 mt-1 max-h-72 overflow-y-auto rounded-xl border border-border bg-card p-1.5 text-left shadow-elevated"
+        >
+          {filteredStocks.map((stock, index) => (
             // <Link prefetch> warms the destination's RSC payload on hover/focus, so a click is
             // a near-instant client transition instead of a cold SSR roundtrip.
             <Link
               key={stock.symbol}
+              id={`stock-sidebar-search-option-${index}`}
+              role="option"
+              aria-selected={activeOptionIndex === index}
               href={`/stocks/${stock.symbol.toLowerCase()}`}
               prefetch
-              className="group block w-full rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
+              className={cn(
+                'group block w-full rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none',
+                activeOptionIndex === index ? 'bg-muted' : ''
+              )}
+              onMouseEnter={() => setActiveOptionIndex(index)}
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => {
                 setQuery('');
+                setActiveOptionIndex(-1);
                 setIsFocused(false);
               }}
             >

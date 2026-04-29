@@ -91,10 +91,11 @@ export function HeroSearch() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [stocks, setStocks] = useState<HeroStock[]>([]);
-  const [filteredMembers, setFilteredMembers] = useState<HeroStock[]>([]);
   const [selectedResult, setSelectedResult] = useState<PriceResult | null>(null);
   const [isTracked, setIsTracked] = useState<boolean | null>(null);
+  const [activeOptionIndex, setActiveOptionIndex] = useState(-1);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const blurTimeoutRef = useRef<number | null>(null);
   const priceFetchAbortRef = useRef<AbortController | null>(null);
   const authState = useAuthState();
   const { hasPremiumAccess, isAuthenticated, isLoaded: authLoaded } = authState;
@@ -104,6 +105,13 @@ export function HeroSearch() {
     stocks.forEach((s) => map.set(s.symbol.toUpperCase(), s));
     return map;
   }, [stocks]);
+
+  const cancelPendingBlur = useCallback(() => {
+    if (blurTimeoutRef.current) {
+      window.clearTimeout(blurTimeoutRef.current);
+      blurTimeoutRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     if (!authLoaded) return;
@@ -128,21 +136,53 @@ export function HeroSearch() {
 
   useEffect(() => {
     return () => {
+      cancelPendingBlur();
       priceFetchAbortRef.current?.abort();
     };
-  }, []);
+  }, [cancelPendingBlur]);
 
-  const updateFilteredMembers = useCallback((query: string) => {
-    if (query.trim().length === 0) {
-      setFilteredMembers([]);
-      return;
-    }
+  const filteredMembers = useMemo(() => {
+    if (searchQuery.trim().length === 0) return [];
+    const q = searchQuery.toLowerCase().trim();
+    return stocks
+      .filter((s) => s.symbol.toLowerCase().includes(q) || s.name.toLowerCase().includes(q))
+      .slice(0, 10);
+  }, [searchQuery, stocks]);
+
+  const hasSearchOptions = filteredMembers.length > 0;
+  const listboxId = 'hero-stock-search-listbox';
+  const listOpen = isSearchFocused && hasSearchOptions;
+
+  useEffect(() => {
+    setActiveOptionIndex((prev) => {
+      if (filteredMembers.length === 0) return -1;
+      if (prev >= filteredMembers.length) return filteredMembers.length - 1;
+      return prev;
+    });
+  }, [filteredMembers]);
+
+  useEffect(() => {
+    if (!listOpen || activeOptionIndex < 0) return;
+    document
+      .getElementById(`hero-stock-search-option-${activeOptionIndex}`)
+      ?.scrollIntoView({ block: 'nearest' });
+  }, [activeOptionIndex, listOpen]);
+
+  const openSearchOptions = useCallback((query: string) => {
+    cancelPendingBlur();
+    setIsSearchFocused(query.trim().length > 0);
+  }, [cancelPendingBlur]);
+
+  const closeSearchOptions = useCallback(() => {
+    cancelPendingBlur();
+    setActiveOptionIndex(-1);
+    setIsSearchFocused(false);
+  }, [cancelPendingBlur]);
+
+  const hasMatchingMembers = useCallback((query: string) => {
+    if (query.trim().length === 0) return false;
     const q = query.toLowerCase().trim();
-    setFilteredMembers(
-      stocks
-        .filter((s) => s.symbol.toLowerCase().includes(q) || s.name.toLowerCase().includes(q))
-        .slice(0, 10)
-    );
+    return stocks.some((s) => s.symbol.toLowerCase().includes(q) || s.name.toLowerCase().includes(q));
   }, [stocks]);
 
   const fetchPriceQuote = useCallback(async (symbol: string, fromStock: HeroStock) => {
@@ -208,26 +248,26 @@ export function HeroSearch() {
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     const query = e.target.value;
     setSearchQuery(query);
+    setActiveOptionIndex(-1);
+    openSearchOptions(query);
     setSelectedResult(null);
     setIsTracked(null);
     priceFetchAbortRef.current?.abort();
     priceFetchAbortRef.current = null;
-    updateFilteredMembers(query);
   };
 
   const clearSearch = useCallback(() => {
     setSearchQuery('');
-    setFilteredMembers([]);
+    closeSearchOptions();
     setSelectedResult(null);
     setIsTracked(null);
     priceFetchAbortRef.current?.abort();
     priceFetchAbortRef.current = null;
-  }, []);
+  }, [closeSearchOptions]);
 
   const handleSelectMember = (member: HeroStock) => {
     setSearchQuery(member.symbol);
-    setFilteredMembers([]);
-    setIsSearchFocused(false);
+    closeSearchOptions();
     void fetchPriceQuote(member.symbol, member);
   };
 
@@ -236,8 +276,7 @@ export function HeroSearch() {
     const query = searchQuery.trim();
     if (!query) return;
 
-    setFilteredMembers([]);
-    setIsSearchFocused(false);
+    closeSearchOptions();
     const trackedMember = stockMap.get(query.toUpperCase());
     if (!trackedMember) {
       setIsTracked(false);
@@ -248,16 +287,40 @@ export function HeroSearch() {
   };
 
   const handleFocus = () => {
-    setIsSearchFocused(true);
-    updateFilteredMembers(searchQuery);
+    if (hasMatchingMembers(searchQuery)) {
+      openSearchOptions(searchQuery);
+    }
   };
 
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key !== 'Escape') return;
-    e.preventDefault();
-    clearSearch();
-    setIsSearchFocused(false);
-    e.currentTarget.blur();
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      clearSearch();
+      setIsSearchFocused(false);
+      e.currentTarget.blur();
+      return;
+    }
+
+    if (!listOpen) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setActiveOptionIndex((index) =>
+        index < filteredMembers.length - 1 ? index + 1 : filteredMembers.length - 1
+      );
+      return;
+    }
+
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActiveOptionIndex((index) => (index > 0 ? index - 1 : -1));
+      return;
+    }
+
+    if (e.key === 'Enter' && activeOptionIndex >= 0) {
+      e.preventDefault();
+      handleSelectMember(filteredMembers[activeOptionIndex]);
+    }
   };
 
   const selectedIsPremium =
@@ -316,6 +379,15 @@ export function HeroSearch() {
           />
           <Input
             ref={searchInputRef}
+            role="combobox"
+            aria-expanded={listOpen}
+            aria-controls={listOpen ? listboxId : undefined}
+            aria-autocomplete="list"
+            aria-activedescendant={
+              listOpen && activeOptionIndex >= 0
+                ? `hero-stock-search-option-${activeOptionIndex}`
+                : undefined
+            }
             type="text"
             placeholder="Search for a stock (e.g., AAPL, Tesla)"
             className="w-full rounded-xl border border-border bg-background py-6 pl-12 pr-12 shadow-sm transition-colors focus-visible:border-border focus-visible:ring-0 focus-visible:ring-offset-0"
@@ -323,7 +395,13 @@ export function HeroSearch() {
             onChange={handleSearch}
             onKeyDown={handleSearchKeyDown}
             onFocus={handleFocus}
-            onBlur={() => setTimeout(() => setIsSearchFocused(false), 200)}
+            onBlur={() => {
+              cancelPendingBlur();
+              blurTimeoutRef.current = window.setTimeout(() => {
+                setIsSearchFocused(false);
+                blurTimeoutRef.current = null;
+              }, 200);
+            }}
           />
           {searchQuery && (
             <button
@@ -339,14 +417,25 @@ export function HeroSearch() {
               <X size={16} />
             </button>
           )}
-          {isSearchFocused && filteredMembers.length > 0 && (
-            <div className="absolute left-0 right-0 z-30 mt-1 max-h-72 overflow-y-auto rounded-xl border border-border bg-card text-left shadow-elevated animate-scale-in">
+          {listOpen && (
+            <div
+              id={listboxId}
+              role="listbox"
+              aria-label="Stock matches"
+              className="absolute left-0 right-0 z-30 mt-1 max-h-72 overflow-y-auto rounded-xl border border-border bg-card text-left shadow-elevated animate-scale-in"
+            >
               <div className="p-2">
-                {filteredMembers.map((m) => (
+                {filteredMembers.map((m, index) => (
                   <button
                     key={m.symbol}
+                    id={`hero-stock-search-option-${index}`}
                     type="button"
-                    className="w-full cursor-pointer rounded-lg px-3 py-2 text-left transition-colors hover:bg-trader-gray dark:hover:bg-muted"
+                    role="option"
+                    aria-selected={activeOptionIndex === index}
+                    className={`w-full cursor-pointer rounded-lg px-3 py-2 text-left transition-colors hover:bg-trader-gray dark:hover:bg-muted ${
+                      activeOptionIndex === index ? 'bg-trader-gray dark:bg-muted' : ''
+                    }`}
+                    onMouseEnter={() => setActiveOptionIndex(index)}
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => handleSelectMember(m)}
                   >

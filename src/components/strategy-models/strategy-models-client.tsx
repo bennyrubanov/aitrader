@@ -213,19 +213,23 @@ export function StrategyModelsClient({ strategies, rankedStrategies }: Props) {
             const modelHref = `/strategy-models/${encodeURIComponent(strategy.slug)}`;
 
             return (
-              <Link
+              <article
                 key={strategy.id}
-                href={modelHref}
-                prefetch
-                aria-label={`Open model: ${strategy.name}`}
                 className={cn(
-                  'block rounded-xl border bg-card overflow-hidden transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+                  'relative rounded-xl border bg-card overflow-hidden transition-shadow hover:shadow-md focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2',
                   isTop
                     ? 'border-trader-blue/40 ring-1 ring-trader-blue/10'
                     : '',
                 )}
               >
-                <article className="flex flex-col sm:flex-row">
+                <Link
+                  href={modelHref}
+                  aria-label={`Open model: ${strategy.name}`}
+                  className="absolute inset-0 z-0 rounded-xl focus:outline-none"
+                >
+                  <span className="sr-only">{`Open model: ${strategy.name}`}</span>
+                </Link>
+                <div className="pointer-events-none relative z-[1] flex flex-col sm:flex-row">
                   {/* Gradient image panel */}
                   <div
                     className="flex items-center justify-center text-white font-bold text-lg text-center px-6 select-none sm:w-[200px] min-h-[90px] sm:min-h-0"
@@ -253,14 +257,10 @@ export function StrategyModelsClient({ strategies, rankedStrategies }: Props) {
                       ) : null}
                       <Badge
                         variant="outline"
-                        className="gap-1 pr-1 text-xs capitalize"
+                        className="pointer-events-auto gap-1 pr-1 text-xs capitalize"
                       >
                         {strategy.status}
-                        <span
-                          className="inline-flex"
-                          onClick={(e) => e.stopPropagation()}
-                          onKeyDown={(e) => e.stopPropagation()}
-                        >
+                        <span className="inline-flex">
                           <StrategyModelsStatusBadgeTooltip
                             status={strategy.status}
                           />
@@ -269,7 +269,7 @@ export function StrategyModelsClient({ strategies, rankedStrategies }: Props) {
                       {isTop ? (
                         <Badge
                           variant="outline"
-                          className="pointer-events-none gap-1 border-0 bg-trader-blue pr-1 text-xs text-white shadow-sm hover:bg-trader-blue hover:text-white dark:hover:bg-trader-blue"
+                          className="pointer-events-auto gap-1 border-0 bg-trader-blue pr-1 text-xs text-white shadow-sm hover:bg-trader-blue hover:text-white dark:hover:bg-trader-blue"
                         >
                           <Star
                             className="size-3 shrink-0 pointer-events-none"
@@ -277,11 +277,7 @@ export function StrategyModelsClient({ strategies, rankedStrategies }: Props) {
                             aria-hidden
                           />
                           <span className="pointer-events-none">Top performing</span>
-                          <span
-                            className="pointer-events-auto inline-flex"
-                            onClick={(e) => e.stopPropagation()}
-                            onKeyDown={(e) => e.stopPropagation()}
-                          >
+                          <span className="pointer-events-auto inline-flex">
                             <StrategyModelsTopPerformingBadgeTooltip sort={sort} />
                           </span>
                         </Badge>
@@ -377,8 +373,8 @@ export function StrategyModelsClient({ strategies, rankedStrategies }: Props) {
                           </div>
                         </div>
                   </div>
-                </article>
-              </Link>
+                </div>
+              </article>
               );
             })}
           </div>

@@ -20,6 +20,7 @@ export function MiniStockSearch() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const inputRef = useRef<HTMLInputElement>(null);
+  const blurTimeoutRef = useRef<number | null>(null);
   const showKbdHints = !useIsMobile();
   const [modKeyLabel, setModKeyLabel] = useState("Ctrl");
   const [query, setQuery] = useState("");
@@ -27,6 +28,17 @@ export function MiniStockSearch() {
   const [stocks, setStocks] = useState<StockRow[]>([]);
   /** Listbox highlight while focus stays in the combobox input (-1 = none). */
   const [activeOptionIndex, setActiveOptionIndex] = useState(-1);
+
+  const cancelPendingBlur = useCallback(() => {
+    if (blurTimeoutRef.current) {
+      window.clearTimeout(blurTimeoutRef.current);
+      blurTimeoutRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => cancelPendingBlur();
+  }, [cancelPendingBlur]);
 
   useEffect(() => {
     fetch("/api/stocks")
@@ -158,10 +170,15 @@ export function MiniStockSearch() {
         }
         value={query}
         onChange={(event) => {
+          cancelPendingBlur();
           setActiveOptionIndex(-1);
+          setIsFocused(true);
           applyMiniQuery(event.target.value);
         }}
-        onFocus={() => setIsFocused(true)}
+        onFocus={() => {
+          cancelPendingBlur();
+          setIsFocused(true);
+        }}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             event.preventDefault();
@@ -194,7 +211,11 @@ export function MiniStockSearch() {
           }
         }}
         onBlur={() => {
-          window.setTimeout(() => setIsFocused(false), 120);
+          cancelPendingBlur();
+          blurTimeoutRef.current = window.setTimeout(() => {
+            setIsFocused(false);
+            blurTimeoutRef.current = null;
+          }, 120);
         }}
         placeholder="Search rated stocks"
         className={cn(
