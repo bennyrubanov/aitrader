@@ -4,6 +4,7 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -1095,11 +1096,21 @@ function FlipCard({
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
+/** Syncs `window` search params into parent state; must render inside `<Suspense>` on static routes. */
+function SearchParamsStringSync({ onSerializedChange }: { onSerializedChange: (s: string) => void }) {
+  const sp = useSearchParams();
+  const serialized = sp.toString();
+  useEffect(() => {
+    onSerializedChange(serialized);
+  }, [serialized, onSerializedChange]);
+  return null;
+}
+
 type Props = {
   payload: PlatformPerformancePayload;
   strategies: StrategyListItem[];
   slug?: string;
-  /** From the server page so first paint matches SSR (avoids hydration drift with `useSearchParams`). */
+  /** Server `[portfolio]` page passes serialized query for first paint; model landing uses `''` + client sync. */
   initialSearchParamsString?: string;
   initialPortfolioPerformance?: PublicPortfolioPerfApiPayload | null;
   initialPortfolioSlice?: PortfolioConfigSlice | null;
@@ -1121,13 +1132,7 @@ function PerformancePagePublicClientInner({
   const isModelLanding = viewMode === 'model';
   const router = useRouter();
   const pathname = usePathname();
-  const searchParamsFromNavigation = useSearchParams();
-  const spSerialized = searchParamsFromNavigation.toString();
   const [searchParamsString, setSearchParamsString] = useState(initialSearchParamsString);
-
-  useEffect(() => {
-    setSearchParamsString(spSerialized);
-  }, [spSerialized]);
   const authState = useAuthState();
   const access = useMemo(() => getAppAccessState(authState), [authState]);
   const entitledToHoldings =
@@ -1765,6 +1770,15 @@ function PerformancePagePublicClientInner({
       ? effectivePerformanceDisplaySeries[effectivePerformanceDisplaySeries.length - 1]!.date
       : (payload.latestRunDate ?? null);
 
+  const performancePageUpdatedLabel = useMemo(() => {
+    if (!latestDisplayDate) return null;
+    try {
+      return displayDateFormatter.format(new Date(`${latestDisplayDate}T12:00:00.000Z`));
+    } catch {
+      return null;
+    }
+  }, [latestDisplayDate]);
+
   const returnsBenchmarkTablePortfolioLine = useMemo(() => {
     if (!slug || !portfolioPerf.portfolioConfig) return null;
     const pc = portfolioPerf.portfolioConfig;
@@ -2219,6 +2233,9 @@ function PerformancePagePublicClientInner({
       tocPosition="right"
       contentClassName={cn('mt-6 md:mt-8', isModelLanding && 'max-w-4xl')}
     >
+      <Suspense fallback={null}>
+        <SearchParamsStringSync onSerializedChange={setSearchParamsString} />
+      </Suspense>
       {portfolioPageLinks.length > 0 ? (
         <nav className="sr-only" aria-label="Portfolio performance pages">
           <ul>
@@ -2232,55 +2249,62 @@ function PerformancePagePublicClientInner({
       ) : null}
       {effectiveStrategy ? (
         <>
-          <div className="mb-6 scroll-mt-[4.5rem] md:scroll-mt-[5rem]">
-            <Breadcrumb>
-              <BreadcrumbList>
-                <BreadcrumbItem>
-                  <BreadcrumbLink asChild>
-                    <Link href="/strategy-models">Model list</Link>
-                  </BreadcrumbLink>
-                </BreadcrumbItem>
-                <BreadcrumbSeparator />
-                <BreadcrumbItem className="min-w-0">
-                  {isModelLanding ? (
-                    <BreadcrumbPage className="truncate">
-                      {effectiveStrategy.name}
-                    </BreadcrumbPage>
-                  ) : (
-                    <BreadcrumbLink asChild className="max-w-full">
-                      <Link
-                        href={`/strategy-models/${encodeURIComponent(slug ?? effectiveStrategy.slug)}`}
-                        className="block truncate"
-                      >
-                        {effectiveStrategy.name}
-                      </Link>
+          <div className="mb-6 flex scroll-mt-[4.5rem] md:scroll-mt-[5rem] flex-row flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <div className="min-w-0 flex-1">
+              <Breadcrumb>
+                <BreadcrumbList>
+                  <BreadcrumbItem>
+                    <BreadcrumbLink asChild>
+                      <Link href="/strategy-models">Model list</Link>
                     </BreadcrumbLink>
-                  )}
-                </BreadcrumbItem>
-                {!isModelLanding ? (
-                  <>
-                    <BreadcrumbSeparator />
-                    <BreadcrumbItem className="min-w-0 max-w-full">
-                      <BreadcrumbPage className="flex min-w-0 max-w-full items-center gap-1.5">
-                        {whatYouSeeRiskLevel != null ? (
-                          <span
-                            className={cn(
-                              'size-1.5 shrink-0 rounded-full',
-                              RETURNS_TABLE_RISK_DOT[whatYouSeeRiskLevel] ?? 'bg-muted'
-                            )}
-                            title={RISK_LABELS[whatYouSeeRiskLevel]}
-                            aria-hidden
-                          />
-                        ) : null}
-                        <span className="min-w-0 truncate">
-                          {performanceBreadcrumbPortfolioLabel ?? 'Portfolio'}
-                        </span>
+                  </BreadcrumbItem>
+                  <BreadcrumbSeparator />
+                  <BreadcrumbItem className="min-w-0">
+                    {isModelLanding ? (
+                      <BreadcrumbPage className="truncate">
+                        {effectiveStrategy.name}
                       </BreadcrumbPage>
-                    </BreadcrumbItem>
-                  </>
-                ) : null}
-              </BreadcrumbList>
-            </Breadcrumb>
+                    ) : (
+                      <BreadcrumbLink asChild className="max-w-full">
+                        <Link
+                          href={`/strategy-models/${encodeURIComponent(slug ?? effectiveStrategy.slug)}`}
+                          className="block truncate"
+                        >
+                          {effectiveStrategy.name}
+                        </Link>
+                      </BreadcrumbLink>
+                    )}
+                  </BreadcrumbItem>
+                  {!isModelLanding ? (
+                    <>
+                      <BreadcrumbSeparator />
+                      <BreadcrumbItem className="min-w-0 max-w-full">
+                        <BreadcrumbPage className="flex min-w-0 max-w-full items-center gap-1.5">
+                          {whatYouSeeRiskLevel != null ? (
+                            <span
+                              className={cn(
+                                'size-1.5 shrink-0 rounded-full',
+                                RETURNS_TABLE_RISK_DOT[whatYouSeeRiskLevel] ?? 'bg-muted'
+                              )}
+                              title={RISK_LABELS[whatYouSeeRiskLevel]}
+                              aria-hidden
+                            />
+                          ) : null}
+                          <span className="min-w-0 truncate">
+                            {performanceBreadcrumbPortfolioLabel ?? 'Portfolio'}
+                          </span>
+                        </BreadcrumbPage>
+                      </BreadcrumbItem>
+                    </>
+                  ) : null}
+                </BreadcrumbList>
+              </Breadcrumb>
+            </div>
+            {performancePageUpdatedLabel ? (
+              <p className="ml-auto shrink-0 text-xs text-muted-foreground tabular-nums">
+                Updated {performancePageUpdatedLabel}
+              </p>
+            ) : null}
           </div>
 
           {isModelLanding ? (

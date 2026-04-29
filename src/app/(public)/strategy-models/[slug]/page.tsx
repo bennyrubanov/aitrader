@@ -1,10 +1,10 @@
-import { notFound, redirect } from 'next/navigation';
-import { getCanonicalPerformancePathIfNeeded } from '@/lib/performance-canonical-url-server';
+import { notFound } from 'next/navigation';
 import {
   getPerformancePayloadBySlug,
   getStrategiesList,
 } from '@/lib/platform-performance-payload';
 import { PerformancePagePublicClient } from '@/components/performance/performance-page-public-client';
+import { LegacyPortfolioQueryRedirect } from '@/components/performance/legacy-portfolio-query-redirect';
 
 /** Must match `PUBLIC_ISR_REVALIDATE_SECONDS` in `@/lib/public-cache` (Next requires a literal here). */
 export const revalidate = 3600;
@@ -26,30 +26,14 @@ function siteBase(): string {
   );
 }
 
-function serializePageSearchParams(
-  sp: Record<string, string | string[] | undefined>
-): string {
-  const u = new URLSearchParams();
-  for (const [key, raw] of Object.entries(sp)) {
-    if (raw === undefined) continue;
-    if (Array.isArray(raw)) {
-      for (const v of raw) u.append(key, v);
-    } else {
-      u.set(key, raw);
-    }
-  }
-  return u.toString();
-}
-
 type Props = {
   params: Promise<{ slug: string }>;
-  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
 export async function generateMetadata({ params }: Props) {
   const { slug } = await params;
-  const payload = await getPerformancePayloadBySlug(slug);
-  const name = payload.strategy?.name ?? slug;
+  const strategies = await getStrategiesList();
+  const name = strategies.find((s) => s.slug === slug)?.name ?? slug;
   const canonicalPath = `/strategy-models/${encodeURIComponent(slug)}`;
   return {
     title: `${name} | AITrader`,
@@ -60,15 +44,8 @@ export async function generateMetadata({ params }: Props) {
   };
 }
 
-const StrategyModelSlugPage = async ({ params, searchParams }: Props) => {
+const StrategyModelSlugPage = async ({ params }: Props) => {
   const { slug } = await params;
-  const sp = searchParams ? await searchParams : {};
-  const initialSearchParamsString = serializePageSearchParams(sp);
-
-  const canonical = await getCanonicalPerformancePathIfNeeded(slug, initialSearchParamsString);
-  if (canonical) {
-    redirect(canonical);
-  }
 
   const [payload, strategies] = await Promise.all([
     getPerformancePayloadBySlug(slug),
@@ -80,13 +57,15 @@ const StrategyModelSlugPage = async ({ params, searchParams }: Props) => {
   }
 
   return (
-    <PerformancePagePublicClient
-      payload={payload}
-      strategies={strategies}
-      slug={slug}
-      initialSearchParamsString={initialSearchParamsString}
-      viewMode="model"
-    />
+    <>
+      <LegacyPortfolioQueryRedirect slug={slug} />
+      <PerformancePagePublicClient
+        payload={payload}
+        strategies={strategies}
+        slug={slug}
+        viewMode="model"
+      />
+    </>
   );
 };
 

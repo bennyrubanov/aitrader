@@ -136,7 +136,7 @@ const PREMIUM_CACHE_TTL_MS = 10 * 60 * 1000;
 const formatBucket = (bucket: string | null) =>
   bucket ? bucket.charAt(0).toUpperCase() + bucket.slice(1) : 'N/A';
 
-/** `YYYY-MM-DD` from API → compact label for “latest rating on” pill. */
+/** `YYYY-MM-DD` from API → compact label for “Latest AI rating on” pill. */
 function formatLatestRatingOnDate(ymd: string): string {
   const d = new Date(`${ymd}T12:00:00Z`);
   if (Number.isNaN(d.getTime())) {
@@ -148,6 +148,19 @@ function formatLatestRatingOnDate(ymd: string): string {
     year: 'numeric',
     timeZone: 'UTC',
   });
+}
+
+const stockPagePerformanceUpdatedFormatter = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+  timeZone: 'UTC',
+});
+
+function formatStockPageUpdatedFromIso(iso: string): string | null {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return stockPagePerformanceUpdatedFormatter.format(d);
 }
 
 function InsightPlanUpgradeBlock({ children }: { children: React.ReactNode }) {
@@ -371,6 +384,11 @@ const StockDetailClient = ({
       ? 'This is a premium stock. Upgrade to Supporter or Outperformer to see AI ratings and history.'
       : 'Full history and detailed analysis require a Supporter or Outperformer plan.';
   const normalizedSymbol = symbol.toUpperCase();
+  const stockPagePerformanceUpdatedLabel = useMemo(() => {
+    if (price.sessionDateLabel) return price.sessionDateLabel;
+    if (latest.updatedAt) return formatStockPageUpdatedFromIso(latest.updatedAt);
+    return null;
+  }, [price.sessionDateLabel, latest.updatedAt]);
   const [selectedStrategySlug, setSelectedStrategySlug] = useState<string | null>(
     () => initialStrategySlug
   );
@@ -666,17 +684,24 @@ const StockDetailClient = ({
           <div className="container mx-auto px-4">
             <div className="max-w-6xl mx-auto">
               <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-4">
-                <h1 className="flex min-w-0 max-w-full flex-1 flex-wrap items-center break-words leading-none">
-                  <span className="text-3xl font-bold leading-none tabular-nums md:text-5xl">{normalizedSymbol}</span>
-                  {stockName ? (
-                    <>
-                      <span className="px-1.5 text-lg font-normal leading-none text-muted-foreground md:px-2 md:text-2xl">
-                        ·
-                      </span>
-                      <span className="text-lg font-normal leading-none text-muted-foreground md:text-2xl">{stockName}</span>
-                    </>
+                <div className="flex min-w-0 max-w-full flex-1 flex-col gap-1">
+                  <h1 className="flex min-w-0 max-w-full flex-wrap items-center break-words leading-none">
+                    <span className="text-3xl font-bold leading-none tabular-nums md:text-5xl">{normalizedSymbol}</span>
+                    {stockName ? (
+                      <>
+                        <span className="px-1.5 text-lg font-normal leading-none text-muted-foreground md:px-2 md:text-2xl">
+                          ·
+                        </span>
+                        <span className="text-lg font-normal leading-none text-muted-foreground md:text-2xl">{stockName}</span>
+                      </>
+                    ) : null}
+                  </h1>
+                  {stockPagePerformanceUpdatedLabel ? (
+                    <p className="text-xs text-muted-foreground tabular-nums">
+                      Updated {stockPagePerformanceUpdatedLabel}
+                    </p>
                   ) : null}
-                </h1>
+                </div>
                 <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-x-2.5 gap-y-2 self-center lg:justify-end">
                   {(portfolioPresenceLoading ||
                     portfolioPresence?.runDate ||
@@ -690,7 +715,7 @@ const StockDetailClient = ({
                             className="inline-flex max-w-full truncate rounded-full border border-dashed border-border bg-muted/25 px-3 py-1.5 text-xs font-medium text-muted-foreground"
                             aria-hidden
                           >
-                            Latest rating on {'  '}
+                            Latest AI rating on {'  '}
                           </span>
                           <div
                             className="inline-flex max-w-full items-center rounded-full border border-dashed border-border bg-muted/25 px-3 py-1.5"
@@ -707,7 +732,7 @@ const StockDetailClient = ({
                               className="inline-flex max-w-full items-center truncate gap-x-1.5 rounded-full border border-border bg-muted/35 px-3 py-1.5 text-xs font-medium text-muted-foreground"
                               title="Trading week for the latest AI ratings run used on this page."
                             >
-                              <span className="font-semibold text-muted-foreground/90">Latest rating on</span>
+                              <span className="font-semibold text-muted-foreground/90">Latest AI rating on</span>
                               <span className="tabular-nums text-foreground/90">
                                 {formatLatestRatingOnDate(portfolioPresence.runDate)}
                               </span>

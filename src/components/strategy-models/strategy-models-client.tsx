@@ -1,7 +1,7 @@
 'use client';
 
+import Link from 'next/link';
 import { useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { Baby, BarChart2, Sparkles, Star, TrendingUp } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -122,7 +122,6 @@ type Props = {
 };
 
 export function StrategyModelsClient({ strategies, rankedStrategies }: Props) {
-  const router = useRouter();
   const [sort, setSort] = useState<SortKey>('performance');
 
   const rankedBySlug = useMemo(() => {
@@ -214,28 +213,19 @@ export function StrategyModelsClient({ strategies, rankedStrategies }: Props) {
             const modelHref = `/strategy-models/${encodeURIComponent(strategy.slug)}`;
 
             return (
-              <article
+              <Link
                 key={strategy.id}
-                role="link"
-                tabIndex={0}
+                href={modelHref}
+                prefetch
                 aria-label={`Open model: ${strategy.name}`}
                 className={cn(
-                  'rounded-xl border bg-card overflow-hidden transition-shadow hover:shadow-md cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+                  'block rounded-xl border bg-card overflow-hidden transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
                   isTop
                     ? 'border-trader-blue/40 ring-1 ring-trader-blue/10'
                     : '',
                 )}
-                onClick={() => {
-                  router.push(modelHref);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    router.push(modelHref);
-                  }
-                }}
               >
-                <div className="flex flex-col sm:flex-row">
+                <article className="flex flex-col sm:flex-row">
                   {/* Gradient image panel */}
                   <div
                     className="flex items-center justify-center text-white font-bold text-lg text-center px-6 select-none sm:w-[200px] min-h-[90px] sm:min-h-0"
@@ -387,8 +377,8 @@ export function StrategyModelsClient({ strategies, rankedStrategies }: Props) {
                           </div>
                         </div>
                   </div>
-                </div>
-              </article>
+                </article>
+              </Link>
               );
             })}
           </div>
