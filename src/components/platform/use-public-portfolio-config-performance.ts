@@ -9,6 +9,7 @@ import { RISK_TOP_N } from '@/components/portfolio-config';
 import type { PortfolioConfigSlice } from '@/components/platform/portfolio-config-controls';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
 import type { FullConfigPerformanceMetrics } from '@/lib/config-performance-chart';
+import type { PublicPortfolioPerfApiPayload } from '@/lib/public-portfolio-config-performance';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
 import {
   filterConfigsReadyWithEndingValue,
@@ -19,34 +20,11 @@ import {
   portfolioSliceIsInRankedList,
   portfolioSliceMatchesRankedRow,
   portfolioSliceMatchesRankOne,
+  portfolioSlicesEqual,
 } from '@/lib/performance-portfolio-url';
 import { loadRankedConfigsClient } from '@/lib/portfolio-configs-ranked-client';
 
-export type PublicPortfolioPerfApiPayload = {
-  computeStatus: 'ready' | 'in_progress' | 'failed' | 'empty' | 'unsupported';
-  rows?: Array<{ run_date: string; [key: string]: unknown }>;
-  sharpeReturns?: number[];
-  series: PerformanceSeriesPoint[];
-  metrics: {
-    sharpeRatio: number | null;
-    sharpeRatioDecisionCadence: number | null;
-    weeklyObservations: number;
-    totalReturn: number | null;
-    cagr: number | null;
-    maxDrawdown: number | null;
-  } | null;
-  fullMetrics: FullConfigPerformanceMetrics | null;
-  config: {
-    label?: string | null;
-    risk_level?: number;
-    rebalance_frequency?: string;
-    weighting_method?: string;
-    top_n?: number;
-    risk_label?: string | null;
-  } | null;
-  nextRebalanceDate?: string | null;
-  isHoldingPeriod?: boolean;
-};
+export type { PublicPortfolioPerfApiPayload };
 
 export type PublicConfigPerfSlice = {
   computeStatus: PublicPortfolioPerfApiPayload['computeStatus'];
@@ -66,6 +44,10 @@ export type UsePublicPortfolioConfigPerformanceArgs = {
   onPortfolioConfigChange?: (c: PortfolioConfigSlice | null) => void;
   /** Parsed `portfolio=topN-…` query param; applied once ranked configs load when valid. */
   urlPortfolioSelection?: PortfolioConfigSlice | null;
+  initialPortfolioPerformance?: PublicPortfolioPerfApiPayload | null;
+  initialPortfolioSlice?: PortfolioConfigSlice | null;
+  /** When true: load ranked configs only; do not pick a default portfolio, fetch perf, or poll. */
+  perfFetchDisabled?: boolean;
 };
 
 export function usePublicPortfolioConfigPerformance({
@@ -76,9 +58,14 @@ export function usePublicPortfolioConfigPerformance({
   portfolioConfigOverride,
   onPortfolioConfigChange,
   urlPortfolioSelection = null,
+  initialPortfolioPerformance = null,
+  initialPortfolioSlice = null,
+  perfFetchDisabled = false,
 }: UsePublicPortfolioConfigPerformanceArgs) {
   const [rankedConfigs, setRankedConfigs] = useState<RankedConfig[]>([]);
-  const [internalPortfolioConfig, setInternalPortfolioConfig] = useState<PortfolioConfigSlice | null>(null);
+  const [internalPortfolioConfig, setInternalPortfolioConfig] = useState<PortfolioConfigSlice | null>(
+    initialPortfolioSlice
+  );
   const urlPortfolioSelectionRef = useRef<PortfolioConfigSlice | null>(null);
   urlPortfolioSelectionRef.current = urlPortfolioSelection;
 
@@ -91,7 +78,10 @@ export function usePublicPortfolioConfigPerformance({
     [onPortfolioConfigChange]
   );
 
-  const [perf, setPerf] = useState<PublicPortfolioPerfApiPayload | null>(null);
+  const [perf, setPerf] = useState<PublicPortfolioPerfApiPayload | null>(
+    initialPortfolioPerformance
+  );
+  const initialPerfConsumedRef = useRef(false);
   const [perfLoading, setPerfLoading] = useState(false);
   const [rankedConfigBadges, setRankedConfigBadges] = useState<string[]>([]);
   const [benchmarkEndingValues, setBenchmarkEndingValues] =
@@ -99,10 +89,11 @@ export function usePublicPortfolioConfigPerformance({
 
   useEffect(() => {
     if (!slug) return;
-    setPortfolioConfig(null);
+    setPortfolioConfig(initialPortfolioSlice);
     setRankedConfigs([]);
     setBenchmarkEndingValues(null);
-    setPerf(null);
+    setPerf(initialPortfolioPerformance);
+    initialPerfConsumedRef.current = false;
 
     let cancelled = false;
     void loadRankedConfigsClient(slug)
@@ -112,26 +103,51 @@ export function usePublicPortfolioConfigPerformance({
         const list = d.configs ?? [];
         setRankedConfigs(list);
         setBenchmarkEndingValues(d.benchmarkEndingValues ?? null);
+        if (perfFetchDisabled) {
+          return;
+        }
         const hint = urlPortfolioSelectionRef.current;
         const chosen =
           hint && portfolioSliceIsInRankedList(hint, list)
             ? hint
-            : pickDefaultPortfolioSliceFromRanked(list);
+            : initialPortfolioSlice && portfolioSliceIsInRankedList(initialPortfolioSlice, list)
+              ? initialPortfolioSlice
+              : pickDefaultPortfolioSliceFromRanked(list);
         setPortfolioConfig(chosen);
       })
       .catch(() => {
         if (!cancelled) {
           setBenchmarkEndingValues(null);
-          setPortfolioConfig({ riskLevel: 3, rebalanceFrequency: 'weekly', weightingMethod: 'equal' });
+          if (!perfFetchDisabled) {
+            setPortfolioConfig({ riskLevel: 3, rebalanceFrequency: 'weekly', weightingMethod: 'equal' });
+          }
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [slug, setPortfolioConfig]);
+  }, [
+    slug,
+    setPortfolioConfig,
+    initialPortfolioPerformance,
+    initialPortfolioSlice,
+    perfFetchDisabled,
+  ]);
 
   const loadPerf = useCallback(async () => {
+    if (perfFetchDisabled) return;
     if (!slug || !portfolioConfig) return;
+    if (
+      initialPortfolioPerformance &&
+      initialPortfolioSlice &&
+      portfolioSlicesEqual(portfolioConfig, initialPortfolioSlice) &&
+      !initialPerfConsumedRef.current
+    ) {
+      initialPerfConsumedRef.current = true;
+      setPerf(initialPortfolioPerformance);
+      setPerfLoading(false);
+      return;
+    }
     setPerfLoading(true);
     try {
       const params = new URLSearchParams({
@@ -162,19 +178,22 @@ export function usePublicPortfolioConfigPerformance({
     } finally {
       setPerfLoading(false);
     }
-  }, [slug, portfolioConfig]);
+  }, [slug, portfolioConfig, initialPortfolioPerformance, initialPortfolioSlice, perfFetchDisabled]);
 
   useEffect(() => {
+    if (perfFetchDisabled) return;
     void loadPerf();
-  }, [loadPerf]);
+  }, [perfFetchDisabled, loadPerf]);
 
   useEffect(() => {
+    if (perfFetchDisabled) return;
     if (perf?.computeStatus !== 'in_progress') return;
     const id = setInterval(() => void loadPerf(), 4000);
     return () => clearInterval(id);
-  }, [perf?.computeStatus, loadPerf]);
+  }, [perfFetchDisabled, perf?.computeStatus, loadPerf]);
 
   useEffect(() => {
+    if (perfFetchDisabled) return;
     if (!onSliceChange) return;
     onSliceChange({
       computeStatus: perf?.computeStatus ?? 'empty',
@@ -184,7 +203,7 @@ export function usePublicPortfolioConfigPerformance({
       portfolioConfig,
       config: perf?.config ?? null,
     });
-  }, [onSliceChange, perf, portfolioConfig]);
+  }, [perfFetchDisabled, onSliceChange, perf, portfolioConfig]);
 
   const isTopRanked = Boolean(
     portfolioConfig && portfolioSliceMatchesRankOne(portfolioConfig, rankedConfigs)

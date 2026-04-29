@@ -19,7 +19,6 @@ import {
   canQueryStockCurrentRecommendation,
   getAppAccessState,
 } from '@/lib/app-access';
-import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import {
   Tooltip,
   TooltipContent,
@@ -604,7 +603,7 @@ const StockDetailClient = ({
                               <span>
                                 Top performing strategy model{' '}
                                 <Link
-                                  href={`/whitepaper/${STRATEGY_CONFIG.slug}#model-ranking`}
+                                  href="/whitepaper#model-ranking"
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="group inline-flex items-center font-medium text-trader-blue dark:text-trader-blue-light underline-offset-2 transition hover:underline"
@@ -624,7 +623,7 @@ const StockDetailClient = ({
                             size="sm"
                             className="w-full justify-start gap-1.5 text-xs h-7 px-1"
                           >
-                            <Link href={`/performance/${effectivePickerStrategy.slug}`}>
+                            <Link href={`/strategy-models/${effectivePickerStrategy.slug}`}>
                               <ExternalLink className="size-3 shrink-0" />
                               How this model works
                             </Link>
@@ -635,7 +634,7 @@ const StockDetailClient = ({
                             size="sm"
                             className="w-full justify-start gap-1.5 text-xs h-7 px-1"
                           >
-                            <Link href={`/performance/${effectivePickerStrategy.slug}`}>
+                            <Link href={`/strategy-models/${effectivePickerStrategy.slug}`}>
                               <TrendingUp className="size-3 shrink-0" />
                               See performance
                             </Link>

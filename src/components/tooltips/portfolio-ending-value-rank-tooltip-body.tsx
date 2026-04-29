@@ -1,5 +1,5 @@
 /**
- * Explains the $-ending-value rank used on the public performance page (aligned with the
+ * Explains the $-ending-value rank used on the public strategy models page (aligned with the
  * select-portfolio dialog). No methodology link.
  */
 export function PortfolioEndingValueRankTooltipBody({

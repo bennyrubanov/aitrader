@@ -3,7 +3,6 @@ import {
   computeOverviewUserCompositeScores,
   type OverviewUserCompositeRow,
 } from '@/lib/overview-user-composite';
-import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import { getCachedUserEntryPayload } from '@/lib/your-portfolio-data-cache';
 
 /** Same $10k baseline as overview / your-portfolios charts. */
@@ -57,9 +56,9 @@ export const PORTFOLIO_LIST_METRIC_OPTION_DETAILS: PortfolioListMetricOptionDeta
     value: 'composite_score',
     label: 'Composite score',
     description:
-      'Blend of Sharpe, total return, consistency, drawdown, and excess vs Nasdaq-100 cap within this list (CAGR is shown separately).',
+      'Blend of Sharpe, total return, consistency, drawdown, and excess vs Nasdaq-100 within this list (CAGR is shown separately).',
     inlineDetailsLink: {
-      href: `/whitepaper/${STRATEGY_CONFIG.slug}#portfolio-ranking-how`,
+      href: '/whitepaper#portfolio-ranking',
       label: 'More details',
     },
   },
@@ -67,7 +66,7 @@ export const PORTFOLIO_LIST_METRIC_OPTION_DETAILS: PortfolioListMetricOptionDeta
     value: 'consistency',
     label: 'Consistency',
     description:
-      'How consistenly your portfolio was beating the Nasdaq-100 (cap-weight) benchmark.',
+      'How consistently your portfolio was beating the Nasdaq-100 benchmark.',
   },
   {
     value: 'sharpe_ratio',

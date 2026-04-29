@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { ArrowDown, FilterX, LayoutList, LineChart, ListFilter } from 'lucide-react';
 import type {
   BenchmarkEndingValues,
@@ -39,6 +40,7 @@ import {
 import { PORTFOLIO_EXPLORE_QUICK_PICKS } from '@/lib/portfolio-explore-quick-picks';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
 import { loadRankedConfigsClient } from '@/lib/portfolio-configs-ranked-client';
+import { portfolioSliceToConfigSlug } from '@/lib/performance-portfolio-url';
 import { cn } from '@/lib/utils';
 
 function fmtUsd(n: number | null | undefined): string {
@@ -129,7 +131,7 @@ type RankTableRow =
     }
   | {
       kind: 'benchmark';
-      benchKey: 'sp500' | 'nasdaqCap' | 'nasdaqEqual';
+      benchKey: 'sp500' | 'nasdaqCap';
       label: string;
       value: number;
     };
@@ -154,7 +156,7 @@ function buildMergedRankTable(
 
   type MergePiece =
     | { kind: 'p'; c: RankedConfig }
-    | { kind: 'b'; benchKey: 'sp500' | 'nasdaqCap' | 'nasdaqEqual'; label: string; v: number };
+    | { kind: 'b'; benchKey: 'sp500' | 'nasdaqCap'; label: string; v: number };
 
   const benchPieces: Extract<MergePiece, { kind: 'b' }>[] = [];
   if (benchmarks) {
@@ -162,7 +164,7 @@ function buildMergedRankTable(
       benchPieces.push({
         kind: 'b',
         benchKey: 'sp500',
-        label: 'S&P 500 (cap)',
+        label: 'S&P 500',
         v: benchmarks.sp500,
       });
     }
@@ -174,20 +176,8 @@ function buildMergedRankTable(
       benchPieces.push({
         kind: 'b',
         benchKey: 'nasdaqCap',
-        label: 'Nasdaq-100 (cap)',
+        label: 'Nasdaq-100',
         v: benchmarks.nasdaq100Cap,
-      });
-    }
-    if (
-      benchmarks.nasdaq100Equal != null &&
-      Number.isFinite(benchmarks.nasdaq100Equal) &&
-      benchmarks.nasdaq100Equal > 0
-    ) {
-      benchPieces.push({
-        kind: 'b',
-        benchKey: 'nasdaqEqual',
-        label: 'Nasdaq-100 (equal)',
-        v: benchmarks.nasdaq100Equal,
       });
     }
   }
@@ -247,7 +237,7 @@ function countIndicesBelowPortfolio(
   benchmarks: BenchmarkEndingValues | null
 ): { below: number; total: number } {
   if (portfolioEv == null || !Number.isFinite(portfolioEv)) return { below: 0, total: 0 };
-  const vals = [benchmarks?.sp500, benchmarks?.nasdaq100Cap, benchmarks?.nasdaq100Equal].filter(
+  const vals = [benchmarks?.sp500, benchmarks?.nasdaq100Cap].filter(
     (v): v is number => v != null && Number.isFinite(v) && v > 0
   );
   if (vals.length === 0) return { below: 0, total: 0 };
@@ -319,12 +309,30 @@ function PortfolioPickerTableRow({
   const riskColor = CONFIG_CARD_RISK_DOT[c.riskLevel as RiskLevel] ?? 'bg-muted';
   const riskTitle = (c.riskLabel && c.riskLabel.trim()) || RISK_LABELS[c.riskLevel as RiskLevel];
   const ev = c.metrics.endingValuePortfolio;
+  const href = `/strategy-models/${encodeURIComponent(strategySlug)}/${encodeURIComponent(
+    portfolioSliceToConfigSlug(sliceFromConfig(c))
+  )}`;
+  const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    ) {
+      return;
+    }
+    event.preventDefault();
+    onPick(c);
+  };
 
   return (
     <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch sm:gap-3">
-      <button
-        type="button"
-        onClick={() => onPick(c)}
+      <Link
+        href={href}
+        prefetch={false}
+        onClick={handleClick}
         className={cn(
           'flex min-w-0 flex-1 items-stretch gap-3 rounded-xl border px-3 py-2.5 text-left transition-all',
           selected
@@ -383,7 +391,7 @@ function PortfolioPickerTableRow({
             ))}
           </div>
         </div>
-      </button>
+      </Link>
       <div className={cn('hidden shrink-0 sm:block', INDEX_RAIL_W)} aria-hidden />
     </div>
   );

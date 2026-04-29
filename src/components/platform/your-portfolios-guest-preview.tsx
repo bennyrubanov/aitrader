@@ -156,27 +156,22 @@ const GUEST_MAIN_CHART_DATA = [
 
 const GUEST_CHART_TIME_RANGES = ['1M', '3M', '6M', 'YTD', 'All'] as const;
 
-type GuestChartSeriesKey = 'aiPortfolio' | 'nasdaq100CapWeight' | 'nasdaq100EqualWeight' | 'sp500';
+type GuestChartSeriesKey = 'aiPortfolio' | 'nasdaq100CapWeight' | 'sp500';
 
 function guestMainChartConfig(strategyName: string): ChartConfig {
   return {
     aiPortfolio: { label: strategyName, color: CHART_PORTFOLIO_SERIES_COLOR },
     nasdaq100CapWeight: {
-      label: 'Nasdaq-100 (cap-weighted)',
+      label: 'Nasdaq-100',
       color: CHART_INDEX_SERIES_COLORS.nasdaq100CapWeight,
     },
-    nasdaq100EqualWeight: {
-      label: 'Nasdaq-100 (equal-weighted)',
-      color: CHART_INDEX_SERIES_COLORS.nasdaq100EqualWeight,
-    },
-    sp500: { label: 'S&P 500 (cap-weighted)', color: CHART_INDEX_SERIES_COLORS.sp500 },
+    sp500: { label: 'S&P 500', color: CHART_INDEX_SERIES_COLORS.sp500 },
   };
 }
 
 const GUEST_CHART_SERIES_KEYS: GuestChartSeriesKey[] = [
   'aiPortfolio',
   'nasdaq100CapWeight',
-  'nasdaq100EqualWeight',
   'sp500',
 ];
 
@@ -501,7 +496,7 @@ export function YourPortfoliosGuestPreview({ signInHref, signUpHref }: Props) {
                   size="sm"
                   className="h-7 w-full justify-start gap-1.5 px-1 text-xs"
                 >
-                  <Link href={`/performance/${STRATEGY_CONFIG.slug}#model-overview`}>
+                  <Link href={`/strategy-models/${STRATEGY_CONFIG.slug}#model-overview`}>
                     <ExternalLink className="size-3 shrink-0" />
                     How this model works
                   </Link>
@@ -693,7 +688,7 @@ export function YourPortfoliosGuestPreview({ signInHref, signUpHref }: Props) {
                         />
                         <GuestSpotlightStatButton
                           tooltipKey="vs_sp500"
-                          label="Performance vs S&P 500 (cap)"
+                          label="Performance vs S&P 500"
                           maskSample="+2.0%"
                           onActivate={promptSignup}
                         />
@@ -717,31 +712,31 @@ export function YourPortfoliosGuestPreview({ signInHref, signUpHref }: Props) {
                         />
                         <GuestSpotlightStatButton
                           tooltipKey="vs_nasdaq_cap"
-                          label="Performance vs Nasdaq-100 (cap)"
+                          label="Performance vs Nasdaq-100"
                           maskSample="+1.1%"
                           onActivate={promptSignup}
                         />
                         <GuestSpotlightStatButton
                           tooltipKey="vs_nasdaq_equal"
-                          label="Performance vs Nasdaq-100 (equal)"
+                          label="Performance vs Nasdaq-100 (equal-weight)"
                           maskSample="+0.6%"
                           onActivate={promptSignup}
                         />
                         <GuestSpotlightStatButton
                           tooltipKey="consistency"
-                          label="% weeks beating Nasdaq-100 (cap)"
+                          label="% weeks beating Nasdaq-100"
                           maskSample="58%"
                           onActivate={promptSignup}
                         />
                         <GuestSpotlightStatButton
                           tooltipKey="weeks_beating_sp500"
-                          label="% weeks beating S&P 500 (cap)"
+                          label="% weeks beating S&P 500"
                           maskSample="54%"
                           onActivate={promptSignup}
                         />
                         <GuestSpotlightStatButton
                           tooltipKey="weeks_beating_nasdaq_equal"
-                          label="% weeks beating Nasdaq-100 (equal)"
+                          label="% weeks beating Nasdaq-100 (equal-weight)"
                           maskSample="52%"
                           onActivate={promptSignup}
                         />

@@ -1,51 +1,60 @@
 'use client';
 
+import type { MouseEvent, ReactNode } from 'react';
 import { useCallback } from 'react';
 import { Copy } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-function sectionHref(hrefBase: string, fragmentId: string) {
+/** Path + query (no hash) from `hrefBase`, then `#fragmentId` for in-page navigation. */
+export function sectionHeadingHref(hrefBase: string, fragmentId: string): string {
   const path = hrefBase.split('#')[0] ?? hrefBase;
   return `${path}#${fragmentId}`;
 }
 
-type SectionHeadingAnchorProps = {
-  /** Same as the scroll target element’s `id`. */
+export function scrollInstantlyToSection(fragmentId: string): boolean {
+  const el = document.getElementById(fragmentId);
+  if (!el) return false;
+
+  const scrollMarginTop = parseFloat(window.getComputedStyle(el).scrollMarginTop) || 0;
+  const top = el.getBoundingClientRect().top + window.scrollY - scrollMarginTop;
+  const root = document.documentElement;
+  const previousScrollBehavior = root.style.scrollBehavior;
+
+  root.style.scrollBehavior = 'auto';
+  window.scrollTo({ top, behavior: 'auto' });
+  root.style.scrollBehavior = previousScrollBehavior;
+  return true;
+}
+
+type SectionHeadingJumpLinkProps = {
   fragmentId: string;
-  /** Path and optional query string, without a hash (e.g. `/strategy-models/foo`). */
   hrefBase: string;
   className?: string;
-  /**
-   * When true, a normal click copies the full page URL (origin + path + query + hash)
-   * before the browser follows the in-page anchor. Use on performance pages so shared
-   * links keep portfolio query params.
-   */
-  copyAbsoluteUrlOnClick?: boolean;
+  children: ReactNode;
 };
 
 /**
- * Section link with a copy icon on hover; parent heading should include `group`.
+ * Wrap heading label (and optional icon) so a normal click scrolls to the section and updates the hash.
+ * Pair with {@link SectionHeadingAnchor} for the copy-to-clipboard control.
  */
-export function SectionHeadingAnchor({
+export function SectionHeadingJumpLink({
   fragmentId,
   hrefBase,
   className,
-  copyAbsoluteUrlOnClick,
-}: SectionHeadingAnchorProps) {
-  const href = sectionHref(hrefBase, fragmentId);
+  children,
+}: SectionHeadingJumpLinkProps) {
+  const href = sectionHeadingHref(hrefBase, fragmentId);
 
   const handleClick = useCallback(
-    async (e: React.MouseEvent<HTMLAnchorElement>) => {
-      if (!copyAbsoluteUrlOnClick) return;
-      if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-      const absolute = `${window.location.origin}${href}`;
-      try {
-        await navigator.clipboard.writeText(absolute);
-      } catch {
-        /* clipboard may be denied; hash navigation still runs */
-      }
+    (e: MouseEvent<HTMLAnchorElement>) => {
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      scrollInstantlyToSection(fragmentId);
+      requestAnimationFrame(() => {
+        window.history.pushState(null, '', sectionHeadingHref(hrefBase, fragmentId));
+      });
     },
-    [copyAbsoluteUrlOnClick, href]
+    [fragmentId, hrefBase]
   );
 
   return (
@@ -53,14 +62,63 @@ export function SectionHeadingAnchor({
       href={href}
       onClick={handleClick}
       className={cn(
-        'ms-1.5 inline-flex shrink-0 items-center justify-center rounded-sm p-0.5 text-muted-foreground no-underline opacity-0 transition-opacity duration-150 group-hover:opacity-100 focus-visible:opacity-100 hover:bg-muted hover:text-foreground',
+        'text-inherit no-underline outline-none rounded-sm',
+        'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
         className
       )}
-      aria-label={
-        copyAbsoluteUrlOnClick ? 'Copy link to this section' : 'Link to this section'
+    >
+      {children}
+    </a>
+  );
+}
+
+type SectionHeadingAnchorProps = {
+  /** Same as the scroll target element’s `id`. */
+  fragmentId: string;
+  /** Path and optional query string, without a hash (e.g. `/strategy-models/foo` or `/strategy-models/foo?x=1`). */
+  hrefBase: string;
+  className?: string;
+};
+
+/**
+ * Copy-to-clipboard for the section URL (origin + path + query + hash). Does not navigate.
+ * Parent heading should use `group relative`. The control sits in the left gutter (`right-full`) and
+ * stays hoverable while invisible via `pointer-events-auto` so the cursor can reach it without
+ * leaving the `group` hover / `focus-within` chain.
+ */
+export function SectionHeadingAnchor({ fragmentId, hrefBase, className }: SectionHeadingAnchorProps) {
+  const handleClick = useCallback(
+    async (e: MouseEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const relative = sectionHeadingHref(hrefBase, fragmentId);
+      const absolute =
+        typeof window !== 'undefined' ? new URL(relative, window.location.origin).href : relative;
+      try {
+        await navigator.clipboard.writeText(absolute);
+      } catch {
+        /* clipboard may be denied */
       }
+    },
+    [fragmentId, hrefBase]
+  );
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      className={cn(
+        'section-heading-copy-btn pointer-events-auto absolute right-full top-1/2 z-20 me-2 inline-flex size-8 shrink-0 -translate-y-1/2 items-center justify-center rounded-sm p-0.5 text-muted-foreground no-underline outline-none focus:outline-none focus-visible:outline-none',
+        'opacity-0 transition-opacity duration-150',
+        'group-hover:opacity-100',
+        'group-focus-within:opacity-100',
+        'focus-visible:opacity-100',
+        'hover:text-foreground',
+        className
+      )}
+      aria-label="Copy link to this section"
     >
       <Copy className="size-3.5" aria-hidden />
-    </a>
+    </button>
   );
 }

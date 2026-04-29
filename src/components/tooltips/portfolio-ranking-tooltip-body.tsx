@@ -10,7 +10,6 @@ import { Button } from '@/components/ui/button';
 export function PortfolioRankingTooltipBody({
   rank,
   rankedTotal,
-  strategySlug,
   rankingAction,
 }: {
   rank: number;
@@ -35,7 +34,7 @@ export function PortfolioRankingTooltipBody({
     <div className="space-y-2">
       <p className="leading-snug">{main}</p>
       <Link
-        href={`/whitepaper/${encodeURIComponent(strategySlug)}#portfolio-ranking-how`}
+        href="/whitepaper#portfolio-ranking"
         target="_blank"
         rel="noopener noreferrer"
         className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"

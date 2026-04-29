@@ -151,9 +151,9 @@ export function AppSidebar() {
       ...platformItems.flatMap((item) => (item.href ? [item.href] : [])),
       ...advancedItems.flatMap((item) => (item.href ? [item.href] : [])),
       '/platform/settings',
-      '/performance',
+      '/strategy-models',
       '/pricing',
-      '/performance',
+      '/strategy-models',
     ];
     const prefetchAllRoutes = () => {
       prefetchTargets.forEach((href) => {
@@ -341,7 +341,7 @@ export function AppSidebar() {
               <SidebarMenuItem>
                 <SidebarMenuButton asChild size="sm" tooltip="Performance (public)">
                   <Link
-                    href="/performance"
+                    href="/strategy-models"
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={() => closeMobileSidebar()}

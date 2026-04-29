@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 
-// /platform/performance has moved to /performance (public page)
+// Legacy platform path: canonical public models index lives at /strategy-models
 export default function PlatformPerformancePage() {
-  redirect('/performance');
+  redirect('/strategy-models');
 }

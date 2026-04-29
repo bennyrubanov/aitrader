@@ -28,7 +28,7 @@ export function pickDefaultPortfolioSliceFromRanked(configs: RankedConfig[]): Po
   return { riskLevel: 3, rebalanceFrequency: 'weekly', weightingMethod: 'equal' };
 }
 
-/** Public query key for the selected portfolio preset on `/performance/[slug]`. */
+/** Public query key for the selected portfolio preset on `/strategy-models/[slug]`. */
 export const PERFORMANCE_PORTFOLIO_CONFIG_QUERY_KEY = 'portfolio';
 const LEGACY_PERFORMANCE_PORTFOLIO_CONFIG_QUERY_KEY = 'config';
 
@@ -80,11 +80,17 @@ export function parsePerformancePortfolioConfigParam(
   };
 }
 
-/** Validates `top{N}-…` segment used in `/performance/[slug]/[config]`. */
+/** Validates `top{N}-…` segment used in `/strategy-models/[slug]/[portfolio]`. */
 export function isValidPortfolioConfigPathSegment(raw: string): boolean {
   const u = new URLSearchParams();
   u.set(PERFORMANCE_PORTFOLIO_CONFIG_QUERY_KEY, raw.trim());
   return parsePerformancePortfolioConfigParam(u) != null;
+}
+
+export function parsePerformancePortfolioConfigPathSegment(raw: string): PortfolioConfigSlice | null {
+  const u = new URLSearchParams();
+  u.set(PERFORMANCE_PORTFOLIO_CONFIG_QUERY_KEY, raw.trim());
+  return parsePerformancePortfolioConfigParam(u);
 }
 
 export function portfolioSliceMatchesRankedRow(
@@ -148,6 +154,16 @@ export function mergePortfolioIntoSearchParams(
   if (!portfolio || ranked.length === 0) return next;
   const slug = desiredPerformancePortfolioConfigParam(portfolio, ranked);
   if (slug) next.set(PERFORMANCE_PORTFOLIO_CONFIG_QUERY_KEY, slug);
+  return next;
+}
+
+export function stripPerformancePortfolioSearchParams(base: URLSearchParams): URLSearchParams {
+  const next = new URLSearchParams(base.toString());
+  next.delete('risk');
+  next.delete('frequency');
+  next.delete('weighting');
+  next.delete(PERFORMANCE_PORTFOLIO_CONFIG_QUERY_KEY);
+  next.delete(LEGACY_PERFORMANCE_PORTFOLIO_CONFIG_QUERY_KEY);
   return next;
 }
 

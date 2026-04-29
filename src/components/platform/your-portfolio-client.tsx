@@ -1272,7 +1272,6 @@ const SIDEBAR_BADGE_ICON: Record<string, LucideIcon> = {
 /** Compact badge affordance for the your-portfolios sidebar only (icons + titled tooltips). */
 function SidebarPortfolioBadgeIcon({
   name,
-  strategySlug,
 }: {
   name: string;
   strategySlug: string;
@@ -1280,9 +1279,8 @@ function SidebarPortfolioBadgeIcon({
   const tip = portfolioConfigBadgeTooltip(name);
   const styles = portfolioConfigBadgeClassName(name);
   const Icon = SIDEBAR_BADGE_ICON[name] ?? HelpCircle;
-  const slugForLinks = strategySlug.trim() || STRATEGY_CONFIG.slug;
   const rankingHowHref =
-    name === 'Top ranked' ? `/whitepaper/${slugForLinks}#portfolio-ranking-how` : null;
+    name === 'Top ranked' ? '/whitepaper#portfolio-ranking' : null;
 
   const trigger = (
     <span
@@ -3198,7 +3196,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                   className="h-7 w-full justify-start gap-1.5 px-1 text-xs"
                 >
                   <Link
-                    href={`/performance/${selectedProfile?.strategy_models?.slug ?? strategySlug}#model-overview`}
+                    href={`/strategy-models/${selectedProfile?.strategy_models?.slug ?? strategySlug}#model-overview`}
                   >
                     <ExternalLink className="size-3 shrink-0" />
                     How this model works
@@ -3399,7 +3397,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                       className="h-7 w-full justify-start gap-1.5 px-1 text-xs"
                     >
                       <Link
-                        href={`/performance/${selectedProfile?.strategy_models?.slug ?? strategySlug}#model-overview`}
+                        href={`/strategy-models/${selectedProfile?.strategy_models?.slug ?? strategySlug}#model-overview`}
                       >
                         <ExternalLink className="size-3 shrink-0" />
                         How this model works
@@ -3717,7 +3715,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                         />
                         <SpotlightStatCard
                           tooltipKey="vs_sp500"
-                          label="Performance vs S&P 500 (cap)"
+                          label="Performance vs S&P 500"
                           value={spotlightFmt.pct(benchmarkBench.excessVsSp500)}
                           positive={
                             benchmarkBench.excessVsSp500 != null &&
@@ -3829,7 +3827,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                     />
                     <SpotlightStatCard
                       tooltipKey="vs_nasdaq_cap"
-                      label="Performance vs Nasdaq-100 (cap)"
+                      label="Performance vs Nasdaq-100"
                       value={spotlightFmt.pct(excessNdxForSpotlight)}
                       positive={
                         excessNdxForSpotlight != null && Number.isFinite(excessNdxForSpotlight)
@@ -3839,7 +3837,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                     />
                     <SpotlightStatCard
                       tooltipKey="vs_nasdaq_equal"
-                      label="Performance vs Nasdaq-100 (equal)"
+                      label="Performance vs Nasdaq-100 (equal-weight)"
                       value={spotlightFmt.pct(benchmarkBench.excessVsNasdaqEqual)}
                       positive={
                         benchmarkBench.excessVsNasdaqEqual != null &&
@@ -3850,7 +3848,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                     />
                     <SpotlightStatCard
                       tooltipKey="consistency"
-                      label="% weeks beating Nasdaq-100 (cap)"
+                      label="% weeks beating Nasdaq-100"
                       value={
                         weeklyBeatRates.ndxCap != null
                           ? spotlightFmt.pct(weeklyBeatRates.ndxCap, 0)
@@ -3862,7 +3860,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                     />
                     <SpotlightStatCard
                       tooltipKey="weeks_beating_sp500"
-                      label="% weeks beating S&P 500 (cap)"
+                      label="% weeks beating S&P 500"
                       value={
                         weeklyBeatRates.sp500 != null
                           ? spotlightFmt.pct(weeklyBeatRates.sp500, 0)
@@ -3874,7 +3872,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                     />
                     <SpotlightStatCard
                       tooltipKey="weeks_beating_nasdaq_equal"
-                      label="% weeks beating Nasdaq-100 (equal)"
+                      label="% weeks beating Nasdaq-100 (equal-weight)"
                       value={
                         weeklyBeatRates.ndxEq != null
                           ? spotlightFmt.pct(weeklyBeatRates.ndxEq, 0)

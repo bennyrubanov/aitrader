@@ -24,31 +24,22 @@ import {
 } from '@/lib/chart-index-series-colors';
 import { cn } from '@/lib/utils';
 
-/** Same labels/colors as `performance-chart.tsx` benchmarks */
+/** Same labels/colors as `performance-chart.tsx` benchmarks (equal-weight Nasdaq not drawn). */
 const EXPLORE_BM_KEYS = {
   cap: 'bm_nasdaq_cap',
-  eq: 'bm_nasdaq_eq',
   sp: 'bm_sp500',
 } as const;
 
 type ExploreBenchmarkKey = (typeof EXPLORE_BM_KEYS)[keyof typeof EXPLORE_BM_KEYS];
 
-const EXPLORE_BM_ORDER: ExploreBenchmarkKey[] = [
-  EXPLORE_BM_KEYS.cap,
-  EXPLORE_BM_KEYS.eq,
-  EXPLORE_BM_KEYS.sp,
-];
+const EXPLORE_BM_ORDER: ExploreBenchmarkKey[] = [EXPLORE_BM_KEYS.cap, EXPLORE_BM_KEYS.sp];
 
 const EXPLORE_BM_CONFIG: Record<ExploreBenchmarkKey, { label: string; color: string }> = {
   [EXPLORE_BM_KEYS.cap]: {
-    label: 'Nasdaq-100 (cap)',
+    label: 'Nasdaq-100',
     color: CHART_INDEX_SERIES_COLORS.nasdaq100CapWeight,
   },
-  [EXPLORE_BM_KEYS.eq]: {
-    label: 'Nasdaq-100 (equal)',
-    color: CHART_INDEX_SERIES_COLORS.nasdaq100EqualWeight,
-  },
-  [EXPLORE_BM_KEYS.sp]: { label: 'S&P 500 (cap)', color: CHART_INDEX_SERIES_COLORS.sp500 },
+  [EXPLORE_BM_KEYS.sp]: { label: 'S&P 500', color: CHART_INDEX_SERIES_COLORS.sp500 },
 };
 
 type ExploreSidebarListRow =
@@ -353,7 +344,6 @@ export function ExplorePortfoliosEquityChart({
       }
       if (effectiveBenchmarksValid && effectiveBenchmarks) {
         row[EXPLORE_BM_KEYS.cap] = effectiveBenchmarks.nasdaq100Cap[i] ?? 10_000;
-        row[EXPLORE_BM_KEYS.eq] = effectiveBenchmarks.nasdaq100Equal[i] ?? 10_000;
         row[EXPLORE_BM_KEYS.sp] = effectiveBenchmarks.sp500[i] ?? 10_000;
       }
       return row;
@@ -384,7 +374,6 @@ export function ExplorePortfoliosEquityChart({
     }
     if (effectiveBenchmarksValid && effectiveBenchmarks) {
       row[EXPLORE_BM_KEYS.cap] = effectiveBenchmarks.nasdaq100Cap[i] ?? 10_000;
-      row[EXPLORE_BM_KEYS.eq] = effectiveBenchmarks.nasdaq100Equal[i] ?? 10_000;
       row[EXPLORE_BM_KEYS.sp] = effectiveBenchmarks.sp500[i] ?? 10_000;
     }
     return row;
@@ -681,7 +670,7 @@ export function ExplorePortfoliosEquityChart({
           </p>
           <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1.5 text-sm">
             <div className="flex min-w-0 items-baseline gap-2">
-              <span className="shrink-0 text-xs text-muted-foreground">S&amp;P 500 (cap)</span>
+              <span className="shrink-0 text-xs text-muted-foreground">S&amp;P 500</span>
               <span
                 className={cn(
                   'font-semibold tabular-nums',
@@ -694,7 +683,7 @@ export function ExplorePortfoliosEquityChart({
               </span>
             </div>
             <div className="flex min-w-0 items-baseline gap-2">
-              <span className="shrink-0 text-xs text-muted-foreground">Nasdaq-100 (cap)</span>
+              <span className="shrink-0 text-xs text-muted-foreground">Nasdaq-100</span>
               <span
                 className={cn(
                   'font-semibold tabular-nums',

@@ -44,12 +44,11 @@ import { getSupabaseBrowserClient } from "@/utils/supabase/browser";
 import { useAuthState } from "@/components/auth/auth-state-context";
 import { PlanLabel } from "@/components/account/plan-label";
 import { navigateWithFallback } from "@/lib/client-navigation";
-import { STRATEGY_CONFIG } from "@/lib/strategyConfig";
 import { shouldPersistSignInReturnPath } from "@/lib/auth-redirect";
 import type { SubscriptionTier } from "@/lib/auth-state";
 
 const platformNavItems: PlatformNavItem[] = [
-  { label: "Performance", href: `/performance/${STRATEGY_CONFIG.slug}`, icon: Gauge },
+  { label: "Strategy models", href: "/strategy-models", icon: Gauge },
   { label: "Whitepaper", href: "/whitepaper", icon: FileText },
   { label: "Pricing & Features", href: "/pricing", icon: Landmark },
   {
@@ -227,7 +226,7 @@ function NavbarAccountDropdown({
 const MARKETING_PREFETCH_ROUTES = [
   "/",
   "/whitepaper",
-  "/performance",
+  "/strategy-models",
   "/platform/overview",
   "/platform/settings",
   "/pricing",
@@ -385,7 +384,7 @@ const Navbar: React.FC = () => {
     navPathReady &&
     (pathname.startsWith("/platform") ||
       pathname.startsWith("/whitepaper") ||
-      pathname.startsWith("/performance") ||
+      pathname.startsWith("/strategy-models") ||
       pathname === "/pricing");
 
   const dropdownButtonClass = (active: boolean) =>
@@ -624,155 +623,167 @@ const Navbar: React.FC = () => {
                 isSigningOut={isSigningOut}
               />
             ) : null}
-            <Sheet open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
-              <SheetTrigger asChild>
-                <Button variant="outline" size="icon" className="rounded-full" aria-label="Open navigation menu">
-                  <Menu size={18} />
-                </Button>
-              </SheetTrigger>
-              <SheetContent
-                side="right"
-                className="flex h-[100dvh] max-h-[100dvh] w-[88vw] max-w-sm flex-col overflow-hidden pr-4"
-              >
-                <SheetTitle className="sr-only">Main menu</SheetTitle>
-                <div className="flex min-h-0 flex-1 flex-col pt-6">
-                  <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-1 py-1">
-                  <Accordion type="multiple" defaultValue={["platform"]} className="w-full">
-                    <AccordionItem value="platform">
-                      <AccordionTrigger className="py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:no-underline">
-                        Platform
-                      </AccordionTrigger>
-                      <AccordionContent className="pb-1">
-                        <div className="space-y-1">
-                          {platformNavItems.map((item) => (
-                            <SheetClose asChild key={item.href}>
-                              <Link
-                                href={item.href}
-                                prefetch
-                                onMouseEnter={() => handlePrefetch(item.href)}
-                                onFocus={() => handlePrefetch(item.href)}
-                                onPointerDown={() => handlePrefetch(item.href)}
-                                className={`flex items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors hover:bg-muted ${
-                                  item.trailingArrow ? "group " : ""
-                                }${
-                                  isActive(item.href)
-                                    ? "text-foreground"
-                                    : "text-muted-foreground hover:text-foreground"
-                                }`}
-                              >
-                                <item.icon size={14} className="shrink-0" />
-                                <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                                {item.trailingArrow ? (
-                                  <ArrowRight
-                                    size={14}
-                                    className="shrink-0 opacity-0 transition-opacity group-hover:opacity-70 group-focus-visible:opacity-70"
-                                    aria-hidden
-                                  />
-                                ) : null}
-                              </Link>
-                            </SheetClose>
-                          ))}
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
+            {hasHydrated ? (
+              <Sheet open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
+                <SheetTrigger asChild>
+                  <Button variant="outline" size="icon" className="rounded-full" aria-label="Open navigation menu">
+                    <Menu size={18} />
+                  </Button>
+                </SheetTrigger>
+                <SheetContent
+                  side="right"
+                  className="flex h-[100dvh] max-h-[100dvh] w-[88vw] max-w-sm flex-col overflow-hidden pr-4"
+                >
+                  <SheetTitle className="sr-only">Main menu</SheetTitle>
+                  <div className="flex min-h-0 flex-1 flex-col pt-6">
+                    <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-1 py-1">
+                    <Accordion type="multiple" defaultValue={["platform"]} className="w-full">
+                      <AccordionItem value="platform">
+                        <AccordionTrigger className="py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:no-underline">
+                          Platform
+                        </AccordionTrigger>
+                        <AccordionContent className="pb-1">
+                          <div className="space-y-1">
+                            {platformNavItems.map((item) => (
+                              <SheetClose asChild key={item.href}>
+                                <Link
+                                  href={item.href}
+                                  prefetch
+                                  onMouseEnter={() => handlePrefetch(item.href)}
+                                  onFocus={() => handlePrefetch(item.href)}
+                                  onPointerDown={() => handlePrefetch(item.href)}
+                                  className={`flex items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors hover:bg-muted ${
+                                    item.trailingArrow ? "group " : ""
+                                  }${
+                                    isActive(item.href)
+                                      ? "text-foreground"
+                                      : "text-muted-foreground hover:text-foreground"
+                                  }`}
+                                >
+                                  <item.icon size={14} className="shrink-0" />
+                                  <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                                  {item.trailingArrow ? (
+                                    <ArrowRight
+                                      size={14}
+                                      className="shrink-0 opacity-0 transition-opacity group-hover:opacity-70 group-focus-visible:opacity-70"
+                                      aria-hidden
+                                    />
+                                  ) : null}
+                                </Link>
+                              </SheetClose>
+                            ))}
+                          </div>
+                        </AccordionContent>
+                      </AccordionItem>
 
-                    <AccordionItem value="resources">
-                      <AccordionTrigger className="py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:no-underline">
-                        Resources
-                      </AccordionTrigger>
-                      <AccordionContent className="pb-1">
-                        <div className="space-y-1">
-                          {resourcesNavItems.map((item: NavItem) => (
-                            <SheetClose asChild key={item.href}>
-                              <Link
-                                href={item.href}
-                                prefetch
-                                onMouseEnter={() => handlePrefetch(item.href)}
-                                onFocus={() => handlePrefetch(item.href)}
-                                onPointerDown={() => handlePrefetch(item.href)}
-                                className={`flex items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors hover:bg-muted ${
-                                  isActive(item.href)
-                                    ? "text-foreground"
-                                    : "text-muted-foreground hover:text-foreground"
-                                }`}
-                              >
-                                <item.icon size={14} />
-                                {item.label}
-                              </Link>
-                            </SheetClose>
-                          ))}
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
+                      <AccordionItem value="resources">
+                        <AccordionTrigger className="py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:no-underline">
+                          Resources
+                        </AccordionTrigger>
+                        <AccordionContent className="pb-1">
+                          <div className="space-y-1">
+                            {resourcesNavItems.map((item: NavItem) => (
+                              <SheetClose asChild key={item.href}>
+                                <Link
+                                  href={item.href}
+                                  prefetch
+                                  onMouseEnter={() => handlePrefetch(item.href)}
+                                  onFocus={() => handlePrefetch(item.href)}
+                                  onPointerDown={() => handlePrefetch(item.href)}
+                                  className={`flex items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors hover:bg-muted ${
+                                    isActive(item.href)
+                                      ? "text-foreground"
+                                      : "text-muted-foreground hover:text-foreground"
+                                  }`}
+                                >
+                                  <item.icon size={14} />
+                                  {item.label}
+                                </Link>
+                              </SheetClose>
+                            ))}
+                          </div>
+                        </AccordionContent>
+                      </AccordionItem>
 
-                    <AccordionItem value="company">
-                      <AccordionTrigger className="py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:no-underline">
-                        Company
-                      </AccordionTrigger>
-                      <AccordionContent className="pb-1">
-                        <div className="space-y-1">
-                          {companyNavItems.map((item: NavItem) => (
-                            <SheetClose asChild key={item.href}>
-                              <Link
-                                href={item.href}
-                                prefetch
-                                onMouseEnter={() => handlePrefetch(item.href)}
-                                onFocus={() => handlePrefetch(item.href)}
-                                onPointerDown={() => handlePrefetch(item.href)}
-                                className={`flex items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors hover:bg-muted ${
-                                  isActive(item.href)
-                                    ? "text-foreground"
-                                    : "text-muted-foreground hover:text-foreground"
-                                }`}
-                              >
-                                <item.icon size={14} />
-                                {item.label}
-                              </Link>
-                            </SheetClose>
-                          ))}
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
-                  </Accordion>
-                  </div>
+                      <AccordionItem value="company">
+                        <AccordionTrigger className="py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:no-underline">
+                          Company
+                        </AccordionTrigger>
+                        <AccordionContent className="pb-1">
+                          <div className="space-y-1">
+                            {companyNavItems.map((item: NavItem) => (
+                              <SheetClose asChild key={item.href}>
+                                <Link
+                                  href={item.href}
+                                  prefetch
+                                  onMouseEnter={() => handlePrefetch(item.href)}
+                                  onFocus={() => handlePrefetch(item.href)}
+                                  onPointerDown={() => handlePrefetch(item.href)}
+                                  className={`flex items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors hover:bg-muted ${
+                                    isActive(item.href)
+                                      ? "text-foreground"
+                                      : "text-muted-foreground hover:text-foreground"
+                                  }`}
+                                >
+                                  <item.icon size={14} />
+                                  {item.label}
+                                </Link>
+                              </SheetClose>
+                            ))}
+                          </div>
+                        </AccordionContent>
+                      </AccordionItem>
+                    </Accordion>
+                    </div>
 
-                  <div className="shrink-0 space-y-2 border-t border-border/60 pt-4">
-                    {showGuestUi && (
-                      <Button
-                        variant="outline"
-                        className="w-full justify-center rounded-full"
-                        onClick={handleLogin}
-                        disabled={isNavigatingToSignIn || !authUiReady}
-                      >
-                        {isNavigatingToSignIn || !authUiReady ? (
-                          <Loader2 size={16} className="mr-2 animate-spin" />
-                        ) : (
-                          <LogIn size={16} className="mr-2" />
-                        )}
-                        <span>Sign in</span>
-                      </Button>
-                    )}
-                    <SheetClose asChild>
-                      <Link
-                        href={primaryCtaHref}
-                        prefetch
-                        onMouseEnter={() => handlePrefetch(primaryCtaHref)}
-                        onFocus={() => handlePrefetch(primaryCtaHref)}
-                        onPointerDown={() => handlePrefetch(primaryCtaHref)}
-                        className="block"
-                      >
-                        <Button className="w-full rounded-full bg-trader-blue text-white transition-all duration-300 hover:bg-trader-blue-dark">
-                          <span className="mr-2">
-                            {showAuthenticatedUi ? "Platform" : "Get Started"}
-                          </span>
-                          <ArrowRight size={16} />
+                    <div className="shrink-0 space-y-2 border-t border-border/60 pt-4">
+                      {showGuestUi && (
+                        <Button
+                          variant="outline"
+                          className="w-full justify-center rounded-full"
+                          onClick={handleLogin}
+                          disabled={isNavigatingToSignIn || !authUiReady}
+                        >
+                          {isNavigatingToSignIn || !authUiReady ? (
+                            <Loader2 size={16} className="mr-2 animate-spin" />
+                          ) : (
+                            <LogIn size={16} className="mr-2" />
+                          )}
+                          <span>Sign in</span>
                         </Button>
-                      </Link>
-                    </SheetClose>
+                      )}
+                      <SheetClose asChild>
+                        <Link
+                          href={primaryCtaHref}
+                          prefetch
+                          onMouseEnter={() => handlePrefetch(primaryCtaHref)}
+                          onFocus={() => handlePrefetch(primaryCtaHref)}
+                          onPointerDown={() => handlePrefetch(primaryCtaHref)}
+                          className="block"
+                        >
+                          <Button className="w-full rounded-full bg-trader-blue text-white transition-all duration-300 hover:bg-trader-blue-dark">
+                            <span className="mr-2">
+                              {showAuthenticatedUi ? "Platform" : "Get Started"}
+                            </span>
+                            <ArrowRight size={16} />
+                          </Button>
+                        </Link>
+                      </SheetClose>
+                    </div>
                   </div>
-                </div>
-              </SheetContent>
-            </Sheet>
+                </SheetContent>
+              </Sheet>
+            ) : (
+              <Button
+                variant="outline"
+                size="icon"
+                className="rounded-full"
+                aria-label="Open navigation menu"
+                disabled
+              >
+                <Menu size={18} />
+              </Button>
+            )}
           </div>
         </div>
       </div>

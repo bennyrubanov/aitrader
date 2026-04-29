@@ -1,3 +1,4 @@
+import { unstable_cache } from 'next/cache';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
 import {
   loadStrategyDailySeriesBulk,
@@ -435,5 +436,9 @@ export async function loadPortfolioConfigsRankedPayload(
 export async function getCachedRankedConfigsPayload(
   slug: string
 ): Promise<PortfolioConfigsRankedPayload | null> {
-  return loadPortfolioConfigsRankedPayload(slug);
+  return unstable_cache(
+    () => loadPortfolioConfigsRankedPayload(slug),
+    ['portfolio-configs-ranked', slug],
+    { revalidate: 300, tags: [RANKED_CONFIGS_CACHE_TAG, `${RANKED_CONFIGS_CACHE_TAG}:${slug}`] }
+  )();
 }

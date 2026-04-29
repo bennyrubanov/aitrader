@@ -1,12 +1,12 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import Link from 'next/link';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Menu } from 'lucide-react';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
+import { scrollInstantlyToSection } from '@/components/section-heading-anchor';
 
 interface ContentPageLayoutProps {
   title: string;
@@ -22,6 +22,10 @@ interface ContentPageLayoutProps {
   sidebarSlot?: React.ReactNode;
   /** When true, skips rendering the title/subtitle header (e.g. when using a custom hero). */
   hideTitle?: boolean;
+  /** Optional classes for the main content column. */
+  contentClassName?: string;
+  /** Optional classes on the title + subtitle block (when `hideTitle` is false). */
+  titleSectionClassName?: string;
   /**
    * 'left' (default): TOC sits in the left sidebar below sidebarSlot.
    * 'right': TOC floats on the right side (docs-style), left sidebar only shows sidebarSlot.
@@ -37,6 +41,8 @@ export const ContentPageLayout: React.FC<ContentPageLayoutProps> = ({
   legalProse = false,
   sidebarSlot,
   hideTitle = false,
+  contentClassName,
+  titleSectionClassName,
   tocPosition = 'left',
 }) => {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -55,17 +61,14 @@ export const ContentPageLayout: React.FC<ContentPageLayoutProps> = ({
     if (!tableOfContents?.length) return;
 
     const ids = tableOfContents.map((item) => item.id);
-    /** Match scroll-margin on anchors: 5.5rem / 6.5rem (Tailwind scale 22 / 26; arbitrary rem — defaults omit 22 & 26) */
+    /** Match each anchor's scroll-margin and allow a few px for browser rounding after jumps. */
     const pickActive = () => {
-      const rootPx = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-      const scrollAnchorPx = window.matchMedia('(min-width: 768px)').matches
-        ? rootPx * 6.5
-        : rootPx * 5.5;
       let active = ids[0];
       for (const id of ids) {
         const el = document.getElementById(id);
         if (!el) continue;
-        if (el.getBoundingClientRect().top <= scrollAnchorPx) active = id;
+        const scrollMarginTop = parseFloat(getComputedStyle(el).scrollMarginTop) || 0;
+        if (el.getBoundingClientRect().top <= scrollMarginTop + 4) active = id;
       }
       setActiveTocId((prev) => (prev === active ? prev : active));
     };
@@ -78,6 +81,22 @@ export const ContentPageLayout: React.FC<ContentPageLayoutProps> = ({
       window.removeEventListener('resize', pickActive);
     };
   }, [tocKey, tableOfContents]);
+
+  const handleTocClick = useCallback(
+    (fragmentId: string, e: React.MouseEvent<HTMLAnchorElement>) => {
+      setMobileOpen(false);
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      scrollInstantlyToSection(fragmentId);
+      setActiveTocId(fragmentId);
+      requestAnimationFrame(() => {
+        const path = `${window.location.pathname}${window.location.search}#${fragmentId}`;
+        window.history.pushState(null, '', path);
+        setActiveTocId(fragmentId);
+      });
+    },
+    []
+  );
 
   const tocNav = tableOfContents && tableOfContents.length > 0 ? (
     <nav className="space-y-0.5" aria-label="On this page">
@@ -95,10 +114,10 @@ export const ContentPageLayout: React.FC<ContentPageLayoutProps> = ({
         const paddingClass =
           depth >= 2 ? 'pl-9' : depth === 1 ? 'pl-6' : 'pl-3';
         return (
-          <Link
+          <a
             key={item.id}
             href={`#${item.id}`}
-            onClick={() => setMobileOpen(false)}
+            onClick={(e) => handleTocClick(item.id, e)}
             className={cn(
               'block text-sm py-1 border-l-2 -ml-px transition-colors',
               paddingClass,
@@ -108,7 +127,7 @@ export const ContentPageLayout: React.FC<ContentPageLayoutProps> = ({
             )}
           >
             {displayLabel}
-          </Link>
+          </a>
         );
       })}
     </nav>
@@ -141,7 +160,7 @@ export const ContentPageLayout: React.FC<ContentPageLayoutProps> = ({
           )}>
             <div className={cn(
               'flex flex-col lg:flex-row gap-12 lg:gap-10',
-              isRightToc ? '' : 'max-w-6xl mx-auto lg:gap-16',
+              isRightToc ? 'justify-center' : 'max-w-6xl mx-auto lg:gap-16',
             )}>
 
               {/* Desktop left sidebar — hidden on mobile */}
@@ -157,9 +176,9 @@ export const ContentPageLayout: React.FC<ContentPageLayoutProps> = ({
               )}
 
               {/* Main content */}
-              <div className="flex-1 min-w-0">
+              <div className={cn('flex-1 min-w-0', contentClassName)}>
                 {!hideTitle && (
-                  <div className="mb-8">
+                  <div className={cn('mb-8', titleSectionClassName)}>
                     <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-foreground mb-3">
                       {title}
                     </h1>
@@ -169,11 +188,11 @@ export const ContentPageLayout: React.FC<ContentPageLayoutProps> = ({
                   </div>
                 )}
                 {legalProse ? (
-                  <article className="legal-prose [&_[id]]:scroll-mt-[5.5rem] md:[&_[id]]:scroll-mt-[6.5rem]">
+                  <article className="legal-prose [&_[id]]:scroll-mt-[4.5rem] md:[&_[id]]:scroll-mt-[5rem]">
                     {children}
                   </article>
                 ) : (
-                  <div className="[&_[id]]:scroll-mt-[5.5rem] md:[&_[id]]:scroll-mt-[6.5rem]">{children}</div>
+                  <div className="[&_[id]]:scroll-mt-[4.5rem] md:[&_[id]]:scroll-mt-[5rem]">{children}</div>
                 )}
               </div>
 

@@ -1,5 +1,7 @@
-export {
-  default,
-  generateMetadata,
-  revalidate,
-} from '@/app/strategy-models/[slug]/page';
+import { redirect } from 'next/navigation';
+
+export const revalidate = 300;
+
+export default function WhitepaperSlugRedirectPage() {
+  redirect('/whitepaper');
+}

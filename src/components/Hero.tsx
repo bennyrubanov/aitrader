@@ -1,536 +1,68 @@
-'use client';
-
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Search, ArrowRight, TrendingUp, TrendingDown, Lock } from 'lucide-react';
-import { useAnimatedCounter } from '@/lib/animations';
-import { invalidateStocksListClient, loadStocksListClient } from '@/lib/stocks-client';
-import type { Stock } from '@/types/stock';
-import StockCard from '@/components/ui/stock-card';
 import Link from 'next/link';
-import { useAuthState } from '@/components/auth/auth-state-context';
+import { HeroBackgroundCurve } from '@/components/landing/hero-background-curve';
+import { PrimaryCtaButton } from '@/components/landing/primary-cta-button';
+import type { LandingTopPortfolioPerformance } from '@/lib/landing-top-portfolio-performance';
 
-/** Guest-visible marketing tickers (subset of non-premium `stocks.is_guest_visible`). */
-const LANDING_PAGE_SYMBOLS = ['NVDA', 'AAPL', 'META', 'GOOG', 'SHOP', 'FTNT'] as const;
-
-type RatingBucket = 'buy' | 'hold' | 'sell' | null;
-type HeroStock = Stock & { currentRating: RatingBucket };
-
-type PriceResult = {
-  found: boolean;
-  symbol: string;
-  companyName?: string;
-  lastSalePrice?: string;
-  netChange?: string;
-  percentageChange?: string;
-  asOf?: string;
+type HeroProps = {
+  performance: LandingTopPortfolioPerformance | null;
 };
 
-const Hero: React.FC = () => {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [isSearchFocused, setIsSearchFocused] = useState(false);
-  const [stocks, setStocks] = useState<HeroStock[]>([]);
-  const [filteredMembers, setFilteredMembers] = useState<HeroStock[]>([]);
-  const [selectedResult, setSelectedResult] = useState<PriceResult | null>(null);
-  const [isTracked, setIsTracked] = useState<boolean | null>(null);
-  const priceFetchAbortRef = useRef<AbortController | null>(null);
-  const authState = useAuthState();
-  const { hasPremiumAccess, isAuthenticated, isLoaded: authLoaded } = authState;
-  const ctaHref = isAuthenticated ? '/platform/overview' : '/sign-up';
-
-  const stockMap = React.useMemo(() => {
-    const map = new Map<string, HeroStock>();
-    stocks.forEach((s) => map.set(s.symbol.toUpperCase(), s));
-    return map;
-  }, [stocks]);
-
-  const landingPageStocks = React.useMemo(
-    () =>
-      LANDING_PAGE_SYMBOLS.map((sym) => stockMap.get(sym)).filter((s): s is HeroStock => Boolean(s)),
-    [stockMap]
-  );
-
-  const stocksRef = useRef<HTMLDivElement>(null);
-  const transparencyRef = useRef<HTMLDivElement>(null);
-  const liveRef = useRef<HTMLDivElement>(null);
-
-  const { value: stocksValue } = useAnimatedCounter(100, 2500, false);
-  const { value: transparencyValue } = useAnimatedCounter(100, 2500, false);
-
-  useEffect(() => {
-    if (!authLoaded) return;
-    invalidateStocksListClient();
-    let cancelled = false;
-    void loadStocksListClient({ bypassCache: true })
-      .then((data) => {
-        if (!cancelled && Array.isArray(data) && data.length) {
-          setStocks(
-            data.map((stock) => ({
-              ...stock,
-              currentRating: stock.currentRating ?? null,
-            }))
-          );
-        }
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [authLoaded, authState.isAuthenticated, authState.subscriptionTier]);
-
-  useEffect(() => {
-    return () => {
-      priceFetchAbortRef.current?.abort();
-    };
-  }, []);
-
-  const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const query = e.target.value;
-    setSearchQuery(query);
-    setSelectedResult(null);
-    setIsTracked(null);
-    priceFetchAbortRef.current?.abort();
-    priceFetchAbortRef.current = null;
-
-    if (query.trim().length > 0) {
-      const q = query.toLowerCase().trim();
-      setFilteredMembers(
-        stocks
-          .filter((s) => s.symbol.toLowerCase().includes(q) || s.name.toLowerCase().includes(q))
-          .slice(0, 10)
-      );
-    } else {
-      setFilteredMembers([]);
-    }
-  };
-
-  /**
-   * Rating/name/quote come from `/api/stocks` when that payload includes daily fields (batched on the server).
-   * Only falls back to `/api/stocks/price` when the list row has no quote yet.
-   */
-  const fetchPriceQuote = useCallback(async (symbol: string, fromStock: HeroStock) => {
-    priceFetchAbortRef.current?.abort();
-    const symUpper = symbol.toUpperCase();
-
-    const hasInlineQuote =
-      fromStock.lastSalePrice != null && String(fromStock.lastSalePrice).trim() !== '';
-
-    setSelectedResult({
-      found: true,
-      symbol: fromStock.symbol,
-      companyName: fromStock.name,
-      ...(hasInlineQuote
-        ? {
-            lastSalePrice: fromStock.lastSalePrice,
-            netChange: fromStock.netChange,
-            percentageChange: fromStock.percentageChange,
-            asOf: fromStock.asOf,
-          }
-        : {}),
-    });
-    setIsTracked(stockMap.has(symUpper));
-
-    if (hasInlineQuote) {
-      priceFetchAbortRef.current = null;
-      return;
-    }
-
-    const controller = new AbortController();
-    priceFetchAbortRef.current = controller;
-    const timeoutId = setTimeout(() => controller.abort(), 8000);
-
-    try {
-      const res = await fetch(`/api/stocks/price?symbol=${encodeURIComponent(symbol)}`, {
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        throw new Error('Price lookup failed');
-      }
-      const data = (await res.json()) as PriceResult;
-      setSelectedResult((prev) => {
-        if (!prev || prev.symbol.toUpperCase() !== symUpper) return prev;
-        if (!data.found) return prev;
-        return {
-          ...prev,
-          companyName: data.companyName ?? prev.companyName,
-          lastSalePrice: data.lastSalePrice,
-          netChange: data.netChange,
-          percentageChange: data.percentageChange,
-          asOf: data.asOf,
-        };
-      });
-    } catch (e) {
-      if ((e as Error).name === 'AbortError') return;
-      /* Keep card; quote stays empty. */
-    } finally {
-      clearTimeout(timeoutId);
-      if (priceFetchAbortRef.current === controller) {
-        priceFetchAbortRef.current = null;
-      }
-    }
-  }, [stockMap]);
-
-  const handleSelectMember = (member: HeroStock) => {
-    setSearchQuery(member.symbol);
-    setFilteredMembers([]);
-    setIsSearchFocused(false);
-    void fetchPriceQuote(member.symbol, member);
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const query = searchQuery.trim();
-    if (query) {
-      setFilteredMembers([]);
-      setIsSearchFocused(false);
-      const trackedMember = stockMap.get(query.toUpperCase());
-
-      if (!trackedMember) {
-        setIsTracked(false);
-        setSelectedResult({ found: false, symbol: query.toUpperCase() });
-        return;
-      }
-
-      void fetchPriceQuote(trackedMember.symbol, trackedMember);
-    }
-  };
-
-  const handleFocus = () => {
-    setIsSearchFocused(true);
-    if (searchQuery.trim().length > 0) {
-      const q = searchQuery.toLowerCase().trim();
-      setFilteredMembers(
-        stocks
-          .filter((s) => s.symbol.toLowerCase().includes(q) || s.name.toLowerCase().includes(q))
-          .slice(0, 10)
-      );
-    }
-  };
-
-  const handleBlur = () => {
-    setTimeout(() => setIsSearchFocused(false), 200);
-  };
-
-  const parsePrice = (val?: string) => {
-    if (!val) return null;
-    const cleaned = val.replace(/[$,]/g, '');
-    const num = parseFloat(cleaned);
-    return isNaN(num) ? null : num;
-  };
-
-  const parseChange = (val?: string) => {
-    if (!val) return null;
-    const cleaned = val.replace(/[%,]/g, '');
-    const num = parseFloat(cleaned);
-    return isNaN(num) ? null : num;
-  };
-
-  const selectedIsPremium =
-    selectedResult?.found && (stockMap.get(selectedResult.symbol.toUpperCase())?.isPremium ?? false);
-  const selectedStock = selectedResult?.found
-    ? stockMap.get(selectedResult.symbol.toUpperCase()) ?? null
-    : null;
-  const selectedRating = selectedStock?.currentRating ?? null;
-  const canViewSelectedRating = Boolean(
-    selectedStock &&
-      (selectedStock.isPremium ? hasPremiumAccess : isAuthenticated || selectedRating != null)
-  );
-  const shouldBlurSelectedResult = Boolean(selectedStock && !canViewSelectedRating);
-  const selectedPremiumNoAccess = Boolean(selectedStock?.isPremium && !hasPremiumAccess);
-  const selectedFreeNeedsLogin = Boolean(
-    selectedStock &&
-      !selectedStock.isPremium &&
-      !isAuthenticated &&
-      selectedRating == null
-  );
-
-  const formatRating = (rating: RatingBucket) => {
-    if (!rating) return 'No rating yet';
-    return rating.toUpperCase();
-  };
-
-  const getDropdownRatingLabel = (stock: HeroStock) => {
-    if (stock.isPremium && !hasPremiumAccess) return 'Premium';
-    if (!isAuthenticated) {
-      if (stock.currentRating != null && !stock.isPremium) {
-        return `AI Rating: ${formatRating(stock.currentRating)}`;
-      }
-      return stock.isPremium ? 'Premium' : 'Sign up to view';
-    }
-    return `AI Rating: ${formatRating(stock.currentRating)}`;
-  };
-
-  const getSelectedRatingLabel = () => {
-    if (selectedPremiumNoAccess) return 'Premium';
-    if (selectedFreeNeedsLogin) return 'Sign up to view';
-    return `AI Rating: ${formatRating(selectedRating)}`;
-  };
+const Hero = ({ performance }: HeroProps) => {
+  const curvePoints =
+    performance?.computeStatus === 'ready'
+      ? performance.series.map((p) => ({
+          date: p.date,
+          aiPortfolio: p.aiPortfolio,
+          sp500: p.sp500,
+        }))
+      : [];
 
   return (
-    <section className="relative pt-20 pb-24 md:pt-32 md:pb-40 overflow-hidden">
-      <div className="absolute top-0 left-0 right-0 h-[65vh] bg-gradient-to-b from-trader-gray to-background dark:from-slate-950 dark:to-background z-0"></div>
+    <section className="relative overflow-hidden pb-28 pt-20 md:pb-40 md:pt-32 lg:pb-48">
+      <div className="absolute inset-x-0 top-0 z-0 h-[80vh] bg-gradient-to-b from-trader-gray to-background dark:from-slate-950 dark:to-background" />
+      {curvePoints.length >= 2 && <HeroBackgroundCurve points={curvePoints} />}
+      <div className="container relative z-10 mx-auto px-4">
+        <div className="mx-auto grid max-w-6xl grid-cols-1 gap-12 lg:grid-cols-12 lg:gap-8">
+          <div className="text-center lg:col-span-7 lg:text-left">
+            <h1 className="mb-6 text-[clamp(2.2rem,5.4vw,4.5rem)] font-bold leading-[1.02] tracking-tight text-foreground animate-fade-in">
+              We&apos;re testing if{' '}
+              <span className="text-gradient">AI can beat the market</span>, in public.
+            </h1>
 
-      <div className="container mx-auto px-4 relative z-10">
-        <div className="max-w-4xl mx-auto text-center mb-12 md:mb-16">
-          <h1 className="text-4xl md:text-6xl font-bold leading-tight text-foreground mb-6 animate-fade-in">
-            <span className="text-gradient inline-block">Outperform the market</span>
-            <span className="inline-block">&nbsp;with AI</span>
-          </h1>
-
-          <p
-            className="text-xl md:text-2xl text-muted-foreground mb-6 max-w-3xl mx-auto animate-fade-in"
-            style={{ animationDelay: '0.2s' }}
-          >
-            Follow as we test AI against the market. Pick your risk level and invest with your best
-            AI-built portfolio.
-          </p>
-          <span className="inline-flex items-center text-xs font-semibold uppercase tracking-wide text-trader-blue bg-trader-blue/10 px-3 py-1 rounded-full mb-8 md:mb-10 animate-fade-in">
-            All performance data published live
-          </span>
-          <div className="max-w-3xl mx-auto animate-fade-in" style={{ animationDelay: '0.4s' }}>
-            <form
-              onSubmit={handleSubmit}
-              className="flex flex-col sm:flex-row gap-4 items-stretch sm:items-center sm:justify-center"
+            <p
+              className="mb-8 max-w-xl text-lg text-muted-foreground sm:text-xl md:text-2xl mx-auto lg:mx-0 animate-fade-in"
+              style={{ animationDelay: '0.15s' }}
             >
-              <div className="relative w-full sm:max-w-[540px]">
-                <Search
-                  className="absolute left-4 top-1/2 transform -translate-y-1/2 text-muted-foreground"
-                  size={20}
-                />
-                <Input
-                  type="text"
-                  placeholder="Search for a stock (e.g., AAPL, Tesla)"
-                  className="pl-12 pr-4 py-6 w-full rounded-xl border border-border bg-background shadow-sm focus:border-trader-blue focus:ring-2 focus:ring-trader-blue/20 transition-all"
-                  value={searchQuery}
-                  onChange={handleSearch}
-                  onFocus={handleFocus}
-                  onBlur={handleBlur}
-                />
-                {isSearchFocused && filteredMembers.length > 0 && (
-                  <div className="absolute left-0 right-0 mt-1 max-h-72 overflow-y-auto bg-card rounded-xl shadow-elevated border border-border z-30 animate-scale-in text-left">
-                    <div className="p-2">
-                      {filteredMembers.map((m) => {
-                        return (
-                          <div
-                            key={m.symbol}
-                            className="cursor-pointer py-2 px-3 hover:bg-trader-gray dark:hover:bg-muted rounded-lg transition-colors"
-                            onClick={() => handleSelectMember(m)}
-                          >
-                            <div className="flex items-center justify-between">
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <span className="font-medium">{m.symbol}</span>
-                                  {m.isPremium && (
-                                    <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold uppercase tracking-wide text-trader-blue bg-trader-blue/10 px-1.5 py-0.5 rounded">
-                                      <Lock size={9} />
-                                      Premium
-                                    </span>
-                                  )}
-                                </div>
-                                <p className="text-sm text-muted-foreground truncate">{m.name}</p>
-                              </div>
-                              <span
-                                className={`ml-3 inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide whitespace-nowrap ${
-                                  m.isPremium && !hasPremiumAccess
-                                    ? 'bg-trader-blue/10 text-trader-blue border border-trader-blue/20'
-                                    : 'bg-foreground text-background border border-foreground/10'
-                                }`}
-                              >
-                                {getDropdownRatingLabel(m)}
-                              </span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-              <Link href={ctaHref}>
-                <Button
-                  type="button"
-                  className="h-[50px] w-full sm:w-auto rounded-xl bg-trader-blue hover:bg-trader-blue-dark text-white px-6"
-                >
-                  <span className="mr-2">{isAuthenticated ? 'Platform' : 'Start for free'}</span>
-                  <ArrowRight size={16} />
-                </Button>
+              Invest alongside the AI&apos;s top portfolios. See every pick and result in real
+              time.
+            </p>
+
+            <div
+              className="mb-6 flex justify-center lg:justify-start animate-fade-in"
+              style={{ animationDelay: '0.25s' }}
+            >
+              <PrimaryCtaButton className="h-12 rounded-xl bg-trader-blue px-7 text-white hover:bg-trader-blue-dark" />
+            </div>
+
+            <p
+              className="text-xs text-muted-foreground animate-fade-in"
+              style={{ animationDelay: '0.3s' }}
+            >
+              All data is public —{' '}
+              <Link
+                href="/whitepaper"
+                className="font-medium text-trader-blue hover:underline"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                read the methodology
               </Link>
-            </form>
-          </div>
-
-          {selectedResult && selectedResult.found && (
-            <div className="relative mt-8 max-w-2xl mx-auto animate-fade-in rounded-xl border border-blue-200/40 bg-blue-50/60 dark:bg-blue-950/20 p-5">
-              <div className={shouldBlurSelectedResult ? 'blur-sm pointer-events-none select-none' : ''}>
-                <div className="mb-2">
-                  <span
-                    className={`inline-flex items-center rounded-full px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide ${
-                      shouldBlurSelectedResult
-                        ? 'bg-trader-blue/10 text-trader-blue border border-trader-blue/20'
-                        : 'bg-foreground text-background border border-foreground/10'
-                    }`}
-                  >
-                    {getSelectedRatingLabel()}
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <div className="flex min-w-0 flex-1 items-center gap-2">
-                    <span className="shrink-0 font-bold text-lg">{selectedResult.symbol}</span>
-                    {selectedIsPremium && (
-                      <span className="inline-flex shrink-0 items-center gap-0.5 text-[10px] font-semibold uppercase tracking-wide text-trader-blue bg-trader-blue/10 px-1.5 py-0.5 rounded">
-                        <Lock size={9} />
-                        Premium
-                      </span>
-                    )}
-                    {selectedResult.companyName && (
-                      <span className="truncate text-muted-foreground text-sm">{selectedResult.companyName}</span>
-                    )}
-                  </div>
-                  <div className="shrink-0 text-right">
-                    {parsePrice(selectedResult.lastSalePrice) !== null && (
-                      <span className="font-bold text-xl">
-                        ${parsePrice(selectedResult.lastSalePrice)!.toFixed(2)}
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1 text-sm">
-                    {parseChange(selectedResult.percentageChange) !== null && (
-                      <>
-                        {parseChange(selectedResult.percentageChange)! >= 0 ? (
-                          <TrendingUp size={14} className="text-trader-green" />
-                        ) : (
-                          <TrendingDown size={14} className="text-red-500" />
-                        )}
-                        <span
-                          className={
-                            parseChange(selectedResult.percentageChange)! >= 0
-                              ? 'text-trader-green'
-                              : 'text-red-500'
-                          }
-                        >
-                          {selectedResult.percentageChange}
-                        </span>
-                      </>
-                    )}
-                    {selectedResult.asOf && (
-                      <span className="text-muted-foreground ml-2">as of {selectedResult.asOf}</span>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {shouldBlurSelectedResult ? (
-                <div className="absolute inset-0 flex items-center justify-center p-4">
-                  {selectedPremiumNoAccess ? (
-                    <Link
-                      href="/pricing"
-                      className="inline-flex items-center rounded-lg bg-trader-blue px-3 py-2 text-sm font-medium text-white hover:bg-trader-blue-dark transition-colors"
-                    >
-                      Upgrade to premium plan
-                      <ArrowRight size={14} className="ml-1" />
-                    </Link>
-                  ) : selectedFreeNeedsLogin ? (
-                    <Link
-                      href="/sign-up"
-                      className="inline-flex items-center rounded-lg bg-trader-blue px-3 py-2 text-sm font-medium text-white hover:bg-trader-blue-dark transition-colors"
-                    >
-                      Sign up to view
-                      <ArrowRight size={14} className="ml-1" />
-                    </Link>
-                  ) : null}
-                </div>
-              ) : (
-                isTracked && (
-                  <div className="mt-3 flex justify-end">
-                    <Link
-                      href={`/stocks/${selectedResult.symbol.toLowerCase()}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center text-trader-blue hover:text-trader-blue-dark font-medium transition-colors text-sm"
-                    >
-                      See ranking and detailed analysis
-                      <ArrowRight size={14} className="ml-1" />
-                    </Link>
-                  </div>
-                )
-              )}
-            </div>
-          )}
-
-          {selectedResult && !selectedResult.found && (
-            <div className="mt-8 max-w-2xl mx-auto animate-fade-in rounded-xl border border-amber-200/40 bg-amber-50/60 dark:bg-amber-950/20 p-4">
-              <p className="text-sm text-foreground/90">
-                <span className="font-semibold">{selectedResult.symbol}</span> isn&apos;t currently
-                tracked in our top-100 universe.{' '}
-                <Link
-                  href={isAuthenticated ? '/pricing' : '/sign-up'}
-                  className="text-trader-blue hover:underline font-medium"
-                >
-                  Sign up
-                </Link>{' '}
-                to access our custom AI search tool for any stock.
-              </p>
-            </div>
-          )}
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mt-16 max-w-5xl mx-auto">
-          <div className="bg-card border border-border rounded-xl p-6 shadow-soft text-center hover-card-animation">
-            <div ref={stocksRef} className="text-4xl font-bold text-trader-blue mb-2">
-              {stocksValue}+ Stocks
-            </div>
-            <p className="text-muted-foreground">
-              Evaluated weekly across thousands of data points and factors.
+              .
             </p>
           </div>
-          <div className="bg-card border border-border rounded-xl p-6 shadow-soft text-center hover-card-animation">
-            <div ref={liveRef} className="text-4xl font-bold text-trader-blue mb-2">
-              Live results
-            </div>
-            <p className="text-muted-foreground">
-              Every decision and trade tracked in real time against benchmarks.
-            </p>
-          </div>
-          <div className="bg-card border border-border rounded-xl p-6 shadow-soft text-center hover-card-animation">
-            <div ref={transparencyRef} className="text-4xl font-bold text-trader-blue mb-2">
-              {transparencyValue}% Open
-            </div>
-            <p className="text-muted-foreground">
-              Methodology, decisions, and results stay fully public — nothing edited after the fact.
-            </p>
-          </div>
-        </div>
 
-        <div className="mt-20">
-          <h3 className="text-xl font-semibold text-center mb-6">
-            See <span className="text-trader-blue">AI ratings</span> and <span className="text-trader-blue">comprehensive analyses</span> on your favorite stocks
-          </h3>
-          <div className="grid w-full min-w-0 grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4 lg:grid-cols-6">
-            {landingPageStocks.slice(0, 6).map((stock) =>
-              stock.isPremium ? (
-                <div
-                  key={stock.symbol}
-                  className="block min-w-0 transition-transform duration-200 hover:-translate-y-0.5"
-                >
-                  <StockCard stock={stock} showDetails={false} />
-                </div>
-              ) : (
-                <Link
-                  key={stock.symbol}
-                  href={`/stocks/${stock.symbol.toLowerCase()}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block min-w-0 transition-transform duration-200 hover:-translate-y-0.5"
-                >
-                  <StockCard stock={stock} showDetails={false} />
-                </Link>
-              )
-            )}
-          </div>
+          {/* Right column: intentional breathing room — the bg curve traces in here. */}
+          <div className="hidden lg:col-span-5 lg:block" aria-hidden="true" />
         </div>
       </div>
     </section>

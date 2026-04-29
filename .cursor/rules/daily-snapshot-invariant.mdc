@@ -26,7 +26,7 @@ For config-level performance surfaces, read from `@/lib/config-daily-series` hel
 
 **Explore multi-config charts** (`explore-portfolios-equity-series` and similar): bulk-read snapshots only via `loadStrategyDailySeriesBulk()`. Do not fan out `ensureConfigDailySeries()` per config. If any config is missing or stale vs `loadLatestRawRunDate`, fire `triggerPortfolioConfigsBatch(strategyId)` and return partial charts from whatever snapshot rows exist.
 
-For strategy-level `/performance`, use:
+For strategy-level `/strategy-models/[slug]` (aggregated strategy series), use:
 
 - `loadStrategyDailySeries()`
 - `ensureStrategyDailySeries()` for lazy backfill

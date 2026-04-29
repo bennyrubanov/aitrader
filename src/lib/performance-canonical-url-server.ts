@@ -1,31 +1,11 @@
-import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
 import {
-  mergePortfolioIntoSearchParams,
   parsePerformancePortfolioConfigParam,
   pickDefaultPortfolioSliceFromRanked,
+  portfolioSliceToConfigSlug,
   portfolioSliceIsInRankedList,
+  stripPerformancePortfolioSearchParams,
 } from '@/lib/performance-portfolio-url';
-
-function perfApiBase(): string {
-  return (
-    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '') ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://127.0.0.1:3000')
-  );
-}
-
-async function fetchRankedConfigsForSlug(slug: string): Promise<RankedConfig[]> {
-  try {
-    const res = await fetch(
-      `${perfApiBase()}/api/platform/portfolio-configs-ranked?slug=${encodeURIComponent(slug)}`,
-      { next: { revalidate: 300 } }
-    );
-    if (!res.ok) return [];
-    const data = (await res.json()) as { configs?: RankedConfig[] };
-    return data.configs ?? [];
-  } catch {
-    return [];
-  }
-}
+import { getCachedRankedConfigsPayload } from '@/lib/portfolio-configs-ranked-core';
 
 /** Sort query keys for stable comparison (redirect only when semantics differ). */
 function stableQueryStringFromParams(sp: URLSearchParams): string {
@@ -36,29 +16,36 @@ function stableQueryStringFromParams(sp: URLSearchParams): string {
 }
 
 /**
- * When ranked configs are available, returns `/performance/{slug}?…` if the browser should be
- * redirected to a canonical query string (valid `portfolio=`, legacy triplet keys stripped).
- * Returns `null` if ranked data is unavailable or the URL is already canonical.
+ * When ranked configs are available, returns `/strategy-models/{slug}/{portfolio}` after stripping
+ * legacy portfolio query keys. Returns `null` if ranked data is unavailable.
  */
 export async function getCanonicalPerformancePathIfNeeded(
   slug: string,
   searchParamsString: string
 ): Promise<string | null> {
-  const ranked = await fetchRankedConfigsForSlug(slug);
+  const ranked = (await getCachedRankedConfigsPayload(slug))?.configs ?? [];
   if (ranked.length === 0) return null;
 
   const base = new URLSearchParams(searchParamsString);
   const parsed = parsePerformancePortfolioConfigParam(base);
+  const hasLegacyParts =
+    base.has('risk') || base.has('frequency') || base.has('weighting');
+  if (!parsed && !hasLegacyParts) {
+    return null;
+  }
+
   const effective =
     parsed && portfolioSliceIsInRankedList(parsed, ranked)
       ? parsed
       : pickDefaultPortfolioSliceFromRanked(ranked);
 
-  const next = mergePortfolioIntoSearchParams(base, effective, ranked);
+  const next = stripPerformancePortfolioSearchParams(base);
   const nextStable = stableQueryStringFromParams(next);
   const curStable = stableQueryStringFromParams(base);
+  const configSlug = portfolioSliceToConfigSlug(effective);
 
-  if (nextStable === curStable) return null;
   const q = next.toString();
-  return q ? `/performance/${slug}?${q}` : `/performance/${slug}`;
+  const path = `/strategy-models/${encodeURIComponent(slug)}/${encodeURIComponent(configSlug)}`;
+  if (q === '' && nextStable === curStable) return path;
+  return q ? `${path}?${q}` : path;
 }

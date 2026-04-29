@@ -1,311 +1,229 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ArrowRight, ChevronLeft, ChevronRight } from 'lucide-react';
-import {
-  CagrOverTimeChart,
-  CumulativeReturnsChart,
-  DrawdownOverTimeChart,
-  RelativeOutperformanceChart,
-  RollingSharpeRatioChart,
-  ROLLING_SHARPE_MIN_SERIES_LENGTH,
-  ROLLING_SHARPE_WINDOW_WEEKS,
-  WeeklyReturnsChart,
-} from '@/components/performance/mini-charts';
+import { useMemo, useRef } from 'react';
+import { ArrowRight } from 'lucide-react';
+import { AllPortfoliosEquityChart } from '@/components/landing/all-portfolios-equity-chart';
 import { Button } from '@/components/ui/button';
-import { seriesHasMinimumPointsForCagrOverTimeChart } from '@/lib/performance-cagr';
-import type { LandingTopPortfolioPerformance } from '@/lib/landing-top-portfolio-performance';
-import { portfolioSliceToConfigSlug } from '@/lib/performance-portfolio-url';
-import type { PortfolioConfigSlice } from '@/components/platform/portfolio-config-controls';
-import { useHasBeenVisible, useIsVisible } from '@/lib/animations';
+import { cn } from '@/lib/utils';
+import type { LandingAllPortfoliosPerformance } from '@/lib/landing-all-portfolios-performance';
+import type { LandingHeroStats } from '@/lib/landing-hero-stats';
+import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
+import { useHasBeenVisible } from '@/lib/animations';
 
-type SlideDef = {
-  key: string;
-  title: string;
-  description: string;
-  render: () => ReactNode;
-};
+function formatInceptionFootnote(ymd: string | null | undefined): string | null {
+  if (!ymd?.trim()) return null;
+  const parsed = new Date(`${ymd.trim()}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return new Intl.DateTimeFormat('en', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(parsed);
+}
 
-function buildSlides(series: LandingTopPortfolioPerformance['series'], chartTitle: string): SlideDef[] {
-  const slides: SlideDef[] = [];
+function formatBeatPct(pct: number | null): string {
+  if (pct == null || !Number.isFinite(pct)) return '—';
+  return `${pct % 1 === 0 ? pct.toFixed(0) : pct.toFixed(1)}%`;
+}
 
-  if (series.length >= 2) {
-    slides.push({
-      key: 'cumulative',
-      title: 'Cumulative returns',
-      description: 'Total percentage return from inception vs benchmarks.',
-      render: () => <CumulativeReturnsChart series={series} strategyName={chartTitle} />,
-    });
-    slides.push({
-      key: 'relative',
-      title: 'Relative outperformance',
-      description: 'How far the portfolio is ahead of (or behind) each benchmark.',
-      render: () => <RelativeOutperformanceChart series={series} strategyName={chartTitle} />,
-    });
-  }
-
-  if (seriesHasMinimumPointsForCagrOverTimeChart(series.map((p) => p.date))) {
-    slides.push({
-      key: 'cagr',
-      title: 'CAGR over time',
-      description:
-        'Annualized growth since the first week in the chart; the line begins after enough history that annualized figures are meaningful.',
-      render: () => <CagrOverTimeChart series={series} strategyName={chartTitle} />,
-    });
-  }
-
-  if (series.length >= 3) {
-    slides.push({
-      key: 'weekly',
-      title: 'Weekly returns',
-      description: 'Week-over-week percentage change.',
-      render: () => <WeeklyReturnsChart series={series} strategyName={chartTitle} />,
-    });
-  }
-
-  if (series.length >= 2) {
-    slides.push({
-      key: 'drawdown',
-      title: 'Drawdown over time',
-      description: 'Drawdown from rolling peak vs benchmarks.',
-      render: () => <DrawdownOverTimeChart series={series} strategyName={chartTitle} />,
-    });
-  }
-
-  if (series.length >= ROLLING_SHARPE_MIN_SERIES_LENGTH) {
-    slides.push({
-      key: 'sharpe',
-      title: 'Rolling Sharpe',
-      description: `${ROLLING_SHARPE_WINDOW_WEEKS}-week rolling Sharpe (annualized) by series.`,
-      render: () => <RollingSharpeRatioChart series={series} strategyName={chartTitle} />,
-    });
-  }
-
-  return slides;
+function formatSignedAvgExcess(pct: number | null): string {
+  if (pct == null || !Number.isFinite(pct)) return '—';
+  const sign = pct >= 0 ? '+' : '';
+  return `${sign}${pct.toFixed(1)}%`;
 }
 
 type Props = {
-  perf: LandingTopPortfolioPerformance | null;
+  allPortfolios: LandingAllPortfoliosPerformance | null;
+  heroStats: LandingHeroStats | null;
   visibleRef?: React.RefObject<HTMLDivElement | null>;
 };
 
-export function LandingPerformanceSection({ perf, visibleRef }: Props) {
+export function LandingPerformanceSection({ allPortfolios, heroStats, visibleRef }: Props) {
   const localRef = useRef<HTMLDivElement>(null);
   const ref = visibleRef ?? localRef;
   const hasRevealed = useHasBeenVisible(ref);
-  const isVisible = useIsVisible(ref);
-  const [activeSlide, setActiveSlide] = useState(0);
-  const [isChartHovered, setIsChartHovered] = useState(false);
 
-  const slides = useMemo(
-    () =>
-      perf?.series?.length
-        ? buildSlides(perf.series, perf.chartTitle)
-        : [],
-    [perf]
-  );
-
-  const portfolioPerformancePath = useMemo(() => {
-    if (!perf) return '/performance';
-    const slice: PortfolioConfigSlice = {
-      riskLevel: perf.portfolioSlice.riskLevel as PortfolioConfigSlice['riskLevel'],
-      rebalanceFrequency: perf.portfolioSlice.rebalanceFrequency as PortfolioConfigSlice['rebalanceFrequency'],
-      weightingMethod: perf.portfolioSlice.weightingMethod as PortfolioConfigSlice['weightingMethod'],
-    };
-    const configSlug = portfolioSliceToConfigSlug(slice);
-    return `/performance/${encodeURIComponent(perf.strategySlug)}/${encodeURIComponent(configSlug)}`;
-  }, [perf]);
-
-  useEffect(() => {
-    setActiveSlide(0);
-  }, [slides.length]);
-
-  useEffect(() => {
-    if (activeSlide >= slides.length) {
-      setActiveSlide(0);
-    }
-  }, [activeSlide, slides.length]);
-
-  useEffect(() => {
-    if (!isVisible || isChartHovered || slides.length <= 1) return;
-    const intervalId = setInterval(() => {
-      setActiveSlide((i) => (i + 1) % slides.length);
-    }, 5200);
-    return () => clearInterval(intervalId);
-  }, [isVisible, isChartHovered, slides.length]);
+  const modelPagePath = useMemo(() => {
+    const slug =
+      allPortfolios?.strategySlug ?? heroStats?.strategySlug ?? STRATEGY_CONFIG.slug;
+    return `/strategy-models/${encodeURIComponent(slug)}`;
+  }, [allPortfolios?.strategySlug, heroStats?.strategySlug]);
 
   const showCharts =
-    perf &&
-    perf.computeStatus === 'ready' &&
-    perf.series.length >= 2 &&
-    slides.length > 0;
+    allPortfolios &&
+    allPortfolios.computeStatus === 'ready' &&
+    allPortfolios.dates.length >= 2 &&
+    allPortfolios.series.length > 0 &&
+    allPortfolios.benchmarks.sp500.length === allPortfolios.dates.length;
 
   const statusLine =
-    perf && !showCharts
-      ? perf.computeStatus === 'in_progress'
-        ? 'Performance for the top-ranked portfolio is still computing — open the full page for live status.'
-        : perf.computeStatus === 'empty'
-          ? 'Portfolio performance rows are not available yet — we compute them automatically after each rebalance.'
-          : perf.computeStatus === 'failed'
-            ? 'We could not load performance for this portfolio right now.'
-            : perf.computeStatus === 'unsupported'
-              ? 'This portfolio preset is not available in the database.'
-              : 'Live performance data is not available yet.'
-      : null;
+    allPortfolios && !showCharts
+      ? allPortfolios.computeStatus === 'in_progress'
+        ? 'Performance is still computing — open the model page for live status.'
+        : allPortfolios.computeStatus === 'empty'
+          ? 'Performance is recomputed after every rebalance. The next compute will appear here automatically.'
+          : allPortfolios.computeStatus === 'failed'
+            ? 'We could not load performance right now.'
+            : allPortfolios.computeStatus === 'unsupported'
+              ? 'This view is not available yet.'
+              : 'Live charts will appear here after the next portfolio compute.'
+      : !allPortfolios
+        ? 'Live performance data is not available yet.'
+        : null;
+
+  const showHeadlineStats =
+    heroStats &&
+    heroStats.beatSp500Comparable > 0 &&
+    heroStats.beatSp500Pct != null &&
+    Number.isFinite(heroStats.beatSp500Pct);
+
+  const inceptionFormatted =
+    formatInceptionFootnote(heroStats?.inceptionDate ?? allPortfolios?.inceptionDate) ??
+    formatInceptionFootnote(allPortfolios?.dates[0]);
+
+  const beatPct = heroStats?.beatSp500Pct ?? null;
+  const beatPositive = beatPct != null && beatPct > 50;
+  const beatNegative = beatPct != null && beatPct < 50;
+
+  const excess = heroStats?.avgExcessReturnPct ?? null;
+  const excessPositive = excess != null && excess > 0;
+  const excessNegative = excess != null && excess < 0;
 
   return (
-    <div
-      id="performance"
-      ref={ref}
-      className={`max-w-4xl mx-auto transition-all duration-700 ${
-        hasRevealed ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'
-      }`}
-    >
-      <div className="text-center mb-10">
-        <p className="text-sm font-semibold text-trader-blue uppercase tracking-wide mb-3">
-          Performance
-        </p>
-        <h3 className="text-3xl md:text-4xl font-bold mb-4">Live results since launch</h3>
-      </div>
+    <section id="performance" className="bg-muted/30 py-20">
+      <div
+        ref={ref}
+        className={`container mx-auto max-w-5xl px-4 transition-all duration-700 ${
+          hasRevealed ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'
+        }`}
+      >
+        <div className="mb-10 text-center">
+          <p className="mb-3 text-sm font-semibold uppercase tracking-wide text-trader-blue">
+            Performance
+          </p>
+          <h3 className="mb-4 text-3xl font-bold md:text-4xl">Live results since launch</h3>
+          <p className="mx-auto max-w-2xl text-muted-foreground">
+            Every portfolio from the top-performing model, live, vs the S&amp;P 500{inceptionFormatted ? (
+              <>
+                {', since '}
+                <span className="font-medium text-foreground">{inceptionFormatted}</span>.
+              </>
+            ) : (
+              '.'
+            )}
+          </p>
+        </div>
 
-      <div className="bg-card rounded-xl p-6 md:p-8 shadow-elevated border border-border">
-        {showCharts ? (
-          <>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4 mb-6">
-              <p className="text-sm font-medium text-foreground text-center sm:text-left sm:flex-1 min-w-0">
-                {perf!.chartTitle}
-              </p>
-              <Button
-                asChild
-                variant="outline"
-                size="sm"
-                className="shrink-0 self-center sm:self-start whitespace-nowrap"
-              >
-                <Link href={portfolioPerformancePath}>#1 ranked portfolio</Link>
-              </Button>
-            </div>
-
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
-              {slides.map((card, idx) => (
-                <button
-                  key={card.key}
-                  type="button"
-                  className={`rounded-lg border p-3 md:p-4 bg-muted/30 text-left transition-all ${
-                    idx === activeSlide
-                      ? 'border-trader-blue/60 ring-1 ring-trader-blue/40'
-                      : 'border-border hover:border-trader-blue/40'
-                  }`}
-                  onClick={() => setActiveSlide(idx)}
-                >
-                  <p className="font-semibold mb-0.5 text-trader-blue text-sm">{card.title}</p>
-                  <p className="text-xs text-muted-foreground leading-snug">{card.description}</p>
-                </button>
-              ))}
-            </div>
-
-            <div
-              className="relative w-full px-1 md:px-4"
-              onMouseEnter={() => setIsChartHovered(true)}
-              onMouseLeave={() => setIsChartHovered(false)}
-            >
-              {slides.length > 1 ? (
-                <>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    className="absolute left-0 top-1/2 z-10 hidden h-9 w-9 -translate-y-1/2 rounded-full border bg-background/95 shadow-sm md:flex md:-left-1"
-                    aria-label="Previous chart"
-                    onClick={() => setActiveSlide((i) => (i - 1 + slides.length) % slides.length)}
+        <div className="rounded-xl border border-border bg-card p-6 shadow-elevated md:p-8">
+          {showHeadlineStats ? (
+            <div className="mb-8 rounded-xl border border-border bg-background/80 px-4 py-6 md:px-8 md:py-7">
+              <div className="grid grid-cols-1 divide-y divide-border md:grid-cols-2 md:divide-x md:divide-y-0">
+                <div className="pb-6 text-center md:pb-0 md:pr-8">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground md:text-xs">
+                    Portfolios beating S&amp;P 500
+                  </p>
+                  <p
+                    className={cn(
+                      'mt-2 text-3xl font-bold tabular-nums md:text-4xl',
+                      beatPositive && 'text-trader-green',
+                      beatNegative && 'text-red-600 dark:text-red-400',
+                      !beatPositive && !beatNegative && 'text-foreground'
+                    )}
                   >
-                    <ChevronLeft className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    className="absolute right-0 top-1/2 z-10 hidden h-9 w-9 -translate-y-1/2 rounded-full border bg-background/95 shadow-sm md:flex md:-right-1"
-                    aria-label="Next chart"
-                    onClick={() => setActiveSlide((i) => (i + 1) % slides.length)}
-                  >
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
-                </>
-              ) : null}
-              <div
-                className={`rounded-lg border border-border bg-muted/10 p-2 md:p-4 min-h-[280px] md:min-h-[300px] ${
-                  slides.length > 1 ? 'mx-0 md:mx-12' : ''
-                }`}
-              >
-                {slides[activeSlide]?.render() ?? null}
-              </div>
-              {slides.length > 1 ? (
-                <div className="mt-3 flex justify-center gap-3 md:hidden">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    className="h-10 w-10 shrink-0 rounded-full border bg-background shadow-sm"
-                    aria-label="Previous chart"
-                    onClick={() => setActiveSlide((i) => (i - 1 + slides.length) % slides.length)}
-                  >
-                    <ChevronLeft className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    className="h-10 w-10 shrink-0 rounded-full border bg-background shadow-sm"
-                    aria-label="Next chart"
-                    onClick={() => setActiveSlide((i) => (i + 1) % slides.length)}
-                  >
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
+                    {formatBeatPct(heroStats!.beatSp500Pct)}
+                  </p>
+                  <p className="mt-2 text-xs text-muted-foreground md:text-sm">
+                    <span className="font-semibold tabular-nums text-foreground">
+                      {heroStats!.beatSp500Beating}
+                    </span>{' '}
+                    of{' '}
+                    <span className="font-semibold tabular-nums text-foreground">
+                      {heroStats!.beatSp500Comparable}
+                    </span>{' '}
+                    portfolios
+                  </p>
                 </div>
-              ) : null}
-            </div>
-
-            <div className="mt-5 flex items-center justify-center gap-4">
-              <div className="flex items-center gap-2">
-                {slides.map((s, idx) => (
-                  <button
-                    key={s.key}
-                    type="button"
-                    aria-label={`Go to chart slide ${idx + 1}`}
-                    className={`h-2.5 rounded-full transition-all ${
-                      idx === activeSlide
-                        ? 'w-6 bg-trader-blue'
-                        : 'w-2.5 bg-muted-foreground/30 hover:bg-muted-foreground/50'
-                    }`}
-                    onClick={() => setActiveSlide(idx)}
-                  />
-                ))}
+                <div className="pt-6 text-center md:pl-8 md:pt-0">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground md:text-xs">
+                    Avg. excess return vs S&amp;P 500
+                  </p>
+                  <p
+                    className={cn(
+                      'mt-2 text-3xl font-bold tabular-nums md:text-4xl',
+                      excessPositive && 'text-trader-green',
+                      excessNegative && 'text-red-600 dark:text-red-400',
+                      excess === 0 && 'text-foreground',
+                      excess == null && 'text-muted-foreground'
+                    )}
+                  >
+                    {formatSignedAvgExcess(heroStats!.avgExcessReturnPct)}
+                  </p>
+                  <p className="mt-2 text-xs text-muted-foreground md:text-sm">
+                    Mean portfolio return above index
+                  </p>
+                </div>
               </div>
             </div>
-          </>
-        ) : (
-          <div className="rounded-lg border border-dashed border-border bg-muted/20 px-4 py-10 text-center">
-            <p className="text-sm text-muted-foreground max-w-md mx-auto">
-              {statusLine ??
-                'Connect the app to Supabase and run the portfolio performance pipeline to see live charts here.'}
+          ) : heroStats && heroStats.beatSp500Comparable === 0 ? (
+            <p className="mb-6 text-center text-sm text-muted-foreground">
+              Benchmark series not ready for all configs yet.
+            </p>
+          ) : null}
+
+          {showCharts && allPortfolios ? (
+            <>
+              <div className="mb-4 text-center sm:text-left">
+                <p className="text-sm font-semibold text-foreground">
+                  All portfolios vs S&amp;P 500
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-border bg-muted/10 p-2 md:p-4">
+                <AllPortfoliosEquityChart
+                  dates={allPortfolios.dates}
+                  series={allPortfolios.series}
+                  benchmarks={allPortfolios.benchmarks}
+                  topPortfolioConfigId={allPortfolios.topPortfolioConfigId}
+                />
+              </div>
+
+              <p className="mt-3 text-center text-[11px] text-muted-foreground md:text-left">
+                What <strong className="text-foreground">$10,000</strong> would have turned into if
+                invested
+                {inceptionFormatted ? (
+                  <>
+                    {' '}
+                    on <strong className="text-foreground">{inceptionFormatted}</strong>
+                  </>
+                ) : (
+                  <> at model inception</>
+                )}
+                . Net of trading costs.
+              </p>
+            </>
+          ) : (
+            <div className="rounded-lg border border-dashed border-border bg-muted/20 px-4 py-10 text-center">
+              <p className="mx-auto max-w-md text-sm text-muted-foreground">
+                {statusLine ?? 'Live charts will appear here after the next portfolio compute.'}
+              </p>
+            </div>
+          )}
+
+          <div className="mt-8 flex flex-col items-end gap-2 text-right">
+            <Button asChild variant="outline" className="gap-2">
+              <Link href={modelPagePath}>
+                See full performance stats
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </Button>
+            <p className="ml-auto max-w-md text-right text-xs text-muted-foreground">
+              Returns, Drawdowns, Sharpe, and CAGR for every portfolio.
             </p>
           </div>
-        )}
-
-        <p className="text-sm text-muted-foreground mt-6 text-center">
-          All performance is tracked openly and updated weekly after new data is available.
-        </p>
-
-        <div className="mt-6 flex justify-center">
-          <Button asChild variant="outline" className="gap-2">
-            <Link href={portfolioPerformancePath}>
-              See full performance
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-          </Button>
         </div>
       </div>
-    </div>
+    </section>
   );
 }

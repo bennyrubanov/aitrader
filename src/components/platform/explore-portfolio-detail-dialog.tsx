@@ -1536,7 +1536,7 @@ export function ExplorePortfolioDetailDialog({
                   positive={(m.totalReturn ?? 0) > 0}
                 />
                 <FlipCard
-                  label="Outperformance vs S&P 500 (cap)"
+                  label="Outperformance vs S&P 500"
                   value={fmtPct(outperformanceVsSp500)}
                   explanation="Cumulative return on the portfolio minus the cumulative return on the S&P 500 cap-weight benchmark over the full tracked period—both starting from the same $10,000. Positive means the strategy added more percentage points than the S&P 500 over that span."
                   positive={(outperformanceVsSp500 ?? 0) > 0}
@@ -1600,7 +1600,7 @@ export function ExplorePortfolioDetailDialog({
                   positive={(m.maxDrawdown ?? 0) > -0.2}
                 />
                 <FlipCard
-                  label="% weeks beating Nasdaq-100 (cap)"
+                  label="% weeks beating Nasdaq-100"
                   value={
                     m.consistency != null ? fmtPct(m.consistency, 0) : '—'
                   }
@@ -1608,20 +1608,20 @@ export function ExplorePortfolioDetailDialog({
                   positive={(m.consistency ?? 0) > 0.5}
                 />
                 <FlipCard
-                  label="Performance vs Nasdaq-100 (cap)"
+                  label="Performance vs Nasdaq-100"
                   value={fmtPct(outperformanceVsNasdaq)}
                   explanation="Cumulative return on the portfolio minus the cumulative return on the Nasdaq-100 cap-weight benchmark over the full tracked period—both starting from the same $10,000. Positive means the strategy added more percentage points than the index over that span."
                   positive={(outperformanceVsNasdaq ?? 0) > 0}
                 />
                 <FlipCard
-                  label="Performance vs Nasdaq-100 (equal)"
+                  label="Performance vs Nasdaq-100 (equal-weight)"
                   value={fmtPct(outperformanceVsNasdaqEqual)}
                   explanation="Cumulative return on the portfolio minus the cumulative return on the Nasdaq-100 equal-weight benchmark over the full tracked period. Positive means the strategy added more percentage points than the equal-weight index."
                   positive={(outperformanceVsNasdaqEqual ?? 0) > 0}
                   loading={explorePerfLoading && outperformanceVsNasdaqEqual == null}
                 />
                 <FlipCard
-                  label="% weeks beating S&P 500 (cap)"
+                  label="% weeks beating S&P 500"
                   value={
                     pctWeeksBeatingSp500 != null ? fmtPct(pctWeeksBeatingSp500, 0) : '—'
                   }
@@ -1630,7 +1630,7 @@ export function ExplorePortfolioDetailDialog({
                   loading={explorePerfLoading && pctWeeksBeatingSp500 == null}
                 />
                 <FlipCard
-                  label="% weeks beating Nasdaq-100 (equal)"
+                  label="% weeks beating Nasdaq-100 (equal-weight)"
                   value={
                     pctWeeksBeatingNasdaqEqual != null ? fmtPct(pctWeeksBeatingNasdaqEqual, 0) : '—'
                   }

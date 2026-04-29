@@ -25,28 +25,28 @@ export const SPOTLIGHT_STAT_TOOLTIPS = {
     body: 'The worst peak-to-trough decline since your entry. If you had bought at the peak and sold at the worst point, this is the loss you would have realized. Closer to zero is better.',
   },
   consistency: {
-    title: '% weeks beating Nasdaq-100 (cap)',
+    title: '% weeks beating Nasdaq-100',
     body: 'Uses the last portfolio and benchmark level in each calendar week, then counts week-to-week periods where your return beat the benchmark’s. Above 50% means you won more weeks than you lost.',
   },
   weeks_beating_sp500: {
-    title: '% weeks beating S&P 500 (cap)',
-    body: 'Same weekly cadence as the Nasdaq cap stat: last level each calendar week, then week-to-week returns versus the S&P 500 cap-weight benchmark. Above 50% means you beat the S&P more weeks than not.',
+    title: '% weeks beating S&P 500',
+    body: 'Same weekly cadence as the Nasdaq-100 stat: last level each calendar week, then week-to-week returns versus the S&P 500 benchmark. Above 50% means you beat the S&P more weeks than not.',
   },
   weeks_beating_nasdaq_equal: {
-    title: '% weeks beating Nasdaq-100 (equal)',
+    title: '% weeks beating Nasdaq-100 (equal-weight)',
     body: 'Same weekly cadence versus the Nasdaq-100 equal-weight benchmark (equal dollars in each index name each period). Above 50% means you beat that benchmark in more weeks than you trailed.',
   },
   vs_nasdaq_cap: {
-    title: 'Performance vs Nasdaq-100 (cap)',
-    body: 'Your portfolio’s cumulative return minus the Nasdaq-100 cap-weight benchmark’s cumulative return over the same dates—both series aligned to your window. Positive means you added more percentage points than the index over that span.',
+    title: 'Performance vs Nasdaq-100',
+    body: 'Your portfolio’s cumulative return minus the Nasdaq-100 benchmark’s cumulative return over the same dates—both series aligned to your window. Positive means you added more percentage points than the index over that span.',
   },
   vs_nasdaq_equal: {
-    title: 'Performance vs Nasdaq-100 (equal)',
+    title: 'Performance vs Nasdaq-100 (equal-weight)',
     body: 'Your portfolio’s cumulative return minus the Nasdaq-100 equal-weight benchmark’s cumulative return over the same window. Equal weight spreads the same dollar share across every index member each period. Positive means you beat that benchmark in percentage points over that span.',
   },
   vs_sp500: {
-    title: 'Performance vs S&P 500 (cap)',
-    body: 'Your portfolio’s cumulative return minus the S&P 500 cap-weight benchmark’s cumulative return over the same window. Positive means you beat the S&P 500 in percentage points over that span.',
+    title: 'Performance vs S&P 500',
+    body: 'Your portfolio’s cumulative return minus the S&P 500 benchmark’s cumulative return over the same window. Positive means you beat the S&P 500 in percentage points over that span.',
   },
 } as const;
 

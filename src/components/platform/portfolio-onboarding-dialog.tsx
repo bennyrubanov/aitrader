@@ -1098,7 +1098,7 @@ export function PortfolioOnboardingDialog({
                       className="h-8 w-full justify-start gap-1.5 px-1 text-xs"
                     >
                       <Link
-                        href={`/performance/${selectedStrategy.slug}#model-overview`}
+                        href={`/strategy-models/${selectedStrategy.slug}#model-overview`}
                         target="_blank"
                         rel="noopener noreferrer"
                       >

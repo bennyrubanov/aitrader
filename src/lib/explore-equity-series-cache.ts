@@ -18,7 +18,7 @@ type CacheEntry<T> = {
   updatedAt: number;
 };
 
-const CACHE_PREFIX = 'aitrader.platform.cache.v1.explore-equity-series';
+const CACHE_PREFIX = 'aitrader.platform.cache.v2.explore-equity-series';
 const TTL_MS = 5 * 60_000;
 
 const memoryStore = new Map<string, CacheEntry<ExploreEquitySeriesPayload>>();

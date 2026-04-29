@@ -13,7 +13,6 @@ import {
   Star,
   TrendingUp,
 } from 'lucide-react';
-import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ContentPageLayout } from '@/components/ContentPageLayout';
@@ -85,7 +84,7 @@ function AvgSp500ExcessMini({
             Mean portfolio return above index
           </p>
           <Link
-            href={`/performance/${slug}#returns`}
+            href={`/strategy-models/${slug}#returns`}
             className="mt-1.5 inline-flex items-center gap-0.5 text-[10px] font-medium text-trader-blue hover:underline dark:text-trader-blue-light"
           >
             Benchmark returns
@@ -165,13 +164,10 @@ export function StrategyModelsClient({ strategies }: Props) {
   const topModel = sorted[0];
 
   return (
-    <ContentPageLayout
-      title="Performance"
-      subtitle="Choose a strategy model, then inspect its live forward-only portfolio performance."
-    >
+    <ContentPageLayout title="Strategy Models" titleSectionClassName="mt-2 md:mt-4">
       {/* Top bar */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 md:gap-3">
           <span className="text-sm text-muted-foreground">Sort by:</span>
           <div className="flex items-center gap-1 rounded-md border p-0.5">
             <button
@@ -195,6 +191,17 @@ export function StrategyModelsClient({ strategies }: Props) {
               <Baby className="size-3" aria-hidden /> Newest
             </button>
           </div>
+          {sort === 'performance' ? (
+            <Link
+              href="/whitepaper#model-ranking"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hidden md:inline-flex items-center gap-1 text-sm font-medium text-trader-blue hover:underline dark:text-trader-blue-light shrink-0"
+            >
+              How we rank models
+              <ExternalLink className="size-3.5 shrink-0 opacity-80" aria-hidden />
+            </Link>
+          ) : null}
         </div>
 
         <Button variant="outline" size="sm" className="gap-2 opacity-60 cursor-not-allowed" disabled>
@@ -205,16 +212,6 @@ export function StrategyModelsClient({ strategies }: Props) {
           </Badge>
         </Button>
       </div>
-
-      {sort === 'performance' ? (
-        <Link
-          href={`/whitepaper/${STRATEGY_CONFIG.slug}#model-ranking`}
-          className="mb-6 inline-flex items-center gap-1 text-sm font-medium text-trader-blue hover:underline dark:text-trader-blue-light"
-        >
-          How we rank models
-          <ExternalLink className="size-3.5 shrink-0 opacity-80" />
-        </Link>
-      ) : null}
 
       {sorted.length === 0 ? (
         <p className="text-muted-foreground text-sm py-8 text-center">No strategy models found.</p>
@@ -301,7 +298,7 @@ export function StrategyModelsClient({ strategies }: Props) {
                           ) : (
                             <>
                               <p className="text-[10px] font-semibold text-muted-foreground mb-1 leading-snug">
-                                Outperformance vs Nasdaq (cap)
+                                Outperformance vs Nasdaq-100
                               </p>
                               {statsLoading ? (
                                 <div className="h-10 w-20 rounded-md bg-muted animate-pulse mt-1" />
@@ -351,7 +348,7 @@ export function StrategyModelsClient({ strategies }: Props) {
                           ) : (
                             <>
                               <p className="text-[10px] font-semibold text-muted-foreground mb-1 leading-snug">
-                                Outperformance vs S&P (cap)
+                                Outperformance vs S&P 500
                               </p>
                               {statsLoading ? (
                                 <div className="h-10 w-20 rounded-md bg-muted animate-pulse mt-1" />
@@ -427,7 +424,7 @@ export function StrategyModelsClient({ strategies }: Props) {
                                       : ''}
                                   </p>
                                   <Link
-                                    href={`/whitepaper/${STRATEGY_CONFIG.slug}#methodology-regression`}
+                                    href="/whitepaper#methodology-regression"
                                     className="mt-1.5 inline-flex items-center gap-0.5 text-[10px] font-medium text-trader-blue hover:underline dark:text-trader-blue-light"
                                   >
                                     What this is
@@ -449,14 +446,14 @@ export function StrategyModelsClient({ strategies }: Props) {
                     {/* CTA buttons */}
                     <div className="flex flex-row sm:flex-col gap-2 shrink-0 sm:items-end sm:justify-center">
                       <Button asChild size="sm">
-                        <Link href={`/performance/${strategy.slug}`} className="gap-1.5">
+                        <Link href={`/strategy-models/${strategy.slug}`} className="gap-1.5">
                           <Bot className="size-3.5 shrink-0" />
                           Open model
                           <ArrowRight className="size-3.5 shrink-0" />
                         </Link>
                       </Button>
                       <Button asChild variant="outline" size="sm">
-                        <Link href={`/whitepaper/${strategy.slug}`} className="gap-1.5">
+                        <Link href="/whitepaper" className="gap-1.5">
                           <LineChart className="size-3.5 shrink-0" />
                           Whitepaper
                         </Link>

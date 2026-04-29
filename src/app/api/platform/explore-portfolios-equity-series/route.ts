@@ -7,13 +7,12 @@ import {
 } from '@/lib/config-daily-series';
 import { loadLatestRawRunDate } from '@/lib/live-mark-to-market';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
-import { syncMissingConfigHoldingsSnapshots } from '@/lib/portfolio-config-holdings-write';
 import { createAdminClient } from '@/utils/supabase/admin';
-import { createPublicClient } from '@/utils/supabase/public';
 import { runWithSupabaseQueryCount } from '@/utils/supabase/query-counter';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
 
-export const revalidate = 300;
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 export const maxDuration = 60;
 
 const INITIAL_CAPITAL = 10_000;
@@ -61,9 +60,9 @@ export type ExplorePortfoliosEquitySeriesPayload = {
 async function loadExplorePortfoliosEquitySeriesPayload(
   slug: string
 ): Promise<ExplorePortfoliosEquitySeriesPayload | null> {
-  const supabase = createPublicClient();
+  const adminSupabase = createAdminClient();
 
-  const { data: strategy } = await supabase
+  const { data: strategy } = await adminSupabase
     .from('strategy_models')
     .select('id, slug, name')
     .eq('slug', slug)
@@ -73,10 +72,9 @@ async function loadExplorePortfoliosEquitySeriesPayload(
     return null;
   }
 
-  const adminSupabase = createAdminClient();
   const latestRawRunDate = await loadLatestRawRunDate(adminSupabase);
 
-  const { data: configs } = await supabase
+  const { data: configs } = await adminSupabase
     .from('portfolio_configs')
     .select('id, risk_level, rebalance_frequency, weighting_method, top_n, label')
     .order('risk_level', { ascending: true })
@@ -88,20 +86,7 @@ async function loadExplorePortfoliosEquitySeriesPayload(
   const dateSet = new Set<string>();
 
   const configRows = (configs ?? []) as ConfigRow[];
-  await Promise.allSettled(
-    configRows.map((cfg) =>
-      syncMissingConfigHoldingsSnapshots(adminSupabase as never, {
-        strategyId: strategy.id,
-        config: {
-          id: cfg.id,
-          top_n: Number(cfg.top_n ?? 20),
-          weighting_method: cfg.weighting_method,
-          rebalance_frequency: cfg.rebalance_frequency,
-        },
-      })
-    )
-  );
-  const snapshots = await loadStrategyDailySeriesBulk(supabase as never, strategy.id);
+  const snapshots = await loadStrategyDailySeriesBulk(adminSupabase as never, strategy.id);
   const missingAny = configRows.some((cfg) => !snapshots.has(cfg.id));
   const staleAny = Array.from(snapshots.values()).some(
     (snapshot) =>
@@ -268,9 +253,12 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'strategy not found' }, { status: 404 });
     }
 
+    const hasChartData = payload.dates.length > 0 && payload.series.length > 0;
     return NextResponse.json(payload, {
       headers: {
-        'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=1800',
+        'Cache-Control': hasChartData
+          ? 'public, s-maxage=300, stale-while-revalidate=1800'
+          : 'no-store',
       },
     });
   });

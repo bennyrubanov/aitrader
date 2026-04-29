@@ -304,9 +304,7 @@ export function PerformancePageClient({ payload }: PerformancePageClientProps) {
                 </p>
               </div>
               <div className="rounded-lg border bg-background p-4">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                  vs Nasdaq-100 (cap)
-                </p>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">vs Nasdaq-100</p>
                 <p
                   className={cn(
                     'mt-2 text-xl font-semibold',
@@ -349,27 +347,14 @@ export function PerformancePageClient({ payload }: PerformancePageClientProps) {
         </CardHeader>
         <CardContent>
           {metrics ? (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="rounded-lg border bg-background p-4">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                  Nasdaq-100 (Cap Weight)
-                </p>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Nasdaq-100</p>
                 <p className="mt-2 text-xl font-semibold">
                   {formatCurrency(metrics.benchmarks.nasdaq100CapWeight.endingValue)}
                 </p>
                 <p className="text-sm text-muted-foreground">
                   Total: {formatPercent(metrics.benchmarks.nasdaq100CapWeight.totalReturn)}
-                </p>
-              </div>
-              <div className="rounded-lg border bg-background p-4">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                  Nasdaq-100 (Equal Weight)
-                </p>
-                <p className="mt-2 text-xl font-semibold">
-                  {formatCurrency(metrics.benchmarks.nasdaq100EqualWeight.endingValue)}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  Total: {formatPercent(metrics.benchmarks.nasdaq100EqualWeight.totalReturn)}
                 </p>
               </div>
               <div className="rounded-lg border bg-background p-4">

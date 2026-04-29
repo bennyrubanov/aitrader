@@ -14,7 +14,7 @@ export const DEFAULT_POST_AUTH_PATH = "/platform/overview";
  * `/pricing` is included so the nav/header can return users after sign-in (e.g. checkout deep-links).
  */
 const SIGN_IN_RETURN_PREFIXES = [
-  "/performance",
+  "/strategy-models",
   "/whitepaper",
   "/stocks",
   "/platform",

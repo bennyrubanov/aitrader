@@ -112,7 +112,7 @@ async function loadLandingTopPortfolioPerformanceUncached(): Promise<LandingTopP
 }
 
 /**
- * Top-ranked portfolio preset for the active strategy + chart series (same shape as /performance).
+ * Top-ranked portfolio preset for the active strategy + chart series (same shape as /strategy-models).
  * Read-only: does not enqueue portfolio config compute (unlike the public API route).
  */
 export const getLandingTopPortfolioPerformance = unstable_cache(

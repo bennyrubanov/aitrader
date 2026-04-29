@@ -42,7 +42,7 @@ export function canAccessStrategySlugPaidData(
 
 /**
  * Performance page latest holdings table: Supporter+ for the default model only;
- * Outperformer for any model. Requires a concrete `/performance/[slug]`.
+ * Outperformer for any model. Requires a concrete `/strategy-models/[slug]`.
  */
 export function canViewPerformanceHoldingsForStrategy(
   access: AppAccessState,

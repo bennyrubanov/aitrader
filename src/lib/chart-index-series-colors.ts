@@ -1,7 +1,7 @@
 /**
  * Canonical colors for the user's portfolio vs index benchmarks on equity / return charts.
  *
- * Portfolio (model track / your follow): blue · Nasdaq-100 cap: purple · Nasdaq-100 equal: green · S&P 500 cap: gray
+ * Portfolio (model track / your follow): blue · Nasdaq-100: purple · Nasdaq-100 equal (metrics only): green · S&P 500: gray
  */
 export const CHART_PORTFOLIO_SERIES_COLOR = '#2563eb';
 

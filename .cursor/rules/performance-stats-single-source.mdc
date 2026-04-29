@@ -24,7 +24,7 @@ If a headline `$` value is drawn from series A and its accompanying `%` is
 drawn from metrics computed off series B, they drift whenever the live tail
 runs ahead of the server-cached snapshot. That has happened repeatedly on
 `/platform/your-portfolios`, `/platform` (overview spotlight),
-`/performance/[slug]`, including its portfolio-values section. The fix is always the same:
+`/strategy-models/[slug]`, including its portfolio-values section. The fix is always the same:
 **pick the effective series once,
 recompute metrics from it, and thread that object through the entire
 component tree.**
@@ -71,10 +71,16 @@ and `spotlightHoldingsAllocationBaseNotional` in
 [`src/components/platform/platform-overview-client.tsx`](mdc:src/components/platform/platform-overview-client.tsx).
 `syncMissingConfigHoldingsSnapshots()`
 ([`src/lib/portfolio-config-holdings-write.ts`](mdc:src/lib/portfolio-config-holdings-write.ts))
-self-heals `strategy_portfolio_config_holdings` gaps on every read path that
-could diverge — see `/api/platform/explore-portfolio-config-holdings` and
+self-heals `strategy_portfolio_config_holdings` gaps on **single-config**
+read paths that read holdings directly — namely
+`/api/platform/explore-portfolio-config-holdings` and
 `ensureConfigDailySeries` in
 [`src/lib/config-daily-series.ts`](mdc:src/lib/config-daily-series.ts).
+**Do not** call it per-config on multi-config bulk endpoints
+(`/api/platform/explore-portfolios-equity-series`,
+`/api/platform/portfolio-configs-ranked`, etc.) — those rely on the cron
+freshness invariant in §7 plus the bulk-read + `triggerPortfolioConfigsBatch`
+recovery path described in §8.
 
 ## 3. The canonical derivation
 
@@ -130,6 +136,8 @@ snapshots. If a bulk endpoint emits a temporary stale-snapshot `livePoint`, its
 benchmark legs must come from the same MTM path as
 `buildConfigDailySeriesTailPoint`.
 
+**Chart display vs payloads:** Snapshots, `buildMetricsFromSeries`, and API payloads still carry all four legs (`nasdaq100EqualWeight` included) for MTM, weekly beat rates, and flip-card stats. **Multi-line equity charts** (`PerformanceChart`, explore values chart, landing mini-charts) intentionally plot only `aiPortfolio`, `nasdaq100CapWeight`, and `sp500` and label the benchmarks as **Nasdaq-100** and **S&P 500** without “cap / equal” wording in the chart UI.
+
 ## 6. Price source (not intraday)
 
 All portfolio and holding valuations use **previous-close** prices: the
@@ -179,7 +187,7 @@ There is **no** intraday quote fetch on any UI surface.
   one-stock basket whose holding ran +33%). The function is scale-invariant
   in `notional`, so it works correctly whether the chart series is on the
   raw model scale or on §11's lifted scale; the rebalance-date anchor is
-  what matters. On `/performance`, mirror `holdingsAllocationBaseNotional`
+  what matters. On `/strategy-models`, mirror `holdingsAllocationBaseNotional`
   (include `holdingsRebalanceDates` in the `useMemo` deps that computes the
   notional).
 
@@ -195,8 +203,8 @@ The stored series's last point IS the latest live-MTM point (produced by
 the cron freshness invariant in §7 keeps that snapshot current.
 
 For hypothetical $10k surfaces, the displayed latest-close value must converge:
-the explore values chart last bar, `/performance` page body,
-`/performance/[slug]#portfolio-values`, performance portfolio picker rows,
+the explore values chart last bar, `/strategy-models` page body,
+`/strategy-models/[slug]#portfolio-values`, performance portfolio picker rows,
 explore list cards, and explore detail dialog all read the same previous-close
 value after §11's $10k display lift. User-rebased surfaces such as
 `/platform/your-portfolios` and `/platform` overview use the same raw snapshot
@@ -236,7 +244,7 @@ display-anchored. Scale-invariant fields (`totalReturn`, `cagr`,
 
 Consumers that **aggregate across configs**
 (`/api/platform/strategy-models-ranked`, landing-page `ExperimentSection`,
-`ModelHeaderCard` on `/performance/[slug]`, explore filters such as
+`ModelHeaderCard` on `/strategy-models/[slug]`, explore filters such as
 `filterBeatSp500`) intentionally do not use a per-request overlay; they are
 coherent because the daily cron rewrites the snapshot after price and benchmark
 ingestion and then revalidates caches. They should treat
@@ -247,10 +255,10 @@ apply another 15 bps lift or haircut.
 
 Touch this rule any time you:
 
-- Add or modify a number (`$`, `%`, ratio) displayed on `/performance/[slug]`,
+- Add or modify a number (`$`, `%`, ratio) displayed on `/strategy-models/[slug]`,
   `/platform/your-portfolios`, `/platform` overview,
   `/platform/explore-portfolios`, portfolio picker rows, or
-  `/performance/[slug]#portfolio-values`.
+  `/strategy-models/[slug]#portfolio-values`.
 - Change `buildLatestMtmPointFromLastSnapshot`,
   `buildLiveHoldingsAllocationResult`, `buildMetricsFromSeries`,
   `loadPortfolioConfigsRankedPayload`, or `syncMissingConfigHoldingsSnapshots`.
@@ -270,7 +278,7 @@ tree).
 For one selected portfolio with **Today** holdings, every **dollar** and
 **total return %** on the same page must agree:
 
-- **`/performance/[slug]`:** Key-metrics FlipCard headline; At-a-glance
+- **`/strategy-models/[slug]`:** Key-metrics FlipCard headline; At-a-glance
   “Portfolio value”; overview `PerformanceChart` last point; holdings
   `HoldingsPortfolioValueLine`; holdings table row $ (sum = line). Headline
   values and charts use `effectivePerformanceDisplaySeries` /
@@ -297,7 +305,7 @@ effectiveSeries[effectiveSeries.length - 1].aiPortfolio` (see
 
 Additional invariant from §11: every surface above shows the **same first-bar
 dollars** for the same portfolio + entry date + investment size — `$10,000`
-on hypothetical surfaces (`/performance/[slug]`, `/platform/explore-portfolios`)
+on hypothetical surfaces (`/strategy-models/[slug]`, `/platform/explore-portfolios`)
 and `investmentSize` on user-rebased surfaces (`/platform/your-portfolios`,
 `/platform` overview, guest preview). Differences between any two surfaces
 on the same portfolio's portfolio value or total return % are a regression
@@ -316,7 +324,7 @@ the simulation.
 The **chart-display** layer reanchors the series so the first visible point
 renders at the dollars the viewer is mentally putting in:
 
-- Hypothetical surfaces (`/performance/[slug]`,
+- Hypothetical surfaces (`/strategy-models/[slug]`,
   `/platform/explore-portfolios`): first point = `INITIAL_CAPITAL` ($10,000).
 - User-rebased surfaces (`/platform/your-portfolios`, `/platform` overview,
   guest preview): first point = `investmentSize` at `userStart`.

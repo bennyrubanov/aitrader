@@ -39,8 +39,8 @@ const viewMetaByPath: Record<string, ViewMeta> = {
     title: 'Explore Portfolios',
     subtitle: 'Compare portfolios and follow the ones that fit your style',
   },
-  '/performance': {
-    title: 'Performance',
+  '/strategy-models': {
+    title: 'Strategy models',
     subtitle: 'Transparent live results for the weekly Top-20 strategy',
   },
   '/platform/settings': {

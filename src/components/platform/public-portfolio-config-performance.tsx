@@ -171,7 +171,7 @@ export function PortfolioAtAGlanceCard({
         ...headerStatSentiment('Total return', m.totalReturn),
       },
       {
-        label: 'Performance vs S&P 500 (cap)',
+        label: 'Performance vs S&P 500',
         value: fmt.pct(vsSp),
         hint: `Cumulative model return minus the S&P 500 cap-weight benchmark over the same window. ${metricsPeriodNote}`,
         positive: vsSp == null || !Number.isFinite(vsSp) ? undefined : vsSp > 0,

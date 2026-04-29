@@ -711,7 +711,7 @@ const buildPayloadForStrategy = async (
   };
 };
 
-// ─── Default payload (used by /performance redirect target) ──────────────────
+// ─── Default payload (used by /strategy-models index) ────────────────────────
 
 const EMPTY_PAYLOAD: PlatformPerformancePayload = {
   strategy: null,
@@ -748,7 +748,7 @@ const getPlatformPerformancePayloadCached = unstable_cache(
 
 export const getPlatformPerformancePayload = async () => getPlatformPerformancePayloadCached();
 
-// ─── Per-slug payload (used by /performance/[slug]) ──────────────────────────
+// ─── Per-slug payload (used by /strategy-models/[slug]) ──────────────────────
 
 const getPerformancePayloadBySlugCached = (slug: string) =>
   unstable_cache(
@@ -1073,7 +1073,7 @@ export type StrategyDetail = {
   latestRegressionDate: string | null;
   /** Full weekly regression history summary (1-week horizon). */
   regressionSummary: RegressionSummary;
-  /** Latest stored weekly AI research headline (same as /performance research card). */
+  /** Latest stored weekly AI research headline (same as strategy-models page research card). */
   researchHeadline: PlatformResearchHeadline | null;
   benchmarkCapWeightReturn: number | null;
 };

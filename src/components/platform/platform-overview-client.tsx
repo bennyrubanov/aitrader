@@ -840,7 +840,7 @@ function OverviewPortfolioTile({
           </div>
           <div className="rounded-xl border bg-background/60 px-2.5 py-2">
             <p className="text-[9px] uppercase leading-tight text-muted-foreground">
-              vs Nasdaq-100 (cap)
+              vs Nasdaq-100
             </p>
             <p className="text-base font-bold tabular-nums leading-tight">
               {st?.loading ? '…' : fmt.pct(excessVsNasdaqCap)}
@@ -854,7 +854,7 @@ function OverviewPortfolioTile({
             <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[9px] leading-none">
               <span className="text-trader-blue">Your portfolio</span>
               {sparkNasdaqCap.length === spark.length ? (
-                <span className="text-purple-600 dark:text-purple-400">Nasdaq-100 (cap)</span>
+                <span className="text-purple-600 dark:text-purple-400">Nasdaq-100</span>
               ) : null}
             </p>
           ) : null}
@@ -3222,7 +3222,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                   </div>
                                   <SpotlightStatCard
                                     tooltipKey="vs_sp500"
-                                    label="Performance vs S&P 500 (cap)"
+                                    label="Performance vs S&P 500"
                                     value={fmt.pct(excessVsSp500)}
                                     positive={
                                       excessVsSp500 != null && Number.isFinite(excessVsSp500)

@@ -13,6 +13,7 @@ import {
   type ReactNode,
 } from 'react';
 import {
+  ArrowLeft,
   ArrowRight,
   BadgeCheck,
   CheckCircle2,
@@ -42,6 +43,15 @@ import type {
 import { ExplorePortfolioFilterControls } from '@/components/platform/explore-portfolio-filter-controls';
 import { HoldingRankWithChange } from '@/components/platform/holding-rank-with-change';
 import { MetricReadinessPill } from '@/components/platform/metric-readiness-pill';
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from '@/components/ui/breadcrumb';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -62,12 +72,6 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from '@/components/ui/accordion';
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -84,7 +88,6 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { ContentPageLayout } from '@/components/ContentPageLayout';
-import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import { Disclaimer } from '@/components/Disclaimer';
 import { ModelHeaderCard } from '@/components/ModelHeaderCard';
 import {
@@ -134,7 +137,7 @@ import {
   HoldingsAllocationColumnTooltip,
   HoldingsCostBasisColumnTooltip,
 } from '@/components/tooltips';
-import { SectionHeadingAnchor } from '@/components/section-heading-anchor';
+import { SectionHeadingAnchor, SectionHeadingJumpLink } from '@/components/section-heading-anchor';
 import { useAuthState } from '@/components/auth/auth-state-context';
 import { getAppAccessState, canViewPerformanceHoldingsForStrategy } from '@/lib/app-access';
 import {
@@ -145,11 +148,11 @@ import {
   usePublicPortfolioConfigPerformance,
   type PublicConfigPerfSlice,
 } from '@/components/platform/use-public-portfolio-config-performance';
+import type { PublicPortfolioPerfApiPayload } from '@/lib/public-portfolio-config-performance';
 import { applyEffectiveSeriesToMetrics } from '@/lib/config-performance-chart';
 import { type PortfolioConfigSlice } from '@/components/platform/portfolio-config-controls';
 import { SidebarPortfolioConfigPicker } from '@/components/platform/sidebar-portfolio-config-picker';
 import { StrategyModelSidebarDropdown } from '@/components/platform/strategy-model-sidebar-dropdown';
-import { CapWeightMiniPie, EqualWeightMiniPie } from '@/components/platform/weighting-mini-pies';
 import {
   RISK_LABELS,
   RISK_TOP_N,
@@ -157,13 +160,16 @@ import {
   type RiskLevel,
 } from '@/components/portfolio-config';
 import {
-  mergePortfolioIntoSearchParams,
+  parsePerformancePortfolioConfigPathSegment,
   parsePerformancePortfolioConfigParam,
-  portfolioConfigParamMatchesSearchParams,
   portfolioSliceIsInRankedList,
+  portfolioSliceMatchesRankedRow,
+  portfolioSliceToConfigSlug,
   portfolioSlicesEqual,
+  stripPerformancePortfolioSearchParams,
 } from '@/lib/performance-portfolio-url';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
+import { AI_STRATEGIES } from '@/lib/ai-strategy-registry';
 
 const PerformanceChart = dynamic(
   () => import('@/components/platform/performance-chart').then((module) => module.PerformanceChart),
@@ -176,9 +182,10 @@ const PerformanceChart = dynamic(
 const PERFORMANCE_TOC_BASE = [
   { id: 'strategy-model', label: 'Strategy model' },
   { id: 'selected-portfolio', label: 'Selected portfolio' },
-  { id: 'portfolio-values', label: 'Portfolio values' },
+  { id: 'portfolio-values', label: 'Portfolio Returns' },
   { id: 'model-overview', label: 'Model overview' },
   { id: 'model-overview-prompt-design', label: '↳ Prompt design' },
+  { id: 'model-methodology', label: 'Methodology + research' },
   { id: 'overview', label: 'Performance overview' },
   { id: 'what-you-see', label: 'What you are looking at' },
   { id: 'holdings', label: 'Portfolio holdings' },
@@ -308,6 +315,7 @@ function formatInvestedOnCalendarDate(ymd: string | null | undefined): string | 
 }
 
 const PERFORMANCE_MODEL_INITIAL = 10_000;
+const AIT1_REGISTRY_ENTRY = AI_STRATEGIES.find((entry) => entry.slug === 'ait-1-daneel');
 
 function perfFormatUsd(amount: number): string {
   return new Intl.NumberFormat('en-US', {
@@ -346,13 +354,19 @@ function ModelOverviewSections({
   hrefBase: string;
 }) {
   return (
-    <section id="model-overview" className="mb-10 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]">
-      <h2 className="group mb-4 flex items-center gap-2 text-2xl font-bold tracking-tight">
-        <Cpu className="size-5 shrink-0 text-trader-blue" /> Model overview
-        <SectionHeadingAnchor fragmentId="model-overview" hrefBase={hrefBase} copyAbsoluteUrlOnClick />
+    <section id="model-overview" className="mb-10 scroll-mt-[4.5rem] md:scroll-mt-[5rem]">
+      <h2 className="group relative mb-4 flex items-center gap-2 text-2xl font-bold tracking-tight">
+        <SectionHeadingJumpLink
+          fragmentId="model-overview"
+          hrefBase={hrefBase}
+          className="flex min-w-0 flex-1 items-center gap-2"
+        >
+          <Cpu className="size-5 shrink-0 text-trader-blue" /> Model overview
+        </SectionHeadingJumpLink>
+        <SectionHeadingAnchor fragmentId="model-overview" hrefBase={hrefBase} />
       </h2>
 
-      <div id="model-overview-ai" className="mb-10 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]">
+      <div id="model-overview-ai" className="mb-10 scroll-mt-[4.5rem] md:scroll-mt-[5rem]">
         <div className="divide-y rounded-lg border bg-card p-5">
           <ConfigRow label="Provider" value={strategy.modelProvider ?? 'OpenAI'} />
           <ConfigRow label="Model" value={strategy.modelName ?? 'N/A'} mono />
@@ -366,15 +380,17 @@ function ModelOverviewSections({
 
       <div
         id="model-overview-prompt-design"
-        className="mb-10 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
+        className="mb-10 scroll-mt-[4.5rem] md:scroll-mt-[5rem]"
       >
-        <h3 className="group mb-3 flex items-center gap-2 text-xl font-bold">
-          <FileText className="size-5 shrink-0 text-trader-blue" /> Prompt design
-          <SectionHeadingAnchor
+        <h3 className="group relative mb-3 flex items-center gap-2 text-xl font-bold">
+          <SectionHeadingJumpLink
             fragmentId="model-overview-prompt-design"
             hrefBase={hrefBase}
-            copyAbsoluteUrlOnClick
-          />
+            className="flex min-w-0 flex-1 items-center gap-2"
+          >
+            <FileText className="size-5 shrink-0 text-trader-blue" /> Prompt design
+          </SectionHeadingJumpLink>
+          <SectionHeadingAnchor fragmentId="model-overview-prompt-design" hrefBase={hrefBase} />
         </h3>
         <p className="mb-3 text-sm text-muted-foreground">
           Every stock is evaluated using the same structured prompt. Key instructions:
@@ -387,6 +403,206 @@ function ModelOverviewSections({
             </li>
           ))}
         </ul>
+      </div>
+    </section>
+  );
+}
+
+function Ait1MethodologyResearchSection({
+  strategy,
+  hrefBase,
+}: {
+  strategy: NonNullable<PlatformPerformancePayload['strategy']>;
+  hrefBase: string;
+}) {
+  const transactionCostBps = strategy.transactionCostBps ?? 15;
+  const transactionCostPct = (transactionCostBps / 100).toFixed(2);
+  const modelName = strategy.modelName ?? AIT1_REGISTRY_ENTRY?.model.defaultName ?? 'OpenAI model';
+  const modelVersion = AIT1_REGISTRY_ENTRY?.model.version ?? strategy.version;
+
+  return (
+    <section id="model-methodology" className="mb-10 scroll-mt-[4.5rem] md:scroll-mt-[5rem]">
+      <h2 className="group relative mb-4 flex items-center gap-2 text-2xl font-bold tracking-tight">
+        <SectionHeadingJumpLink
+          fragmentId="model-methodology"
+          hrefBase={hrefBase}
+          className="flex min-w-0 flex-1 items-center gap-2"
+        >
+          <FileText className="size-5 shrink-0 text-trader-blue" /> Methodology + research foundation
+        </SectionHeadingJumpLink>
+        <SectionHeadingAnchor fragmentId="model-methodology" hrefBase={hrefBase} />
+      </h2>
+
+      <div className="space-y-5">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">AIT-1 implementation details</CardTitle>
+            <CardDescription>
+              The model-specific assumptions behind {strategy.name}. The shared formulas and ranking
+              methodology live in the whitepaper.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="divide-y rounded-lg border bg-muted/30 px-4">
+              <ConfigRow label="Universe" value="Nasdaq-100 (all ~100 current members)" />
+              <ConfigRow label="AI model" value={modelName} mono />
+              <ConfigRow label="AI model version" value={modelVersion} mono />
+              <ConfigRow label="Strategy version" value={strategy.version} mono />
+              <ConfigRow label="Score scale" value="-5 to +5 integer score + latent rank 0-1" />
+              <ConfigRow label="News lookback" value="Live web search over roughly the last 30 days" />
+              <ConfigRow label="Rebalance cadence" value={strategy.rebalanceFrequency} />
+              <ConfigRow
+                label="Default tracking portfolio"
+                value={`Top ${strategy.portfolioSize} · Equal weight`}
+              />
+              <ConfigRow
+                label="Transaction cost"
+                value={`${transactionCostBps} bps (${transactionCostPct}%) per traded dollar`}
+              />
+              <ConfigRow
+                label="Starting capital convention"
+                value={perfFormatUsd(PERFORMANCE_MODEL_INITIAL)}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="rounded-lg border bg-muted/30 p-4 text-sm text-foreground/80 leading-relaxed">
+          <p>
+            <strong className="text-foreground">Why relative scoring matters:</strong> Ratings are
+            explicitly cross-sectional: how attractive is this stock compared to the other stocks in
+            the same universe? This is what makes the signal robust. Even during a period when every
+            portfolio in Pelster &amp; Val&apos;s live experiment had negative absolute returns, the
+            highest-rated stocks still lost less than the lowest-rated ones by a statistically
+            significant margin. The AI couldn&apos;t predict market direction, but it could reliably rank
+            which stocks were relatively stronger.
+          </p>
+        </div>
+
+        <Card>
+          <CardHeader className="pb-2 space-y-2">
+            <div className="flex items-start justify-between gap-3">
+              <CardTitle className="text-sm">
+                Pelster &amp; Val (2024) — &ldquo;Can ChatGPT assist in picking stocks?&rdquo;
+              </CardTitle>
+              <a
+                href="https://www.sciencedirect.com/science/article/pii/S1544612323011583"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group text-trader-blue no-underline transition-colors hover:text-trader-blue/90 inline-flex items-center gap-1 text-xs shrink-0"
+              >
+                Read paper
+                <ExternalLink className="size-3.5 opacity-0 transition-opacity group-hover:opacity-100" />
+              </a>
+            </div>
+            <CardDescription>Finance Research Letters &middot; Primary reference</CardDescription>
+          </CardHeader>
+          <CardContent className="text-sm text-foreground/80 space-y-3">
+            <p>
+              <strong>Core idea:</strong> Live experiment testing whether ChatGPT-4 with web access can
+              rate S&amp;P 500 stocks on a &minus;5 to +5 <em>relative</em> attractiveness scale and
+              produce ratings that predict future returns.
+            </p>
+            <p>
+              <strong>Why no backtest:</strong> Historical testing is invalid because ChatGPT may have
+              been trained on future data. They run a live forward-only experiment — the same approach
+              we use.
+            </p>
+            <p>
+              <strong>Setup:</strong> S&amp;P 500 universe, ~2 months during the Q2 2023 earnings
+              season. Each stock rated from &minus;5 to +5 on both earnings surprise and relative
+              attractiveness. Web search results (last ~30 days) summarized and fed into the prompt —
+              very similar to our pipeline.
+            </p>
+            <p>
+              <strong>Why relative scoring matters:</strong> Ratings were explicitly framed as
+              cross-sectional — &ldquo;how attractive is this stock compared to all other S&amp;P 500
+              stocks?&rdquo; This is what makes the signal robust. Even during a period when every
+              quintile portfolio had negative absolute returns, the highest-rated stocks still lost
+              less than the lowest-rated ones (spread of +0.07%/day, t&#8209;stat 4.35). The AI
+              couldn&apos;t predict market direction, but it could reliably rank which stocks were
+              relatively stronger.
+            </p>
+            <div>
+              <p className="font-medium text-foreground mb-2">Key findings:</p>
+              <ul className="space-y-1 list-disc list-inside pl-2">
+                <li>AI attractiveness ratings positively correlate with future stock returns</li>
+                <li>Relative ranking holds even in negative-return markets</li>
+                <li>AI adjusts ratings in response to earnings and news in near real-time</li>
+                <li>Earnings forecasts add signal beyond analyst consensus</li>
+              </ul>
+            </div>
+            <div>
+              <p className="font-medium text-foreground mb-2">Limitations:</p>
+              <ul className="space-y-1 list-disc list-inside pl-2">
+                <li>Short time period (~2 months)</li>
+                <li>Not a production portfolio — quintile analysis only</li>
+                <li>Not tested over long horizons or different market regimes</li>
+              </ul>
+            </div>
+            <div className="rounded-md border bg-muted/30 p-3">
+              <p className="font-medium text-foreground text-xs mb-1">Our alignment:</p>
+              <ul className="text-xs text-muted-foreground space-y-0.5">
+                <li>Same live experiment approach, no backtesting</li>
+                <li>Same relative &minus;5 to +5 attractiveness rating scale</li>
+                <li>Same live web search for recent news, earnings, and analyst data</li>
+                <li>Same cross-sectional quintile and OLS regression framework</li>
+                <li>Extended to Nasdaq-100 and automated for continuous weekly execution</li>
+              </ul>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2 space-y-2">
+            <div className="flex items-start justify-between gap-3">
+              <CardTitle className="text-sm">
+                Ko &amp; Lee (2024) — &ldquo;Can ChatGPT improve investment decisions?&rdquo;
+              </CardTitle>
+              <a
+                href="https://www.sciencedirect.com/science/article/abs/pii/S154461232400463X"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group text-trader-blue no-underline transition-colors hover:text-trader-blue/90 inline-flex items-center gap-1 text-xs shrink-0"
+              >
+                Read paper
+                <ExternalLink className="size-3.5 opacity-0 transition-opacity group-hover:opacity-100" />
+              </a>
+            </div>
+            <CardDescription>Finance Research Letters &middot; Portfolio extension</CardDescription>
+          </CardHeader>
+          <CardContent className="text-sm text-foreground/80 space-y-3">
+            <p>
+              <strong>Core idea:</strong> Extended the research from individual stock ratings to
+              building full portfolios. Asked whether ChatGPT can select assets and build diversified
+              portfolios that outperform random selection — across stocks, bonds, commodities, and more.
+            </p>
+            <div>
+              <p className="font-medium text-foreground mb-2">Key findings:</p>
+              <ul className="space-y-1 list-disc list-inside pl-2">
+                <li>AI-selected portfolios show statistically better diversification than random selection</li>
+                <li>Portfolios built from AI picks outperform random portfolios</li>
+                <li>AI identifies abstract relationships between assets across different classes</li>
+                <li>Demonstrates AI potential as a co-pilot for portfolio management decisions</li>
+              </ul>
+            </div>
+            <div className="rounded-md border bg-muted/30 p-3">
+              <p className="font-medium text-foreground text-xs mb-1">Our alignment:</p>
+              <ul className="text-xs text-muted-foreground space-y-0.5">
+                <li>Portfolio from AI-ranked picks (Top 5 to Top 30, configurable)</li>
+                <li>Benchmarked against both cap-weight and equal-weight Nasdaq-100</li>
+                <li>Tracked live and unedited over multiple market conditions</li>
+              </ul>
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
+          <strong className="text-foreground">What we add beyond the papers:</strong> A fully
+          automated, live production system with real-time web search, versioned model portfolios,
+          forward-only performance tracking, transparent cost modeling, and public auditability. No
+          backtests used as marketing. No retroactive edits.
+        </div>
       </div>
     </section>
   );
@@ -413,15 +629,14 @@ function PortfolioValuesSection({
   slug,
   rankedConfigs,
   selectedPortfolioConfig,
-  onPortfolioConfigChange,
   sectionHrefBase,
 }: {
   slug: string;
   rankedConfigs: RankedConfig[];
   selectedPortfolioConfig: PortfolioConfigSlice | null;
-  onPortfolioConfigChange: (next: PortfolioConfigSlice) => void;
   sectionHrefBase: string;
 }) {
+  const router = useRouter();
   const [browseMode, setBrowseMode] = useState<'list' | 'chart'>('list');
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filterBeatNasdaq, setFilterBeatNasdaq] = useState(false);
@@ -511,19 +726,21 @@ function PortfolioValuesSection({
   );
 
   return (
-    <section id="portfolio-values" className="mb-10 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]">
+    <section id="portfolio-values" className="mb-10 scroll-mt-[4.5rem] md:scroll-mt-[5rem]">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="group flex flex-wrap items-center gap-x-1 text-2xl font-bold tracking-tight">
-            Portfolio values
-            <SectionHeadingAnchor
+          <h2 className="group relative flex flex-wrap items-center gap-x-1 text-2xl font-bold tracking-tight">
+            <SectionHeadingJumpLink
               fragmentId="portfolio-values"
               hrefBase={sectionHrefBase}
-              copyAbsoluteUrlOnClick
-            />
+              className="min-w-0"
+            >
+              Portfolio Returns
+            </SectionHeadingJumpLink>
+            <SectionHeadingAnchor fragmentId="portfolio-values" hrefBase={sectionHrefBase} />
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Compare the model&apos;s portfolio presets, then select one for the rest of this page.
+            Compare the model&apos;s portfolios. Click one to see detailed performance metrics and charts.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -595,7 +812,7 @@ function PortfolioValuesSection({
 
       <div className="rounded-xl border bg-card p-3 sm:p-4">
         {rankedConfigs.length === 0 ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">Portfolio values are loading.</p>
+          <p className="py-8 text-center text-sm text-muted-foreground">Portfolio returns are loading.</p>
         ) : filteredConfigs.length === 0 ? (
           <p className="py-8 text-center text-sm text-muted-foreground">
             No portfolios match the selected filters.
@@ -616,7 +833,11 @@ function PortfolioValuesSection({
               selectedConfigId={selectedConfig?.id ?? null}
               onSelectConfig={(configId) => {
                 const found = rankedConfigs.find((c) => c.id === configId);
-                if (found) onPortfolioConfigChange(rankedConfigToSlice(found));
+                if (!found) return;
+                const slice = rankedConfigToSlice(found);
+                router.push(
+                  `/strategy-models/${encodeURIComponent(slug)}/${encodeURIComponent(portfolioSliceToConfigSlug(slice))}`
+                );
               }}
             />
           )
@@ -625,18 +846,16 @@ function PortfolioValuesSection({
             {sortedRows.map((config, index) => {
               const selected = config.id === selectedConfig?.id;
               const riskColor = RETURNS_TABLE_RISK_DOT[config.riskLevel as RiskLevel] ?? 'bg-muted';
-              return (
-                <button
-                  key={config.id}
-                  type="button"
-                  onClick={() => onPortfolioConfigChange(rankedConfigToSlice(config))}
-                  className={cn(
-                    'flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors',
-                    selected
-                      ? 'border-primary/50 bg-primary/[0.06] ring-1 ring-primary/25'
-                      : 'border-border/50 hover:bg-muted/30'
-                  )}
-                >
+              const slice = rankedConfigToSlice(config);
+              const portfolioHref = `/strategy-models/${encodeURIComponent(slug)}/${encodeURIComponent(portfolioSliceToConfigSlug(slice))}`;
+              const rowClass = cn(
+                'flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors',
+                selected
+                  ? 'border-primary/50 bg-primary/[0.06] ring-1 ring-primary/25'
+                  : 'border-border/50 hover:bg-muted/30'
+              );
+              const rowInner = (
+                <>
                   <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted/60 text-sm font-bold tabular-nums">
                     {index + 1}
                   </span>
@@ -667,7 +886,17 @@ function PortfolioValuesSection({
                       </span>
                     ) : null}
                   </span>
-                </button>
+                </>
+              );
+              return (
+                <Link
+                  key={config.id}
+                  href={portfolioHref}
+                  prefetch={false}
+                  className={rowClass}
+                >
+                  {rowInner}
+                </Link>
               );
             })}
           </div>
@@ -688,13 +917,11 @@ function PublicPerformanceHoldingsLoadingSkeleton({
     <div className="space-y-4" aria-busy="true" aria-label="Loading portfolio holdings">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
         <div className="min-w-0 flex-1">
-          <h2 className="group text-2xl font-bold mb-1 flex flex-wrap items-center gap-x-1">
-            {sectionLabel}
-            <SectionHeadingAnchor
-              fragmentId="holdings"
-              hrefBase={sectionHrefBase}
-              copyAbsoluteUrlOnClick
-            />
+          <h2 className="group relative text-2xl font-bold mb-1 flex flex-wrap items-center gap-x-1">
+            <SectionHeadingJumpLink fragmentId="holdings" hrefBase={sectionHrefBase} className="min-w-0">
+              {sectionLabel}
+            </SectionHeadingJumpLink>
+            <SectionHeadingAnchor fragmentId="holdings" hrefBase={sectionHrefBase} />
           </h2>
           <Skeleton className="h-4 w-[18rem] max-w-full rounded-sm" />
         </div>
@@ -985,6 +1212,11 @@ type Props = {
   slug?: string;
   /** From the server page so first paint matches SSR (avoids hydration drift with `useSearchParams`). */
   initialSearchParamsString?: string;
+  initialPortfolioPerformance?: PublicPortfolioPerfApiPayload | null;
+  initialPortfolioSlice?: PortfolioConfigSlice | null;
+  portfolioPageLinks?: Array<{ href: string; label: string }>;
+  /** `model` = landing at `/strategy-models/[slug]`; `portfolio` = `/strategy-models/[slug]/[portfolio]` */
+  viewMode?: 'model' | 'portfolio';
 };
 
 function PerformancePagePublicClientInner({
@@ -992,7 +1224,12 @@ function PerformancePagePublicClientInner({
   strategies,
   slug,
   initialSearchParamsString = '',
+  initialPortfolioPerformance = null,
+  initialPortfolioSlice = null,
+  portfolioPageLinks = [],
+  viewMode = 'portfolio',
 }: Props) {
+  const isModelLanding = viewMode === 'model';
   const router = useRouter();
   const pathname = usePathname();
   const searchParamsFromNavigation = useSearchParams();
@@ -1007,13 +1244,13 @@ function PerformancePagePublicClientInner({
   const entitledToHoldings =
     authState.isLoaded && canViewPerformanceHoldingsForStrategy(access, slug);
   const [sidebarPortfolioConfig, setSidebarPortfolioConfig] = useState<PortfolioConfigSlice | null>(
-    null
+    initialPortfolioSlice
   );
   const [configPerfSlice, setConfigPerfSlice] = useState<PublicConfigPerfSlice | null>(null);
 
   useLayoutEffect(() => {
-    setSidebarPortfolioConfig(null);
-  }, [slug]);
+    setSidebarPortfolioConfig(initialPortfolioSlice);
+  }, [slug, initialPortfolioSlice]);
   const [quintileDate, setQuintileDate] = useState<string | null>(null);
   const [quintileView, setQuintileView] = useState<'allTime' | 'fourWeek' | 'weekly'>('allTime');
   const [fourWeekQuintileDate, setFourWeekQuintileDate] = useState<string | null>(null);
@@ -1057,14 +1294,30 @@ function PerformancePagePublicClientInner({
 
   const urlPortfolioSelection = useMemo(() => {
     if (!slug) return null;
-    return parsePerformancePortfolioConfigParam(new URLSearchParams(searchParamsString));
-  }, [slug, searchParamsString]);
+    const queryPortfolio = parsePerformancePortfolioConfigParam(
+      new URLSearchParams(searchParamsString)
+    );
+    if (queryPortfolio) return queryPortfolio;
+    const segments = pathname.split('/').filter(Boolean);
+    const portfolioSegment =
+      segments[0] === 'strategy-models' && segments[1] === slug ? segments[2] : null;
+    return portfolioSegment
+      ? parsePerformancePortfolioConfigPathSegment(decodeURIComponent(portfolioSegment))
+      : null;
+  }, [pathname, slug, searchParamsString]);
 
   const sectionHrefBase = `${pathname}${searchParamsString ? `?${searchParamsString}` : ''}`;
 
   const navigateToSelectedPortfolioSection = useCallback(() => {
     if (!slug) return;
-    const targetPath = `/performance/${slug}`;
+    const portfolioSlug = sidebarPortfolioConfig
+      ? portfolioSliceToConfigSlug(sidebarPortfolioConfig)
+      : initialPortfolioSlice
+        ? portfolioSliceToConfigSlug(initialPortfolioSlice)
+        : null;
+    const targetPath = portfolioSlug
+      ? `/strategy-models/${slug}/${portfolioSlug}`
+      : `/strategy-models/${slug}`;
     if (typeof window !== 'undefined' && window.location.pathname === targetPath) {
       const qs = window.location.search ?? '';
       window.history.replaceState(
@@ -1083,7 +1336,7 @@ function PerformancePagePublicClientInner({
       });
     };
     requestAnimationFrame(() => requestAnimationFrame(runScroll));
-  }, [router, searchParamsString, slug]);
+  }, [initialPortfolioSlice, router, searchParamsString, sidebarPortfolioConfig, slug]);
 
   const portfolioPerf = usePublicPortfolioConfigPerformance({
     slug: slug ?? '',
@@ -1093,35 +1346,46 @@ function PerformancePagePublicClientInner({
     onPortfolioConfigChange: setSidebarPortfolioConfig,
     onSliceChange: setConfigPerfSlice,
     urlPortfolioSelection,
+    initialPortfolioPerformance,
+    initialPortfolioSlice,
+    perfFetchDisabled: isModelLanding,
   });
 
-  // URL → sidebar: only when the query string changes (avoids fighting user-driven portfolio picks).
+  // URL → sidebar: only when the URL selection changes (avoids fighting user-driven portfolio picks).
   // useLayoutEffect so this runs before passive state→URL effects in the same turn, avoiding stale portfolioConfig rewriting the URL.
   useLayoutEffect(() => {
+    if (isModelLanding) return;
     if (!slug || portfolioPerf.rankedConfigs.length === 0) return;
 
-    if (lastSyncedSearchParamsStringRef.current === searchParamsString) return;
+    const urlKey = `${pathname}?${searchParamsString}`;
+    if (lastSyncedSearchParamsStringRef.current === urlKey) return;
 
-    const parsed = parsePerformancePortfolioConfigParam(
-      new URLSearchParams(searchParamsString)
-    );
+    const parsed = urlPortfolioSelection;
     if (
       !parsed ||
       !portfolioSliceIsInRankedList(parsed, portfolioPerf.rankedConfigs)
     ) {
-      lastSyncedSearchParamsStringRef.current = searchParamsString;
+      lastSyncedSearchParamsStringRef.current = urlKey;
       return;
     }
 
-    lastSyncedSearchParamsStringRef.current = searchParamsString;
+    lastSyncedSearchParamsStringRef.current = urlKey;
     setSidebarPortfolioConfig(parsed);
-  }, [slug, searchParamsString, portfolioPerf.rankedConfigs]);
+  }, [
+    isModelLanding,
+    pathname,
+    slug,
+    searchParamsString,
+    urlPortfolioSelection,
+    portfolioPerf.rankedConfigs,
+  ]);
 
-  // Sidebar → URL: keep `portfolio` in sync; preserve hash and non-portfolio query keys.
+  // Sidebar → URL: keep the path portfolio segment in sync; preserve hash and non-portfolio query keys.
   // Server routes (`getCanonicalPerformancePathIfNeeded`) already normalize missing/invalid `portfolio`
   // and strip legacy `risk`/`frequency`/`weighting` when ranked data is available — this effect is
   // for user-driven portfolio changes and for the fallback when the server could not canonicalize.
   useEffect(() => {
+    if (isModelLanding) return;
     if (!slug) return;
     const ranked = portfolioPerf.rankedConfigs;
     const config = portfolioPerf.portfolioConfig;
@@ -1129,14 +1393,17 @@ function PerformancePagePublicClientInner({
     if (!portfolioSliceIsInRankedList(config, ranked)) return;
 
     const params = new URLSearchParams(searchParamsString);
-    if (portfolioConfigParamMatchesSearchParams(params, config, ranked)) return;
-
-    const nextParams = mergePortfolioIntoSearchParams(params, config, ranked);
-    const hash = typeof window !== 'undefined' ? window.location.hash : '';
+    const portfolioSlug = portfolioSliceToConfigSlug(config);
+    const desiredPath = `/strategy-models/${slug}/${portfolioSlug}`;
+    const nextParams = stripPerformancePortfolioSearchParams(params);
     const q = nextParams.toString();
-    const path = q ? `${pathname}?${q}` : pathname;
-    router.replace(`${path}${hash}`, { scroll: false });
+    const nextUrl = q ? `${desiredPath}?${q}` : desiredPath;
+    if (pathname === desiredPath && q === params.toString()) return;
+
+    const hash = typeof window !== 'undefined' ? window.location.hash : '';
+    router.replace(`${nextUrl}${hash}`, { scroll: false });
   }, [
+    isModelLanding,
     pathname,
     portfolioPerf.portfolioConfig,
     portfolioPerf.rankedConfigs,
@@ -1364,6 +1631,27 @@ function PerformancePagePublicClientInner({
   ]);
 
   const effectiveStrategy = payload.strategy ?? null;
+  const isAit1ModelLanding = isModelLanding && effectiveStrategy?.slug === 'ait-1-daneel';
+  const performanceBreadcrumbPortfolioLabel = useMemo(() => {
+    if (isModelLanding || !slug) return null;
+    const pc = portfolioPerf.portfolioConfig;
+    if (!pc) {
+      const segments = pathname.split('/').filter(Boolean);
+      const portfolioSegment =
+        segments[0] === 'strategy-models' && segments[1] === slug ? segments[2] : null;
+      return portfolioSegment ? decodeURIComponent(portfolioSegment) : null;
+    }
+    const row = portfolioPerf.rankedConfigs.find((c) => portfolioSliceMatchesRankedRow(pc, c));
+    if (row?.label) return row.label;
+    return portfolioSliceToConfigSlug(pc);
+  }, [
+    isModelLanding,
+    pathname,
+    portfolioPerf.portfolioConfig,
+    portfolioPerf.rankedConfigs,
+    slug,
+  ]);
+
   const series = useMemo(() => payload.series ?? [], [payload.series]);
   const metrics = useMemo(() => payload.metrics ?? null, [payload.metrics]);
   const research = useMemo(() => payload.research ?? null, [payload.research]);
@@ -1380,7 +1668,7 @@ function PerformancePagePublicClientInner({
     configPerfSlice.computeStatus === 'ready' &&
     configPerfSlice.fullMetrics != null;
 
-  /** Portfolio-scoped metrics only when they match the current selection; never fall back to payload metrics on /performance/[slug] while a preset is selected. */
+  /** Portfolio-scoped metrics only when they match the current selection; never fall back to payload metrics on /strategy-models/[slug] while a preset is selected. */
   const displayMetrics =
     slug && portfolioPerf.portfolioConfig != null
       ? configMetricsReady
@@ -1397,9 +1685,32 @@ function PerformancePagePublicClientInner({
     !configMetricsReady;
 
   const performanceTableOfContents = useMemo(() => {
-    const entries = PERFORMANCE_TOC_BASE.map((item) =>
+    const modelTocIds = new Set([
+      'strategy-model',
+      'portfolio-values',
+      'model-overview',
+      'model-overview-prompt-design',
+      'research-validation',
+      'reality-checks',
+    ]);
+    if (isAit1ModelLanding) modelTocIds.add('model-methodology');
+    const portfolioTocExclude = new Set([
+      'strategy-model',
+      'portfolio-values',
+      'model-overview',
+      'model-overview-prompt-design',
+      'model-methodology',
+      'research-validation',
+      'reality-checks',
+    ]);
+    const base =
+      isModelLanding === true
+        ? PERFORMANCE_TOC_BASE.filter((item) => modelTocIds.has(item.id))
+        : PERFORMANCE_TOC_BASE.filter((item) => !portfolioTocExclude.has(item.id));
+    const entries = base.map((item) =>
       item.id === 'holdings' ? { ...item, label: holdingsSectionLabel } : { ...item }
     );
+    if (isModelLanding) return entries;
     if (!displayMetrics && !overviewPortfolioDataLoading) return entries;
     const overviewIdx = entries.findIndex((e) => e.id === 'overview');
     if (overviewIdx < 0) return entries;
@@ -1408,7 +1719,13 @@ function PerformancePagePublicClientInner({
       label: '↳ Metrics at-a-glance',
     });
     return entries;
-  }, [displayMetrics, holdingsSectionLabel, overviewPortfolioDataLoading]);
+  }, [
+    displayMetrics,
+    holdingsSectionLabel,
+    isAit1ModelLanding,
+    isModelLanding,
+    overviewPortfolioDataLoading,
+  ]);
 
   const displaySeries = useMemo(
     () =>
@@ -1910,51 +2227,86 @@ function PerformancePagePublicClientInner({
   const sidebarSlot =
     strategies.length > 0 ? (
       <>
-        <StrategyModelSidebarDropdown
-          strategies={strategies}
-          selectedSlug={effectiveStrategy?.slug}
-          onSelectStrategy={(s) => {
-            router.push(`/performance/${s}`);
-          }}
-        >
-          {effectiveStrategy && (
-            <div className="space-y-0.5">
-              {isBestSelected ? (
-                <div className="flex items-start gap-1.5 text-xs min-h-7 py-1.5 px-1 whitespace-normal text-left leading-snug text-muted-foreground">
-                  <Star className="size-3 shrink-0 mt-0.5" fill="currentColor" />
-                  <span>
-                    Top performing strategy model{' '}
-                    <Link
-                      href={`/whitepaper/${STRATEGY_CONFIG.slug}#model-ranking`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="group inline-flex items-center font-medium text-trader-blue dark:text-trader-blue-light underline-offset-2 transition hover:underline"
-                    >
-                      (by composite ranking)
-                      <ExternalLink
-                        className="size-3 shrink-0 ml-1 mt-0.5 opacity-0 transition-opacity group-hover:opacity-100"
-                        aria-hidden
-                      />
-                    </Link>
-                  </span>
-                </div>
-              ) : null}
-              <Button
-                asChild
-                variant="ghost"
-                size="sm"
-                className="w-full justify-start gap-1.5 text-xs h-7 px-1"
-              >
-                <Link href={`/performance/${effectiveStrategy.slug}#model-overview`}>
-                  <ExternalLink className="size-3 shrink-0" />
-                  How this model works
-                </Link>
-              </Button>
+        {isModelLanding ? (
+          <StrategyModelSidebarDropdown
+            strategies={strategies}
+            selectedSlug={effectiveStrategy?.slug}
+            onSelectStrategy={(s) => {
+              router.push(`/strategy-models/${s}`);
+            }}
+          >
+            {effectiveStrategy && (
+              <div className="space-y-0.5">
+                {isBestSelected ? (
+                  <div className="flex items-start gap-1.5 text-xs min-h-7 py-1.5 px-1 whitespace-normal text-left leading-snug text-muted-foreground">
+                    <Star className="size-3 shrink-0 mt-0.5" fill="currentColor" />
+                    <span>
+                      Top performing strategy model{' '}
+                      <Link
+                        href="/whitepaper#model-ranking"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="group inline-flex items-center font-medium text-trader-blue no-underline transition-opacity hover:opacity-90 dark:text-trader-blue-light"
+                      >
+                        (by composite ranking)
+                        <ExternalLink
+                          className="size-3 shrink-0 ml-1 mt-0.5 opacity-0 transition-opacity group-hover:opacity-100"
+                          aria-hidden
+                        />
+                      </Link>
+                    </span>
+                  </div>
+                ) : null}
+                <Button
+                  asChild
+                  variant="ghost"
+                  size="sm"
+                  className="w-full justify-start gap-1.5 text-xs h-7 px-1"
+                >
+                  <Link href={`/strategy-models/${effectiveStrategy.slug}#model-overview`}>
+                    <ExternalLink className="size-3 shrink-0" />
+                    How this model works
+                  </Link>
+                </Button>
+              </div>
+            )}
+          </StrategyModelSidebarDropdown>
+        ) : effectiveStrategy ? (
+          <div className="space-y-4 border-b border-border pt-5 pb-4">
+            <div className="space-y-1.5">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Strategy model
+              </p>
+              <p className="text-[10px] leading-snug text-muted-foreground">
+                Which AI rates the stocks
+              </p>
             </div>
-          )}
-        </StrategyModelSidebarDropdown>
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              className="group w-full justify-between gap-2 text-left transition-colors hover:border-primary/50 hover:bg-primary/[0.04]"
+              aria-label={`Back to model list (currently viewing ${effectiveStrategy.name})`}
+            >
+              <Link href="/strategy-models">
+                <span className="flex min-w-0 items-center gap-2">
+                  <ArrowLeft
+                    className="size-3.5 shrink-0 text-primary transition-transform group-hover:-translate-x-0.5"
+                    aria-hidden
+                  />
+                  <span className="truncate">{effectiveStrategy.name}</span>
+                </span>
+                {isBestSelected ? (
+                  <Badge className="shrink-0 border-0 bg-trader-blue px-1.5 py-0 text-xs text-white">
+                    Top
+                  </Badge>
+                ) : null}
+              </Link>
+            </Button>
+          </div>
+        ) : null}
 
-        {slug ? (
+        {slug && !isModelLanding ? (
           <div className="pt-6 pb-4">
             <SidebarPortfolioConfigPicker
               key={slug}
@@ -1975,39 +2327,121 @@ function PerformancePagePublicClientInner({
       tableOfContents={performanceTableOfContents}
       sidebarSlot={sidebarSlot}
       tocPosition="right"
+      contentClassName="mt-6 md:mt-8"
     >
+      {portfolioPageLinks.length > 0 ? (
+        <nav className="sr-only" aria-label="Portfolio performance pages">
+          <ul>
+            {portfolioPageLinks.map((link) => (
+              <li key={link.href}>
+                <Link href={link.href}>{link.label}</Link>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      ) : null}
       {effectiveStrategy ? (
-        <section id="strategy-model" className="mb-10 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]">
-          <h2 className="group text-2xl font-bold tracking-tight text-foreground mb-4 flex flex-wrap items-center gap-x-1">
-            Strategy model
-            <SectionHeadingAnchor fragmentId="strategy-model" hrefBase={sectionHrefBase}
-            copyAbsoluteUrlOnClick />
-          </h2>
-          <ModelHeaderCard
-            name={effectiveStrategy.name}
-            slug={effectiveStrategy.slug}
-            description={formatStrategyDescriptionForDisplay(effectiveStrategy.description)}
-            status={effectiveStrategy.status}
-            isTopPerformer={isBestSelected}
-            startDate={effectiveStrategy.startDate}
-            weeklyRunCount={effectiveStrategy.runCount}
-            rebalanceFrequency={effectiveStrategy.rebalanceFrequency}
-            modelProvider={effectiveStrategy.modelProvider}
-            modelName={effectiveStrategy.modelName}
-            variant="performance"
-            beatMarketSlug={effectiveStrategy.slug}
-            crossSectionRegression={headerCrossSectionRegression}
-            researchValidationHref="#research-signal-strength"
-          />
-        </section>
+        <>
+          <div className="mb-6 scroll-mt-[4.5rem] md:scroll-mt-[5rem]">
+            <Breadcrumb>
+              <BreadcrumbList>
+                <BreadcrumbItem>
+                  <BreadcrumbLink asChild>
+                    <Link href="/strategy-models">Model list</Link>
+                  </BreadcrumbLink>
+                </BreadcrumbItem>
+                <BreadcrumbSeparator />
+                <BreadcrumbItem className="min-w-0">
+                  {isModelLanding ? (
+                    <BreadcrumbPage className="truncate">
+                      {effectiveStrategy.name}
+                    </BreadcrumbPage>
+                  ) : (
+                    <BreadcrumbLink asChild className="max-w-full">
+                      <Link
+                        href={`/strategy-models/${encodeURIComponent(slug ?? effectiveStrategy.slug)}`}
+                        className="block truncate"
+                      >
+                        {effectiveStrategy.name}
+                      </Link>
+                    </BreadcrumbLink>
+                  )}
+                </BreadcrumbItem>
+                {!isModelLanding ? (
+                  <>
+                    <BreadcrumbSeparator />
+                    <BreadcrumbItem className="min-w-0">
+                      <BreadcrumbPage className="truncate">
+                        {performanceBreadcrumbPortfolioLabel ?? 'Portfolio'}
+                      </BreadcrumbPage>
+                    </BreadcrumbItem>
+                  </>
+                ) : null}
+              </BreadcrumbList>
+            </Breadcrumb>
+          </div>
+
+          {isModelLanding ? (
+            <section id="strategy-model" className="mb-10 scroll-mt-[4.5rem] md:scroll-mt-[5rem]">
+              <div
+                className={cn(
+                  'mb-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-2'
+                )}
+              >
+                <h2 className="group relative flex min-w-0 flex-1 flex-wrap items-center gap-x-1 text-2xl font-bold tracking-tight text-foreground">
+                  <SectionHeadingJumpLink
+                    fragmentId="strategy-model"
+                    hrefBase={sectionHrefBase}
+                    className="min-w-0"
+                  >
+                    Strategy model
+                  </SectionHeadingJumpLink>
+                  <SectionHeadingAnchor fragmentId="strategy-model" hrefBase={sectionHrefBase} />
+                </h2>
+                <Button asChild size="sm" className="shrink-0 gap-1.5">
+                  <Link href="/platform/ratings">
+                    Stock ratings
+                    <ArrowRight className="size-3.5 shrink-0" />
+                  </Link>
+                </Button>
+              </div>
+              <ModelHeaderCard
+                name={effectiveStrategy.name}
+                slug={effectiveStrategy.slug}
+                description={formatStrategyDescriptionForDisplay(effectiveStrategy.description)}
+                status={effectiveStrategy.status}
+                isTopPerformer={isBestSelected}
+                startDate={effectiveStrategy.startDate}
+                weeklyRunCount={effectiveStrategy.runCount}
+                rebalanceFrequency={effectiveStrategy.rebalanceFrequency}
+                modelProvider={effectiveStrategy.modelProvider}
+                modelName={effectiveStrategy.modelName}
+                variant="performance"
+                beatMarketSlug={effectiveStrategy.slug}
+                crossSectionRegression={headerCrossSectionRegression}
+                researchValidationHref="#research-signal-strength"
+              />
+            </section>
+          ) : null}
+        </>
       ) : null}
 
-      {slug ? (
-        <section id="selected-portfolio" className="mb-10 scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]">
-          <h2 className="group text-2xl font-bold tracking-tight text-foreground mb-4 flex flex-wrap items-center gap-x-1">
-            Selected portfolio
-            <SectionHeadingAnchor fragmentId="selected-portfolio" hrefBase={sectionHrefBase}
-            copyAbsoluteUrlOnClick />
+      {slug && isModelLanding ? (
+        <PortfolioValuesSection
+          slug={slug}
+          rankedConfigs={portfolioPerf.rankedConfigs}
+          selectedPortfolioConfig={portfolioPerf.portfolioConfig}
+          sectionHrefBase={sectionHrefBase}
+        />
+      ) : null}
+
+      {slug && !isModelLanding ? (
+        <section id="selected-portfolio" className="mb-10 scroll-mt-[4.5rem] md:scroll-mt-[5rem]">
+          <h2 className="group relative text-2xl font-bold tracking-tight text-foreground mb-4 flex flex-wrap items-center gap-x-1">
+            <SectionHeadingJumpLink fragmentId="selected-portfolio" hrefBase={sectionHrefBase} className="min-w-0">
+              Selected portfolio
+            </SectionHeadingJumpLink>
+            <SectionHeadingAnchor fragmentId="selected-portfolio" hrefBase={sectionHrefBase} />
           </h2>
           <PortfolioAtAGlanceCard
             portfolioConfig={portfolioPerf.portfolioConfig}
@@ -2023,32 +2457,31 @@ function PerformancePagePublicClientInner({
         </section>
       ) : null}
 
-      {slug ? (
-        <PortfolioValuesSection
-          slug={slug}
-          rankedConfigs={portfolioPerf.rankedConfigs}
-          selectedPortfolioConfig={portfolioPerf.portfolioConfig}
-          onPortfolioConfigChange={setSidebarPortfolioConfig}
-          sectionHrefBase={sectionHrefBase}
-        />
-      ) : null}
-
-      {effectiveStrategy ? (
+      {effectiveStrategy && isModelLanding ? (
         <ModelOverviewSections strategy={effectiveStrategy} hrefBase={sectionHrefBase} />
       ) : null}
 
+      {effectiveStrategy && isAit1ModelLanding ? (
+        <Ait1MethodologyResearchSection strategy={effectiveStrategy} hrefBase={sectionHrefBase} />
+      ) : null}
+
+      {!isModelLanding ? (
+      <>
       {/* ── A: Overview ─────────────────────────────────────────────────── */}
       <section id="overview" className="space-y-5 mb-10">
-        <div className="mb-2 space-y-1.5">
-          <div className="group inline-flex flex-wrap items-baseline gap-x-1">
-            <h2 className="text-2xl font-bold">Performance Overview</h2>
-            <SectionHeadingAnchor fragmentId="overview" hrefBase={sectionHrefBase}
-            copyAbsoluteUrlOnClick />
+        <div className="mb-2 flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
+          <div className="inline-flex min-w-0 flex-1 flex-wrap items-baseline gap-x-1">
+            <h2 className="group relative inline-flex flex-wrap items-baseline gap-x-1 text-2xl font-bold">
+              <SectionHeadingJumpLink fragmentId="overview" hrefBase={sectionHrefBase} className="min-w-0">
+                Performance Overview
+              </SectionHeadingJumpLink>
+              <SectionHeadingAnchor fragmentId="overview" hrefBase={sectionHrefBase} />
+            </h2>
           </div>
           {overviewPortfolioDataLoading ? (
-            <Skeleton className="h-5 w-64 max-w-full" aria-hidden />
+            <Skeleton className="h-5 w-56 max-w-full shrink-0 sm:max-w-[min(100%,20rem)]" aria-hidden />
           ) : performanceOverviewSubtitle ? (
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-normal tracking-normal text-muted-foreground">
+            <div className="flex max-w-full shrink-0 flex-wrap items-center justify-end gap-x-2 gap-y-1 text-right text-sm font-normal tracking-normal text-muted-foreground sm:max-w-[min(100%,28rem)]">
               {performanceOverviewSubtitle.showDiscontinued ? (
                 <>
                   <span className="font-medium text-foreground/90">Discontinued</span>
@@ -2077,15 +2510,10 @@ function PerformancePagePublicClientInner({
                   </span>
                 </>
               ) : null}
-              <span>{performanceOverviewSubtitle.configLine}</span>
+              <span className="min-w-0">{performanceOverviewSubtitle.configLine}</span>
             </div>
           ) : null}
         </div>
-
-        <p className="text-sm text-muted-foreground max-w-3xl">
-          Simulated growth of <strong>$10,000</strong> from inception, net of trading
-          costs, versus benchmarks.
-        </p>
 
         {slug ? (
           overviewPortfolioDataLoading ? (
@@ -2116,78 +2544,6 @@ function PerformancePagePublicClientInner({
           <div className="flex items-center justify-center h-[200px] rounded-lg border bg-muted/30 text-sm text-muted-foreground">
             Performance data not yet available. Check back after the first rebalance run.
           </div>
-        )}
-
-        {(slug || series.length > 1) && (
-          <Accordion type="single" collapsible className="rounded-lg border bg-card px-4">
-            <AccordionItem value="chart-lines" className="border-0">
-              <AccordionTrigger className="text-sm font-medium py-3 hover:no-underline text-left">
-                Equal vs. cap weighting (and what each line shows)
-              </AccordionTrigger>
-              <AccordionContent className="text-sm text-muted-foreground space-y-5 pb-4">
-                <p className="text-foreground/90 leading-relaxed">
-                  <strong className="text-foreground">Equal weight</strong> splits dollars evenly
-                  across holdings. <strong className="text-foreground">Cap weight</strong> tilts
-                  toward larger companies. Major indices often do this.
-                </p>
-
-                <div>
-                  <p className="text-[11px] uppercase tracking-wide text-foreground font-semibold mb-2">
-                    AI strategy ({effectiveStrategy?.name ?? 'selected model'})
-                  </p>
-                  <p className="leading-relaxed">
-                    The strategy line shows simulated growth of this model&apos;s portfolio rules
-                    (see &ldquo;What you are looking at&rdquo; below), starting from $10,000 and{' '}
-                    <strong className="text-foreground">net of trading costs</strong>. Your
-                    portfolio may use equal or cap weighting depending on settings—use the colored
-                    chips on the chart to show or hide each series.
-                  </p>
-                </div>
-
-                <div className="flex flex-col gap-3 rounded-lg border border-border/80 bg-muted/20 p-3 sm:flex-row sm:items-start sm:gap-4">
-                  <CapWeightMiniPie className="size-16 sm:size-[4.5rem] mx-auto sm:mx-0 shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-[11px] uppercase tracking-wide text-foreground font-semibold mb-1">
-                      Nasdaq-100 (cap-weighted)
-                    </p>
-                    <p className="leading-relaxed">
-                      Bigger companies carry more weight. Apple, Microsoft, and Nvidia have far more
-                      influence on this index than smaller Nasdaq-100 names—similar to the
-                      cap-weight pie (one large slice, many small ones).
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-3 rounded-lg border border-border/80 bg-muted/20 p-3 sm:flex-row sm:items-start sm:gap-4">
-                  <EqualWeightMiniPie className="size-16 sm:size-[4.5rem] mx-auto sm:mx-0 shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-[11px] uppercase tracking-wide text-foreground font-semibold mb-1">
-                      Nasdaq-100 (equal-weighted)
-                    </p>
-                    <p className="leading-relaxed">
-                      Every Nasdaq-100 stock has the same weight. Mega-cap stocks do not dominate
-                      results, making this a fairer comparison for concentrated strategies—like the
-                      equal slices in the pie.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-3 rounded-lg border border-border/80 bg-muted/20 p-3 sm:flex-row sm:items-start sm:gap-4">
-                  <CapWeightMiniPie className="size-16 sm:size-[4.5rem] mx-auto sm:mx-0 shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-[11px] uppercase tracking-wide text-foreground font-semibold mb-1">
-                      S&amp;P 500 (cap-weighted)
-                    </p>
-                    <p className="leading-relaxed">
-                      A broad US market benchmark of 500 large companies, weighted by market cap.
-                      Widely used as the standard for comparing active strategies—again, larger
-                      names drive more of the return than small ones.
-                    </p>
-                  </div>
-                </div>
-              </AccordionContent>
-            </AccordionItem>
-          </Accordion>
         )}
 
         {!overviewPortfolioDataLoading && displayMetrics ? (
@@ -2233,8 +2589,7 @@ function PerformancePagePublicClientInner({
                           className={`text-xs font-normal ${outperformanceVsCap >= 0 ? 'text-green-600' : 'text-red-500'}`}
                         >
                           {outperformanceVsCap >= 0 ? '+' : ''}
-                          {(outperformanceVsCap * 100).toFixed(1)}% vs Nasdaq-100 (cap-weighted,
-                          cumulative)
+                          {(outperformanceVsCap * 100).toFixed(1)}% vs Nasdaq-100 (cumulative)
                         </div>
                       )}
                     </div>
@@ -2248,9 +2603,7 @@ function PerformancePagePublicClientInner({
                   </TableCell>
                 </TableRow>
                 <TableRow>
-                  <TableCell className="text-muted-foreground">
-                    Nasdaq-100 (cap-weighted)
-                  </TableCell>
+                  <TableCell className="text-muted-foreground">Nasdaq-100</TableCell>
                   <TableCell className="text-right">
                     {fmt.pct(effectiveDisplayMetrics?.benchmarks.nasdaq100CapWeight.totalReturn)}
                   </TableCell>
@@ -2262,23 +2615,7 @@ function PerformancePagePublicClientInner({
                   </TableCell>
                 </TableRow>
                 <TableRow>
-                  <TableCell className="text-muted-foreground">
-                    Nasdaq-100 (equal-weighted)
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {fmt.pct(effectiveDisplayMetrics?.benchmarks.nasdaq100EqualWeight.totalReturn)}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {fmt.pct(effectiveDisplayMetrics?.benchmarks.nasdaq100EqualWeight.cagr)}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {fmt.pct(effectiveDisplayMetrics?.benchmarks.nasdaq100EqualWeight.maxDrawdown)}
-                  </TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell className="text-muted-foreground">
-                    S&amp;P 500 (cap-weighted)
-                  </TableCell>
+                  <TableCell className="text-muted-foreground">S&amp;P 500</TableCell>
                   <TableCell className="text-right">
                     {fmt.pct(effectiveDisplayMetrics?.benchmarks.sp500.totalReturn)}
                   </TableCell>
@@ -2304,12 +2641,13 @@ function PerformancePagePublicClientInner({
         {(displayMetrics || overviewPortfolioDataLoading) && (
           <div
             id="overview-metrics"
-            className="scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
+            className="scroll-mt-[4.5rem] md:scroll-mt-[5rem]"
           >
-            <h3 className="group text-lg font-semibold tracking-tight text-foreground mb-3 flex flex-wrap items-center gap-x-1">
-              Metrics at-a-glance
-              <SectionHeadingAnchor fragmentId="overview-metrics" hrefBase={sectionHrefBase}
-            copyAbsoluteUrlOnClick />
+            <h3 className="group relative text-lg font-semibold tracking-tight text-foreground mb-3 flex flex-wrap items-center gap-x-1">
+              <SectionHeadingJumpLink fragmentId="overview-metrics" hrefBase={sectionHrefBase} className="min-w-0">
+                Metrics at-a-glance
+              </SectionHeadingJumpLink>
+              <SectionHeadingAnchor fragmentId="overview-metrics" hrefBase={sectionHrefBase} />
             </h3>
             {overviewPortfolioDataLoading ? (
               <div
@@ -2343,9 +2681,9 @@ function PerformancePagePublicClientInner({
                     positive={(effectiveDisplayMetrics?.totalReturn ?? 0) > 0}
                   />
                   <FlipCard
-                    label="Performance vs S&P 500 (cap)"
+                    label="Performance vs S&P 500"
                     value={fmt.pct(outperformanceVsSp500)}
-                    explanation="Cumulative portfolio return minus the S&P 500 cap-weight benchmark over the same dates. Positive means the model added more percentage points than the index."
+                    explanation="Cumulative portfolio return minus the S&P 500 benchmark over the same dates. Positive means the model added more percentage points than the index."
                     positive={(outperformanceVsSp500 ?? 0) > 0}
                   />
                   <FlipCard
@@ -2408,31 +2746,31 @@ function PerformancePagePublicClientInner({
                       positiveTone="brand"
                     />
                     <FlipCard
-                      label="Performance vs Nasdaq-100 (cap)"
+                      label="Performance vs Nasdaq-100"
                       value={fmt.pct(outperformanceVsCap)}
-                      explanation="Cumulative return on the portfolio minus the cumulative return on the Nasdaq-100 cap-weight benchmark over the full tracked period—both starting from the same $10,000. Positive means the strategy added more percentage points than the index over that span."
+                      explanation="Cumulative return on the portfolio minus the cumulative return on the Nasdaq-100 benchmark over the full tracked period—both starting from the same $10,000. Positive means the strategy added more percentage points than the index over that span."
                       positive={(outperformanceVsCap ?? 0) > 0}
                     />
                     <FlipCard
-                      label="Performance vs Nasdaq-100 (equal)"
+                      label="Performance vs Nasdaq-100 (equal-weight)"
                       value={fmt.pct(outperformanceVsNasdaqEqual)}
                       explanation="Cumulative return on the portfolio minus the cumulative return on the Nasdaq-100 equal-weight benchmark over the full tracked period. Positive means the strategy added more percentage points than the equal-weight index."
                       positive={(outperformanceVsNasdaqEqual ?? 0) > 0}
                     />
                     <FlipCard
-                      label="% weeks beating Nasdaq-100 (cap)"
+                      label="% weeks beating Nasdaq-100"
                       value={fmt.pct(effectiveDisplayMetrics?.pctWeeksBeatingNasdaq100, 0)}
-                      explanation="How often this portfolio's weekly return exceeded the Nasdaq-100 cap-weighted index's weekly return. 50% means it matched the benchmark half the time week by week. Above 50% means it wins more weeks than it loses."
+                      explanation="How often this portfolio's weekly return exceeded the Nasdaq-100 index's weekly return. 50% means it matched the benchmark half the time week by week. Above 50% means it wins more weeks than it loses."
                       positive={(effectiveDisplayMetrics?.pctWeeksBeatingNasdaq100 ?? 0) > 0.5}
                     />
                     <FlipCard
-                      label="% weeks beating S&P 500 (cap)"
+                      label="% weeks beating S&P 500"
                       value={fmt.pct(effectiveDisplayMetrics?.pctWeeksBeatingSp500, 0)}
-                      explanation="How often this portfolio's weekly return exceeded the S&P 500 cap-weighted benchmark's weekly return. Above 50% means it wins more weeks than it loses."
+                      explanation="How often this portfolio's weekly return exceeded the S&P 500 benchmark's weekly return. Above 50% means it wins more weeks than it loses."
                       positive={(effectiveDisplayMetrics?.pctWeeksBeatingSp500 ?? 0) > 0.5}
                     />
                     <FlipCard
-                      label="% weeks beating Nasdaq-100 (equal)"
+                      label="% weeks beating Nasdaq-100 (equal-weight)"
                       value={fmt.pct(effectiveDisplayMetrics?.pctWeeksBeatingNasdaq100EqualWeight, 0)}
                       explanation="How often this portfolio's weekly return exceeded the Nasdaq-100 equal-weight benchmark's weekly return. Above 50% means it wins more weeks than it loses."
                       positive={(effectiveDisplayMetrics?.pctWeeksBeatingNasdaq100EqualWeight ?? 0) > 0.5}
@@ -2448,10 +2786,11 @@ function PerformancePagePublicClientInner({
 
       {/* ── B: What you are looking at ──────────────────────────────────── */}
       <section id="what-you-see" className="mb-10">
-        <h2 className="group text-2xl font-bold mb-4 flex flex-wrap items-center gap-x-1">
-          What you are looking at
-          <SectionHeadingAnchor fragmentId="what-you-see" hrefBase={sectionHrefBase}
-            copyAbsoluteUrlOnClick />
+        <h2 className="group relative text-2xl font-bold mb-4 flex flex-wrap items-center gap-x-1">
+          <SectionHeadingJumpLink fragmentId="what-you-see" hrefBase={sectionHrefBase} className="min-w-0">
+            What you are looking at
+          </SectionHeadingJumpLink>
+          <SectionHeadingAnchor fragmentId="what-you-see" hrefBase={sectionHrefBase} />
         </h2>
         {effectiveStrategy && (
           <div className="rounded-lg border bg-muted/30 p-5 space-y-3">
@@ -2544,10 +2883,11 @@ function PerformancePagePublicClientInner({
           <>
             <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
               <div className="min-w-0 flex-1">
-                <h2 className="group text-2xl font-bold mb-1 flex flex-wrap items-center gap-x-1">
-                  {holdingsSectionLabel}
-                  <SectionHeadingAnchor fragmentId="holdings" hrefBase={sectionHrefBase}
-            copyAbsoluteUrlOnClick />
+                <h2 className="group relative text-2xl font-bold mb-1 flex flex-wrap items-center gap-x-1">
+                  <SectionHeadingJumpLink fragmentId="holdings" hrefBase={sectionHrefBase} className="min-w-0">
+                    {holdingsSectionLabel}
+                  </SectionHeadingJumpLink>
+                  <SectionHeadingAnchor fragmentId="holdings" hrefBase={sectionHrefBase} />
                 </h2>
                 <p className="text-sm text-muted-foreground">
                   Positions for the selected portfolio ({portfolioHoldingsSubtitle}).
@@ -2688,10 +3028,11 @@ function PerformancePagePublicClientInner({
           </>
         ) : (
           <>
-            <h2 className="group text-2xl font-bold mb-2 flex flex-wrap items-center gap-x-1">
-              {holdingsSectionLabel}
-              <SectionHeadingAnchor fragmentId="holdings" hrefBase={sectionHrefBase}
-            copyAbsoluteUrlOnClick />
+            <h2 className="group relative text-2xl font-bold mb-2 flex flex-wrap items-center gap-x-1">
+              <SectionHeadingJumpLink fragmentId="holdings" hrefBase={sectionHrefBase} className="min-w-0">
+                {holdingsSectionLabel}
+              </SectionHeadingJumpLink>
+              <SectionHeadingAnchor fragmentId="holdings" hrefBase={sectionHrefBase} />
             </h2>
             <div className="relative rounded-xl border bg-card overflow-hidden">
             <div className="select-none pointer-events-none" aria-hidden>
@@ -2740,10 +3081,11 @@ function PerformancePagePublicClientInner({
 
       {/* ── C: Returns ──────────────────────────────────────────────────── */}
       <section id="returns" className="mb-10">
-        <h2 className="group text-2xl font-bold mb-4 flex flex-wrap items-center gap-x-1">
-          Returns
-          <SectionHeadingAnchor fragmentId="returns" hrefBase={sectionHrefBase}
-            copyAbsoluteUrlOnClick />
+        <h2 className="group relative text-2xl font-bold mb-4 flex flex-wrap items-center gap-x-1">
+          <SectionHeadingJumpLink fragmentId="returns" hrefBase={sectionHrefBase} className="min-w-0">
+            Returns
+          </SectionHeadingJumpLink>
+          <SectionHeadingAnchor fragmentId="returns" hrefBase={sectionHrefBase} />
         </h2>
         {overviewPortfolioDataLoading ? (
           <PublicPerformanceReturnsLoadingSkeleton />
@@ -2798,10 +3140,11 @@ function PerformancePagePublicClientInner({
 
       {/* ── D: Risk ──────────────────────────────────────────────────────── */}
       <section id="risk" className="mb-10">
-        <h2 className="group text-2xl font-bold mb-4 flex flex-wrap items-center gap-x-1">
-          Risk
-          <SectionHeadingAnchor fragmentId="risk" hrefBase={sectionHrefBase}
-            copyAbsoluteUrlOnClick />
+        <h2 className="group relative text-2xl font-bold mb-4 flex flex-wrap items-center gap-x-1">
+          <SectionHeadingJumpLink fragmentId="risk" hrefBase={sectionHrefBase} className="min-w-0">
+            Risk
+          </SectionHeadingJumpLink>
+          <SectionHeadingAnchor fragmentId="risk" hrefBase={sectionHrefBase} />
         </h2>
         {overviewPortfolioDataLoading ? (
           <div
@@ -2881,10 +3224,11 @@ function PerformancePagePublicClientInner({
 
       {/* ── E: Consistency ───────────────────────────────────────────────── */}
       <section id="consistency" className="mb-10">
-        <h2 className="group text-2xl font-bold mb-4 flex flex-wrap items-center gap-x-1">
-          Consistency
-          <SectionHeadingAnchor fragmentId="consistency" hrefBase={sectionHrefBase}
-            copyAbsoluteUrlOnClick />
+        <h2 className="group relative text-2xl font-bold mb-4 flex flex-wrap items-center gap-x-1">
+          <SectionHeadingJumpLink fragmentId="consistency" hrefBase={sectionHrefBase} className="min-w-0">
+            Consistency
+          </SectionHeadingJumpLink>
+          <SectionHeadingAnchor fragmentId="consistency" hrefBase={sectionHrefBase} />
         </h2>
         {overviewPortfolioDataLoading ? (
           <div
@@ -2906,23 +3250,23 @@ function PerformancePagePublicClientInner({
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
               {effectiveDisplayMetrics?.pctWeeksBeatingNasdaq100 != null && (
                 <FlipCard
-                  label="% weeks outperforming Nasdaq-100 (cap-weighted)"
+                  label="% weeks outperforming Nasdaq-100"
                   value={fmt.pct(effectiveDisplayMetrics?.pctWeeksBeatingNasdaq100, 0)}
-                  explanation="Share of weeks where the portfolio beat the Nasdaq-100 cap-weighted benchmark. Above 50% means it wins more weeks than it loses."
+                  explanation="Share of weeks where the portfolio beat the Nasdaq-100 benchmark. Above 50% means it wins more weeks than it loses."
                   positive={(effectiveDisplayMetrics?.pctWeeksBeatingNasdaq100 ?? 0) > 0.5}
                 />
               )}
               {effectiveDisplayMetrics?.pctWeeksBeatingSp500 != null && (
                 <FlipCard
-                  label="% weeks outperforming S&P 500 (cap-weighted)"
+                  label="% weeks outperforming S&P 500"
                   value={fmt.pct(effectiveDisplayMetrics?.pctWeeksBeatingSp500, 0)}
-                  explanation="Share of weeks where the portfolio beat the S&P 500 cap-weighted benchmark. Above 50% means it wins more weeks than it loses."
+                  explanation="Share of weeks where the portfolio beat the S&P 500 benchmark. Above 50% means it wins more weeks than it loses."
                   positive={(effectiveDisplayMetrics?.pctWeeksBeatingSp500 ?? 0) > 0.5}
                 />
               )}
               {effectiveDisplayMetrics?.pctWeeksBeatingNasdaq100EqualWeight != null && (
                 <FlipCard
-                  label="% weeks outperforming Nasdaq-100 (equal-weighted)"
+                  label="% weeks outperforming Nasdaq-100 (equal-weight)"
                   value={fmt.pct(effectiveDisplayMetrics?.pctWeeksBeatingNasdaq100EqualWeight, 0)}
                   explanation="Share of weeks where the portfolio beat the Nasdaq-100 equal-weight benchmark. Above 50% means it wins more weeks than it loses."
                   positive={(effectiveDisplayMetrics?.pctWeeksBeatingNasdaq100EqualWeight ?? 0) > 0.5}
@@ -2943,13 +3287,18 @@ function PerformancePagePublicClientInner({
           </p>
         )}
       </section>
+      </>
+      ) : null}
 
+      {isModelLanding ? (
+        <>
       {/* ── F: Research validation ──────────────────────────────────────── */}
       <section id="research-validation" className="mb-10">
-        <h2 className="group text-2xl font-bold mb-2 flex flex-wrap items-center gap-x-1">
-          Research validation
-          <SectionHeadingAnchor fragmentId="research-validation" hrefBase={sectionHrefBase}
-            copyAbsoluteUrlOnClick />
+        <h2 className="group relative text-2xl font-bold mb-2 flex flex-wrap items-center gap-x-1">
+          <SectionHeadingJumpLink fragmentId="research-validation" hrefBase={sectionHrefBase} className="min-w-0">
+            Research validation
+          </SectionHeadingJumpLink>
+          <SectionHeadingAnchor fragmentId="research-validation" hrefBase={sectionHrefBase} />
         </h2>
         <p className="text-sm text-muted-foreground mb-5">
           Beyond portfolio returns, we track whether the AI scores actually predict which stocks
@@ -2976,7 +3325,7 @@ function PerformancePagePublicClientInner({
               <p className="text-lg font-semibold leading-snug">{research.headline.headline}</p>
               <p className="text-sm text-muted-foreground">{research.headline.body}</p>
               <details className="text-xs text-muted-foreground">
-                <summary className="cursor-pointer select-none text-foreground/80 hover:underline">
+                <summary className="cursor-pointer select-none text-foreground/80 no-underline transition-colors hover:text-foreground">
                   Show underlying stats
                 </summary>
                 <ResearchHeadlineUnderlyingStatsGrid s={research.headline.stats} />
@@ -3368,18 +3717,25 @@ function PerformancePagePublicClientInner({
             return (
               <Card
                 id="research-signal-strength"
-                className="scroll-mt-[5.5rem] md:scroll-mt-[6.5rem]"
+                className="scroll-mt-[4.5rem] md:scroll-mt-[5rem]"
               >
                 <CardHeader className="pb-2">
                   <div className="space-y-3">
                     <div>
-                      <div className="group flex flex-wrap items-baseline gap-x-1">
-                        <CardTitle className="text-base">Signal strength</CardTitle>
-                        <SectionHeadingAnchor
-                          fragmentId="research-signal-strength"
-                          hrefBase={sectionHrefBase}
-                          copyAbsoluteUrlOnClick
-                        />
+                      <div className="group relative flex flex-wrap items-baseline gap-x-1">
+                        <CardTitle className="text-base flex flex-wrap items-baseline gap-x-1">
+                          <SectionHeadingJumpLink
+                            fragmentId="research-signal-strength"
+                            hrefBase={sectionHrefBase}
+                            className="font-semibold leading-none tracking-tight text-inherit"
+                          >
+                            Signal strength
+                          </SectionHeadingJumpLink>
+                          <SectionHeadingAnchor
+                            fragmentId="research-signal-strength"
+                            hrefBase={sectionHrefBase}
+                          />
+                        </CardTitle>
                       </div>
                       <CardDescription className="mt-1">
                         Does the AI score actually predict which stocks will do better next week?
@@ -3670,8 +4026,8 @@ function PerformancePagePublicClientInner({
                       </p>
                       {effectiveStrategy && (
                         <Link
-                          href={`/whitepaper/${effectiveStrategy.slug}#methodology-regression`}
-                          className="text-trader-blue hover:underline inline-flex items-center gap-1"
+                          href="/whitepaper#methodology-regression"
+                          className="text-trader-blue no-underline transition-colors hover:text-trader-blue/90 inline-flex items-center gap-1"
                         >
                           Full calculation details <ArrowRight className="size-3" />
                         </Link>
@@ -3696,8 +4052,8 @@ function PerformancePagePublicClientInner({
             returns. We test this hypothesis live.{' '}
             {effectiveStrategy && (
               <Link
-                href={`/whitepaper/${effectiveStrategy.slug}`}
-                className="text-trader-blue hover:underline inline-flex items-center gap-1"
+                href="/whitepaper"
+                className="text-trader-blue no-underline transition-colors hover:text-trader-blue/90 inline-flex items-center gap-1"
               >
                 See how this model works <ArrowRight className="size-3" />
               </Link>
@@ -3708,10 +4064,11 @@ function PerformancePagePublicClientInner({
 
       {/* ── H: Reality checks ───────────────────────────────────────────── */}
       <section id="reality-checks" className="mb-10">
-        <h2 className="group text-2xl font-bold mb-4 flex flex-wrap items-center gap-x-1">
-          Reality checks
-          <SectionHeadingAnchor fragmentId="reality-checks" hrefBase={sectionHrefBase}
-            copyAbsoluteUrlOnClick />
+        <h2 className="group relative text-2xl font-bold mb-4 flex flex-wrap items-center gap-x-1">
+          <SectionHeadingJumpLink fragmentId="reality-checks" hrefBase={sectionHrefBase} className="min-w-0">
+            Reality checks
+          </SectionHeadingJumpLink>
+          <SectionHeadingAnchor fragmentId="reality-checks" hrefBase={sectionHrefBase} />
         </h2>
         <div className="grid sm:grid-cols-3 gap-4">
           {[
@@ -3744,6 +4101,8 @@ function PerformancePagePublicClientInner({
           circumstances.
         </p>
       </section>
+        </>
+      ) : null}
 
       {/* ── Link to whitepaper ───────────────────────────────────────────── */}
       {effectiveStrategy && (
@@ -3755,12 +4114,23 @@ function PerformancePagePublicClientInner({
             </p>
           </div>
           <Button asChild>
-            <Link href={`/whitepaper/${effectiveStrategy.slug}`} className="gap-2 shrink-0">
+            <Link href="/whitepaper" className="gap-2 shrink-0">
               Whitepaper <ArrowRight className="size-4" />
             </Link>
           </Button>
         </div>
       )}
+
+      {!isModelLanding && slug && effectiveStrategy ? (
+        <div className="mb-8 flex justify-center">
+          <Button asChild variant="outline" className="gap-2">
+            <Link href={`/strategy-models/${encodeURIComponent(slug)}`}>
+              View strategy model
+              <ArrowRight className="size-4 shrink-0" />
+            </Link>
+          </Button>
+        </div>
+      ) : null}
 
       <Disclaimer variant="inline" className="text-center" />
     </ContentPageLayout>

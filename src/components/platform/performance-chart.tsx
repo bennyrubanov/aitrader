@@ -40,16 +40,17 @@ const displayDateFormatter = new Intl.DateTimeFormat('en-US', {
 const SERIES_CONFIG: Record<string, { label: string; color: string; defaultVisible: boolean }> = {
   aiPortfolio: { label: 'AI Strategy', color: CHART_PORTFOLIO_SERIES_COLOR, defaultVisible: true },
   nasdaq100CapWeight: {
-    label: 'Nasdaq-100 (cap)',
+    label: 'Nasdaq-100',
     color: CHART_INDEX_SERIES_COLORS.nasdaq100CapWeight,
     defaultVisible: true,
   },
+  /** Not shown by default; series points still carry this leg for metrics / display rebase. */
   nasdaq100EqualWeight: {
-    label: 'Nasdaq-100 (equal)',
+    label: 'Nasdaq-100 (equal-weight)',
     color: CHART_INDEX_SERIES_COLORS.nasdaq100EqualWeight,
-    defaultVisible: true,
+    defaultVisible: false,
   },
-  sp500: { label: 'S&P 500 (cap)', color: CHART_INDEX_SERIES_COLORS.sp500, defaultVisible: true },
+  sp500: { label: 'S&P 500', color: CHART_INDEX_SERIES_COLORS.sp500, defaultVisible: true },
 };
 
 export type PerformanceChartSeriesKey =
@@ -58,12 +59,8 @@ export type PerformanceChartSeriesKey =
   | 'nasdaq100EqualWeight'
   | 'sp500';
 
-const ALL_SERIES_KEYS: PerformanceChartSeriesKey[] = [
-  'aiPortfolio',
-  'nasdaq100CapWeight',
-  'nasdaq100EqualWeight',
-  'sp500',
-];
+/** Plotted + legend keys only; `nasdaq100EqualWeight` stays on each point but is not drawn. */
+const ALL_SERIES_KEYS: PerformanceChartSeriesKey[] = ['aiPortfolio', 'nasdaq100CapWeight', 'sp500'];
 
 type SeriesKey = PerformanceChartSeriesKey;
 
@@ -541,7 +538,8 @@ export function PerformanceChart({
           {view === 'equity'
             ? nominalDollars
               ? `Portfolio value over time. Net of trading costs.`
-              : `Growth rebased to the start of the selected window. Net of trading costs.`
+              : `thSimulated growth of $10,000 from inception, net of trading
+          costs, versus benchmarks.`
             : `Drawdown from rolling peak for each series. Deeper troughs = larger losses from peak.`}
         </p>
       ) : null}

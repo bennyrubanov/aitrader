@@ -6,22 +6,20 @@ import {
   portfolioConfigBadgeClassName,
   portfolioConfigBadgeTooltip,
 } from '@/lib/portfolio-config-badges';
-import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import { cn } from '@/lib/utils';
 
 type Props = {
   name: string;
   className?: string;
-  /** Strategy model slug for contextual links (e.g. Top ranked → methodology). Falls back to active app strategy. */
+  /** Kept for API compatibility; whitepaper methodology now lives at one canonical URL. */
   strategySlug?: string;
 };
 
-export function PortfolioConfigBadgePill({ name, className, strategySlug }: Props) {
+export function PortfolioConfigBadgePill({ name, className }: Props) {
   const tip = portfolioConfigBadgeTooltip(name);
   const styles = portfolioConfigBadgeClassName(name);
-  const slugForLinks = strategySlug?.trim() || STRATEGY_CONFIG.slug;
   const rankingHowHref =
-    name === 'Top ranked' ? `/whitepaper/${slugForLinks}#portfolio-ranking-how` : null;
+    name === 'Top ranked' ? '/whitepaper#portfolio-ranking' : null;
 
   const pill = (
     <span

@@ -83,7 +83,7 @@ export function buildWelcomePaidTransitionEmail(params: {
   const exploreUrl = absUrl(siteBase, '/platform/explore');
   const notifUrl = absUrl(siteBase, '/platform/settings/notifications');
   const ratingsUrl = absUrl(siteBase, '/platform/ratings');
-  const perfUrl = absUrl(siteBase, `/performance/${STRATEGY_CONFIG.slug}`);
+  const perfUrl = absUrl(siteBase, `/strategy-models/${STRATEGY_CONFIG.slug}`);
 
   const tierLabel = paidTier === 'supporter' ? 'Supporter' : 'Outperformer';
   const bodyIntro =
@@ -133,7 +133,7 @@ export function buildWelcomePaidTransitionEmail(params: {
     '',
     `Explore: ${exploreUrl}`,
     `Notifications: ${notifUrl}`,
-    `Performance: ${perfUrl}`,
+    `Strategy models: ${perfUrl}`,
     paidTier === 'outperformer' ? `Ratings: ${ratingsUrl}` : '',
     founderSignoffText(),
     '',
@@ -158,7 +158,7 @@ export function buildWelcomeEmailHtml(
   const overviewUrl = absUrl(siteBase, '/platform/overview');
   const notifUrl = absUrl(siteBase, '/platform/settings/notifications');
   const ratingsUrl = absUrl(siteBase, '/platform/ratings');
-  const perfUrl = absUrl(siteBase, `/performance/${STRATEGY_CONFIG.slug}`);
+  const perfUrl = absUrl(siteBase, `/strategy-models/${STRATEGY_CONFIG.slug}`);
   const pricingUrl = absUrl(siteBase, '/pricing');
   const billingUrl = absUrl(siteBase, '/platform/settings/billing');
 
@@ -172,7 +172,7 @@ export function buildWelcomeEmailHtml(
         <ul style="margin:0 0 12px;padding-left:18px;font-size:14px;color:#374151">
           <li style="margin:6px 0"><strong>Track a few tickers</strong> — free users get a weekly roundup plus optional rating-change emails on names you follow.</li>
           <li style="margin:6px 0"><strong>Explore public model portfolios</strong> — see how strategies are expressed as real baskets.</li>
-          <li style="margin:6px 0"><strong>Peek at the default model&apos;s story</strong> on the performance page (full live holdings unlock on Supporter).</li>
+          <li style="margin:6px 0"><strong>Peek at the default model&apos;s story</strong> on the strategy models page (full live holdings unlock on Supporter).</li>
         </ul>
         <p style="margin:0;font-size:13px;color:#6b7280">Want full holdings tables + rebalance emails? <a href="${escapeHtml(pricingUrl)}" style="color:#0A84FF">See plans</a>.</p>
         ${founderSignoffHtml()}`;
@@ -193,7 +193,7 @@ export function buildWelcomeEmailHtml(
         'Track tickers, explore portfolios, peek at the default model performance.',
         `Overview: ${overviewUrl}`,
         `Explore: ${exploreUrl}`,
-        `Performance: ${perfUrl}`,
+        `Strategy models: ${perfUrl}`,
         `Plans: ${pricingUrl}`,
         founderSignoffText(),
         '',
@@ -240,16 +240,16 @@ export function buildWelcomeEmailHtml(
           Our default model, <strong>${escapeHtml(STRATEGY_CONFIG.name)}</strong>, rebalances on a fixed rhythm. When weights shift, that&apos;s when entries and exits matter — not just day-to-day noise.
         </p>
         <p style="margin:0 0 12px;font-size:15px;color:#374151">
-          On the performance page you can see the narrative; <strong>Supporter</strong> unlocks the live holdings table and <strong>rebalance / holdings-change emails</strong> for that default model.
+          On the strategy models page you can see the narrative; <strong>Supporter</strong> unlocks the live holdings table and <strong>rebalance / holdings-change emails</strong> for that default model.
         </p>
-        <p style="margin:0;font-size:13px;color:#6b7280">If you only do one thing: open performance and decide if you want the full picture on paid.</p>
+        <p style="margin:0;font-size:13px;color:#6b7280">If you only do one thing: open strategy models and decide if you want the full picture on paid.</p>
         ${founderSignoffHtml()}`;
       const html = buildEmailShell({
         documentTitle: 'Why rebalances matter (2/3)',
         preheader: 'Holdings + rebalance emails unlock on Supporter.',
         heading: `Why the default model matters (2/3)`,
         bodyHtml,
-        ctaLabel: 'See performance',
+        ctaLabel: 'See strategy models',
         ctaUrl: perfUrl,
         settingsUrl,
         unsubscribeUrl: onboardingUnsubscribeUrl,
@@ -258,7 +258,7 @@ export function buildWelcomeEmailHtml(
         'Why the default model matters (2/3)',
         greetingText(firstName),
         '',
-        `Performance: ${perfUrl}`,
+        `Strategy models: ${perfUrl}`,
         `Plans: ${pricingUrl}`,
         founderSignoffText(),
         '',
@@ -270,7 +270,7 @@ export function buildWelcomeEmailHtml(
     // step 4
     const bodyHtml = `<p style="margin:0 0 12px;font-size:15px;color:#374151">${greeting(firstName)}</p>
       <p style="margin:0 0 12px;font-size:15px;color:#374151">
-        Markets go through phases — growth vs value, risk-on vs defensive. On <strong>Outperformer</strong> you can compare <strong>multiple strategy models</strong>, filter the ratings page by model, and open performance for any of them.
+        Markets go through phases — growth vs value, risk-on vs defensive. On <strong>Outperformer</strong> you can compare <strong>multiple strategy models</strong>, filter the ratings page by model, and open any model for full performance and holdings.
       </p>
       <p style="margin:0 0 12px;font-size:15px;color:#374151">
         If you&apos;re not sure which tier fits, reply and tell me what you trade; I&apos;ll suggest a path.

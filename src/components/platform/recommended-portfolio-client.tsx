@@ -315,7 +315,7 @@ export function RecommendedPortfolioClient() {
             <span>
               This portfolio is automatically constructed from the highest-performing strategy model by Sharpe ratio.
               Holdings update weekly on rebalance day. For full performance charts, visit the{' '}
-              <Link href="/performance" className="font-medium text-foreground underline underline-offset-2 hover:no-underline">
+              <Link href="/strategy-models" className="font-medium text-foreground underline underline-offset-2 hover:no-underline">
                 Performance page
               </Link>.
             </span>

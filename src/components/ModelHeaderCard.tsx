@@ -51,7 +51,7 @@ type ModelHeaderCardProps = {
   } | null;
   /** Same-page anchor for regression detail (performance page uses `#research-signal-strength`). */
   researchValidationHref?: string;
-  /** Link for the avg S&P excess insight CTA (defaults to `/performance/{slug}#returns`). */
+  /** Link for the avg S&P excess insight CTA (defaults to `/strategy-models/{slug}#returns`). */
   sp500ExcessInsightHref?: string;
   /** Secondary metrics (e.g. selected or top-ranked portfolio) below the insight cards. */
   detailStats?: ModelHeaderStat[];
@@ -227,7 +227,7 @@ export function ModelHeaderCard({
   omitTitle = false,
 }: ModelHeaderCardProps) {
   const shortName = name.split(' ')[0] ?? name;
-  const sp500ExcessInsightHref = sp500ExcessInsightHrefProp ?? `/performance/${slug}#returns`;
+  const sp500ExcessInsightHref = sp500ExcessInsightHrefProp ?? `/strategy-models/${slug}#returns`;
 
   const [beatLoading, setBeatLoading] = useState(Boolean(beatMarketSlug));
   const [beatError, setBeatError] = useState<string | null>(null);
@@ -419,14 +419,14 @@ export function ModelHeaderCard({
         <div className="flex items-center gap-2 shrink-0">
           {variant === 'performance' && (
             <Button asChild size="sm" variant="outline" className="gap-1.5">
-              <Link href={`/performance/${slug}#model-overview`}>
+              <Link href={`/strategy-models/${slug}#model-overview`}>
                 Model details <ArrowRight className="size-3.5" />
               </Link>
             </Button>
           )}
           {variant === 'model' && (
             <Button asChild size="sm" variant="outline" className="gap-1.5">
-              <Link href={`/performance/${slug}`}>
+              <Link href={`/strategy-models/${slug}`}>
                 <TrendingUp className="size-3.5" /> Full performance
               </Link>
             </Button>
@@ -451,7 +451,7 @@ export function ModelHeaderCard({
             <InsightCardShell
               icon={BarChart3}
               title="Outperformance"
-              subtitle="vs Nasdaq-100 (cap-weight)"
+              subtitle="vs Nasdaq-100"
             >
               <div className="mt-1">
                 {beatLoading && (
@@ -505,7 +505,7 @@ export function ModelHeaderCard({
             <InsightCardShell
               icon={BarChart3}
               title="Outperformance"
-              subtitle="vs S&P 500 (cap-weight)"
+              subtitle="vs S&P 500"
             >
               <div className="mt-1">
                 {beatLoading && (

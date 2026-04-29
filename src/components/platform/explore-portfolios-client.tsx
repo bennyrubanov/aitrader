@@ -889,7 +889,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
                   size="sm"
                   className="w-full justify-start gap-1.5 text-xs h-7 px-1"
                 >
-                  <Link href={`/performance/${strategySlug}#model-overview`}>
+                  <Link href={`/strategy-models/${strategySlug}#model-overview`}>
                     <ExternalLink className="size-3 shrink-0" />
                     How this model works
                   </Link>
@@ -1269,7 +1269,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
                         size="sm"
                         className="h-7 w-full justify-start gap-1.5 px-1 text-xs"
                       >
-                        <Link href={`/performance/${strategySlug}#model-overview`}>
+                        <Link href={`/strategy-models/${strategySlug}#model-overview`}>
                           <ExternalLink className="size-3 shrink-0" />
                           How this model works
                         </Link>
@@ -1719,7 +1719,7 @@ function ConfigCard({
                   label="Performance vs S&P 500"
                   value={fmt(outperformanceVsSp500Cap, 'pct')}
                   positive={(outperformanceVsSp500Cap ?? 0) > 0}
-                  title="Portfolio cumulative return minus S&P 500 cap-weight benchmark cumulative return over the same period ($10k start)."
+                  title="Portfolio cumulative return minus S&P 500 benchmark cumulative return over the same period ($10k start)."
                   labelClassName="whitespace-normal"
                 />
                 <MetricPill
@@ -1866,7 +1866,7 @@ function ConfigCard({
                   label="Performance vs S&P 500"
                   value={fmt(outperformanceVsSp500Cap, 'pct')}
                   positive={(outperformanceVsSp500Cap ?? 0) > 0}
-                  title="Portfolio cumulative return minus S&P 500 cap-weight benchmark cumulative return over the same period ($10k start)."
+                  title="Portfolio cumulative return minus S&P 500 benchmark cumulative return over the same period ($10k start)."
                   labelClassName="whitespace-nowrap"
                 />
                 <MetricPill

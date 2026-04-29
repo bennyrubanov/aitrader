@@ -50,13 +50,6 @@ export function buildEndingValueRankMap(
     ) {
       benchPieces.push({ kind: 'b', v: benchmarks.nasdaq100Cap });
     }
-    if (
-      benchmarks.nasdaq100Equal != null &&
-      Number.isFinite(benchmarks.nasdaq100Equal) &&
-      benchmarks.nasdaq100Equal > 0
-    ) {
-      benchPieces.push({ kind: 'b', v: benchmarks.nasdaq100Equal });
-    }
   }
   benchPieces.sort((a, b) => b.v - a.v);
 

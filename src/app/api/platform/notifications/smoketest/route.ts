@@ -124,7 +124,7 @@ function renderSamples(): RenderedEmail[] {
   // will not actually unsubscribe anyone if clicked.
   const unsubscribeUrl = `${base}/api/platform/notifications/unsubscribe?token=TEST`;
   const portfolioUrl = `${base}/platform/your-portfolio`;
-  const modelUrl = `${base}/performance/example-strategy`;
+  const modelUrl = `${base}/strategy-models/example-strategy`;
   const inboxUrl = settingsUrl;
   const runDate = new Date().toISOString().slice(0, 10);
   const runWeekEnding = runDate;

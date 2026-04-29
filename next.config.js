@@ -4,8 +4,23 @@ const nextConfig = {
   async redirects() {
     return [
       {
+        source: '/performance',
+        destination: '/strategy-models',
+        permanent: true,
+      },
+      {
+        source: '/performance/:slug',
+        destination: '/strategy-models/:slug',
+        permanent: true,
+      },
+      {
+        source: '/performance/:slug/:portfolio',
+        destination: '/strategy-models/:slug/:portfolio',
+        permanent: true,
+      },
+      {
         source: '/platform/performance',
-        destination: '/performance',
+        destination: '/strategy-models',
         permanent: true,
       },
       {
@@ -20,7 +35,7 @@ const nextConfig = {
       },
       {
         source: '/experiment-research',
-        destination: '/strategy-models',
+        destination: '/whitepaper',
         permanent: true,
       },
       {

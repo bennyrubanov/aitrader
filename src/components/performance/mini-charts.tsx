@@ -45,18 +45,17 @@ const CAGR_PRELIMINARY_NOTE_MAX_YEARS = 12 / 52;
 /** Same shape as `PlatformPerformancePayload.series` elements */
 export type SeriesPoint = PerformanceSeriesPoint;
 
-/** Shared with overview chart / cumulative returns (line colors & default labels). */
+/**
+ * Mini-chart visible series (line colors & labels).
+ * Snapshot points still include `nasdaq100EqualWeight` for metrics; it is not drawn here.
+ */
 const RETURNS_SERIES = {
   aiPortfolio: { label: 'AI Strategy', color: CHART_PORTFOLIO_SERIES_COLOR },
   nasdaq100CapWeight: {
-    label: 'Nasdaq-100 (cap-weighted)',
+    label: 'Nasdaq-100',
     color: CHART_INDEX_SERIES_COLORS.nasdaq100CapWeight,
   },
-  nasdaq100EqualWeight: {
-    label: 'Nasdaq-100 (equal-weighted)',
-    color: CHART_INDEX_SERIES_COLORS.nasdaq100EqualWeight,
-  },
-  sp500: { label: 'S&P 500 (cap-weighted)', color: CHART_INDEX_SERIES_COLORS.sp500 },
+  sp500: { label: 'S&P 500', color: CHART_INDEX_SERIES_COLORS.sp500 },
 } as const;
 
 type ReturnsKey = keyof typeof RETURNS_SERIES;
@@ -243,7 +242,7 @@ export function CagrOverTimeChart({
         config={{
           aiCagr: { label: aiLabel, color: CHART_PORTFOLIO_SERIES_COLOR },
           ndxCapCagr: {
-            label: 'Nasdaq-100 (cap-weighted)',
+            label: 'Nasdaq-100',
             color: CHART_INDEX_SERIES_COLORS.nasdaq100CapWeight,
           },
         }}
@@ -258,7 +257,7 @@ export function CagrOverTimeChart({
               <ChartTooltipContent
                 formatter={(v, name) => [
                   v != null && Number.isFinite(Number(v)) ? `${Number(v).toFixed(1)}% ` : '—',
-                  ` ${name === 'aiCagr' ? aiLabel : 'Nasdaq-100 (cap-weighted)'}`,
+                  ` ${name === 'aiCagr' ? aiLabel : 'Nasdaq-100'}`,
                 ]}
               />
             }
@@ -302,7 +301,6 @@ function seriesLineLabels(strategyName?: string): Record<ReturnsKey, string> {
   return {
     aiPortfolio: strategyName ?? RETURNS_SERIES.aiPortfolio.label,
     nasdaq100CapWeight: RETURNS_SERIES.nasdaq100CapWeight.label,
-    nasdaq100EqualWeight: RETURNS_SERIES.nasdaq100EqualWeight.label,
     sp500: RETURNS_SERIES.sp500.label,
   };
 }
@@ -479,12 +477,10 @@ export function RollingSharpeRatioChart({
     const weeklyReturns = weeklySeries.slice(1).map((point, i) => {
       const prev = weeklySeries[i]!;
       const safe = (p: number, c: number) => (p > 0 ? c / p - 1 : 0);
-      const row: Record<ReturnsKey, number> = {
-        aiPortfolio: safe(prev.aiPortfolio, point.aiPortfolio),
-        nasdaq100CapWeight: safe(prev.nasdaq100CapWeight, point.nasdaq100CapWeight),
-        nasdaq100EqualWeight: safe(prev.nasdaq100EqualWeight, point.nasdaq100EqualWeight),
-        sp500: safe(prev.sp500, point.sp500),
-      };
+      const row: Record<ReturnsKey, number> = {} as Record<ReturnsKey, number>;
+      for (const key of keys) {
+        row[key] = safe(prev[key], point[key]);
+      }
       return { date: point.date, ...row };
     });
 
@@ -691,12 +687,10 @@ export function CumulativeSharpeRatioChart({
     const weeklyReturns = weeklySeries.slice(1).map((point, i) => {
       const prev = weeklySeries[i]!;
       const safe = (p: number, c: number) => (p > 0 ? c / p - 1 : 0);
-      const row: Record<ReturnsKey, number> = {
-        aiPortfolio: safe(prev.aiPortfolio, point.aiPortfolio),
-        nasdaq100CapWeight: safe(prev.nasdaq100CapWeight, point.nasdaq100CapWeight),
-        nasdaq100EqualWeight: safe(prev.nasdaq100EqualWeight, point.nasdaq100EqualWeight),
-        sp500: safe(prev.sp500, point.sp500),
-      };
+      const row: Record<ReturnsKey, number> = {} as Record<ReturnsKey, number>;
+      for (const key of keys) {
+        row[key] = safe(prev[key], point[key]);
+      }
       return { date: isoWeekFriday(point.date), ...row };
     });
 
@@ -1017,7 +1011,7 @@ export function RiskChart({
   );
 }
 
-// ── Cumulative Returns Chart (all 4 lines) ───────────────────────────────────
+// ── Cumulative Returns Chart (AI + Nasdaq-100 + S&P 500) ─────────────────────
 
 export function CumulativeReturnsChart({
   series,
@@ -1046,7 +1040,6 @@ export function CumulativeReturnsChart({
       date: shortDate(point.date),
       aiPortfolio: ((point.aiPortfolio / startingCapital) - 1) * 100,
       nasdaq100CapWeight: ((point.nasdaq100CapWeight / startingCapital) - 1) * 100,
-      nasdaq100EqualWeight: ((point.nasdaq100EqualWeight / startingCapital) - 1) * 100,
       sp500: ((point.sp500 / startingCapital) - 1) * 100,
     }));
   }, [series, startingCapital]);
@@ -1056,7 +1049,6 @@ export function CumulativeReturnsChart({
   const labels: Record<ReturnsKey, string> = {
     aiPortfolio: strategyName ?? 'AI Strategy',
     nasdaq100CapWeight: RETURNS_SERIES.nasdaq100CapWeight.label,
-    nasdaq100EqualWeight: RETURNS_SERIES.nasdaq100EqualWeight.label,
     sp500: RETURNS_SERIES.sp500.label,
   };
 
@@ -1132,17 +1124,12 @@ export function CumulativeReturnsChart({
 
 const OUTPERF_SERIES = {
   vsNdxCap: {
-    label: 'vs Nasdaq-100 (cap-weighted)',
+    label: 'vs Nasdaq-100',
     color: CHART_RELATIVE_OUTPERF_COLORS.vsNdxCap,
     defaultVisible: true,
   },
-  vsNdxEqual: {
-    label: 'vs Nasdaq-100 (equal-weighted)',
-    color: CHART_RELATIVE_OUTPERF_COLORS.vsNdxEqual,
-    defaultVisible: true,
-  },
   vsSp500: {
-    label: 'vs S&P 500 (cap-weighted)',
+    label: 'vs S&P 500',
     color: CHART_RELATIVE_OUTPERF_COLORS.vsSp500,
     defaultVisible: true,
   },
@@ -1177,7 +1164,6 @@ export function RelativeOutperformanceChart({
       return {
         date: shortDate(point.date),
         vsNdxCap: ((aiGrowth / (point.nasdaq100CapWeight / base.nasdaq100CapWeight)) - 1) * 100,
-        vsNdxEqual: ((aiGrowth / (point.nasdaq100EqualWeight / base.nasdaq100EqualWeight)) - 1) * 100,
         vsSp500: ((aiGrowth / (point.sp500 / base.sp500)) - 1) * 100,
       };
     });

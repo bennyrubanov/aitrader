@@ -2960,20 +2960,19 @@ const handleRequest = async (req: Request) => {
     revalidatePath('/platform/overview');
     revalidatePath('/platform/weekly');
     revalidatePath('/platform/performance');
-    revalidatePath('/performance');
-    revalidatePath('/performance', 'page');
+    revalidatePath('/strategy-models');
+    revalidatePath('/strategy-models', 'page');
     revalidatePath('/', 'page');
     revalidateTag(LANDING_TOP_PORTFOLIO_PERFORMANCE_CACHE_TAG);
     revalidateTag(CONFIG_DAILY_SERIES_CACHE_TAG);
     revalidateTag('mtm-walk-inputs');
     revalidateTag(RANKED_CONFIGS_CACHE_TAG);
     revalidateTag(`${RANKED_CONFIGS_CACHE_TAG}:${strategy.slug}`);
-    revalidatePath('/performance');
+    revalidatePath('/strategy-models');
     revalidatePath('/whitepaper');
-    // Revalidate per-slug performance and model detail pages
-    revalidatePath('/performance/[slug]', 'page');
-    revalidatePath('/performance/[slug]', 'page');
-    revalidatePath('/whitepaper/[slug]', 'page');
+    // Revalidate per-slug strategy model pages
+    revalidatePath('/strategy-models/[slug]', 'page');
+    revalidatePath('/strategy-models/[slug]', 'page');
 
     const summary = {
       ok: results.filter((result) => result.status === 'ok').length,
