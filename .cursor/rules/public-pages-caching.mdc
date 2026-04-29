@@ -1,0 +1,145 @@
+---
+description: Public-page caching tiers, route groups, ISR tags, and auth-fetch egress budget
+globs:
+  - src/app/(public)/**
+  - src/app/(platform)/**
+  - src/lib/public-cache.ts
+  - src/components/auth/auth-state-provider.tsx
+  - src/lib/get-initial-auth-state.ts
+alwaysApply: false
+---
+
+# Public-page caching standard
+
+Non-platform pages (landing, strategy models, whitepaper, pricing, roadmap, blog, about, etc.) must feel near-instant, with **zero per-visitor critical-path Supabase or Vercel function compute** beyond the rebuilds the cron already triggers. "Per-visitor critical path" means anything that blocks first paint or first interaction for that visitor's request. Background ISR refreshes and background client refreshes are NOT per-visitor critical path; they are amortized across all visitors served from CDN cache during the revalidation window.
+
+## Single source of truth
+
+All TTLs and cache tags used by public pages live in [`src/lib/public-cache.ts`](mdc:src/lib/public-cache.ts):
+
+- `PUBLIC_STATIC_REVALIDATE` — `false` (rebuild-only).
+- `PUBLIC_ISR_REVALIDATE_SECONDS` — page-level `revalidate` for ISR.
+- `PUBLIC_DATA_CACHE_TTL_SECONDS` — `unstable_cache` TTL on every public-page loader.
+- `PUBLIC_CACHE_TAGS` — registry of `revalidateTag` strings shared by writers and readers.
+
+Do not hardcode TTL numbers or tag literals in route or lib files; import from `public-cache.ts` so cron writers and page readers cannot drift.
+
+### Scope: Postgres egress, not Storage egress
+
+This rule governs Supabase **Postgres** egress (rows flowing from `createPublicClient()` / `createAdminClient()` into Next routes). It does NOT govern Supabase **Storage** Smart CDN, which only applies if the project starts serving objects from Storage buckets. The codebase currently has zero `supabase.storage.*` usage, so Smart CDN settings (`cacheControl`, signed-vs-public buckets, `cacheNonce`) are out of scope. If/when an asset class moves to Storage, add a sibling section here for those settings; do not conflate the two.
+
+### Dynamic tag suffixes
+
+`PUBLIC_CACHE_TAGS` holds the canonical base strings. Loaders MAY append a per-key suffix to scope invalidation (e.g. `` `${RANKED_CONFIGS_CACHE_TAG}:${slug}` `` in [`src/lib/portfolio-configs-ranked-core.ts`](mdc:src/lib/portfolio-configs-ranked-core.ts), `` `public-portfolio-config-performance:${slug}` `` in [`src/lib/public-portfolio-config-performance.ts`](mdc:src/lib/public-portfolio-config-performance.ts), `` `mtm-walk-inputs:${strategyId}` `` in [`src/lib/live-mark-to-market.ts`](mdc:src/lib/live-mark-to-market.ts)). Writers MUST call `revalidateTag` for both the base tag AND any suffix tags they touched, so a per-strategy update busts both broad and scoped consumers.
+
+## Tiers
+
+- **Static (Tier 1)** — `/whitepaper`, `/whitepaper/[slug]`, `/pricing`, `/roadmap-changelog`, `/about`, `/blog`, `/blog/[id]`, `/contact`, `/help`, `/product`, `/privacy`, `/terms`, `/disclaimer`, `/experiment-research`. Set `export const dynamic = 'force-static'` and **`export const revalidate = false` as a literal** (must match `PUBLIC_STATIC_REVALIDATE` in `public-cache.ts`; Next.js cannot analyze imported bindings). No Supabase, no `cookies()`, no internal `fetch`.
+- **ISR (Tier 2)** — `/`, `/strategy-models`, `/strategy-models/[slug]`, `/strategy-models/[slug]/[portfolio]`. Set **`export const revalidate = 3600` (or the current numeric value) as a literal** matching `PUBLIC_ISR_REVALIDATE_SECONDS`, plus `generateStaticParams` for known segments. All loaders use `unstable_cache(..., { revalidate: PUBLIC_DATA_CACHE_TTL_SECONDS, tags: [PUBLIC_CACHE_TAGS.x] })`. Cron updates trigger `revalidateTag(PUBLIC_CACHE_TAGS.x)`.
+- **Auth-dynamic (Tier 3)** — `/platform/*`, sign-in/up, billing, password flows, `/stocks/[symbol]`. Normal dynamic rendering. May call `cookies()`.
+
+## Route-group rules
+
+- Public-tier pages live under `src/app/(public)/`; that layout MUST NOT import `next/headers` or call `getInitialAuthState`. Auth state hydrates client-side via `useAuthState`.
+- Auth-dynamic pages live under `src/app/(platform)/`; that layout owns the `getInitialAuthState()` call.
+- The shared root layout [`src/app/layout.tsx`](mdc:src/app/layout.tsx) may render only HTML chrome (global scripts, `metadata`, `Analytics`); no Supabase, no cookies, no `Providers` (each group wraps its own).
+- [`src/app/not-found.tsx`](mdc:src/app/not-found.tsx) stays at the root, NOT under either group, so unmatched URLs hit a single fallback.
+
+## Forbidden in `src/app/(public)/**`
+
+- `import { cookies, headers, draftMode } from 'next/headers'`
+- `import { unstable_noStore } from 'next/cache'`
+- `export const dynamic = 'force-dynamic'`
+- `createClient()` from [`src/utils/supabase/server.ts`](mdc:src/utils/supabase/server.ts) (use `createPublicClient`, `createAdminClient`, or a cached loader instead).
+- Direct `fetch` of internal Next routes during SSR (call the lib loader directly).
+- Any import of `getInitialAuthState` from [`src/lib/get-initial-auth-state.ts`](mdc:src/lib/get-initial-auth-state.ts).
+
+## Auth-fetch policy (egress budget)
+
+The viewer's auth + profile state is fetched in exactly one place per render boundary, and the client uses a four-tier strategy to paint the right navbar chrome on first paint without a redundant Supabase round-trip.
+
+### Server side
+
+`getInitialAuthState()` in [`src/lib/get-initial-auth-state.ts`](mdc:src/lib/get-initial-auth-state.ts) is the single server-side source.
+
+- Wrapped in `cache()` from `react`, so multiple component calls in the same request share one round-trip. Required because `(platform)/layout.tsx` and `(platform)/platform/(workspace)/layout.tsx` both call it.
+- Fast-paths to `buildAuthStateGuestLoaded()` when no `sb-*-auth-token` cookie is present, so guests on platform pages cost zero Supabase calls.
+- Must only be invoked from `(platform)/layout.tsx` and server components inside `(platform)/**`. Public-group code MUST NOT import it.
+
+### Client side
+
+`AuthStateProvider` in [`src/components/auth/auth-state-provider.tsx`](mdc:src/components/auth/auth-state-provider.tsx) is the single client-side source. Its `useState` lazy initializer picks the best signal available **before first paint** in this exact priority order:
+
+- **Tier A — fresh SSR state.** If `initialState.isLoaded && initialState.isAuthenticated` (set by `(platform)/layout.tsx` via `getInitialAuthState()`), use it as-is. Real data, instant paint, zero client critical-path Supabase calls.
+- **Tier B — localStorage snapshot.** If `AUTH_SNAPSHOT_KEY` is present in `localStorage` from a prior signed-in session, hydrate from it. Real data, instant paint, one background refresh follows.
+- **Tier C — Supabase auth-token cookie present, no snapshot.** If `document.cookie` contains an `sb-*-auth-token` cookie but Tier B missed (cleared `localStorage`, signed in on another device, etc.), paint an **optimistic signed-in placeholder** (`isAuthenticated: true`, `name: 'Account'`, `subscriptionTier: 'free'`, `hasPremiumAccess: false`). Navbar shows the account avatar slot instead of "Sign in"; one background fetch fills in real values.
+- **Tier D — true guest.** No SSR state, no snapshot, no cookie → guest. `loadFreshState` MUST early-return without calling Supabase.
+
+Additional client-side requirements:
+
+- `loadFreshState` MUST early-return when Tier A applies (SSR was fresh; `onAuthStateChange` will handle drift).
+- `loadFreshState` MUST early-return when Tier D applies (no cookie AND no snapshot).
+- `onAuthStateChange` subscription MUST stay in place so token refresh and cross-tab sign-out propagate.
+
+### API routes
+
+Route handlers under `src/app/api/**` may call `supabase.auth.getUser()` for authorization. Do not duplicate the `user_profiles` join in route handlers; if the route needs the same fields, factor a shared helper that consumes `getInitialAuthState()` or accepts a pre-fetched `AuthState`.
+
+### PR review gate
+
+Any change that adds a new server-side `supabase.auth.getUser()` or `user_profiles` read outside `getInitialAuthState`, or that bypasses the four-tier client lazy initializer, MUST justify it in the PR description.
+
+### Hydration-safe client islands on Tier-1 / Tier-2 pages
+
+Public-tier pages render on the server with **no auth signal** (Tier-1 is built once at deploy time; Tier-2 ISR HTML is cached and served identically to every visitor). The `AuthStateProvider` lazy initializer reads `localStorage` / `document.cookie` only on the client, so a signed-in viewer's first client render can disagree with the SSR / ISR HTML. Any client island on a `(public)/` page that branches on `useAuthState()` MUST NOT render an auth-aware branch during the first paint, or React will throw a hydration mismatch and rebuild the subtree.
+
+Required pattern for client components rendered inside `src/app/(public)/**`:
+
+- Read `useAuthState()` and **also** track a local `hasHydrated` flag set in a `useEffect(() => setHasHydrated(true), [])`.
+- Compute `authReady = hasHydrated && authState.isLoaded`.
+- When `authReady === false`, render the **guest-equivalent output** — i.e. the same DOM the static / ISR HTML carries (links, labels, hrefs, attributes that depend on auth). Optimistic Tier-C placeholders (`isAuthenticated: true, hasPremiumAccess: false`) are NOT safe to render here: SSR cannot see the cookie, so any branch that depends on `isAuthenticated` must wait for `hasHydrated`.
+- When `authReady === true`, swap to the auth-aware branch. The post-mount re-render is allowed because it happens after hydration completes.
+
+Examples in the codebase:
+
+- [`src/components/whitepaper/whitepaper-get-started-cta.tsx`](mdc:src/components/whitepaper/whitepaper-get-started-cta.tsx) — guest CTA pre-hydration, swaps to `getPrimaryCtaTarget(...)` once hydrated.
+- [`src/components/landing/primary-cta-button.tsx`](mdc:src/components/landing/primary-cta-button.tsx) — same pattern on the landing hero CTA.
+- [`src/components/Navbar.tsx`](mdc:src/components/Navbar.tsx) — uses `hasHydrated && authState.isLoaded` (`authUiReady`) before swapping in the authenticated-vs-guest UI; static `primaryCtaHref` falls through to the guest target until ready.
+
+Anti-patterns:
+
+- Rendering `<Link href={isAuthenticated ? '/platform/overview' : '/sign-up'}>` directly with no hydration gate.
+- Conditionally rendering different copy / icons based on `subscriptionTier`, `hasPremiumAccess`, or `email` without `authReady`.
+- Suppressing the warning with `suppressHydrationWarning` instead of fixing the divergent output.
+
+This rule applies to every client component imported from `src/app/(public)/**` AND to shared components (e.g. `Navbar`, `Footer`) that may render on a public-tier page. When in doubt, treat the SSR output as guest-only and gate any auth-dependent branch behind `hasHydrated && isLoaded`.
+
+## `generateStaticParams` requirements
+
+- Every dynamic segment under a public-tier page must export `generateStaticParams`.
+- Closed sets (e.g. `/blog/[id]`) must also set `export const dynamicParams = false;`.
+- Open sets that grow with cron data (e.g. `/strategy-models/[slug]`) keep `dynamicParams = true` so newly added slugs render via on-demand ISR.
+- The function body MUST be wrapped in `try { … } catch { return []; }` so a build environment without Supabase env vars (or a transient failure) cannot break the build. Next falls back to ISR for any unmatched slug.
+
+## Writers must keep tags fresh
+
+Cron and any internal compute route that mutates data backing a public page must call `revalidateTag(PUBLIC_CACHE_TAGS.<x>)` for every relevant tag in the same code path that finishes the write. Existing call sites: [`src/app/api/cron/daily/route.ts`](mdc:src/app/api/cron/daily/route.ts), [`src/app/api/internal/compute-portfolio-configs-batch/route.ts`](mdc:src/app/api/internal/compute-portfolio-configs-batch/route.ts), [`src/app/api/internal/compute-portfolio-config/route.ts`](mdc:src/app/api/internal/compute-portfolio-config/route.ts). Adding a new public tag means adding it to `PUBLIC_CACHE_TAGS` AND to those writers.
+
+## API routes that back public surfaces
+
+Some `force-dynamic` API routes serve data consumed by `(public)` pages (e.g. [`/api/platform/explore-portfolios-equity-series`](mdc:src/app/api/platform/explore-portfolios-equity-series/route.ts), [`/api/platform/portfolio-config-performance`](mdc:src/app/api/platform/portfolio-config-performance/route.ts)). They are NOT exempt from the per-visitor compute budget. Conventions:
+
+- **Cached base + per-request overlay.** Wrap the heavy read in an `unstable_cache` loader with `{ revalidate: PUBLIC_DATA_CACHE_TTL_SECONDS, tags: [PUBLIC_CACHE_TAGS.x, ...] }` so the bulk Supabase work amortizes across cron ticks. Limit per-request work to small freshness checks (`loadLatestRawRunDate`) and overlays (e.g. live tail points). Pattern: [`getCachedExplorePortfoliosEquitySeriesBase`](mdc:src/lib/explore-portfolios-equity-series.ts) + `mergeExplorePortfoliosEquitySeriesLiveTails`.
+- **Hot-poll bypass.** When a route serves both stable and transitional compute states, serve the cached path for stable statuses (`ready`, `failed`, `unsupported`) and bypass to the uncached loader only for `empty` / `in_progress` so polling reflects DB reality. Pattern: [`/api/platform/portfolio-config-performance`](mdc:src/app/api/platform/portfolio-config-performance/route.ts) using `getCachedPublicPortfolioConfigPerformance` + `loadPublicPortfolioConfigPerformance` with `enqueueOnEmpty` only when the cached status is `empty`.
+- **Never cache `null` for unknown slugs.** Either pre-check uncached, or throw a sentinel inside `unstable_cache` and swallow it at the call site (see `ExploreEquitySeriesStrategyNotFoundError` in [`src/lib/explore-portfolios-equity-series.ts`](mdc:src/lib/explore-portfolios-equity-series.ts)). A typo URL must not freeze a 404 for a full TTL.
+- **CDN headers stay.** Routes used by `(public)` pages should keep `Cache-Control: public, s-maxage=...` so the edge can amortize across visitors even when the route itself is `force-dynamic`.
+
+## SEO requirements
+
+- Every public page exports `metadata` (or `generateMetadata` for dynamic segments), including a canonical URL for `/strategy-models/[slug][/[portfolio]]`.
+- New public pages must be added to [`src/app/sitemap.ts`](mdc:src/app/sitemap.ts).
+- ISR pages must use `generateStaticParams` so the first crawl hit is prerendered HTML, not on-demand compute.
+
+## When in doubt
+
+If a new public page needs anything beyond Tier-1 data, default to Tier-2 with the standard tags rather than reaching for `force-dynamic`. If it truly needs auth, move it under `(platform)/`.

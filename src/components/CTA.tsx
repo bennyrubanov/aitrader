@@ -1,13 +1,23 @@
 'use client';
 
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import NewsletterPopup, { type NewsletterPopupRef } from '@/components/NewsletterPopup';
 import { PrimaryCtaButton } from '@/components/landing/primary-cta-button';
+import { useAuthState } from '@/components/auth/auth-state-context';
 
 const CTA = () => {
   const newsletterPopupRef = useRef<NewsletterPopupRef>(null);
+  const { isAuthenticated, isLoaded } = useAuthState();
+  const [hasHydrated, setHasHydrated] = useState(false);
+
+  useEffect(() => {
+    setHasHydrated(true);
+  }, []);
+
+  const authReady = hasHydrated && isLoaded;
+  const weeklyUpdatesButtonClassName = 'h-11 rounded-xl px-6';
 
   return (
     <section className="py-16">
@@ -18,29 +28,28 @@ const CTA = () => {
               Follow the experiment
             </p>
             <h2 className="text-2xl font-bold tracking-tight md:text-3xl">
-              Invest with the AI portfolio that fits your risk — or just follow along.
+              Invest with the AI portfolio that fits your risk, or just follow along.
             </h2>
-            <p className="mt-3 text-muted-foreground">
-              One live record. Pick the part you want to see: weekly summary, full performance, or
-              every portfolio detail.
-            </p>
+
           </div>
 
           <div className="flex shrink-0 flex-col gap-3 sm:flex-row md:flex-col lg:flex-row">
             <PrimaryCtaButton className="h-11 rounded-xl bg-trader-blue px-6 text-white hover:bg-trader-blue-dark" />
-            <Button
-              type="button"
-              variant="outline"
-              className="h-11 rounded-xl px-6"
-              onClick={() => newsletterPopupRef.current?.openPopup()}
-            >
-              <Mail className="h-4 w-4" />
-              Get weekly updates
-            </Button>
+            {(!authReady || !isAuthenticated) && (
+              <Button
+                type="button"
+                variant="outline"
+                className={`inline-flex items-center gap-2 ${weeklyUpdatesButtonClassName}`}
+                onClick={() => newsletterPopupRef.current?.openPopup()}
+              >
+                <Mail className="h-4 w-4" />
+                Get weekly updates
+              </Button>
+            )}
           </div>
         </div>
       </div>
-      <NewsletterPopup ref={newsletterPopupRef} />
+      {(!authReady || !isAuthenticated) && <NewsletterPopup ref={newsletterPopupRef} />}
     </section>
   );
 };

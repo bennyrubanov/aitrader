@@ -6,14 +6,11 @@ import { usePathname, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
   ArrowRight,
-  BadgeCheck,
-  Bell,
   Building2,
   ChevronDown,
   CircleHelp,
-  CreditCard,
   FileText,
-  Gauge,
+  FlaskConical,
   Landmark,
   LayoutDashboard,
   Loader2,
@@ -46,9 +43,10 @@ import { PlanLabel } from "@/components/account/plan-label";
 import { navigateWithFallback } from "@/lib/client-navigation";
 import { shouldPersistSignInReturnPath } from "@/lib/auth-redirect";
 import type { SubscriptionTier } from "@/lib/auth-state";
+import { ACCOUNT_SETTINGS_QUICK_LINKS } from "@/lib/account-settings-quick-links";
 
 const platformNavItems: PlatformNavItem[] = [
-  { label: "Strategy models", href: "/strategy-models", icon: Gauge },
+  { label: "Strategy models", href: "/strategy-models", icon: FlaskConical },
   { label: "Whitepaper", href: "/whitepaper", icon: FileText },
   { label: "Pricing & Features", href: "/pricing", icon: Landmark },
   {
@@ -166,7 +164,6 @@ function NavbarAccountDropdown({
             </div>
           </div>
         </DropdownMenuLabel>
-        <DropdownMenuSeparator />
         <DropdownMenuGroup>
           <DropdownMenuItem
             onSelect={() =>
@@ -182,40 +179,20 @@ function NavbarAccountDropdown({
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
-          <DropdownMenuItem
-            onSelect={() =>
-              navigateWithFallback((href) => router.push(href), "/platform/settings/account")
-            }
-            className="gap-2"
-          >
-            <BadgeCheck className="size-4 text-muted-foreground" />
-            Account
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onSelect={() =>
-              navigateWithFallback((href) => router.push(href), "/platform/settings/billing")
-            }
-            className="gap-2"
-          >
-            <CreditCard className="size-4 text-muted-foreground" />
-            Billing
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onSelect={() =>
-              navigateWithFallback(
-                (href) => router.push(href),
-                "/platform/settings/notifications"
-              )
-            }
-            className="gap-2"
-          >
-            <Bell className="size-4 text-muted-foreground" />
-            Notifications
-          </DropdownMenuItem>
+          {ACCOUNT_SETTINGS_QUICK_LINKS.map(({ href, label, Icon }) => (
+            <DropdownMenuItem
+              key={href}
+              onSelect={() => navigateWithFallback((h) => router.push(h), href)}
+              className="gap-2"
+            >
+              <Icon className="size-4 text-muted-foreground" />
+              {label}
+            </DropdownMenuItem>
+          ))}
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={onSignOut} disabled={isSigningOut}>
-          <LogOut className="size-4 text-muted-foreground" />
+        <DropdownMenuItem onSelect={onSignOut} disabled={isSigningOut} className="gap-2">
+          <LogOut className="size-4 shrink-0 text-muted-foreground" />
           {isSigningOut ? "Logging out..." : "Log out"}
         </DropdownMenuItem>
       </DropdownMenuContent>

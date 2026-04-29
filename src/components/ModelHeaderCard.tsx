@@ -7,7 +7,15 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { pickBeatSlotToReplace } from '@/components/model-header-card-insights';
-import { avgExcessReturnVsSp500FromConfigs } from '@/lib/avg-excess-vs-sp500';
+import {
+  avgExcessReturnVsSp500FromConfigs,
+  maxExcessReturnVsSp500FromConfigs,
+} from '@/lib/avg-excess-vs-sp500';
+import {
+  StrategyModelsStatusBadgeTooltip,
+  StrategyModelsTopPerformingBadgeTooltip,
+} from '@/components/tooltips';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
 
 export type ModelHeaderStat = {
@@ -60,7 +68,7 @@ type ModelHeaderCardProps = {
    * Prefer `beatMarketSlug` + `detailStats` for performance / strategy model pages.
    */
   stats?: ModelHeaderStat[];
-  /** "performance" shows model details CTA; "model" shows performance CTA */
+  /** "performance" shows stock ratings CTA; "model" shows performance CTA */
   variant: 'performance' | 'model';
   /**
    * When true, the model name is not shown as a heading (use when the page already has an `h1`).
@@ -139,8 +147,11 @@ function fmtSignedPctFromDecimal(v: number | null, digits = 2): string {
 function StatGrid({ stats }: { stats: ModelHeaderStat[] }) {
   if (stats.length === 0) return null;
   return (
-    <div className="border-t">
-      <div className="grid divide-x" style={{ gridTemplateColumns: `repeat(${stats.length}, 1fr)` }}>
+    <div className="relative rounded-xl border border-border/80 bg-card shadow-sm">
+      <div
+        className="grid"
+        style={{ gridTemplateColumns: `repeat(${stats.length}, minmax(0, 1fr))` }}
+      >
         {stats.map((stat) => {
           const isSharpe = stat.label.toLowerCase().includes('sharpe');
           const valueColor =
@@ -152,24 +163,46 @@ function StatGrid({ stats }: { stats: ModelHeaderStat[] }) {
                   : 'text-green-600 dark:text-green-400'
                 : 'text-red-600 dark:text-red-400';
           return (
-            <div key={stat.label} className="px-4 py-3 text-center">
+            <div
+              key={stat.label}
+              className="grid min-h-[6.75rem] grid-rows-[auto_1fr_auto] items-center gap-y-1 px-3 py-5 text-center sm:min-h-[7.5rem] sm:px-4"
+            >
               <p
                 className={cn(
-                  'flex flex-wrap items-center justify-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground font-medium',
+                  'row-start-1 self-start justify-self-center text-[10px] font-medium uppercase leading-tight tracking-wider text-muted-foreground',
                   isSharpe && stat.positive === undefined && 'text-trader-blue dark:text-trader-blue-light'
                 )}
               >
-                {stat.label}
-                {stat.afterLabel}
+                <span className="inline-flex flex-wrap items-center justify-center gap-1">
+                  {stat.label}
+                  {stat.afterLabel}
+                </span>
               </p>
-              <p className={cn('text-sm font-semibold mt-0.5 tabular-nums', valueColor)}>
+              <p
+                className={cn(
+                  'row-start-2 self-center justify-self-center text-lg font-bold tabular-nums tracking-tight sm:text-xl',
+                  valueColor
+                )}
+              >
                 {stat.value}
               </p>
-              {stat.note && <p className="text-[10px] text-muted-foreground">{stat.note}</p>}
+              {stat.note ? (
+                <p className="row-start-3 max-w-[14rem] justify-self-center self-end text-xs font-normal leading-snug text-foreground/90 sm:text-sm">
+                  {stat.note}
+                </p>
+              ) : null}
             </div>
           );
         })}
       </div>
+      {stats.slice(1).map((stat, index) => (
+        <span
+          key={`${stat.label}-divider`}
+          aria-hidden
+          className="pointer-events-none absolute top-1/2 h-10 w-px -translate-x-1/2 -translate-y-1/2 bg-border/80 sm:h-12"
+          style={{ left: `${((index + 1) / stats.length) * 100}%` }}
+        />
+      ))}
     </div>
   );
 }
@@ -187,7 +220,7 @@ function InsightCardShell({
   children: ReactNode;
 }) {
   return (
-    <div className="flex h-full flex-col gap-3 rounded-lg border bg-card p-4 shadow-sm md:p-5">
+    <div className="flex h-full flex-col gap-3 p-5 md:p-6">
       <div className="flex items-start gap-2.5">
         <div
           className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-trader-blue dark:text-trader-blue-light"
@@ -232,6 +265,7 @@ export function ModelHeaderCard({
   const [beatLoading, setBeatLoading] = useState(Boolean(beatMarketSlug));
   const [beatError, setBeatError] = useState<string | null>(null);
   const [avgExcessVsSp500, setAvgExcessVsSp500] = useState<number | null>(null);
+  const [maxExcessVsSp500, setMaxExcessVsSp500] = useState<number | null>(null);
   const [beatSummary, setBeatSummary] = useState<{
     pct: number | null;
     beating: number;
@@ -249,6 +283,7 @@ export function ModelHeaderCard({
       setBeatSummary(null);
       setSp500BeatSummary(null);
       setAvgExcessVsSp500(null);
+      setMaxExcessVsSp500(null);
       setBeatError(null);
       return;
     }
@@ -257,6 +292,7 @@ export function ModelHeaderCard({
     setBeatLoading(true);
     setBeatError(null);
     setAvgExcessVsSp500(null);
+    setMaxExcessVsSp500(null);
 
     (async () => {
       try {
@@ -269,6 +305,7 @@ export function ModelHeaderCard({
           setBeatSummary(null);
           setSp500BeatSummary(null);
           setAvgExcessVsSp500(null);
+          setMaxExcessVsSp500(null);
           return;
         }
         const data = (await res.json()) as { configs?: RankedConfig[] };
@@ -276,12 +313,14 @@ export function ModelHeaderCard({
         setBeatSummary(computeBeatSummary(configs));
         setSp500BeatSummary(computeBeatSp500Summary(configs));
         setAvgExcessVsSp500(avgExcessReturnVsSp500FromConfigs(configs));
+        setMaxExcessVsSp500(maxExcessReturnVsSp500FromConfigs(configs));
       } catch (e) {
         if ((e as Error).name === 'AbortError') return;
         setBeatError('Could not load portfolio comparison');
         setBeatSummary(null);
         setSp500BeatSummary(null);
         setAvgExcessVsSp500(null);
+        setMaxExcessVsSp500(null);
       } finally {
         if (!ac.signal.aborted) setBeatLoading(false);
       }
@@ -320,8 +359,8 @@ export function ModelHeaderCard({
     replaceBeatSlot && avgExcessVsSp500 != null && Number.isFinite(avgExcessVsSp500) ? (
       <InsightCardShell
         icon={TrendingUp}
-        title="Avg. excess vs S&P 500"
-        subtitle="Mean portfolio return above index (cap-weight)"
+        title="Mean Portfolio Return"
+        subtitle="vs S&P 500"
       >
         <div className="mt-1">
           <p
@@ -337,18 +376,68 @@ export function ModelHeaderCard({
             {fmtSignedPctFromDecimal(avgExcessVsSp500, 1)}
           </p>
           <p className="text-xs leading-snug text-muted-foreground">
-            Averaged across portfolio configurations with S&amp;P 500 benchmark data since initiation
+            {maxExcessVsSp500 != null && Number.isFinite(maxExcessVsSp500)
+              ? maxExcessVsSp500 >= 0
+                ? `Top portfolio winning ${fmtSignedPctFromDecimal(maxExcessVsSp500, 1)} vs S&P 500`
+                : `Top portfolio trailing S&P 500 by ${fmtSignedPctFromDecimal(maxExcessVsSp500, 1).replace('-', '')}`
+              : 'Averaged across portfolio configurations with S\u0026P 500 benchmark data since initiation'}
           </p>
-          <Link
-            href={sp500ExcessInsightHref}
-            className="mt-auto inline-flex items-center gap-1 text-xs font-medium text-trader-blue hover:underline dark:text-trader-blue-light"
-          >
-            Returns vs benchmarks
-            <ArrowRight className="size-3" />
-          </Link>
         </div>
       </InsightCardShell>
     ) : null;
+
+  const sp500OutperformanceInsightEl = showBeatCard ? (
+    <InsightCardShell icon={BarChart3} title="Portfolios Winning" subtitle="vs S&P 500">
+      <div className="mt-1">
+        {beatLoading && (
+          <div className="h-9 w-24 rounded-md bg-muted animate-pulse" aria-hidden />
+        )}
+        {!beatLoading && beatError && <p className="text-sm text-muted-foreground">{beatError}</p>}
+        {!beatLoading &&
+          !beatError &&
+          sp500BeatSummary &&
+          sp500BeatSummary.comparable === 0 && (
+            <div className="space-y-1">
+              <p className={cn(insightHighlightClass, 'text-muted-foreground')}>—</p>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Benchmark series not ready for all configs yet.
+              </p>
+            </div>
+          )}
+        {!beatLoading &&
+          !beatError &&
+          sp500BeatSummary &&
+          sp500BeatSummary.comparable > 0 && (
+            <>
+              {sp500PctDisplay && (
+                <p
+                  className={cn(
+                    insightHighlightClass,
+                    sp500BeatSummary.pct != null && sp500BeatSummary.pct > 50
+                      ? 'text-green-600 dark:text-green-400'
+                      : sp500BeatSummary.pct != null && sp500BeatSummary.pct < 50
+                        ? 'text-red-600 dark:text-red-400'
+                        : 'text-foreground'
+                  )}
+                >
+                  {sp500PctDisplay}
+                </p>
+              )}
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                <span className="font-medium text-foreground tabular-nums">
+                  {sp500BeatSummary.beating}
+                </span>
+                {' of '}
+                <span className="font-medium text-foreground tabular-nums">
+                  {sp500BeatSummary.comparable}
+                </span>
+                {' portfolios'}
+              </p>
+            </>
+          )}
+      </div>
+    </InsightCardShell>
+  ) : null;
 
   const insightCardCount = (showBeatCard ? 2 : 0) + (showRegressionCards ? 1 : 0);
   const gridColsClass =
@@ -357,13 +446,14 @@ export function ModelHeaderCard({
       : insightCardCount === 2
         ? 'sm:grid-cols-2'
         : insightCardCount === 3
-          ? 'sm:grid-cols-2 lg:grid-cols-3'
+          ? 'sm:grid-cols-3'
           : 'sm:grid-cols-2 lg:grid-cols-4';
 
   return (
-    <div className="rounded-xl border bg-card overflow-hidden">
+    <TooltipProvider delayDuration={200}>
+      <>
       {/* Top row: icon + name + badges + CTA */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-5 pb-3">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 pb-3">
         <div
           className="size-12 rounded-xl flex items-center justify-center text-white font-bold text-sm shrink-0 select-none"
           style={{ background: slugGradient(slug) }}
@@ -378,18 +468,30 @@ export function ModelHeaderCard({
             {status && (
               <Badge
                 variant="outline"
-                className={`text-xs capitalize ${
+                className={`gap-1 pr-1 text-xs capitalize ${
                   status === 'active'
                     ? 'border-green-500/50 text-green-700 dark:text-green-400'
                     : 'text-muted-foreground'
                 }`}
               >
                 {status}
+                <StrategyModelsStatusBadgeTooltip status={status} />
               </Badge>
             )}
             {isTopPerformer && (
-              <Badge className="gap-1 text-xs bg-trader-blue text-white border-0 shadow-sm">
-                <Star className="size-3" fill="currentColor" /> Top performing
+              <Badge
+                variant="outline"
+                className="pointer-events-none gap-1 border-0 bg-trader-blue pr-1 text-xs text-white shadow-sm hover:bg-trader-blue hover:text-white dark:hover:bg-trader-blue"
+              >
+                <Star
+                  className="size-3 shrink-0 pointer-events-none"
+                  fill="currentColor"
+                  aria-hidden
+                />
+                <span className="pointer-events-none">Top performing</span>
+                <span className="pointer-events-auto inline-flex">
+                  <StrategyModelsTopPerformingBadgeTooltip />
+                </span>
               </Badge>
             )}
           </div>
@@ -419,8 +521,8 @@ export function ModelHeaderCard({
         <div className="flex items-center gap-2 shrink-0">
           {variant === 'performance' && (
             <Button asChild size="sm" variant="outline" className="gap-1.5">
-              <Link href={`/strategy-models/${slug}#model-overview`}>
-                Model details <ArrowRight className="size-3.5" />
+              <Link href="/platform/ratings">
+                Stock ratings <ArrowRight className="size-3.5" />
               </Link>
             </Button>
           )}
@@ -435,22 +537,22 @@ export function ModelHeaderCard({
       </div>
 
       {description ? (
-        <p className="text-sm text-muted-foreground px-5 pb-4 max-w-3xl leading-relaxed">{description}</p>
+        <p className="text-sm text-muted-foreground pb-4 max-w-3xl leading-relaxed">{description}</p>
       ) : null}
 
       {showInsightCards && (
+        <div className="pb-5 pt-1 sm:pt-2">
         <div
           className={cn(
-            'grid grid-cols-1 gap-3 border-t px-5 pb-5 pt-5 sm:gap-4',
+            'relative grid grid-cols-1 divide-y divide-border rounded-xl border border-border/80 bg-card shadow-sm sm:divide-y-0',
             gridColsClass,
             'md:items-stretch'
           )}
         >
-          {showBeatCard && replaceBeatSlot === 'nasdaq' ? sp500AvgExcessInsightEl : null}
           {showBeatCard && replaceBeatSlot !== 'nasdaq' ? (
             <InsightCardShell
               icon={BarChart3}
-              title="Outperformance"
+              title="Portfolios Winning"
               subtitle="vs Nasdaq-100"
             >
               <div className="mt-1">
@@ -492,7 +594,7 @@ export function ModelHeaderCard({
                       <span className="font-medium text-foreground tabular-nums">
                         {beatSummary.comparable}
                       </span>
-                      {' portfolios are outperforming the index based on total returns since initiation'}
+                      {' portfolios'}
                     </p>
                   </>
                 )}
@@ -500,72 +602,22 @@ export function ModelHeaderCard({
             </InsightCardShell>
           ) : null}
 
+          {showBeatCard && replaceBeatSlot === 'nasdaq' ? sp500OutperformanceInsightEl : null}
+          {showBeatCard && replaceBeatSlot === 'nasdaq' ? sp500AvgExcessInsightEl : null}
+
           {showBeatCard && replaceBeatSlot === 'sp500' ? sp500AvgExcessInsightEl : null}
-          {showBeatCard && replaceBeatSlot !== 'sp500' ? (
-            <InsightCardShell
-              icon={BarChart3}
-              title="Outperformance"
-              subtitle="vs S&P 500"
-            >
-              <div className="mt-1">
-                {beatLoading && (
-                  <div className="h-9 w-24 rounded-md bg-muted animate-pulse" aria-hidden />
-                )}
-                {!beatLoading && beatError && (
-                  <p className="text-sm text-muted-foreground">{beatError}</p>
-                )}
-                {!beatLoading &&
-                  !beatError &&
-                  sp500BeatSummary &&
-                  sp500BeatSummary.comparable === 0 && (
-                    <div className="space-y-1">
-                      <p className={cn(insightHighlightClass, 'text-muted-foreground')}>—</p>
-                      <p className="text-xs leading-relaxed text-muted-foreground">
-                        Benchmark series not ready for all configs yet.
-                      </p>
-                    </div>
-                  )}
-                {!beatLoading &&
-                  !beatError &&
-                  sp500BeatSummary &&
-                  sp500BeatSummary.comparable > 0 && (
-                    <>
-                      {sp500PctDisplay && (
-                        <p
-                          className={cn(
-                            insightHighlightClass,
-                            sp500BeatSummary.pct != null && sp500BeatSummary.pct > 50
-                              ? 'text-green-600 dark:text-green-400'
-                              : sp500BeatSummary.pct != null && sp500BeatSummary.pct < 50
-                                ? 'text-red-600 dark:text-red-400'
-                                : 'text-foreground'
-                          )}
-                        >
-                          {sp500PctDisplay}
-                        </p>
-                      )}
-                      <p className="text-xs leading-relaxed text-muted-foreground">
-                        <span className="font-medium text-foreground tabular-nums">
-                          {sp500BeatSummary.beating}
-                        </span>
-                        {' of '}
-                        <span className="font-medium text-foreground tabular-nums">
-                          {sp500BeatSummary.comparable}
-                        </span>
-                        {' portfolios are outperforming the index based on total returns since initiation'}
-                      </p>
-                    </>
-                  )}
-              </div>
-            </InsightCardShell>
-          ) : null}
+          {showBeatCard &&
+          replaceBeatSlot !== 'sp500' &&
+          replaceBeatSlot !== 'nasdaq'
+            ? sp500OutperformanceInsightEl
+            : null}
 
           {showRegressionCards && crossSectionRegression ? (
             <>
               <InsightCardShell
                 icon={Activity}
                 title="Beta (β)"
-                subtitle="Signal — average β across all weekly regressions"
+                subtitle="Average β across all weeks"
               >
                 {(() => {
                   const {
@@ -580,7 +632,7 @@ export function ModelHeaderCard({
                   const pctFmt = (v: number | null) =>
                     v == null ? '—' : `${Math.round(v * 100)}%`;
                   return (
-                    <>
+                    <div className="mt-1">
                       <p
                         className={cn(
                           insightHighlightClass,
@@ -597,28 +649,33 @@ export function ModelHeaderCard({
                         β&gt;0 in {pctFmt(betaPositiveRate)} of {totalWeeks} weeks · latest{' '}
                         {fmtRegressionStat(latestBeta, 4)}
                       </p>
-                      <Link
-                        href={researchValidationHref}
-                        className="mt-auto inline-flex items-center gap-1 text-xs font-medium text-trader-blue hover:underline dark:text-trader-blue-light"
-                      >
-                        Signal strength details
-                        <ArrowRight className="size-3" />
-                      </Link>
-                    </>
+                    </div>
                   );
                 })()}
               </InsightCardShell>
             </>
           ) : null}
+          {insightCardCount > 1
+            ? Array.from({ length: insightCardCount - 1 }).map((_, i) => (
+                <span
+                  key={`insight-divider-${i}`}
+                  aria-hidden
+                  className="pointer-events-none absolute top-1/2 hidden h-20 w-px -translate-x-1/2 -translate-y-1/2 bg-border/80 sm:block sm:h-28"
+                  style={{ left: `${((i + 1) / insightCardCount) * 100}%` }}
+                />
+              ))
+            : null}
+        </div>
         </div>
       )}
 
       {showStatFooter && (
-        <>
+        <div className="space-y-4 pb-5 pt-2">
           {showLegacyStats && <StatGrid stats={stats!} />}
           {showDetailStats && <StatGrid stats={detailStats!} />}
-        </>
+        </div>
       )}
-    </div>
+      </>
+    </TooltipProvider>
   );
 }

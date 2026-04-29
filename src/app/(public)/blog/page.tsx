@@ -3,7 +3,9 @@ import Link from 'next/link';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
 
-export const revalidate = 3600;
+export const dynamic = 'force-static';
+/** Must match `PUBLIC_STATIC_REVALIDATE` in `@/lib/public-cache` (Next requires a literal here). */
+export const revalidate = false;
 
 interface BlogPostPreview {
   id: string;

@@ -2636,7 +2636,8 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     return buildCostBasisSnapshotsFromMovementTimeline({
       rebalanceDatesNewestFirst: scopedTopSpotlightRebalanceDates,
       byRebalanceDate: data.byRebalanceDate,
-      getAsOfPriceBySymbol: (d) => getCachedExploreHoldings(slug, cfgId, d)?.asOfPriceBySymbol,
+      getAsOfPriceBySymbol: (d) =>
+        getCachedExploreHoldings(slug, cfgId, d, { revalidate: false })?.asOfPriceBySymbol,
     });
   }, [
     topSpotlightSlug,

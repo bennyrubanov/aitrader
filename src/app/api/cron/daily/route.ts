@@ -11,10 +11,12 @@ import {
 } from '@/lib/aiPrompt';
 import { LANDING_TOP_PORTFOLIO_PERFORMANCE_CACHE_TAG } from '@/lib/landing-top-portfolio-performance';
 import { RANKED_CONFIGS_CACHE_TAG } from '@/lib/portfolio-configs-ranked-core';
+import { STRATEGY_MODELS_RANKED_CACHE_TAG } from '@/lib/strategy-models-ranked';
 import {
   CONFIG_DAILY_SERIES_CACHE_TAG,
   refreshDailySeriesSnapshotsForStrategy,
 } from '@/lib/config-daily-series';
+import { PUBLIC_CACHE_TAGS } from '@/lib/public-cache';
 import { STRATEGY_CONFIG, GIT_COMMIT_SHA } from '@/lib/strategyConfig';
 import {
   INITIAL_CAPITAL,
@@ -1827,6 +1829,12 @@ const handleRequest = async (req: Request) => {
     log('STOCKS UPSERTED', `${(upsertedStocks || []).length} rows`);
     digestMeta.stocksRowsUpserted = (upsertedStocks || []).length;
 
+    // Stocks catalog tag is also busted after the price upsert (Step 4) and after the AI
+    // rebalance branch — same tag covers `stocks`, `nasdaq_100_daily_raw`, and
+    // `nasdaq100_recommendations_current_public` reads in `getCachedStockDetailMeta`.
+    revalidateTag(PUBLIC_CACHE_TAGS.stocksCatalog);
+    revalidateTag(PUBLIC_CACHE_TAGS.stockDetailNews);
+
     const stockMap = new Map(
       (upsertedStocks || []).map((stock: StockRow) => [stock.symbol, stock])
     );
@@ -1852,6 +1860,10 @@ const handleRequest = async (req: Request) => {
       return NextResponse.json({ error: rawError.message }, { status: 500 });
     }
     log('RAW UPSERTED', `${rawPayload.length} rows`);
+
+    // Bust price-cache reads (`getCachedStockDetailMeta` reads latest `nasdaq_100_daily_raw`
+    // row under the `stocksCatalog` tag).
+    revalidateTag(PUBLIC_CACHE_TAGS.stocksCatalog);
 
     const nasdaqSymbolsWithParsedPrice = nasdaqRows.filter(
       (row) => parsePrice(row.lastSalePrice) !== null
@@ -2967,6 +2979,11 @@ const handleRequest = async (req: Request) => {
     revalidateTag(CONFIG_DAILY_SERIES_CACHE_TAG);
     revalidateTag('mtm-walk-inputs');
     revalidateTag(RANKED_CONFIGS_CACHE_TAG);
+    revalidateTag(STRATEGY_MODELS_RANKED_CACHE_TAG);
+    revalidateTag(PUBLIC_CACHE_TAGS.stockPortfolioPresence);
+    // `getCachedStockDetailMeta` and `stocks-list-payload` cache `nasdaq100_recommendations_current_public`
+    // rows under `stocksCatalog`; bust after the AI rebalance writes new recommendations.
+    revalidateTag(PUBLIC_CACHE_TAGS.stocksCatalog);
     revalidateTag(`${RANKED_CONFIGS_CACHE_TAG}:${strategy.slug}`);
     revalidatePath('/strategy-models');
     revalidatePath('/whitepaper');

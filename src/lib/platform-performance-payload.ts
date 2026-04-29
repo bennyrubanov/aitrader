@@ -13,6 +13,7 @@ import {
 import { ACTIVE_STRATEGY_ENTRY } from '@/lib/ai-strategy-registry';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { createPublicClient } from '@/utils/supabase/public';
+import { PUBLIC_CACHE_TAGS, PUBLIC_DATA_CACHE_TTL_SECONDS } from '@/lib/public-cache';
 import { ensureStrategyDailySeries } from '@/lib/config-daily-series';
 import {
   buildFourWeekQuintileHistory,
@@ -721,6 +722,11 @@ const EMPTY_PAYLOAD: PlatformPerformancePayload = {
   research: null,
 };
 
+const STRATEGY_PERFORMANCE_CACHE_TAGS = [
+  PUBLIC_CACHE_TAGS.configDailySeries,
+  PUBLIC_CACHE_TAGS.strategyModelsRanked,
+];
+
 const getPlatformPerformancePayloadCached = unstable_cache(
   async (): Promise<PlatformPerformancePayload> => {
     try {
@@ -743,7 +749,10 @@ const getPlatformPerformancePayloadCached = unstable_cache(
     }
   },
   ['platform-performance-payload'],
-  { revalidate: 300 }
+  {
+    revalidate: PUBLIC_DATA_CACHE_TTL_SECONDS,
+    tags: STRATEGY_PERFORMANCE_CACHE_TAGS,
+  }
 );
 
 export const getPlatformPerformancePayload = async () => getPlatformPerformancePayloadCached();
@@ -771,7 +780,10 @@ const getPerformancePayloadBySlugCached = (slug: string) =>
       }
     },
     [`platform-performance-payload-${slug}`],
-    { revalidate: 300 }
+    {
+      revalidate: PUBLIC_DATA_CACHE_TTL_SECONDS,
+      tags: STRATEGY_PERFORMANCE_CACHE_TAGS,
+    }
   );
 
 export const getPerformancePayloadBySlug = async (slug: string) =>
@@ -1023,7 +1035,10 @@ const getStrategiesListCached = unstable_cache(
     }
   },
   ['strategies-list'],
-  { revalidate: 300 }
+  {
+    revalidate: PUBLIC_DATA_CACHE_TTL_SECONDS,
+    tags: STRATEGY_PERFORMANCE_CACHE_TAGS,
+  }
 );
 
 export const getStrategiesList = async () => getStrategiesListCached();
@@ -1283,7 +1298,10 @@ const getStrategyDetailCached = (slug: string) =>
       }
     },
     [`strategy-detail-${slug}`],
-    { revalidate: 300 }
+    {
+      revalidate: PUBLIC_DATA_CACHE_TTL_SECONDS,
+      tags: STRATEGY_PERFORMANCE_CACHE_TAGS,
+    }
   );
 
 export const getStrategyDetail = async (slug: string): Promise<StrategyDetail | null> =>

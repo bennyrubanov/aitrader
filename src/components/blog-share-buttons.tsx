@@ -2,15 +2,17 @@
 
 type BlogShareButtonsProps = {
   title: string;
+  /** Absolute article URL for share links (avoids `window` during static prerender / SSR). */
+  sharePageUrl: string;
 };
 
-export function BlogShareButtons({ title }: BlogShareButtonsProps) {
+export function BlogShareButtons({ title, sharePageUrl }: BlogShareButtonsProps) {
   const openShare = (url: string) => {
     window.open(url, '_blank');
   };
 
   const encodedTitle = encodeURIComponent(title);
-  const encodedUrl = encodeURIComponent(window.location.href);
+  const encodedUrl = encodeURIComponent(sharePageUrl);
 
   return (
     <div className="flex space-x-4">

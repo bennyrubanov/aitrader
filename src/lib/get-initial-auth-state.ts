@@ -1,16 +1,28 @@
 import 'server-only';
-import { DEFAULT_AUTH_STATE, type AuthState } from '@/lib/auth-state';
+import { cache } from 'react';
+import { cookies } from 'next/headers';
+import { type AuthState } from '@/lib/auth-state';
 import {
   buildAuthStateFromUserAndProfile,
   buildAuthStateGuestLoaded,
 } from '@/lib/build-auth-state';
 import { createClient } from '@/utils/supabase/server';
 
-export const getInitialAuthState = async (): Promise<AuthState> => {
+const hasAuthCookie = async (): Promise<boolean> => {
+  const store = await cookies();
+  return store.getAll().some((c) => c.name.startsWith('sb-') && c.name.includes('auth-token'));
+};
+
+const _getInitialAuthState = async (): Promise<AuthState> => {
   if (
     !process.env.NEXT_PUBLIC_SUPABASE_URL ||
     !process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY
   ) {
+    return buildAuthStateGuestLoaded();
+  }
+
+  // Fast path: no Supabase auth cookie => guest, skip the entire round trip.
+  if (!(await hasAuthCookie())) {
     return buildAuthStateGuestLoaded();
   }
 
@@ -37,3 +49,10 @@ export const getInitialAuthState = async (): Promise<AuthState> => {
     return buildAuthStateGuestLoaded();
   }
 };
+
+/**
+ * Per-request memoized auth + profile fetch. Multiple components calling this
+ * in the same render share a single Supabase round trip. Guests with no auth
+ * cookie cost zero round trips.
+ */
+export const getInitialAuthState = cache(_getInitialAuthState);

@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { LegalPageLayout } from '@/components/LegalPageLayout';
-
-export const revalidate = 3600;
+export const dynamic = 'force-static';
+/** Must match `PUBLIC_STATIC_REVALIDATE` in `@/lib/public-cache` (Next requires a literal here). */
+export const revalidate = false;
 
 const TERMS_TOC = [
   { id: 'agreement', label: 'Agreement to Terms' },

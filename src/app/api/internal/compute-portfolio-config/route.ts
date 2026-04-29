@@ -16,6 +16,7 @@ import {
   CONFIG_DAILY_SERIES_CACHE_TAG,
   refreshDailySeriesSnapshotsForStrategy,
 } from '@/lib/config-daily-series';
+import { PUBLIC_CACHE_TAGS } from '@/lib/public-cache';
 import { runWithSupabaseQueryCount } from '@/utils/supabase/query-counter';
 import {
   filterRebalanceBatches,
@@ -361,6 +362,7 @@ export async function POST(req: Request) {
     try {
       await refreshDailySeriesSnapshotsForStrategy(supabase as never, { strategyId: strategy_id });
       revalidateTag(CONFIG_DAILY_SERIES_CACHE_TAG);
+      revalidateTag(PUBLIC_CACHE_TAGS.stockPortfolioPresence);
     } catch {
       /* best effort */
     }

@@ -33,10 +33,10 @@ const NewsletterPopup = forwardRef<NewsletterPopupRef, object>((props, ref) => {
   const LAST_GUEST_LANDING_VISIT_AT_KEY = 'newsletter_popup_last_guest_landing_visit_at';
   const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
-  // Expose the openPopup method to parent components
+  // Expose the openPopup method to parent components (explicit CTA clicks should always open;
+  // the timed auto-popup below still targets guests only).
   useImperativeHandle(ref, () => ({
     openPopup: () => {
-      if (!authLoaded || isAuthenticated) return;
       setOpen(true);
     },
   }));

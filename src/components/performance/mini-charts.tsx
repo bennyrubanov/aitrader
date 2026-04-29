@@ -94,6 +94,11 @@ function isoWeekFriday(isoYmd: string): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+function isoWeekFridayCappedAtLatestObservation(isoYmd: string, latestObservedYmd: string): string {
+  const friday = isoWeekFriday(isoYmd);
+  return friday > latestObservedYmd ? isoYmd : friday;
+}
+
 const compactSharpeFormatter = new Intl.NumberFormat('en-US', {
   notation: 'compact',
   maximumFractionDigits: 1,
@@ -681,9 +686,10 @@ export function CumulativeSharpeRatioChart({
     }
 
     // Weekly returns: math from real values, but the date *label* is normalized to
-    // the canonical ISO-week Friday so the X axis renders a steady weekly cadence
-    // even when the underlying daily series ended mid-week (e.g. a Monday rebalance
-    // bar followed by a tail-appended live Friday).
+    // the canonical ISO-week Friday so the X axis renders a steady weekly cadence.
+    // Cap the current partial week at the latest observed date; otherwise Apr 29
+    // data in the ISO week ending May 1 would be labeled as a future May 1 point.
+    const latestObservedDate = weeklySeries[weeklySeries.length - 1]!.date;
     const weeklyReturns = weeklySeries.slice(1).map((point, i) => {
       const prev = weeklySeries[i]!;
       const safe = (p: number, c: number) => (p > 0 ? c / p - 1 : 0);
@@ -691,7 +697,7 @@ export function CumulativeSharpeRatioChart({
       for (const key of keys) {
         row[key] = safe(prev[key], point[key]);
       }
-      return { date: isoWeekFriday(point.date), ...row };
+      return { date: isoWeekFridayCappedAtLatestObservation(point.date, latestObservedDate), ...row };
     });
 
     const inception = weeklySeries[0]?.date ?? null;

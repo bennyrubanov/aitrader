@@ -1,4 +1,5 @@
 import { unstable_cache } from 'next/cache';
+import { PUBLIC_CACHE_TAGS, PUBLIC_DATA_CACHE_TTL_SECONDS } from '@/lib/public-cache';
 
 /** Bump when feed URLs or merge logic changes (invalidates cached payloads). */
 const STOCK_NEWS_SOURCES_VERSION = 'v3';
@@ -273,7 +274,7 @@ function itemToCandidate(
 async function fetchRssText(url: string): Promise<string | null> {
   try {
     const response = await fetch(url, {
-      next: { revalidate: 3600 },
+      next: { revalidate: PUBLIC_DATA_CACHE_TTL_SECONDS },
       headers: FETCH_HEADERS,
     });
     if (!response.ok) {
@@ -390,6 +391,9 @@ export function getCachedStockNews(symbol: string, stockName: string | null): Pr
   return unstable_cache(
     () => fetchStockNewsForCache(sym, stockName),
     ['stock-detail-news', STOCK_NEWS_SOURCES_VERSION, sym, nameKey],
-    { revalidate: 3600 }
+    {
+      revalidate: PUBLIC_DATA_CACHE_TTL_SECONDS,
+      tags: [PUBLIC_CACHE_TAGS.stockDetailNews],
+    }
   )();
 }

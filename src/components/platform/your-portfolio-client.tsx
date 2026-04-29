@@ -2205,7 +2205,8 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     return buildCostBasisSnapshotsFromMovementTimeline({
       rebalanceDatesNewestFirst: scopedConfigHoldingsRebalanceDates,
       byRebalanceDate: data.byRebalanceDate,
-      getAsOfPriceBySymbol: (d) => getCachedExploreHoldings(slug, cfgId, d)?.asOfPriceBySymbol,
+      getAsOfPriceBySymbol: (d) =>
+        getCachedExploreHoldings(slug, cfgId, d, { revalidate: false })?.asOfPriceBySymbol,
     });
   }, [
     strategySlug,

@@ -16,7 +16,7 @@ const Footer: React.FC = () => {
               <span>Trader</span>
             </Link>
             <p className="text-muted-foreground mb-6 max-w-md">
-              AI-powered stock analysis backed by peer-reviewed research. Transparent methodology, transparent performance.
+              AI-powered stock analysis backed by peer-reviewed research. Fully transparent methodology and performance.
             </p>
             <Disclaimer variant="inline" className="max-w-md" />
           </div>
@@ -24,10 +24,10 @@ const Footer: React.FC = () => {
           <div>
             <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider mb-4">Platform</h3>
             <ul className="space-y-3">
-              <li><Link href="/platform/overview" prefetch className="text-muted-foreground hover:text-trader-blue transition-colors">Explore Platform</Link></li>
+              <li><Link href="/strategy-models" prefetch className="text-muted-foreground hover:text-trader-blue transition-colors">Strategy models</Link></li>
               <li><Link href="/whitepaper" prefetch className="text-muted-foreground hover:text-trader-blue transition-colors">Whitepaper</Link></li>
-              <li><Link href="/strategy-models" prefetch className="text-muted-foreground hover:text-trader-blue transition-colors">Models</Link></li>
-              <li><Link href="/pricing" prefetch className="text-muted-foreground hover:text-trader-blue transition-colors">Pricing and Features</Link></li>
+              <li><Link href="/pricing" prefetch className="text-muted-foreground hover:text-trader-blue transition-colors">Pricing & Features</Link></li>
+              <li><Link href="/platform/overview" prefetch className="text-muted-foreground hover:text-trader-blue transition-colors">Explore Platform</Link></li>
             </ul>
           </div>
 

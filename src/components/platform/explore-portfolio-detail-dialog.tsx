@@ -730,7 +730,7 @@ export function ExplorePortfolioDetailDialog({
     }
 
     setSelectedAsOf(null);
-    const syncHit = getCachedExploreHoldings(slug, config.id, null);
+    const syncHit = getCachedExploreHoldings(slug, config.id, null, { revalidate: false });
     if (syncHit) {
       setHoldings(syncHit.holdings);
       if (syncHit.asOfDate) setSelectedAsOf(syncHit.asOfDate);
@@ -863,7 +863,7 @@ export function ExplorePortfolioDetailDialog({
       return;
     }
     const hasMissingDates = prefetchDates.some(
-      (date) => !getCachedExploreHoldings(slug, config.id, date)
+      (date) => !getCachedExploreHoldings(slug, config.id, date, { revalidate: false })
     );
     if (!hasMissingDates) {
       setExploreActionsLoading(false);
@@ -889,9 +889,13 @@ export function ExplorePortfolioDetailDialog({
     if (!open || !config || !exploreHoldingsUnlocked) return;
     const slug = strategySlug.trim();
     if (!slug || rebalanceDates.length === 0) return;
-    const windowReady = prefetchDates.every((d) => getCachedExploreHoldings(slug, config.id, d));
+    const windowReady = prefetchDates.every((d) =>
+      getCachedExploreHoldings(slug, config.id, d, { revalidate: false })
+    );
     if (!windowReady) return;
-    const remaining = rebalanceDates.filter((d) => !getCachedExploreHoldings(slug, config.id, d));
+    const remaining = rebalanceDates.filter(
+      (d) => !getCachedExploreHoldings(slug, config.id, d, { revalidate: false })
+    );
     if (remaining.length === 0) return;
     return prefetchExploreHoldingsDatesIdle(slug, config.id, remaining);
   }, [
@@ -999,13 +1003,15 @@ export function ExplorePortfolioDetailDialog({
       const prevDate = globalIdx >= 0 ? (rebalanceDates[globalIdx + 1] ?? null) : null;
       const isInitial = globalIdx === rebalanceDates.length - 1;
       const currPayload =
-        getCachedExploreHoldings(slug, config.id, date) ??
+        getCachedExploreHoldings(slug, config.id, date, { revalidate: false }) ??
         (selectedAsOf === date ? { holdings } : undefined);
       if (!currPayload?.holdings) {
         missingDates += 1;
         continue;
       }
-      const prevPayload = prevDate ? getCachedExploreHoldings(slug, config.id, prevDate) : null;
+      const prevPayload = prevDate
+        ? getCachedExploreHoldings(slug, config.id, prevDate, { revalidate: false })
+        : null;
       const prevHoldings = prevDate ? (prevPayload?.holdings ?? []) : [];
       let movementNotional = rebasedEndingEquityAtRunDate(explorePerfRows, null, INITIAL_CAPITAL, date);
       if (!Number.isFinite(movementNotional) || (movementNotional ?? 0) <= 0) {
@@ -1040,7 +1046,7 @@ export function ExplorePortfolioDetailDialog({
       rebalanceDatesNewestFirst: rebalanceDates,
       cfgRows: explorePerfRows,
       getHoldingsAndPrices: (d) => {
-        const hit = getCachedExploreHoldings(slug, cid, d);
+        const hit = getCachedExploreHoldings(slug, cid, d, { revalidate: false });
         if (!hit) return null;
         return { holdings: hit.holdings, asOfPriceBySymbol: hit.asOfPriceBySymbol };
       },
@@ -1113,13 +1119,16 @@ export function ExplorePortfolioDetailDialog({
               latestPriceBySymbol: holdingsLatestPriceBySymbol,
             }
           : null;
-      const datePayload = getCachedExploreHoldings(slug, config.id, date) ?? fallbackPayload;
+      const datePayload =
+        getCachedExploreHoldings(slug, config.id, date, { revalidate: false }) ?? fallbackPayload;
       if (!datePayload?.holdings) {
         missingDates += 1;
         continue;
       }
       const prevDate = globalIdx >= 0 ? (rebalanceDates[globalIdx + 1] ?? null) : null;
-      const prevPayload = prevDate ? getCachedExploreHoldings(slug, config.id, prevDate) : null;
+      const prevPayload = prevDate
+        ? getCachedExploreHoldings(slug, config.id, prevDate, { revalidate: false })
+        : null;
 
       let rebalanceNotionalForAllocation =
         rebasedEndingEquityAtRunDate(explorePerfRows, null, INITIAL_CAPITAL, date) ?? INITIAL_CAPITAL;

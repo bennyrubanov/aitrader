@@ -1,8 +1,8 @@
 'use client';
 
 import type { MouseEvent, ReactNode } from 'react';
-import { useCallback } from 'react';
-import { Copy } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Check, Copy } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /** Path + query (no hash) from `hrefBase`, then `#fragmentId` for in-page navigation. */
@@ -87,6 +87,15 @@ type SectionHeadingAnchorProps = {
  * leaving the `group` hover / `focus-within` chain.
  */
 export function SectionHeadingAnchor({ fragmentId, hrefBase, className }: SectionHeadingAnchorProps) {
+  const [copied, setCopied] = useState(false);
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+    };
+  }, []);
+
   const handleClick = useCallback(
     async (e: MouseEvent<HTMLButtonElement>) => {
       e.preventDefault();
@@ -96,6 +105,12 @@ export function SectionHeadingAnchor({ fragmentId, hrefBase, className }: Sectio
         typeof window !== 'undefined' ? new URL(relative, window.location.origin).href : relative;
       try {
         await navigator.clipboard.writeText(absolute);
+        setCopied(true);
+        if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+        resetTimerRef.current = setTimeout(() => {
+          setCopied(false);
+          resetTimerRef.current = null;
+        }, 1500);
       } catch {
         /* clipboard may be denied */
       }
@@ -116,9 +131,9 @@ export function SectionHeadingAnchor({ fragmentId, hrefBase, className }: Sectio
         'hover:text-foreground',
         className
       )}
-      aria-label="Copy link to this section"
+      aria-label={copied ? 'Link copied' : 'Copy link to this section'}
     >
-      <Copy className="size-3.5" aria-hidden />
+      {copied ? <Check className="size-3.5" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
     </button>
   );
 }

@@ -13,6 +13,8 @@ import { createAdminClient } from '@/utils/supabase/admin';
 import { computeAllPortfolioConfigs } from '@/lib/compute-all-portfolio-configs';
 import { LANDING_TOP_PORTFOLIO_PERFORMANCE_CACHE_TAG } from '@/lib/landing-top-portfolio-performance';
 import { RANKED_CONFIGS_CACHE_TAG } from '@/lib/portfolio-configs-ranked-core';
+import { PUBLIC_CACHE_TAGS } from '@/lib/public-cache';
+import { STRATEGY_MODELS_RANKED_CACHE_TAG } from '@/lib/strategy-models-ranked';
 import {
   CONFIG_DAILY_SERIES_CACHE_TAG,
   refreshDailySeriesSnapshotsForStrategy,
@@ -52,6 +54,8 @@ export async function POST(req: Request) {
     revalidateTag(LANDING_TOP_PORTFOLIO_PERFORMANCE_CACHE_TAG);
     revalidateTag(CONFIG_DAILY_SERIES_CACHE_TAG);
     revalidateTag(RANKED_CONFIGS_CACHE_TAG);
+    revalidateTag(STRATEGY_MODELS_RANKED_CACHE_TAG);
+    revalidateTag(PUBLIC_CACHE_TAGS.stockPortfolioPresence);
     revalidatePath('/', 'page');
 
     const configsTriggered = result.computedNonDefault + result.failedNonDefault;

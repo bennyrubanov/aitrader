@@ -9,6 +9,7 @@ import { loadLatestRawRunDate } from '@/lib/live-mark-to-market';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { createPublicClient } from '@/utils/supabase/public';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
+import { PUBLIC_CACHE_TAGS, PUBLIC_DATA_CACHE_TTL_SECONDS } from '@/lib/public-cache';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -61,7 +62,7 @@ export type PortfolioConfigsRankedPayload = {
   configs: RankedConfig[];
 };
 
-export const RANKED_CONFIGS_CACHE_TAG = 'ranked-configs';
+export const RANKED_CONFIGS_CACHE_TAG = PUBLIC_CACHE_TAGS.rankedConfigs;
 
 // ── Math helpers ──────────────────────────────────────────────────────────────
 
@@ -439,6 +440,9 @@ export async function getCachedRankedConfigsPayload(
   return unstable_cache(
     () => loadPortfolioConfigsRankedPayload(slug),
     ['portfolio-configs-ranked', slug],
-    { revalidate: 300, tags: [RANKED_CONFIGS_CACHE_TAG, `${RANKED_CONFIGS_CACHE_TAG}:${slug}`] }
+    {
+      revalidate: PUBLIC_DATA_CACHE_TTL_SECONDS,
+      tags: [RANKED_CONFIGS_CACHE_TAG, `${RANKED_CONFIGS_CACHE_TAG}:${slug}`],
+    }
   )();
 }

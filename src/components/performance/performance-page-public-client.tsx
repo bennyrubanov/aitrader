@@ -16,15 +16,12 @@ import {
   ArrowLeft,
   ArrowRight,
   BadgeCheck,
+  BookOpen,
   CheckCircle2,
   ChevronDown,
   Cpu,
   ExternalLink,
   FileText,
-  FilterX,
-  LayoutList,
-  LineChart,
-  ListFilter,
   Lock,
   ShieldCheck,
   Star,
@@ -36,11 +33,11 @@ import type {
 import {
   ExplorePortfoliosEquityChart,
 } from '@/components/platform/explore-portfolios-equity-chart';
-import type {
-  ExploreBenchmarkSeries,
-  ExploreEquitySeriesRow,
+import {
+  dataKeyForExploreConfig,
+  type ExploreBenchmarkSeries,
+  type ExploreEquitySeriesRow,
 } from '@/components/platform/explore-portfolios-equity-chart-shared';
-import { ExplorePortfolioFilterControls } from '@/components/platform/explore-portfolio-filter-controls';
 import { HoldingRankWithChange } from '@/components/platform/holding-rank-with-change';
 import { MetricReadinessPill } from '@/components/platform/metric-readiness-pill';
 import {
@@ -52,8 +49,8 @@ import {
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -77,16 +74,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
 import { ContentPageLayout } from '@/components/ContentPageLayout';
 import { Disclaimer } from '@/components/Disclaimer';
 import { ModelHeaderCard } from '@/components/ModelHeaderCard';
@@ -136,7 +123,14 @@ import { HoldingsPortfolioValueLine } from '@/components/platform/holdings-portf
 import {
   HoldingsAllocationColumnTooltip,
   HoldingsCostBasisColumnTooltip,
+  StrategyModelsTopPerformingTooltipPanel,
 } from '@/components/tooltips';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { SectionHeadingAnchor, SectionHeadingJumpLink } from '@/components/section-heading-anchor';
 import { useAuthState } from '@/components/auth/auth-state-context';
 import { getAppAccessState, canViewPerformanceHoldingsForStrategy } from '@/lib/app-access';
@@ -152,7 +146,6 @@ import type { PublicPortfolioPerfApiPayload } from '@/lib/public-portfolio-confi
 import { applyEffectiveSeriesToMetrics } from '@/lib/config-performance-chart';
 import { type PortfolioConfigSlice } from '@/components/platform/portfolio-config-controls';
 import { SidebarPortfolioConfigPicker } from '@/components/platform/sidebar-portfolio-config-picker';
-import { StrategyModelSidebarDropdown } from '@/components/platform/strategy-model-sidebar-dropdown';
 import {
   RISK_LABELS,
   RISK_TOP_N,
@@ -169,7 +162,6 @@ import {
   stripPerformancePortfolioSearchParams,
 } from '@/lib/performance-portfolio-url';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
-import { AI_STRATEGIES } from '@/lib/ai-strategy-registry';
 
 const PerformanceChart = dynamic(
   () => import('@/components/platform/performance-chart').then((module) => module.PerformanceChart),
@@ -185,7 +177,6 @@ const PERFORMANCE_TOC_BASE = [
   { id: 'portfolio-values', label: 'Portfolio Returns' },
   { id: 'model-overview', label: 'Model overview' },
   { id: 'model-overview-prompt-design', label: '↳ Prompt design' },
-  { id: 'model-methodology', label: 'Methodology + research' },
   { id: 'overview', label: 'Performance overview' },
   { id: 'what-you-see', label: 'What you are looking at' },
   { id: 'holdings', label: 'Portfolio holdings' },
@@ -193,6 +184,8 @@ const PERFORMANCE_TOC_BASE = [
   { id: 'risk', label: 'Risk' },
   { id: 'consistency', label: 'Consistency' },
   { id: 'research-validation', label: 'Research validation' },
+  { id: 'scientific-grounding', label: 'Scientific grounding' },
+  { id: 'model-scoring', label: 'Scoring' },
   { id: 'reality-checks', label: 'Reality checks' },
 ];
 
@@ -315,7 +308,6 @@ function formatInvestedOnCalendarDate(ymd: string | null | undefined): string | 
 }
 
 const PERFORMANCE_MODEL_INITIAL = 10_000;
-const AIT1_REGISTRY_ENTRY = AI_STRATEGIES.find((entry) => entry.slug === 'ait-1-daneel');
 
 function perfFormatUsd(amount: number): string {
   return new Intl.NumberFormat('en-US', {
@@ -353,6 +345,9 @@ function ModelOverviewSections({
   strategy: NonNullable<PlatformPerformancePayload['strategy']>;
   hrefBase: string;
 }) {
+  const transactionCostBps = strategy.transactionCostBps ?? 15;
+  const transactionCostPct = (transactionCostBps / 100).toFixed(2);
+
   return (
     <section id="model-overview" className="mb-10 scroll-mt-[4.5rem] md:scroll-mt-[5rem]">
       <h2 className="group relative mb-4 flex items-center gap-2 text-2xl font-bold tracking-tight">
@@ -375,6 +370,10 @@ function ModelOverviewSections({
           <ConfigRow label="Rating scale" value="-5 to +5 (integer) + latent rank 0-1" />
           <ConfigRow label="Data per stock" value="Live web search, last 30 days" />
           <ConfigRow label="Run frequency" value={strategy.rebalanceFrequency} />
+          <ConfigRow
+            label="Transaction cost"
+            value={`${transactionCostBps} bps (${transactionCostPct}%) per traded dollar`}
+          />
         </div>
       </div>
 
@@ -408,77 +407,88 @@ function ModelOverviewSections({
   );
 }
 
-function Ait1MethodologyResearchSection({
-  strategy,
-  hrefBase,
-}: {
-  strategy: NonNullable<PlatformPerformancePayload['strategy']>;
-  hrefBase: string;
-}) {
-  const transactionCostBps = strategy.transactionCostBps ?? 15;
-  const transactionCostPct = (transactionCostBps / 100).toFixed(2);
-  const modelName = strategy.modelName ?? AIT1_REGISTRY_ENTRY?.model.defaultName ?? 'OpenAI model';
-  const modelVersion = AIT1_REGISTRY_ENTRY?.model.version ?? strategy.version;
-
+function Ait1ScoringSection({ hrefBase }: { hrefBase: string }) {
   return (
-    <section id="model-methodology" className="mb-10 scroll-mt-[4.5rem] md:scroll-mt-[5rem]">
+    <section id="model-scoring" className="mb-10 scroll-mt-[4.5rem] md:scroll-mt-[5rem]">
       <h2 className="group relative mb-4 flex items-center gap-2 text-2xl font-bold tracking-tight">
         <SectionHeadingJumpLink
-          fragmentId="model-methodology"
+          fragmentId="model-scoring"
           hrefBase={hrefBase}
           className="flex min-w-0 flex-1 items-center gap-2"
         >
-          <FileText className="size-5 shrink-0 text-trader-blue" /> Methodology + research foundation
+          <FileText className="size-5 shrink-0 text-trader-blue" /> Scoring
         </SectionHeadingJumpLink>
-        <SectionHeadingAnchor fragmentId="model-methodology" hrefBase={hrefBase} />
+        <SectionHeadingAnchor fragmentId="model-scoring" hrefBase={hrefBase} />
       </h2>
 
       <div className="space-y-5">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">AIT-1 implementation details</CardTitle>
-            <CardDescription>
-              The model-specific assumptions behind {strategy.name}. The shared formulas and ranking
-              methodology live in the whitepaper.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="divide-y rounded-lg border bg-muted/30 px-4">
-              <ConfigRow label="Universe" value="Nasdaq-100 (all ~100 current members)" />
-              <ConfigRow label="AI model" value={modelName} mono />
-              <ConfigRow label="AI model version" value={modelVersion} mono />
-              <ConfigRow label="Strategy version" value={strategy.version} mono />
-              <ConfigRow label="Score scale" value="-5 to +5 integer score + latent rank 0-1" />
-              <ConfigRow label="News lookback" value="Live web search over roughly the last 30 days" />
-              <ConfigRow label="Rebalance cadence" value={strategy.rebalanceFrequency} />
-              <ConfigRow
-                label="Default tracking portfolio"
-                value={`Top ${strategy.portfolioSize} · Equal weight`}
-              />
-              <ConfigRow
-                label="Transaction cost"
-                value={`${transactionCostBps} bps (${transactionCostPct}%) per traded dollar`}
-              />
-              <ConfigRow
-                label="Starting capital convention"
-                value={perfFormatUsd(PERFORMANCE_MODEL_INITIAL)}
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        <div className="rounded-lg border bg-muted/30 p-4 text-sm text-foreground/80 leading-relaxed">
+        <div className="space-y-3 text-sm leading-relaxed text-foreground/80">
+          <p>
+            Each strategy defines an integer score scale. The score reflects relative attractiveness
+            over the strategy&apos;s chosen horizon, calibrated across its full universe. The AI is
+            explicitly instructed to avoid defaulting to the midpoint unless information is genuinely
+            mixed. The exact range is published on each strategy&apos;s page.
+          </p>
+          <p>
+            In addition to the integer score, the AI produces a <strong>latent rank</strong> — a
+            continuous value between 0 and 1. The portfolio layer sorts by latent rank (highest
+            first). This separation allows the portfolio to capture ordering signal even when two
+            stocks share the same integer score.
+          </p>
+          <p>
+            Scores are calibrated relative to other members of the same strategy universe, not in
+            absolute isolation. A high score means the stock looks meaningfully more attractive than
+            most peers available to that strategy right now.
+          </p>
           <p>
             <strong className="text-foreground">Why relative scoring matters:</strong> Ratings are
             explicitly cross-sectional: how attractive is this stock compared to the other stocks in
             the same universe? This is what makes the signal robust. Even during a period when every
             portfolio in Pelster &amp; Val&apos;s live experiment had negative absolute returns, the
             highest-rated stocks still lost less than the lowest-rated ones by a statistically
-            significant margin. The AI couldn&apos;t predict market direction, but it could reliably rank
-            which stocks were relatively stronger.
+            significant margin. The AI couldn&apos;t predict market direction, but it could reliably
+            rank which stocks were relatively stronger. That is the point of relative rather than
+            absolute scoring: predicting whether any single stock will go up or down requires guessing
+            the overall market direction (something nobody can do reliably), but picking out which
+            stocks look stronger <em>compared to their peers</em> is a more tractable problem. In a
+            falling market, every stock might drop, but the highest-ranked ones tend to drop less. In
+            a rising market, they tend to rise more. The goal is not to predict the whole market; it
+            is to rank the opportunity set better than a neutral or random sort.
           </p>
         </div>
 
+        <div className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
+          <strong className="text-foreground">What we add beyond the papers:</strong> A fully
+          automated, live production system with real-time web search, versioned model portfolios,
+          forward-only performance tracking, transparent cost modeling, and public auditability. No
+          backtests used as marketing. No retroactive edits.
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ScientificGroundingSection({ hrefBase }: { hrefBase: string }) {
+  return (
+    <section
+      id="scientific-grounding"
+      className="mb-10 scroll-mt-[4.5rem] md:scroll-mt-[5rem]"
+    >
+      <h2 className="group relative mb-2 flex flex-wrap items-center gap-x-1 text-2xl font-bold tracking-tight">
+        <SectionHeadingJumpLink
+          fragmentId="scientific-grounding"
+          hrefBase={hrefBase}
+          className="flex min-w-0 flex-1 items-center gap-2"
+        >
+          <BookOpen className="size-5 shrink-0 text-trader-blue" /> Scientific grounding
+        </SectionHeadingJumpLink>
+        <SectionHeadingAnchor fragmentId="scientific-grounding" hrefBase={hrefBase} />
+      </h2>
+      <p className="mb-5 text-sm text-muted-foreground">
+        Primary references behind the live cross-sectional rating and portfolio design we ship in
+        production.
+      </p>
+      <div className="space-y-5">
         <Card>
           <CardHeader className="pb-2 space-y-2">
             <div className="flex items-start justify-between gap-3">
@@ -489,7 +499,7 @@ function Ait1MethodologyResearchSection({
                 href="https://www.sciencedirect.com/science/article/pii/S1544612323011583"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="group text-trader-blue no-underline transition-colors hover:text-trader-blue/90 inline-flex items-center gap-1 text-xs shrink-0"
+                className="group inline-flex shrink-0 items-center gap-1 text-xs text-trader-blue no-underline transition-colors hover:text-trader-blue/90"
               >
                 Read paper
                 <ExternalLink className="size-3.5 opacity-0 transition-opacity group-hover:opacity-100" />
@@ -497,7 +507,7 @@ function Ait1MethodologyResearchSection({
             </div>
             <CardDescription>Finance Research Letters &middot; Primary reference</CardDescription>
           </CardHeader>
-          <CardContent className="text-sm text-foreground/80 space-y-3">
+          <CardContent className="space-y-3 text-sm text-foreground/80">
             <p>
               <strong>Core idea:</strong> Live experiment testing whether ChatGPT-4 with web access can
               rate S&amp;P 500 stocks on a &minus;5 to +5 <em>relative</em> attractiveness scale and
@@ -524,8 +534,8 @@ function Ait1MethodologyResearchSection({
               relatively stronger.
             </p>
             <div>
-              <p className="font-medium text-foreground mb-2">Key findings:</p>
-              <ul className="space-y-1 list-disc list-inside pl-2">
+              <p className="mb-2 font-medium text-foreground">Key findings:</p>
+              <ul className="list-inside list-disc space-y-1 pl-2">
                 <li>AI attractiveness ratings positively correlate with future stock returns</li>
                 <li>Relative ranking holds even in negative-return markets</li>
                 <li>AI adjusts ratings in response to earnings and news in near real-time</li>
@@ -533,16 +543,16 @@ function Ait1MethodologyResearchSection({
               </ul>
             </div>
             <div>
-              <p className="font-medium text-foreground mb-2">Limitations:</p>
-              <ul className="space-y-1 list-disc list-inside pl-2">
+              <p className="mb-2 font-medium text-foreground">Limitations:</p>
+              <ul className="list-inside list-disc space-y-1 pl-2">
                 <li>Short time period (~2 months)</li>
                 <li>Not a production portfolio — quintile analysis only</li>
                 <li>Not tested over long horizons or different market regimes</li>
               </ul>
             </div>
             <div className="rounded-md border bg-muted/30 p-3">
-              <p className="font-medium text-foreground text-xs mb-1">Our alignment:</p>
-              <ul className="text-xs text-muted-foreground space-y-0.5">
+              <p className="mb-1 text-xs font-medium text-foreground">Our alignment:</p>
+              <ul className="space-y-0.5 text-xs text-muted-foreground">
                 <li>Same live experiment approach, no backtesting</li>
                 <li>Same relative &minus;5 to +5 attractiveness rating scale</li>
                 <li>Same live web search for recent news, earnings, and analyst data</li>
@@ -563,7 +573,7 @@ function Ait1MethodologyResearchSection({
                 href="https://www.sciencedirect.com/science/article/abs/pii/S154461232400463X"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="group text-trader-blue no-underline transition-colors hover:text-trader-blue/90 inline-flex items-center gap-1 text-xs shrink-0"
+                className="group inline-flex shrink-0 items-center gap-1 text-xs text-trader-blue no-underline transition-colors hover:text-trader-blue/90"
               >
                 Read paper
                 <ExternalLink className="size-3.5 opacity-0 transition-opacity group-hover:opacity-100" />
@@ -571,15 +581,15 @@ function Ait1MethodologyResearchSection({
             </div>
             <CardDescription>Finance Research Letters &middot; Portfolio extension</CardDescription>
           </CardHeader>
-          <CardContent className="text-sm text-foreground/80 space-y-3">
+          <CardContent className="space-y-3 text-sm text-foreground/80">
             <p>
               <strong>Core idea:</strong> Extended the research from individual stock ratings to
               building full portfolios. Asked whether ChatGPT can select assets and build diversified
               portfolios that outperform random selection — across stocks, bonds, commodities, and more.
             </p>
             <div>
-              <p className="font-medium text-foreground mb-2">Key findings:</p>
-              <ul className="space-y-1 list-disc list-inside pl-2">
+              <p className="mb-2 font-medium text-foreground">Key findings:</p>
+              <ul className="list-inside list-disc space-y-1 pl-2">
                 <li>AI-selected portfolios show statistically better diversification than random selection</li>
                 <li>Portfolios built from AI picks outperform random portfolios</li>
                 <li>AI identifies abstract relationships between assets across different classes</li>
@@ -587,8 +597,8 @@ function Ait1MethodologyResearchSection({
               </ul>
             </div>
             <div className="rounded-md border bg-muted/30 p-3">
-              <p className="font-medium text-foreground text-xs mb-1">Our alignment:</p>
-              <ul className="text-xs text-muted-foreground space-y-0.5">
+              <p className="mb-1 text-xs font-medium text-foreground">Our alignment:</p>
+              <ul className="space-y-0.5 text-xs text-muted-foreground">
                 <li>Portfolio from AI-ranked picks (Top 5 to Top 30, configurable)</li>
                 <li>Benchmarked against both cap-weight and equal-weight Nasdaq-100</li>
                 <li>Tracked live and unedited over multiple market conditions</li>
@@ -596,13 +606,6 @@ function Ait1MethodologyResearchSection({
             </div>
           </CardContent>
         </Card>
-
-        <div className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
-          <strong className="text-foreground">What we add beyond the papers:</strong> A fully
-          automated, live production system with real-time web search, versioned model portfolios,
-          forward-only performance tracking, transparent cost modeling, and public auditability. No
-          backtests used as marketing. No retroactive edits.
-        </div>
       </div>
     </section>
   );
@@ -637,32 +640,33 @@ function PortfolioValuesSection({
   sectionHrefBase: string;
 }) {
   const router = useRouter();
-  const [browseMode, setBrowseMode] = useState<'list' | 'chart'>('list');
-  const [filtersOpen, setFiltersOpen] = useState(false);
-  const [filterBeatNasdaq, setFilterBeatNasdaq] = useState(false);
-  const [filterBeatSp500, setFilterBeatSp500] = useState(false);
-  const [riskFilter, setRiskFilter] = useState<RiskLevel | null>(null);
-  const [freqFilter, setFreqFilter] = useState<RebalanceFrequency | null>(null);
-  const [weightFilter, setWeightFilter] = useState<'equal' | 'cap' | null>(null);
   const [equitySeriesPayload, setEquitySeriesPayload] = useState<{
     dates: string[];
     series: ExploreEquitySeriesRow[];
     benchmarks: ExploreBenchmarkSeries | null;
   } | null>(null);
   const [equitySeriesLoading, setEquitySeriesLoading] = useState(false);
+  const equitySeriesInFlightRef = useRef(false);
+  /** Bumps on slug change so in-flight fetches from a previous model ignore stale responses. */
+  const equitySeriesFetchEpochRef = useRef(0);
+  const [goToTopPortfolioButtonHovered, setGoToTopPortfolioButtonHovered] = useState(false);
 
   useEffect(() => {
-    if (riskFilter === 6 && weightFilter === 'cap') setWeightFilter(null);
-  }, [riskFilter, weightFilter]);
+    equitySeriesFetchEpochRef.current += 1;
+    setEquitySeriesPayload(null);
+    setEquitySeriesLoading(false);
+    equitySeriesInFlightRef.current = false;
+  }, [slug]);
 
-  useEffect(() => {
-    if (browseMode !== 'chart' || equitySeriesPayload != null) return;
-    let cancelled = false;
+  const fetchEquitySeriesIfNeeded = useCallback(() => {
+    if (equitySeriesPayload != null || equitySeriesInFlightRef.current) return;
+    equitySeriesInFlightRef.current = true;
+    const epochAtStart = equitySeriesFetchEpochRef.current;
     setEquitySeriesLoading(true);
     void fetch(`/api/platform/explore-portfolios-equity-series?slug=${encodeURIComponent(slug)}`)
       .then((r) => r.json())
       .then((d: { dates?: string[]; series?: ExploreEquitySeriesRow[]; benchmarks?: ExploreBenchmarkSeries }) => {
-        if (cancelled) return;
+        if (equitySeriesFetchEpochRef.current !== epochAtStart) return;
         const dates = d.dates ?? [];
         const bm = d.benchmarks;
         const benchmarks =
@@ -675,55 +679,46 @@ function PortfolioValuesSection({
         setEquitySeriesPayload({ dates, series: d.series ?? [], benchmarks });
       })
       .catch(() => {
-        if (!cancelled) setEquitySeriesPayload({ dates: [], series: [], benchmarks: null });
+        if (equitySeriesFetchEpochRef.current !== epochAtStart) return;
+        setEquitySeriesPayload({ dates: [], series: [], benchmarks: null });
       })
       .finally(() => {
-        if (!cancelled) setEquitySeriesLoading(false);
+        if (equitySeriesFetchEpochRef.current !== epochAtStart) return;
+        equitySeriesInFlightRef.current = false;
+        setEquitySeriesLoading(false);
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [browseMode, equitySeriesPayload, slug]);
+  }, [slug, equitySeriesPayload]);
 
-  const filteredConfigs = useMemo(() => {
-    let out = rankedConfigs;
-    if (filterBeatNasdaq) out = out.filter((c) => c.metrics.beatsMarket === true);
-    if (filterBeatSp500) out = out.filter((c) => c.metrics.beatsSp500 === true);
-    if (riskFilter != null) out = out.filter((c) => c.riskLevel === riskFilter);
-    if (freqFilter != null) out = out.filter((c) => c.rebalanceFrequency === freqFilter);
-    if (weightFilter != null) out = out.filter((c) => c.weightingMethod === weightFilter);
-    return out;
-  }, [rankedConfigs, filterBeatNasdaq, filterBeatSp500, riskFilter, freqFilter, weightFilter]);
+  useEffect(() => {
+    fetchEquitySeriesIfNeeded();
+  }, [fetchEquitySeriesIfNeeded]);
 
-  const activeFilterCount =
-    Number(filterBeatNasdaq) +
-    Number(filterBeatSp500) +
-    Number(riskFilter != null) +
-    Number(freqFilter != null) +
-    Number(weightFilter != null);
-
-  const clearFilters = useCallback(() => {
-    setFilterBeatNasdaq(false);
-    setFilterBeatSp500(false);
-    setRiskFilter(null);
-    setFreqFilter(null);
-    setWeightFilter(null);
-  }, []);
-
-  const visibleConfigIds = useMemo(() => new Set(filteredConfigs.map((c) => c.id)), [filteredConfigs]);
+  const visibleConfigIds = useMemo(() => new Set(rankedConfigs.map((c) => c.id)), [rankedConfigs]);
   const selectedConfig = useMemo(
     () => rankedConfigs.find((c) => rankedConfigMatchesSlice(c, selectedPortfolioConfig)) ?? null,
     [rankedConfigs, selectedPortfolioConfig]
   );
-  const sortedRows = useMemo(
-    () =>
-      [...filteredConfigs].sort(
-        (a, b) =>
-          (b.metrics.endingValuePortfolio ?? Number.NEGATIVE_INFINITY) -
-          (a.metrics.endingValuePortfolio ?? Number.NEGATIVE_INFINITY)
-      ),
-    [filteredConfigs]
-  );
+  const topConfig = useMemo(() => {
+    let best: RankedConfig | null = null;
+    let bestValue = Number.NEGATIVE_INFINITY;
+    for (const config of rankedConfigs) {
+      const value = config.metrics.endingValuePortfolio;
+      if (value != null && Number.isFinite(value) && value > bestValue) {
+        best = config;
+        bestValue = value;
+      }
+    }
+    return best ?? rankedConfigs[0] ?? null;
+  }, [rankedConfigs]);
+
+  const goToTopPortfolio = useCallback(() => {
+    if (!topConfig) return;
+    const slice = rankedConfigToSlice(topConfig);
+    void router.push(
+      `/strategy-models/${encodeURIComponent(slug)}/${encodeURIComponent(portfolioSliceToConfigSlug(slice))}`,
+      { scroll: true }
+    );
+  }, [router, slug, topConfig]);
 
   return (
     <section id="portfolio-values" className="mb-10 scroll-mt-[4.5rem] md:scroll-mt-[5rem]">
@@ -739,85 +734,31 @@ function PortfolioValuesSection({
             </SectionHeadingJumpLink>
             <SectionHeadingAnchor fragmentId="portfolio-values" hrefBase={sectionHrefBase} />
           </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Compare the model&apos;s portfolios. Click one to see detailed performance metrics and charts.
-          </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <div className="inline-flex items-center gap-1 rounded-md border bg-muted/30 p-0.5">
-            <button
-              type="button"
-              onClick={() => setBrowseMode('list')}
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-medium transition-colors',
-                browseMode === 'list' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              <LayoutList className="size-3.5" /> List
-            </button>
-            <button
-              type="button"
-              onClick={() => setBrowseMode('chart')}
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-medium transition-colors',
-                browseMode === 'chart' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              <LineChart className="size-3.5" /> Chart
-            </button>
-          </div>
-          <Dialog open={filtersOpen} onOpenChange={setFiltersOpen}>
-            <DialogTrigger asChild>
-              <Button type="button" variant="outline" size="sm" className="gap-1.5">
-                <ListFilter className="size-3.5" />
-                Filters
-                {activeFilterCount > 0 ? (
-                  <span className="rounded-full bg-primary/15 px-1.5 text-[10px] font-semibold tabular-nums text-foreground">
-                    {activeFilterCount}
-                  </span>
-                ) : null}
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-md">
-              <DialogHeader>
-                <DialogTitle>Filter portfolios</DialogTitle>
-                <DialogDescription>
-                  Narrow the portfolio list and chart without changing the selected model.
-                </DialogDescription>
-              </DialogHeader>
-              <ExplorePortfolioFilterControls
-                filterBeatNasdaq={filterBeatNasdaq}
-                filterBeatSp500={filterBeatSp500}
-                onFilterBeatNasdaqChange={setFilterBeatNasdaq}
-                onFilterBeatSp500Change={setFilterBeatSp500}
-                riskFilter={riskFilter}
-                freqFilter={freqFilter}
-                weightFilter={weightFilter}
-                onRiskChange={setRiskFilter}
-                onFreqChange={setFreqFilter}
-                onWeightChange={setWeightFilter}
-              />
-              <DialogFooter className="gap-2 sm:justify-between">
-                <Button type="button" variant="ghost" size="sm" onClick={clearFilters} className="gap-1.5">
-                  <FilterX className="size-3.5" /> Clear filters
-                </Button>
-                <DialogClose asChild>
-                  <Button type="button" size="sm">Done</Button>
-                </DialogClose>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="group gap-1.5"
+            disabled={!topConfig}
+            onClick={goToTopPortfolio}
+            onMouseEnter={() => setGoToTopPortfolioButtonHovered(true)}
+            onMouseLeave={() => setGoToTopPortfolioButtonHovered(false)}
+          >
+            <span>Top portfolio details</span>
+            <ArrowRight
+              className="size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 ease-out group-hover:translate-x-0.5"
+              aria-hidden
+            />
+          </Button>
         </div>
       </div>
 
       <div className="rounded-xl border bg-card p-3 sm:p-4">
         {rankedConfigs.length === 0 ? (
           <p className="py-8 text-center text-sm text-muted-foreground">Portfolio returns are loading.</p>
-        ) : filteredConfigs.length === 0 ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">
-            No portfolios match the selected filters.
-          </p>
-        ) : browseMode === 'chart' ? (
+        ) : (
           equitySeriesLoading || equitySeriesPayload == null ? (
             <Skeleton className="h-[360px] w-full rounded-lg" />
           ) : (
@@ -830,76 +771,24 @@ function PortfolioValuesSection({
               }))}
               benchmarks={equitySeriesPayload.benchmarks}
               visibleConfigIds={visibleConfigIds}
+              designatedTopPortfolioConfigId={topConfig?.id ?? null}
+              pickerExternalHoverDataKey={
+                goToTopPortfolioButtonHovered && topConfig
+                  ? dataKeyForExploreConfig(topConfig.id)
+                  : null
+              }
               selectedConfigId={selectedConfig?.id ?? null}
               onSelectConfig={(configId) => {
                 const found = rankedConfigs.find((c) => c.id === configId);
                 if (!found) return;
                 const slice = rankedConfigToSlice(found);
-                router.push(
-                  `/strategy-models/${encodeURIComponent(slug)}/${encodeURIComponent(portfolioSliceToConfigSlug(slice))}`
+                void router.push(
+                  `/strategy-models/${encodeURIComponent(slug)}/${encodeURIComponent(portfolioSliceToConfigSlug(slice))}`,
+                  { scroll: true }
                 );
               }}
             />
           )
-        ) : (
-          <div className="max-h-[28rem] space-y-2 overflow-y-auto pr-1">
-            {sortedRows.map((config, index) => {
-              const selected = config.id === selectedConfig?.id;
-              const riskColor = RETURNS_TABLE_RISK_DOT[config.riskLevel as RiskLevel] ?? 'bg-muted';
-              const slice = rankedConfigToSlice(config);
-              const portfolioHref = `/strategy-models/${encodeURIComponent(slug)}/${encodeURIComponent(portfolioSliceToConfigSlug(slice))}`;
-              const rowClass = cn(
-                'flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors',
-                selected
-                  ? 'border-primary/50 bg-primary/[0.06] ring-1 ring-primary/25'
-                  : 'border-border/50 hover:bg-muted/30'
-              );
-              const rowInner = (
-                <>
-                  <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted/60 text-sm font-bold tabular-nums">
-                    {index + 1}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="flex flex-wrap items-center gap-1.5">
-                      <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-background/80 px-2 py-0.5 text-[11px] font-semibold text-foreground">
-                        <span className={cn('size-1.5 rounded-full', riskColor)} aria-hidden />
-                        {config.riskLabel || RISK_LABELS[config.riskLevel as RiskLevel]}
-                      </span>
-                      <span className="text-sm font-semibold text-foreground">{config.label}</span>
-                    </span>
-                  </span>
-                  <span className="shrink-0 text-right text-xs tabular-nums">
-                    <span className="block text-muted-foreground">
-                      $10k {'->'}{' '}
-                      <span className="font-bold text-foreground">
-                        {perfFormatUsd(config.metrics.endingValuePortfolio ?? 0)}
-                      </span>
-                    </span>
-                    {config.metrics.totalReturn != null ? (
-                      <span
-                        className={cn(
-                          'font-medium',
-                          config.metrics.totalReturn >= 0 ? 'text-green-600' : 'text-red-600'
-                        )}
-                      >
-                        {fmt.pct(config.metrics.totalReturn)}
-                      </span>
-                    ) : null}
-                  </span>
-                </>
-              );
-              return (
-                <Link
-                  key={config.id}
-                  href={portfolioHref}
-                  prefetch={false}
-                  className={rowClass}
-                >
-                  {rowInner}
-                </Link>
-              );
-            })}
-          </div>
         )}
       </div>
     </section>
@@ -1243,6 +1132,22 @@ function PerformancePagePublicClientInner({
   const access = useMemo(() => getAppAccessState(authState), [authState]);
   const entitledToHoldings =
     authState.isLoaded && canViewPerformanceHoldingsForStrategy(access, slug);
+  /**
+   * Public `/strategy-models/*` SSR always sees `DEFAULT_AUTH_STATE` (`isLoaded: false`) → teaser label.
+   * On the client, `AuthStateProvider`'s lazy initializer can set Tier B/C before hydration finishes,
+   * so `entitledToHoldings` would differ on the first paint and cause a hydration mismatch. Keep the
+   * first paint aligned with SSR, then sync the real label in `useLayoutEffect`.
+   */
+  const [holdingsSectionLabel, setHoldingsSectionLabel] = useState<
+    'Portfolio holdings' | 'Top rated stocks'
+  >('Top rated stocks');
+
+  useLayoutEffect(() => {
+    setHoldingsSectionLabel(
+      entitledToHoldings ? 'Portfolio holdings' : 'Top rated stocks'
+    );
+  }, [entitledToHoldings]);
+
   const [sidebarPortfolioConfig, setSidebarPortfolioConfig] = useState<PortfolioConfigSlice | null>(
     initialPortfolioSlice
   );
@@ -1273,8 +1178,6 @@ function PerformancePagePublicClientInner({
   );
   const [holdingsRebalanceDates, setHoldingsRebalanceDates] = useState<string[]>([]);
   const [holdingsLoading, setHoldingsLoading] = useState(true);
-
-  const holdingsSectionLabel = entitledToHoldings ? 'Portfolio holdings' : 'Top rated stocks';
 
   /** Tracks which query string we last applied from the URL (back/forward, external edits). */
   const lastSyncedSearchParamsStringRef = useRef<string | null>(null);
@@ -1308,7 +1211,7 @@ function PerformancePagePublicClientInner({
 
   const sectionHrefBase = `${pathname}${searchParamsString ? `?${searchParamsString}` : ''}`;
 
-  const navigateToSelectedPortfolioSection = useCallback(() => {
+  const scrollToTopAfterPortfolioDialogCommit = useCallback(() => {
     if (!slug) return;
     const portfolioSlug = sidebarPortfolioConfig
       ? portfolioSliceToConfigSlug(sidebarPortfolioConfig)
@@ -1320,22 +1223,16 @@ function PerformancePagePublicClientInner({
       : `/strategy-models/${slug}`;
     if (typeof window !== 'undefined' && window.location.pathname === targetPath) {
       const qs = window.location.search ?? '';
-      window.history.replaceState(
-        window.history.state,
-        '',
-        `${targetPath}${qs}#selected-portfolio`
+      window.history.replaceState(window.history.state, '', `${targetPath}${qs}`);
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+        })
       );
     } else {
       const qs = searchParamsString ? `?${searchParamsString}` : '';
-      router.replace(`${targetPath}${qs}#selected-portfolio`, { scroll: false });
+      void router.replace(`${targetPath}${qs}`, { scroll: true });
     }
-    const runScroll = () => {
-      document.getElementById('selected-portfolio')?.scrollIntoView({
-        behavior: 'smooth',
-        block: 'start',
-      });
-    };
-    requestAnimationFrame(() => requestAnimationFrame(runScroll));
   }, [initialPortfolioSlice, router, searchParamsString, sidebarPortfolioConfig, slug]);
 
   const portfolioPerf = usePublicPortfolioConfigPerformance({
@@ -1532,7 +1429,7 @@ function PerformancePagePublicClientInner({
       rebalanceDatesNewestFirst: holdingsRebalanceDates,
       cfgRows: performanceCfgRowsForCostBasis,
       getHoldingsAndPrices: (d) => {
-        const hit = getCachedExploreHoldings(s, cid, d);
+        const hit = getCachedExploreHoldings(s, cid, d, { revalidate: false });
         if (!hit) return null;
         return { holdings: hit.holdings, asOfPriceBySymbol: hit.asOfPriceBySymbol };
       },
@@ -1691,16 +1588,18 @@ function PerformancePagePublicClientInner({
       'model-overview',
       'model-overview-prompt-design',
       'research-validation',
+      'scientific-grounding',
       'reality-checks',
     ]);
-    if (isAit1ModelLanding) modelTocIds.add('model-methodology');
+    if (isAit1ModelLanding) modelTocIds.add('model-scoring');
     const portfolioTocExclude = new Set([
       'strategy-model',
       'portfolio-values',
       'model-overview',
       'model-overview-prompt-design',
-      'model-methodology',
+      'model-scoring',
       'research-validation',
+      'scientific-grounding',
       'reality-checks',
     ]);
     const base =
@@ -2224,101 +2123,92 @@ function PerformancePagePublicClientInner({
 
   // ── Sidebar slot ─────────────────────────────────────────────────────────
 
-  const sidebarSlot =
-    strategies.length > 0 ? (
-      <>
-        {isModelLanding ? (
-          <StrategyModelSidebarDropdown
-            strategies={strategies}
-            selectedSlug={effectiveStrategy?.slug}
-            onSelectStrategy={(s) => {
-              router.push(`/strategy-models/${s}`);
-            }}
-          >
-            {effectiveStrategy && (
-              <div className="space-y-0.5">
-                {isBestSelected ? (
-                  <div className="flex items-start gap-1.5 text-xs min-h-7 py-1.5 px-1 whitespace-normal text-left leading-snug text-muted-foreground">
-                    <Star className="size-3 shrink-0 mt-0.5" fill="currentColor" />
-                    <span>
-                      Top performing strategy model{' '}
-                      <Link
-                        href="/whitepaper#model-ranking"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="group inline-flex items-center font-medium text-trader-blue no-underline transition-opacity hover:opacity-90 dark:text-trader-blue-light"
-                      >
-                        (by composite ranking)
-                        <ExternalLink
-                          className="size-3 shrink-0 ml-1 mt-0.5 opacity-0 transition-opacity group-hover:opacity-100"
-                          aria-hidden
-                        />
-                      </Link>
-                    </span>
-                  </div>
-                ) : null}
-                <Button
-                  asChild
-                  variant="ghost"
-                  size="sm"
-                  className="w-full justify-start gap-1.5 text-xs h-7 px-1"
+  const sidebarSlot = isModelLanding
+    ? null
+    : strategies.length > 0
+      ? (
+          <>
+            {effectiveStrategy ? (
+              <div className="space-y-4 border-b border-border pt-5 pb-4">
+                <div className="space-y-1.5">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Strategy model
+                  </p>
+                  <p className="text-[10px] leading-snug text-muted-foreground">
+                    Which AI rates the stocks
+                  </p>
+                </div>
+                <div
+                  role="link"
+                  tabIndex={0}
+                  className={cn(
+                    buttonVariants({ variant: 'outline', size: 'sm' }),
+                    'group w-full cursor-pointer justify-between gap-2 text-left transition-colors hover:border-primary/50 hover:bg-primary/[0.04]'
+                  )}
+                  aria-label={`Back to model list (currently viewing ${effectiveStrategy.name})`}
+                  onClick={() => {
+                    router.push('/strategy-models');
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      router.push('/strategy-models');
+                    }
+                  }}
                 >
-                  <Link href={`/strategy-models/${effectiveStrategy.slug}#model-overview`}>
-                    <ExternalLink className="size-3 shrink-0" />
-                    How this model works
-                  </Link>
-                </Button>
+                  <span className="flex min-w-0 items-center gap-2">
+                    <ArrowLeft
+                      className="size-3.5 shrink-0 text-primary transition-transform group-hover:-translate-x-0.5"
+                      aria-hidden
+                    />
+                    <span className="truncate">{effectiveStrategy.name}</span>
+                  </span>
+                  {isBestSelected ? (
+                    <TooltipProvider delayDuration={200}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="inline-flex shrink-0">
+                            <Badge
+                              variant="outline"
+                              className="shrink-0 cursor-default gap-0.5 border-0 bg-trader-blue px-1.5 py-0 pr-1.5 text-xs text-white shadow-sm hover:bg-trader-blue hover:text-white dark:hover:bg-trader-blue [&_svg]:!size-2"
+                            >
+                              <Star
+                                className="!size-2 shrink-0"
+                                fill="currentColor"
+                                aria-hidden
+                              />
+                              <span>Top</span>
+                            </Badge>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent
+                          side="top"
+                          align="end"
+                          className="max-w-sm text-left text-xs leading-snug"
+                        >
+                          <StrategyModelsTopPerformingTooltipPanel />
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  ) : null}
+                </div>
               </div>
-            )}
-          </StrategyModelSidebarDropdown>
-        ) : effectiveStrategy ? (
-          <div className="space-y-4 border-b border-border pt-5 pb-4">
-            <div className="space-y-1.5">
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Strategy model
-              </p>
-              <p className="text-[10px] leading-snug text-muted-foreground">
-                Which AI rates the stocks
-              </p>
-            </div>
-            <Button
-              asChild
-              variant="outline"
-              size="sm"
-              className="group w-full justify-between gap-2 text-left transition-colors hover:border-primary/50 hover:bg-primary/[0.04]"
-              aria-label={`Back to model list (currently viewing ${effectiveStrategy.name})`}
-            >
-              <Link href="/strategy-models">
-                <span className="flex min-w-0 items-center gap-2">
-                  <ArrowLeft
-                    className="size-3.5 shrink-0 text-primary transition-transform group-hover:-translate-x-0.5"
-                    aria-hidden
-                  />
-                  <span className="truncate">{effectiveStrategy.name}</span>
-                </span>
-                {isBestSelected ? (
-                  <Badge className="shrink-0 border-0 bg-trader-blue px-1.5 py-0 text-xs text-white">
-                    Top
-                  </Badge>
-                ) : null}
-              </Link>
-            </Button>
-          </div>
-        ) : null}
+            ) : null}
 
-        {slug && !isModelLanding ? (
-          <div className="pt-6 pb-4">
-            <SidebarPortfolioConfigPicker
-              key={slug}
-              slug={slug}
-              portfolioConfig={sidebarPortfolioConfig}
-              onPortfolioConfigChange={setSidebarPortfolioConfig}
-              onDialogPortfolioCommitted={navigateToSelectedPortfolioSection}
-            />
-          </div>
-        ) : null}
-      </>
-    ) : null;
+            {slug ? (
+              <div className="pt-6 pb-4">
+                <SidebarPortfolioConfigPicker
+                  key={slug}
+                  slug={slug}
+                  portfolioConfig={sidebarPortfolioConfig}
+                  onPortfolioConfigChange={setSidebarPortfolioConfig}
+                  onDialogPortfolioCommitted={scrollToTopAfterPortfolioDialogCommit}
+                />
+              </div>
+            ) : null}
+          </>
+        )
+      : null;
 
   return (
     <ContentPageLayout
@@ -2327,7 +2217,7 @@ function PerformancePagePublicClientInner({
       tableOfContents={performanceTableOfContents}
       sidebarSlot={sidebarSlot}
       tocPosition="right"
-      contentClassName="mt-6 md:mt-8"
+      contentClassName={cn('mt-6 md:mt-8', isModelLanding && 'max-w-4xl')}
     >
       {portfolioPageLinks.length > 0 ? (
         <nav className="sr-only" aria-label="Portfolio performance pages">
@@ -2370,9 +2260,21 @@ function PerformancePagePublicClientInner({
                 {!isModelLanding ? (
                   <>
                     <BreadcrumbSeparator />
-                    <BreadcrumbItem className="min-w-0">
-                      <BreadcrumbPage className="truncate">
-                        {performanceBreadcrumbPortfolioLabel ?? 'Portfolio'}
+                    <BreadcrumbItem className="min-w-0 max-w-full">
+                      <BreadcrumbPage className="flex min-w-0 max-w-full items-center gap-1.5">
+                        {whatYouSeeRiskLevel != null ? (
+                          <span
+                            className={cn(
+                              'size-1.5 shrink-0 rounded-full',
+                              RETURNS_TABLE_RISK_DOT[whatYouSeeRiskLevel] ?? 'bg-muted'
+                            )}
+                            title={RISK_LABELS[whatYouSeeRiskLevel]}
+                            aria-hidden
+                          />
+                        ) : null}
+                        <span className="min-w-0 truncate">
+                          {performanceBreadcrumbPortfolioLabel ?? 'Portfolio'}
+                        </span>
                       </BreadcrumbPage>
                     </BreadcrumbItem>
                   </>
@@ -2383,28 +2285,6 @@ function PerformancePagePublicClientInner({
 
           {isModelLanding ? (
             <section id="strategy-model" className="mb-10 scroll-mt-[4.5rem] md:scroll-mt-[5rem]">
-              <div
-                className={cn(
-                  'mb-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-2'
-                )}
-              >
-                <h2 className="group relative flex min-w-0 flex-1 flex-wrap items-center gap-x-1 text-2xl font-bold tracking-tight text-foreground">
-                  <SectionHeadingJumpLink
-                    fragmentId="strategy-model"
-                    hrefBase={sectionHrefBase}
-                    className="min-w-0"
-                  >
-                    Strategy model
-                  </SectionHeadingJumpLink>
-                  <SectionHeadingAnchor fragmentId="strategy-model" hrefBase={sectionHrefBase} />
-                </h2>
-                <Button asChild size="sm" className="shrink-0 gap-1.5">
-                  <Link href="/platform/ratings">
-                    Stock ratings
-                    <ArrowRight className="size-3.5 shrink-0" />
-                  </Link>
-                </Button>
-              </div>
               <ModelHeaderCard
                 name={effectiveStrategy.name}
                 slug={effectiveStrategy.slug}
@@ -2459,10 +2339,6 @@ function PerformancePagePublicClientInner({
 
       {effectiveStrategy && isModelLanding ? (
         <ModelOverviewSections strategy={effectiveStrategy} hrefBase={sectionHrefBase} />
-      ) : null}
-
-      {effectiveStrategy && isAit1ModelLanding ? (
-        <Ait1MethodologyResearchSection strategy={effectiveStrategy} hrefBase={sectionHrefBase} />
       ) : null}
 
       {!isModelLanding ? (
@@ -3301,10 +3177,8 @@ function PerformancePagePublicClientInner({
           <SectionHeadingAnchor fragmentId="research-validation" hrefBase={sectionHrefBase} />
         </h2>
         <p className="text-sm text-muted-foreground mb-5">
-          Beyond portfolio returns, we track whether the AI scores actually predict which stocks
-          will outperform across <em>all 100</em> Nasdaq-100 stocks, not just our top picks. This
-          layer is tied to the <strong>strategy model</strong> (AI ratings engine), not the
-          portfolio.
+          We track whether the AI's scores actually predict how stocks
+          will perform. Does the AI get lucky, or do its ratings have predictive power?
         </p>
 
         {research?.headline && (
@@ -3316,10 +3190,6 @@ function PerformancePagePublicClientInner({
                   · {fmt.date(addDaysUtc(research.headline.runDate, 7))}
                 </span>
               </CardTitle>
-              <CardDescription className="text-xs">
-                AI-generated summary of weekly cross-sectional regression diagnostics (β, R², α).
-                Not investment advice.
-              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2 pt-0">
               <p className="text-lg font-semibold leading-snug">{research.headline.headline}</p>
@@ -3331,6 +3201,10 @@ function PerformancePagePublicClientInner({
                 <ResearchHeadlineUnderlyingStatsGrid s={research.headline.stats} />
               </details>
             </CardContent>
+            <CardFooter className="text-xs">
+              AI-generated summary of weekly cross-sectional regression diagnostics (β, R², α).
+              Not investment advice.
+            </CardFooter>
           </Card>
         )}
 
@@ -4045,22 +3919,11 @@ function PerformancePagePublicClientInner({
           </p>
         )}
 
-        <div className="mt-5 p-4 rounded-lg border border-trader-blue/20 bg-trader-blue/5">
-          <p className="text-sm text-foreground/90">
-            <strong>The scientific basis:</strong> Peer-reviewed research (Ko &amp; Lee; Pelster
-            &amp; Val, Finance Research Letters) shows AI ratings correlate with future stock
-            returns. We test this hypothesis live.{' '}
-            {effectiveStrategy && (
-              <Link
-                href="/whitepaper"
-                className="text-trader-blue no-underline transition-colors hover:text-trader-blue/90 inline-flex items-center gap-1"
-              >
-                See how this model works <ArrowRight className="size-3" />
-              </Link>
-            )}
-          </p>
-        </div>
       </section>
+
+      <ScientificGroundingSection hrefBase={sectionHrefBase} />
+
+      {isAit1ModelLanding ? <Ait1ScoringSection hrefBase={sectionHrefBase} /> : null}
 
       {/* ── H: Reality checks ───────────────────────────────────────────── */}
       <section id="reality-checks" className="mb-10">
@@ -4140,5 +4003,9 @@ function PerformancePagePublicClientInner({
 export function PerformancePagePublicClient(props: Props) {
   return <PerformancePagePublicClientInner {...props} />;
 }
+
+
+
+
 
 

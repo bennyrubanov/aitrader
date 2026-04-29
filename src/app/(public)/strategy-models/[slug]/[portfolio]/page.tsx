@@ -13,9 +13,38 @@ import {
 import { getCachedRankedConfigsPayload } from '@/lib/portfolio-configs-ranked-core';
 import { getCachedPublicPortfolioConfigPerformance } from '@/lib/public-portfolio-config-performance';
 import { PerformancePagePublicClient } from '@/components/performance/performance-page-public-client';
+import type {
+  RebalanceFrequency,
+  RiskLevel,
+  WeightingMethod,
+} from '@/components/portfolio-config';
 
-export const revalidate = 300;
+/** Must match `PUBLIC_ISR_REVALIDATE_SECONDS` in `@/lib/public-cache` (Next requires a literal here). */
+export const revalidate = 3600;
 export const runtime = 'nodejs';
+
+export async function generateStaticParams() {
+  try {
+    const strategies = await getStrategiesList();
+    const out: { slug: string; portfolio: string }[] = [];
+    for (const s of strategies) {
+      const ranked = await getCachedRankedConfigsPayload(s.slug);
+      for (const cfg of ranked?.configs ?? []) {
+        out.push({
+          slug: s.slug,
+          portfolio: portfolioSliceToConfigSlug({
+            riskLevel: cfg.riskLevel as RiskLevel,
+            rebalanceFrequency: cfg.rebalanceFrequency as RebalanceFrequency,
+            weightingMethod: cfg.weightingMethod as WeightingMethod,
+          }),
+        });
+      }
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
 
 function serializePageSearchParams(
   sp: Record<string, string | string[] | undefined>

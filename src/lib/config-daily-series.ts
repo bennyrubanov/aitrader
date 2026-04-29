@@ -18,6 +18,7 @@ import {
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
 import { syncMissingConfigHoldingsSnapshots } from '@/lib/portfolio-config-holdings-write';
 import { computeWeeklyConsistencyVsNasdaqCap } from '@/lib/user-entry-performance';
+import { PUBLIC_CACHE_TAGS } from '@/lib/public-cache';
 
 const INITIAL_CAPITAL = 10_000;
 
@@ -25,7 +26,7 @@ const INITIAL_CAPITAL = 10_000;
 const D3_RECOMPUTE_BACKOFF_MS = 5 * 60 * 1000;
 const d3RecentEmptyRecomputes = new Map<string, number>();
 
-export const CONFIG_DAILY_SERIES_CACHE_TAG = 'config-daily-series';
+export const CONFIG_DAILY_SERIES_CACHE_TAG = PUBLIC_CACHE_TAGS.configDailySeries;
 
 export type DailySeriesDataStatus = 'ready' | 'early' | 'empty' | 'failed' | 'pending';
 

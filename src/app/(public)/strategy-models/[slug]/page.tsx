@@ -6,8 +6,18 @@ import {
 } from '@/lib/platform-performance-payload';
 import { PerformancePagePublicClient } from '@/components/performance/performance-page-public-client';
 
-export const revalidate = 300;
+/** Must match `PUBLIC_ISR_REVALIDATE_SECONDS` in `@/lib/public-cache` (Next requires a literal here). */
+export const revalidate = 3600;
 export const runtime = 'nodejs';
+
+export async function generateStaticParams() {
+  try {
+    const strategies = await getStrategiesList();
+    return strategies.map((s) => ({ slug: s.slug }));
+  } catch {
+    return [];
+  }
+}
 
 function siteBase(): string {
   return (

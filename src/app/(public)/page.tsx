@@ -9,8 +9,8 @@ import { getLandingAllPortfoliosPerformance } from '@/lib/landing-all-portfolios
 import { getLandingHeroStats } from '@/lib/landing-hero-stats';
 import { getLandingTopPortfolioPerformance } from '@/lib/landing-top-portfolio-performance';
 
-/** Align with `getLandingTopPortfolioPerformance` data cache; on-demand `revalidatePath('/')` runs after config backfill / cron. */
-export const revalidate = 300;
+/** Must match `PUBLIC_ISR_REVALIDATE_SECONDS` in `@/lib/public-cache` (Next requires a literal here). */
+export const revalidate = 3600;
 
 const HomePage = async () => {
   const [landingPerformance, heroStats, allPortfolios] = await Promise.all([

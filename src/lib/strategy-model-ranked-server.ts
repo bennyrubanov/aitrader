@@ -1,4 +1,5 @@
 import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
+import { PUBLIC_DATA_CACHE_TTL_SECONDS } from '@/lib/public-cache';
 
 export type PortfolioBeatRates = {
   pctBeatingNasdaqCap: number | null;
@@ -41,7 +42,7 @@ export async function getPortfolioBeatRatesForSlug(slug: string): Promise<Portfo
   try {
     const res = await fetch(
       `${base}/api/platform/portfolio-configs-ranked?slug=${encodeURIComponent(slug)}`,
-      { next: { revalidate: 300 } }
+      { next: { revalidate: PUBLIC_DATA_CACHE_TTL_SECONDS } }
     );
     if (!res.ok) return null;
     const data = (await res.json()) as { configs?: RankedConfig[] };

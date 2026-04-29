@@ -7,4 +7,5 @@ export * from './portfolio-ending-value-rank-tooltip-body';
 export * from './portfolio-ranking-tooltip-body';
 export * from './spotlight-stat-tooltips';
 export * from './spotlight-overview-tooltips';
+export * from './strategy-models-list-badge-tooltips';
 export * from './weighting-method-tooltip';

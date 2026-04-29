@@ -6,25 +6,40 @@ import {
   getAppAccessState,
   type AppAccessState,
 } from '@/lib/app-access';
-import { buildAuthStateFromUserAndProfile } from '@/lib/build-auth-state';
+import { getInitialAuthState } from '@/lib/get-initial-auth-state';
 import { getStrategiesList, type StrategyListItem } from '@/lib/platform-performance-payload';
 import { allowedStrategyIdsForSubscriptionTier } from '@/lib/strategy-plan-access';
 import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import { getCachedStockNews } from '@/lib/stock-news';
-import { getAllStocks } from '@/lib/stocks-cache';
-import { createAdminClient } from '@/utils/supabase/admin';
-import { createClient } from '@/utils/supabase/server';
+import {
+  getAllStocks,
+  getCachedActiveStrategyAccessMeta,
+  getCachedStockDetailMeta,
+} from '@/lib/stocks-cache';
 
 type StockDetailPageProps = {
   params: Promise<{ symbol: string }>;
 };
 
 export const dynamicParams = true;
-/** Per-session tier affects which rating fields are sent; do not statically cache HTML. */
+/**
+ * Tier-3 (auth-dynamic) page: per-viewer subscription tier affects which AI fields are sent,
+ * so HTML cannot be statically cached. The HEAVY shared reads (catalog, latest price,
+ * current recommendation, strategy access meta) are still cached via `unstable_cache`
+ * tagged `stocksCatalog` / `strategyModelsRanked` — cron busts both after writes.
+ * That keeps `getInitialAuthState()` per-request while making stock-to-stock navigation fast.
+ */
 export const dynamic = 'force-dynamic';
 
 /** Stable locale so server HTML matches client hydration for timestamps. */
 const STOCK_DETAIL_LOCALE = 'en-US';
+
+function siteBase(): string {
+  return (
+    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '') ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
+  );
+}
 
 function formatDetailDateTime(iso: string): string {
   const d = new Date(iso);
@@ -66,9 +81,14 @@ export const generateMetadata = async ({ params }: StockDetailPageProps): Promis
     ? `${symbol} AI Recommendation · ${stock.name}`
     : `${symbol} AI Recommendation`;
 
+  const canonicalPath = `/stocks/${encodeURIComponent(symbol.toLowerCase())}`;
+
   return {
     title: `${title} | AITrader`,
     description: `Weekly AI stock recommendation history for ${symbol}.`,
+    alternates: {
+      canonical: `${siteBase()}${canonicalPath}`,
+    },
   };
 };
 
@@ -120,78 +140,21 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
     process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SECRET_KEY
   );
 
-  let stockRow: {
-    id: string;
-    symbol: string;
-    company_name: string | null;
-    is_premium_stock: boolean;
-    is_guest_visible: boolean;
-  } | null = null;
-  let priceRow: {
-    last_sale_price: string | null;
-    net_change: string | null;
-    percentage_change: string | null;
-    delta_indicator: string | null;
-    run_date: string | null;
-    created_at: string | null;
-  } | null = null;
-  let currentRow: {
-    score: number | null;
-    score_delta: number | null;
-    confidence: number | null;
-    bucket: 'buy' | 'hold' | 'sell' | null;
-    updated_at: string | null;
-  } | null = null;
-  let access: AppAccessState = 'guest';
-  const sessionSupabase = await createClient();
-  const {
-    data: { user },
-  } = await sessionSupabase.auth.getUser();
-  if (user) {
-    const { data: profile, error: profileError } = await sessionSupabase
-      .from('user_profiles')
-      .select('subscription_tier, full_name, email')
-      .eq('id', user.id)
-      .maybeSingle();
-    access = getAppAccessState(buildAuthStateFromUserAndProfile(user, profile, Boolean(profileError)));
-  }
+  /**
+   * Per-visitor auth + access (Tier 3). Wrapped in React `cache()` so this runs once per render.
+   * The Supabase round-trip stays per-visitor; only the shared data below is cached across visitors.
+   */
+  const auth = await getInitialAuthState();
+  const access: AppAccessState = getAppAccessState(auth);
 
-  if (hasAdminEnv) {
-    const admin = createAdminClient();
-
-    const { data: fetchedStockRow } = await admin
-      .from('stocks')
-      .select('id, symbol, company_name, is_premium_stock, is_guest_visible')
-      .eq('symbol', symbol)
-      .maybeSingle();
-    stockRow = fetchedStockRow;
-
-    const { data: fetchedPriceRow } = await admin
-      .from('nasdaq_100_daily_raw')
-      .select(
-        'last_sale_price, net_change, percentage_change, delta_indicator, run_date, created_at'
-      )
-      .eq('symbol', symbol)
-      .order('run_date', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    priceRow = fetchedPriceRow;
-
-    if (
-      stockRow?.id &&
-      canQueryStockCurrentRecommendation(access, stockRow.is_premium_stock, {
-        isGuestVisible: Boolean(stockRow.is_guest_visible),
-      })
-    ) {
-      const { data: fetchedCurrentRow } = await admin
-        .from('nasdaq100_recommendations_current_public')
-        .select('score, score_delta, confidence, bucket, updated_at')
-        .eq('stock_id', stockRow.id)
-        .maybeSingle();
-      currentRow = fetchedCurrentRow;
-    }
-
-  }
+  /**
+   * Cached, per-symbol shared data (stock catalog row + latest price + current recommendation).
+   * Tagged `stocksCatalog`; cron busts after stocks/price upsert and after AI rebalance writes.
+   */
+  const detailMeta = hasAdminEnv
+    ? await getCachedStockDetailMeta(symbol)
+    : { stockRow: null, priceRow: null, currentRow: null };
+  const { stockRow, priceRow, currentRow } = detailMeta;
 
   const stocks = await getAllStocks();
   const fallbackStock = stocks.find((s) => s.symbol === symbol);
@@ -218,7 +181,7 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
     pageServedAtLabel: formatDetailDateTime(pageServedIso),
   };
 
-  const hasSignedInUser = Boolean(user);
+  const hasSignedInUser = auth.isAuthenticated;
   const serverCanLoadPremiumHistory =
     hasSignedInUser &&
     (access === 'supporter' ||
@@ -240,27 +203,22 @@ const StockDetailPage = async ({ params }: StockDetailPageProps) => {
   const rankedStrategies = await getStrategiesList();
 
   let strategyPickerStrategies: StrategyListItem[] = [];
-  if (user && hasAdminEnv) {
-    const admin = createAdminClient();
-    const { data: stratMeta } = await admin
-      .from('strategy_models')
-      .select('id, minimum_plan_tier, slug, is_default')
-      .eq('status', 'active');
+  if (hasSignedInUser && hasAdminEnv) {
+    /** Cached `id, slug, is_default, minimum_plan_tier` for active strategies (busted by cron). */
+    const stratMeta = await getCachedActiveStrategyAccessMeta();
 
-    const subscriptionTier: SubscriptionTier =
-      access === 'supporter' ? 'supporter' : access === 'outperformer' ? 'outperformer' : 'free';
+    const subscriptionTier: SubscriptionTier = auth.subscriptionTier;
 
     let allowedIds: string[] = [];
     if (subscriptionTier === 'free') {
       if (serverCanLoadPremiumHistory) {
-        const list = stratMeta ?? [];
-        const bySlug = list.find((s) => s.slug === STRATEGY_CONFIG.slug);
-        const byDefault = list.find((s) => s.is_default === true);
+        const bySlug = stratMeta.find((s) => s.slug === STRATEGY_CONFIG.slug);
+        const byDefault = stratMeta.find((s) => s.is_default === true);
         const defaultId = bySlug?.id ?? byDefault?.id;
         allowedIds = defaultId ? [defaultId] : [];
       }
     } else {
-      allowedIds = allowedStrategyIdsForSubscriptionTier(stratMeta ?? [], subscriptionTier);
+      allowedIds = allowedStrategyIdsForSubscriptionTier(stratMeta, subscriptionTier);
     }
 
     if (allowedIds.length > 0) {

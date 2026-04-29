@@ -1022,11 +1022,11 @@ export function PortfolioOnboardingDialog({
                       },
                       {
                         n: 2,
-                        text: 'You choose how to build your portfolio (how many stocks to hold, how often to buy/sell, and how much to invest).',
+                        text: 'You choose how to build your portfolios.',
                       },
                       {
                         n: 3,
-                        text: 'You can follow multiple portfolios and compare their performance in real time.',
+                        text: 'Follow the portfolios and invest with your favorites!',
                       },
                     ].map(({ n, text }) => (
                       <div

@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -10,9 +11,20 @@ type PrimaryCtaButtonProps = {
   className?: string;
 };
 
+const GUEST_CTA = { href: '/sign-up', label: 'Start for free' } as const;
+
 export function PrimaryCtaButton({ className }: PrimaryCtaButtonProps) {
-  const { hasPremiumAccess, isAuthenticated } = useAuthState();
-  const cta = getPrimaryCtaTarget({ hasPremiumAccess, isAuthenticated });
+  const { hasPremiumAccess, isAuthenticated, isLoaded } = useAuthState();
+  const [hasHydrated, setHasHydrated] = useState(false);
+
+  useEffect(() => {
+    setHasHydrated(true);
+  }, []);
+
+  const authReady = hasHydrated && isLoaded;
+  const cta = authReady
+    ? getPrimaryCtaTarget({ hasPremiumAccess, isAuthenticated })
+    : GUEST_CTA;
 
   return (
     <Button asChild className={className}>

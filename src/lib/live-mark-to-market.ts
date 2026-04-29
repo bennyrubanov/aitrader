@@ -4,6 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { getPortfolioConfigHoldings } from '@/lib/portfolio-config-holdings';
 import { createAdminClient } from '@/utils/supabase/admin';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
+import { PUBLIC_CACHE_TAGS } from '@/lib/public-cache';
 import { getCloseOnOrBefore, STOOQ_BENCHMARK_SYMBOLS, type StooqCsvRow } from '@/lib/stooq-benchmark-weekly';
 import { parseNasdaqRawPrice } from '@/lib/user-portfolio-entry';
 
@@ -63,8 +64,9 @@ const cacheFn =
   (React as unknown as { cache?: <T extends CachedFn>(fn: T) => T }).cache ??
   (<T extends CachedFn>(fn: T) => fn);
 
-const loadLatestRawRunDateCached = cacheFn(
-  async (supabase: SupabaseClient): Promise<string | null> => {
+const loadLatestRawRunDatePersistentCached = unstable_cache(
+  async (): Promise<string | null> => {
+    const supabase = createAdminClient();
     const { data } = await supabase
       .from('nasdaq_100_daily_raw')
       .select('run_date')
@@ -72,7 +74,17 @@ const loadLatestRawRunDateCached = cacheFn(
       .limit(1)
       .maybeSingle();
     return data?.run_date ?? null;
+  },
+  ['latest-raw-run-date'],
+  {
+    revalidate: 60,
+    tags: [PUBLIC_CACHE_TAGS.configDailySeries],
   }
+);
+
+const loadLatestRawRunDateCached = cacheFn(
+  async (_supabase: SupabaseClient): Promise<string | null> =>
+    loadLatestRawRunDatePersistentCached()
 );
 
 async function loadPricesForSymbolsOnDate(

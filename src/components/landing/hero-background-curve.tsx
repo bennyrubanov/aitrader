@@ -255,7 +255,7 @@ export function HeroBackgroundCurve({ points }: Props) {
   return (
     <div
       ref={containerRef}
-      className="pointer-events-none absolute bottom-0 left-4 right-4 top-20 z-0 sm:left-8 sm:right-8 sm:top-24 md:left-12 md:right-12 md:top-28 lg:left-20 lg:right-20 lg:top-36"
+      className="pointer-events-none absolute bottom-0 left-4 right-4 top-64 z-0 sm:left-8 sm:right-8 sm:top-24 md:left-12 md:right-12 md:top-28 lg:left-20 lg:right-20 lg:top-36"
       aria-hidden="true"
     >
       <svg
@@ -301,21 +301,20 @@ export function HeroBackgroundCurve({ points }: Props) {
 
       {marker && marker.visible && (
         <>
-          {/* Inception annotation — static, marks where both lines start at $10,000. */}
+          {/* Experiment-start annotation — static, marks where both lines start at $10,000. */}
           <span
             className="absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-slate-400 ring-2 ring-background"
             style={{ left: marker.inceptionX, top: marker.inceptionY }}
           />
           <div
-            className="absolute select-none whitespace-nowrap text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"
+            className="absolute flex select-none flex-col items-center whitespace-nowrap text-[10px] font-semibold leading-tight tracking-wide text-muted-foreground"
             style={{
-              left: marker.inceptionX,
+              left: `clamp(48px, ${marker.inceptionX}px, calc(100% - 48px))`,
               top: marker.inceptionY + 10,
               transform: 'translateX(-50%)',
             }}
           >
-            <span>Inception</span>
-            <span className="mx-1.5 text-muted-foreground/60">·</span>
+            <span className="uppercase">Experiment start</span>
             <span className="text-foreground/70">{formatDate(marker.inceptionDate)}</span>
           </div>
           {/* Vertical connector between the two dots. */}

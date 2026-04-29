@@ -22,10 +22,16 @@
 
 import { NextResponse } from 'next/server';
 import { runWithSupabaseQueryCount } from '@/utils/supabase/query-counter';
-import { loadPublicPortfolioConfigPerformance } from '@/lib/public-portfolio-config-performance';
+import {
+  getCachedPublicPortfolioConfigPerformance,
+  loadPublicPortfolioConfigPerformance,
+} from '@/lib/public-portfolio-config-performance';
 import type { RebalanceFrequency, RiskLevel, WeightingMethod } from '@/components/portfolio-config';
 
 export const runtime = 'nodejs';
+
+const CACHE_CONTROL_PUBLIC = 'public, s-maxage=300, stale-while-revalidate=1800';
+const CACHE_CONTROL_NO_STORE = 'no-store';
 
 export async function GET(req: Request) {
   return runWithSupabaseQueryCount('/api/platform/portfolio-config-performance', async () => {
@@ -38,38 +44,66 @@ export async function GET(req: Request) {
     const riskLevel = riskParam ? parseInt(riskParam, 10) : 3;
 
     if (isNaN(riskLevel) || riskLevel < 1 || riskLevel > 6) {
-      return NextResponse.json({ error: 'Invalid risk level' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'Invalid risk level' },
+        { status: 400, headers: { 'Cache-Control': CACHE_CONTROL_NO_STORE } }
+      );
     }
 
     const validFrequencies = ['weekly', 'monthly', 'quarterly', 'yearly'];
     if (!validFrequencies.includes(frequency)) {
-      return NextResponse.json({ error: 'Invalid frequency' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'Invalid frequency' },
+        { status: 400, headers: { 'Cache-Control': CACHE_CONTROL_NO_STORE } }
+      );
     }
 
     const validWeightings = ['equal', 'cap'];
     if (!validWeightings.includes(weighting)) {
-      return NextResponse.json({ error: 'Invalid weighting method' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'Invalid weighting method' },
+        { status: 400, headers: { 'Cache-Control': CACHE_CONTROL_NO_STORE } }
+      );
     }
 
     try {
-      const payload = await loadPublicPortfolioConfigPerformance(
-        slug,
-        {
-          riskLevel: riskLevel as RiskLevel,
-          rebalanceFrequency: frequency as RebalanceFrequency,
-          weightingMethod: weighting as WeightingMethod,
-        },
-        { enqueueOnEmpty: true }
-      );
+      const slice = {
+        riskLevel: riskLevel as RiskLevel,
+        rebalanceFrequency: frequency as RebalanceFrequency,
+        weightingMethod: weighting as WeightingMethod,
+      };
 
-      if (!payload) {
-        return NextResponse.json({ error: 'Strategy not found' }, { status: 404 });
+      const cached = await getCachedPublicPortfolioConfigPerformance(slug, slice);
+      if (!cached) {
+        return NextResponse.json(
+          { error: 'Strategy not found' },
+          { status: 404, headers: { 'Cache-Control': CACHE_CONTROL_NO_STORE } }
+        );
       }
 
-      return NextResponse.json(payload);
+      const needsFreshDb =
+        cached.computeStatus === 'empty' || cached.computeStatus === 'in_progress';
+      const payload = needsFreshDb
+        ? await loadPublicPortfolioConfigPerformance(slug, slice, {
+            enqueueOnEmpty: cached.computeStatus === 'empty',
+          })
+        : cached;
+
+      const out = payload ?? cached;
+      const status = out.computeStatus;
+      const cdnCacheable =
+        status === 'ready' || status === 'failed' || status === 'unsupported';
+      return NextResponse.json(out, {
+        headers: {
+          'Cache-Control': cdnCacheable ? CACHE_CONTROL_PUBLIC : CACHE_CONTROL_NO_STORE,
+        },
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Internal error';
-      return NextResponse.json({ error: message }, { status: 500 });
+      return NextResponse.json(
+        { error: message },
+        { status: 500, headers: { 'Cache-Control': CACHE_CONTROL_NO_STORE } }
+      );
     }
   });
 }

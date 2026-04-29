@@ -22,6 +22,10 @@ interface ContentPageLayoutProps {
   sidebarSlot?: React.ReactNode;
   /** When true, skips rendering the title/subtitle header (e.g. when using a custom hero). */
   hideTitle?: boolean;
+  /** Optional classes merged onto the outer `container` shell (below navbar). */
+  pageContainerClassName?: string;
+  /** Optional classes merged onto the inner flex row (main + sidebars). */
+  contentRowClassName?: string;
   /** Optional classes for the main content column. */
   contentClassName?: string;
   /** Optional classes on the title + subtitle block (when `hideTitle` is false). */
@@ -41,6 +45,8 @@ export const ContentPageLayout: React.FC<ContentPageLayoutProps> = ({
   legalProse = false,
   sidebarSlot,
   hideTitle = false,
+  pageContainerClassName,
+  contentRowClassName,
   contentClassName,
   titleSectionClassName,
   tocPosition = 'left',
@@ -154,14 +160,20 @@ export const ContentPageLayout: React.FC<ContentPageLayoutProps> = ({
       <div className="pointer-events-none fixed inset-x-0 top-0 h-64 bg-gradient-to-b from-trader-blue/5 to-transparent z-0" />
       <main className="flex-grow relative z-10">
         <section className="py-16 md:py-20">
-          <div className={cn(
-            'container mx-auto px-4',
-            isRightToc ? 'max-w-[90rem]' : ''
-          )}>
-            <div className={cn(
-              'flex flex-col lg:flex-row gap-12 lg:gap-10',
-              isRightToc ? 'justify-center' : 'max-w-6xl mx-auto lg:gap-16',
-            )}>
+          <div
+            className={cn(
+              'container mx-auto px-4',
+              isRightToc ? 'max-w-[90rem]' : '',
+              pageContainerClassName
+            )}
+          >
+            <div
+              className={cn(
+                'flex flex-col lg:flex-row gap-12 lg:gap-10',
+                isRightToc ? 'justify-center' : 'max-w-6xl mx-auto lg:gap-16',
+                contentRowClassName
+              )}
+            >
 
               {/* Desktop left sidebar — hidden on mobile */}
               {hasLeftSidebar && (

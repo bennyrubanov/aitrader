@@ -6,50 +6,14 @@ import {
 } from '@/lib/app-access';
 import { buildAuthStateFromUserAndProfile } from '@/lib/build-auth-state';
 import { getAllStocks } from '@/lib/stocks-cache';
-import { createAdminClient } from '@/utils/supabase/admin';
+import {
+  getCachedLatestNasdaqQuotesBySymbol,
+  getCachedRatingsBySymbolForAccess,
+} from '@/lib/stocks-list-payload';
 import { createClient } from '@/utils/supabase/server';
 
-/** Tier-aware payload; must not use shared public cache. */
+/** Tier-aware payload; auth lookup stays per-request, daily-stable reads come from `unstable_cache`. */
 export const dynamic = 'force-dynamic';
-
-type RatingBucket = 'buy' | 'hold' | 'sell' | null;
-
-type NasdaqQuoteRow = {
-  symbol: string;
-  company_name: string | null;
-  last_sale_price: string | null;
-  net_change: string | null;
-  percentage_change: string | null;
-  run_date: string;
-};
-
-/** Latest `run_date` + full row set that day (~N100); map by symbol for merging onto the catalog. */
-async function loadLatestNasdaqQuotesBySymbol(
-  admin: ReturnType<typeof createAdminClient>
-): Promise<Map<string, NasdaqQuoteRow>> {
-  const map = new Map<string, NasdaqQuoteRow>();
-
-  const { data: dateRow, error: dateErr } = await admin
-    .from('nasdaq_100_daily_raw')
-    .select('run_date')
-    .order('run_date', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (dateErr || !dateRow?.run_date) return map;
-
-  const { data: rows, error: rowsErr } = await admin
-    .from('nasdaq_100_daily_raw')
-    .select('symbol, company_name, last_sale_price, net_change, percentage_change, run_date')
-    .eq('run_date', dateRow.run_date);
-
-  if (rowsErr || !rows?.length) return map;
-
-  for (const row of rows) {
-    map.set(row.symbol.toUpperCase(), row as NasdaqQuoteRow);
-  }
-  return map;
-}
 
 export async function GET() {
   try {
@@ -72,69 +36,17 @@ export async function GET() {
 
     const visibleStocks = stocks.filter((s) => stockRowAllowedForAccessList(access, s));
 
-    const admin = createAdminClient();
-    const quoteBySymbol = await loadLatestNasdaqQuotesBySymbol(admin);
-
-    const ratingBySymbol = new Map<string, RatingBucket>();
-
-    if (access === 'guest') {
-      const { data: ratingsRows, error: ratingsError } = await admin
-        .from('nasdaq100_recommendations_current_public')
-        .select('bucket, stocks!inner(symbol, is_premium_stock, is_guest_visible)')
-        .eq('stocks.is_guest_visible', true)
-        .eq('stocks.is_premium_stock', false);
-
-      if (ratingsError) {
-        throw new Error(`Unable to load current ratings: ${ratingsError.message}`);
-      }
-
-      (ratingsRows ?? []).forEach((row) => {
-        const stock = Array.isArray(row.stocks) ? row.stocks[0] : row.stocks;
-        const symbol = stock?.symbol?.toUpperCase?.();
-        if (!symbol) return;
-        ratingBySymbol.set(symbol, (row.bucket as RatingBucket) ?? null);
-      });
-    } else if (access === 'free') {
-      const { data: ratingsRows, error: ratingsError } = await admin
-        .from('nasdaq100_recommendations_current_public')
-        .select('bucket, stocks!inner(symbol, is_premium_stock)')
-        .eq('stocks.is_premium_stock', false);
-
-      if (ratingsError) {
-        throw new Error(`Unable to load current ratings: ${ratingsError.message}`);
-      }
-
-      (ratingsRows ?? []).forEach((row) => {
-        const stock = Array.isArray(row.stocks) ? row.stocks[0] : row.stocks;
-        const symbol = stock?.symbol?.toUpperCase?.();
-        if (!symbol) return;
-        ratingBySymbol.set(symbol, (row.bucket as RatingBucket) ?? null);
-      });
-    } else {
-      const { data: ratingsRows, error: ratingsError } = await admin
-        .from('nasdaq100_recommendations_current_public')
-        .select('bucket, stocks(symbol)');
-
-      if (ratingsError) {
-        throw new Error(`Unable to load current ratings: ${ratingsError.message}`);
-      }
-
-      (ratingsRows ?? []).forEach((row) => {
-        const stock = Array.isArray(row.stocks) ? row.stocks[0] : row.stocks;
-        const symbol = stock?.symbol?.toUpperCase?.();
-        if (!symbol) return;
-        ratingBySymbol.set(symbol, (row.bucket as RatingBucket) ?? null);
-      });
-    }
+    const [quoteBySymbol, ratingBySymbol] = await Promise.all([
+      getCachedLatestNasdaqQuotesBySymbol(),
+      getCachedRatingsBySymbolForAccess(access),
+    ]);
 
     const payload = visibleStocks.map((stock) => {
       const { isGuestVisible: _g, ...rest } = stock;
-      const raw = ratingBySymbol.get(stock.symbol.toUpperCase()) ?? null;
-      let currentRating: RatingBucket = raw;
-      if (access === 'free' && stock.isPremium) {
-        currentRating = null;
-      }
-      const q = quoteBySymbol.get(stock.symbol.toUpperCase());
+      const symbolUpper = stock.symbol.toUpperCase();
+      const raw = ratingBySymbol.get(symbolUpper) ?? null;
+      const currentRating = access === 'free' && stock.isPremium ? null : raw;
+      const q = quoteBySymbol.get(symbolUpper);
       return {
         ...rest,
         currentRating,

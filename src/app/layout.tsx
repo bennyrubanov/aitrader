@@ -1,10 +1,7 @@
 import type { Metadata } from 'next';
 import Script from 'next/script';
 import { Analytics } from '@vercel/analytics/next';
-import { AuthPreviewPersistentHost } from '@/components/auth/auth-preview-persistent-host';
-import Providers from './providers';
 import './globals.css';
-import { getInitialAuthState } from '@/lib/get-initial-auth-state';
 
 const siteUrl =
   process.env.NEXT_PUBLIC_SITE_URL ||
@@ -24,16 +21,12 @@ export const metadata: Metadata = {
 };
 
 const RootLayout = async ({ children }: { children: React.ReactNode }) => {
-  const initialAuthState = await getInitialAuthState();
-
   const plausibleEnabled = process.env.NODE_ENV === 'production';
-
   return (
     <html lang="en" suppressHydrationWarning>
       <body>
         {plausibleEnabled ? (
           <>
-            {/* Privacy-friendly analytics by Plausible — beforeInteractive injects into document head */}
             <Script
               async
               src="https://plausible.io/js/pa-DUsJAHzZzGIsHm7oYazJt.js"
@@ -45,10 +38,7 @@ plausible.init()`}
             </Script>
           </>
         ) : null}
-        <Providers initialAuthState={initialAuthState}>
-          {children}
-          <AuthPreviewPersistentHost />
-        </Providers>
+        {children}
         <Analytics />
       </body>
     </html>

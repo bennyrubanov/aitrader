@@ -6,6 +6,7 @@ import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import { createAdminClient } from '@/utils/supabase/admin';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
 import { LANDING_TOP_PORTFOLIO_PERFORMANCE_CACHE_TAG } from '@/lib/landing-top-portfolio-performance';
+import { PUBLIC_DATA_CACHE_TTL_SECONDS } from '@/lib/public-cache';
 
 const INITIAL_CAPITAL = 10_000;
 
@@ -169,5 +170,5 @@ async function loadLandingAllPortfoliosPerformanceUncached(): Promise<LandingAll
 export const getLandingAllPortfoliosPerformance = unstable_cache(
   loadLandingAllPortfoliosPerformanceUncached,
   ['landing-all-portfolios-performance', STRATEGY_CONFIG.slug],
-  { revalidate: 300, tags: [LANDING_TOP_PORTFOLIO_PERFORMANCE_CACHE_TAG] }
+  { revalidate: PUBLIC_DATA_CACHE_TTL_SECONDS, tags: [LANDING_TOP_PORTFOLIO_PERFORMANCE_CACHE_TAG] }
 );

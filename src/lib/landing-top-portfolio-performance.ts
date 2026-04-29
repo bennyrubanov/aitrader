@@ -12,13 +12,14 @@ import {
   resolveConfigId,
 } from '@/lib/portfolio-config-utils';
 import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
+import { PUBLIC_CACHE_TAGS, PUBLIC_DATA_CACHE_TTL_SECONDS } from '@/lib/public-cache';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { createPublicClient } from '@/utils/supabase/public';
 
 const INITIAL_CAPITAL = 10_000;
 
 /** Use with `revalidateTag` after `strategy_portfolio_config_performance` / weekly benchmark updates (cron, backfill). */
-export const LANDING_TOP_PORTFOLIO_PERFORMANCE_CACHE_TAG = 'landing-top-portfolio-performance';
+export const LANDING_TOP_PORTFOLIO_PERFORMANCE_CACHE_TAG = PUBLIC_CACHE_TAGS.landingTopPortfolio;
 
 export type LandingTopPortfolioPerformance = {
   series: PerformanceSeriesPoint[];
@@ -118,5 +119,5 @@ async function loadLandingTopPortfolioPerformanceUncached(): Promise<LandingTopP
 export const getLandingTopPortfolioPerformance = unstable_cache(
   loadLandingTopPortfolioPerformanceUncached,
   ['landing-top-portfolio-performance', STRATEGY_CONFIG.slug],
-  { revalidate: 300, tags: [LANDING_TOP_PORTFOLIO_PERFORMANCE_CACHE_TAG] }
+  { revalidate: PUBLIC_DATA_CACHE_TTL_SECONDS, tags: [LANDING_TOP_PORTFOLIO_PERFORMANCE_CACHE_TAG] }
 );

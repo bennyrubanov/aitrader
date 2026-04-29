@@ -5,7 +5,9 @@ import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
 import { BlogShareButtons } from '@/components/blog-share-buttons';
 
-export const revalidate = 3600;
+export const dynamic = 'force-static';
+/** Must match `PUBLIC_STATIC_REVALIDATE` in `@/lib/public-cache` (Next requires a literal here). */
+export const revalidate = false;
 
 interface BlogContent {
   id: string;
@@ -386,9 +388,19 @@ const blogPosts: Record<string, BlogContent> = {
   },
 };
 
+export const dynamicParams = false;
+
+export function generateStaticParams() {
+  return Object.keys(blogPosts).map((id) => ({ id }));
+}
+
 type BlogPostPageProps = {
   params: Promise<{ id: string }>;
 };
+
+const publicSiteBase = () =>
+  process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '') ||
+  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
 
 const BlogPostPage = async ({ params }: BlogPostPageProps) => {
   const { id } = await params;
@@ -397,6 +409,8 @@ const BlogPostPage = async ({ params }: BlogPostPageProps) => {
   if (!post) {
     notFound();
   }
+
+  const sharePageUrl = `${publicSiteBase()}/blog/${encodeURIComponent(id)}`;
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
@@ -424,7 +438,7 @@ const BlogPostPage = async ({ params }: BlogPostPageProps) => {
 
               <div className="mt-12 pt-8 border-t border-border">
                 <h3 className="text-xl font-bold mb-4">Share this article</h3>
-                <BlogShareButtons title={post.title} />
+                <BlogShareButtons title={post.title} sharePageUrl={sharePageUrl} />
               </div>
             </div>
           </div>

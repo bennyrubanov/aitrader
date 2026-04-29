@@ -3,16 +3,28 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ChevronDown, ExternalLink, Lock, Star, TrendingUp } from 'lucide-react';
+import {
+  ArrowRight,
+  ChevronDown,
+  ExternalLink,
+  Lock,
+  LockKeyholeOpen,
+  Search,
+  Star,
+  TrendingUp,
+  X,
+} from 'lucide-react';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StockPriceRatingChart } from '@/components/platform/stock-chart-dialog';
 import { StrategyModelSidebarDropdown } from '@/components/platform/strategy-model-sidebar-dropdown';
 import type { StrategyListItem } from '@/lib/platform-performance-payload';
 import { getPlatformCachedValue, setPlatformCachedValue } from '@/lib/platformClientCache';
+import { invalidateStocksListClient, loadStocksListClient, type StockListItem } from '@/lib/stocks-client';
 import { Disclaimer } from '@/components/Disclaimer';
 import { useAuthState } from '@/components/auth/auth-state-context';
 import {
@@ -152,6 +164,156 @@ function InsightPlanUpgradeBlock({ children }: { children: React.ReactNode }) {
         <Link href="/pricing">Upgrade plan</Link>
       </Button>
     </div>
+  );
+}
+
+function StockSidebarSearch({
+  currentSymbol,
+  isAuthenticated,
+  subscriptionTier,
+  authLoaded,
+}: {
+  currentSymbol: string;
+  isAuthenticated: boolean;
+  subscriptionTier: string;
+  authLoaded: boolean;
+}) {
+  const router = useRouter();
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [query, setQuery] = useState('');
+  const [isFocused, setIsFocused] = useState(false);
+  const [stocks, setStocks] = useState<StockListItem[]>([]);
+
+  useEffect(() => {
+    if (!authLoaded) return;
+    invalidateStocksListClient();
+    let cancelled = false;
+    void loadStocksListClient({ bypassCache: true })
+      .then((data) => {
+        if (!cancelled) {
+          setStocks(Array.isArray(data) ? data : []);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setStocks([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoaded, isAuthenticated, subscriptionTier]);
+
+  const filteredStocks = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    return stocks
+      .filter((stock) => {
+        if (stock.symbol.toUpperCase() === currentSymbol) return false;
+        return stock.symbol.toLowerCase().includes(q) || stock.name.toLowerCase().includes(q);
+      })
+      .slice(0, 8);
+  }, [currentSymbol, query, stocks]);
+
+  const clearSearch = () => {
+    setQuery('');
+    setIsFocused(false);
+  };
+
+  const submitSearch = (event: React.FormEvent) => {
+    event.preventDefault();
+    const normalizedQuery = query.trim().toUpperCase();
+    if (!normalizedQuery) return;
+
+    const exactMatch = stocks.find((stock) => stock.symbol.toUpperCase() === normalizedQuery);
+    const fallbackMatch = filteredStocks[0];
+    const match = exactMatch ?? fallbackMatch;
+    if (match) {
+      setQuery('');
+      setIsFocused(false);
+      router.push(`/stocks/${match.symbol.toLowerCase()}`);
+    }
+  };
+
+  return (
+    <form onSubmit={submitSearch} className="relative">
+      <label htmlFor="stock-sidebar-search" className="mb-2 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        Search stocks
+      </label>
+      <div className="relative">
+        <Search
+          className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+          aria-hidden
+        />
+        <Input
+          ref={inputRef}
+          id="stock-sidebar-search"
+          type="text"
+          value={query}
+          placeholder="Ticker or company"
+          className="h-10 rounded-lg border-border bg-background pl-9 pr-9 text-sm shadow-sm focus-visible:border-border focus-visible:ring-0 focus-visible:ring-offset-0"
+          onChange={(event) => setQuery(event.target.value)}
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => setTimeout(() => setIsFocused(false), 150)}
+          onKeyDown={(event) => {
+            if (event.key !== 'Escape') return;
+            event.preventDefault();
+            clearSearch();
+            event.currentTarget.blur();
+          }}
+        />
+        {query ? (
+          <button
+            type="button"
+            aria-label="Clear stock search"
+            className="absolute right-1.5 top-1/2 inline-flex size-7 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-trader-blue/30"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              clearSearch();
+              inputRef.current?.focus();
+            }}
+          >
+            <X className="size-3.5" aria-hidden />
+          </button>
+        ) : null}
+      </div>
+      {isFocused && filteredStocks.length > 0 ? (
+        <div className="absolute left-0 right-0 z-30 mt-1 max-h-72 overflow-y-auto rounded-xl border border-border bg-card p-1.5 text-left shadow-elevated">
+          {filteredStocks.map((stock) => (
+            // <Link prefetch> warms the destination's RSC payload on hover/focus, so a click is
+            // a near-instant client transition instead of a cold SSR roundtrip.
+            <Link
+              key={stock.symbol}
+              href={`/stocks/${stock.symbol.toLowerCase()}`}
+              prefetch
+              className="group block w-full rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                setQuery('');
+                setIsFocused(false);
+              }}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="shrink-0 text-sm font-semibold">{stock.symbol}</span>
+                    {stock.isPremium ? (
+                      <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-trader-blue/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-trader-blue">
+                        <Lock className="size-2.5" aria-hidden />
+                        Premium
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground">{stock.name}</p>
+                </div>
+                <ArrowRight
+                  className="size-4 shrink-0 translate-x-[-2px] text-muted-foreground opacity-0 transition-all group-hover:translate-x-0 group-hover:opacity-100 group-focus-visible:translate-x-0 group-focus-visible:opacity-100"
+                  aria-hidden
+                />
+              </div>
+            </Link>
+          ))}
+        </div>
+      ) : null}
+    </form>
   );
 }
 
@@ -503,40 +665,32 @@ const StockDetailClient = ({
         <section className="py-20 md:py-28">
           <div className="container mx-auto px-4">
             <div className="max-w-6xl mx-auto">
-              <div className="mb-6">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    <h1 className="text-3xl md:text-5xl font-bold break-words">
-                      {normalizedSymbol} {stockName ? `· ${stockName}` : ''}
-                    </h1>
-                  </div>
-                  <div className="shrink-0 pt-0.5">
-                    {isPremiumStock ? (
-                      <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold uppercase tracking-wide text-trader-blue bg-trader-blue/10 px-1.5 py-0.5 rounded">
-                        <Lock size={9} className="shrink-0" aria-hidden />
-                        Premium
+              <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-4">
+                <h1 className="flex min-w-0 max-w-full flex-1 flex-wrap items-center break-words leading-none">
+                  <span className="text-3xl font-bold leading-none tabular-nums md:text-5xl">{normalizedSymbol}</span>
+                  {stockName ? (
+                    <>
+                      <span className="px-1.5 text-lg font-normal leading-none text-muted-foreground md:px-2 md:text-2xl">
+                        ·
                       </span>
-                    ) : (
-                      <span className="inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide whitespace-nowrap bg-foreground text-background border border-foreground/10">
-                        Free stock
-                      </span>
-                    )}
-                  </div>
-                </div>
-                {(portfolioPresenceLoading ||
-                  portfolioPresence?.runDate ||
-                  (portfolioPresence?.modelRank != null &&
-                    portfolioPresence.modelRankTotal != null &&
-                    portfolioPresence.modelRankTotal > 0)) && (
-                  <TooltipProvider delayDuration={200}>
-                    <div className="mt-3 flex flex-wrap items-center gap-2.5">
+                      <span className="text-lg font-normal leading-none text-muted-foreground md:text-2xl">{stockName}</span>
+                    </>
+                  ) : null}
+                </h1>
+                <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-x-2.5 gap-y-2 self-center lg:justify-end">
+                  {(portfolioPresenceLoading ||
+                    portfolioPresence?.runDate ||
+                    (portfolioPresence?.modelRank != null &&
+                      portfolioPresence.modelRankTotal != null &&
+                      portfolioPresence.modelRankTotal > 0)) && (
+                    <TooltipProvider delayDuration={200}>
                       {portfolioPresenceLoading ? (
                         <>
                           <span
                             className="inline-flex max-w-full truncate rounded-full border border-dashed border-border bg-muted/25 px-3 py-1.5 text-xs font-medium text-muted-foreground"
                             aria-hidden
                           >
-                            Latest rating on{' '}
+                            Latest rating on {'  '}
                           </span>
                           <div
                             className="inline-flex max-w-full items-center rounded-full border border-dashed border-border bg-muted/25 px-3 py-1.5"
@@ -550,13 +704,10 @@ const StockDetailClient = ({
                         <>
                           {portfolioPresence?.runDate ? (
                             <span
-                              className="inline-flex max-w-full truncate rounded-full border border-border bg-muted/35 px-3 py-1.5 text-xs font-medium text-muted-foreground"
+                              className="inline-flex max-w-full items-center truncate gap-x-1.5 rounded-full border border-border bg-muted/35 px-3 py-1.5 text-xs font-medium text-muted-foreground"
                               title="Trading week for the latest AI ratings run used on this page."
                             >
-                              <span className="font-semibold text-muted-foreground/90">
-                                Latest rating on{' '}
-                              </span>
-                              <span className="text-muted-foreground/80">· </span>
+                              <span className="font-semibold text-muted-foreground/90">Latest rating on</span>
                               <span className="tabular-nums text-foreground/90">
                                 {formatLatestRatingOnDate(portfolioPresence.runDate)}
                               </span>
@@ -581,79 +732,98 @@ const StockDetailClient = ({
                           ) : null}
                         </>
                       )}
-                    </div>
-                  </TooltipProvider>
-                )}
+                    </TooltipProvider>
+                  )}
+                  {isPremiumStock ? (
+                    <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-trader-blue/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-trader-blue">
+                      <Lock size={9} className="shrink-0" aria-hidden />
+                      Premium
+                    </span>
+                  ) : (
+                    <span className="inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded-full border border-foreground/10 bg-foreground px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-background">
+                      <LockKeyholeOpen size={9} className="shrink-0" aria-hidden />
+                      Free
+                    </span>
+                  )}
+                </div>
               </div>
 
               <div className="flex flex-col gap-8 lg:flex-row lg:items-start lg:gap-10">
-                <aside className="w-full shrink-0 lg:w-56">
-                  {strategyPickerStrategies.length > 0 ? (
-                    <StrategyModelSidebarDropdown
-                      strategies={strategyPickerStrategies}
-                      selectedSlug={selectedStrategySlug}
-                      onSelectStrategy={setSelectedStrategySlug}
-                      hideBottomBorder
-                    >
-                      {effectivePickerStrategy ? (
-                        <div className="space-y-0.5">
-                          {isTopPickerStrategy ? (
-                            <div className="flex items-start gap-1.5 text-xs min-h-7 py-1.5 px-1 whitespace-normal text-left leading-snug text-muted-foreground">
-                              <Star className="size-3 shrink-0 mt-0.5" fill="currentColor" />
-                              <span>
-                                Top performing strategy model{' '}
-                                <Link
-                                  href="/whitepaper#model-ranking"
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="group inline-flex items-center font-medium text-trader-blue dark:text-trader-blue-light underline-offset-2 transition hover:underline"
-                                >
-                                  (by composite ranking)
-                                  <ExternalLink
-                                    className="size-3 shrink-0 ml-1 mt-0.5 opacity-0 transition-opacity group-hover:opacity-100"
-                                    aria-hidden
-                                  />
-                                </Link>
-                              </span>
-                            </div>
-                          ) : null}
-                          <Button
-                            asChild
-                            variant="ghost"
-                            size="sm"
-                            className="w-full justify-start gap-1.5 text-xs h-7 px-1"
-                          >
-                            <Link href={`/strategy-models/${effectivePickerStrategy.slug}`}>
-                              <ExternalLink className="size-3 shrink-0" />
-                              How this model works
-                            </Link>
-                          </Button>
-                          <Button
-                            asChild
-                            variant="ghost"
-                            size="sm"
-                            className="w-full justify-start gap-1.5 text-xs h-7 px-1"
-                          >
-                            <Link href={`/strategy-models/${effectivePickerStrategy.slug}`}>
-                              <TrendingUp className="size-3 shrink-0" />
-                              See performance
-                            </Link>
-                          </Button>
+                <aside className="w-full shrink-0 lg:sticky lg:top-24 lg:max-h-[calc(100vh-7rem)] lg:w-64 lg:overflow-y-auto lg:overscroll-y-contain lg:pr-3 lg:[scrollbar-gutter:stable]">
+                  <div className="space-y-5 pb-2">
+                    <StockSidebarSearch
+                      currentSymbol={normalizedSymbol}
+                      isAuthenticated={isAuthenticated}
+                      subscriptionTier={subscriptionTier}
+                      authLoaded={isLoaded}
+                    />
+                    {strategyPickerStrategies.length > 0 ? (
+                      <StrategyModelSidebarDropdown
+                        strategies={strategyPickerStrategies}
+                        selectedSlug={selectedStrategySlug}
+                        onSelectStrategy={setSelectedStrategySlug}
+                        hideBottomBorder
+                      >
+                        {effectivePickerStrategy ? (
+                          <div className="space-y-0.5">
+                            {isTopPickerStrategy ? (
+                              <div className="flex items-start gap-1.5 text-xs min-h-7 py-1.5 px-1 whitespace-normal text-left leading-snug text-muted-foreground">
+                                <Star className="size-3 shrink-0 mt-0.5" fill="currentColor" />
+                                <span>
+                                  Top performing strategy model{' '}
+                                  <Link
+                                    href="/whitepaper#model-ranking"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="group inline-flex items-center font-medium text-trader-blue dark:text-trader-blue-light underline-offset-2 transition hover:underline"
+                                  >
+                                    (by composite ranking)
+                                    <ExternalLink
+                                      className="size-3 shrink-0 ml-1 mt-0.5 opacity-0 transition-opacity group-hover:opacity-100"
+                                      aria-hidden
+                                    />
+                                  </Link>
+                                </span>
+                              </div>
+                            ) : null}
+                            <Button
+                              asChild
+                              variant="ghost"
+                              size="sm"
+                              className="w-full justify-start gap-1.5 text-xs h-7 px-1"
+                            >
+                              <Link href={`/strategy-models/${effectivePickerStrategy.slug}`}>
+                                <ExternalLink className="size-3 shrink-0" />
+                                How this model works
+                              </Link>
+                            </Button>
+                            <Button
+                              asChild
+                              variant="ghost"
+                              size="sm"
+                              className="w-full justify-start gap-1.5 text-xs h-7 px-1"
+                            >
+                              <Link href={`/strategy-models/${effectivePickerStrategy.slug}`}>
+                                <TrendingUp className="size-3 shrink-0" />
+                                See performance
+                              </Link>
+                            </Button>
+                          </div>
+                        ) : null}
+                      </StrategyModelSidebarDropdown>
+                    ) : (
+                      <div className="space-y-4 pt-5 pb-4">
+                        <div className="space-y-1.5">
+                          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                            Strategy model
+                          </p>
+                          <p className="text-[10px] text-muted-foreground leading-snug">
+                            Model list is unavailable right now.
+                          </p>
                         </div>
-                      ) : null}
-                    </StrategyModelSidebarDropdown>
-                  ) : (
-                    <div className="space-y-4 pt-5 pb-4">
-                      <div className="space-y-1.5">
-                        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                          Strategy model
-                        </p>
-                        <p className="text-[10px] text-muted-foreground leading-snug">
-                          Model list is unavailable right now.
-                        </p>
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </aside>
 
                 <div className="min-w-0 flex-1 space-y-6">

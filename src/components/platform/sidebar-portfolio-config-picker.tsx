@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { ArrowDown, FilterX, LayoutList, LineChart, ListFilter } from 'lucide-react';
 import type {
@@ -274,6 +275,8 @@ function PortfolioPickerTableRow({
   benchmarkAnchorRef?: (el: HTMLDivElement | null) => void;
   onPick: (c: RankedConfig) => void;
 }) {
+  const router = useRouter();
+
   if (row.kind === 'benchmark') {
     return (
       <div
@@ -332,6 +335,8 @@ function PortfolioPickerTableRow({
       <Link
         href={href}
         prefetch={false}
+        onPointerEnter={() => void router.prefetch(href)}
+        onFocus={() => void router.prefetch(href)}
         onClick={handleClick}
         className={cn(
           'flex min-w-0 flex-1 items-stretch gap-3 rounded-xl border px-3 py-2.5 text-left transition-all',
@@ -756,7 +761,7 @@ export function SidebarPortfolioConfigPicker({
                                 )}
                               >
                                 <LayoutList className="size-3.5 shrink-0" aria-hidden />
-                                Portfolio rankings list
+                                Rankings list
                               </button>
                               <button
                                 type="button"
@@ -769,7 +774,7 @@ export function SidebarPortfolioConfigPicker({
                                 )}
                               >
                                 <LineChart className="size-3.5 shrink-0" aria-hidden />
-                                Portfolio values chart
+                                Values chart
                               </button>
                             </div>
                             <div className="flex items-center gap-2">

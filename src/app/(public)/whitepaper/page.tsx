@@ -1,6 +1,7 @@
 import WhitepaperContentPage from '@/components/whitepaper/whitepaper-content-page';
-
-export const revalidate = 300;
+export const dynamic = 'force-static';
+/** Must match `PUBLIC_STATIC_REVALIDATE` in `@/lib/public-cache` (Next requires a literal here). */
+export const revalidate = false;
 
 export const metadata = {
   title: 'Whitepaper | AITrader',

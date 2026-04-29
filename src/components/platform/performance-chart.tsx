@@ -468,6 +468,7 @@ export function PerformanceChart({
           <ChartTooltip
             content={
               <ChartTooltipContent
+                className="max-w-[14rem] px-2 py-1.5"
                 formatter={(value, name) => {
                   const cfg = config[name as SeriesKey];
                   const label = cfg?.label ?? name;
@@ -476,7 +477,21 @@ export function PerformanceChart({
                     view === 'drawdown'
                       ? `${num.toFixed(2)}%`
                       : formatEquityTooltipValue(num, startingReferenceNotional);
-                  return [`${formatted} `, ` ${label}`];
+                  return (
+                    <>
+                      <span
+                        className="mt-0.5 size-2 shrink-0 rounded-full"
+                        style={{ backgroundColor: cfg?.color ?? 'currentColor' }}
+                        aria-hidden
+                      />
+                      <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 leading-none">
+                        <span className="min-w-0 truncate text-muted-foreground">{label}</span>
+                        <span className="font-mono font-medium tabular-nums text-foreground">
+                          {formatted}
+                        </span>
+                      </div>
+                    </>
+                  );
                 }}
               />
             }
@@ -538,8 +553,8 @@ export function PerformanceChart({
           {view === 'equity'
             ? nominalDollars
               ? `Portfolio value over time. Net of trading costs.`
-              : `thSimulated growth of $10,000 from inception, net of trading
-          costs, versus benchmarks.`
+              : `Simulated growth of $10,000 from inception, net of trading
+          costs.`
             : `Drawdown from rolling peak for each series. Deeper troughs = larger losses from peak.`}
         </p>
       ) : null}

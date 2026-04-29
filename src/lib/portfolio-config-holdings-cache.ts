@@ -45,8 +45,8 @@ const CACHE_PREFIX = 'aitrader.platform.cache.v3.explore-holdings';
 const LRU_STORAGE_KEY = `${CACHE_PREFIX}.meta.lru`;
 const V1_SESSION_PREFIX = 'aitrader.platform.cache.v1.explore-holdings.';
 
-/** Treat as fresh without revalidating in the background. */
-const FRESH_TTL_MS = 5 * 60_000;
+/** Treat as fresh without revalidating in the background (holdings change on rebalance; explicit invalidation still busts). */
+const FRESH_TTL_MS = 60 * 60_000;
 /** Return stale data and refresh in the background (SWR). */
 const STALE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -323,13 +323,14 @@ function resolveEntryFromStore(
   logicalKey: string,
   slug: string,
   configId: string,
-  asOf: string | null
+  asOf: string | null,
+  revalidate: boolean
 ): ExploreHoldingsPayload | undefined {
   const memoryEntry = memoryStore.get(logicalKey);
   if (memoryEntry) {
     if (isFresh(memoryEntry.updatedAt)) return padExploreHoldingsPayload(memoryEntry.value);
     if (isStaleButUsable(memoryEntry.updatedAt)) {
-      scheduleRevalidate(slug, configId, asOf);
+      if (revalidate) scheduleRevalidate(slug, configId, asOf);
       return padExploreHoldingsPayload(memoryEntry.value);
     }
     memoryStore.delete(logicalKey);
@@ -346,7 +347,7 @@ function resolveEntryFromStore(
     if (isStaleButUsable(diskEntry.updatedAt)) {
       memoryStore.set(logicalKey, padded);
       touchLruOrder(logicalKey);
-      scheduleRevalidate(slug, configId, asOf);
+      if (revalidate) scheduleRevalidate(slug, configId, asOf);
       return padded.value;
     }
     removePersistentEntry(logicalKey);
@@ -354,13 +355,20 @@ function resolveEntryFromStore(
   return undefined;
 }
 
+export type GetCachedExploreHoldingsOptions = {
+  /** When false, stale-but-usable entries are returned without background `scheduleRevalidate` (read-only / cost-basis paths). Default true. */
+  revalidate?: boolean;
+};
+
 export function getCachedExploreHoldings(
   slug: string,
   configId: string,
-  asOf: string | null
+  asOf: string | null,
+  options?: GetCachedExploreHoldingsOptions
 ): ExploreHoldingsPayload | undefined {
+  const revalidate = options?.revalidate !== false;
   const key = cacheKeyExploreHoldings(slug, configId, asOf);
-  return resolveEntryFromStore(key, slug.trim(), configId, asOf);
+  return resolveEntryFromStore(key, slug.trim(), configId, asOf, revalidate);
 }
 
 export async function loadExplorePortfolioConfigHoldings(
@@ -399,7 +407,7 @@ export async function loadExploreHoldingsForDates(
   bindInvalidateListener();
   const s = slug.trim();
   const requested = normalizeDates(dates);
-  const missing = requested.filter((d) => !getCachedExploreHoldings(s, configId, d));
+  const missing = requested.filter((d) => !getCachedExploreHoldings(s, configId, d, { revalidate: false }));
   if (missing.length === 0) return;
 
   const inflightKey = `${s}\0${configId}\0${missing.join(',')}`;
@@ -477,13 +485,15 @@ export function prefetchExploreHoldingsDatesIdle(
       window.clearTimeout(timeoutHandle);
       timeoutHandle = 0;
     }
-    const stillMissing = normalized.filter((d) => !getCachedExploreHoldings(s, configId, d));
+    const stillMissing = normalized.filter(
+      (d) => !getCachedExploreHoldings(s, configId, d, { revalidate: false })
+    );
     if (stillMissing.length === 0) return;
     const missingBeforeBatch = stillMissing.length;
     const batch = stillMissing.slice(0, DATES_BATCH_SIZE);
     void loadExploreHoldingsForDates(s, configId, batch).finally(() => {
       if (cancelled) return;
-      const left = normalized.filter((d) => !getCachedExploreHoldings(s, configId, d));
+      const left = normalized.filter((d) => !getCachedExploreHoldings(s, configId, d, { revalidate: false }));
       if (left.length === 0) return;
       if (left.length >= missingBeforeBatch) {
         idlePrefetchNoProgressStrikes += 1;

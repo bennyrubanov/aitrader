@@ -173,36 +173,40 @@ export function LandingPerformanceSection({ allPortfolios, heroStats, visibleRef
           ) : null}
 
           {showCharts && allPortfolios ? (
-            <>
-              <div className="mb-4 text-center sm:text-left">
-                <p className="text-sm font-semibold text-foreground">
-                  All portfolios vs S&amp;P 500
-                </p>
-              </div>
-
-              <div className="rounded-lg border border-border bg-muted/10 p-2 md:p-4">
-                <AllPortfoliosEquityChart
-                  dates={allPortfolios.dates}
-                  series={allPortfolios.series}
-                  benchmarks={allPortfolios.benchmarks}
-                  topPortfolioConfigId={allPortfolios.topPortfolioConfigId}
-                />
-              </div>
-
-              <p className="mt-3 text-center text-[11px] text-muted-foreground md:text-left">
-                What <strong className="text-foreground">$10,000</strong> would have turned into if
-                invested
-                {inceptionFormatted ? (
-                  <>
-                    {' '}
-                    on <strong className="text-foreground">{inceptionFormatted}</strong>
-                  </>
-                ) : (
-                  <> at model inception</>
-                )}
-                . Net of trading costs.
+            <div className="rounded-lg border border-border bg-muted/10 p-2 md:p-4">
+              <p className="pb-2 text-center text-sm font-semibold text-foreground sm:text-left md:pb-3">
+                All portfolios vs S&amp;P 500
               </p>
-            </>
+              <AllPortfoliosEquityChart
+                dates={allPortfolios.dates}
+                series={allPortfolios.series}
+                benchmarks={allPortfolios.benchmarks}
+                topPortfolioConfigId={allPortfolios.topPortfolioConfigId}
+              />
+              <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between md:gap-4">
+                <p className="order-1 min-w-0 text-center text-[11px] leading-snug text-muted-foreground md:max-w-[min(100%,32rem)] md:flex-1 md:text-left">
+                  What <strong className="text-foreground">$10,000</strong> would have turned into if
+                  invested
+                  {inceptionFormatted ? (
+                    <>
+                      {' '}
+                      on <strong className="text-foreground">{inceptionFormatted}</strong>
+                    </>
+                  ) : (
+                    <> at model inception</>
+                  )}
+                  . Net of trading costs.
+                </p>
+                <div className="order-2 flex shrink-0 justify-center md:justify-end">
+                  <Button asChild variant="outline" className="gap-2">
+                    <Link href={modelPagePath}>
+                      See full performance stats
+                      <ArrowRight className="h-4 w-4" />
+                    </Link>
+                  </Button>
+                </div>
+              </div>
+            </div>
           ) : (
             <div className="rounded-lg border border-dashed border-border bg-muted/20 px-4 py-10 text-center">
               <p className="mx-auto max-w-md text-sm text-muted-foreground">
@@ -211,17 +215,16 @@ export function LandingPerformanceSection({ allPortfolios, heroStats, visibleRef
             </div>
           )}
 
-          <div className="mt-8 flex flex-col items-end gap-2 text-right">
-            <Button asChild variant="outline" className="gap-2">
-              <Link href={modelPagePath}>
-                See full performance stats
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-            </Button>
-            <p className="ml-auto max-w-md text-right text-xs text-muted-foreground">
-              Returns, Drawdowns, Sharpe, and CAGR for every portfolio.
-            </p>
-          </div>
+          {!showCharts ? (
+            <div className="mt-8 flex justify-end">
+              <Button asChild variant="outline" className="gap-2">
+                <Link href={modelPagePath}>
+                  See full performance stats
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+            </div>
+          ) : null}
         </div>
       </div>
     </section>

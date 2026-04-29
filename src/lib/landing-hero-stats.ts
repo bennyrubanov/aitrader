@@ -7,6 +7,7 @@ import {
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
 import { loadPortfolioConfigsRankedPayload } from '@/lib/portfolio-configs-ranked-core';
 import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
+import { PUBLIC_DATA_CACHE_TTL_SECONDS } from '@/lib/public-cache';
 
 export type LandingHeroStats = {
   strategySlug: string;
@@ -84,5 +85,5 @@ async function loadLandingHeroStatsUncached(): Promise<LandingHeroStats | null> 
 export const getLandingHeroStats = unstable_cache(
   loadLandingHeroStatsUncached,
   ['landing-hero-stats', STRATEGY_CONFIG.slug],
-  { revalidate: 300, tags: [LANDING_TOP_PORTFOLIO_PERFORMANCE_CACHE_TAG] }
+  { revalidate: PUBLIC_DATA_CACHE_TTL_SECONDS, tags: [LANDING_TOP_PORTFOLIO_PERFORMANCE_CACHE_TAG] }
 );

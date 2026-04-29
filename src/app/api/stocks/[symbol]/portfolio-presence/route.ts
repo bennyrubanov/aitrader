@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
+import { unstable_cache } from 'next/cache';
 import { canQueryStockCurrentRecommendation, getAppAccessState } from '@/lib/app-access';
 import { buildAuthStateFromUserAndProfile } from '@/lib/build-auth-state';
+import { PUBLIC_CACHE_TAGS, PUBLIC_DATA_CACHE_TTL_SECONDS } from '@/lib/public-cache';
 import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { createClient } from '@/utils/supabase/server';
@@ -15,56 +17,47 @@ type RunRow = {
   score: number | null;
 };
 
-/**
- * How many of our preset portfolio_configs would include this stock at the latest weekly
- * AI run for the strategy (same latent_rank sort as config compute). Public; admin-only DB read.
- */
-export async function GET(req: Request, { params }: RouteContext) {
-  const { searchParams } = new URL(req.url);
-  const strategySlug = searchParams.get('strategy')?.trim() || null;
+type StockAccessMeta = {
+  id: string;
+  isPremiumStock: boolean;
+  isGuestVisible: boolean;
+};
 
-  const resolvedParams = await params;
-  const symbol = resolvedParams.symbol.trim().toUpperCase();
+type PortfolioPresenceBase = {
+  runDate: string | null;
+  strategySlug: string;
+  defaultStrategySlug: string;
+  modelRankByStockId: Record<string, number>;
+  modelRankTotal: number | null;
+  portfolioTopNs: number[];
+};
 
+const fetchStockAccessMeta = async (symbol: string): Promise<StockAccessMeta | null> => {
   const admin = createAdminClient();
-  const session = await createClient();
-  const {
-    data: { user },
-  } = await session.auth.getUser();
-
-  const { data: stockRow } = await admin
+  const { data } = await admin
     .from('stocks')
     .select('id, is_premium_stock, is_guest_visible')
     .eq('symbol', symbol)
     .maybeSingle();
 
-  if (!stockRow?.id) {
-    return NextResponse.json({ error: 'Stock not found' }, { status: 404 });
-  }
+  if (!data?.id) return null;
+  return {
+    id: data.id,
+    isPremiumStock: data.is_premium_stock === true,
+    isGuestVisible: data.is_guest_visible === true,
+  };
+};
 
-  const isPremiumStock = stockRow.is_premium_stock === true;
-  const isGuestVisible = stockRow.is_guest_visible === true;
+const getCachedStockAccessMeta = (symbol: string) =>
+  unstable_cache(() => fetchStockAccessMeta(symbol), ['stock-portfolio-presence:stock', symbol], {
+    revalidate: PUBLIC_DATA_CACHE_TTL_SECONDS,
+    tags: [PUBLIC_CACHE_TAGS.stocksCatalog],
+  })();
 
-  let access = getAppAccessState({ isAuthenticated: false, subscriptionTier: 'free' });
-  if (user) {
-    const { data: profile, error: profileError } = await session
-      .from('user_profiles')
-      .select('subscription_tier, full_name, email')
-      .eq('id', user.id)
-      .maybeSingle();
-    access = getAppAccessState(buildAuthStateFromUserAndProfile(user, profile, Boolean(profileError)));
-  }
-
-  if (!canQueryStockCurrentRecommendation(access, isPremiumStock, { isGuestVisible })) {
-    return NextResponse.json(
-      {
-        error:
-          'Portfolio footprint for this stock is available with the same access as AI ratings. Sign in or upgrade to view.',
-      },
-      { status: 403 },
-    );
-  }
-
+const fetchPortfolioPresenceBase = async (
+  strategySlug: string | null
+): Promise<PortfolioPresenceBase | null> => {
+  const admin = createAdminClient();
   const strategyResult = strategySlug
     ? await admin
         .from('strategy_models')
@@ -83,7 +76,7 @@ export async function GET(req: Request, { params }: RouteContext) {
 
   const strategy = strategyResult.data;
   if (strategyResult.error || !strategy?.id) {
-    return NextResponse.json({ error: 'Strategy not found' }, { status: 404 });
+    return null;
   }
 
   const { data: batchRow } = await admin
@@ -96,16 +89,14 @@ export async function GET(req: Request, { params }: RouteContext) {
     .maybeSingle();
 
   if (!batchRow?.id) {
-    return NextResponse.json({
+    return {
       runDate: null,
-      included: 0,
-      total: 0,
-      percent: null,
-      modelRank: null,
+      modelRankByStockId: {},
       modelRankTotal: null,
+      portfolioTopNs: [],
       strategySlug: strategy.slug,
       defaultStrategySlug: STRATEGY_CONFIG.slug,
-    });
+    };
   }
 
   const [{ data: runRows }, { data: configs }] = await Promise.all([
@@ -113,7 +104,7 @@ export async function GET(req: Request, { params }: RouteContext) {
       .from('ai_analysis_runs')
       .select('stock_id, latent_rank, score')
       .eq('batch_id', batchRow.id),
-    admin.from('portfolio_configs').select('id, top_n'),
+    admin.from('portfolio_configs').select('top_n'),
   ]);
 
   const rows = (runRows ?? []) as RunRow[];
@@ -130,21 +121,99 @@ export async function GET(req: Request, { params }: RouteContext) {
     return a.stock_id.localeCompare(b.stock_id);
   });
 
-  let modelRank: number | null = null;
+  const modelRankByStockId: Record<string, number> = {};
   sorted.forEach((r, i) => {
-    if (r.stock_id === stockRow.id) {
-      modelRank = i + 1;
-    }
+    modelRankByStockId[r.stock_id] = i + 1;
   });
 
-  const modelRankTotal = sorted.length > 0 ? sorted.length : null;
+  return {
+    runDate: batchRow.run_date ?? null,
+    modelRankByStockId,
+    modelRankTotal: sorted.length > 0 ? sorted.length : null,
+    portfolioTopNs: (configs ?? [])
+      .map((config) => Number(config.top_n))
+      .filter((topN) => Number.isFinite(topN)),
+    strategySlug: strategy.slug,
+    defaultStrategySlug: STRATEGY_CONFIG.slug,
+  };
+};
 
-  const configList = configs ?? [];
-  const total = configList.length;
+const getCachedPortfolioPresenceBase = (strategySlug: string | null) => {
+  const strategyKey = strategySlug ?? '__default__';
+  return unstable_cache(
+    () => fetchPortfolioPresenceBase(strategySlug),
+    ['stock-portfolio-presence:base', strategyKey],
+    {
+      revalidate: PUBLIC_DATA_CACHE_TTL_SECONDS,
+      tags: [PUBLIC_CACHE_TAGS.stockPortfolioPresence],
+    }
+  )();
+};
+
+/**
+ * How many of our preset portfolio_configs would include this stock at the latest weekly
+ * AI run for the strategy (same latent_rank sort as config compute). Public; admin-only DB read.
+ */
+export async function GET(req: Request, { params }: RouteContext) {
+  const { searchParams } = new URL(req.url);
+  const strategySlug = searchParams.get('strategy')?.trim() || null;
+
+  const resolvedParams = await params;
+  const symbol = resolvedParams.symbol.trim().toUpperCase();
+
+  const session = await createClient();
+  const {
+    data: { user },
+  } = await session.auth.getUser();
+
+  const stockRow = await getCachedStockAccessMeta(symbol);
+  if (!stockRow) {
+    return NextResponse.json({ error: 'Stock not found' }, { status: 404 });
+  }
+
+  let access = getAppAccessState({ isAuthenticated: false, subscriptionTier: 'free' });
+  if (user) {
+    const { data: profile, error: profileError } = await session
+      .from('user_profiles')
+      .select('subscription_tier, full_name, email')
+      .eq('id', user.id)
+      .maybeSingle();
+    access = getAppAccessState(buildAuthStateFromUserAndProfile(user, profile, Boolean(profileError)));
+  }
+
+  if (!canQueryStockCurrentRecommendation(access, stockRow.isPremiumStock, { isGuestVisible: stockRow.isGuestVisible })) {
+    return NextResponse.json(
+      {
+        error:
+          'Portfolio footprint for this stock is available with the same access as AI ratings. Sign in or upgrade to view.',
+      },
+      { status: 403 },
+    );
+  }
+
+  const base = await getCachedPortfolioPresenceBase(strategySlug);
+  if (!base) {
+    return NextResponse.json({ error: 'Strategy not found' }, { status: 404 });
+  }
+
+  if (!base.runDate) {
+    return NextResponse.json({
+      runDate: null,
+      included: 0,
+      total: 0,
+      percent: null,
+      modelRank: null,
+      modelRankTotal: null,
+      strategySlug: base.strategySlug,
+      defaultStrategySlug: base.defaultStrategySlug,
+    });
+  }
+
+  const modelRank = base.modelRankByStockId[stockRow.id] ?? null;
+  const total = base.portfolioTopNs.length;
   let included = 0;
   if (modelRank !== null && total > 0) {
-    for (const c of configList) {
-      const topN = typeof c.top_n === 'number' ? c.top_n : Number(c.top_n);
+    for (const topN of base.portfolioTopNs) {
       if (Number.isFinite(topN) && modelRank <= topN) {
         included++;
       }
@@ -154,13 +223,13 @@ export async function GET(req: Request, { params }: RouteContext) {
   const percent = total > 0 ? Math.round((included / total) * 100) : null;
 
   return NextResponse.json({
-    runDate: batchRow.run_date ?? null,
+    runDate: base.runDate,
     included,
     total,
     percent,
     modelRank,
-    modelRankTotal,
-    strategySlug: strategy.slug,
-    defaultStrategySlug: STRATEGY_CONFIG.slug,
+    modelRankTotal: base.modelRankTotal,
+    strategySlug: base.strategySlug,
+    defaultStrategySlug: base.defaultStrategySlug,
   });
 }

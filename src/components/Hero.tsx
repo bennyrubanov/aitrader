@@ -7,6 +7,8 @@ type HeroProps = {
   performance: LandingTopPortfolioPerformance | null;
 };
 
+const HERO_FADE_IN = 'animate-fade-in opacity-0 [animation-fill-mode:forwards]';
+
 const Hero = ({ performance }: HeroProps) => {
   const curvePoints =
     performance?.computeStatus === 'ready'
@@ -24,13 +26,15 @@ const Hero = ({ performance }: HeroProps) => {
       <div className="container relative z-10 mx-auto px-4">
         <div className="mx-auto grid max-w-6xl grid-cols-1 gap-12 lg:grid-cols-12 lg:gap-8">
           <div className="text-center lg:col-span-7 lg:text-left">
-            <h1 className="mb-6 text-[clamp(2.2rem,5.4vw,4.5rem)] font-bold leading-[1.02] tracking-tight text-foreground animate-fade-in">
+            <h1
+              className={`mb-6 text-[clamp(2.2rem,5.4vw,4.5rem)] font-bold leading-[1.02] tracking-tight text-foreground ${HERO_FADE_IN}`}
+            >
               We&apos;re testing if{' '}
               <span className="text-gradient">AI can beat the market</span>, in public.
             </h1>
 
             <p
-              className="mb-8 max-w-xl text-lg text-muted-foreground sm:text-xl md:text-2xl mx-auto lg:mx-0 animate-fade-in"
+              className={`mb-8 max-w-xl text-lg text-muted-foreground sm:text-xl md:text-2xl mx-auto lg:mx-0 ${HERO_FADE_IN}`}
               style={{ animationDelay: '0.15s' }}
             >
               Invest alongside the AI&apos;s top portfolios. See every pick and result in real
@@ -38,14 +42,14 @@ const Hero = ({ performance }: HeroProps) => {
             </p>
 
             <div
-              className="mb-6 flex justify-center lg:justify-start animate-fade-in"
+              className={`mb-6 flex justify-center lg:justify-start ${HERO_FADE_IN}`}
               style={{ animationDelay: '0.25s' }}
             >
               <PrimaryCtaButton className="h-12 rounded-xl bg-trader-blue px-7 text-white hover:bg-trader-blue-dark" />
             </div>
 
             <p
-              className="text-xs text-muted-foreground animate-fade-in"
+              className={`text-xs text-muted-foreground ${HERO_FADE_IN}`}
               style={{ animationDelay: '0.3s' }}
             >
               All data is public —{' '}

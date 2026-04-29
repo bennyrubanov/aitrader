@@ -4,7 +4,9 @@ import Footer from '@/components/Footer';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 
-export const revalidate = 3600;
+export const dynamic = 'force-static';
+/** Must match `PUBLIC_STATIC_REVALIDATE` in `@/lib/public-cache` (Next requires a literal here). */
+export const revalidate = false;
 
 const ContactPage = () => {
   return (

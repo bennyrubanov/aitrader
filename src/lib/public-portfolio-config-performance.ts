@@ -19,6 +19,7 @@ import { portfolioSliceToConfigSlug } from '@/lib/performance-portfolio-url';
 import { triggerPortfolioConfigCompute } from '@/lib/trigger-config-compute';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { createPublicClient } from '@/utils/supabase/public';
+import { PUBLIC_CACHE_TAGS, PUBLIC_DATA_CACHE_TTL_SECONDS } from '@/lib/public-cache';
 
 export type PublicPortfolioPerfApiPayload = {
   configId?: string | null;
@@ -199,10 +200,13 @@ export function getCachedPublicPortfolioConfigPerformance(
   const configSlug = portfolioSliceToConfigSlug(slice);
   return unstable_cache(
     () => loadPublicPortfolioConfigPerformance(slug, slice, { enqueueOnEmpty: false }),
-    ['public-portfolio-config-performance', slug, configSlug],
+    [PUBLIC_CACHE_TAGS.publicPortfolioConfigPerformance, slug, configSlug],
     {
-      revalidate: 300,
-      tags: [CONFIG_DAILY_SERIES_CACHE_TAG, `public-portfolio-config-performance:${slug}`],
+      revalidate: PUBLIC_DATA_CACHE_TTL_SECONDS,
+      tags: [
+        CONFIG_DAILY_SERIES_CACHE_TAG,
+        `${PUBLIC_CACHE_TAGS.publicPortfolioConfigPerformance}:${slug}`,
+      ],
     }
   )();
 }

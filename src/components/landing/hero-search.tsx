@@ -2,8 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { ArrowRight, Lock, Search, TrendingDown, TrendingUp } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { ArrowRight, ExternalLink, Lock, Search, TrendingDown, TrendingUp, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useAuthState } from '@/components/auth/auth-state-context';
 import { invalidateStocksListClient, loadStocksListClient } from '@/lib/stocks-client';
@@ -34,9 +33,58 @@ function parseChange(val?: string) {
   return Number.isFinite(num) ? num : null;
 }
 
+/** Display quote `as_of` as e.g. `Apr 28, 2026` (calendar date, no "as of" prefix). */
+function formatQuoteAsOfDisplay(isoDate?: string): string | null {
+  if (!isoDate?.trim()) return null;
+  const t = isoDate.trim();
+  const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t);
+  const d = ymd
+    ? new Date(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3]))
+    : new Date(t);
+  if (Number.isNaN(d.getTime())) return null;
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(d);
+}
+
 function formatRating(rating: RatingBucket) {
   if (!rating) return 'No rating yet';
   return rating.toUpperCase();
+}
+
+function selectedRatingPillClassName(
+  rating: RatingBucket,
+  blurred: boolean,
+  premiumNoAccess: boolean,
+  freeNeedsLogin: boolean
+): string {
+  const base =
+    'inline-flex shrink-0 items-center rounded-full px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide';
+  if (blurred || premiumNoAccess || freeNeedsLogin) {
+    return `${base} border border-trader-blue/20 bg-trader-blue/10 text-trader-blue`;
+  }
+  if (rating === 'buy') {
+    return `${base} border border-emerald-600/35 bg-emerald-500/15 text-emerald-800 dark:border-emerald-500/40 dark:bg-emerald-950/50 dark:text-emerald-300`;
+  }
+  if (rating === 'hold') {
+    return `${base} border border-amber-600/35 bg-amber-500/15 text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/50 dark:text-amber-200`;
+  }
+  if (rating === 'sell') {
+    return `${base} border border-red-600/35 bg-red-500/15 text-red-800 dark:border-red-500/40 dark:bg-red-950/50 dark:text-red-300`;
+  }
+  return `${base} border border-muted-foreground/25 bg-muted text-muted-foreground`;
+}
+
+function selectedRatingPillLabel(
+  rating: RatingBucket,
+  premiumNoAccess: boolean,
+  freeNeedsLogin: boolean
+): string {
+  if (premiumNoAccess) return 'Premium';
+  if (freeNeedsLogin) return 'Sign up to view';
+  return formatRating(rating);
 }
 
 export function HeroSearch() {
@@ -46,6 +94,7 @@ export function HeroSearch() {
   const [filteredMembers, setFilteredMembers] = useState<HeroStock[]>([]);
   const [selectedResult, setSelectedResult] = useState<PriceResult | null>(null);
   const [isTracked, setIsTracked] = useState<boolean | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const priceFetchAbortRef = useRef<AbortController | null>(null);
   const authState = useAuthState();
   const { hasPremiumAccess, isAuthenticated, isLoaded: authLoaded } = authState;
@@ -166,6 +215,15 @@ export function HeroSearch() {
     updateFilteredMembers(query);
   };
 
+  const clearSearch = useCallback(() => {
+    setSearchQuery('');
+    setFilteredMembers([]);
+    setSelectedResult(null);
+    setIsTracked(null);
+    priceFetchAbortRef.current?.abort();
+    priceFetchAbortRef.current = null;
+  }, []);
+
   const handleSelectMember = (member: HeroStock) => {
     setSearchQuery(member.symbol);
     setFilteredMembers([]);
@@ -194,6 +252,14 @@ export function HeroSearch() {
     updateFilteredMembers(searchQuery);
   };
 
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Escape') return;
+    e.preventDefault();
+    clearSearch();
+    setIsSearchFocused(false);
+    e.currentTarget.blur();
+  };
+
   const selectedIsPremium =
     selectedResult?.found && (stockMap.get(selectedResult.symbol.toUpperCase())?.isPremium ?? false);
   const selectedStock = selectedResult?.found
@@ -212,6 +278,19 @@ export function HeroSearch() {
       !isAuthenticated &&
       selectedRating == null
   );
+  const selectedAsOfDisplay =
+    selectedResult?.found ? formatQuoteAsOfDisplay(selectedResult.asOf) : null;
+
+  /** Blurred card: guest (non-premium) → sign-up; guest (premium) or signed-in free → pricing + tier-appropriate label. */
+  const blurredOverlayCta = useMemo(() => {
+    if (!isAuthenticated && !selectedPremiumNoAccess) {
+      return { href: '/sign-up' as const, label: 'Sign up to view' as const };
+    }
+    if (!isAuthenticated && selectedPremiumNoAccess) {
+      return { href: '/pricing' as const, label: 'Upgrade to premium plan' as const };
+    }
+    return { href: '/pricing' as const, label: 'Upgrade to a paid plan' as const };
+  }, [isAuthenticated, selectedPremiumNoAccess]);
 
   const getDropdownRatingLabel = (stock: HeroStock) => {
     if (stock.isPremium && !hasPremiumAccess) return 'Premium';
@@ -224,17 +303,11 @@ export function HeroSearch() {
     return `AI Rating: ${formatRating(stock.currentRating)}`;
   };
 
-  const getSelectedRatingLabel = () => {
-    if (selectedPremiumNoAccess) return 'Premium';
-    if (selectedFreeNeedsLogin) return 'Sign up to view';
-    return `AI Rating: ${formatRating(selectedRating)}`;
-  };
-
   return (
     <div className="mx-auto max-w-3xl animate-fade-in" style={{ animationDelay: '0.4s' }}>
       <form
         onSubmit={handleSubmit}
-        className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-center"
+        className="flex justify-center"
       >
         <div className="relative w-full sm:max-w-[540px]">
           <Search
@@ -242,14 +315,30 @@ export function HeroSearch() {
             size={20}
           />
           <Input
+            ref={searchInputRef}
             type="text"
             placeholder="Search for a stock (e.g., AAPL, Tesla)"
-            className="w-full rounded-xl border border-border bg-background py-6 pl-12 pr-4 shadow-sm transition-all focus:border-trader-blue focus:ring-2 focus:ring-trader-blue/20"
+            className="w-full rounded-xl border border-border bg-background py-6 pl-12 pr-12 shadow-sm transition-colors focus-visible:border-border focus-visible:ring-0 focus-visible:ring-offset-0"
             value={searchQuery}
             onChange={handleSearch}
+            onKeyDown={handleSearchKeyDown}
             onFocus={handleFocus}
             onBlur={() => setTimeout(() => setIsSearchFocused(false), 200)}
           />
+          {searchQuery && (
+            <button
+              type="button"
+              aria-label="Clear search"
+              className="absolute right-3 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-trader-blue/30"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                clearSearch();
+                searchInputRef.current?.focus();
+              }}
+            >
+              <X size={16} />
+            </button>
+          )}
           {isSearchFocused && filteredMembers.length > 0 && (
             <div className="absolute left-0 right-0 z-30 mt-1 max-h-72 overflow-y-auto rounded-xl border border-border bg-card text-left shadow-elevated animate-scale-in">
               <div className="p-2">
@@ -290,30 +379,12 @@ export function HeroSearch() {
             </div>
           )}
         </div>
-        <Button
-          type="submit"
-          variant="outline"
-          className="h-[50px] w-full rounded-xl sm:w-auto"
-        >
-          Search
-        </Button>
       </form>
 
       {selectedResult && selectedResult.found && (
         <div className="relative mx-auto mt-6 max-w-2xl animate-fade-in rounded-xl border border-blue-200/40 bg-blue-50/60 p-5 dark:bg-blue-950/20">
           <div className={shouldBlurSelectedResult ? 'pointer-events-none select-none blur-sm' : ''}>
-            <div className="mb-2">
-              <span
-                className={`inline-flex items-center rounded-full px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide ${
-                  shouldBlurSelectedResult
-                    ? 'border border-trader-blue/20 bg-trader-blue/10 text-trader-blue'
-                    : 'border border-foreground/10 bg-foreground text-background'
-                }`}
-              >
-                {getSelectedRatingLabel()}
-              </span>
-            </div>
-            <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="mb-3 flex items-center justify-between gap-3">
               <div className="flex min-w-0 flex-1 items-center gap-2">
                 <span className="shrink-0 text-lg font-bold">{selectedResult.symbol}</span>
                 {selectedIsPremium && (
@@ -323,21 +394,35 @@ export function HeroSearch() {
                   </span>
                 )}
                 {selectedResult.companyName && (
-                  <span className="truncate text-sm text-muted-foreground">
+                  <span className="min-w-0 truncate text-sm text-muted-foreground">
                     {selectedResult.companyName}
                   </span>
                 )}
               </div>
-              {parsePrice(selectedResult.lastSalePrice) !== null && (
-                <span className="shrink-0 text-xl font-bold">
-                  ${parsePrice(selectedResult.lastSalePrice)!.toFixed(2)}
-                </span>
-              )}
+              <span
+                className={selectedRatingPillClassName(
+                  selectedRating,
+                  shouldBlurSelectedResult,
+                  selectedPremiumNoAccess,
+                  selectedFreeNeedsLogin
+                )}
+              >
+                {selectedRatingPillLabel(
+                  selectedRating,
+                  selectedPremiumNoAccess,
+                  selectedFreeNeedsLogin
+                )}
+              </span>
             </div>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1 text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 text-sm">
+              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+                {parsePrice(selectedResult.lastSalePrice) !== null && (
+                  <span className="shrink-0 text-xl font-bold tabular-nums">
+                    ${parsePrice(selectedResult.lastSalePrice)!.toFixed(2)}
+                  </span>
+                )}
                 {parseChange(selectedResult.percentageChange) !== null && (
-                  <>
+                  <span className="inline-flex items-center gap-1">
                     {parseChange(selectedResult.percentageChange)! >= 0 ? (
                       <TrendingUp size={14} className="text-trader-green" />
                     ) : (
@@ -346,58 +431,70 @@ export function HeroSearch() {
                     <span
                       className={
                         parseChange(selectedResult.percentageChange)! >= 0
-                          ? 'text-trader-green'
-                          : 'text-red-500'
+                          ? 'font-medium text-trader-green'
+                          : 'font-medium text-red-500'
                       }
                     >
                       {selectedResult.percentageChange}
                     </span>
-                  </>
+                  </span>
                 )}
-                {selectedResult.asOf && (
-                  <span className="ml-2 text-muted-foreground">as of {selectedResult.asOf}</span>
+                {selectedAsOfDisplay && (
+                  <span className="text-muted-foreground">{selectedAsOfDisplay}</span>
                 )}
               </div>
-            </div>
-          </div>
-
-          {shouldBlurSelectedResult ? (
-            <div className="absolute inset-0 flex items-center justify-center p-4">
-              <Link
-                href={selectedPremiumNoAccess ? '/pricing' : '/sign-up'}
-                className="inline-flex items-center rounded-lg bg-trader-blue px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-trader-blue-dark"
-              >
-                {selectedPremiumNoAccess ? 'Upgrade to premium plan' : 'Sign up to view'}
-                <ArrowRight size={14} className="ml-1" />
-              </Link>
-            </div>
-          ) : (
-            isTracked && (
-              <div className="mt-3 flex justify-end">
+              {!shouldBlurSelectedResult && isTracked && (
                 <Link
                   href={`/stocks/${selectedResult.symbol.toLowerCase()}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center text-sm font-medium text-trader-blue transition-colors hover:text-trader-blue-dark"
+                  className="inline-flex shrink-0 items-center gap-1.5 font-medium text-trader-blue transition-colors hover:text-trader-blue-dark"
                 >
                   See ranking and detailed analysis
-                  <ArrowRight size={14} className="ml-1" />
+                  <ExternalLink size={14} className="shrink-0 opacity-90" aria-hidden />
+                  <span className="sr-only">Opens in a new tab</span>
                 </Link>
-              </div>
-            )
+              )}
+            </div>
+          </div>
+
+          {shouldBlurSelectedResult && (
+            <div className="absolute inset-0 flex items-center justify-center p-4">
+              <Link
+                href={blurredOverlayCta.href}
+                className="inline-flex items-center rounded-lg bg-trader-blue px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-trader-blue-dark"
+              >
+                {blurredOverlayCta.label}
+                <ArrowRight size={14} className="ml-1" />
+              </Link>
+            </div>
           )}
         </div>
       )}
 
-      {selectedResult && !selectedResult.found && (
+      {selectedResult && !selectedResult.found && authLoaded && (
         <div className="mx-auto mt-6 max-w-2xl animate-fade-in rounded-xl border border-amber-200/40 bg-amber-50/60 p-4 dark:bg-amber-950/20">
           <p className="text-sm text-foreground/90">
             <span className="font-semibold">{selectedResult.symbol}</span> isn&apos;t currently
-            tracked in our top-100 universe.{' '}
-            <Link href="/sign-up" className="font-medium text-trader-blue hover:underline">
-              Sign up
-            </Link>{' '}
-            to access our custom AI search tool for any stock.
+            tracked by this strategy model.
+            {!isAuthenticated && (
+              <>
+                {' '}
+                <Link href="/sign-up" className="font-medium text-trader-blue hover:underline">
+                  Sign up for a paid plan
+                </Link>{' '}
+                to access our custom AI search tool for any stock.
+              </>
+            )}
+            {isAuthenticated && !hasPremiumAccess && (
+              <>
+                {' '}
+                <Link href="/pricing" className="font-medium text-trader-blue hover:underline">
+                  Upgrade to a paid plan
+                </Link>{' '}
+                to access our custom AI search tool for any stock.
+              </>
+            )}
           </p>
         </div>
       )}

@@ -79,7 +79,7 @@ export const AI_STRATEGIES: AIStrategyEntry[] = [
       transactionCostBps: 15,
     },
     description:
-      "Nasdaq-100 stocks rated and ranked by OpenAI's GPT-5.2 every week using a live web search on news, earnings, guidance, analyst revisions, and market reactions.",
+      "Nasdaq-100 stocks rated by OpenAI's GPT-5.2 weekly using a live web search on 30 days of news, earnings, analyst guidance, and market reactions.",
   },
 ];
 

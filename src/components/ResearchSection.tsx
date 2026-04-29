@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { CheckCircle, ExternalLink, FileText, Info } from 'lucide-react';
+import { ArrowRight, CheckCircle, ExternalLink, FileText, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
@@ -23,12 +23,13 @@ const papers = [
 const findings = [
   'AI stock ratings in the cited research correlate with future stock returns.',
   'Portfolio-level tests show AI selections can outperform randomly constructed portfolios.',
-  'This site tests whether those signals hold up under a public, rule-based process.',
+  'The academic tests were run using GPT-4 with an external web-search tool, an outdated methodology.',
+  'This site tests whether those signals hold up with the newest AI models, at scale.',
 ] as const;
 
 const ResearchSection = () => {
   return (
-    <section id="research" className="py-20">
+    <section id="research" className="bg-muted/30 py-20">
       <div className="container mx-auto px-4">
         <div className="mx-auto max-w-5xl">
           <div className="mx-auto mb-10 max-w-3xl text-center">
@@ -37,8 +38,7 @@ const ResearchSection = () => {
             </p>
             <h2 className="mb-4 text-3xl font-bold md:text-4xl">What the research says</h2>
             <p className="text-lg text-muted-foreground">
-              Academic work suggests AI can surface investable signals. The chart above is the live
-              test of whether those ideas hold up outside a paper.
+              Academic work suggests AI can surface investable signals. We are continuing to test if that's true with the newest AI models, at scale.
             </p>
           </div>
 
@@ -92,7 +92,7 @@ const ResearchSection = () => {
               </div>
             </div>
 
-            <div className="rounded-2xl bg-muted/40 p-5">
+            <div className="flex flex-col rounded-2xl bg-muted/40 p-5">
               <h3 className="mb-5 text-xl font-semibold">Why it matters here</h3>
               <div className="space-y-4">
                 {findings.map((finding) => (
@@ -102,8 +102,11 @@ const ResearchSection = () => {
                   </div>
                 ))}
               </div>
-              <Button asChild className="mt-6 rounded-xl bg-trader-blue text-white hover:bg-trader-blue-dark">
-                <Link href="/whitepaper">Read our methodology</Link>
+              <Button asChild className="group mt-auto self-end rounded-xl bg-trader-blue text-white hover:bg-trader-blue-dark">
+                <Link href="/whitepaper">
+                  Read our methodology
+                  <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
+                </Link>
               </Button>
             </div>
           </div>

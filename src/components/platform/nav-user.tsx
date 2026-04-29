@@ -2,15 +2,7 @@
 
 import { useMemo } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import {
-  BadgeCheck,
-  Bell,
-  ChevronsUpDown,
-  CreditCard,
-  KeyRound,
-  LogOut,
-  UserPlus,
-} from "lucide-react";
+import { ChevronsUpDown, LogOut, UserPlus } from "lucide-react";
 import {
   Avatar,
   AvatarFallback,
@@ -34,6 +26,7 @@ import {
 } from "@/components/ui/sidebar";
 import { PlanLabel } from "@/components/account/plan-label";
 import type { SubscriptionTier } from "@/lib/auth-state";
+import { ACCOUNT_SETTINGS_QUICK_LINKS } from "@/lib/account-settings-quick-links";
 
 type NavUserProps = {
   user: {
@@ -163,7 +156,6 @@ export function NavUser({
                 </div>
               </div>
             </DropdownMenuLabel>
-            <DropdownMenuSeparator />
             <DropdownMenuGroup>
               <DropdownMenuItem
                 onSelect={() => {
@@ -180,34 +172,16 @@ export function NavUser({
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem
-                className="cursor-pointer gap-2"
-                onSelect={() => goToSettingsSection("/platform/settings/account")}
-              >
-                  <BadgeCheck className="size-4 text-muted-foreground" />
-                  Account
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="cursor-pointer gap-2"
-                onSelect={() => goToSettingsSection("/platform/settings/security")}
-              >
-                  <KeyRound className="size-4 text-muted-foreground" />
-                  Security
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="cursor-pointer gap-2"
-                onSelect={() => goToSettingsSection("/platform/settings/billing")}
-              >
-                  <CreditCard className="size-4 text-muted-foreground" />
-                  Billing
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="cursor-pointer gap-2"
-                onSelect={() => goToSettingsSection("/platform/settings/notifications")}
-              >
-                  <Bell className="size-4 text-muted-foreground" />
-                  Notifications
-              </DropdownMenuItem>
+              {ACCOUNT_SETTINGS_QUICK_LINKS.map(({ href, label, Icon }) => (
+                <DropdownMenuItem
+                  key={href}
+                  className="cursor-pointer gap-2"
+                  onSelect={() => goToSettingsSection(href)}
+                >
+                  <Icon className="size-4 text-muted-foreground" />
+                  {label}
+                </DropdownMenuItem>
+              ))}
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuItem

@@ -21,6 +21,7 @@ import {
   portfolioSliceMatchesRankedRow,
   portfolioSliceMatchesRankOne,
   portfolioSlicesEqual,
+  portfolioSliceToConfigSlug,
 } from '@/lib/performance-portfolio-url';
 import { loadRankedConfigsClient } from '@/lib/portfolio-configs-ranked-client';
 
@@ -81,19 +82,56 @@ export function usePublicPortfolioConfigPerformance({
   const [perf, setPerf] = useState<PublicPortfolioPerfApiPayload | null>(
     initialPortfolioPerformance
   );
-  const initialPerfConsumedRef = useRef(false);
+  /** Last `slug|portfolioSliceToConfigSlug` for which we applied SSR fast path or finished a client fetch; avoids duplicate perf API when parent re-renders with new object identities. */
+  const lastResolvedPerfResolutionKeyRef = useRef<string | null>(null);
+  const perfRef = useRef(perf);
+  perfRef.current = perf;
   const [perfLoading, setPerfLoading] = useState(false);
   const [rankedConfigBadges, setRankedConfigBadges] = useState<string[]>([]);
   const [benchmarkEndingValues, setBenchmarkEndingValues] =
     useState<BenchmarkEndingValues | null>(null);
 
+  const initialPortfolioSliceRef = useRef(initialPortfolioSlice);
+  const initialPortfolioPerformanceRef = useRef(initialPortfolioPerformance);
+  initialPortfolioSliceRef.current = initialPortfolioSlice;
+  initialPortfolioPerformanceRef.current = initialPortfolioPerformance;
+
+  const initialPortfolioSliceKey = useMemo(
+    () => (initialPortfolioSlice ? portfolioSliceToConfigSlug(initialPortfolioSlice) : ''),
+    [initialPortfolioSlice]
+  );
+
+  const initialPortfolioPerfKey = useMemo(() => {
+    const p = initialPortfolioPerformance;
+    if (!p) return '';
+    const s = p.series ?? [];
+    const tail = s.length > 0 ? s[s.length - 1] : null;
+    return [
+      p.computeStatus,
+      String(p.configId ?? ''),
+      String(s.length),
+      tail?.date ?? '',
+      String(p.metrics?.totalReturn ?? ''),
+      String(p.metrics?.sharpeRatio ?? ''),
+      String(p.nextRebalanceDate ?? ''),
+      String(p.isHoldingPeriod ?? ''),
+      String(p.rows?.length ?? ''),
+    ].join('|');
+  }, [initialPortfolioPerformance]);
+
+  const portfolioConfigKey = useMemo(
+    () => (portfolioConfig ? portfolioSliceToConfigSlug(portfolioConfig) : ''),
+    [portfolioConfig]
+  );
+
+  /** Slug change: reload ranked list; do not tie this effect to portfolio props (avoids clearing rankedConfigs on portfolio-only navigation). */
   useEffect(() => {
     if (!slug) return;
-    setPortfolioConfig(initialPortfolioSlice);
+    setPortfolioConfig(initialPortfolioSliceRef.current);
     setRankedConfigs([]);
     setBenchmarkEndingValues(null);
-    setPerf(initialPortfolioPerformance);
-    initialPerfConsumedRef.current = false;
+    setPerf(initialPortfolioPerformanceRef.current);
+    lastResolvedPerfResolutionKeyRef.current = null;
 
     let cancelled = false;
     void loadRankedConfigsClient(slug)
@@ -107,11 +145,12 @@ export function usePublicPortfolioConfigPerformance({
           return;
         }
         const hint = urlPortfolioSelectionRef.current;
+        const initSlice = initialPortfolioSliceRef.current;
         const chosen =
           hint && portfolioSliceIsInRankedList(hint, list)
             ? hint
-            : initialPortfolioSlice && portfolioSliceIsInRankedList(initialPortfolioSlice, list)
-              ? initialPortfolioSlice
+            : initSlice && portfolioSliceIsInRankedList(initSlice, list)
+              ? initSlice
               : pickDefaultPortfolioSliceFromRanked(list);
         setPortfolioConfig(chosen);
       })
@@ -126,25 +165,37 @@ export function usePublicPortfolioConfigPerformance({
     return () => {
       cancelled = true;
     };
-  }, [
-    slug,
-    setPortfolioConfig,
-    initialPortfolioPerformance,
-    initialPortfolioSlice,
-    perfFetchDisabled,
-  ]);
+  }, [slug, setPortfolioConfig, perfFetchDisabled]);
+
+  /** Same slug, new SSR portfolio slice/perf (e.g. client nav between portfolios): sync without clearing rankedConfigs. */
+  useEffect(() => {
+    setPortfolioConfig(initialPortfolioSliceRef.current);
+    setPerf(initialPortfolioPerformanceRef.current);
+    lastResolvedPerfResolutionKeyRef.current = null;
+  }, [initialPortfolioSliceKey, initialPortfolioPerfKey, setPortfolioConfig]);
 
   const loadPerf = useCallback(async () => {
     if (perfFetchDisabled) return;
     if (!slug || !portfolioConfig) return;
+
+    const resolutionKey = `${slug}|${portfolioSliceToConfigSlug(portfolioConfig)}`;
     if (
-      initialPortfolioPerformance &&
-      initialPortfolioSlice &&
-      portfolioSlicesEqual(portfolioConfig, initialPortfolioSlice) &&
-      !initialPerfConsumedRef.current
+      lastResolvedPerfResolutionKeyRef.current === resolutionKey &&
+      perfRef.current?.computeStatus !== 'in_progress'
     ) {
-      initialPerfConsumedRef.current = true;
-      setPerf(initialPortfolioPerformance);
+      return;
+    }
+
+    const initialPerf = initialPortfolioPerformanceRef.current;
+    const initialSlice = initialPortfolioSliceRef.current;
+    if (
+      initialPerf &&
+      initialSlice &&
+      portfolioSlicesEqual(portfolioConfig, initialSlice) &&
+      lastResolvedPerfResolutionKeyRef.current !== resolutionKey
+    ) {
+      lastResolvedPerfResolutionKeyRef.current = resolutionKey;
+      setPerf(initialPerf);
       setPerfLoading(false);
       return;
     }
@@ -170,20 +221,26 @@ export function usePublicPortfolioConfigPerformance({
           nextRebalanceDate: j.nextRebalanceDate ?? null,
           isHoldingPeriod: j.isHoldingPeriod ?? false,
         });
+        lastResolvedPerfResolutionKeyRef.current = resolutionKey;
       } else {
         setPerf(null);
+        lastResolvedPerfResolutionKeyRef.current = null;
       }
     } catch {
       setPerf(null);
+      lastResolvedPerfResolutionKeyRef.current = null;
     } finally {
       setPerfLoading(false);
     }
-  }, [slug, portfolioConfig, initialPortfolioPerformance, initialPortfolioSlice, perfFetchDisabled]);
+  }, [slug, portfolioConfig, perfFetchDisabled]);
+
+  const loadPerfRef = useRef(loadPerf);
+  loadPerfRef.current = loadPerf;
 
   useEffect(() => {
     if (perfFetchDisabled) return;
-    void loadPerf();
-  }, [perfFetchDisabled, loadPerf]);
+    void loadPerfRef.current();
+  }, [perfFetchDisabled, slug, initialPortfolioSliceKey, initialPortfolioPerfKey, portfolioConfigKey]);
 
   useEffect(() => {
     if (perfFetchDisabled) return;

@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { ContentPageLayout } from '@/components/ContentPageLayout';
 import { RegressionScatterExample } from '@/components/strategy-models/regression-scatter-example';
 import { SectionHeadingAnchor, SectionHeadingJumpLink } from '@/components/section-heading-anchor';
+import { WhitepaperGetStartedCta } from '@/components/whitepaper/whitepaper-get-started-cta';
 
 const MODEL_DETAIL_TOC = [
   { id: 'whitepaper-overview', label: 'Overview' },
@@ -22,7 +23,6 @@ const MODEL_DETAIL_TOC = [
   { id: 'how-it-works', label: '↳ How it works' },
   { id: 'model-ranking', label: '↳ Model ranking' },
   { id: 'portfolio-ranking', label: '↳ Portfolio ranking' },
-  { id: 'methodology-scoring', label: '↳ Scoring' },
   { id: 'measuring-performance', label: 'Measuring Performance' },
   { id: 'methodology-performance-metrics', label: '↳ Performance metrics' },
   { id: 'methodology-sharpe', label: '↳ Sharpe ratio' },
@@ -186,19 +186,14 @@ export default async function WhitepaperContentPage() {
             </h3>
             <div className="space-y-3 text-sm leading-relaxed text-muted-foreground">
               <p>
-                On the performance page, we order strategy models with a{' '}
-                <strong className="text-foreground">composite score</strong> so the headline reflects both{' '}
-                <strong className="text-foreground">how broadly</strong> each model&apos;s portfolios are
-                working (not just one lucky portfolio) and{' '}
-                <strong className="text-foreground">how strong risk-adjusted results</strong> look in the
-                middle and at the top of the config set.
+                On the performance page, we rank strategy models with a composite score. It favors
+                models whose portfolios work broadly (not just one lucky pick) and whose
+                risk-adjusted results hold up across the middle and top of the portfolio set.
               </p>
               <p>
-                Each ingredient is scaled relative to other strategy models (min–max normalization), then
-                combined with the weights below. Higher is better for all three after normalization.
-              </p>
-              <p>
-                The score blends <strong className="text-foreground">three</strong> dimensions:
+                Each ingredient is scaled across strategy models (min–max normalization) and combined
+                with the weights below. Higher is better after normalization. The score blends three
+                components:
               </p>
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -206,17 +201,17 @@ export default async function WhitepaperContentPage() {
                 {
                   label: 'Breadth',
                   weight: '50%',
-                  note: 'Share of eligible configs with positive total return since inception',
+                  note: 'Share of eligible portfolios with positive total return since inception',
                 },
                 {
                   label: 'Median Sharpe',
                   weight: '30%',
-                  note: 'Median risk-adjusted weekly return across eligible configs',
+                  note: 'Median risk-adjusted weekly return across eligible portfolios',
                 },
                 {
                   label: 'Best Sharpe',
                   weight: '20%',
-                  note: 'Highest Sharpe among eligible configs',
+                  note: 'Highest Sharpe among eligible portfolios',
                 },
               ].map(({ label, weight, note }) => (
                 <div key={label} className="rounded-lg border bg-card p-3">
@@ -226,16 +221,16 @@ export default async function WhitepaperContentPage() {
                 </div>
               ))}
             </div>
-            <div className="mt-3 space-y-2 text-sm leading-relaxed text-muted-foreground">
+            <div className="mt-4 space-y-3 text-sm leading-relaxed text-muted-foreground">
               <p>
-                <strong className="text-foreground">Why this mix:</strong> breadth keeps a model from
-                ranking first on a single outlier portfolio; median Sharpe captures typical risk-adjusted
-                quality; best Sharpe still rewards a strong top end without letting it dominate the headline.
+                Breadth keeps a model from ranking first on a single outlier portfolio, median Sharpe
+                captures typical risk-adjusted quality, and best Sharpe rewards a strong top end
+                without letting one portfolio dominate the headline.
               </p>
               <p className="text-xs">
-                Only portfolio configs with a ready composite rank feed these inputs (same eligibility as
-                the per-model portfolio list). Models with no eligible configs still appear in the list
-                using fallback metrics so the page does not break.
+                Only portfolios with a ready composite rank feed these inputs (same eligibility as the
+                per-model portfolio list). Models with no eligible portfolios still appear in the list
+                using fallback metrics.
               </p>
             </div>
           </div>
@@ -265,29 +260,21 @@ export default async function WhitepaperContentPage() {
             </div>
             <div className="text-sm text-muted-foreground space-y-3 leading-relaxed">
               <p>
-                The AI model only produces <strong>scores and ranks</strong> for every stock in its
-                universe. How you turn that into a portfolio is configurable: <strong>six risk levels</strong>{' '}
-                (different top-N cuts), <strong>four rebalance cadences</strong> (weekly, monthly, quarterly, yearly), and <strong>equal vs. cap weighting</strong>.
+                The AI model produces scores and ranks for every stock in its universe. How you turn
+                that into a portfolio is configurable: six risk levels (different top-N cuts), four
+                rebalance cadences (weekly, monthly, quarterly, yearly), and equal vs. cap weighting.
               </p>
             </div>
             <div className="mt-4 space-y-3 text-sm text-muted-foreground leading-relaxed">
                 <p>
-                  We rank portfolios with a <strong className="text-foreground">composite score</strong>{' '}
-                  so order reflects both{' '}
-                  <strong className="text-foreground">how money grew</strong> (total return and vs the
-                  strategy&apos;s benchmark) and{' '}
-                  <strong className="text-foreground">how you got there</strong> (risk-adjusted return,
-                  week-to-week steadiness vs that benchmark, and drawdown depth).
+                  We rank portfolios with a composite score so order reflects both how money grew
+                  (total return and benchmark-relative return) and how you got there (risk-adjusted
+                  return, week-to-week steadiness vs the benchmark, and drawdown depth).
                 </p>
                 <p>
-                  Each metric is scaled <strong className="text-foreground">relative to other portfolios</strong>{' '}
-                  for this model (min–max normalization), then combined with the weights below. That
-                  means rank is not “highest ending dollar wins,” but it does reward strong outcomes
-                  alongside discipline.
-                </p>
-                <p>
-                  The score blends{' '}
-                  <strong className="text-foreground">five</strong> dimensions:
+                  Each metric is scaled across this model&apos;s portfolios (min–max normalization)
+                  and combined with the weights below. Rank is not “highest ending dollar wins” — it
+                  rewards strong outcomes alongside discipline. The score blends five components:
                 </p>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {[
@@ -316,65 +303,21 @@ export default async function WhitepaperContentPage() {
                   </div>
                 ))}
               </div>
-              <div className="text-sm text-muted-foreground space-y-2 leading-relaxed">
+              <div className="mt-4 text-sm text-muted-foreground space-y-3 leading-relaxed">
                 <p>
-                  <strong className="text-foreground">Why both growth and risk:</strong> total return
-                  and benchmark-relative return capture realized growth, while Sharpe, consistency, and
-                  drawdown still down-rank configs that only looked good from one lucky stretch or
-                  extreme risk-taking. CAGR is shown on portfolios but is not part of the composite:
-                  over short windows annualization can be noisy, and total return plus benchmark-relative
-                  return already capture growth.
+                  Total return and benchmark-relative return capture realized growth; Sharpe,
+                  consistency, and drawdown down-rank portfolios that only looked good from one lucky
+                  stretch or extreme risk-taking. CAGR is shown on portfolios but is not part of the
+                  composite — over short windows annualization can be noisy, and total return plus
+                  benchmark-relative return already capture growth.
                 </p>
                 <p className="text-xs">
-                  Portfolios require at least 2 weeks of data to be ranked. Those with fewer
-                  observations are shown with a &quot;building track record&quot; status.
-                </p>
-                <p className="text-xs">
-                  Composite rank appears only when all five inputs are finite: Sharpe, total return,
-                  consistency, max drawdown, and excess return vs benchmark.
+                  Portfolios need at least 2 weeks of data to be ranked; those with fewer observations
+                  show a &quot;building track record&quot; status. Composite rank appears only when
+                  all five inputs are finite: Sharpe, total return, consistency, max drawdown, and
+                  excess return vs benchmark.
                 </p>
               </div>
-            </div>
-          </div>
-
-          {/* Scoring */}
-          <div
-            id="methodology-scoring"
-            className="border-t pt-6 scroll-mt-[4.5rem] md:scroll-mt-[5rem]"
-          >
-            <h3 className="group relative text-xl font-bold mb-3 flex flex-wrap items-center gap-x-1">
-              <SectionHeadingJumpLink fragmentId="methodology-scoring" hrefBase={strategyPageHrefBase} className="min-w-0">
-                Scoring
-              </SectionHeadingJumpLink>
-              <SectionHeadingAnchor fragmentId="methodology-scoring" hrefBase={strategyPageHrefBase} />
-            </h3>
-            <div className="text-sm text-foreground/80 space-y-3 leading-relaxed">
-              <p>
-                Each strategy defines an integer score scale. The score reflects relative
-                attractiveness over the strategy&apos;s chosen horizon, calibrated across its full
-                universe. The AI is explicitly instructed to avoid defaulting to the midpoint unless
-                information is genuinely mixed. The exact range is published on each strategy&apos;s page.
-              </p>
-              <p>
-                In addition to the integer score, the AI produces a <strong>latent rank</strong>{' '}
-                — a continuous value between 0 and 1. The portfolio layer sorts by latent rank
-                (highest first). This separation allows the portfolio to capture ordering signal even
-                when two stocks share the same integer score.
-              </p>
-              <p>
-                Scores are calibrated relative to other members of the same strategy universe, not in
-                absolute isolation. A high score means the stock looks meaningfully more attractive
-                than most peers available to that strategy right now.
-              </p>
-              <p>
-                <strong>Why relative, not absolute?</strong>
-                Predicting whether any single stock will go up or down requires guessing the overall
-                market direction (something nobody can do reliably). But picking out which stocks
-                look stronger <em>compared to their peers</em> is a more tractable problem. In a
-                falling market, every stock might drop, but the highest-ranked ones tend to drop
-                less. In a rising market, they tend to rise more. The goal is not to predict the
-                whole market; it is to rank the opportunity set better than a neutral or random sort.
-              </p>
             </div>
           </div>
         </div>
@@ -815,7 +758,7 @@ export default async function WhitepaperContentPage() {
         </h2>
         <div className="rounded-lg border bg-muted/30 p-5 text-sm text-foreground/80 space-y-3 leading-relaxed">
           <p>
-            <strong className="text-foreground">Why we trust this approach.</strong> AITrader is built
+            <strong className="text-foreground">Why we are taking this approach.</strong> AITrader is built
             on findings from two peer-reviewed papers in <strong>Finance Research Letters</strong>:
             Pelster &amp; Val (2024) showed that an AI rating stocks on a relative attractiveness
             scale can produce signal that survives even in negative-return regimes; Ko &amp; Lee
@@ -826,7 +769,7 @@ export default async function WhitepaperContentPage() {
             built directly from these methodologies: the same forward-only experiment philosophy, the
             same relative-scoring idea, and the same OLS + quintile validation framework. See the{' '}
             <Link
-              href="/strategy-models/ait-1-daneel#model-methodology"
+              href="/strategy-models/ait-1-daneel#model-scoring"
               className="text-trader-blue no-underline transition-colors hover:text-trader-blue/90"
             >
               AIT-1 model page
@@ -857,11 +800,7 @@ export default async function WhitepaperContentPage() {
               <ArrowLeft className="size-4 mr-1" /> All models
             </Link>
           </Button>
-          <Button asChild variant="ghost">
-            <Link href="/platform/overview" className="gap-2">
-              Get started <ArrowRight className="size-4" />
-            </Link>
-          </Button>
+          <WhitepaperGetStartedCta />
         </div>
       </div>
     </ContentPageLayout>
