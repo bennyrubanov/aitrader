@@ -416,7 +416,7 @@ function PricingPageContent() {
           <div className="container mx-auto px-4">
             <div className="max-w-6xl mx-auto">
               {/* Header */}
-              <div className="text-center mb-12">
+              <div className="pt-6 text-center md:pt-8 mb-12">
                 <h1 className="text-4xl md:text-5xl font-bold mb-4">
                   Start free. Support the experiment.
                 </h1>

@@ -1,7 +1,20 @@
 import type { OnboardingRebalanceCounts } from '@/lib/onboarding-meta';
 
+export type OnboardingMetaStrategyRow = {
+  id: string;
+  slug: string;
+  name: string;
+  portfolioSize: number;
+  rebalanceFrequency: string;
+  isDefault: boolean;
+  sharpeRatio: number | null;
+  startDate: string | null;
+  runCount: number;
+  minimumPlanTier: 'supporter' | 'outperformer';
+};
+
 export type OnboardingMetaClientPayload = {
-  strategies?: unknown[];
+  strategies?: OnboardingMetaStrategyRow[];
   modelInceptionDate?: string | null;
   rebalanceCounts?: OnboardingRebalanceCounts;
 };

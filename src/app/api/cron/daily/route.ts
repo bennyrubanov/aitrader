@@ -44,6 +44,14 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
+// Cron schedule: `30 22 * * 1-5` (22:30 UTC weekdays) — see `vercel.json`. This is post-US-close
+// year-round (close = 20:00 UTC DST / 21:00 UTC standard), so `nasdaq_100_daily_raw.last_sale_price`
+// for `run_date=YYYY-MM-DD` reflects (approximately) that day's closing price rather than the
+// previous-day-close-plus-opening-minutes capture from the older 13:35 UTC schedule. Some
+// after-hours leakage is possible in DST since 22:30 UTC is mid-AH-session; in standard time it is
+// only 30 min post-close, very near the official tape. Stooq EOD bars are typically published by
+// 22:30 UTC; if not, `upsertBenchmarkDailyPricesFromStooq` falls back to Yahoo and the next run's
+// last-10-bars window upserts the authoritative close.
 const NASDAQ_100_ENDPOINT = 'https://api.nasdaq.com/api/quote/list-type/nasdaq100';
 const CRON_ERROR_EMAIL = process.env.CRON_ERROR_EMAIL;
 const CRON_TIMEOUT_SECONDS = Number(process.env.CRON_TIMEOUT_SECONDS || 300);
@@ -1184,6 +1192,10 @@ const storeRegression = async (
 };
 
 const handleRequest = async (req: Request) => {
+  // Daily cron is a batch route: refreshes 44 portfolio config snapshots × multiple queries each
+  // (~150-200 Supabase calls is normal). The default 50-query guardrail in `query-counter.ts`
+  // is sized for user-facing API routes; raise it here so the cron isn't killed in dev. The
+  // natural backstop is `maxDuration = 300`s above.
   return runWithSupabaseQueryCount('/api/cron/daily', async () => {
   const t0 = Date.now();
   const runDate = getRunDate();
@@ -1932,6 +1944,35 @@ const handleRequest = async (req: Request) => {
       digestMeta.snapshotMembers = snapshotStocks.length;
       let dailySeriesConfigsWritten = 0;
 
+      const { data: activeStrategies, error: activeStrategiesError } = await supabase
+        .from('strategy_models')
+        .select('id, slug')
+        .eq('status', 'active');
+      if (activeStrategiesError) {
+        recordCronError('Active strategies load failed (daily snapshot)', activeStrategiesError);
+      }
+      for (const activeStrategy of activeStrategies ?? []) {
+        const dailySnapshot = await refreshDailySeriesSnapshotsForStrategy(supabase as never, {
+          strategyId: String(activeStrategy.id),
+        });
+        dailySeriesConfigsWritten += dailySnapshot.writtenConfigRows;
+        log(
+          'DAILY SNAPSHOT',
+          `strategy=${String(activeStrategy.slug ?? activeStrategy.id)} configs_written=${dailySnapshot.writtenConfigRows} configs_skipped=${dailySnapshot.skippedConfigRows} strategy_written=${dailySnapshot.wroteStrategyRow}`
+        );
+      }
+      if (
+        !activeStrategiesError &&
+        (activeStrategies?.length ?? 0) > 0 &&
+        dailySeriesConfigsWritten === 0
+      ) {
+        recordCronError(
+          'Daily snapshot loop wrote zero config rows',
+          new Error('refreshDailySeriesSnapshotsForStrategy returned writtenConfigRows=0 for every strategy'),
+          `activeStrategies=${activeStrategies?.length ?? 0} runDate=${runDate}`
+        );
+      }
+
       let notificationsPriceMove: { profilesChecked: number; inappInserted: number; emailsSent: number } | null =
         null;
       try {
@@ -1951,24 +1992,6 @@ const handleRequest = async (req: Request) => {
         }
       } catch (priceMoveErr) {
         recordCronError('Notifications fan-out (price move) failed', priceMoveErr);
-      }
-
-      const { data: activeStrategies, error: activeStrategiesError } = await supabase
-        .from('strategy_models')
-        .select('id, slug')
-        .eq('status', 'active');
-      if (activeStrategiesError) {
-        recordCronError('Active strategies load failed (daily snapshot)', activeStrategiesError);
-      }
-      for (const activeStrategy of activeStrategies ?? []) {
-        const dailySnapshot = await refreshDailySeriesSnapshotsForStrategy(supabase as never, {
-          strategyId: String(activeStrategy.id),
-        });
-        dailySeriesConfigsWritten += dailySnapshot.writtenConfigRows;
-        log(
-          'DAILY SNAPSHOT',
-          `strategy=${String(activeStrategy.slug ?? activeStrategy.id)} configs_written=${dailySnapshot.writtenConfigRows} configs_skipped=${dailySnapshot.skippedConfigRows} strategy_written=${dailySnapshot.wroteStrategyRow}`
-        );
       }
 
       log(
@@ -3042,7 +3065,7 @@ const handleRequest = async (req: Request) => {
     }
     await sendCronSummaryOnce();
   }
-  });
+  }, 1000);
 };
 
 export async function GET(req: Request) {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createPublicClient } from '@/utils/supabase/public';
 import { getStrategiesList } from '@/lib/platform-performance-payload';
 import type { OnboardingRebalanceCounts } from '@/lib/onboarding-meta';
+import { parseStrategyMinimumPlanTier } from '@/lib/strategy-plan-access';
 
 export const revalidate = 120;
 
@@ -57,6 +58,23 @@ export async function GET(req: NextRequest) {
 
   const supabase = createPublicClient();
 
+  const { data: tierRows } = await supabase
+    .from('strategy_models')
+    .select('id, minimum_plan_tier')
+    .in(
+      'id',
+      strategies.map((s) => s.id)
+    );
+
+  const minimumPlanTierById = new Map<string, 'supporter' | 'outperformer'>();
+  for (const row of tierRows ?? []) {
+    const id = row.id as string;
+    minimumPlanTierById.set(
+      id,
+      parseStrategyMinimumPlanTier((row as { minimum_plan_tier?: string | null }).minimum_plan_tier)
+    );
+  }
+
   const [{ data: modelRow }, { data: batches }] = await Promise.all([
     supabase
       .from('strategy_models')
@@ -83,6 +101,7 @@ export async function GET(req: NextRequest) {
       sharpeRatio: s.sharpeRatio,
       startDate: s.startDate,
       runCount: s.runCount,
+      minimumPlanTier: minimumPlanTierById.get(s.id) ?? 'outperformer',
     })),
     selectedSlug: resolvedSlug,
     modelInceptionDate,

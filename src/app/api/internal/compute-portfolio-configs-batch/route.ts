@@ -75,5 +75,5 @@ export async function POST(req: Request) {
       const message = e instanceof Error ? e.message : String(e);
       return NextResponse.json({ error: message }, { status: 500 });
     }
-  });
+  }, 1000);
 }

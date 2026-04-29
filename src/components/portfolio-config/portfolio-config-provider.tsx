@@ -23,6 +23,7 @@ import {
   clearOnboardingDoneCache,
   clearPendingGuestPortfolioFollow,
   loadPortfolioConfigFromStorage,
+  readOnboardingDoneCache,
   savePortfolioConfigToStorage,
   syncPendingGuestPortfolioFollowForGuestLocal,
   writeOnboardingDoneCache,
@@ -95,10 +96,14 @@ export function PortfolioConfigProvider({ children }: { children: ReactNode }) {
     clearGuestEphemeralTrackingKeys();
 
     const dbDone = auth.portfolioOnboardingDone;
+    const cached = readOnboardingDoneCache();
+    /** Avoid flashing the wizard back on if profile hydrate lags behind a just-written `true`. */
+    const effectiveDone =
+      dbDone || (cached?.userId === auth.userId && cached.done === true);
     if (auth.userId) {
-      writeOnboardingDoneCache(auth.userId, dbDone);
+      writeOnboardingDoneCache(auth.userId, effectiveDone);
     }
-    setIsOnboardingDone(dbDone);
+    setIsOnboardingDone(effectiveDone);
     try {
       localStorage.removeItem(ONBOARDING_KEY);
       if (dbDone) {
@@ -173,6 +178,7 @@ export function PortfolioConfigProvider({ children }: { children: ReactNode }) {
           writeOnboardingDoneCache(user.id, true);
           setIsOnboardingDone(true);
           await refreshProfile();
+          setIsOnboardingDone(true);
           return;
         }
       }

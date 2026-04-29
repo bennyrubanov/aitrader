@@ -41,6 +41,8 @@ Only the cron/internal compute pipeline writes snapshots:
 
 Every daily cron run must refresh snapshots for the latest `nasdaq_100_daily_raw.run_date` and revalidate `CONFIG_DAILY_SERIES_CACHE_TAG`.
 
+In the daily-only cron branch, call `refreshDailySeriesSnapshotsForStrategy` **immediately after** raw price + `benchmark_daily_prices` ingest and **before** any optional fan-out work (e.g. price-move notifications) that can consume the route’s `maxDuration` budget and starve snapshot writes.
+
 ## Guardrails
 
 - Do not import raw MTM builders (`buildDailyMarkedToMarketSeriesForConfig`, `buildLatestMtmPointFromLastSnapshot`, `buildDailyMarkedToMarketSeriesForStrategy`, live-series-point helpers) outside the allowlist above.

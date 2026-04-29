@@ -618,7 +618,12 @@ export async function buildDailyMarkedToMarketSeriesForConfig(
     skipBenchmarkDrift?: boolean;
   }
 ): Promise<PerformanceSeriesPoint[] | null> {
-  if (params.notionalSeries.length === 0) return null;
+  if (params.notionalSeries.length === 0) {
+    console.warn(
+      `[live-mtm] buildDailyMarkedToMarketSeriesForConfig: empty notionalSeries strategyId=${params.strategyId} risk=${params.riskLevel} freq=${params.rebalanceFrequency} weight=${params.weightingMethod}`
+    );
+    return null;
+  }
 
   const inputs = await loadConfigWalkInputsForMtm(
     params.strategyId,
@@ -626,7 +631,12 @@ export async function buildDailyMarkedToMarketSeriesForConfig(
     params.rebalanceFrequency,
     params.weightingMethod
   );
-  if (!inputs) return null;
+  if (!inputs) {
+    console.warn(
+      `[live-mtm] buildDailyMarkedToMarketSeriesForConfig: loadConfigWalkInputsForMtm returned null strategyId=${params.strategyId} risk=${params.riskLevel} freq=${params.rebalanceFrequency} weight=${params.weightingMethod}`
+    );
+    return null;
+  }
 
   const {
     latestRunDate,
@@ -657,11 +667,21 @@ export async function buildDailyMarkedToMarketSeriesForConfig(
     if (notional == null || !holdings.length) continue;
     snapshots.push({ date: d, notional, holdings });
   }
-  if (!snapshots.length) return null;
+  if (!snapshots.length) {
+    console.warn(
+      `[live-mtm] buildDailyMarkedToMarketSeriesForConfig: no snapshots after rebalance filter strategyId=${params.strategyId} risk=${params.riskLevel} freq=${params.rebalanceFrequency} weight=${params.weightingMethod} minDate=${minDate} latestRunDate=${latestRunDate} inRangeCount=${inRange.length}`
+    );
+    return null;
+  }
 
   const start = snapshots[0]!.date;
   const tradingDates = allTradingDates.filter((d) => d >= start);
-  if (!tradingDates.length) return null;
+  if (!tradingDates.length) {
+    console.warn(
+      `[live-mtm] buildDailyMarkedToMarketSeriesForConfig: empty tradingDates after start=${start} strategyId=${params.strategyId} risk=${params.riskLevel} freq=${params.rebalanceFrequency} weight=${params.weightingMethod}`
+    );
+    return null;
+  }
 
   const pricesByDate = new Map<string, SymbolPriceMap>();
   for (const d of tradingDates) {
@@ -724,7 +744,12 @@ export async function buildLatestMtmPointFromLastSnapshot(
     notionalSeries: PerformanceSeriesPoint[];
   }
 ): Promise<PerformanceSeriesPoint | null> {
-  if (params.notionalSeries.length === 0) return null;
+  if (params.notionalSeries.length === 0) {
+    console.warn(
+      `[live-mtm] buildLatestMtmPointFromLastSnapshot: empty notionalSeries strategyId=${params.strategyId} risk=${params.riskLevel} freq=${params.rebalanceFrequency} weight=${params.weightingMethod}`
+    );
+    return null;
+  }
   const walkInputs = await loadConfigWalkInputsForMtm(
     params.strategyId,
     params.riskLevel,
@@ -732,7 +757,12 @@ export async function buildLatestMtmPointFromLastSnapshot(
     params.weightingMethod
   );
   const latestRunDate = walkInputs?.latestRunDate ?? (await loadLatestRawRunDate(supabase));
-  if (!latestRunDate) return null;
+  if (!latestRunDate) {
+    console.warn(
+      `[live-mtm] buildLatestMtmPointFromLastSnapshot: no latestRunDate strategyId=${params.strategyId} risk=${params.riskLevel} freq=${params.rebalanceFrequency} weight=${params.weightingMethod}`
+    );
+    return null;
+  }
 
   const weeklyLastDate = params.notionalSeries[params.notionalSeries.length - 1]!.date;
 
@@ -747,10 +777,20 @@ export async function buildLatestMtmPointFromLastSnapshot(
       { includeRankChange: false }
     )
   ).rebalanceDates;
-  if (!rebalanceDates.length) return null;
+  if (!rebalanceDates.length) {
+    console.warn(
+      `[live-mtm] buildLatestMtmPointFromLastSnapshot: empty rebalanceDates strategyId=${params.strategyId} risk=${params.riskLevel} freq=${params.rebalanceFrequency} weight=${params.weightingMethod}`
+    );
+    return null;
+  }
 
   const candidates = rebalanceDates.filter((d) => d <= weeklyLastDate && d <= latestRunDate);
-  if (candidates.length === 0) return null;
+  if (candidates.length === 0) {
+    console.warn(
+      `[live-mtm] buildLatestMtmPointFromLastSnapshot: no rebalance candidates weeklyLast=${weeklyLastDate} latestRaw=${latestRunDate} strategyId=${params.strategyId} risk=${params.riskLevel} freq=${params.rebalanceFrequency} weight=${params.weightingMethod}`
+    );
+    return null;
+  }
   const snapshotDate = candidates.reduce((a, b) => (a > b ? a : b));
 
   // When the most recent rebalance date equals the latest raw price date, the notional series
@@ -758,7 +798,12 @@ export async function buildLatestMtmPointFromLastSnapshot(
   // reproduce the same point and double-count the day. Bail out and let the client-side
   // synthetic-tail fallback (keyed off `latestRunDate` from the holdings API) align the card,
   // chart endpoint, and holdings block without adding a redundant server point.
-  if (snapshotDate === latestRunDate) return null;
+  if (snapshotDate === latestRunDate) {
+    console.warn(
+      `[live-mtm] buildLatestMtmPointFromLastSnapshot: bail snapshotDate===latestRunDate (no redundant tail) snapshotDate=${snapshotDate} strategyId=${params.strategyId} risk=${params.riskLevel} freq=${params.rebalanceFrequency} weight=${params.weightingMethod}`
+    );
+    return null;
+  }
 
   const cachedSnapshotHoldings = walkInputs?.holdingsByDate.get(snapshotDate) ?? null;
   const snapshotHoldings = cachedSnapshotHoldings
@@ -776,10 +821,20 @@ export async function buildLatestMtmPointFromLastSnapshot(
       ).holdings
           .map((h) => ({ symbol: h.symbol.toUpperCase(), weight: Number(h.weight) }))
           .filter((h) => Number.isFinite(h.weight) && h.weight > 0);
-  if (!snapshotHoldings.length) return null;
+  if (!snapshotHoldings.length) {
+    console.warn(
+      `[live-mtm] buildLatestMtmPointFromLastSnapshot: empty snapshotHoldings snapshotDate=${snapshotDate} strategyId=${params.strategyId} risk=${params.riskLevel} freq=${params.rebalanceFrequency} weight=${params.weightingMethod}`
+    );
+    return null;
+  }
 
   const notional = pickNotionalAtOrBefore(params.notionalSeries, snapshotDate);
-  if (notional == null || !Number.isFinite(notional) || notional <= 0) return null;
+  if (notional == null || !Number.isFinite(notional) || notional <= 0) {
+    console.warn(
+      `[live-mtm] buildLatestMtmPointFromLastSnapshot: invalid notional snapshotDate=${snapshotDate} notional=${String(notional)} strategyId=${params.strategyId} risk=${params.riskLevel} freq=${params.rebalanceFrequency} weight=${params.weightingMethod}`
+    );
+    return null;
+  }
 
   const symbols = uniqueSorted(snapshotHoldings.map((h) => h.symbol));
   const hasAllSymbols = (prices: SymbolPriceMap | undefined | null) =>
@@ -797,12 +852,27 @@ export async function buildLatestMtmPointFromLastSnapshot(
   for (const h of snapshotHoldings) {
     const px0 = toFinitePositive(pricesAtSnapshot[h.symbol]);
     const px1 = toFinitePositive(pricesAtLatest[h.symbol]);
-    if (px0 == null || px1 == null) return null;
+    if (px0 == null || px1 == null) {
+      console.warn(
+        `[live-mtm] buildLatestMtmPointFromLastSnapshot: missing price symbol=${h.symbol} snapshotDate=${snapshotDate} latestRunDate=${latestRunDate} px0=${String(px0)} px1=${String(px1)} strategyId=${params.strategyId} risk=${params.riskLevel} freq=${params.rebalanceFrequency} weight=${params.weightingMethod}`
+      );
+      return null;
+    }
     const units = (notional * h.weight) / px0;
-    if (!Number.isFinite(units) || units < 0) return null;
+    if (!Number.isFinite(units) || units < 0) {
+      console.warn(
+        `[live-mtm] buildLatestMtmPointFromLastSnapshot: invalid units symbol=${h.symbol} units=${String(units)} strategyId=${params.strategyId} risk=${params.riskLevel} freq=${params.rebalanceFrequency} weight=${params.weightingMethod}`
+      );
+      return null;
+    }
     portfolioValue += units * px1;
   }
-  if (!Number.isFinite(portfolioValue) || portfolioValue <= 0) return null;
+  if (!Number.isFinite(portfolioValue) || portfolioValue <= 0) {
+    console.warn(
+      `[live-mtm] buildLatestMtmPointFromLastSnapshot: invalid portfolioValue=${String(portfolioValue)} strategyId=${params.strategyId} risk=${params.riskLevel} freq=${params.rebalanceFrequency} weight=${params.weightingMethod}`
+    );
+    return null;
+  }
 
   const baseBenchmarks =
     pickBenchmarksAtOrBefore(params.notionalSeries, snapshotDate) ??
@@ -815,7 +885,12 @@ export async function buildLatestMtmPointFromLastSnapshot(
 
   const benchMap = await buildBenchmarksByDate(supabase, [latestRunDate], snapshotDate, baseBenchmarks);
   const bench = benchMap.get(latestRunDate);
-  if (!bench) return null;
+  if (!bench) {
+    console.warn(
+      `[live-mtm] buildLatestMtmPointFromLastSnapshot: missing benchmark row latestRunDate=${latestRunDate} snapshotDate=${snapshotDate} strategyId=${params.strategyId} risk=${params.riskLevel} freq=${params.rebalanceFrequency} weight=${params.weightingMethod}`
+    );
+    return null;
+  }
 
   const gapDays = calendarDaysBetweenUtc(weeklyLastDate, latestRunDate);
   if (gapDays > 7) {

@@ -978,11 +978,11 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
         </aside>
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-y-contain px-1 py-1 lg:h-full lg:max-h-full lg:min-h-0 lg:pl-8">
-          {/* Toolbar: list/chart + sort / chart context (no title — filters live in sidebar) */}
+          {/* Toolbar: chart/list + sort / chart context (no title — filters live in sidebar) */}
           <div className="px-4 py-2 sm:px-6 sm:py-2.5">
             {!isLoading && filteredConfigs.length > 0 ? (
               <>
-                {/* Mobile: one row — sort (or chart label) + list/chart toggle; short labels; meta below */}
+                {/* Mobile: one row — sort (or chart label) + chart/list toggle; short labels; meta below */}
                 <div className="flex flex-col gap-2 md:hidden">
                   <div className="flex min-w-0 flex-row items-center justify-between gap-2">
                     {browseMode === 'list' ? (
@@ -1011,20 +1011,6 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
                     <div className="inline-flex shrink-0 gap-0.5 rounded-md border bg-muted/30 p-0.5">
                       <button
                         type="button"
-                        onClick={() => setBrowseMode('list')}
-                        aria-label="Rankings list"
-                        className={cn(
-                          'inline-flex h-9 shrink-0 items-center justify-center gap-1 rounded px-2.5 text-[11px] font-medium transition-colors',
-                          browseMode === 'list'
-                            ? 'bg-background text-foreground shadow-sm'
-                            : 'text-muted-foreground hover:text-foreground'
-                        )}
-                      >
-                        <LayoutList className="size-3.5 shrink-0" aria-hidden />
-                        List
-                      </button>
-                      <button
-                        type="button"
                         onClick={() => setBrowseMode('chart')}
                         aria-label="Values chart"
                         className={cn(
@@ -1036,6 +1022,20 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
                       >
                         <LineChart className="size-3.5 shrink-0" aria-hidden />
                         Chart
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setBrowseMode('list')}
+                        aria-label="Rankings list"
+                        className={cn(
+                          'inline-flex h-9 shrink-0 items-center justify-center gap-1 rounded px-2.5 text-[11px] font-medium transition-colors',
+                          browseMode === 'list'
+                            ? 'bg-background text-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground'
+                        )}
+                      >
+                        <LayoutList className="size-3.5 shrink-0" aria-hidden />
+                        List
                       </button>
                     </div>
                   </div>
@@ -1130,19 +1130,6 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
                   <div className="inline-flex max-w-full flex-wrap items-center justify-center gap-1 rounded-md border bg-muted/30 p-0.5">
                     <button
                       type="button"
-                      onClick={() => setBrowseMode('list')}
-                      className={cn(
-                        'inline-flex min-h-9 items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-center text-[11px] font-medium transition-colors sm:px-3 sm:text-xs',
-                        browseMode === 'list'
-                          ? 'bg-background text-foreground shadow-sm'
-                          : 'text-muted-foreground hover:text-foreground'
-                      )}
-                    >
-                      <LayoutList className="size-3.5 shrink-0" aria-hidden />
-                      Rankings list
-                    </button>
-                    <button
-                      type="button"
                       onClick={() => setBrowseMode('chart')}
                       className={cn(
                         'inline-flex min-h-9 items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-center text-[11px] font-medium transition-colors sm:px-3 sm:text-xs',
@@ -1153,6 +1140,19 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
                     >
                       <LineChart className="size-3.5 shrink-0" aria-hidden />
                       Values chart
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBrowseMode('list')}
+                      className={cn(
+                        'inline-flex min-h-9 items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-center text-[11px] font-medium transition-colors sm:px-3 sm:text-xs',
+                        browseMode === 'list'
+                          ? 'bg-background text-foreground shadow-sm'
+                          : 'text-muted-foreground hover:text-foreground'
+                      )}
+                    >
+                      <LayoutList className="size-3.5 shrink-0" aria-hidden />
+                      Rankings list
                     </button>
                   </div>
                 </div>

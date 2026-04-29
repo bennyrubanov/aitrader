@@ -387,5 +387,5 @@ export async function POST(req: Request) {
       await upsertQueueStatus(supabase, strategy_id, config_id, 'failed', message);
       return NextResponse.json({ ok: false, error: message }, { status: 500 });
     }
-  });
+  }, 500);
 }

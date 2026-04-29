@@ -25,6 +25,8 @@ export function MiniStockSearch() {
   const [query, setQuery] = useState("");
   const [isFocused, setIsFocused] = useState(false);
   const [stocks, setStocks] = useState<StockRow[]>([]);
+  /** Listbox highlight while focus stays in the combobox input (-1 = none). */
+  const [activeOptionIndex, setActiveOptionIndex] = useState(-1);
 
   useEffect(() => {
     fetch("/api/stocks")
@@ -107,8 +109,19 @@ export function MiniStockSearch() {
       .slice(0, 6);
   }, [query, ratedStocks]);
 
+  const listboxId = "mini-stock-search-listbox";
+
+  useEffect(() => {
+    setActiveOptionIndex((prev) => {
+      if (results.length === 0) return -1;
+      if (prev >= results.length) return results.length - 1;
+      return prev;
+    });
+  }, [results]);
+
   const openRatingsSearch = (symbol: string) => {
     setQuery(symbol);
+    setActiveOptionIndex(-1);
     setIsFocused(false);
     if (isRatingsPathname(pathname)) {
       const params = new URLSearchParams(searchParams.toString());
@@ -122,23 +135,62 @@ export function MiniStockSearch() {
 
   const clearQuery = () => {
     applyMiniQuery("");
+    setActiveOptionIndex(-1);
     setIsFocused(false);
     inputRef.current?.focus();
   };
+
+  const listOpen = isFocused && query.trim().length >= 2 && results.length > 0;
 
   return (
     <div className="relative hidden min-w-0 max-w-[340px] flex-1 sm:block sm:min-w-[180px] lg:min-w-[260px]">
       <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
       <Input
         ref={inputRef}
+        role="combobox"
+        aria-expanded={listOpen}
+        aria-controls={listOpen ? listboxId : undefined}
+        aria-autocomplete="list"
+        aria-activedescendant={
+          listOpen && activeOptionIndex >= 0
+            ? `mini-stock-option-${activeOptionIndex}`
+            : undefined
+        }
         value={query}
-        onChange={(event) => applyMiniQuery(event.target.value)}
+        onChange={(event) => {
+          setActiveOptionIndex(-1);
+          applyMiniQuery(event.target.value);
+        }}
         onFocus={() => setIsFocused(true)}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             event.preventDefault();
             clearQuery();
             inputRef.current?.blur();
+            return;
+          }
+
+          if (!listOpen) return;
+
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            setActiveOptionIndex((i) =>
+              i < results.length - 1 ? i + 1 : results.length - 1
+            );
+            return;
+          }
+
+          if (event.key === "ArrowUp") {
+            event.preventDefault();
+            setActiveOptionIndex((i) => (i > 0 ? i - 1 : -1));
+            return;
+          }
+
+          if (event.key === "Enter") {
+            if (activeOptionIndex >= 0 && activeOptionIndex < results.length) {
+              event.preventDefault();
+              openRatingsSearch(results[activeOptionIndex].symbol);
+            }
           }
         }}
         onBlur={() => {
@@ -183,24 +235,35 @@ export function MiniStockSearch() {
           No rated stock matches that search.
         </div>
       ) : null}
-      {isFocused && results.length > 0 && (
-        <div className="absolute left-0 right-0 top-10 z-50 overflow-hidden rounded-md border bg-popover shadow-md">
-          {results.map((stock) => (
+      {listOpen && (
+        <div
+          id={listboxId}
+          role="listbox"
+          aria-label="Rated stock matches"
+          className="absolute left-0 right-0 top-10 z-50 overflow-hidden rounded-md border bg-popover shadow-md"
+        >
+          {results.map((stock, index) => (
             <div
               key={stock.symbol}
-              className="flex items-center justify-between gap-3 px-3 py-2 text-sm hover:bg-muted"
+              id={`mini-stock-option-${index}`}
+              role="option"
+              aria-selected={activeOptionIndex === index}
+              className={cn(
+                "flex items-center justify-between gap-3 px-3 py-2 text-sm",
+                activeOptionIndex === index ? "bg-muted" : "hover:bg-muted"
+              )}
+              onMouseEnter={() => setActiveOptionIndex(index)}
+              onMouseDown={(event) => event.preventDefault()}
             >
-              <button
-                type="button"
-                className="min-w-0 flex-1 text-left"
-                onMouseDown={(event) => event.preventDefault()}
+              <div
+                className="min-w-0 flex-1 cursor-pointer text-left"
                 onClick={() => openRatingsSearch(stock.symbol)}
               >
                 <div className="flex items-center gap-2">
                   <span className="font-semibold">{stock.symbol}</span>
                   <span className="truncate text-xs text-muted-foreground">{stock.name}</span>
                 </div>
-              </button>
+              </div>
               <Link
                 href={`/stocks/${stock.symbol.toLowerCase()}`}
                 target="_blank"
