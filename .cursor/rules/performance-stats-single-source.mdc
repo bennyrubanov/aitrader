@@ -293,7 +293,7 @@ For one selected portfolio with **Today** holdings, every **dollar** and
   excess returns).
 - **`/platform` overview:** Spotlight portfolio value, chart, holdings line,
   and the **matching** overview tile (same profile id) use the same effective
-  spotlight series; other tiles show an explicit “As of close · …” date from
+  spotlight series; other tiles show an explicit “As of · …” date from
   raw `cardState.series` last point.
 - **`/platform/explore-portfolios`:** List card Value ($ / %), values chart
   last point, and detail dialog headline use the same snapshot last point;

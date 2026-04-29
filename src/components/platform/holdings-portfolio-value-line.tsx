@@ -11,7 +11,7 @@ export function HoldingsPortfolioValueLine({
   value: number | null | undefined;
   formatCurrency: (n: number) => string;
   className?: string;
-  /** Pre-formatted date string shown as ` (as of close …)` when set. */
+  /** Pre-formatted date string shown as ` (as of …)` when set. */
   asOfCloseDate?: string | null;
 }) {
   if (value == null || !Number.isFinite(value) || value <= 0) return null;
@@ -20,7 +20,7 @@ export function HoldingsPortfolioValueLine({
       Portfolio value:{' '}
       <span className="font-medium text-foreground">{formatCurrency(value)}</span>
       {asOfCloseDate ? (
-        <span className="text-muted-foreground">{` (as of close ${asOfCloseDate})`}</span>
+        <span className="text-muted-foreground">{` (as of ${asOfCloseDate})`}</span>
       ) : null}
     </p>
   );

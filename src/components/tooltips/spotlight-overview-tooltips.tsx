@@ -31,7 +31,7 @@ export function SpotlightStatCard({
   positive?: boolean;
   /** e.g. readiness pill next to the label */
   afterLabel?: ReactNode;
-  /** Optional preformatted date (e.g. "Apr 22, 2026") appended to the tooltip as an "As of close" note. */
+  /** Optional preformatted date (e.g. "Apr 22, 2026") appended to the tooltip as an "As of" note. */
   asOfCloseDate?: string | null;
 }) {
   const tip = SPOTLIGHT_STAT_TOOLTIPS[tooltipKey];
@@ -87,7 +87,7 @@ export function SpotlightStatCard({
             <p className="text-muted-foreground leading-snug">{tip.body}</p>
             {asOfCloseDate ? (
               <p className="mt-1.5 text-muted-foreground/80 leading-snug">
-                As of close {asOfCloseDate}.
+                As of {asOfCloseDate}.
               </p>
             ) : null}
           </TooltipContent>

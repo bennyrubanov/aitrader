@@ -275,7 +275,7 @@ export function UserPortfolioEntrySettingsDialog({
               />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="upp-start">Your entry</Label>
+              <Label htmlFor="upp-start">Your entry date</Label>
               <PortfolioEntryDatePicker
                 triggerId="upp-start"
                 valueYmd={pickerValueYmd}

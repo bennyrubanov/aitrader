@@ -829,7 +829,7 @@ function OverviewPortfolioTile({
             </p>
             {!st?.loading && (liveOverride?.valueAsOfLabel || tileAsOfCloseYmd) ? (
               <p className="mt-0.5 text-[9px] leading-tight text-muted-foreground">
-                As of close
+                As of
                 {liveOverride?.valueAsOfLabel
                   ? ` · ${liveOverride.valueAsOfLabel}`
                   : tileAsOfCloseYmd

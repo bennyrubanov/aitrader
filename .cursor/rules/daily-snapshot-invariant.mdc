@@ -48,3 +48,7 @@ In the daily-only cron branch, call `refreshDailySeriesSnapshotsForStrategy` **i
 - Do not import raw MTM builders (`buildDailyMarkedToMarketSeriesForConfig`, `buildLatestMtmPointFromLastSnapshot`, `buildDailyMarkedToMarketSeriesForStrategy`, live-series-point helpers) outside the allowlist above.
 - API routes should not rebuild the daily MTM walk on request.
 - Any new surface needing config-level series must consume the snapshot tables through `@/lib/config-daily-series`.
+
+## Operational notes
+
+**Manual cron runs during US market hours:** triggering `/api/cron/daily` or `/api/internal/compute-portfolio-configs-batch` while the US market is open writes `nasdaq_100_daily_raw.run_date = today` with **intraday** prices. Snapshot tables then have `last_series_date = today` even though those prices are not true daily closes. The next scheduled prod cron (`30 22 * * 1-5` — 22:30 UTC ≈ 18:30 ET, 2.5h after 16:00 ET close) overwrites the row with the actual close. Prefer manual repairs **after** that window, or only run compute-batch when raw prices for that `run_date` were ingested post-close.

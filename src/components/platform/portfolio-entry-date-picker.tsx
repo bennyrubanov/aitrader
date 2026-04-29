@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { format, parseISO } from 'date-fns';
 import { enUS } from 'date-fns/locale';
-import { Calendar as CalendarIcon, Check } from 'lucide-react';
+import { Calendar as CalendarIcon, Sun } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
@@ -23,10 +23,8 @@ export type PortfolioEntryDatePickerProps = {
   disabled?: boolean;
   /** For `<Label htmlFor="…">` pairing with the calendar trigger button. */
   triggerId?: string;
-  /** Shown above the calendar popover (wording differs slightly between flows). */
+  /** Shown above the date trigger when non-empty (e.g. explore follow dialog). */
   calendarPrompt?: string;
-  /** When true, show the hypothetical past-entry note when value is before `maxYmd`. Default true. */
-  showPastDateNote?: boolean;
 };
 
 export function PortfolioEntryDatePicker({
@@ -37,8 +35,7 @@ export function PortfolioEntryDatePicker({
   modelInceptionYmd,
   disabled,
   triggerId,
-  calendarPrompt = 'Or pick a different date to enter the portfolio:',
-  showPastDateNote = true,
+  calendarPrompt = '',
 }: PortfolioEntryDatePickerProps) {
   const [popoverOpen, setPopoverOpen] = useState(false);
   /** `null` until mounted — SSR + first paint match Popover branch to avoid hydration mismatch. */
@@ -61,6 +58,7 @@ export function PortfolioEntryDatePicker({
     () => parseISO(`${valueYmd}T12:00:00Z`),
     [valueYmd]
   );
+  const maxEntryDate = useMemo(() => parseISO(`${maxYmd}T12:00:00Z`), [maxYmd]);
   const maxYmdDisplay = useMemo(() => formatYmdDisplay(maxYmd), [maxYmd]);
   const [calendarMonth, setCalendarMonth] = useState<Date>(selectedEntryDate);
 
@@ -103,12 +101,46 @@ export function PortfolioEntryDatePicker({
             : undefined
         }
       />
+      <button
+        type="button"
+        disabled={disabled}
+        className={cn(
+          'flex w-full items-center justify-between gap-3 border-t px-3 py-2 text-left text-[11px] text-muted-foreground transition-colors',
+          'hover:bg-muted/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-trader-blue/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+          disabled && 'pointer-events-none opacity-50'
+        )}
+        aria-label={`Jump to today ${maxYmdDisplay}`}
+        onClick={() => {
+          onChangeYmd(maxYmd);
+          setCalendarMonth(maxEntryDate);
+          setPopoverOpen(false);
+        }}
+      >
+        <span className="flex min-w-0 items-center gap-2">
+          <span
+            className="inline-flex size-4 shrink-0 items-center justify-center"
+            aria-hidden
+          >
+            <Sun className="size-3 text-amber-600 opacity-90 dark:text-amber-400" />
+          </span>
+          <span className="min-w-0">
+            <span className="font-medium text-foreground">Today</span>
+            {': '}
+            {maxYmdDisplay}
+          </span>
+        </span>
+        {valueYmd === maxYmd ? (
+          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+            Selected
+          </span>
+        ) : null}
+      </button>
       {modelInceptionYmd?.trim() ? (
         <button
           type="button"
           disabled={disabled}
           className={cn(
-            'flex w-full items-center gap-2 border-t px-3 py-2 text-left text-[11px] text-muted-foreground transition-colors',
+            'flex w-full items-center justify-between gap-3 border-t px-3 py-2 text-left text-[11px] text-muted-foreground transition-colors',
             'hover:bg-muted/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-trader-blue/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
             disabled && 'pointer-events-none opacity-50'
           )}
@@ -121,103 +153,85 @@ export function PortfolioEntryDatePicker({
             setPopoverOpen(false);
           }}
         >
-          <span
-            className="inline-block size-2 shrink-0 rounded-full bg-trader-blue ring-2 ring-trader-blue/40"
-            aria-hidden
-          />
-          <span>
-            <span className="font-medium text-foreground">Model inception</span>
-            {': '}
-            {format(inceptionForLegend, 'MMM d, yyyy', { locale: enUS })}
+          <span className="flex min-w-0 items-center gap-2">
+            <span
+              className="inline-flex size-4 shrink-0 items-center justify-center"
+              aria-hidden
+            >
+              <span className="size-2 shrink-0 rounded-full bg-trader-blue ring-2 ring-trader-blue/40" />
+            </span>
+            <span className="min-w-0">
+              <span className="font-medium text-foreground">Model inception</span>
+              {': '}
+              {format(inceptionForLegend, 'MMM d, yyyy', { locale: enUS })}
+            </span>
           </span>
+          {valueYmd === modelInceptionYmd.trim() ? (
+            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+              Selected
+            </span>
+          ) : null}
         </button>
       ) : null}
     </div>
   );
 
-  return (
-    <div className="space-y-3">
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={() => {
-          onChangeYmd(maxYmd);
-          setPopoverOpen(false);
-        }}
-        className={cn(
-          'w-full rounded-lg border px-4 py-3 text-left transition-colors',
-          valueYmd === maxYmd
-            ? 'border-primary bg-primary/10 ring-1 ring-inset ring-primary'
-            : 'border-border hover:border-foreground/20 hover:bg-muted/30',
-          disabled && 'pointer-events-none opacity-50'
-        )}
-      >
-        <div className="flex items-center justify-between">
-          <div>
-            <span className="text-sm font-semibold">Today</span>
-            <span className="ml-2 text-xs text-muted-foreground">{maxYmdDisplay}</span>
-          </div>
-          {valueYmd === maxYmd ? <Check className="size-3.5 text-primary" aria-hidden /> : null}
-        </div>
-        <p className="mt-0.5 text-xs text-muted-foreground">Track returns from now. Initial performance data will be limited as history builds. </p>
-      </button>
+  const dateTriggerLabel =
+    valueYmd === maxYmd
+      ? `Today · ${maxYmdDisplay}`
+      : format(selectedEntryDate, 'MMM d, yyyy', { locale: enUS });
 
-      <div className="space-y-1.5">
+  return (
+    <div className="space-y-2">
+      {calendarPrompt.trim() ? (
         <p className="px-0.5 text-xs text-muted-foreground">{calendarPrompt}</p>
-        {useInlineCalendar ? (
-          <>
+      ) : null}
+      {useInlineCalendar ? (
+        <>
+          <Button
+            id={triggerId}
+            type="button"
+            variant="outline"
+            disabled={disabled}
+            aria-expanded={popoverOpen}
+            aria-haspopup="dialog"
+            onClick={() => setPopoverOpen((o) => !o)}
+            className="h-auto min-h-10 w-full justify-start gap-2 py-2 text-left font-normal"
+          >
+            <CalendarIcon className="size-4 shrink-0 opacity-60" aria-hidden />
+            <span className="min-w-0 flex-1">{dateTriggerLabel}</span>
+          </Button>
+          {popoverOpen ? (
+            <div className="overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md">
+              {calendarPanel}
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <Popover modal={false} open={popoverOpen} onOpenChange={setPopoverOpen}>
+          <PopoverTrigger asChild>
             <Button
               id={triggerId}
               type="button"
               variant="outline"
               disabled={disabled}
-              aria-expanded={popoverOpen}
-              onClick={() => setPopoverOpen((o) => !o)}
-              className={cn(
-                'w-full justify-start gap-2 text-left font-normal',
-                valueYmd !== maxYmd && 'border-primary ring-1 ring-primary'
-              )}
+              aria-haspopup="dialog"
+              className="h-auto min-h-10 w-full justify-start gap-2 py-2 text-left font-normal"
             >
               <CalendarIcon className="size-4 shrink-0 opacity-60" aria-hidden />
-              {valueYmd === maxYmd ? (
-                <span className="text-muted-foreground">Choose date…</span>
-              ) : (
-                format(selectedEntryDate, 'MMM d, yyyy', { locale: enUS })
-              )}
+              <span className="min-w-0 flex-1">{dateTriggerLabel}</span>
             </Button>
-            {popoverOpen ? (
-              <div className="overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md">
-                {calendarPanel}
-              </div>
-            ) : null}
-          </>
-        ) : (
-          <Popover modal={false} open={popoverOpen} onOpenChange={setPopoverOpen}>
-            <PopoverTrigger asChild>
-              <Button
-                id={triggerId}
-                type="button"
-                variant="outline"
-                disabled={disabled}
-                className={cn(
-                  'w-full justify-start gap-2 text-left font-normal',
-                  valueYmd !== maxYmd && 'border-primary ring-1 ring-primary'
-                )}
-              >
-                <CalendarIcon className="size-4 shrink-0 opacity-60" aria-hidden />
-                {valueYmd === maxYmd ? (
-                  <span className="text-muted-foreground">Choose date…</span>
-                ) : (
-                  format(selectedEntryDate, 'MMM d, yyyy', { locale: enUS })
-                )}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start">
-              {calendarPanel}
-            </PopoverContent>
-          </Popover>
-        )}
-      </div>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0" align="start">
+            {calendarPanel}
+          </PopoverContent>
+        </Popover>
+      )}
+      {valueYmd === maxYmd ? (
+        <p className="text-xs text-amber-700 dark:text-amber-500/90">
+          Tracking returns from today. Initial performance data will be limited as history builds.
+        </p>
+      ) : null}
     </div>
   );
 }
