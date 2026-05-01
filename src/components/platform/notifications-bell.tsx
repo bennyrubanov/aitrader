@@ -502,10 +502,11 @@ export function NotificationsBell() {
 
   if (!isLoaded || !isAuthenticated) return null;
 
+  const badgeLabel = unreadCount > 99 ? '99+' : String(unreadCount);
   const badge =
     unreadCount > 0 ? (
-      <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold text-destructive-foreground">
-        {unreadCount > 9 ? '9+' : unreadCount}
+      <span className="absolute -right-0.5 -top-0.5 flex h-4 min-h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold tabular-nums leading-none text-destructive-foreground">
+        {badgeLabel}
       </span>
     ) : null;
 

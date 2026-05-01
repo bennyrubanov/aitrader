@@ -43,9 +43,29 @@ export async function GET(req: Request) {
   if (unreadOnly) q = q.is('read_at', null);
   if (cursor) q = q.lt('created_at', cursor);
 
-  const { data: rows, error } = await q;
+  const unreadCountPromise =
+    cursor == null
+      ? (() => {
+          let cq = supabase
+            .from('notifications')
+            .select('id', { count: 'exact', head: true })
+            .eq('user_id', user.id)
+            .is('read_at', null);
+          if (type) cq = cq.eq('type', type);
+          return cq;
+        })()
+      : null;
+
+  const [{ data: rows, error }, countResult] = await Promise.all([
+    q,
+    unreadCountPromise ?? Promise.resolve({ count: null as number | null, error: null as null }),
+  ]);
+
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+  if (unreadCountPromise && countResult.error) {
+    return NextResponse.json({ error: countResult.error.message }, { status: 500 });
   }
 
   const list = rows ?? [];
@@ -53,15 +73,9 @@ export async function GET(req: Request) {
   const items = hasMore ? list.slice(0, limit) : list;
   const nextCursor = hasMore && items.length ? (items[items.length - 1] as { created_at: string }).created_at : null;
 
-  const unreadInPage = items.reduce(
-    (n, r) => (r.read_at == null ? n + 1 : n),
-    0
-  );
-
   return NextResponse.json({
     items,
     nextCursor,
-    // First page only: bell uses limit=60 and badge caps at 9+; avoids a second PostgREST count query.
-    ...(cursor == null ? { unreadCount: unreadInPage } : {}),
+    ...(cursor == null ? { unreadCount: countResult.count ?? 0 } : {}),
   });
 }

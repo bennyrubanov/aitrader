@@ -984,6 +984,36 @@ create table if not exists public.portfolio_config_daily_series_history (
 create index if not exists idx_pcdsh_strategy_asof
   on public.portfolio_config_daily_series_history(strategy_id, as_of_run_date desc);
 
+create index if not exists portfolio_config_daily_series_history_config_id_idx
+  on public.portfolio_config_daily_series_history using btree (config_id);
+
+create index if not exists portfolio_config_daily_series_history_computed_at_idx
+  on public.portfolio_config_daily_series_history using btree (computed_at);
+
+create table if not exists public.portfolio_compute_diagnostic_events (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  source text not null,
+  event text not null,
+  severity text not null default 'warn',
+  strategy_id uuid references public.strategy_models (id) on delete set null,
+  config_id uuid references public.portfolio_configs (id) on delete set null,
+  as_of_run_date date,
+  message text,
+  payload jsonb not null default '{}'::jsonb
+);
+
+create index if not exists portfolio_compute_diagnostic_events_created_at_idx
+  on public.portfolio_compute_diagnostic_events (created_at desc);
+
+create index if not exists portfolio_compute_diagnostic_events_strategy_config_created_idx
+  on public.portfolio_compute_diagnostic_events (strategy_id, config_id, created_at desc);
+
+create index if not exists portfolio_compute_diagnostic_events_event_created_idx
+  on public.portfolio_compute_diagnostic_events (event, created_at desc);
+
+alter table public.portfolio_compute_diagnostic_events enable row level security;
+
 create table if not exists public.portfolio_strategy_daily_series (
   strategy_id uuid not null references public.strategy_models(id) on delete cascade,
   as_of_run_date date not null,
@@ -1088,8 +1118,30 @@ create table if not exists public.user_notification_preferences (
   weekly_digest_inapp boolean not null default true,
   email_enabled boolean not null default true,
   inapp_enabled boolean not null default true,
+  weekly_product_updates_email boolean not null default true,
+  weekly_portfolio_summary_email boolean not null default true,
+  weekly_per_portfolio_email boolean not null default true,
+  weekly_tracked_stocks_email boolean not null default true,
   updated_at timestamptz not null default now()
 );
+
+-- Admin-authored blocks for weekly email “Product updates” section (service_role only; see migration).
+create table if not exists public.weekly_product_updates (
+  id uuid primary key default gen_random_uuid(),
+  publish_week_ending date not null,
+  title text not null,
+  body_html text not null,
+  display_order integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_weekly_product_updates_week_order
+  on public.weekly_product_updates (publish_week_ending desc, display_order);
+
+alter table public.weekly_product_updates enable row level security;
+
+revoke all on public.weekly_product_updates from public;
+grant select, insert, update, delete on public.weekly_product_updates to service_role;
 
 -- =========================
 -- 15) User portfolio profiles (one active profile per user)
@@ -1115,6 +1167,7 @@ create table if not exists public.user_portfolio_profiles (
   notify_price_move_email boolean not null default false,
   notify_entries_exits_inapp boolean not null default true,
   notify_entries_exits_email boolean not null default true,
+  notify_weekly_email boolean not null default true,
   is_starting_portfolio boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),

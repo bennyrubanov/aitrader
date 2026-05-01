@@ -47,6 +47,7 @@ export async function GET() {
     notify_price_move_email,
     notify_entries_exits_inapp,
     notify_entries_exits_email,
+    notify_weekly_email,
     is_starting_portfolio,
     created_at,
     updated_at,
@@ -123,6 +124,7 @@ export async function GET() {
         notify_price_move_email: false,
         notify_entries_exits_inapp: true,
         notify_entries_exits_email: true,
+        notify_weekly_email: true,
       }));
     }
   } else {
@@ -449,6 +451,9 @@ export async function PATCH(req: Request) {
   if (typeof body.notifyEntriesExitsEmail === 'boolean') {
     updates.notify_entries_exits_email = body.notifyEntriesExitsEmail;
   }
+  if (typeof body.notifyWeeklyEmail === 'boolean') {
+    updates.notify_weekly_email = body.notifyWeeklyEmail;
+  }
   if (typeof body.investmentSize === 'number' && body.investmentSize > 0) {
     updates.investment_size = body.investmentSize;
   }
@@ -567,6 +572,7 @@ export async function PATCH(req: Request) {
     typeof body.notifyPriceMoveEmail === 'boolean' ||
     typeof body.notifyEntriesExitsInapp === 'boolean' ||
     typeof body.notifyEntriesExitsEmail === 'boolean' ||
+    typeof body.notifyWeeklyEmail === 'boolean' ||
     (typeof body.investmentSize === 'number' && body.investmentSize > 0) ||
     typeof body.isActive === 'boolean' ||
     didReanchorOrStartChange;

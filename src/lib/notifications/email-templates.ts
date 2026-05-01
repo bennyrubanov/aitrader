@@ -4,6 +4,19 @@ function siteUrlForEmail(): string {
   return process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, '') ?? '';
 }
 
+/**
+ * Origin for `/email/logo.png`. Inbox clients fetch this URL from the public internet — **`localhost` never works**.
+ * Set `EMAIL_LOGO_BASE_URL` to your deployed https origin (e.g. `https://tryaitrader.com`) while running smoketest from `next dev`.
+ */
+function logoAssetBaseUrl(): string {
+  const explicit =
+    process.env.EMAIL_LOGO_BASE_URL?.replace(/\/+$/, '').trim() ||
+    process.env.NEXT_PUBLIC_EMAIL_LOGO_BASE_URL?.replace(/\/+$/, '').trim() ||
+    '';
+  if (explicit) return explicit;
+  return siteUrlForEmail();
+}
+
 function physicalAddressLine(): string {
   return (process.env.RESEND_FROM_ADDRESS_LINE ?? '').trim();
 }
@@ -14,11 +27,12 @@ function truncatePreheader(s: string, max = 90): string {
   return `${t.slice(0, max - 1)}…`;
 }
 
+/** Absolute URL to `public/email/logo.png` (see `logoAssetBaseUrl` / `EMAIL_LOGO_BASE_URL`). */
 function logoImgTag(): string {
-  const base = siteUrlForEmail();
+  const base = logoAssetBaseUrl();
   if (!base) return '';
   const src = `${escapeHtml(base)}/email/logo.png`;
-  return `<img src="${src}" alt="AITrader" width="120" style="display:block;margin:0 0 10px;border:0;height:auto" />`;
+  return `<img src="${src}" alt="AITrader" width="120" style="display:block;margin:0 0 10px;border:0;height:auto;max-width:120px" />`;
 }
 
 const DEFAULT_RECEIVING_NOTE =
@@ -228,39 +242,87 @@ export function buildModelRatingsReadyEmailHtml(params: {
   return { html, text };
 }
 
-export function buildWeeklyDigestEmailHtml(params: {
+export type WeeklyProductUpdateRow = { title: string; body_html: string };
+
+const BULLET_P =
+  'margin:0 0 6px;font-size:15px;line-height:1.55;color:#111827;font-family:Arial,Helvetica,sans-serif';
+
+/** Trusted HTML from `weekly_product_updates` (admin / service_role only). */
+export function buildProductUpdatesSectionHtml(rows: WeeklyProductUpdateRow[]): string {
+  if (!rows.length) return '';
+  return rows
+    .map(
+      (r) =>
+        `<p style="margin:0 0 8px;font-size:15px;font-weight:700;font-family:Arial,Helvetica,sans-serif">${escapeHtml(r.title)}</p><div style="margin:0 0 20px;font-size:15px;line-height:1.55;color:#111827;font-family:Arial,Helvetica,sans-serif">${r.body_html}</div>`
+    )
+    .join('');
+}
+
+export function buildFollowedPortfoliosBundleSectionHtml(
+  blocks: { heading: string; bullets: string[] }[]
+): string {
+  if (!blocks.length) return '';
+  const hdr =
+    'margin:14px 0 8px;font-size:16px;font-weight:700;line-height:1.35;font-family:Arial,Helvetica,sans-serif';
+  return blocks
+    .map((b) => {
+      const lines =
+        b.bullets.length > 0
+          ? b.bullets.map((line) => `<p style="${BULLET_P}">• ${escapeHtml(line)}</p>`).join('')
+          : `<p style="${BULLET_P}">• No portfolio activity in this window.</p>`;
+      return `<p style="${hdr}">${escapeHtml(b.heading)}</p>${lines}`;
+    })
+    .join('');
+}
+
+export function buildTrackedStocksBundleSectionHtml(lines: string[]): string {
+  if (!lines.length) return '';
+  return lines.map((l) => `<p style="${BULLET_P}">• ${escapeHtml(l)}</p>`).join('');
+}
+
+export type WeeklyBundleSection = { heading: string; html: string };
+
+const WEEKLY_BUNDLE_RECEIVING =
+  'You are receiving this email because you opted in to the AITrader weekly summary.';
+
+export function buildWeeklyBundleEmailHtml(params: {
   runWeekEnding: string;
-  summaryLines: string[];
+  sections: WeeklyBundleSection[];
+  textLines: string[];
   inboxUrl: string;
   settingsUrl: string;
   unsubscribeUrl: string;
-}): { html: string; text: string } {
-  const bodyHtml = params.summaryLines
-    .map(
-      (l) =>
-        `<p style="margin:0 0 6px;font-size:15px;line-height:1.55;font-family:Arial,Helvetica,sans-serif">• ${escapeHtml(l)}</p>`
-    )
+}): { html: string; text: string; subject: string } {
+  const subject = `AITrader weekly — ${params.runWeekEnding}`;
+  const sectionNames = params.sections.map((s) => s.heading);
+  const preheader = truncatePreheader(sectionNames.join(', ') || `Week ending ${params.runWeekEnding}`);
+  const bodyHtml = params.sections
+    .map((s, i) => {
+      const mt = i === 0 ? '0' : '24px';
+      return `<p style="margin:${mt} 0 0;font-size:16px;font-weight:700;line-height:1.35;font-family:Arial,Helvetica,sans-serif">${escapeHtml(s.heading)}</p>${s.html}`;
+    })
     .join('');
   const html = buildEmailShell({
-    documentTitle: `Weekly digest — ${params.runWeekEnding}`,
-    preheader: `Your AITrader activity summary for the week ending ${params.runWeekEnding}`,
-    heading: 'Your weekly digest',
-    leadHtml: `Week ending <strong>${escapeHtml(params.runWeekEnding)}</strong>`,
+    documentTitle: subject,
+    preheader,
+    heading: `Your AITrader weekly — week ending ${params.runWeekEnding}`,
     bodyHtml,
-    ctaLabel: 'View notifications',
+    ctaLabel: 'Open AITrader',
     ctaUrl: params.inboxUrl,
     settingsUrl: params.settingsUrl,
     unsubscribeUrl: params.unsubscribeUrl,
+    receivingNote: WEEKLY_BUNDLE_RECEIVING,
   });
   const text = [
-    `Weekly digest — week ending ${params.runWeekEnding}`,
-    ...params.summaryLines,
+    `Your AITrader weekly — week ending ${params.runWeekEnding}`,
+    '',
+    ...params.textLines,
     '',
     params.inboxUrl,
     `Settings: ${params.settingsUrl}`,
     `Unsubscribe: ${params.unsubscribeUrl}`,
   ].join('\n');
-  return { html, text };
+  return { html, text, subject };
 }
 
 export function buildPortfolioEntriesExitsEmailHtml(params: {
@@ -335,72 +397,3 @@ export function buildPortfolioPriceMoveEmailHtml(params: {
   return { html, text };
 }
 
-export function buildStockRatingWeeklyEmailHtml(params: {
-  runWeekEnding: string;
-  lines: string[];
-  settingsUrl: string;
-  unsubscribeUrl: string;
-}): { html: string; text: string } {
-  const bodyHtml = params.lines
-    .map(
-      (l) =>
-        `<p style="margin:0 0 6px;font-size:15px;line-height:1.55;font-family:Arial,Helvetica,sans-serif">• ${escapeHtml(l)}</p>`
-    )
-    .join('');
-  const html = buildEmailShell({
-    documentTitle: `Weekly stock ratings — ${params.runWeekEnding}`,
-    preheader: `Weekly rating roundup for week ending ${params.runWeekEnding}`,
-    heading: 'Weekly stock rating roundup',
-    leadHtml: `Week ending <strong>${escapeHtml(params.runWeekEnding)}</strong>`,
-    bodyHtml,
-    ctaLabel: 'Notification settings',
-    ctaUrl: params.settingsUrl,
-    settingsUrl: params.settingsUrl,
-    unsubscribeUrl: params.unsubscribeUrl,
-  });
-  const text = [
-    `Weekly stock rating roundup — ${params.runWeekEnding}`,
-    ...params.lines,
-    '',
-    `Settings: ${params.settingsUrl}`,
-    `Unsubscribe: ${params.unsubscribeUrl}`,
-  ].join('\n');
-  return { html, text };
-}
-
-export function buildCuratedWeeklyDigestEmailHtml(params: {
-  runWeekEnding: string;
-  sectionsHtml: string;
-  inboxUrl: string;
-  settingsUrl: string;
-  unsubscribeUrl: string;
-  /** Plain-text body lines (performance + alert samples); ASCII only from caller. */
-  textSummaryLines?: string[];
-}): { html: string; text: string } {
-  const bodyHtml = params.sectionsHtml;
-  const html = buildEmailShell({
-    documentTitle: `Weekly portfolio summary — ${params.runWeekEnding}`,
-    preheader: `Portfolio summary and alerts for the week ending ${params.runWeekEnding}`,
-    heading: 'Your weekly portfolio summary',
-    leadHtml: `Week ending <strong>${escapeHtml(params.runWeekEnding)}</strong>`,
-    bodyHtml,
-    ctaLabel: 'Open notifications',
-    ctaUrl: params.inboxUrl,
-    settingsUrl: params.settingsUrl,
-    unsubscribeUrl: params.unsubscribeUrl,
-  });
-  const titleLine = `Your weekly portfolio summary — week ending ${params.runWeekEnding}`;
-  const pre = `Portfolio summary and alerts for the week ending ${params.runWeekEnding}`;
-  const textParts = [titleLine, '', pre];
-  if (params.textSummaryLines?.length) {
-    textParts.push('', ...params.textSummaryLines);
-  }
-  textParts.push(
-    '',
-    `Open: ${params.inboxUrl}`,
-    `Settings: ${params.settingsUrl}`,
-    `Unsubscribe: ${params.unsubscribeUrl}`
-  );
-  const text = textParts.join('\n');
-  return { html, text };
-}

@@ -1,25 +1,22 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { sendTransactionalEmail } from '@/lib/mailer';
+import { loadUserEmails } from '@/lib/notifications/user-notify-queries';
 import {
-  loadUserEmails,
-  resolvePrefsForFanout,
-  type UserPrefs,
-} from '@/lib/notifications/user-notify-queries';
-import {
-  buildCuratedWeeklyDigestEmailHtml,
+  buildFollowedPortfoliosBundleSectionHtml,
   buildPerformanceSectionHtml,
-  buildStockRatingWeeklyEmailHtml,
+  buildProductUpdatesSectionHtml,
+  buildTrackedStocksBundleSectionHtml,
+  buildWeeklyBundleEmailHtml,
   type PerformanceDigestRow,
+  type WeeklyBundleSection,
+  type WeeklyProductUpdateRow,
 } from '@/lib/notifications/email-templates';
-import { escapeHtml } from '@/lib/notifications/html-escape';
 import { signUnsubscribePayload } from '@/lib/notifications/unsubscribe-token';
 import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 
 function siteBase() {
   return process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, '') ?? '';
 }
-
-const PAID_STOCK_TIERS = new Set(['supporter', 'outperformer']);
 
 function listUnsubscribeHeaders(unsubscribeUrl: string): Record<string, string> {
   if (!unsubscribeUrl) return {};
@@ -29,66 +26,12 @@ function listUnsubscribeHeaders(unsubscribeUrl: string): Record<string, string> 
   };
 }
 
-function sectionLabel(type: string): string {
-  switch (type) {
-    case 'stock_rating_change':
-      return 'Rating updates';
-    case 'rebalance_action':
-      return 'Rebalances';
-    case 'portfolio_entries_exits':
-      return 'Holdings changes';
-    case 'portfolio_price_move':
-      return 'Price alerts';
-    case 'model_ratings_ready':
-      return 'Model ratings';
-    default:
-      return type.replace(/_/g, ' ');
-  }
-}
-
-function buildCuratedSectionsHtml(rows: { type: string; title: string | null }[]): string {
-  const byType = new Map<string, string[]>();
-  for (const r of rows) {
-    const t = r.type;
-    if (t === 'weekly_digest' || t === 'system' || t === 'stock_rating_weekly') continue;
-    const title = (r.title ?? '').trim();
-    if (!title) continue;
-    const arr = byType.get(t) ?? [];
-    if (arr.length < 10) arr.push(title);
-    byType.set(t, arr);
-  }
-  const order = [
-    'stock_rating_change',
-    'rebalance_action',
-    'portfolio_entries_exits',
-    'portfolio_price_move',
-    'model_ratings_ready',
-  ];
-  const parts: string[] = [];
-  const bulletP =
-    'margin:0 0 6px;font-size:15px;line-height:1.55;color:#111827;font-family:Arial,Helvetica,sans-serif';
-  const sectionP =
-    'margin:18px 0 8px;font-size:15px;font-weight:700;color:#111827;font-family:Arial,Helvetica,sans-serif';
-  for (const t of order) {
-    const titles = byType.get(t);
-    if (!titles?.length) continue;
-    const items = titles
-      .map((x) => `<p style="${bulletP}">• ${escapeHtml(x)}</p>`)
-      .join('');
-    parts.push(`<p style="${sectionP}">${escapeHtml(sectionLabel(t))}</p>${items}`);
-  }
-  for (const [t, titles] of byType) {
-    if (order.includes(t)) continue;
-    const items = titles
-      .map((x) => `<p style="${bulletP}">• ${escapeHtml(x)}</p>`)
-      .join('');
-    parts.push(`<p style="${sectionP}">${escapeHtml(sectionLabel(t))}</p>${items}`);
-  }
-  if (!parts.length) {
-    return `<p style="margin:0;font-size:15px;line-height:1.55;color:#374151;font-family:Arial,Helvetica,sans-serif">No individual alerts this week — you&apos;re all caught up.</p>`;
-  }
-  return parts.join('');
-}
+const PORTFOLIO_DIGEST_TYPES = new Set([
+  'rebalance_action',
+  'portfolio_entries_exits',
+  'portfolio_price_move',
+  'model_ratings_ready',
+]);
 
 function pairKey(strategyId: string, configId: string): string {
   return `${strategyId}|${configId}`;
@@ -104,8 +47,6 @@ function dateMinusDays(isoDate: string, days: number): string {
 const PROFILE_USER_CHUNK = 150;
 const PAIR_HISTORY_CHUNK = 80;
 const META_ID_CHUNK = 200;
-const FREE_ROUNDUP_IN_CHUNK = 200;
-
 function chunkLocal<T>(arr: T[], size: number): T[][] {
   const o: T[][] = [];
   for (let i = 0; i < arr.length; i += size) o.push(arr.slice(i, i + size));
@@ -264,18 +205,98 @@ async function fetchWeeklyPerformanceSectionByUser(
   return { htmlByUser, textLinesByUser };
 }
 
-async function runFreeTrackedStockWeeklyRoundup(
+type PrefRow = {
+  user_id: string;
+  email_enabled: boolean;
+  inapp_enabled: boolean;
+  weekly_digest_inapp: boolean;
+  weekly_product_updates_email: boolean;
+  weekly_portfolio_summary_email: boolean;
+  weekly_per_portfolio_email: boolean;
+  weekly_tracked_stocks_email: boolean;
+};
+
+type ProfileDigestRow = {
+  id: string;
+  user_id: string;
+  notify_weekly_email: boolean | null;
+  /** Supabase may return a single object or a one-element array for FK embeds. */
+  strategy_models: { name: string } | { name: string }[] | null;
+  portfolio_config: { label: string | null } | { label: string | null }[] | null;
+};
+
+function profileStrategyName(p: ProfileDigestRow): string {
+  const sm = p.strategy_models;
+  if (!sm) return 'Portfolio';
+  if (Array.isArray(sm)) return sm[0]?.name ?? 'Portfolio';
+  return sm.name;
+}
+
+function profileConfigLabel(p: ProfileDigestRow): string | null {
+  const pc = p.portfolio_config;
+  if (!pc) return null;
+  if (Array.isArray(pc)) return pc[0]?.label ?? null;
+  return pc.label;
+}
+
+function notificationProfileId(data: unknown): string | null {
+  if (!data || typeof data !== 'object') return null;
+  const pid = (data as { profile_id?: string }).profile_id;
+  return typeof pid === 'string' ? pid : null;
+}
+
+async function fetchProductUpdatesHtmlOnce(
   admin: SupabaseClient,
-  params: {
-    runWeekEnding: string;
-    dryUserId: string | null;
-    base: string;
-    notificationsSettingsPath: string;
+  runWeekEnding: string
+): Promise<string> {
+  const { data, error } = await admin
+    .from('weekly_product_updates')
+    .select('title, body_html, display_order')
+    .eq('publish_week_ending', runWeekEnding)
+    .order('display_order', { ascending: true });
+  if (error) {
+    console.error('[weekly-digest] weekly_product_updates', error.message);
+    return '';
   }
-): Promise<{ usersProcessed: number; emailsSent: number; inappInserted: number }> {
-  const settingsUrl = params.base
-    ? `${params.base}${params.notificationsSettingsPath}`
-    : params.notificationsSettingsPath;
+  return buildProductUpdatesSectionHtml((data ?? []) as WeeklyProductUpdateRow[]);
+}
+
+async function loadProfilesByUser(
+  admin: SupabaseClient,
+  userIds: string[]
+): Promise<Map<string, ProfileDigestRow[]>> {
+  const map = new Map<string, ProfileDigestRow[]>();
+  if (!userIds.length) return map;
+  for (const chunk of chunkLocal(userIds, PROFILE_USER_CHUNK)) {
+    const { data, error } = await admin
+      .from('user_portfolio_profiles')
+      .select(
+        `id, user_id, notify_weekly_email,
+        strategy_models ( name ),
+        portfolio_config:portfolio_configs ( label )`
+      )
+      .eq('is_active', true)
+      .in('user_id', chunk);
+    if (error) {
+      console.error('[weekly-digest] profiles bundle', error.message);
+      continue;
+    }
+    for (const row of (data ?? []) as unknown as ProfileDigestRow[]) {
+      const arr = map.get(row.user_id) ?? [];
+      arr.push(row);
+      map.set(row.user_id, arr);
+    }
+  }
+  return map;
+}
+
+async function fetchTrackedStockDiffLinesByUser(
+  admin: SupabaseClient,
+  userIds: string[],
+  dryUserId: string | null
+): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  if (!userIds.length) return out;
 
   const { data: strat, error: stratErr } = await admin
     .from('strategy_models')
@@ -283,216 +304,94 @@ async function runFreeTrackedStockWeeklyRoundup(
     .eq('slug', STRATEGY_CONFIG.slug)
     .maybeSingle();
   if (stratErr || !strat) {
-    if (stratErr) console.error('[weekly-digest] strategy lookup', stratErr.message);
-    return { usersProcessed: 0, emailsSent: 0, inappInserted: 0 };
+    if (stratErr) console.error('[weekly-digest] strategy for tracked', stratErr.message);
+    return out;
   }
   const strategyId = (strat as { id: string }).id;
-
   const { data: batches, error: bErr } = await admin
     .from('ai_run_batches')
-    .select('id, run_date')
+    .select('id')
     .eq('strategy_id', strategyId)
     .eq('run_frequency', 'weekly')
     .order('run_date', { ascending: false })
     .limit(2);
-
-  if (bErr || !batches || batches.length < 2) {
-    if (bErr) console.error('[weekly-digest] batches for free roundup', bErr.message);
-    else if (!batches?.length) {
-      console.warn('[weekly-digest] free roundup skipped: no weekly ai_run_batches for strategy');
-    } else {
-      console.warn('[weekly-digest] free roundup skipped: need at least 2 weekly batches, got', batches.length);
-    }
-    return { usersProcessed: 0, emailsSent: 0, inappInserted: 0 };
-  }
-  const [newBatch, oldBatch] = batches as { id: string; run_date: string }[];
+  if (bErr || !batches || batches.length < 2) return out;
+  const [newBatch, oldBatch] = batches as { id: string }[];
 
   const { data: tracks, error: trErr } = await admin
     .from('user_portfolio_stocks')
-    .select('user_id, stock_id, symbol, notify_rating_inapp, notify_rating_email')
+    .select('user_id, stock_id, symbol')
     .or('notify_rating_inapp.eq.true,notify_rating_email.eq.true');
+  if (trErr || !tracks?.length) return out;
+  type T = { user_id: string; stock_id: string; symbol: string };
+  let list = tracks as T[];
+  if (dryUserId) list = list.filter((t) => t.user_id === dryUserId);
+  const allow = new Set(userIds);
+  list = list.filter((t) => allow.has(t.user_id));
+  if (!list.length) return out;
 
-  if (trErr || !tracks?.length) {
-    if (trErr) console.error('[weekly-digest] tracks', trErr.message);
-    return { usersProcessed: 0, emailsSent: 0, inappInserted: 0 };
-  }
-
-  type TrackRow = {
-    user_id: string;
-    stock_id: string;
-    symbol: string;
-    notify_rating_inapp: boolean;
-    notify_rating_email: boolean;
-  };
-  let trackList = tracks as TrackRow[];
-  if (params.dryUserId) {
-    trackList = trackList.filter((t) => t.user_id === params.dryUserId);
-  }
-  if (!trackList.length) return { usersProcessed: 0, emailsSent: 0, inappInserted: 0 };
-
-  const userIds = [...new Set(trackList.map((t) => t.user_id))];
-  const tierByUser = new Map<string, string | null>();
-  const emailByUser = new Map<string, string>();
-  let hadProfileChunkError = false;
-  for (const idChunk of chunkLocal(userIds, FREE_ROUNDUP_IN_CHUNK)) {
-    if (!idChunk.length) continue;
-    const { data: profiles, error: pErr } = await admin
-      .from('user_profiles')
-      .select('id, email, subscription_tier')
-      .in('id', idChunk);
-    if (pErr) {
-      hadProfileChunkError = true;
-      console.error('[weekly-digest] profiles for free roundup', pErr.message);
-      continue;
+  const stockIds = [...new Set(list.map((t) => t.stock_id))];
+  const oldBucket = new Map<string, string>();
+  const newBucket = new Map<string, string>();
+  for (const sidChunk of chunkLocal(stockIds, 200)) {
+    const [{ data: oldRows }, { data: newRows }] = await Promise.all([
+      admin.from('ai_analysis_runs').select('stock_id, bucket').eq('batch_id', oldBatch.id).in('stock_id', sidChunk),
+      admin.from('ai_analysis_runs').select('stock_id, bucket').eq('batch_id', newBatch.id).in('stock_id', sidChunk),
+    ]);
+    for (const r of oldRows ?? []) {
+      const row = r as { stock_id: string; bucket: string | null };
+      if (row.bucket) oldBucket.set(row.stock_id, row.bucket);
     }
-    for (const r of profiles ?? []) {
-      const row = r as { id: string; email: string | null; subscription_tier: string | null };
-      tierByUser.set(row.id, row.subscription_tier);
-      emailByUser.set(row.id, row.email?.trim() ?? '');
+    for (const r of newRows ?? []) {
+      const row = r as { stock_id: string; bucket: string | null };
+      const nb = row.bucket;
+      if (nb === 'buy' || nb === 'hold' || nb === 'sell') newBucket.set(row.stock_id, nb);
     }
   }
 
-  const prefsMap = new Map<string, UserPrefs>();
-  let hadPrefsChunkError = false;
-  for (const idChunk of chunkLocal(userIds, FREE_ROUNDUP_IN_CHUNK)) {
-    if (!idChunk.length) continue;
-    const { data: prefsRows, error: prefErr } = await admin
-      .from('user_notification_preferences')
-      .select('user_id, email_enabled, inapp_enabled')
-      .in('user_id', idChunk);
-    if (prefErr) {
-      hadPrefsChunkError = true;
-      console.error('[weekly-digest] prefs for free roundup', prefErr.message);
-      continue;
-    }
-    for (const r of prefsRows ?? []) {
-      const row = r as { user_id: string; email_enabled: boolean; inapp_enabled: boolean };
-      prefsMap.set(row.user_id, {
-        email_enabled: row.email_enabled,
-        inapp_enabled: row.inapp_enabled,
-      });
-    }
-  }
-
-  const tracksByUser = new Map<string, TrackRow[]>();
-  for (const t of trackList) {
-    if (hadProfileChunkError && !tierByUser.has(t.user_id)) {
-      continue;
-    }
-    const tier = tierByUser.get(t.user_id);
-    if (tier && PAID_STOCK_TIERS.has(tier)) continue;
-    const arr = tracksByUser.get(t.user_id) ?? [];
+  const byUser = new Map<string, T[]>();
+  for (const t of list) {
+    const arr = byUser.get(t.user_id) ?? [];
     arr.push(t);
-    tracksByUser.set(t.user_id, arr);
+    byUser.set(t.user_id, arr);
   }
 
-  const allTrackedStockIds = [...new Set([...tracksByUser.values()].flat().map((t) => t.stock_id))];
-  const oldBucketAll = new Map<string, string>();
-  const newBucketAll = new Map<string, string>();
-
-  if (allTrackedStockIds.length) {
-    for (const sidChunk of chunkLocal(allTrackedStockIds, FREE_ROUNDUP_IN_CHUNK)) {
-      if (!sidChunk.length) continue;
-      const [{ data: runsNewChunk }, { data: runsOldChunk }] = await Promise.all([
-        admin
-          .from('ai_analysis_runs')
-          .select('stock_id, bucket')
-          .eq('batch_id', newBatch.id)
-          .in('stock_id', sidChunk),
-        admin
-          .from('ai_analysis_runs')
-          .select('stock_id, bucket')
-          .eq('batch_id', oldBatch.id)
-          .in('stock_id', sidChunk),
-      ]);
-      for (const r of runsOldChunk ?? []) {
-        const row = r as { stock_id: string; bucket: string | null };
-        if (row.bucket) oldBucketAll.set(row.stock_id, row.bucket);
-      }
-      for (const r of runsNewChunk ?? []) {
-        const row = r as { stock_id: string; bucket: string | null };
-        const nb = row.bucket;
-        if (nb === 'buy' || nb === 'hold' || nb === 'sell') {
-          newBucketAll.set(row.stock_id, nb);
-        }
-      }
-    }
-  }
-
-  let usersProcessed = 0;
-  let emailsSent = 0;
-  let inappInserted = 0;
-
-  for (const [userId, userTracks] of tracksByUser) {
-    const stockIds = [...new Set(userTracks.map((t) => t.stock_id))];
-    if (!stockIds.length) continue;
-
+  for (const [uid, utracks] of byUser) {
     const lines: string[] = [];
-    for (const stockId of stockIds) {
-      const nb = newBucketAll.get(stockId);
+    const seen = new Set<string>();
+    for (const t of utracks) {
+      const nb = newBucket.get(t.stock_id);
       if (!nb) continue;
-      const ob = oldBucketAll.get(stockId);
+      const ob = oldBucket.get(t.stock_id);
       if (!ob || ob === nb) continue;
-      const sym = userTracks.find((t) => t.stock_id === stockId)?.symbol ?? stockId;
-      lines.push(`${sym}: ${ob} → ${nb}`);
+      if (seen.has(t.stock_id)) continue;
+      seen.add(t.stock_id);
+      lines.push(`${t.symbol}: ${ob} -> ${nb}`);
     }
-
-    if (!lines.length) continue;
-
-    const wantInapp = userTracks.some((t) => t.notify_rating_inapp);
-    const wantEmail = userTracks.some((t) => t.notify_rating_email);
-    const master = resolvePrefsForFanout(prefsMap, hadPrefsChunkError, userId);
-    const emailOk = master.email_enabled;
-    const inappOk = master.inapp_enabled;
-
-    usersProcessed += 1;
-
-    if (wantInapp && inappOk) {
-      const { error: insErr } = await admin.from('notifications').insert({
-        user_id: userId,
-        type: 'stock_rating_weekly',
-        title: `Weekly rating roundup (${lines.length} change${lines.length === 1 ? '' : 's'})`,
-        body: lines.slice(0, 12).join('\n'),
-        data: {
-          run_week_ending: params.runWeekEnding,
-          lines,
-          href: settingsUrl,
-        },
-      });
-      if (!insErr) inappInserted += 1;
-    }
-
-    if (wantEmail && emailOk) {
-      const email = emailByUser.get(userId);
-      if (!email) continue;
-      const token = signUnsubscribePayload({ userId, scope: 'all' });
-      const unsubscribeUrl = token
-        ? `${params.base}/api/platform/notifications/unsubscribe?token=${encodeURIComponent(token)}`
-        : settingsUrl;
-      const { html, text } = buildStockRatingWeeklyEmailHtml({
-        runWeekEnding: params.runWeekEnding,
-        lines,
-        settingsUrl,
-        unsubscribeUrl,
-      });
-      const res = await sendTransactionalEmail({
-        to: email,
-        subject: `Weekly stock ratings — ${params.runWeekEnding}`,
-        html,
-        text,
-        headers: listUnsubscribeHeaders(unsubscribeUrl),
-      });
-      if (res.ok) emailsSent += 1;
-    }
+    if (lines.length) out.set(uid, lines);
   }
-
-  return { usersProcessed, emailsSent, inappInserted };
+  return out;
 }
 
-/**
- * Weekly digest: curated summary email + in-app row for opted-in users; free-tier tracked-stock roundup.
- */
-export async function runWeeklyDigest(
+function weeklyInappCounts(rows: { type: string }[]) {
+  let portfolioUpdates = 0;
+  let ratingChanges = 0;
+  let priceAlerts = 0;
+  for (const r of rows) {
+    if (r.type === 'stock_rating_change') ratingChanges += 1;
+    else if (r.type === 'portfolio_price_move') priceAlerts += 1;
+    else if (
+      r.type === 'rebalance_action' ||
+      r.type === 'portfolio_entries_exits' ||
+      r.type === 'model_ratings_ready'
+    )
+      portfolioUpdates += 1;
+  }
+  return { portfolioUpdates, ratingChanges, priceAlerts };
+}
+
+/** One weekly bundle email per user (section prefs) + optional Friday in-app `weekly_digest` recap. */
+export async function runWeeklyEmailBundle(
   admin: SupabaseClient,
   options?: { dryUserId?: string | null }
 ): Promise<{
@@ -504,163 +403,188 @@ export async function runWeeklyDigest(
   freeRoundupInappInserted?: number;
 }> {
   const dryUserId = options?.dryUserId?.trim() || null;
-  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const weekAgoIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const runWeekEnding = new Date().toISOString().slice(0, 10);
 
   const { data: prefsRows, error: prefErr } = await admin
     .from('user_notification_preferences')
-    .select('user_id, weekly_digest_enabled, weekly_digest_email, weekly_digest_inapp, email_enabled')
+    .select(
+      `user_id, email_enabled, inapp_enabled,
+       weekly_digest_inapp, weekly_product_updates_email, weekly_portfolio_summary_email,
+       weekly_per_portfolio_email, weekly_tracked_stocks_email`
+    )
     .eq('weekly_digest_enabled', true);
 
-  if (prefErr || !prefsRows?.length) {
-    if (prefErr) console.error('[weekly-digest] prefs', prefErr.message);
-    const freeOnly = await runFreeTrackedStockWeeklyRoundup(admin, {
-      runWeekEnding,
-      dryUserId,
-      base: siteBase(),
-      notificationsSettingsPath: '/platform/settings/notifications',
-    });
-    return {
-      usersProcessed: 0,
-      emailsSent: 0,
-      inappInserted: 0,
-      freeRoundupUsers: freeOnly.usersProcessed,
-      freeRoundupEmailsSent: freeOnly.emailsSent,
-      freeRoundupInappInserted: freeOnly.inappInserted,
-    };
+  if (prefErr) {
+    console.error('[weekly-digest] prefs', prefErr.message);
+    return { usersProcessed: 0, emailsSent: 0, inappInserted: 0, freeRoundupUsers: 0, freeRoundupEmailsSent: 0, freeRoundupInappInserted: 0 };
+  }
+
+  let prefList = (prefsRows ?? []) as PrefRow[];
+  if (dryUserId) prefList = prefList.filter((p) => p.user_id === dryUserId);
+  if (!prefList.length) {
+    return { usersProcessed: 0, emailsSent: 0, inappInserted: 0, freeRoundupUsers: 0, freeRoundupEmailsSent: 0, freeRoundupInappInserted: 0 };
   }
 
   const base = siteBase();
   const notificationsSettingsPath = '/platform/settings/notifications';
   const settingsUrl = base ? `${base}${notificationsSettingsPath}` : notificationsSettingsPath;
-  const inboxUrl = settingsUrl;
+  const notificationsInboxPath = '/platform/notifications';
+  const inboxUrl = base ? `${base}${notificationsInboxPath}` : notificationsInboxPath;
+
+  const prefUserIds = prefList.map((p) => p.user_id);
+  const productUpdatesHtml = await fetchProductUpdatesHtmlOnce(admin, runWeekEnding);
+  const trackedEligibleIds = prefList.filter((p) => p.weekly_tracked_stocks_email).map((p) => p.user_id);
+  const trackedLinesByUser = await fetchTrackedStockDiffLinesByUser(admin, trackedEligibleIds, dryUserId);
+
+  const [{ map: emailMap }, perfBundle, profilesByUser] = await Promise.all([
+    loadUserEmails(admin, prefUserIds),
+    fetchWeeklyPerformanceSectionByUser(admin, prefUserIds, runWeekEnding, settingsUrl),
+    loadProfilesByUser(admin, prefUserIds),
+  ]);
+  const perfHtmlByUser = perfBundle.htmlByUser;
+  const perfTextByUser = perfBundle.textLinesByUser;
 
   let usersProcessed = 0;
   let emailsSent = 0;
   let inappInserted = 0;
 
-  let prefList = prefsRows as {
-    user_id: string;
-    weekly_digest_email: boolean;
-    weekly_digest_inapp: boolean;
-    email_enabled: boolean;
-  }[];
-  if (dryUserId) {
-    prefList = prefList.filter((p) => p.user_id === dryUserId);
-  }
-
-  const prefUserIds = prefList.map((p) => p.user_id);
-  const [{ map: digestEmailMap }, perfBundle] = await Promise.all([
-    loadUserEmails(admin, prefUserIds),
-    fetchWeeklyPerformanceSectionByUser(admin, prefUserIds, runWeekEnding, settingsUrl),
-  ]);
-  const perfSectionByUser = perfBundle.htmlByUser;
-  const perfTextLinesByUser = perfBundle.textLinesByUser;
-
-  // TODO(perf): batch via RPC or window-function SQL when digest subscribers >500
   for (const pref of prefList) {
-    const { data: recentRows, error: cErr } = await admin
-      .from('notifications')
-      .select('type, title')
-      .eq('user_id', pref.user_id)
-      .gte('created_at', weekAgo)
-      .order('created_at', { ascending: false })
-      .limit(250);
+    const masterEmail = pref.email_enabled;
+    const masterInapp = pref.inapp_enabled;
 
-    if (cErr) continue;
-    const rows = recentRows ?? [];
-    const perfHtml = perfSectionByUser.get(pref.user_id) ?? '';
-    const hasPerfOnlyDigest = !rows.length && perfHtml.length > 0;
-    if (!rows.length && !perfHtml.length) continue;
+    const sections: WeeklyBundleSection[] = [];
+    const textLines: string[] = [];
 
-    const byType = new Map<string, number>();
-    for (const r of rows as { type: string }[]) {
-      byType.set(r.type, (byType.get(r.type) ?? 0) + 1);
+    if (pref.weekly_product_updates_email && productUpdatesHtml.trim()) {
+      sections.push({ heading: 'Product updates', html: productUpdatesHtml });
+      textLines.push('Product updates', '(see HTML email)', '');
     }
-    const summaryLines =
-      rows.length > 0
-        ? [...Array.from(byType.entries()).map(([t, n]) => `${n}× ${t.replace(/_/g, ' ')}`)]
-        : ['No notification alerts in the last 7 days'];
+
+    if (pref.weekly_portfolio_summary_email) {
+      const perfHtml = perfHtmlByUser.get(pref.user_id) ?? '';
+      const perfPlain = perfTextByUser.get(pref.user_id) ?? [];
+      if (perfHtml.trim()) {
+        sections.push({ heading: 'Your portfolios this week', html: perfHtml });
+        textLines.push('Your portfolios this week', ...perfPlain, '');
+      }
+    }
+
+    if (pref.weekly_per_portfolio_email) {
+      const profs = profilesByUser.get(pref.user_id) ?? [];
+      const blocks: { heading: string; bullets: string[] }[] = [];
+      const { data: recentRows, error: cErr } = await admin
+        .from('notifications')
+        .select('type, title, data')
+        .eq('user_id', pref.user_id)
+        .gte('created_at', weekAgoIso)
+        .order('created_at', { ascending: false })
+        .limit(400);
+      if (!cErr && recentRows) {
+        for (const prof of profs) {
+          if (prof.notify_weekly_email === false) continue;
+          const strategyName = profileStrategyName(prof);
+          const lab = profileConfigLabel(prof);
+          const heading = lab ? `${strategyName} · ${lab}` : strategyName;
+          const bullets: string[] = [];
+          for (const r of recentRows as { type: string; title: string | null; data: unknown }[]) {
+            if (!PORTFOLIO_DIGEST_TYPES.has(r.type)) continue;
+            if (notificationProfileId(r.data) !== prof.id) continue;
+            const t = (r.title ?? '').trim();
+            if (t) bullets.push(t);
+          }
+          if (bullets.length) blocks.push({ heading, bullets });
+        }
+      }
+      if (blocks.length) {
+        const html = buildFollowedPortfoliosBundleSectionHtml(blocks);
+        if (html.trim()) {
+          sections.push({ heading: 'Followed portfolios', html });
+          textLines.push('Followed portfolios');
+          for (const b of blocks) {
+            textLines.push(b.heading);
+            textLines.push(...b.bullets.map((x) => `• ${x}`));
+            textLines.push('');
+          }
+        }
+      }
+    }
+
+    if (pref.weekly_tracked_stocks_email) {
+      const lines = trackedLinesByUser.get(pref.user_id) ?? [];
+      const stHtml = buildTrackedStocksBundleSectionHtml(lines);
+      if (stHtml.trim()) {
+        sections.push({ heading: 'Tracked stocks (default model)', html: stHtml });
+        textLines.push('Tracked stocks (default model)', ...lines.map((l) => `• ${l}`), '');
+      }
+    }
+
+    const willInapp = pref.weekly_digest_inapp && masterInapp;
+    const willEmail = masterEmail && sections.length > 0;
+    if (!willInapp && !willEmail) continue;
 
     usersProcessed += 1;
 
-    if (pref.weekly_digest_inapp) {
+    if (willInapp) {
+      const { data: countRows } = await admin
+        .from('notifications')
+        .select('type')
+        .eq('user_id', pref.user_id)
+        .gte('created_at', weekAgoIso)
+        .limit(500);
+      const c = weeklyInappCounts((countRows ?? []) as { type: string }[]);
+      const body = `${c.portfolioUpdates} portfolio updates, ${c.ratingChanges} rating changes, ${c.priceAlerts} price alerts this week.`;
       const { error: insErr } = await admin.from('notifications').insert({
         user_id: pref.user_id,
         type: 'weekly_digest',
-        title: `Weekly digest — week ending ${runWeekEnding}`,
-        body: summaryLines.join('\n'),
+        title: `Weekly summary - week ending ${runWeekEnding}`,
+        body,
         data: {
           run_week_ending: runWeekEnding,
-          by_type: Object.fromEntries(byType),
+          by_type: {
+            portfolio_updates: c.portfolioUpdates,
+            rating_changes: c.ratingChanges,
+            price_alerts: c.priceAlerts,
+          },
           href: inboxUrl,
-          ...(hasPerfOnlyDigest ? { portfolio_summary_email: true } : {}),
         },
       });
       if (!insErr) inappInserted += 1;
     }
 
-    if (pref.weekly_digest_email && pref.email_enabled) {
-      const email = digestEmailMap.get(pref.user_id);
-      if (!email) continue;
-
-      const token = signUnsubscribePayload({ userId: pref.user_id, scope: 'all' });
-      const unsubscribeUrl = token
-        ? `${base}/api/platform/notifications/unsubscribe?token=${encodeURIComponent(token)}`
-        : settingsUrl;
-      const curatedHtml = buildCuratedSectionsHtml(rows as { type: string; title: string | null }[]);
-      const sectionsHtml = `${perfHtml}${curatedHtml}`;
-      const perfPlain = perfTextLinesByUser.get(pref.user_id) ?? [];
-      const titleSamples = (rows as { type: string; title: string | null }[])
-        .filter((r) => !['weekly_digest', 'system', 'stock_rating_weekly'].includes(r.type))
-        .map((r) => (r.title ?? '').trim())
-        .filter(Boolean)
-        .slice(0, 8);
-      const textSummaryLines: string[] = [];
-      if (perfPlain.length) {
-        textSummaryLines.push('Followed portfolios (week window):');
-        textSummaryLines.push(...perfPlain);
+    if (willEmail) {
+      const email = emailMap.get(pref.user_id);
+      if (email) {
+        const token = signUnsubscribePayload({ userId: pref.user_id, scope: 'all' });
+        const unsubscribeUrl = token
+          ? `${base}/api/platform/notifications/unsubscribe?token=${encodeURIComponent(token)}`
+          : settingsUrl;
+        const { html, text, subject } = buildWeeklyBundleEmailHtml({
+          runWeekEnding,
+          sections,
+          textLines,
+          inboxUrl,
+          settingsUrl,
+          unsubscribeUrl,
+        });
+        const res = await sendTransactionalEmail({
+          to: email,
+          subject,
+          html,
+          text,
+          headers: listUnsubscribeHeaders(unsubscribeUrl),
+        });
+        if (res.ok) emailsSent += 1;
       }
-      if (titleSamples.length) {
-        textSummaryLines.push('Recent alerts:');
-        textSummaryLines.push(...titleSamples);
-      } else if (!rows.length) {
-        textSummaryLines.push('No individual alerts in the last 7 days.');
-      } else {
-        textSummaryLines.push(...summaryLines);
-      }
-      const { html, text } = buildCuratedWeeklyDigestEmailHtml({
-        runWeekEnding,
-        sectionsHtml,
-        inboxUrl,
-        settingsUrl,
-        unsubscribeUrl,
-        textSummaryLines,
-      });
-      const res = await sendTransactionalEmail({
-        to: email,
-        subject: `Weekly portfolio summary — ${runWeekEnding}`,
-        html,
-        text,
-        headers: listUnsubscribeHeaders(unsubscribeUrl),
-      });
-      if (res.ok) emailsSent += 1;
     }
   }
-
-  const freeOnly = await runFreeTrackedStockWeeklyRoundup(admin, {
-    runWeekEnding,
-    dryUserId,
-    base,
-    notificationsSettingsPath,
-  });
 
   return {
     usersProcessed,
     emailsSent,
     inappInserted,
-    freeRoundupUsers: freeOnly.usersProcessed,
-    freeRoundupEmailsSent: freeOnly.emailsSent,
-    freeRoundupInappInserted: freeOnly.inappInserted,
+    freeRoundupUsers: 0,
+    freeRoundupEmailsSent: 0,
+    freeRoundupInappInserted: 0,
   };
 }

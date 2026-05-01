@@ -11,6 +11,10 @@ export type Prefs = {
   weekly_digest_enabled: boolean;
   weekly_digest_email: boolean;
   weekly_digest_inapp: boolean;
+  weekly_product_updates_email: boolean;
+  weekly_portfolio_summary_email: boolean;
+  weekly_per_portfolio_email: boolean;
+  weekly_tracked_stocks_email: boolean;
   email_enabled: boolean;
   inapp_enabled: boolean;
 };
@@ -35,6 +39,7 @@ export type ProfileRow = {
   notify_price_move_email: boolean;
   notify_entries_exits_inapp: boolean;
   notify_entries_exits_email: boolean;
+  notify_weekly_email: boolean;
   strategy_models: { slug: string; name: string } | null;
   portfolio_config: { label: string | null } | null;
 };

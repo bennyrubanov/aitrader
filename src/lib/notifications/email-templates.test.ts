@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  buildCuratedWeeklyDigestEmailHtml,
   buildEmailShell,
+  buildWeeklyBundleEmailHtml,
 } from '@/lib/notifications/email-templates';
 
 test('buildEmailShell includes preheader, unsubscribe, and no script', () => {
@@ -23,16 +23,41 @@ test('buildEmailShell includes preheader, unsubscribe, and no script', () => {
   assert.doesNotMatch(html, /<div\b/i);
 });
 
-test('buildCuratedWeeklyDigestEmailHtml text includes textSummaryLines and Unsubscribe', () => {
-  const { text } = buildCuratedWeeklyDigestEmailHtml({
-    runWeekEnding: '2026-04-22',
-    sectionsHtml: '<p>x</p>',
+test('buildWeeklyBundleEmailHtml orders sections, receiving note, unsubscribe', () => {
+  const { html, text, subject } = buildWeeklyBundleEmailHtml({
+    runWeekEnding: '2026-05-01',
+    sections: [
+      { heading: 'Alpha', html: '<p style="margin:0">A</p>' },
+      { heading: 'Beta', html: '<p style="margin:0">B</p>' },
+    ],
+    textLines: ['Alpha', 'A', '', 'Beta', 'B'],
     inboxUrl: 'https://example.com/inbox',
     settingsUrl: 'https://example.com/settings',
     unsubscribeUrl: 'https://example.com/unsub?token=z',
-    textSummaryLines: ['Line A', 'Line B'],
   });
-  assert.match(text, /Line A/);
-  assert.match(text, /Line B/);
+  assert.equal(subject, 'AITrader weekly — 2026-05-01');
+  assert.match(html, /Your AITrader weekly — week ending 2026-05-01/);
+  const alphaPos = html.indexOf('Alpha');
+  const betaPos = html.indexOf('Beta');
+  assert.ok(alphaPos > 0 && betaPos > alphaPos);
+  assert.match(
+    html,
+    /You are receiving this email because you opted in to the AITrader weekly summary/
+  );
+  assert.match(html, /Notification settings/);
+  assert.match(html, /Unsubscribe/);
   assert.match(text, /Unsubscribe:/);
+});
+
+test('buildWeeklyBundleEmailHtml with one section does not include skipped headings', () => {
+  const { html } = buildWeeklyBundleEmailHtml({
+    runWeekEnding: '2026-05-01',
+    sections: [{ heading: 'Only', html: '<p style="margin:0">X</p>' }],
+    textLines: ['Only', 'X'],
+    inboxUrl: 'https://example.com/inbox',
+    settingsUrl: 'https://example.com/settings',
+    unsubscribeUrl: 'https://example.com/unsub?token=z',
+  });
+  assert.match(html, />Only</);
+  assert.doesNotMatch(html, />Beta</);
 });

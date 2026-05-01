@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Tooltip,
   TooltipContent,
@@ -41,29 +42,30 @@ type TrackedItem = {
   notify_rating_email: boolean;
 };
 
-export type NotificationsSettingsNewsletterProps = {
-  /** When `bell`, the marketing newsletter row is omitted (manage on full settings). */
+export type NotificationsSettingsSectionProps = {
   embedMode?: 'settings' | 'bell';
-  newsletterSubscribed?: boolean;
-  newsletterDisabled?: boolean;
-  onNewsletterChange?: (next: boolean) => void | Promise<void>;
 };
+
+function normalizePrefs(raw: Record<string, unknown>): Prefs {
+  const b = (k: string, d = true) => Boolean(raw[k] ?? d);
+  return {
+    weekly_digest_enabled: b('weekly_digest_enabled'),
+    weekly_digest_email: b('weekly_digest_email'),
+    weekly_digest_inapp: b('weekly_digest_inapp'),
+    weekly_product_updates_email: b('weekly_product_updates_email'),
+    weekly_portfolio_summary_email: b('weekly_portfolio_summary_email'),
+    weekly_per_portfolio_email: b('weekly_per_portfolio_email'),
+    weekly_tracked_stocks_email: b('weekly_tracked_stocks_email'),
+    email_enabled: b('email_enabled'),
+    inapp_enabled: b('inapp_enabled'),
+  };
+}
 
 function firstModel(
   m: ModelSub['strategy_models']
 ): { slug: string; name: string } | null {
   if (!m) return null;
   return Array.isArray(m) ? m[0] ?? null : m;
-}
-
-function ChannelHeader() {
-  return (
-    <div className="grid grid-cols-[1fr_auto_auto] gap-3 items-center text-[11px] font-medium uppercase tracking-wide text-muted-foreground px-1">
-      <span />
-      <span className="w-14 text-center">In-app</span>
-      <span className="w-14 text-center">Email</span>
-    </div>
-  );
 }
 
 type ChannelPairProps = {
@@ -80,6 +82,58 @@ type ChannelPairProps = {
   inAppMode?: 'switch' | 'dash';
   emailMode?: 'switch' | 'dash';
 };
+
+function EmailSectionRow({
+  label,
+  description,
+  checked,
+  disabled,
+  onChange,
+}: {
+  label: React.ReactNode;
+  description?: React.ReactNode;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5 py-2.5 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-medium">{label}</div>
+        {description ? <p className="text-xs text-muted-foreground mt-0.5">{description}</p> : null}
+      </div>
+      <div className="flex shrink-0 justify-end sm:pt-0.5">
+        <Switch checked={checked} disabled={disabled} onCheckedChange={onChange} aria-label="Email" />
+      </div>
+    </div>
+  );
+}
+
+function InAppSectionRow({
+  label,
+  description,
+  checked,
+  disabled,
+  onChange,
+}: {
+  label: React.ReactNode;
+  description?: React.ReactNode;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5 py-2.5 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-medium">{label}</div>
+        {description ? <p className="text-xs text-muted-foreground mt-0.5">{description}</p> : null}
+      </div>
+      <div className="flex shrink-0 justify-end sm:pt-0.5">
+        <Switch checked={checked} disabled={disabled} onCheckedChange={onChange} aria-label="In-app" />
+      </div>
+    </div>
+  );
+}
 
 function ChannelPair({
   label,
@@ -142,12 +196,7 @@ function ChannelPair({
   );
 }
 
-export function NotificationsSettingsSection({
-  embedMode = 'settings',
-  newsletterSubscribed = false,
-  newsletterDisabled = true,
-  onNewsletterChange = async () => {},
-}: NotificationsSettingsNewsletterProps) {
+export function NotificationsSettingsSection(_props: NotificationsSettingsSectionProps) {
   const { toast } = useToast();
   const authState = useAuthState();
   const access = getAppAccessState({
@@ -178,9 +227,10 @@ export function NotificationsSettingsSection({
         fetch('/api/platform/user-portfolio'),
       ]);
       if (pRes.ok) {
-        const j = (await pRes.json()) as { preferences: Prefs };
-        setPrefs(j.preferences);
-        setCachedPrefs(j.preferences);
+        const j = (await pRes.json()) as { preferences: Record<string, unknown> };
+        const normalized = normalizePrefs(j.preferences ?? {});
+        setPrefs(normalized);
+        setCachedPrefs(normalized);
       }
       if (sRes.ok) {
         const j = (await sRes.json()) as { subscriptions: ModelSub[] };
@@ -203,6 +253,7 @@ export function NotificationsSettingsSection({
             notify_price_move_email: p.notify_price_move_email ?? false,
             notify_entries_exits_inapp: p.notify_entries_exits_inapp ?? (nh && inapp),
             notify_entries_exits_email: p.notify_entries_exits_email ?? (nh && email),
+            notify_weekly_email: p.notify_weekly_email ?? true,
           };
         });
         setProfiles(nextProfiles);
@@ -253,7 +304,7 @@ export function NotificationsSettingsSection({
     }
   };
 
-  const patchProfile = async (profileId: string, patch: Record<string, boolean>) => {
+  const patchProfile = async (profileId: string, patch: Record<string, unknown>) => {
     const res = await fetch('/api/platform/user-portfolio-profile', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -371,240 +422,300 @@ export function NotificationsSettingsSection({
   const disableEmailCol = savingPrefs || !prefs.email_enabled;
   const bothMastersOff = !prefs.inapp_enabled && !prefs.email_enabled;
 
+  const stocksIntro =
+    isFreeTier
+      ? 'In-app weekly-style alerts for non-premium stocks. Upgrade for in-app alerts on any stock.'
+      : 'In-app when a tracked stock’s AI rating bucket changes (default model).';
+
+  const emailTabDisabled = savingPrefs || !prefs.email_enabled;
+
   return (
     <TooltipProvider>
-      <div className="space-y-0 divide-y">
-        <div className="px-5 py-4 space-y-1">
-          <p className="text-sm font-medium pb-2">Master</p>
-          <ChannelPair
-            label="All email notifications"
-            inAppMode="dash"
-            inAppChecked={false}
-            emailChecked={prefs.email_enabled}
-            onInApp={() => {}}
-            onEmail={(v) => void savePrefs({ email_enabled: v })}
-            disableEmail={savingPrefs}
-          />
-          <ChannelPair
-            label="All in-app notifications"
-            inAppChecked={prefs.inapp_enabled}
-            emailChecked={false}
-            onInApp={(v) => void savePrefs({ inapp_enabled: v })}
-            onEmail={() => {}}
-            emailMode="dash"
-            disableInApp={savingPrefs}
-          />
-          {bothMastersOff ? (
-            <p className="text-xs text-amber-600 dark:text-amber-500 pt-1">
-              Turn on at least one channel above to enable detailed toggles.
-            </p>
-          ) : null}
+      <Tabs defaultValue="email" className="w-full">
+        <div className="border-b px-5 pt-3">
+          <TabsList className="mb-3 h-9">
+            <TabsTrigger value="email" className="text-xs sm:text-sm">
+              Email
+            </TabsTrigger>
+            <TabsTrigger value="inapp" className="text-xs sm:text-sm">
+              In-app
+            </TabsTrigger>
+          </TabsList>
         </div>
 
-        <div className="px-5 py-4 space-y-2">
-          <p className="text-sm font-medium">General</p>
-          <ChannelHeader />
-          {embedMode === 'settings' ? (
-            <ChannelPair
-              label="AI Trader weekly digest"
-              description="Marketing newsletter — product updates and market highlights."
-              inAppMode="dash"
-              inAppChecked={false}
-              emailChecked={newsletterSubscribed}
-              onInApp={() => {}}
-              onEmail={(v) => void onNewsletterChange(v)}
-              disableInApp={savingPrefs}
-              disableEmail={newsletterDisabled || savingPrefs}
-            />
-          ) : null}
-          <ChannelPair
-            label="Your weekly portfolio summary"
-            description="Curated recap: followed portfolios, rating-day updates, and rebalance reminders."
-            inAppChecked={prefs.weekly_digest_inapp}
-            emailChecked={prefs.weekly_digest_email}
-            onInApp={(v) => void savePrefs({ weekly_digest_inapp: v })}
-            onEmail={(v) => void savePrefs({ weekly_digest_email: v })}
-            disableInApp={disableInAppCol}
-            disableEmail={disableEmailCol}
-          />
-        </div>
-
-        <div className="px-5 py-4 space-y-3">
-          <div>
-            <p className="text-sm font-medium">Stocks — AI rating changes</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {isFreeTier
-                ? 'Weekly alerts for non-premium stocks. Upgrade for daily alerts on any stock.'
-                : 'Daily alerts when a tracked stock’s AI rating bucket changes. Rankings stay in-app only.'}
+        <TabsContent value="email" className="mt-0 space-y-0 divide-y outline-none">
+          <div className="px-5 py-4 space-y-3">
+            <p className="text-xs text-muted-foreground">
+              We send one summary email per user per week (Fridays). Pick the sections to include.
             </p>
-          </div>
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={stockQuery}
-              onChange={(e) => setStockQuery(e.target.value)}
-              placeholder="Search symbol or company…"
-              className="h-9 pl-8 text-sm"
-              aria-label="Search stocks to track"
+            <EmailSectionRow
+              label="Receive the weekly email"
+              description="Master switch for product email from AITrader."
+              checked={prefs.email_enabled}
+              disabled={savingPrefs}
+              onChange={(v) => void savePrefs({ email_enabled: v })}
             />
-            {searchResults.length > 0 ? (
-              <ul className="absolute z-20 mt-1 max-h-52 w-full overflow-auto rounded-md border bg-popover text-sm shadow-md">
-                {searchResults.map((s) => {
-                  const locked = isFreeTier && s.isPremium;
-                  return (
-                    <li key={s.symbol}>
-                      <button
-                        type="button"
-                        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-muted/80"
-                        disabled={Boolean(addingSymbol) || (locked && !hasPaidStockAccess)}
-                        onClick={() => void addStock(s)}
-                      >
-                        <span className="min-w-0 truncate">
-                          <span className="font-medium">{s.symbol}</span>{' '}
-                          <span className="text-muted-foreground">{s.name}</span>
-                        </span>
-                        {locked ? (
-                          <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-                            <Lock className="size-3.5" />
-                            Supporter+
-                          </span>
+            <EmailSectionRow
+              label="Product updates and market highlights"
+              description="When we publish items for this week, they appear in your Friday email."
+              checked={prefs.weekly_product_updates_email}
+              disabled={emailTabDisabled}
+              onChange={(v) => void savePrefs({ weekly_product_updates_email: v })}
+            />
+            <EmailSectionRow
+              label="Weekly portfolio summary"
+              description="Approx. week-over-week change for followed portfolios."
+              checked={prefs.weekly_portfolio_summary_email}
+              disabled={emailTabDisabled}
+              onChange={(v) => void savePrefs({ weekly_portfolio_summary_email: v })}
+            />
+            <EmailSectionRow
+              label="Followed-portfolio summaries"
+              description="Rebalances, entries/exits, price moves, and model-rating notices from the past week."
+              checked={prefs.weekly_per_portfolio_email}
+              disabled={emailTabDisabled}
+              onChange={(v) => void savePrefs({ weekly_per_portfolio_email: v })}
+            />
+            {prefs.weekly_per_portfolio_email && prefs.email_enabled ? (
+              <div className="ml-1 space-y-2 rounded-md border border-dashed bg-muted/20 p-3">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Include in weekly email
+                </p>
+                {profiles.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No followed portfolios.</p>
+                ) : (
+                  profiles.map((p) => (
+                    <div
+                      key={p.id}
+                      className="flex flex-col gap-2 py-1.5 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <span className="text-sm truncate">
+                        {p.strategy_models?.name ?? 'Portfolio'}
+                        {p.portfolio_config?.label ? (
+                          <span className="text-muted-foreground"> · {p.portfolio_config.label}</span>
                         ) : null}
-                      </button>
+                      </span>
+                      <Switch
+                        checked={p.notify_weekly_email}
+                        disabled={savingPrefs}
+                        onCheckedChange={(v) => void patchProfile(p.id, { notifyWeeklyEmail: v })}
+                        aria-label="Include portfolio in weekly email"
+                      />
+                    </div>
+                  ))
+                )}
+              </div>
+            ) : null}
+            <EmailSectionRow
+              label="Tracked stock rating changes (default model)"
+              description="Summarizes bucket changes for symbols you track."
+              checked={prefs.weekly_tracked_stocks_email}
+              disabled={emailTabDisabled}
+              onChange={(v) => void savePrefs({ weekly_tracked_stocks_email: v })}
+            />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="inapp" className="mt-0 space-y-0 divide-y outline-none">
+          <div className="px-5 py-4 space-y-1">
+            <p className="text-sm font-medium pb-2">Master</p>
+            <InAppSectionRow
+              label="All in-app notifications"
+              checked={prefs.inapp_enabled}
+              disabled={savingPrefs}
+              onChange={(v) => void savePrefs({ inapp_enabled: v })}
+            />
+            {bothMastersOff ? (
+              <p className="text-xs text-amber-600 dark:text-amber-500 pt-1">
+                Turn on in-app above to enable detailed toggles.
+              </p>
+            ) : null}
+          </div>
+
+          <div className="px-5 py-4 space-y-2">
+            <p className="text-sm font-medium">General</p>
+            <ChannelPair
+              label="Weekly in-app recap"
+              description="Friday summary row in your notification inbox."
+              inAppChecked={prefs.weekly_digest_inapp}
+              emailChecked={false}
+              onInApp={(v) => void savePrefs({ weekly_digest_inapp: v })}
+              onEmail={() => {}}
+              emailMode="dash"
+              disableInApp={disableInAppCol}
+            />
+          </div>
+
+          <div className="px-5 py-4 space-y-3">
+            <div>
+              <p className="text-sm font-medium">Stocks — AI rating changes</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{stocksIntro}</p>
+            </div>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={stockQuery}
+                onChange={(e) => setStockQuery(e.target.value)}
+                placeholder="Search symbol or company…"
+                className="h-9 pl-8 text-sm"
+                aria-label="Search stocks to track"
+              />
+              {searchResults.length > 0 ? (
+                <ul className="absolute z-20 mt-1 max-h-52 w-full overflow-auto rounded-md border bg-popover text-sm shadow-md">
+                  {searchResults.map((s) => {
+                    const locked = isFreeTier && s.isPremium;
+                    return (
+                      <li key={s.symbol}>
+                        <button
+                          type="button"
+                          className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-muted/80"
+                          disabled={Boolean(addingSymbol) || (locked && !hasPaidStockAccess)}
+                          onClick={() => void addStock(s)}
+                        >
+                          <span className="min-w-0 truncate">
+                            <span className="font-medium">{s.symbol}</span>{' '}
+                            <span className="text-muted-foreground">{s.name}</span>
+                          </span>
+                          {locked ? (
+                            <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+                              <Lock className="size-3.5" />
+                              Supporter+
+                            </span>
+                          ) : null}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : null}
+            </div>
+
+            {tracked.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No tracked stocks yet.</p>
+            ) : (
+              <div className="space-y-1 rounded-lg border bg-muted/15 p-2">
+                <div className="grid grid-cols-[1fr_auto_auto] gap-2 px-1 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  <span />
+                  <span className="w-14 text-center">Remove</span>
+                  <span className="w-14 text-center">In-app</span>
+                </div>
+                {tracked.map((t) => {
+                  const lockedRow = isFreeTier && t.is_premium_stock;
+                  const rowDisabled = Boolean(lockedRow);
+                  return (
+                    <div
+                      key={t.stock_id}
+                      className="grid grid-cols-[1fr_auto_auto] gap-2 items-center py-1.5 border-t first:border-t-0"
+                    >
+                      <div className="min-w-0 flex items-center gap-1.5">
+                        {lockedRow ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Lock className="size-3.5 shrink-0 text-muted-foreground" />
+                            </TooltipTrigger>
+                            <TooltipContent>Requires Supporter+ to enable alerts on this symbol.</TooltipContent>
+                          </Tooltip>
+                        ) : null}
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium truncate">{t.symbol}</div>
+                          {t.company_name ? (
+                            <div className="text-[11px] text-muted-foreground truncate">{t.company_name}</div>
+                          ) : null}
+                        </div>
+                      </div>
+                      <div className="flex w-14 justify-center">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 shrink-0 text-muted-foreground hover:text-destructive"
+                          aria-label={`Remove ${t.symbol}`}
+                          onClick={() => void removeStock(t.stock_id)}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </div>
+                      <div className="flex w-14 justify-center">
+                        <Switch
+                          checked={t.notify_rating_inapp}
+                          disabled={rowDisabled || disableInAppCol}
+                          onCheckedChange={(v) => void patchStock(t.stock_id, { notifyRatingInapp: v })}
+                          aria-label={`In-app for ${t.symbol}`}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="px-5 py-4 space-y-3">
+            <p className="text-sm font-medium">Followed portfolios</p>
+            {profiles.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No followed portfolios.</p>
+            ) : (
+              profiles.map((p) => (
+                <div key={p.id} className="rounded-lg border bg-muted/15 px-3 py-3 space-y-2">
+                  <div className="text-sm font-medium truncate">
+                    {p.strategy_models?.name ?? 'Portfolio'}{' '}
+                    {p.portfolio_config?.label ? (
+                      <span className="text-muted-foreground font-normal">· {p.portfolio_config.label}</span>
+                    ) : null}
+                  </div>
+                  <ChannelPair
+                    label="Rebalance action reminders"
+                    inAppChecked={p.notify_rebalance_inapp}
+                    emailChecked={p.notify_rebalance_email}
+                    onInApp={(v) => void patchProfile(p.id, { notifyRebalanceInapp: v })}
+                    onEmail={() => {}}
+                    emailMode="dash"
+                    disableInApp={disableInAppCol}
+                  />
+                  <ChannelPair
+                    label="Portfolio price alerts"
+                    description="±5% vs prior snapshot day."
+                    inAppChecked={p.notify_price_move_inapp ?? false}
+                    emailChecked={p.notify_price_move_email ?? false}
+                    onInApp={(v) => void patchProfile(p.id, { notifyPriceMoveInapp: v })}
+                    onEmail={() => {}}
+                    emailMode="dash"
+                    disableInApp={disableInAppCol}
+                  />
+                  <ChannelPair
+                    label="Portfolio entries and exits"
+                    inAppChecked={p.notify_entries_exits_inapp ?? true}
+                    emailChecked={p.notify_entries_exits_email ?? true}
+                    onInApp={(v) => void patchProfile(p.id, { notifyEntriesExitsInapp: v })}
+                    onEmail={() => {}}
+                    emailMode="dash"
+                    disableInApp={disableInAppCol}
+                  />
+                </div>
+              ))
+            )}
+          </div>
+
+          {subs.length > 0 ? (
+            <div className="px-5 py-4 space-y-2 border-t bg-muted/5">
+              <p className="text-xs font-medium text-muted-foreground">Model subscriptions (from strategy pages)</p>
+              <ul className="space-y-1 text-xs text-muted-foreground">
+                {subs.map((s) => {
+                  const meta = firstModel(s.strategy_models);
+                  return (
+                    <li key={s.strategy_id} className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="font-medium text-foreground">{meta?.name ?? 'Model'}</span>
+                      <span>
+                        email {s.email_enabled ? 'on' : 'off'} · in-app {s.inapp_enabled ? 'on' : 'off'}
+                      </span>
                     </li>
                   );
                 })}
               </ul>
-            ) : null}
-          </div>
-
-          {tracked.length === 0 ? (
-            <p className="text-xs text-muted-foreground">No tracked stocks yet.</p>
-          ) : (
-            <div className="space-y-1 rounded-lg border bg-muted/15 p-2">
-              <ChannelHeader />
-              {tracked.map((t) => {
-                const lockedRow = isFreeTier && t.is_premium_stock;
-                const rowDisabled = Boolean(lockedRow);
-                return (
-                  <div
-                    key={t.stock_id}
-                    className="grid grid-cols-[1fr_auto_auto_auto] gap-2 items-center py-1.5 border-t first:border-t-0"
-                  >
-                    <div className="min-w-0 flex items-center gap-1.5">
-                      {lockedRow ? (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Lock className="size-3.5 shrink-0 text-muted-foreground" />
-                          </TooltipTrigger>
-                          <TooltipContent>Requires Supporter+ to enable alerts on this symbol.</TooltipContent>
-                        </Tooltip>
-                      ) : null}
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium truncate">{t.symbol}</div>
-                        {t.company_name ? (
-                          <div className="text-[11px] text-muted-foreground truncate">{t.company_name}</div>
-                        ) : null}
-                      </div>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="size-8 shrink-0 text-muted-foreground hover:text-destructive"
-                      aria-label={`Remove ${t.symbol}`}
-                      onClick={() => void removeStock(t.stock_id)}
-                    >
-                      <Trash2 className="size-3.5" />
-                    </Button>
-                    <div className="flex w-14 justify-center">
-                      <Switch
-                        checked={t.notify_rating_inapp}
-                        disabled={rowDisabled || disableInAppCol}
-                        onCheckedChange={(v) => void patchStock(t.stock_id, { notifyRatingInapp: v })}
-                        aria-label={`In-app for ${t.symbol}`}
-                      />
-                    </div>
-                    <div className="flex w-14 justify-center">
-                      <Switch
-                        checked={t.notify_rating_email}
-                        disabled={rowDisabled || disableEmailCol}
-                        onCheckedChange={(v) => void patchStock(t.stock_id, { notifyRatingEmail: v })}
-                        aria-label={`Email for ${t.symbol}`}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
             </div>
-          )}
-        </div>
-
-        <div className="px-5 py-4 space-y-3">
-          <p className="text-sm font-medium">Followed portfolios</p>
-          {profiles.length === 0 ? (
-            <p className="text-xs text-muted-foreground">No followed portfolios.</p>
-          ) : (
-            profiles.map((p) => (
-              <div key={p.id} className="rounded-lg border bg-muted/15 px-3 py-3 space-y-2">
-                <div className="text-sm font-medium truncate">
-                  {p.strategy_models?.name ?? 'Portfolio'}{' '}
-                  {p.portfolio_config?.label ? (
-                    <span className="text-muted-foreground font-normal">· {p.portfolio_config.label}</span>
-                  ) : null}
-                </div>
-                <ChannelHeader />
-                <ChannelPair
-                  label="Rebalance action reminders"
-                  inAppChecked={p.notify_rebalance_inapp}
-                  emailChecked={p.notify_rebalance_email}
-                  onInApp={(v) => void patchProfile(p.id, { notifyRebalanceInapp: v })}
-                  onEmail={(v) => void patchProfile(p.id, { notifyRebalanceEmail: v })}
-                  disableInApp={disableInAppCol}
-                  disableEmail={disableEmailCol}
-                />
-                <ChannelPair
-                  label="Portfolio price alerts"
-                  description="±5% vs prior snapshot day."
-                  inAppChecked={p.notify_price_move_inapp ?? false}
-                  emailChecked={p.notify_price_move_email ?? false}
-                  onInApp={(v) => void patchProfile(p.id, { notifyPriceMoveInapp: v })}
-                  onEmail={(v) => void patchProfile(p.id, { notifyPriceMoveEmail: v })}
-                  disableInApp={disableInAppCol}
-                  disableEmail={disableEmailCol}
-                />
-                <ChannelPair
-                  label="Portfolio entries and exits"
-                  inAppChecked={p.notify_entries_exits_inapp ?? true}
-                  emailChecked={p.notify_entries_exits_email ?? true}
-                  onInApp={(v) => void patchProfile(p.id, { notifyEntriesExitsInapp: v })}
-                  onEmail={(v) => void patchProfile(p.id, { notifyEntriesExitsEmail: v })}
-                  disableInApp={disableInAppCol}
-                  disableEmail={disableEmailCol}
-                />
-              </div>
-            ))
-          )}
-        </div>
-
-        {subs.length > 0 ? (
-          <div className="px-5 py-4 space-y-2 border-t bg-muted/5">
-            <p className="text-xs font-medium text-muted-foreground">Model subscriptions (from strategy pages)</p>
-            <ul className="space-y-1 text-xs text-muted-foreground">
-              {subs.map((s) => {
-                const meta = firstModel(s.strategy_models);
-                return (
-                  <li key={s.strategy_id} className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <span className="font-medium text-foreground">{meta?.name ?? 'Model'}</span>
-                    <span>
-                      email {s.email_enabled ? 'on' : 'off'} · in-app {s.inapp_enabled ? 'on' : 'off'}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        ) : null}
-      </div>
+          ) : null}
+        </TabsContent>
+      </Tabs>
 
       <SubscriptionUpgradeDialog
         open={upgradeOpen}

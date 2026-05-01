@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { resolveDryUserIdForCron } from '@/lib/notifications/resolve-dry-user-for-cron';
 import { createAdminClient } from '@/utils/supabase/admin';
-import { runWeeklyDigest } from '@/lib/notifications/weekly-digest-cron';
+import { runWeeklyEmailBundle } from '@/lib/notifications/weekly-digest-cron';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -49,7 +49,7 @@ export async function GET(req: Request) {
       }
       dryUserId = resolved.dryUserId;
     }
-    const summary = await runWeeklyDigest(admin, { dryUserId });
+    const summary = await runWeeklyEmailBundle(admin, { dryUserId });
     return NextResponse.json({ ok: true, dryUser: dryUserId, ...summary });
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Unknown error';

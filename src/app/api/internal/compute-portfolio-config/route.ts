@@ -14,7 +14,7 @@ import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/utils/supabase/admin';
 import {
   CONFIG_DAILY_SERIES_CACHE_TAG,
-  refreshDailySeriesSnapshotsForStrategy,
+  refreshDailySeriesSnapshotForConfig,
 } from '@/lib/config-daily-series';
 import { PUBLIC_CACHE_TAGS } from '@/lib/public-cache';
 import { runWithSupabaseQueryCount } from '@/utils/supabase/query-counter';
@@ -360,7 +360,25 @@ export async function POST(req: Request) {
     await upsertQueueStatus(supabase, strategy_id, config_id, 'done');
 
     try {
-      await refreshDailySeriesSnapshotsForStrategy(supabase as never, { strategyId: strategy_id });
+      const { data: cfgMeta } = await supabase
+        .from('portfolio_configs')
+        .select('id, risk_level, rebalance_frequency, weighting_method, top_n')
+        .eq('id', config_id)
+        .maybeSingle();
+      if (cfgMeta) {
+        await refreshDailySeriesSnapshotForConfig(supabase as never, {
+          strategyId: strategy_id,
+          config: {
+            id: String((cfgMeta as { id: string }).id),
+            risk_level: Number((cfgMeta as { risk_level: number }).risk_level),
+            rebalance_frequency: String(
+              (cfgMeta as { rebalance_frequency: string }).rebalance_frequency
+            ),
+            weighting_method: String((cfgMeta as { weighting_method: string }).weighting_method),
+            top_n: Number((cfgMeta as { top_n?: number }).top_n ?? 20),
+          },
+        });
+      }
       revalidateTag(CONFIG_DAILY_SERIES_CACHE_TAG);
       revalidateTag(PUBLIC_CACHE_TAGS.stockPortfolioPresence);
     } catch {

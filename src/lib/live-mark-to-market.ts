@@ -7,6 +7,7 @@ import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload'
 import { PUBLIC_CACHE_TAGS } from '@/lib/public-cache';
 import { getCloseOnOrBefore, STOOQ_BENCHMARK_SYMBOLS, type StooqCsvRow } from '@/lib/stooq-benchmark-weekly';
 import { parseNasdaqRawPrice } from '@/lib/user-portfolio-entry';
+import { logPortfolioComputeDiagnostic } from '@/lib/portfolio-compute-diagnostics';
 
 type SymbolPriceMap = Record<string, number | null>;
 
@@ -572,8 +573,20 @@ export function buildDailySeriesFromSnapshots(
       } else {
         const preValue = computeRunningValue(date);
         if (preValue == null || prevSnap == null) {
-          currentSnapshot = null;
-          unitsBySymbol = new Map();
+          // Restart from notional rather than poisoning the rest of the walk. The notional
+          // series comes from `strategy_portfolio_config_performance` and is filtered to
+          // finite > 0 at the snapshot-build site, so this is the same recovery path used
+          // at snapshotIdx === 0. Skipping the cost-of-trade adjustment is intentional: the
+          // notional already encodes realized rebalance costs, so re-applying them would be
+          // double-counting.
+          const okRestart = seedUnits(sn.notional, sn.holdings);
+          currentSnapshot = okRestart ? sn : null;
+          if (!okRestart) {
+            unitsBySymbol = new Map();
+            console.warn(
+              `[live-mtm] restart-from-notional failed at rebalance date=${sn.date}; symbols missing prices`
+            );
+          }
         } else {
           const turnover = computeTurnoverSnapshotHoldings(prevSnap.holdings, sn.holdings);
           const postValue = preValue * (1 - turnover * TRANSACTION_COST_RATE);
@@ -616,12 +629,28 @@ export async function buildDailyMarkedToMarketSeriesForConfig(
     notionalSeries: PerformanceSeriesPoint[];
     startDate?: string;
     skipBenchmarkDrift?: boolean;
+    /** Optional; included in `portfolio_compute_diagnostic_events` when MTM returns null. */
+    configId?: string | null;
+    asOfRunDate?: string | null;
   }
 ): Promise<PerformanceSeriesPoint[] | null> {
   if (params.notionalSeries.length === 0) {
-    console.warn(
-      `[live-mtm] buildDailyMarkedToMarketSeriesForConfig: empty notionalSeries strategyId=${params.strategyId} risk=${params.riskLevel} freq=${params.rebalanceFrequency} weight=${params.weightingMethod}`
-    );
+    const message =
+      `[live-mtm] buildDailyMarkedToMarketSeriesForConfig: empty notionalSeries strategyId=${params.strategyId} risk=${params.riskLevel} freq=${params.rebalanceFrequency} weight=${params.weightingMethod}`;
+    console.warn(message);
+    logPortfolioComputeDiagnostic(supabase, {
+      source: 'live_mtm_build_daily_marked_to_market_series_for_config',
+      event: 'mtm_config_empty_notional',
+      strategyId: params.strategyId,
+      configId: params.configId ?? null,
+      asOfRunDate: params.asOfRunDate ?? null,
+      message,
+      payload: {
+        riskLevel: params.riskLevel,
+        rebalanceFrequency: params.rebalanceFrequency,
+        weightingMethod: params.weightingMethod,
+      },
+    });
     return null;
   }
 
@@ -632,9 +661,22 @@ export async function buildDailyMarkedToMarketSeriesForConfig(
     params.weightingMethod
   );
   if (!inputs) {
-    console.warn(
-      `[live-mtm] buildDailyMarkedToMarketSeriesForConfig: loadConfigWalkInputsForMtm returned null strategyId=${params.strategyId} risk=${params.riskLevel} freq=${params.rebalanceFrequency} weight=${params.weightingMethod}`
-    );
+    const message =
+      `[live-mtm] buildDailyMarkedToMarketSeriesForConfig: loadConfigWalkInputsForMtm returned null strategyId=${params.strategyId} risk=${params.riskLevel} freq=${params.rebalanceFrequency} weight=${params.weightingMethod}`;
+    console.warn(message);
+    logPortfolioComputeDiagnostic(supabase, {
+      source: 'live_mtm_build_daily_marked_to_market_series_for_config',
+      event: 'mtm_config_walk_inputs_null',
+      strategyId: params.strategyId,
+      configId: params.configId ?? null,
+      asOfRunDate: params.asOfRunDate ?? null,
+      message,
+      payload: {
+        riskLevel: params.riskLevel,
+        rebalanceFrequency: params.rebalanceFrequency,
+        weightingMethod: params.weightingMethod,
+      },
+    });
     return null;
   }
 
@@ -668,18 +710,48 @@ export async function buildDailyMarkedToMarketSeriesForConfig(
     snapshots.push({ date: d, notional, holdings });
   }
   if (!snapshots.length) {
-    console.warn(
-      `[live-mtm] buildDailyMarkedToMarketSeriesForConfig: no snapshots after rebalance filter strategyId=${params.strategyId} risk=${params.riskLevel} freq=${params.rebalanceFrequency} weight=${params.weightingMethod} minDate=${minDate} latestRunDate=${latestRunDate} inRangeCount=${inRange.length}`
-    );
+    const message =
+      `[live-mtm] buildDailyMarkedToMarketSeriesForConfig: no snapshots after rebalance filter strategyId=${params.strategyId} risk=${params.riskLevel} freq=${params.rebalanceFrequency} weight=${params.weightingMethod} minDate=${minDate} latestRunDate=${latestRunDate} inRangeCount=${inRange.length}`;
+    console.warn(message);
+    logPortfolioComputeDiagnostic(supabase, {
+      source: 'live_mtm_build_daily_marked_to_market_series_for_config',
+      event: 'mtm_config_no_snapshots_after_rebalance',
+      strategyId: params.strategyId,
+      configId: params.configId ?? null,
+      asOfRunDate: params.asOfRunDate ?? null,
+      message,
+      payload: {
+        riskLevel: params.riskLevel,
+        rebalanceFrequency: params.rebalanceFrequency,
+        weightingMethod: params.weightingMethod,
+        minDate,
+        latestRunDate,
+        inRangeCount: inRange.length,
+      },
+    });
     return null;
   }
 
   const start = snapshots[0]!.date;
   const tradingDates = allTradingDates.filter((d) => d >= start);
   if (!tradingDates.length) {
-    console.warn(
-      `[live-mtm] buildDailyMarkedToMarketSeriesForConfig: empty tradingDates after start=${start} strategyId=${params.strategyId} risk=${params.riskLevel} freq=${params.rebalanceFrequency} weight=${params.weightingMethod}`
-    );
+    const message =
+      `[live-mtm] buildDailyMarkedToMarketSeriesForConfig: empty tradingDates after start=${start} strategyId=${params.strategyId} risk=${params.riskLevel} freq=${params.rebalanceFrequency} weight=${params.weightingMethod}`;
+    console.warn(message);
+    logPortfolioComputeDiagnostic(supabase, {
+      source: 'live_mtm_build_daily_marked_to_market_series_for_config',
+      event: 'mtm_config_empty_trading_dates',
+      strategyId: params.strategyId,
+      configId: params.configId ?? null,
+      asOfRunDate: params.asOfRunDate ?? null,
+      message,
+      payload: {
+        riskLevel: params.riskLevel,
+        rebalanceFrequency: params.rebalanceFrequency,
+        weightingMethod: params.weightingMethod,
+        start,
+      },
+    });
     return null;
   }
 

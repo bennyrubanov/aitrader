@@ -2,15 +2,17 @@ import { NextResponse } from 'next/server';
 import { sendTransactionalEmail } from '@/lib/mailer';
 import { sendEmailByGmail } from '@/lib/sendEmailByGmail';
 import {
-  buildCuratedWeeklyDigestEmailHtml,
+  buildFollowedPortfoliosBundleSectionHtml,
   buildModelRatingsReadyEmailHtml,
   buildPerformanceSectionHtml,
   buildPortfolioEntriesExitsEmailHtml,
   buildPortfolioPriceMoveEmailHtml,
+  buildProductUpdatesSectionHtml,
   buildRatingChangesEmailHtml,
   buildRebalanceEmailHtml,
-  buildStockRatingWeeklyEmailHtml,
-  buildWeeklyDigestEmailHtml,
+  buildTrackedStocksBundleSectionHtml,
+  buildWeeklyBundleEmailHtml,
+  type WeeklyBundleSection,
 } from '@/lib/notifications/email-templates';
 import {
   buildWelcomeEmailHtml,
@@ -18,6 +20,9 @@ import {
   WELCOME_SMOKETEST_KINDS,
   type WelcomeSmoketestKind,
 } from '@/lib/notifications/welcome-email-templates';
+import { resolveDryUserIdForCron } from '@/lib/notifications/resolve-dry-user-for-cron';
+import { seedSmoketestInAppNotifications } from '@/lib/notifications/smoketest-inapp-seed';
+import { createAdminClient } from '@/utils/supabase/admin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -26,22 +31,31 @@ export const dynamic = 'force-dynamic';
  * Permanent operator-only endpoint for rendering every notification email
  * template with canned data. By default sends via `sendTransactionalEmail`
  * (Resend when `RESEND_API_KEY` + `RESEND_FROM` are set; otherwise mailer’s Gmail SMTP fallback).
- * Pass `useGmail=1` to force Gmail SMTP (`sendEmailByGmail`) for local operator tests. No DB I/O.
+ * Pass `useGmail=1` to force Gmail SMTP (`sendEmailByGmail`) for local operator tests.
+ * Email samples alone need no DB; `inappFor=…` uses the Supabase admin client.
  *
  * Auth: `?secret=$CRON_SECRET` (header `x-cron-secret`, `x-vercel-cron-secret`,
  * or `Authorization: Bearer …` also accepted, matching /api/cron/*).
  *
  * Usage:
  *   GET /api/platform/notifications/smoketest?secret=…
- *     → sends every template to tryaitrader@gmail.com (Resend by default)
+ *     → sends every template to **tryaitrader@gmail.com** (override with `to=`); subjects use `[Smoketest · …]` tags
  *   GET /api/platform/notifications/smoketest?secret=…&to=you@example.com
- *     → overrides recipient
+ *     → overrides email recipient (defaults remain tryaitrader for normal runs)
  *   GET /api/platform/notifications/smoketest?secret=…&kinds=rebalance,price-move
  *     → sends only the named kinds
  *   GET /api/platform/notifications/smoketest?secret=…&dryRun=1
  *     → returns the rendered list without sending
  *   GET /api/platform/notifications/smoketest?secret=…&useGmail=1
  *     → send via Gmail SMTP only (bypasses Resend)
+ *
+ * In-app QA (requires `SUPABASE_SECRET_KEY` + DB):
+ *   GET …?secret=…&seedInapp=1
+ *     → seeds in-app rows for **bennyrubanov112@gmail.com** (operator default). No emails unless `sendEmails=1`.
+ *   GET …?secret=…&inappFor=you@example.com
+ *     → same, but targets another user (UUID or `user_profiles.email`).
+ *   GET …?secret=…&seedInapp=1&sendEmails=1
+ *     → seed in-app for Benny **and** send the full email batch to `to` (default tryaitrader@gmail.com).
  */
 
 type CoreEmailKind =
@@ -50,9 +64,11 @@ type CoreEmailKind =
   | 'model-ratings-ready'
   | 'entries-exits'
   | 'price-move'
-  | 'stock-rating-weekly'
-  | 'curated-digest'
-  | 'weekly-digest';
+  | 'weekly-bundle-all'
+  | 'weekly-bundle-product'
+  | 'weekly-bundle-portfolio'
+  | 'weekly-bundle-followed'
+  | 'weekly-bundle-tracked';
 
 type SmoketestKind = CoreEmailKind | WelcomeSmoketestKind;
 
@@ -62,14 +78,20 @@ const CORE_KINDS: CoreEmailKind[] = [
   'model-ratings-ready',
   'entries-exits',
   'price-move',
-  'stock-rating-weekly',
-  'curated-digest',
-  'weekly-digest',
+  'weekly-bundle-all',
+  'weekly-bundle-product',
+  'weekly-bundle-portfolio',
+  'weekly-bundle-followed',
+  'weekly-bundle-tracked',
 ];
 
 const ALL_KINDS: SmoketestKind[] = [...CORE_KINDS, ...WELCOME_SMOKETEST_KINDS];
 
+/** Operator default for HTML smoketest sends (Resend / Gmail). */
 const DEFAULT_RECIPIENT = 'tryaitrader@gmail.com';
+
+/** Operator default for `seedInapp=1` when `inappFor` is omitted (`user_profiles.email`). */
+const DEFAULT_INAPP_USER_EMAIL = 'bennyrubanov112@gmail.com';
 
 type AuthResult = { ok: true } | { ok: false; status: number; reason: string };
 
@@ -125,11 +147,12 @@ function renderSamples(): RenderedEmail[] {
   const unsubscribeUrl = `${base}/api/platform/notifications/unsubscribe?token=TEST`;
   const portfolioUrl = `${base}/platform/your-portfolio`;
   const modelUrl = `${base}/strategy-models/example-strategy`;
-  const inboxUrl = settingsUrl;
+  const inboxUrl = `${base}/platform/notifications`;
   const runDate = new Date().toISOString().slice(0, 10);
   const runWeekEnding = runDate;
 
-  const SUBJECT_PREFIX = '[AITrader smoketest] ';
+  /** Inbox-scannable prefix: `[Smoketest · …]` + real subject (from templates). */
+  const st = (tag: string, subjectBody: string) => `[Smoketest · ${tag}] ${subjectBody}`;
 
   const out: RenderedEmail[] = [];
 
@@ -147,7 +170,7 @@ function renderSamples(): RenderedEmail[] {
     });
     out.push({
       kind: 'rating-changes',
-      subject: `${SUBJECT_PREFIX}Rating updates — Example strategy`,
+      subject: st('Model rating changes', 'Rating updates — Example strategy'),
       html,
       text,
       unsubscribeUrl,
@@ -165,7 +188,7 @@ function renderSamples(): RenderedEmail[] {
     });
     out.push({
       kind: 'rebalance',
-      subject: `${SUBJECT_PREFIX}Portfolio rebalance — Example strategy`,
+      subject: st('Portfolio rebalance', 'Portfolio rebalance — Example strategy'),
       html,
       text,
       unsubscribeUrl,
@@ -182,7 +205,7 @@ function renderSamples(): RenderedEmail[] {
     });
     out.push({
       kind: 'model-ratings-ready',
-      subject: `${SUBJECT_PREFIX}New AI ratings — Example strategy`,
+      subject: st('Weekly ratings ready', 'New AI ratings — Example strategy'),
       html,
       text,
       unsubscribeUrl,
@@ -201,7 +224,7 @@ function renderSamples(): RenderedEmail[] {
     });
     out.push({
       kind: 'entries-exits',
-      subject: `${SUBJECT_PREFIX}Holdings update — Example strategy`,
+      subject: st('Holdings update', 'Holdings update — Example strategy'),
       html,
       text,
       unsubscribeUrl,
@@ -219,85 +242,101 @@ function renderSamples(): RenderedEmail[] {
     });
     out.push({
       kind: 'price-move',
-      subject: `${SUBJECT_PREFIX}Price alert — Example strategy`,
+      subject: st('Price move alert', 'Price alert — Example strategy'),
       html,
       text,
       unsubscribeUrl,
     });
   }
 
-  {
-    const { html, text } = buildStockRatingWeeklyEmailHtml({
-      runWeekEnding,
-      lines: ['AAPL: hold → buy', 'MSFT: buy → hold', 'NVDA: sell → buy'],
-      settingsUrl,
-      unsubscribeUrl,
-    });
-    out.push({
-      kind: 'stock-rating-weekly',
-      subject: `${SUBJECT_PREFIX}Weekly stock rating roundup — ${runWeekEnding}`,
-      html,
-      text,
-      unsubscribeUrl,
-    });
-  }
+  const productHtml = buildProductUpdatesSectionHtml([
+    { title: 'What shipped this week', body_html: '<p>Smoketest product body.</p>' },
+  ]);
+  const portfolioHtml = buildPerformanceSectionHtml(
+    [
+      { strategyName: 'Example strategy A', pctLabel: '+1.8%' },
+      { strategyName: 'Example strategy B', pctLabel: '-0.6%' },
+    ],
+    { viewAllHref: settingsUrl }
+  );
+  const followedHtml = buildFollowedPortfoliosBundleSectionHtml([
+    {
+      heading: 'Example strategy · Core',
+      bullets: ['Rebalance: Example strategy', 'Holdings update: Example strategy'],
+    },
+  ]);
+  const trackedHtml = buildTrackedStocksBundleSectionHtml([
+    'AAPL: hold -> buy',
+    'NVDA: sell -> buy',
+  ]);
 
-  {
-    const perfHtml = buildPerformanceSectionHtml(
-      [
-        { strategyName: 'Example strategy A', pctLabel: '+1.8%' },
-        { strategyName: 'Example strategy B', pctLabel: '-0.6%' },
-      ],
-      { viewAllHref: settingsUrl }
-    );
-    const sectionsHtml = `${perfHtml}
-      <p style="margin:0 0 10px;font-size:15px;font-weight:700;color:#111827;font-family:Arial,Helvetica,sans-serif">This week's alerts</p>
-      <p style="margin:0 0 6px;font-size:15px;line-height:1.55;color:#111827;font-family:Arial,Helvetica,sans-serif">• AAPL bucket changed: hold → buy</p>
-      <p style="margin:0 0 22px;font-size:15px;line-height:1.55;color:#111827;font-family:Arial,Helvetica,sans-serif">• NVDA bucket changed: sell → buy</p>`;
-    const { html, text } = buildCuratedWeeklyDigestEmailHtml({
+  const pushBundle = (kind: CoreEmailKind, tag: string, sections: WeeklyBundleSection[], textLines: string[]) => {
+    const { html, text, subject } = buildWeeklyBundleEmailHtml({
       runWeekEnding,
-      sectionsHtml,
-      inboxUrl,
-      settingsUrl,
-      unsubscribeUrl,
-      textSummaryLines: [
-        'Portfolios this week:',
-        '- Example strategy A: +1.8%',
-        '- Example strategy B: -0.6%',
-        '',
-        'Alerts:',
-        '- AAPL: hold -> buy',
-        '- NVDA: sell -> buy',
-      ],
-    });
-    out.push({
-      kind: 'curated-digest',
-      subject: `${SUBJECT_PREFIX}Weekly portfolio summary — ${runWeekEnding}`,
-      html,
-      text,
-      unsubscribeUrl,
-    });
-  }
-
-  {
-    const { html, text } = buildWeeklyDigestEmailHtml({
-      runWeekEnding,
-      summaryLines: [
-        'Example strategy: 4 position updates this week',
-        '2 ratings moved to buy, 1 moved to hold',
-      ],
+      sections,
+      textLines,
       inboxUrl,
       settingsUrl,
       unsubscribeUrl,
     });
     out.push({
-      kind: 'weekly-digest',
-      subject: `${SUBJECT_PREFIX}Weekly digest — ${runWeekEnding}`,
+      kind,
+      subject: st(tag, subject),
       html,
       text,
       unsubscribeUrl,
     });
-  }
+  };
+
+  pushBundle('weekly-bundle-all', 'Weekly email · all sections', [
+    { heading: 'Product updates', html: productHtml },
+    { heading: 'Your portfolios this week', html: portfolioHtml },
+    { heading: 'Followed portfolios', html: followedHtml },
+    { heading: 'Tracked stocks (default model)', html: trackedHtml },
+  ], [
+    'Product updates',
+    '(see HTML email)',
+    '',
+    'Your portfolios this week',
+    'Example strategy A: +1.8%',
+    'Example strategy B: -0.6%',
+    '',
+    'Followed portfolios',
+    'Example strategy · Core',
+    '• Rebalance: Example strategy',
+    '',
+    'Tracked stocks (default model)',
+    '• AAPL: hold -> buy',
+    '',
+  ]);
+
+  pushBundle(
+    'weekly-bundle-product',
+    'Weekly email · product only',
+    [{ heading: 'Product updates', html: productHtml }],
+    ['Product updates', '(see HTML email)', '']
+  );
+
+  pushBundle(
+    'weekly-bundle-portfolio',
+    'Weekly email · portfolio summary',
+    [{ heading: 'Your portfolios this week', html: portfolioHtml }],
+    ['Your portfolios this week', 'Example strategy A: +1.8%', 'Example strategy B: -0.6%', '']
+  );
+
+  pushBundle(
+    'weekly-bundle-followed',
+    'Weekly email · followed portfolios',
+    [{ heading: 'Followed portfolios', html: followedHtml }],
+    ['Followed portfolios', 'Example strategy · Core', '• Rebalance: Example strategy', '']
+  );
+
+  pushBundle(
+    'weekly-bundle-tracked',
+    'Weekly email · tracked stocks',
+    [{ heading: 'Tracked stocks (default model)', html: trackedHtml }],
+    ['Tracked stocks (default model)', '• AAPL: hold -> buy', '']
+  );
 
   const onboardingUnsubscribeUrl = `${base}/api/platform/notifications/unsubscribe?token=TEST`;
   const welcomeFirstName = 'Alex';
@@ -311,9 +350,11 @@ function renderSamples(): RenderedEmail[] {
       settingsUrl,
       onboardingUnsubscribeUrl,
     });
+    const tierTitle = tier === 'free' ? 'Free' : tier === 'supporter' ? 'Supporter' : 'Outperformer';
+    const welcomeTag = `Welcome · ${tierTitle} · ${step}/4`;
     out.push({
       kind,
-      subject: `${SUBJECT_PREFIX}${subject}`,
+      subject: st(welcomeTag, subject),
       html,
       text,
       unsubscribeUrl: onboardingUnsubscribeUrl,
@@ -341,9 +382,10 @@ function renderSamples(): RenderedEmail[] {
       settingsUrl,
       onboardingUnsubscribeUrl,
     });
+    const tierTitle = paidTier === 'supporter' ? 'Supporter' : 'Outperformer';
     out.push({
       kind: `welcome-transition-${paidTier}` as WelcomeSmoketestKind,
-      subject: `${SUBJECT_PREFIX}${subject}`,
+      subject: st(`Paid upgrade · ${tierTitle}`, subject),
       html,
       text,
       unsubscribeUrl: onboardingUnsubscribeUrl,
@@ -363,6 +405,15 @@ export async function GET(req: Request) {
   const to = (url.searchParams.get('to') || DEFAULT_RECIPIENT).trim();
   const useGmail = url.searchParams.get('useGmail') === '1';
   const dryRun = url.searchParams.get('dryRun') === '1';
+  const rawInappFor = url.searchParams.get('inappFor');
+  const seedInappDefault = url.searchParams.get('seedInapp') === '1';
+  let inappFor = '';
+  if (rawInappFor != null && rawInappFor.trim() !== '') {
+    inappFor = rawInappFor.trim();
+  } else if (seedInappDefault) {
+    inappFor = DEFAULT_INAPP_USER_EMAIL;
+  }
+  const sendEmails = url.searchParams.get('sendEmails') === '1';
   const { kinds, invalid } = parseKinds(url.searchParams.get('kinds'));
   if (invalid.length) {
     return NextResponse.json(
@@ -376,6 +427,50 @@ export async function GET(req: Request) {
 
   const rendered = renderSamples().filter((r) => kinds.includes(r.kind));
 
+  let inappResult:
+    | { ok: true; for: string; userId: string; inserted: number; ids: string[] }
+    | { ok: false; for: string; error: string }
+    | undefined;
+
+  if (inappFor) {
+    try {
+      const admin = createAdminClient();
+      const resolved = await resolveDryUserIdForCron(admin, inappFor);
+      if ('notFound' in resolved && resolved.notFound) {
+        inappResult = { ok: false, for: inappFor, error: 'User not found (user_profiles.email or UUID).' };
+      } else if ('ambiguous' in resolved && resolved.ambiguous) {
+        inappResult = { ok: false, for: inappFor, error: 'Multiple users match that email.' };
+      } else if ('lookupError' in resolved && resolved.lookupError) {
+        inappResult = { ok: false, for: inappFor, error: resolved.lookupError };
+      } else {
+        const userId = 'dryUserId' in resolved ? resolved.dryUserId : null;
+        if (!userId) {
+          inappResult = { ok: false, for: inappFor, error: 'Could not resolve user id.' };
+        } else if (dryRun) {
+          inappResult = { ok: true, for: inappFor, userId, inserted: 0, ids: [] };
+        } else {
+          const seeded = await seedSmoketestInAppNotifications(admin, userId);
+          if (seeded.ok === false) {
+            return NextResponse.json({ error: `inapp seed failed: ${seeded.error}` }, { status: 500 });
+          }
+          inappResult = {
+            ok: true,
+            for: inappFor,
+            userId,
+            inserted: seeded.inserted,
+            ids: seeded.ids,
+          };
+        }
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Unknown error';
+      inappResult = { ok: false, for: inappFor, error: message };
+      if (!dryRun) {
+        return NextResponse.json({ error: `inappFor: ${message}` }, { status: 500 });
+      }
+    }
+  }
+
   if (dryRun) {
     return NextResponse.json({
       to,
@@ -384,9 +479,16 @@ export async function GET(req: Request) {
       kinds: rendered.map((r) => r.kind),
       subjects: rendered.map((r) => r.subject),
       allowedKinds: ALL_KINDS,
+      inapp: inappResult,
+      inappWouldInsertRows: inappResult?.ok === true ? 8 : undefined,
     });
   }
 
+  if (inappResult?.ok === false) {
+    return NextResponse.json({ error: inappResult.error, inapp: inappResult }, { status: 400 });
+  }
+
+  const skipEmails = Boolean(inappFor && !sendEmails);
   const results: Array<{
     kind: SmoketestKind;
     subject: string;
@@ -394,39 +496,41 @@ export async function GET(req: Request) {
     error?: string;
   }> = [];
 
-  for (const r of rendered) {
-    const listHeaders = {
-      'List-Unsubscribe': `<${r.unsubscribeUrl}>`,
-      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
-    };
+  if (!skipEmails) {
+    for (const r of rendered) {
+      const listHeaders = {
+        'List-Unsubscribe': `<${r.unsubscribeUrl}>`,
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+      };
 
-    if (useGmail) {
-      const ok = await sendEmailByGmail(to, r.html, r.subject, {
-        text: r.text,
-        headers: listHeaders,
-      });
-      if (ok) {
-        results.push({ kind: r.kind, subject: r.subject, ok: true });
-      } else {
-        results.push({
-          kind: r.kind,
-          subject: r.subject,
-          ok: false,
-          error: 'Gmail SMTP send failed (check EMAIL_HOST, EMAIL_USER, EMAIL_PASS)',
+      if (useGmail) {
+        const ok = await sendEmailByGmail(to, r.html, r.subject, {
+          text: r.text,
+          headers: listHeaders,
         });
-      }
-    } else {
-      const send = await sendTransactionalEmail({
-        to,
-        subject: r.subject,
-        html: r.html,
-        text: r.text,
-        headers: listHeaders,
-      });
-      if (send.ok === true) {
-        results.push({ kind: r.kind, subject: r.subject, ok: true });
+        if (ok) {
+          results.push({ kind: r.kind, subject: r.subject, ok: true });
+        } else {
+          results.push({
+            kind: r.kind,
+            subject: r.subject,
+            ok: false,
+            error: 'Gmail SMTP send failed (check EMAIL_HOST, EMAIL_USER, EMAIL_PASS)',
+          });
+        }
       } else {
-        results.push({ kind: r.kind, subject: r.subject, ok: false, error: send.error });
+        const send = await sendTransactionalEmail({
+          to,
+          subject: r.subject,
+          html: r.html,
+          text: r.text,
+          headers: listHeaders,
+        });
+        if (send.ok === true) {
+          results.push({ kind: r.kind, subject: r.subject, ok: true });
+        } else {
+          results.push({ kind: r.kind, subject: r.subject, ok: false, error: send.error });
+        }
       }
     }
   }
@@ -440,5 +544,7 @@ export async function GET(req: Request) {
     failed,
     results,
     allowedKinds: ALL_KINDS,
+    inapp: inappResult,
+    emailsSkippedBecauseInappFor: skipEmails || undefined,
   });
 }

@@ -59,3 +59,42 @@ In the daily-only cron branch, call `refreshDailySeriesSnapshotsForStrategy` **i
 ## Operational notes
 
 **Manual cron runs during US market hours:** triggering `/api/cron/daily` or `/api/internal/compute-portfolio-configs-batch` while the US market is open writes `nasdaq_100_daily_raw.run_date = today` with **intraday** prices. Snapshot tables then have `last_series_date = today` even though those prices are not true daily closes. The next scheduled prod cron (`30 22 * * 1-5` — 22:30 UTC ≈ 18:30 ET, 2.5h after 16:00 ET close) overwrites the row with the actual close. Prefer manual repairs **after** that window, or only run compute-batch when raw prices for that `run_date` were ingested post-close.
+
+## Degrade-block invariant (never overwrite a good snapshot with a worse one)
+
+Symptom this prevents: a config's daily series silently regresses to weekly cadence (≈ N weekly points instead of ≈ 5N daily points), most often for `top_n=1` weekly configs because every rebalance is 100% turnover into one new ticker.
+
+Required at every persistence site (`refreshDailySeriesSnapshotsForStrategy`, `ensureConfigDailySeries`, `refreshDailySeriesSnapshotForConfig`, and any future writer):
+
+- Load the existing `portfolio_config_daily_series` row for `(strategyId, configId)` BEFORE upserting (use `loadStrategyDailySeriesBulk` for the strategy-loop case, `loadConfigDailySeries` for single-config).
+- If `incoming.series.length < existing.series.length` and `existing.series.length >= 2`, DO NOT overwrite. Preserve `existing.series` and `existing.metrics`, only bumping `as_of_run_date` to the new `latestRawRunDate` (never roll back `as_of_run_date` if existing is already ahead of `latestRawRunDate`). Log `console.error` with both lengths and the config identifiers.
+- The history table (`portfolio_config_daily_series_history`) records the preserved snapshot — it is the actual best-known state for that run_date.
+- `computeConfigDailySeries` itself must NOT change return semantics (the existing `node:test` cases lock that in). It may emit `console.warn` when `dailySeries == null` or `dailySeries.length < weeklySeries.length`, but the persistence-layer guard is the source of truth.
+- Manual repair of a legitimately-shorter snapshot (e.g. inception moved later) requires a manual `DELETE` of the existing row.
+
+## Daily walk must self-heal across rebalances
+
+`buildDailySeriesFromSnapshots` ([src/lib/live-mark-to-market.ts](mdc:src/lib/live-mark-to-market.ts)) must NOT permanently set `currentSnapshot = null` when a non-first rebalance cannot be marked-to-market (`preValue == null` or `seedUnits` returns false). Instead it MUST restart from `sn.notional` (same recovery path used at `snapshotIdx === 0`). The notional series comes from `strategy_portfolio_config_performance` and already encodes realized transaction costs, so the restart path intentionally skips the `(1 - turnover * TRANSACTION_COST_RATE)` adjustment. Reverting this self-heal will reintroduce the top1-weekly regression.
+
+## Cron snapshot loop must self-heal holdings before computing
+
+`computeAllPortfolioConfigs` ([src/lib/compute-all-portfolio-configs.ts](mdc:src/lib/compute-all-portfolio-configs.ts)) writes `strategy_portfolio_config_performance` for non-default configs but does NOT write `strategy_portfolio_config_holdings`. The lazy self-heal lives in `syncMissingConfigHoldingsSnapshots` ([src/lib/portfolio-config-holdings-write.ts](mdc:src/lib/portfolio-config-holdings-write.ts)), and `refreshDailySeriesSnapshotsForStrategy` (and any other strategy-wide writer) MUST call it per-config (best-effort, swallow errors) before `getConfigPerformance` / `computeConfigDailySeries`. Without this, the daily walk runs against stale rebalance rows.
+
+## Per-worker compute must not refresh strategy-wide
+
+`/api/internal/compute-portfolio-config` operates on a single config and MUST NOT call `refreshDailySeriesSnapshotsForStrategy(strategyId)`. Use `refreshDailySeriesSnapshotForConfig` (force-recompute, bypasses the freshness check, applies the degrade-block) instead. Strategy-wide refreshes belong only in:
+
+- `cron/daily` (once per cron tick, after price + holdings + perf writes complete)
+- `compute-portfolio-configs-batch` (once after `computeAllPortfolioConfigs` finishes)
+
+Concurrent strategy-wide refreshes from per-worker calls are a documented race source.
+
+## Supabase diagnostic events (`portfolio_compute_diagnostic_events`)
+
+**Vercel (or any host) does not stream logs into Postgres.** To survive short log retention, server code writes **append-only rows** via `logPortfolioComputeDiagnostic` in `@/lib/portfolio-compute-diagnostics.ts` at the same time as `console.warn` / `console.error`.
+
+- **`message`**: duplicate of the log line you would grep in Vercel (written at source when the branch runs — not fetched from Vercel).
+- **`event` / `payload` / `source`**: structured fields for SQL filters. See the JSDoc catalog on `logPortfolioComputeDiagnostic` for the full **`event`** list and meanings (`mtm_config_walk_inputs_null`, `daily_walk_null`, `degrade_block`, etc.).
+- **RLS** is enabled on the table with no client policies; only **service-role** server paths insert. Inspect in **Supabase SQL Editor**, e.g. `select created_at, source, event, severity, message, payload from public.portfolio_compute_diagnostic_events where config_id = $1 order by created_at desc limit 50`.
+
+**Regression signature:** history row with ~weekly point count while neighbors are daily — pair with rows where **`event` in (`mtm_config_*`, `daily_walk_null`, `daily_walk_too_few_points`)** at the same **`created_at`** window.

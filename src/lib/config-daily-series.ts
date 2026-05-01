@@ -17,6 +17,7 @@ import {
 } from '@/lib/portfolio-config-utils';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
 import { syncMissingConfigHoldingsSnapshots } from '@/lib/portfolio-config-holdings-write';
+import { logPortfolioComputeDiagnostic } from '@/lib/portfolio-compute-diagnostics';
 import { computeWeeklyConsistencyVsNasdaqCap } from '@/lib/user-entry-performance';
 import { PUBLIC_CACHE_TAGS } from '@/lib/public-cache';
 
@@ -310,7 +311,74 @@ export async function computeConfigDailySeries(
       weightingMethod: params.config.weighting_method,
       notionalSeries: weeklySeries,
       startDate: weeklySeries[0]?.date,
+      configId: params.config.id,
+      asOfRunDate: params.asOfRunDate,
     });
+    if (dailySeries == null) {
+      const message =
+        `[computeConfigDailySeries] daily walk returned null; persistence layer may degrade-block ` +
+        `strategyId=${params.strategyId} configId=${params.config.id} weeklyCount=${weeklySeries.length}`;
+      console.warn(message);
+      logPortfolioComputeDiagnostic(adminSupabase, {
+        source: 'compute_config_daily_series',
+        event: 'daily_walk_null',
+        strategyId: params.strategyId,
+        configId: params.config.id,
+        asOfRunDate: params.asOfRunDate,
+        message,
+        payload: {
+          weeklyCount: weeklySeries.length,
+          computeStatus: params.computeStatus,
+          risk_level: params.config.risk_level,
+          rebalance_frequency: params.config.rebalance_frequency,
+          weighting_method: params.config.weighting_method,
+          hint: 'See same-timestamp rows from live_mtm_* for precise MTM null reason.',
+        },
+      });
+    } else if (dailySeries.length < 2) {
+      const message =
+        `[computeConfigDailySeries] daily walk returned too few points (${dailySeries.length}); ` +
+        `weekly fallback will be used strategyId=${params.strategyId} configId=${params.config.id} weeklyCount=${weeklySeries.length}`;
+      console.warn(message);
+      logPortfolioComputeDiagnostic(adminSupabase, {
+        source: 'compute_config_daily_series',
+        event: 'daily_walk_too_few_points',
+        strategyId: params.strategyId,
+        configId: params.config.id,
+        asOfRunDate: params.asOfRunDate,
+        message,
+        payload: {
+          dailyCount: dailySeries.length,
+          weeklyCount: weeklySeries.length,
+          computeStatus: params.computeStatus,
+          risk_level: params.config.risk_level,
+          rebalance_frequency: params.config.rebalance_frequency,
+          weighting_method: params.config.weighting_method,
+        },
+      });
+    } else if (dailySeries.length < weeklySeries.length) {
+      const message =
+        `[computeConfigDailySeries] daily series shorter than weekly; persistence layer may degrade-block ` +
+        `strategyId=${params.strategyId} configId=${params.config.id} ` +
+        `dailyCount=${dailySeries.length} weeklyCount=${weeklySeries.length}`;
+      console.warn(message);
+      logPortfolioComputeDiagnostic(adminSupabase, {
+        source: 'compute_config_daily_series',
+        event: 'daily_shorter_than_weekly',
+        strategyId: params.strategyId,
+        configId: params.config.id,
+        asOfRunDate: params.asOfRunDate,
+        message,
+        payload: {
+          dailyCount: dailySeries.length,
+          weeklyCount: weeklySeries.length,
+          computeStatus: params.computeStatus,
+          risk_level: params.config.risk_level,
+          rebalance_frequency: params.config.rebalance_frequency,
+          weighting_method: params.config.weighting_method,
+        },
+      });
+    }
     if (dailySeries && dailySeries.length >= 2) {
       chosenSeries = dailySeries;
     }
@@ -412,6 +480,24 @@ export async function computeStrategyDailySeries(
     endingValueSp500: full?.benchmarks.sp500.endingValue ?? null,
   };
 }
+
+/**
+ * Returns true when persisting `incoming` would replace `existing` with a strictly shorter
+ * series. We never want this: a daily snapshot must be at least as long as the prior good
+ * snapshot. A flapping daily walk must NOT clobber a known-good row. Manual repair (DELETE
+ * the row) is the only legitimate path to a strictly shorter snapshot.
+ */
+function isDegradeOverwrite(
+  incoming: ConfigDailySeriesSnapshot,
+  existing: ConfigDailySeriesSnapshot | null
+): boolean {
+  if (!existing) return false;
+  if (existing.series.length < 2) return false;
+  return incoming.series.length < existing.series.length;
+}
+
+/** Test-only re-export. Do not use from runtime code. */
+export const __testing_isDegradeOverwrite = isDegradeOverwrite;
 
 export async function upsertConfigDailySeries(
   supabase: SupabaseClient,
@@ -749,6 +835,125 @@ export async function ensureConfigDailySeries(
     asOfRunDate: latestRawRunDate,
     computeStatus: perf.computeStatus,
   });
+
+  if (isDegradeOverwrite(snapshot, existing)) {
+    console.error(
+      `[ensureConfigDailySeries] degrade-block: strategyId=${params.strategyId} ` +
+        `configId=${params.config.id} risk=${params.config.risk_level} ` +
+        `freq=${params.config.rebalance_frequency} weight=${params.config.weighting_method} ` +
+        `existingLen=${existing!.series.length} newLen=${snapshot.series.length} — preserving existing`
+    );
+    logPortfolioComputeDiagnostic(adminSupabase, {
+      source: 'ensure_config_daily_series',
+      event: 'degrade_block',
+      severity: 'error',
+      strategyId: params.strategyId,
+      configId: params.config.id,
+      asOfRunDate: latestRawRunDate,
+      message:
+        `[ensureConfigDailySeries] degrade-block: strategyId=${params.strategyId} ` +
+        `configId=${params.config.id} risk=${params.config.risk_level} ` +
+        `freq=${params.config.rebalance_frequency} weight=${params.config.weighting_method} ` +
+        `existingLen=${existing!.series.length} newLen=${snapshot.series.length} — preserving existing`,
+      payload: {
+        existingLen: existing!.series.length,
+        newLen: snapshot.series.length,
+        risk_level: params.config.risk_level,
+        rebalance_frequency: params.config.rebalance_frequency,
+        weighting_method: params.config.weighting_method,
+      },
+    });
+    const bumpedAsOf =
+      existing!.asOfRunDate > latestRawRunDate ? existing!.asOfRunDate : latestRawRunDate;
+    const preserved: ConfigDailySeriesSnapshot = { ...existing!, asOfRunDate: bumpedAsOf };
+    await upsertConfigDailySeries(adminSupabase, [preserved]);
+    await insertConfigDailySeriesHistory(adminSupabase, [preserved]);
+    return preserved;
+  }
+
+  await upsertConfigDailySeries(adminSupabase, [snapshot]);
+  await insertConfigDailySeriesHistory(adminSupabase, [snapshot]);
+  return snapshot;
+}
+
+/**
+ * Force-recompute the daily snapshot for ONE config, bypassing the freshness check that
+ * `ensureConfigDailySeries` uses. Intended for the per-config compute worker path
+ * (`/api/internal/compute-portfolio-config`), where new perf rows have just been written
+ * but `latestRawRunDate` is unchanged. Applies the same degrade-block as
+ * `refreshDailySeriesSnapshotsForStrategy` and `ensureConfigDailySeries`.
+ */
+export async function refreshDailySeriesSnapshotForConfig(
+  adminSupabase: SupabaseClient,
+  params: { strategyId: string; config: ConfigShape & { top_n?: number } }
+): Promise<ConfigDailySeriesSnapshot | null> {
+  const latestRawRunDate = await loadLatestRawRunDate(adminSupabase);
+  if (!latestRawRunDate) return null;
+
+  try {
+    const topN = Number(params.config.top_n ?? NaN);
+    if (Number.isFinite(topN) && topN > 0) {
+      await syncMissingConfigHoldingsSnapshots(adminSupabase, {
+        strategyId: params.strategyId,
+        config: {
+          id: params.config.id,
+          top_n: topN,
+          weighting_method: params.config.weighting_method,
+          rebalance_frequency: params.config.rebalance_frequency,
+        },
+      });
+    }
+  } catch {
+    /* best-effort */
+  }
+
+  const perf = await getConfigPerformance(adminSupabase as never, params.strategyId, params.config.id);
+  const withInception = await prependModelInceptionToConfigRows(
+    adminSupabase as never,
+    params.strategyId,
+    perf.rows
+  );
+  const snapshot = await computeConfigDailySeries(adminSupabase, {
+    strategyId: params.strategyId,
+    config: params.config,
+    rows: withInception,
+    rawObservationCount: perf.rows.length,
+    asOfRunDate: latestRawRunDate,
+    computeStatus: perf.computeStatus,
+  });
+
+  const existing = await loadConfigDailySeries(adminSupabase, params.strategyId, params.config.id);
+  if (isDegradeOverwrite(snapshot, existing)) {
+    console.error(
+      `[refreshDailySeriesSnapshotForConfig] degrade-block: strategyId=${params.strategyId} ` +
+        `configId=${params.config.id} existingLen=${existing!.series.length} newLen=${snapshot.series.length} — preserving existing`
+    );
+    logPortfolioComputeDiagnostic(adminSupabase, {
+      source: 'refresh_daily_series_snapshot_for_config',
+      event: 'degrade_block',
+      severity: 'error',
+      strategyId: params.strategyId,
+      configId: params.config.id,
+      asOfRunDate: latestRawRunDate,
+      message:
+        `[refreshDailySeriesSnapshotForConfig] degrade-block: strategyId=${params.strategyId} ` +
+        `configId=${params.config.id} existingLen=${existing!.series.length} newLen=${snapshot.series.length} — preserving existing`,
+      payload: {
+        existingLen: existing!.series.length,
+        newLen: snapshot.series.length,
+        risk_level: params.config.risk_level,
+        rebalance_frequency: params.config.rebalance_frequency,
+        weighting_method: params.config.weighting_method,
+      },
+    });
+    const bumpedAsOf =
+      existing!.asOfRunDate > latestRawRunDate ? existing!.asOfRunDate : latestRawRunDate;
+    const preserved: ConfigDailySeriesSnapshot = { ...existing!, asOfRunDate: bumpedAsOf };
+    await upsertConfigDailySeries(adminSupabase, [preserved]);
+    await insertConfigDailySeriesHistory(adminSupabase, [preserved]);
+    return preserved;
+  }
+
   await upsertConfigDailySeries(adminSupabase, [snapshot]);
   await insertConfigDailySeriesHistory(adminSupabase, [snapshot]);
   return snapshot;
@@ -776,17 +981,35 @@ export async function refreshDailySeriesSnapshotsForStrategy(
     };
   }
 
+  const existingByConfig = await loadStrategyDailySeriesBulk(adminSupabase, params.strategyId);
+
   const { data: configsData } = await adminSupabase
     .from('portfolio_configs')
-    .select('id, risk_level, rebalance_frequency, weighting_method')
+    .select('id, risk_level, rebalance_frequency, weighting_method, top_n')
     .order('risk_level', { ascending: true })
     .order('rebalance_frequency', { ascending: true })
     .order('weighting_method', { ascending: true });
 
-  const configs = (configsData ?? []) as ConfigShape[];
+  const configs = (configsData ?? []) as Array<ConfigShape & { top_n: number }>;
   const toWrite: ConfigDailySeriesSnapshot[] = [];
   const skippedConfigRows = 0;
   for (const cfg of configs) {
+    try {
+      if (Number.isFinite(cfg.top_n) && cfg.top_n > 0) {
+        await syncMissingConfigHoldingsSnapshots(adminSupabase, {
+          strategyId: params.strategyId,
+          config: {
+            id: cfg.id,
+            top_n: cfg.top_n,
+            weighting_method: cfg.weighting_method,
+            rebalance_frequency: cfg.rebalance_frequency,
+          },
+        });
+      }
+    } catch {
+      /* best-effort; do not block snapshot rebuild if sync fails */
+    }
+
     const perf = await getConfigPerformance(adminSupabase as never, params.strategyId, cfg.id);
     const withInception = await prependModelInceptionToConfigRows(
       adminSupabase as never,
@@ -801,6 +1024,39 @@ export async function refreshDailySeriesSnapshotsForStrategy(
       asOfRunDate: latestRawRunDate,
       computeStatus: perf.computeStatus,
     });
+    const existing = existingByConfig.get(cfg.id) ?? null;
+    if (isDegradeOverwrite(snapshot, existing)) {
+      console.error(
+        `[refreshDailySeriesSnapshotsForStrategy] degrade-block: strategyId=${params.strategyId} ` +
+          `configId=${cfg.id} risk=${cfg.risk_level} freq=${cfg.rebalance_frequency} ` +
+          `weight=${cfg.weighting_method} existingLen=${existing!.series.length} ` +
+          `newLen=${snapshot.series.length} — preserving existing`
+      );
+      logPortfolioComputeDiagnostic(adminSupabase, {
+        source: 'refresh_daily_series_snapshots_for_strategy',
+        event: 'degrade_block',
+        severity: 'error',
+        strategyId: params.strategyId,
+        configId: cfg.id,
+        asOfRunDate: latestRawRunDate,
+        message:
+          `[refreshDailySeriesSnapshotsForStrategy] degrade-block: strategyId=${params.strategyId} ` +
+          `configId=${cfg.id} risk=${cfg.risk_level} freq=${cfg.rebalance_frequency} ` +
+          `weight=${cfg.weighting_method} existingLen=${existing!.series.length} ` +
+          `newLen=${snapshot.series.length} — preserving existing`,
+        payload: {
+          existingLen: existing!.series.length,
+          newLen: snapshot.series.length,
+          risk_level: cfg.risk_level,
+          rebalance_frequency: cfg.rebalance_frequency,
+          weighting_method: cfg.weighting_method,
+        },
+      });
+      const bumpedAsOf =
+        existing!.asOfRunDate > latestRawRunDate ? existing!.asOfRunDate : latestRawRunDate;
+      toWrite.push({ ...existing!, asOfRunDate: bumpedAsOf });
+      continue;
+    }
     toWrite.push(snapshot);
   }
 

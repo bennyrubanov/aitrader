@@ -3674,10 +3674,33 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
               <div className="flex w-full min-w-0 max-w-full flex-col space-y-4 sm:space-y-5">
               {activeComputeStatus === 'gathering' ? (
                 <div className="mx-5 rounded-lg border border-border/60 bg-muted/30 p-3 text-sm text-muted-foreground sm:mx-7">
-                  <p className="font-medium text-foreground">Tracking from your entry</p>
-                  <p className="text-xs mt-1 leading-relaxed">
-                    Not enough history yet. Stats will fill in as more time passes. Refreshes automatically.
-                  </p>
+                  <div className="flex flex-wrap items-start justify-between gap-2 gap-y-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-foreground">
+                        {selectedProfile?.user_start_date?.trim()
+                          ? `Tracking from your entry on ${formatYmdDisplay(
+                              selectedProfile.user_start_date.trim()
+                            )}`
+                          : 'Tracking from your entry'}
+                      </p>
+                      <p className="mt-1 text-xs leading-relaxed">
+                        Not enough history yet. Stats will fill in as more time passes. Refreshes
+                        automatically.
+                      </p>
+                    </div>
+                    {selectedProfile ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 shrink-0 gap-1.5 text-xs"
+                        onClick={() => setEntrySettingsOpen(true)}
+                      >
+                        <Settings2 className="size-3.5" aria-hidden />
+                        <span className="hidden sm:inline">Entry settings</span>
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
               ) : null}
 

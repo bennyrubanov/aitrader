@@ -56,6 +56,72 @@ function greetingText(firstName: string | null): string {
 const ONBOARDING_RECEIVING_NOTE =
   'You are receiving this email because you signed up for AITrader and onboarding tips are enabled.';
 
+/** One object per email: edit titles/preheaders/subject here; HTML `body` stays separate (markup). */
+export type WelcomeShellDraft = {
+  documentTitle: string;
+  preheader: string;
+  heading: string;
+  subject: string;
+  /**
+   * Plain-text first line (after still gets greeting on line 2).
+   * Omit when the plain opening should match `heading` (use plain characters only in `heading` for those).
+   */
+  textLead?: string;
+};
+
+function joinWelcomePlainText(
+  draft: WelcomeShellDraft,
+  firstName: string | null,
+  textBodyLines: string[],
+  settingsUrl: string,
+  onboardingUnsubscribeUrl: string
+): string {
+  const lead = draft.textLead ?? draft.heading;
+  return [
+    lead,
+    greetingText(firstName),
+    '',
+    ...textBodyLines.filter(Boolean),
+    founderSignoffText(),
+    '',
+    `Settings: ${settingsUrl}`,
+    `Unsubscribe from onboarding: ${onboardingUnsubscribeUrl}`,
+  ].join('\n');
+}
+
+function renderWelcomeEmail(
+  draft: WelcomeShellDraft,
+  params: {
+    firstName: string | null;
+    bodyHtml: string;
+    textBodyLines: string[];
+    ctaLabel: string;
+    ctaUrl: string;
+    settingsUrl: string;
+    onboardingUnsubscribeUrl: string;
+  }
+): { subject: string; html: string; text: string } {
+  const html = buildEmailShell({
+    documentTitle: draft.documentTitle,
+    preheader: draft.preheader,
+    heading: draft.heading,
+    bodyHtml: params.bodyHtml,
+    ctaLabel: params.ctaLabel,
+    ctaUrl: params.ctaUrl,
+    settingsUrl: params.settingsUrl,
+    unsubscribeUrl: params.onboardingUnsubscribeUrl,
+    receivingNote: ONBOARDING_RECEIVING_NOTE,
+  });
+  const text = joinWelcomePlainText(
+    draft,
+    params.firstName,
+    params.textBodyLines,
+    params.settingsUrl,
+    params.onboardingUnsubscribeUrl
+  );
+  return { subject: draft.subject, html, text };
+}
+
 function emailP(html: string): string {
   return `<p style="margin:0 0 14px;font-size:15px;line-height:1.55;color:#111827;font-family:Arial,Helvetica,sans-serif">${html}</p>`;
 }
@@ -101,6 +167,14 @@ export function buildWelcomePaidTransitionEmail(params: {
   const perfUrl = absUrl(siteBase, `/strategy-models/${STRATEGY_CONFIG.slug}`);
 
   const tierLabel = paidTier === 'supporter' ? 'Supporter' : 'Outperformer';
+
+  const draft: WelcomeShellDraft = {
+    documentTitle: `Welcome to ${tierLabel}`,
+    preheader: `Your ${tierLabel} benefits are live on AITrader.`,
+    heading: `You're on ${tierLabel} — quick start`,
+    subject: `Welcome to AITrader ${tierLabel}`,
+  };
+
   const bodyIntro =
     paidTier === 'supporter'
       ? `${emailP(
@@ -118,43 +192,29 @@ export function buildWelcomePaidTransitionEmail(params: {
     ${paidTier === 'outperformer' ? emailBullet(`<a href="${escapeHtml(ratingsUrl)}" style="color:#0A84FF;text-decoration:underline">Ratings by strategy</a>`) : ''}
     ${founderSignoffHtml()}`;
 
-  const html = buildEmailShell({
-    documentTitle: `Welcome to ${tierLabel}`,
-    preheader: `Your ${tierLabel} benefits are live on AITrader.`,
-    heading: `You're on ${tierLabel} — quick start`,
-    bodyHtml,
-    ctaLabel: 'Open AITrader',
-    ctaUrl: exploreUrl,
-    settingsUrl,
-    unsubscribeUrl: onboardingUnsubscribeUrl,
-    receivingNote: ONBOARDING_RECEIVING_NOTE,
-  });
-
-  const text = [
-    `You're on ${tierLabel} — quick start`,
-    greetingText(firstName),
-    '',
+  const introPlain =
     paidTier === 'supporter'
       ? 'You now have full holdings for the default strategy model, rebalance + holdings-change alerts, and AI ratings on premium tickers when you track them.'
-      : 'You now have every strategy model, strategy-filtered ratings, and full performance tables across models.',
+      : 'You now have every strategy model, strategy-filtered ratings, and full performance tables across models.';
+
+  const textBodyLines = [
+    introPlain,
     '',
     `Explore: ${exploreUrl}`,
     `Notifications: ${notifUrl}`,
     `Strategy models: ${perfUrl}`,
     paidTier === 'outperformer' ? `Ratings: ${ratingsUrl}` : '',
-    founderSignoffText(),
-    '',
-    `Settings: ${settingsUrl}`,
-    `Unsubscribe from onboarding: ${onboardingUnsubscribeUrl}`,
-  ]
-    .filter(Boolean)
-    .join('\n');
+  ];
 
-  return {
-    subject: `Welcome to AITrader ${tierLabel}`,
-    html,
-    text,
-  };
+  return renderWelcomeEmail(draft, {
+    firstName,
+    bodyHtml,
+    textBodyLines,
+    ctaLabel: 'Open AITrader',
+    ctaUrl: exploreUrl,
+    settingsUrl,
+    onboardingUnsubscribeUrl,
+  });
 }
 
 export function buildWelcomeEmailHtml(
@@ -171,6 +231,12 @@ export function buildWelcomeEmailHtml(
 
   if (tier === 'free') {
     if (step === 1) {
+      const draft: WelcomeShellDraft = {
+        documentTitle: 'Welcome to AITrader',
+        preheader: 'AI ratings + model portfolios — your three quick wins inside.',
+        heading: 'Welcome to AITrader',
+        subject: 'Welcome to AITrader',
+      };
       const bodyHtml = `${emailP(greeting(firstName))}
         ${emailP(
           'I built AITrader to pair <strong>AI stock ratings</strong> with <strong>model portfolios</strong> so you can research faster and catch moves before the crowd.'
@@ -189,34 +255,29 @@ export function buildWelcomeEmailHtml(
           `Want full holdings tables + rebalance emails? <a href="${escapeHtml(pricingUrl)}" style="color:#0A84FF;text-decoration:underline">See plans</a>.`
         )}
         ${founderSignoffHtml()}`;
-      const html = buildEmailShell({
-        documentTitle: 'Welcome to AITrader',
-        preheader: 'AI ratings + model portfolios — your three quick wins inside.',
-        heading: 'Welcome to AITrader',
+      return renderWelcomeEmail(draft, {
+        firstName,
         bodyHtml,
+        textBodyLines: [
+          'Track tickers, explore portfolios, peek at the default model performance.',
+          `Overview: ${overviewUrl}`,
+          `Explore: ${exploreUrl}`,
+          `Strategy models: ${perfUrl}`,
+          `Plans: ${pricingUrl}`,
+        ],
         ctaLabel: 'Finish portfolio setup',
         ctaUrl: overviewUrl,
         settingsUrl,
-        unsubscribeUrl: onboardingUnsubscribeUrl,
-        receivingNote: ONBOARDING_RECEIVING_NOTE,
+        onboardingUnsubscribeUrl,
       });
-      const text = [
-        'Welcome to AITrader',
-        greetingText(firstName),
-        '',
-        'Track tickers, explore portfolios, peek at the default model performance.',
-        `Overview: ${overviewUrl}`,
-        `Explore: ${exploreUrl}`,
-        `Strategy models: ${perfUrl}`,
-        `Plans: ${pricingUrl}`,
-        founderSignoffText(),
-        '',
-        `Settings: ${settingsUrl}`,
-        `Unsubscribe from onboarding: ${onboardingUnsubscribeUrl}`,
-      ].join('\n');
-      return { subject: 'Welcome to AITrader', html, text };
     }
     if (step === 2) {
+      const draft: WelcomeShellDraft = {
+        documentTitle: 'Track stocks, let AI watch (1/3)',
+        preheader: 'Track names + weekly roundup + rating alerts — the free stack.',
+        heading: 'Track a stock, let the AI watch it for you (1/3)',
+        subject: 'Track a stock, let the AI watch it for you (1/3)',
+      };
       const bodyHtml = `${emailP(greeting(firstName))}
         ${emailP(
           "Here's how I use AITrader day-to-day: I <strong>track ~15 names</strong> I care about and let the <strong>weekly free roundup</strong> plus optional <strong>rating-change emails</strong> do the scanning for me."
@@ -224,30 +285,23 @@ export function buildWelcomeEmailHtml(
         ${emailP('Add five tickers you actually own or watch — then tune alerts in notification settings.')}
         ${emailMuted('On Supporter, the same workflow covers <strong>premium</strong> tickers too.')}
         ${founderSignoffHtml()}`;
-      const html = buildEmailShell({
-        documentTitle: 'Track stocks, let AI watch (1/3)',
-        preheader: 'Track names + weekly roundup + rating alerts — the free stack.',
-        heading: 'Track a stock, let the AI watch it for you (1/3)',
+      return renderWelcomeEmail(draft, {
+        firstName,
         bodyHtml,
+        textBodyLines: [`Notifications: ${notifUrl}`],
         ctaLabel: 'Add stocks & alerts',
         ctaUrl: notifUrl,
         settingsUrl,
-        unsubscribeUrl: onboardingUnsubscribeUrl,
-        receivingNote: ONBOARDING_RECEIVING_NOTE,
+        onboardingUnsubscribeUrl,
       });
-      const text = [
-        'Track a stock, let the AI watch it for you (1/3)',
-        greetingText(firstName),
-        '',
-        `Notifications: ${notifUrl}`,
-        founderSignoffText(),
-        '',
-        `Settings: ${settingsUrl}`,
-        `Unsubscribe from onboarding: ${onboardingUnsubscribeUrl}`,
-      ].join('\n');
-      return { subject: 'Track a stock, let the AI watch it for you (1/3)', html, text };
     }
     if (step === 3) {
+      const draft: WelcomeShellDraft = {
+        documentTitle: 'Why rebalances matter (2/3)',
+        preheader: 'Holdings + rebalance emails unlock on Supporter.',
+        heading: 'Why the default model matters (2/3)',
+        subject: 'Why the default model matters (2/3)',
+      };
       const bodyHtml = `${emailP(greeting(firstName))}
         ${emailP(
           `Our default model, <strong>${escapeHtml(STRATEGY_CONFIG.name)}</strong>, rebalances on a fixed rhythm. When weights shift, that's when entries and exits matter — not just day-to-day noise.`
@@ -257,64 +311,49 @@ export function buildWelcomeEmailHtml(
         )}
         ${emailMuted('If you only do one thing: open strategy models and decide if you want the full picture on paid.')}
         ${founderSignoffHtml()}`;
-      const html = buildEmailShell({
-        documentTitle: 'Why rebalances matter (2/3)',
-        preheader: 'Holdings + rebalance emails unlock on Supporter.',
-        heading: `Why the default model matters (2/3)`,
+      return renderWelcomeEmail(draft, {
+        firstName,
         bodyHtml,
+        textBodyLines: [`Strategy models: ${perfUrl}`, `Plans: ${pricingUrl}`],
         ctaLabel: 'See strategy models',
         ctaUrl: perfUrl,
         settingsUrl,
-        unsubscribeUrl: onboardingUnsubscribeUrl,
-        receivingNote: ONBOARDING_RECEIVING_NOTE,
+        onboardingUnsubscribeUrl,
       });
-      const text = [
-        'Why the default model matters (2/3)',
-        greetingText(firstName),
-        '',
-        `Strategy models: ${perfUrl}`,
-        `Plans: ${pricingUrl}`,
-        founderSignoffText(),
-        '',
-        `Settings: ${settingsUrl}`,
-        `Unsubscribe from onboarding: ${onboardingUnsubscribeUrl}`,
-      ].join('\n');
-      return { subject: 'Why the default model matters (2/3)', html, text };
     }
     // step 4
+    const draft: WelcomeShellDraft = {
+      documentTitle: 'Compare strategy models (3/3)',
+      preheader: 'Outperformer = every model + strategy-filtered ratings.',
+      heading: 'Compare strategy models (3/3)',
+      subject: 'Compare strategy models (3/3)',
+    };
     const bodyHtml = `${emailP(greeting(firstName))}
       ${emailP(
         'Markets go through phases — growth vs value, risk-on vs defensive. On <strong>Outperformer</strong> you can compare <strong>multiple strategy models</strong>, filter the ratings page by model, and open any model for full performance and holdings.'
       )}
       ${emailP("If you're not sure which tier fits, reply and tell me what you trade; I'll suggest a path.")}
       ${founderSignoffHtml()}`;
-    const html = buildEmailShell({
-      documentTitle: 'Compare strategy models (3/3)',
-      preheader: 'Outperformer = every model + strategy-filtered ratings.',
-      heading: 'Compare strategy models (3/3)',
+    return renderWelcomeEmail(draft, {
+      firstName,
       bodyHtml,
+      textBodyLines: [`Pricing: ${pricingUrl}`, `Ratings: ${ratingsUrl}`],
       ctaLabel: 'Try Outperformer',
       ctaUrl: pricingUrl,
       settingsUrl,
-      unsubscribeUrl: onboardingUnsubscribeUrl,
-      receivingNote: ONBOARDING_RECEIVING_NOTE,
+      onboardingUnsubscribeUrl,
     });
-    const text = [
-      'Compare strategy models (3/3)',
-      greetingText(firstName),
-      '',
-      `Pricing: ${pricingUrl}`,
-      `Ratings: ${ratingsUrl}`,
-      founderSignoffText(),
-      '',
-      `Settings: ${settingsUrl}`,
-      `Unsubscribe from onboarding: ${onboardingUnsubscribeUrl}`,
-    ].join('\n');
-    return { subject: 'Compare strategy models (3/3)', html, text };
   }
 
   if (tier === 'supporter') {
     if (step === 1) {
+      const draft: WelcomeShellDraft = {
+        documentTitle: 'Supporter — you are in',
+        preheader: 'Holdings, rebalance alerts, premium ratings — your checklist.',
+        heading: 'You are in. Here are three things worth doing today.',
+        subject: 'You are in — Supporter quick start',
+        textLead: 'You are in — Supporter checklist',
+      };
       const bodyHtml = `${emailP(greeting(firstName))}
         ${emailP(
           'Thank you for supporting AITrader. <strong>Supporter</strong> means: <strong>full holdings</strong> for our default model, <strong>rebalance + holdings-change emails</strong> on portfolios you follow, and <strong>premium ticker ratings</strong> when you track them.'
@@ -324,31 +363,23 @@ export function buildWelcomeEmailHtml(
         ${emailBullet('Track your top five tickers (premium included).')}
         ${emailBullet('Finish portfolio onboarding so the overview reflects you.')}
         ${founderSignoffHtml()}`;
-      const html = buildEmailShell({
-        documentTitle: 'Supporter — you are in',
-        preheader: 'Holdings, rebalance alerts, premium ratings — your checklist.',
-        heading: 'You are in. Here are three things worth doing today.',
+      return renderWelcomeEmail(draft, {
+        firstName,
         bodyHtml,
+        textBodyLines: [`Overview: ${overviewUrl}`, `Notifications: ${notifUrl}`],
         ctaLabel: 'Go to your portfolio',
         ctaUrl: overviewUrl,
         settingsUrl,
-        unsubscribeUrl: onboardingUnsubscribeUrl,
-        receivingNote: ONBOARDING_RECEIVING_NOTE,
+        onboardingUnsubscribeUrl,
       });
-      const text = [
-        'You are in — Supporter checklist',
-        greetingText(firstName),
-        '',
-        `Overview: ${overviewUrl}`,
-        `Notifications: ${notifUrl}`,
-        founderSignoffText(),
-        '',
-        `Settings: ${settingsUrl}`,
-        `Unsubscribe from onboarding: ${onboardingUnsubscribeUrl}`,
-      ].join('\n');
-      return { subject: 'You are in — Supporter quick start', html, text };
     }
     if (step === 2) {
+      const draft: WelcomeShellDraft = {
+        documentTitle: 'How to read rebalance emails (1/3)',
+        preheader: 'Rebalance vs entries/exits — what each email means.',
+        heading: 'How to read a rebalance email (1/3)',
+        subject: 'How to read a rebalance email (1/3)',
+      };
       const bodyHtml = `${emailP(greeting(firstName))}
         ${emailP(
           "A <strong>rebalance email</strong> means the model changed weights for the next week. <strong>Entries / exits</strong> spell out which names moved in or out of the published basket — that's the signal; price wiggles are the noise."
@@ -357,30 +388,23 @@ export function buildWelcomeEmailHtml(
           'Tune per-portfolio channels so you get email for what you care about — rebalance only, holdings changes, or both.'
         )}
         ${founderSignoffHtml()}`;
-      const html = buildEmailShell({
-        documentTitle: 'How to read rebalance emails (1/3)',
-        preheader: 'Rebalance vs entries/exits — what each email means.',
-        heading: 'How to read a rebalance email (1/3)',
+      return renderWelcomeEmail(draft, {
+        firstName,
         bodyHtml,
+        textBodyLines: [`Notifications: ${notifUrl}`],
         ctaLabel: 'Portfolio notification settings',
         ctaUrl: notifUrl,
         settingsUrl,
-        unsubscribeUrl: onboardingUnsubscribeUrl,
-        receivingNote: ONBOARDING_RECEIVING_NOTE,
+        onboardingUnsubscribeUrl,
       });
-      const text = [
-        'How to read a rebalance email (1/3)',
-        greetingText(firstName),
-        '',
-        `Notifications: ${notifUrl}`,
-        founderSignoffText(),
-        '',
-        `Settings: ${settingsUrl}`,
-        `Unsubscribe from onboarding: ${onboardingUnsubscribeUrl}`,
-      ].join('\n');
-      return { subject: 'How to read a rebalance email (1/3)', html, text };
     }
     if (step === 3) {
+      const draft: WelcomeShellDraft = {
+        documentTitle: 'Premium tickers on your plan (2/3)',
+        preheader: 'Track premium tickers + optional rating emails.',
+        heading: 'Premium tickers you could not see before (2/3)',
+        subject: 'Premium tickers you could not see before (2/3)',
+      };
       const bodyHtml = `${emailP(greeting(firstName))}
         ${emailP(
           'A few premium names to try on your watchlist: <strong>MCHP</strong>, <strong>IDXX</strong>, <strong>DXCM</strong> — turn on <strong>per-stock rating emails</strong> so you see when the AI moves a bucket.'
@@ -389,61 +413,48 @@ export function buildWelcomeEmailHtml(
           "Curious which <em>strategy model</em> likes them most? <strong>Outperformer</strong> adds strategy-filtered ratings and every model's portfolio."
         )}
         ${founderSignoffHtml()}`;
-      const html = buildEmailShell({
-        documentTitle: 'Premium tickers on your plan (2/3)',
-        preheader: 'Track premium tickers + optional rating emails.',
-        heading: 'Premium tickers you could not see before (2/3)',
+      return renderWelcomeEmail(draft, {
+        firstName,
         bodyHtml,
+        textBodyLines: [`Notifications: ${notifUrl}`],
         ctaLabel: 'Manage tracked stocks',
         ctaUrl: notifUrl,
         settingsUrl,
-        unsubscribeUrl: onboardingUnsubscribeUrl,
-        receivingNote: ONBOARDING_RECEIVING_NOTE,
+        onboardingUnsubscribeUrl,
       });
-      const text = [
-        'Premium tickers you could not see before (2/3)',
-        greetingText(firstName),
-        '',
-        `Notifications: ${notifUrl}`,
-        founderSignoffText(),
-        '',
-        `Settings: ${settingsUrl}`,
-        `Unsubscribe from onboarding: ${onboardingUnsubscribeUrl}`,
-      ].join('\n');
-      return { subject: 'Premium tickers you could not see before (2/3)', html, text };
     }
+    const draft: WelcomeShellDraft = {
+      documentTitle: 'Why follow more than one model (3/3)',
+      preheader: 'Outperformer = every model + ratings filter.',
+      heading: 'Why Outperformers follow more than one model (3/3)',
+      subject: 'Why Outperformers follow more than one model (3/3)',
+    };
     const bodyHtml = `${emailP(greeting(firstName))}
       ${emailP(
         "The default model is my home base — but regimes rotate. <strong>Outperformer</strong> is for comparing <strong>multiple models</strong>, opening any strategy's performance + holdings, and filtering ratings by model."
       )}
       ${emailP('Want a walkthrough before you switch? Reply to this email.')}
       ${founderSignoffHtml()}`;
-    const html = buildEmailShell({
-      documentTitle: 'Why follow more than one model (3/3)',
-      preheader: 'Outperformer = every model + ratings filter.',
-      heading: 'Why Outperformers follow more than one model (3/3)',
+    return renderWelcomeEmail(draft, {
+      firstName,
       bodyHtml,
+      textBodyLines: [`Billing: ${billingUrl}`],
       ctaLabel: 'Upgrade to Outperformer',
       ctaUrl: billingUrl,
       settingsUrl,
-      unsubscribeUrl: onboardingUnsubscribeUrl,
-      receivingNote: ONBOARDING_RECEIVING_NOTE,
+      onboardingUnsubscribeUrl,
     });
-    const text = [
-      'Why Outperformers follow more than one model (3/3)',
-      greetingText(firstName),
-      '',
-      `Billing: ${billingUrl}`,
-      founderSignoffText(),
-      '',
-      `Settings: ${settingsUrl}`,
-      `Unsubscribe from onboarding: ${onboardingUnsubscribeUrl}`,
-    ].join('\n');
-    return { subject: 'Why Outperformers follow more than one model (3/3)', html, text };
   }
 
   // outperformer
   if (step === 1) {
+    const draft: WelcomeShellDraft = {
+      documentTitle: 'Outperformer — welcome',
+      preheader: 'Every model, every filter — your power checklist.',
+      heading: 'Welcome to the deep end.',
+      subject: 'Welcome to the deep end (Outperformer)',
+      textLead: 'Welcome to the deep end — Outperformer',
+    };
     const bodyHtml = `${emailP(greeting(firstName))}
       ${emailP(
         'Welcome to the deep end. <strong>Outperformer</strong> is every strategy model, every portfolio surface we ship, and strategy-filtered ratings — use it to stress-test ideas across models instead of a single lens.'
@@ -453,60 +464,46 @@ export function buildWelcomeEmailHtml(
       ${emailBullet('Enable rebalance + entries/exits email on each follow.')}
       ${emailBullet('Pick a favourite model filter on the ratings page and leave it pinned.')}
       ${founderSignoffHtml()}`;
-    const html = buildEmailShell({
-      documentTitle: 'Outperformer — welcome',
-      preheader: 'Every model, every filter — your power checklist.',
-      heading: 'Welcome to the deep end.',
+    return renderWelcomeEmail(draft, {
+      firstName,
       bodyHtml,
+      textBodyLines: [`Explore: ${exploreUrl}`],
       ctaLabel: 'Explore all models',
       ctaUrl: exploreUrl,
       settingsUrl,
-      unsubscribeUrl: onboardingUnsubscribeUrl,
-      receivingNote: ONBOARDING_RECEIVING_NOTE,
+      onboardingUnsubscribeUrl,
     });
-    const text = [
-      'Welcome to the deep end — Outperformer',
-      greetingText(firstName),
-      '',
-      `Explore: ${exploreUrl}`,
-      founderSignoffText(),
-      '',
-      `Settings: ${settingsUrl}`,
-      `Unsubscribe from onboarding: ${onboardingUnsubscribeUrl}`,
-    ].join('\n');
-    return { subject: 'Welcome to the deep end (Outperformer)', html, text };
   }
   if (step === 2) {
+    const draft: WelcomeShellDraft = {
+      documentTitle: 'Compare two strategies (1/3)',
+      preheader: 'Use the ratings strategy filter — compare models on the same names.',
+      heading: 'Compare two strategies side by side (1/3)',
+      subject: 'Compare two strategies side by side (1/3)',
+    };
     const bodyHtml = `${emailP(greeting(firstName))}
       ${emailP(
         'Pick any two models with different styles — e.g. a core benchmark-aware model vs a higher-conviction sleeve — then open the same tickers on the <strong>ratings</strong> page and flip the strategy filter. The buckets should disagree sometimes; that disagreement is the point.'
       )}
       ${emailP('When both models agree, I pay extra attention.')}
       ${founderSignoffHtml()}`;
-    const html = buildEmailShell({
-      documentTitle: 'Compare two strategies (1/3)',
-      preheader: 'Use the ratings strategy filter — compare models on the same names.',
-      heading: 'Compare two strategies side by side (1/3)',
+    return renderWelcomeEmail(draft, {
+      firstName,
       bodyHtml,
+      textBodyLines: [`Ratings: ${ratingsUrl}`],
       ctaLabel: 'Open ratings',
       ctaUrl: ratingsUrl,
       settingsUrl,
-      unsubscribeUrl: onboardingUnsubscribeUrl,
-      receivingNote: ONBOARDING_RECEIVING_NOTE,
+      onboardingUnsubscribeUrl,
     });
-    const text = [
-      'Compare two strategies side by side (1/3)',
-      greetingText(firstName),
-      '',
-      `Ratings: ${ratingsUrl}`,
-      founderSignoffText(),
-      '',
-      `Settings: ${settingsUrl}`,
-      `Unsubscribe from onboarding: ${onboardingUnsubscribeUrl}`,
-    ].join('\n');
-    return { subject: 'Compare two strategies side by side (1/3)', html, text };
   }
   if (step === 3) {
+    const draft: WelcomeShellDraft = {
+      documentTitle: 'Wire your watchlist (2/3)',
+      preheader: 'Stock alerts, portfolio price bands, model mail — tune once.',
+      heading: 'Your personal watchlist, wired up (2/3)',
+      subject: 'Your personal watchlist, wired up (2/3)',
+    };
     const bodyHtml = `${emailP(greeting(firstName))}
       ${emailP(
         'Wire up the noisy stuff once: <strong>per-stock rating alerts</strong> (email + in-app), <strong>price-move bands</strong> on portfolios you follow, and <strong>model ratings-ready</strong> mail for buckets you subscribe to.'
@@ -515,57 +512,37 @@ export function buildWelcomeEmailHtml(
         'If alert volume is too high, narrow to your top five tickers and one flagship portfolio — signal over noise.'
       )}
       ${founderSignoffHtml()}`;
-    const html = buildEmailShell({
-      documentTitle: 'Wire your watchlist (2/3)',
-      preheader: 'Stock alerts, portfolio price bands, model mail — tune once.',
-      heading: 'Your personal watchlist, wired up (2/3)',
+    return renderWelcomeEmail(draft, {
+      firstName,
       bodyHtml,
+      textBodyLines: [`Notifications: ${notifUrl}`],
       ctaLabel: 'Tune notifications',
       ctaUrl: notifUrl,
       settingsUrl,
-      unsubscribeUrl: onboardingUnsubscribeUrl,
-      receivingNote: ONBOARDING_RECEIVING_NOTE,
+      onboardingUnsubscribeUrl,
     });
-    const text = [
-      'Your personal watchlist, wired up (2/3)',
-      greetingText(firstName),
-      '',
-      `Notifications: ${notifUrl}`,
-      founderSignoffText(),
-      '',
-      `Settings: ${settingsUrl}`,
-      `Unsubscribe from onboarding: ${onboardingUnsubscribeUrl}`,
-    ].join('\n');
-    return { subject: 'Your personal watchlist, wired up (2/3)', html, text };
   }
+  const draft: WelcomeShellDraft = {
+    documentTitle: 'Share AITrader (3/3)',
+    preheader: 'Forward to a friend — plus one feature wish.',
+    heading: 'You are using AITrader like a pro (3/3)',
+    subject: 'You are using AITrader like a pro (3/3)',
+  };
   const bodyHtml = `${emailP(greeting(firstName))}
     ${emailP(
       'If AITrader has saved you time, forward this note to one friend who trades their own book — no referral link required; I grow mostly through word of mouth.'
     )}
     ${emailP('And if something is missing, reply with a single feature wish — I log every one.')}
     ${founderSignoffHtml()}`;
-  const html = buildEmailShell({
-    documentTitle: 'Share AITrader (3/3)',
-    preheader: 'Forward to a friend — plus one feature wish.',
-    heading: 'You are using AITrader like a pro (3/3)',
+  return renderWelcomeEmail(draft, {
+    firstName,
     bodyHtml,
+    textBodyLines: [`Overview: ${overviewUrl}`],
     ctaLabel: 'Open AITrader',
     ctaUrl: overviewUrl,
     settingsUrl,
-    unsubscribeUrl: onboardingUnsubscribeUrl,
-    receivingNote: ONBOARDING_RECEIVING_NOTE,
+    onboardingUnsubscribeUrl,
   });
-  const text = [
-    'You are using AITrader like a pro (3/3)',
-    greetingText(firstName),
-    '',
-    `Overview: ${overviewUrl}`,
-    founderSignoffText(),
-    '',
-    `Settings: ${settingsUrl}`,
-    `Unsubscribe from onboarding: ${onboardingUnsubscribeUrl}`,
-  ].join('\n');
-  return { subject: 'You are using AITrader like a pro (3/3)', html, text };
 }
 
 export const WELCOME_SMOKETEST_KINDS = [

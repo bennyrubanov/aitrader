@@ -3,10 +3,12 @@ import test from 'node:test';
 
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
 import {
+  __testing_isDegradeOverwrite,
   computeConfigDailySeries,
   liftTailPointForDisplay,
   rebaseSeriesForDisplay,
   sliceAndScale,
+  type ConfigDailySeriesSnapshot,
 } from '@/lib/config-daily-series';
 import type { ConfigPerfRow } from '@/lib/portfolio-config-utils';
 
@@ -221,4 +223,58 @@ test('computeConfigDailySeries persists empty when perf row count is zero', asyn
   });
 
   assert.equal(snapshot.dataStatus, 'empty');
+});
+
+function makeSnapshot(seriesLen: number): ConfigDailySeriesSnapshot {
+  const base = new Date('2026-02-17T00:00:00Z');
+  return {
+    strategyId: 's',
+    configId: 'c',
+    asOfRunDate: '2026-04-30',
+    dataStatus: 'ready',
+    series: Array.from({ length: seriesLen }, (_, i) => {
+      const d = new Date(base);
+      d.setUTCDate(base.getUTCDate() + i);
+      return {
+        date: d.toISOString().slice(0, 10),
+        aiPortfolio: 10_000 + i,
+        nasdaq100CapWeight: 10_000,
+        nasdaq100EqualWeight: 10_000,
+        sp500: 10_000,
+      };
+    }),
+    metrics: {
+      sharpeRatio: null,
+      sharpeRatioDecisionCadence: null,
+      cagr: null,
+      totalReturn: null,
+      maxDrawdown: null,
+      consistency: null,
+      weeksOfData: 0,
+      weeklyObservations: 0,
+      decisionObservations: 0,
+      endingValuePortfolio: null,
+      endingValueMarket: null,
+      endingValueNasdaq100EqualWeight: null,
+      endingValueSp500: null,
+      pctWeeksBeatingSp500: null,
+      pctWeeksBeatingNasdaq100EqualWeight: null,
+      beatsMarket: null,
+      beatsSp500: null,
+    },
+  };
+}
+
+test('isDegradeOverwrite returns true when new series is strictly shorter than existing', () => {
+  const existing = makeSnapshot(53);
+  const incoming = makeSnapshot(11);
+  assert.equal(__testing_isDegradeOverwrite(incoming, existing), true);
+});
+
+test('isDegradeOverwrite returns false for equal-or-longer, missing existing, or short existing', () => {
+  const existing = makeSnapshot(11);
+  assert.equal(__testing_isDegradeOverwrite(makeSnapshot(53), existing), false);
+  assert.equal(__testing_isDegradeOverwrite(makeSnapshot(11), existing), false);
+  assert.equal(__testing_isDegradeOverwrite(makeSnapshot(11), null), false);
+  assert.equal(__testing_isDegradeOverwrite(makeSnapshot(0), makeSnapshot(1)), false);
 });

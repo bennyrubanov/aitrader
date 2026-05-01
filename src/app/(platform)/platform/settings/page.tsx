@@ -32,12 +32,6 @@ import {
 } from '@/components/account/downgrade-to-supporter-dialog';
 import { useAuthState, useRefreshAuthProfile } from '@/components/auth/auth-state-context';
 import { NotificationsSettingsSection } from '@/components/platform/notifications-settings-section';
-import {
-  hasCachedNewsletterStatus,
-  readCachedNewsletterStatus,
-  setCachedNewsletterStatus,
-  type NewsletterStatus,
-} from '@/lib/notifications/settings-prewarm';
 import { cn } from '@/lib/utils';
 
 type ProfileState = {
@@ -222,13 +216,6 @@ const SettingsPageContent = () => {
     email: null,
     fullName: null,
   });
-  const [newsletterStatus, setNewsletterStatus] = useState<NewsletterStatus>(() =>
-    readCachedNewsletterStatus(authState.userId)
-  );
-  const [isLoadingNewsletter, setIsLoadingNewsletter] = useState(
-    () => Boolean(authState.userId) && !hasCachedNewsletterStatus(authState.userId)
-  );
-  const [isSavingNewsletter, setIsSavingNewsletter] = useState(false);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [isSigningUp, setIsSigningUp] = useState(false);
   const [isOpeningPortal, setIsOpeningPortal] = useState(false);
@@ -289,8 +276,6 @@ const SettingsPageContent = () => {
         email: null,
         fullName: null,
       });
-      setNewsletterStatus(null);
-      setIsLoadingNewsletter(false);
       setNameDraft('');
       setSignInMethods(null);
       setIsEditingName(false);
@@ -301,9 +286,6 @@ const SettingsPageContent = () => {
       id: authState.userId,
       email: authState.email.includes('@') ? authState.email : null,
     });
-    const cachedNewsletterStatus = readCachedNewsletterStatus(authState.userId);
-    setNewsletterStatus(cachedNewsletterStatus);
-    setIsLoadingNewsletter(!hasCachedNewsletterStatus(authState.userId));
     setProfile({
       email: authState.email.includes('@') ? authState.email : null,
       fullName: authState.name && authState.name !== 'Guest' ? authState.name : null,
@@ -361,45 +343,6 @@ const SettingsPageContent = () => {
 
   const savedNameNormalized = nameFromAuthState(authState.name).trim();
   const nameUnchanged = nameDraft.trim() === savedNameNormalized;
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadNewsletter = async () => {
-      if (!authState.isLoaded || !authState.isAuthenticated || !authState.userId) {
-        return;
-      }
-
-      const supabase = getSupabaseBrowserClient();
-      if (!supabase) {
-        setIsLoadingNewsletter(false);
-        return;
-      }
-
-      const hasCachedStatus = hasCachedNewsletterStatus(authState.userId);
-      setIsLoadingNewsletter(!hasCachedStatus);
-      const { data: newsletterData, error: newsletterError } = await supabase
-        .from('newsletter_subscribers')
-        .select('status')
-        .eq('user_id', authState.userId)
-        .maybeSingle();
-
-      if (!isMounted) {
-        return;
-      }
-
-      const nextStatus = !newsletterError ? ((newsletterData?.status as NewsletterStatus) ?? null) : null;
-      setCachedNewsletterStatus(authState.userId, nextStatus);
-      setNewsletterStatus(nextStatus);
-      setIsLoadingNewsletter(false);
-    };
-
-    void loadNewsletter();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [authState.isAuthenticated, authState.isLoaded, authState.userId]);
 
   useEffect(() => {
     if (!authState.isLoaded || !authState.isAuthenticated || billingReturnHandled.current) {
@@ -651,99 +594,6 @@ const SettingsPageContent = () => {
       description: 'Check your inbox to set or update your password.',
     });
     setIsSendingReset(false);
-  };
-
-  const handleNewsletterToggle = async (checked: boolean) => {
-    const supabase = getSupabaseBrowserClient();
-    if (!supabase || !authUser) {
-      return;
-    }
-
-    const targetStatus: Exclude<NewsletterStatus, null> = checked ? 'subscribed' : 'unsubscribed';
-    const emailToUse = (profile.email ?? authUser.email ?? '').trim().toLowerCase();
-
-    if (!emailToUse) {
-      toast({
-        title: 'Unable to update newsletter preference',
-        description: 'No email is available for this account.',
-      });
-      return;
-    }
-
-    setIsSavingNewsletter(true);
-
-    try {
-      if (newsletterStatus === null) {
-        const { error: insertError } = await supabase.from('newsletter_subscribers').insert({
-          email: emailToUse,
-          user_id: authUser.id,
-          source: 'settings',
-          status: targetStatus,
-        });
-
-        if (insertError && insertError.code === '23505') {
-          const { data: updatedRows, error: updateError } = await supabase
-            .from('newsletter_subscribers')
-            .update({
-              user_id: authUser.id,
-              source: 'settings',
-              status: targetStatus,
-            })
-            .eq('user_id', authUser.id)
-            .select('id');
-
-          if (updateError) {
-            throw new Error(updateError.message);
-          }
-          if (!updatedRows || updatedRows.length === 0) {
-            throw new Error(
-              'We found an existing newsletter record but could not link it to your account yet.'
-            );
-          }
-        } else if (insertError) {
-          throw new Error(insertError.message);
-        }
-      } else {
-        const { data: updatedRows, error: updateError } = await supabase
-          .from('newsletter_subscribers')
-          .update({
-            source: 'settings',
-            status: targetStatus,
-          })
-          .eq('user_id', authUser.id)
-          .select('id');
-
-        if (updateError) {
-          throw new Error(updateError.message);
-        }
-        if (!updatedRows || updatedRows.length === 0) {
-          throw new Error('No newsletter subscription record found for this account.');
-        }
-      }
-
-      setNewsletterStatus(targetStatus);
-      setCachedNewsletterStatus(authUser.id, targetStatus);
-      if (targetStatus === 'subscribed') {
-        localStorage.setItem('newsletter_subscribed', 'true');
-      } else {
-        localStorage.removeItem('newsletter_subscribed');
-      }
-
-      toast({
-        title: targetStatus === 'subscribed' ? 'Newsletter enabled' : 'Newsletter disabled',
-        description:
-          targetStatus === 'subscribed'
-            ? "You'll receive AI Trader weekly updates."
-            : 'You are unsubscribed from AI Trader weekly updates.',
-      });
-    } catch (error) {
-      toast({
-        title: 'Unable to update newsletter preference',
-        description: error instanceof Error ? error.message : 'Please try again.',
-      });
-    } finally {
-      setIsSavingNewsletter(false);
-    }
   };
 
   const pathSection = resolveSettingsSectionFromPath(pathname);
@@ -1400,11 +1250,7 @@ const SettingsPageContent = () => {
               <Bell className="size-4 text-muted-foreground" />
               <h2 className="text-sm font-semibold">Notifications</h2>
             </div>
-            <NotificationsSettingsSection
-              newsletterSubscribed={newsletterStatus === 'subscribed'}
-              newsletterDisabled={isLoadingNewsletter || isSavingNewsletter}
-              onNewsletterChange={handleNewsletterToggle}
-            />
+            <NotificationsSettingsSection />
             </section>
           )}
 

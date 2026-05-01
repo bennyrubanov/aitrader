@@ -17,7 +17,7 @@
 - Prefer a subdomain such as `mail.yourdomain.com` for `RESEND_FROM`.
 - Keep subjects under ~60 characters, avoid ALL CAPS, excessive `!`, `$`, or spam trigger phrases.
 - Transactional fan-out emails set `List-Unsubscribe` + one-click (`List-Unsubscribe-Post`) via `src/lib/notifications/cron-fanout.ts` and `weekly-digest-cron.ts`; one-click handler: `GET /api/platform/notifications/unsubscribe`.
-- Optional logo: place `logo.png` at **`public/email/logo.png`** (referenced as `{NEXT_PUBLIC_SITE_URL}/email/logo.png`). If missing, the wordmark still renders.
+- **Header logo:** the repo ships **`public/email/logo.png`**. The HTML `<img src>` uses **`EMAIL_LOGO_BASE_URL`** if set, otherwise **`NEXT_PUBLIC_SITE_URL`**, plus `/email/logo.png`. Inbox apps fetch that URL from the **public internet** — if `NEXT_PUBLIC_SITE_URL` is `http://localhost:3000`, the image **will not load** in Gmail (localhost is the reader’s machine, not your dev server). For local smoketest sends, set **`EMAIL_LOGO_BASE_URL=https://your-deployed-site.com`** in `.env.local` so the logo is loaded from production/staging while links in templates may still use `NEXT_PUBLIC_SITE_URL`. After deploy, matching `NEXT_PUBLIC_SITE_URL` to production is enough.
 - Warm up new sending domains gradually if volume jumps.
 
 **Duplicate rating email / in-app (model subscriber + paid tracked stock)**
@@ -80,23 +80,19 @@ If you need to stop fan-out quickly, deploy a hotfix that early-returns before f
 
 ### Per-template smoketest endpoint
 
-`GET /api/platform/notifications/smoketest` renders every notification email template against canned data. By default it sends through [`sendTransactionalEmail`](src/lib/mailer.ts) (**Resend** when `RESEND_API_KEY` and `RESEND_FROM` are set; otherwise the mailer’s Gmail SMTP fallback). Pass **`useGmail=1`** to force **Gmail SMTP** only (`sendEmailByGmail`, same stack as the operator digest). No database reads or writes; safe to leave enabled in production.
+`GET /api/platform/notifications/smoketest` renders notification **email** templates (canned data) and optionally seeds **in-app** notification rows via the Supabase admin client. Email sends use [`sendTransactionalEmail`](src/lib/mailer.ts) (**Resend** when `RESEND_API_KEY` and `RESEND_FROM` are set; otherwise the mailer’s Gmail SMTP fallback). Pass **`useGmail=1`** to force **Gmail SMTP** only (`sendEmailByGmail`). Email-only runs need no DB; in-app seeding needs **`SUPABASE_SECRET_KEY`**.
 
 - **Auth**: `CRON_SECRET` via `?secret=…`, `x-cron-secret` header, `x-vercel-cron-secret` header, or `Authorization: Bearer …`.
-- **Default recipient**: `tryaitrader@gmail.com`.
+- **Default email recipient**: `tryaitrader@gmail.com` (override with `to=`).
+- **In-app seeding**: `seedInapp=1` inserts sample rows for **bennyrubanov112@gmail.com** by default. Use `inappFor=other@…` (or a user UUID) to target someone else. With `seedInapp` / `inappFor`, template emails are **skipped** unless you add **`sendEmails=1`** (recipients still default to tryaitrader unless `to=` is set).
 - **Query params**:
   - `useGmail=1` — bypass Resend; send only via `EMAIL_*` Gmail SMTP.
-  - `to` — override recipient (e.g. `?to=you@example.com`).
-  - `kinds` — comma-separated subset; unknown values → `400`. Allowed:
-    - `rating-changes`
-    - `rebalance`
-    - `model-ratings-ready`
-    - `entries-exits`
-    - `price-move`
-    - `stock-rating-weekly`
-    - `curated-digest`
-    - `weekly-digest`
-  - `dryRun=1` — returns `{ subjects, kinds }` without actually sending.
+  - `to` — override email recipient.
+  - `seedInapp=1` — seed in-app notifications for the default QA account (see above).
+  - `inappFor` — explicit in-app target (email on `user_profiles` or UUID).
+  - `sendEmails=1` — when combined with `seedInapp` / `inappFor`, send the email batch as well.
+  - `kinds` — comma-separated subset; unknown values → `400`. See `allowedKinds` in the JSON response for the current list (welcome steps, weekly-bundle variants, transactional samples, etc.).
+  - `dryRun=1` — returns `{ subjects, kinds, … }` without sending or inserting.
 
 Examples:
 
@@ -112,6 +108,9 @@ curl "$HOST/api/platform/notifications/smoketest?secret=$CRON_SECRET&kinds=rebal
 
 # Render only (no send), to check the payload list
 curl "$HOST/api/platform/notifications/smoketest?secret=$CRON_SECRET&dryRun=1"
+
+# Seed in-app samples for bennyrubanov112@gmail.com (no emails)
+curl "$HOST/api/platform/notifications/smoketest?secret=$CRON_SECRET&seedInapp=1"
 ```
 
 Notes:

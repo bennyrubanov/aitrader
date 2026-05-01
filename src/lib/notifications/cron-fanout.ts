@@ -1,47 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { sendTransactionalEmail, type SendMailInput } from '@/lib/mailer';
-import {
-  buildModelRatingsReadyEmailHtml,
-  buildPortfolioEntriesExitsEmailHtml,
-  buildPortfolioPriceMoveEmailHtml,
-  buildRatingChangesEmailHtml,
-  buildRebalanceEmailHtml,
-} from '@/lib/notifications/email-templates';
 import { hrefStockSymbol, hrefStrategyModel, hrefYourPortfolio } from '@/lib/notifications/hrefs';
 import type { Bucket, RatingBucketChange } from '@/lib/notifications/types';
-import { loadUserEmails, loadUserPrefs, resolvePrefsForFanout } from '@/lib/notifications/user-notify-queries';
-import { signUnsubscribePayload } from '@/lib/notifications/unsubscribe-token';
+import { loadUserPrefs, resolvePrefsForFanout } from '@/lib/notifications/user-notify-queries';
 
 type AiOk = { status: 'ok'; stock_id: string; symbol: string; bucket: Bucket };
 export type AiCronResult = AiOk | { status: string; stock_id?: string };
 
 type PrevMap = Map<string, { score: number; bucket: Bucket }>;
-
-function siteBase() {
-  const u = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, '');
-  return u || '';
-}
-
-type MailResult = Awaited<ReturnType<typeof sendTransactionalEmail>>;
-
-function mailErrorMessage(res: MailResult): string | null {
-  switch (res.ok) {
-    case true:
-      return null;
-    case false:
-      return res.error;
-    default:
-      return null;
-  }
-}
-
-function listUnsubscribeHeaders(unsubscribeUrl: string): Record<string, string> {
-  if (!unsubscribeUrl) return {};
-  return {
-    'List-Unsubscribe': `<${unsubscribeUrl}>`,
-    'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
-  };
-}
 
 export function collectRatingBucketChanges(
   results: AiCronResult[],
@@ -111,13 +76,7 @@ export async function notifyRatingBucketChanges(
   if (!subsFiltered.length) return { inappInserted: 0, emailsSent: 0, modelRatingInappKeys: emptyKeys() };
 
   const userIds = [...new Set(subsFiltered.map((s) => s.user_id))];
-  const [{ map: prefsMap, hadError: hadPrefsError }, { map: emailMap }] = await Promise.all([
-    loadUserPrefs(admin, userIds),
-    loadUserEmails(admin, userIds),
-  ]);
-
-  const base = siteBase();
-  const settingsUrl = base ? `${base}/platform/settings/notifications` : '/platform/settings/notifications';
+  const { map: prefsMap, hadError: hadPrefsError } = await loadUserPrefs(admin, userIds);
 
   const inappRows: {
     user_id: string;
@@ -129,18 +88,11 @@ export async function notifyRatingBucketChanges(
   /** Same length/order as `inappRows` — used to populate `modelRatingInappKeys` only after successful insert. */
   const inappRowMeta: { userId: string; stockId: string }[] = [];
 
-  type RatingLine = { symbol: string; prev: string; next: string };
-  const emailJobsByUser = new Map<
-    string,
-    { userId: string; email: string; lines: RatingLine[] }
-  >();
-
   const modelRatingInappKeys = new Set<string>();
 
   for (const sub of subsFiltered) {
     const prefs = resolvePrefsForFanout(prefsMap, hadPrefsError, sub.user_id);
     const allowInapp = prefs.inapp_enabled && sub.inapp_enabled;
-    const allowEmail = prefs.email_enabled && sub.email_enabled;
 
     if (allowInapp) {
       for (const ch of params.changes) {
@@ -148,8 +100,8 @@ export async function notifyRatingBucketChanges(
         inappRows.push({
           user_id: sub.user_id,
           type: 'stock_rating_change',
-          title: `${ch.symbol}: ${ch.prev_bucket} → ${ch.next_bucket}`,
-          body: `${params.strategyName} · ${params.runDate}`,
+          title: `${ch.symbol}: ${ch.prev_bucket} -> ${ch.next_bucket}`,
+          body: `${params.strategyName} weekly rating moved this week on ${params.runDate}.`,
           data: {
             strategy_id: params.strategyId,
             strategy_slug: params.strategySlug,
@@ -161,29 +113,6 @@ export async function notifyRatingBucketChanges(
             href: hrefStockSymbol(ch.symbol),
           },
         });
-      }
-    }
-
-    if (allowEmail) {
-      const email = emailMap.get(sub.user_id);
-      if (email) {
-        const lines: RatingLine[] = params.changes.map((c) => ({
-          symbol: c.symbol,
-          prev: c.prev_bucket,
-          next: c.next_bucket,
-        }));
-        const existing = emailJobsByUser.get(sub.user_id);
-        if (existing) {
-          const seen = new Set(existing.lines.map((l) => l.symbol));
-          for (const line of lines) {
-            if (!seen.has(line.symbol)) {
-              existing.lines.push(line);
-              seen.add(line.symbol);
-            }
-          }
-        } else {
-          emailJobsByUser.set(sub.user_id, { userId: sub.user_id, email, lines });
-        }
       }
     }
   }
@@ -205,33 +134,7 @@ export async function notifyRatingBucketChanges(
     }
   }
 
-  let emailsSent = 0;
-  const emailJobs = [...emailJobsByUser.values()];
-  for (const job of emailJobs) {
-    const token = signUnsubscribePayload({ userId: job.userId, scope: 'all' });
-    const unsubscribeUrl = token
-      ? `${base || ''}/api/platform/notifications/unsubscribe?token=${encodeURIComponent(token)}`
-      : settingsUrl;
-    const { html, text } = buildRatingChangesEmailHtml({
-      strategyName: params.strategyName,
-      runDate: params.runDate,
-      lines: job.lines,
-      settingsUrl,
-      unsubscribeUrl,
-    });
-    const res = await sendTransactionalEmail({
-      to: job.email,
-      subject: `Rating updates — ${params.strategyName}`,
-      html,
-      text,
-      headers: listUnsubscribeHeaders(unsubscribeUrl),
-    } satisfies SendMailInput);
-    const err = mailErrorMessage(res);
-    if (err) console.error('[notifications] rating email', job.userId, err);
-    else emailsSent += 1;
-  }
-
-  return { inappInserted, emailsSent, modelRatingInappKeys };
+  return { inappInserted, emailsSent: 0, modelRatingInappKeys };
 }
 
 export async function notifyPortfolioRebalances(
@@ -247,12 +150,10 @@ export async function notifyPortfolioRebalances(
 ): Promise<{ inappInserted: number; emailsSent: number }> {
   const { data: profiles, error } = await admin
     .from('user_portfolio_profiles')
-    .select(
-      'id, user_id, notify_rebalance, notify_rebalance_inapp, notify_rebalance_email, email_enabled, inapp_enabled'
-    )
+    .select('id, user_id, notify_rebalance, notify_rebalance_inapp, email_enabled, inapp_enabled')
     .eq('strategy_id', params.strategyId)
     .eq('is_active', true)
-    .or('notify_rebalance.eq.true,notify_rebalance_inapp.eq.true,notify_rebalance_email.eq.true');
+    .or('notify_rebalance.eq.true,notify_rebalance_inapp.eq.true');
 
   if (error || !profiles?.length) {
     if (error) console.error('[notifications] profiles rebalance', error.message);
@@ -263,7 +164,6 @@ export async function notifyPortfolioRebalances(
     id: string;
     user_id: string;
     notify_rebalance_inapp?: boolean;
-    notify_rebalance_email?: boolean;
     email_enabled: boolean;
     inapp_enabled: boolean;
   }[];
@@ -273,13 +173,7 @@ export async function notifyPortfolioRebalances(
   if (!list.length) return { inappInserted: 0, emailsSent: 0 };
 
   const userIds = [...new Set(list.map((p) => p.user_id))];
-  const [{ map: prefsMap, hadError: hadPrefsError }, { map: emailMap }] = await Promise.all([
-    loadUserPrefs(admin, userIds),
-    loadUserEmails(admin, userIds),
-  ]);
-
-  const base = siteBase();
-  const settingsUrl = base ? `${base}/platform/settings/notifications` : '/platform/settings/notifications';
+  const { map: prefsMap, hadError: hadPrefsError } = await loadUserPrefs(admin, userIds);
 
   const inappRows: {
     user_id: string;
@@ -292,13 +186,12 @@ export async function notifyPortfolioRebalances(
   for (const p of list) {
     const prefs = resolvePrefsForFanout(prefsMap, hadPrefsError, p.user_id);
     const rbIn = p.notify_rebalance_inapp ?? true;
-    const rbEm = p.notify_rebalance_email ?? true;
     if (prefs.inapp_enabled && rbIn) {
       inappRows.push({
         user_id: p.user_id,
         type: 'rebalance_action',
         title: `Rebalance: ${params.strategyName}`,
-        body: `${params.actionCount} update(s) on ${params.runDate}`,
+        body: `${params.actionCount} position update(s) in your followed portfolio on ${params.runDate}.`,
         data: {
           strategy_id: params.strategyId,
           strategy_slug: params.strategySlug,
@@ -319,43 +212,7 @@ export async function notifyPortfolioRebalances(
     else inappInserted += batch.length;
   }
 
-  let emailsSent = 0;
-  const emailed = new Set<string>();
-  for (const p of list) {
-    const prefs = resolvePrefsForFanout(prefsMap, hadPrefsError, p.user_id);
-    const rbEm = p.notify_rebalance_email ?? true;
-    if (!prefs.email_enabled || !rbEm) continue;
-    if (emailed.has(p.user_id)) continue;
-    const email = emailMap.get(p.user_id);
-    if (!email) continue;
-    emailed.add(p.user_id);
-
-    const token = signUnsubscribePayload({ userId: p.user_id, scope: 'all' });
-    const unsubscribeUrl = token
-      ? `${base || ''}/api/platform/notifications/unsubscribe?token=${encodeURIComponent(token)}`
-      : settingsUrl;
-    const portfolioUrl = base ? `${base}${hrefYourPortfolio(p.id)}` : hrefYourPortfolio(p.id);
-    const { html, text } = buildRebalanceEmailHtml({
-      strategyName: params.strategyName,
-      runDate: params.runDate,
-      actionCount: params.actionCount,
-      portfolioUrl,
-      settingsUrl,
-      unsubscribeUrl,
-    });
-    const res = await sendTransactionalEmail({
-      to: email,
-      subject: `Rebalance — ${params.strategyName} (${params.runDate})`,
-      html,
-      text,
-      headers: listUnsubscribeHeaders(unsubscribeUrl),
-    });
-    const errRb = mailErrorMessage(res);
-    if (errRb) console.error('[notifications] rebalance email', p.user_id, errRb);
-    else emailsSent += 1;
-  }
-
-  return { inappInserted, emailsSent };
+  return { inappInserted, emailsSent: 0 };
 }
 
 export async function notifyModelRatingsReady(
@@ -385,14 +242,7 @@ export async function notifyModelRatingsReady(
   if (!subsFiltered.length) return { inappInserted: 0, emailsSent: 0 };
 
   const userIds = [...new Set(subsFiltered.map((s) => s.user_id))];
-  const [{ map: prefsMap, hadError: hadPrefsError }, { map: emailMap }] = await Promise.all([
-    loadUserPrefs(admin, userIds),
-    loadUserEmails(admin, userIds),
-  ]);
-
-  const base = siteBase();
-  const settingsUrl = base ? `${base}/platform/settings/notifications` : '/platform/settings/notifications';
-  const modelUrl = base ? `${base}${hrefStrategyModel(params.strategySlug)}` : hrefStrategyModel(params.strategySlug);
+  const { map: prefsMap, hadError: hadPrefsError } = await loadUserPrefs(admin, userIds);
 
   const inappRows: Array<{
     user_id: string;
@@ -407,8 +257,8 @@ export async function notifyModelRatingsReady(
       inappRows.push({
         user_id: sub.user_id,
         type: 'model_ratings_ready' as const,
-        title: `New ratings — ${params.strategyName}`,
-        body: `Weekly run completed ${params.runDate}`,
+        title: `New ratings: ${params.strategyName}`,
+        body: `Weekly rating run completed on ${params.runDate}.`,
         data: {
           strategy_id: params.strategyId,
           strategy_slug: params.strategySlug,
@@ -427,40 +277,7 @@ export async function notifyModelRatingsReady(
     else inappInserted += batch.length;
   }
 
-  let emailsSent = 0;
-  const emailed = new Set<string>();
-  for (const sub of subsFiltered) {
-    const prefs = resolvePrefsForFanout(prefsMap, hadPrefsError, sub.user_id);
-    if (!prefs.email_enabled || !sub.email_enabled) continue;
-    if (emailed.has(sub.user_id)) continue;
-    const email = emailMap.get(sub.user_id);
-    if (!email) continue;
-    emailed.add(sub.user_id);
-
-    const token = signUnsubscribePayload({ userId: sub.user_id, scope: 'all' });
-    const unsubscribeUrl = token
-      ? `${base || ''}/api/platform/notifications/unsubscribe?token=${encodeURIComponent(token)}`
-      : settingsUrl;
-    const { html, text } = buildModelRatingsReadyEmailHtml({
-      strategyName: params.strategyName,
-      runDate: params.runDate,
-      modelUrl,
-      settingsUrl,
-      unsubscribeUrl,
-    });
-    const res = await sendTransactionalEmail({
-      to: email,
-      subject: `AI ratings ready — ${params.strategyName}`,
-      html,
-      text,
-      headers: listUnsubscribeHeaders(unsubscribeUrl),
-    });
-    const errMr = mailErrorMessage(res);
-    if (errMr) console.error('[notifications] ratings ready email', sub.user_id, errMr);
-    else emailsSent += 1;
-  }
-
-  return { inappInserted, emailsSent };
+  return { inappInserted, emailsSent: 0 };
 }
 
 const PAID_STOCK_TIERS = new Set(['supporter', 'outperformer']);
@@ -519,24 +336,6 @@ export async function notifyStockRatingChangesPerStock(
   }
   if (!trackRows.length) return { inappInserted: 0, emailsSent: 0 };
 
-  const { data: ratingSubsRows } = await admin
-    .from('user_model_subscriptions')
-    .select('user_id, email_enabled')
-    .eq('strategy_id', params.strategyId)
-    .eq('notify_rating_changes', true);
-
-  const skipPerStockEmail = new Set<string>();
-  const subUserIds = [...new Set((ratingSubsRows ?? []).map((r: { user_id: string }) => r.user_id))];
-  if (subUserIds.length) {
-    const { map: prefsSubs, hadError: hadPrefsSubsError } = await loadUserPrefs(admin, subUserIds);
-    for (const row of ratingSubsRows ?? []) {
-      const r = row as { user_id: string; email_enabled: boolean };
-      if (params.dryUserId && r.user_id !== params.dryUserId) continue;
-      const pr = resolvePrefsForFanout(prefsSubs, hadPrefsSubsError, r.user_id);
-      if (pr.email_enabled && r.email_enabled) skipPerStockEmail.add(r.user_id);
-    }
-  }
-
   const userIds = [...new Set(trackRows.map((t) => t.user_id))];
   const { data: tierRows, error: tierErr } = await admin
     .from('user_profiles')
@@ -556,13 +355,10 @@ export async function notifyStockRatingChangesPerStock(
   if (!trackRows.length) return { inappInserted: 0, emailsSent: 0 };
 
   const changeByStock = new Map(params.changes.map((c) => [c.stock_id, c]));
-  const [{ map: prefsMap, hadError: hadPrefsError }, { map: emailMap }] = await Promise.all([
-    loadUserPrefs(admin, [...new Set(trackRows.map((t) => t.user_id))]),
-    loadUserEmails(admin, [...new Set(trackRows.map((t) => t.user_id))]),
-  ]);
-
-  const base = siteBase();
-  const settingsUrl = base ? `${base}/platform/settings/notifications` : '/platform/settings/notifications';
+  const { map: prefsMap, hadError: hadPrefsError } = await loadUserPrefs(
+    admin,
+    [...new Set(trackRows.map((t) => t.user_id))]
+  );
 
   const inappRows: {
     user_id: string;
@@ -572,22 +368,18 @@ export async function notifyStockRatingChangesPerStock(
     data: Record<string, unknown>;
   }[] = [];
 
-  type Line = { symbol: string; prev: string; next: string };
-  const emailLinesByUser = new Map<string, Line[]>();
-
   for (const t of trackRows) {
     const ch = changeByStock.get(t.stock_id);
     if (!ch) continue;
     const prefs = resolvePrefsForFanout(prefsMap, hadPrefsError, t.user_id);
     const allowInapp = prefs.inapp_enabled && t.notify_rating_inapp;
-    const allowEmail = prefs.email_enabled && t.notify_rating_email;
     const dedupeKey = ratingInappDedupeKey(t.user_id, ch.stock_id, params.runDate);
     if (allowInapp && !params.modelRatingInappKeys?.has(dedupeKey)) {
       inappRows.push({
         user_id: t.user_id,
         type: 'stock_rating_change',
-        title: `${ch.symbol}: ${ch.prev_bucket} → ${ch.next_bucket}`,
-        body: `${params.strategyName} · ${params.runDate} (tracked)`,
+        title: `${ch.symbol}: ${ch.prev_bucket} -> ${ch.next_bucket}`,
+        body: `${params.strategyName} weekly rating moved this week on ${params.runDate}.`,
         data: {
           strategy_id: params.strategyId,
           strategy_slug: params.strategySlug,
@@ -601,11 +393,6 @@ export async function notifyStockRatingChangesPerStock(
         },
       });
     }
-    if (allowEmail && !skipPerStockEmail.has(t.user_id)) {
-      const arr = emailLinesByUser.get(t.user_id) ?? [];
-      arr.push({ symbol: ch.symbol, prev: ch.prev_bucket, next: ch.next_bucket });
-      emailLinesByUser.set(t.user_id, arr);
-    }
   }
 
   let inappInserted = 0;
@@ -616,34 +403,7 @@ export async function notifyStockRatingChangesPerStock(
     else inappInserted += batch.length;
   }
 
-  let emailsSent = 0;
-  for (const [userId, lines] of emailLinesByUser) {
-    const email = emailMap.get(userId);
-    if (!email || !lines.length) continue;
-    const token = signUnsubscribePayload({ userId, scope: 'all' });
-    const unsubscribeUrl = token
-      ? `${base || ''}/api/platform/notifications/unsubscribe?token=${encodeURIComponent(token)}`
-      : settingsUrl;
-    const { html, text } = buildRatingChangesEmailHtml({
-      strategyName: `${params.strategyName} (tracked stocks)`,
-      runDate: params.runDate,
-      lines,
-      settingsUrl,
-      unsubscribeUrl,
-    });
-    const res = await sendTransactionalEmail({
-      to: email,
-      subject: `Tracked stocks — rating updates`,
-      html,
-      text,
-      headers: listUnsubscribeHeaders(unsubscribeUrl),
-    });
-    const err = mailErrorMessage(res);
-    if (err) console.error('[notifications] per-stock email', userId, err);
-    else emailsSent += 1;
-  }
-
-  return { inappInserted, emailsSent };
+  return { inappInserted, emailsSent: 0 };
 }
 
 export async function notifyPortfolioEntriesExits(
@@ -665,7 +425,7 @@ export async function notifyPortfolioEntriesExits(
   const { data: profiles, error } = await admin
     .from('user_portfolio_profiles')
     .select(
-      'id, user_id, notify_entries_exits_inapp, notify_entries_exits_email, notify_holdings_change, email_enabled, inapp_enabled'
+      'id, user_id, notify_entries_exits_inapp, notify_holdings_change, email_enabled, inapp_enabled'
     )
     .eq('strategy_id', params.strategyId)
     .eq('is_active', true);
@@ -679,7 +439,6 @@ export async function notifyPortfolioEntriesExits(
     id: string;
     user_id: string;
     notify_entries_exits_inapp?: boolean;
-    notify_entries_exits_email?: boolean;
     notify_holdings_change: boolean;
     email_enabled: boolean;
     inapp_enabled: boolean;
@@ -687,8 +446,7 @@ export async function notifyPortfolioEntriesExits(
 
   plist = plist.filter((p) => {
     const exIn = p.notify_entries_exits_inapp ?? (p.notify_holdings_change && p.inapp_enabled);
-    const exEm = p.notify_entries_exits_email ?? (p.notify_holdings_change && p.email_enabled);
-    return exIn || exEm;
+    return exIn;
   });
   if (params.dryUserId) {
     plist = plist.filter((p) => p.user_id === params.dryUserId);
@@ -696,19 +454,13 @@ export async function notifyPortfolioEntriesExits(
   if (!plist.length) return { inappInserted: 0, emailsSent: 0 };
 
   const userIds = [...new Set(plist.map((p) => p.user_id))];
-  const [{ map: prefsMap, hadError: hadPrefsError }, { map: emailMap }] = await Promise.all([
-    loadUserPrefs(admin, userIds),
-    loadUserEmails(admin, userIds),
-  ]);
+  const { map: prefsMap, hadError: hadPrefsError } = await loadUserPrefs(admin, userIds);
 
-  const base = siteBase();
-  const settingsUrl = base ? `${base}/platform/settings/notifications` : '/platform/settings/notifications';
   const entrySyms = params.entries.map((e) => e.symbol);
   const exitSyms = params.exits.map((e) => e.symbol);
-  const bodyParts = [
-    entrySyms.length ? `Entered: ${entrySyms.join(', ')}` : '',
-    exitSyms.length ? `Exited: ${exitSyms.join(', ')}` : '',
-  ].filter(Boolean);
+  const enteredLabel = entrySyms.length ? entrySyms.join(', ') : 'none';
+  const exitedLabel = exitSyms.length ? exitSyms.join(', ') : 'none';
+  const holdingsBody = `Entered: ${enteredLabel}. Exited: ${exitedLabel}. (${params.runDate})`;
 
   const inappRows: {
     user_id: string;
@@ -726,7 +478,7 @@ export async function notifyPortfolioEntriesExits(
         user_id: p.user_id,
         type: 'portfolio_entries_exits',
         title: `Holdings update: ${params.strategyName}`,
-        body: bodyParts.join('\n'),
+        body: holdingsBody,
         data: {
           strategy_id: params.strategyId,
           strategy_slug: params.strategySlug,
@@ -748,44 +500,7 @@ export async function notifyPortfolioEntriesExits(
     else inappInserted += batch.length;
   }
 
-  let emailsSent = 0;
-  const emailed = new Set<string>();
-  for (const p of plist) {
-    const prefs = resolvePrefsForFanout(prefsMap, hadPrefsError, p.user_id);
-    const exEm = p.notify_entries_exits_email ?? (p.notify_holdings_change && p.email_enabled);
-    if (!prefs.email_enabled || !exEm) continue;
-    if (emailed.has(p.user_id)) continue;
-    const email = emailMap.get(p.user_id);
-    if (!email) continue;
-    emailed.add(p.user_id);
-
-    const token = signUnsubscribePayload({ userId: p.user_id, scope: 'all' });
-    const unsubscribeUrl = token
-      ? `${base || ''}/api/platform/notifications/unsubscribe?token=${encodeURIComponent(token)}`
-      : settingsUrl;
-    const portfolioUrl = base ? `${base}${hrefYourPortfolio(p.id)}` : hrefYourPortfolio(p.id);
-    const { html, text } = buildPortfolioEntriesExitsEmailHtml({
-      strategyName: params.strategyName,
-      runDate: params.runDate,
-      entries: entrySyms,
-      exits: exitSyms,
-      portfolioUrl,
-      settingsUrl,
-      unsubscribeUrl,
-    });
-    const res = await sendTransactionalEmail({
-      to: email,
-      subject: `Holdings update — ${params.strategyName}`,
-      html,
-      text,
-      headers: listUnsubscribeHeaders(unsubscribeUrl),
-    });
-    const err = mailErrorMessage(res);
-    if (err) console.error('[notifications] entries/exits email', p.user_id, err);
-    else emailsSent += 1;
-  }
-
-  return { inappInserted, emailsSent };
+  return { inappInserted, emailsSent: 0 };
 }
 
 export async function notifyPortfolioPriceMoves(
@@ -794,11 +509,9 @@ export async function notifyPortfolioPriceMoves(
 ): Promise<{ profilesChecked: number; inappInserted: number; emailsSent: number }> {
   const { data: profiles, error } = await admin
     .from('user_portfolio_profiles')
-    .select(
-      'id, user_id, strategy_id, config_id, notify_price_move_inapp, notify_price_move_email, email_enabled, inapp_enabled'
-    )
+    .select('id, user_id, strategy_id, config_id, notify_price_move_inapp, email_enabled, inapp_enabled')
     .eq('is_active', true)
-    .or('notify_price_move_inapp.eq.true,notify_price_move_email.eq.true');
+    .eq('notify_price_move_inapp', true);
 
   if (error || !profiles?.length) {
     if (error) console.error('[notifications] price-move profiles', error.message);
@@ -811,7 +524,6 @@ export async function notifyPortfolioPriceMoves(
     strategy_id: string;
     config_id: string;
     notify_price_move_inapp?: boolean;
-    notify_price_move_email?: boolean;
     email_enabled: boolean;
     inapp_enabled: boolean;
   }[];
@@ -820,17 +532,11 @@ export async function notifyPortfolioPriceMoves(
   }
 
   const userIds = [...new Set(plist.map((p) => p.user_id))];
-  const [{ map: prefsMap, hadError: hadPrefsError }, { map: emailMap }] = await Promise.all([
-    loadUserPrefs(admin, userIds),
-    loadUserEmails(admin, userIds),
-  ]);
-
-  const base = siteBase();
-  const settingsUrl = base ? `${base}/platform/settings/notifications` : '/platform/settings/notifications';
+  const { map: prefsMap, hadError: hadPrefsError } = await loadUserPrefs(admin, userIds);
 
   const pairKey = (strategyId: string, configId: string) => `${strategyId}|${configId}`;
   const uniquePairs = [...new Set(plist.map((p) => pairKey(p.strategy_id, p.config_id)))];
-  const pctByPair = new Map<string, { pct: number; pctLabel: string }>();
+  const pctByPair = new Map<string, { pct: number; pctLabel: string; pctSigned: string }>();
 
   for (const key of uniquePairs) {
     const [strategy_id, config_id] = key.split('|') as [string, string];
@@ -849,7 +555,9 @@ export async function notifyPortfolioPriceMoves(
     if (!Number.isFinite(cur) || !Number.isFinite(prev) || prev <= 0) continue;
     const pct = (cur - prev) / prev;
     if (Math.abs(pct) < PRICE_MOVE_THRESHOLD) continue;
-    pctByPair.set(key, { pct, pctLabel: `${(pct * 100).toFixed(1)}%` });
+    const pctLabel = `${(pct * 100).toFixed(1)}%`;
+    const pctSigned = pct >= 0 ? `+${pctLabel}` : pctLabel;
+    pctByPair.set(key, { pct, pctLabel, pctSigned });
   }
 
   const strategyIds = [...new Set(plist.map((p) => p.strategy_id))];
@@ -907,9 +615,6 @@ export async function notifyPortfolioPriceMoves(
     data: Record<string, unknown>;
   }[] = [];
 
-  let emailsSent = 0;
-  const emailedProfileIds = new Set<string>();
-
   for (const p of plist) {
     const snap = pctByPair.get(pairKey(p.strategy_id, p.config_id));
     if (!snap) continue;
@@ -919,15 +624,15 @@ export async function notifyPortfolioPriceMoves(
 
     const prefs = resolvePrefsForFanout(prefsMap, hadPrefsError, p.user_id);
     const pmIn = p.notify_price_move_inapp ?? false;
-    const pmEm = p.notify_price_move_email ?? false;
-    const { pct, pctLabel } = snap;
+    const { pct, pctSigned } = snap;
+    const strategyName = strategyNameById.get(p.strategy_id) ?? 'Portfolio';
 
     if (prefs.inapp_enabled && pmIn) {
       inappRows.push({
         user_id: p.user_id,
         type: 'portfolio_price_move',
-        title: `Price move: ~${pctLabel}`,
-        body: `Portfolio vs prior snapshot (${params.runDate})`,
+        title: `${strategyName}: ${pctSigned}`,
+        body: `Your followed portfolio moved about ${pctSigned} since the prior snapshot (${params.runDate}).`,
         data: {
           profile_id: p.id,
           strategy_id: p.strategy_id,
@@ -937,37 +642,6 @@ export async function notifyPortfolioPriceMoves(
           href: hrefYourPortfolio(p.id),
         },
       });
-    }
-
-    if (prefs.email_enabled && pmEm && !emailedProfileIds.has(p.id)) {
-      const email = emailMap.get(p.user_id);
-      if (email) {
-        emailedProfileIds.add(p.id);
-        const token = signUnsubscribePayload({ userId: p.user_id, scope: 'all' });
-        const unsubscribeUrl = token
-          ? `${base || ''}/api/platform/notifications/unsubscribe?token=${encodeURIComponent(token)}`
-          : settingsUrl;
-        const portfolioUrl = base ? `${base}${hrefYourPortfolio(p.id)}` : hrefYourPortfolio(p.id);
-        const strategyName = strategyNameById.get(p.strategy_id) ?? 'Portfolio';
-        const { html, text } = buildPortfolioPriceMoveEmailHtml({
-          strategyName,
-          runDate: params.runDate,
-          pctLabel,
-          portfolioUrl,
-          settingsUrl,
-          unsubscribeUrl,
-        });
-        const res = await sendTransactionalEmail({
-          to: email,
-          subject: `Price alert — ${strategyName}`,
-          html,
-          text,
-          headers: listUnsubscribeHeaders(unsubscribeUrl),
-        });
-        const err = mailErrorMessage(res);
-        if (err) console.error('[notifications] price-move email', p.user_id, err);
-        else emailsSent += 1;
-      }
     }
   }
 
@@ -979,5 +653,5 @@ export async function notifyPortfolioPriceMoves(
     else inappInserted += batch.length;
   }
 
-  return { profilesChecked: plist.length, inappInserted, emailsSent };
+  return { profilesChecked: plist.length, inappInserted, emailsSent: 0 };
 }
