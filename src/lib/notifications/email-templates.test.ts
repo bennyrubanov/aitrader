@@ -17,8 +17,10 @@ test('buildEmailShell includes preheader, unsubscribe, and no script', () => {
   });
   assert.match(html, /Hidden preview line/);
   assert.match(html, /unsub\?token=abc/);
+  assert.match(html, /You are receiving this email based on your AITrader/);
   assert.match(html, /<\/html>\s*$/i);
   assert.doesNotMatch(html, /<script/i);
+  assert.doesNotMatch(html, /<div\b/i);
 });
 
 test('buildCuratedWeeklyDigestEmailHtml text includes textSummaryLines and Unsubscribe', () => {

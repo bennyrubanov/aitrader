@@ -35,6 +35,7 @@ test('buildWelcomeEmailHtml free step 1 includes onboarding unsub and founder', 
   assert.match(html, /Hi Sam,/);
   assert.match(html, /Benny/);
   assert.match(html, /unsubscribe\?token=ONBOARDING/);
+  assert.match(html, /You are receiving this email because you signed up for AITrader and onboarding tips are enabled/);
   assert.match(text, /Unsubscribe from onboarding:/);
 });
 

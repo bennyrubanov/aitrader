@@ -65,23 +65,27 @@ function buildCuratedSectionsHtml(rows: { type: string; title: string | null }[]
     'model_ratings_ready',
   ];
   const parts: string[] = [];
+  const bulletP =
+    'margin:0 0 6px;font-size:15px;line-height:1.55;color:#111827;font-family:Arial,Helvetica,sans-serif';
+  const sectionP =
+    'margin:18px 0 8px;font-size:15px;font-weight:700;color:#111827;font-family:Arial,Helvetica,sans-serif';
   for (const t of order) {
     const titles = byType.get(t);
     if (!titles?.length) continue;
-    const items = titles.map((x) => `<li style="margin:4px 0">${escapeHtml(x)}</li>`).join('');
-    parts.push(
-      `<h3 style="margin:18px 0 8px;font-size:15px;color:#111827">${escapeHtml(sectionLabel(t))}</h3><ul style="margin:0;padding-left:18px;color:#374151">${items}</ul>`
-    );
+    const items = titles
+      .map((x) => `<p style="${bulletP}">• ${escapeHtml(x)}</p>`)
+      .join('');
+    parts.push(`<p style="${sectionP}">${escapeHtml(sectionLabel(t))}</p>${items}`);
   }
   for (const [t, titles] of byType) {
     if (order.includes(t)) continue;
-    const items = titles.map((x) => `<li style="margin:4px 0">${escapeHtml(x)}</li>`).join('');
-    parts.push(
-      `<h3 style="margin:18px 0 8px;font-size:15px;color:#111827">${escapeHtml(sectionLabel(t))}</h3><ul style="margin:0;padding-left:18px;color:#374151">${items}</ul>`
-    );
+    const items = titles
+      .map((x) => `<p style="${bulletP}">• ${escapeHtml(x)}</p>`)
+      .join('');
+    parts.push(`<p style="${sectionP}">${escapeHtml(sectionLabel(t))}</p>${items}`);
   }
   if (!parts.length) {
-    return `<p style="margin:0;color:#4b5563">No individual alerts this week — you&apos;re all caught up.</p>`;
+    return `<p style="margin:0;font-size:15px;line-height:1.55;color:#374151;font-family:Arial,Helvetica,sans-serif">No individual alerts this week — you&apos;re all caught up.</p>`;
   }
   return parts.join('');
 }

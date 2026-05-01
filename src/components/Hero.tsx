@@ -1,3 +1,4 @@
+import { ArrowUpRight } from 'lucide-react';
 import Link from 'next/link';
 import BorderGlow from '@/components/landing/border-glow';
 import { DotGrid } from '@/components/landing/dot-grid';
@@ -86,13 +87,16 @@ const Hero = ({ performance }: HeroProps) => {
               All data is public —{' '}
               <Link
                 href="/whitepaper"
-                className="font-medium text-trader-blue hover:underline"
+                className="group inline-flex items-center gap-0.5 font-medium text-trader-blue hover:underline"
                 target="_blank"
                 rel="noopener noreferrer"
               >
                 read the methodology
+                <ArrowUpRight
+                  className="size-3 shrink-0 opacity-0 transition-opacity duration-150 group-hover:opacity-100"
+                  aria-hidden
+                />
               </Link>
-              .
             </p>
           </div>
 

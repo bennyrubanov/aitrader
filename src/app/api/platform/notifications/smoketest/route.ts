@@ -251,13 +251,9 @@ function renderSamples(): RenderedEmail[] {
       { viewAllHref: settingsUrl }
     );
     const sectionsHtml = `${perfHtml}
-      <div style="margin:0 0 22px">
-        <h2 style="margin:0 0 10px;font-size:15px;color:#111827">This week's alerts</h2>
-        <ul style="margin:0;padding-left:18px;font-size:14px;color:#374151">
-          <li>AAPL bucket changed: hold → buy</li>
-          <li>NVDA bucket changed: sell → buy</li>
-        </ul>
-      </div>`;
+      <p style="margin:0 0 10px;font-size:15px;font-weight:700;color:#111827;font-family:Arial,Helvetica,sans-serif">This week's alerts</p>
+      <p style="margin:0 0 6px;font-size:15px;line-height:1.55;color:#111827;font-family:Arial,Helvetica,sans-serif">• AAPL bucket changed: hold → buy</p>
+      <p style="margin:0 0 22px;font-size:15px;line-height:1.55;color:#111827;font-family:Arial,Helvetica,sans-serif">• NVDA bucket changed: sell → buy</p>`;
     const { html, text } = buildCuratedWeeklyDigestEmailHtml({
       runWeekEnding,
       sectionsHtml,
