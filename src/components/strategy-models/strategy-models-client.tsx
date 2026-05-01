@@ -7,9 +7,14 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ContentPageLayout } from '@/components/ContentPageLayout';
 import { BgDots } from '@/components/landing/bg-dots';
+import GrainientBackground from '@/components/landing/grainient-background';
 import { formatStrategyDescriptionForDisplay } from '@/lib/format-strategy-description';
 import { type StrategyListItem } from '@/lib/platform-performance-payload';
-import { isDefaultAitModelSlug, LEGACY_AIT1_SLUG } from '@/lib/default-ait-model-grainient';
+import {
+  DEFAULT_AIT_MODEL_GRAINIENT,
+  isDefaultAitModelSlug,
+  LEGACY_AIT1_SLUG,
+} from '@/lib/default-ait-model-grainient';
 import { type RankedStrategyModel } from '@/lib/strategy-models-ranked';
 import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import { cn } from '@/lib/utils';
@@ -109,9 +114,9 @@ type SortKey = 'performance' | 'newest';
 function slugGradient(slug: string): string {
   const known: Record<string, string> = {
     [STRATEGY_CONFIG.slug]:
-      'linear-gradient(135deg, #0f2557 0%, #1a4a9e 40%, #2563eb 70%, #06b6d4 100%)',
+      'linear-gradient(135deg, #001f4d 0%, #0055D4 38%, #0A84FF 68%, #5AC8FA 100%)',
     [LEGACY_AIT1_SLUG]:
-      'linear-gradient(135deg, #0f2557 0%, #1a4a9e 40%, #2563eb 70%, #06b6d4 100%)',
+      'linear-gradient(135deg, #001f4d 0%, #0055D4 38%, #0A84FF 68%, #5AC8FA 100%)',
   };
   if (known[slug]) return known[slug];
   const seed = slug
@@ -243,12 +248,11 @@ export function StrategyModelsClient({ strategies, rankedStrategies }: Props) {
                   {/* Gradient image panel */}
                   {isDefaultAitModelSlug(strategy.slug) ? (
                     <div
-                      className="relative flex items-center justify-center overflow-hidden text-white font-bold text-lg text-center px-6 select-none sm:w-[200px] min-h-[90px] sm:min-h-0 bg-[#0c1e4a]"
+                      className="relative flex items-center justify-center overflow-hidden text-white font-bold text-lg text-center px-6 select-none sm:w-[200px] min-h-[90px] sm:min-h-0 bg-[#032147]"
                       style={{ flexShrink: 0 }}
                     >
-                      <BgDots
-                        mode="static"
-                        color="rgba(10, 132, 255, 0.10)"
+                      <GrainientBackground
+                        {...DEFAULT_AIT_MODEL_GRAINIENT}
                         className="pointer-events-none absolute inset-0 z-0"
                       />
                       <span className="relative z-[1] drop-shadow-md leading-tight">

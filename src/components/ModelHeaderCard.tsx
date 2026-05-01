@@ -5,8 +5,12 @@ import Link from 'next/link';
 import { Activity, ArrowRight, BarChart3, Star, TrendingUp } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { BgDots } from '@/components/landing/bg-dots';
-import { isDefaultAitModelSlug, LEGACY_AIT1_SLUG } from '@/lib/default-ait-model-grainient';
+import GrainientBackground from '@/components/landing/grainient-background';
+import {
+  DEFAULT_AIT_MODEL_GRAINIENT,
+  isDefaultAitModelSlug,
+  LEGACY_AIT1_SLUG,
+} from '@/lib/default-ait-model-grainient';
 import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import { cn } from '@/lib/utils';
 import { pickBeatSlotToReplace } from '@/components/model-header-card-insights';
@@ -82,9 +86,9 @@ type ModelHeaderCardProps = {
 function slugGradient(slug: string): string {
   const known: Record<string, string> = {
     [STRATEGY_CONFIG.slug]:
-      'linear-gradient(135deg, #0f2557 0%, #1a4a9e 40%, #2563eb 70%, #06b6d4 100%)',
+      'linear-gradient(135deg, #001f4d 0%, #0055D4 38%, #0A84FF 68%, #5AC8FA 100%)',
     [LEGACY_AIT1_SLUG]:
-      'linear-gradient(135deg, #0f2557 0%, #1a4a9e 40%, #2563eb 70%, #06b6d4 100%)',
+      'linear-gradient(135deg, #001f4d 0%, #0055D4 38%, #0A84FF 68%, #5AC8FA 100%)',
   };
   if (known[slug]) return known[slug];
   const seed = slug.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
@@ -460,10 +464,9 @@ export function ModelHeaderCard({
       {/* Top row: icon + name + badges + CTA */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 pb-3">
         {isDefaultAitModelSlug(slug) ? (
-          <div className="relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#0c1e4a] text-white font-bold text-sm select-none">
-            <BgDots
-              mode="static"
-              color="rgba(10, 132, 255, 0.10)"
+          <div className="relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#032147] text-white font-bold text-sm select-none">
+            <GrainientBackground
+              {...DEFAULT_AIT_MODEL_GRAINIENT}
               className="pointer-events-none absolute inset-0 z-0 rounded-xl"
             />
             <span className="relative z-[1] drop-shadow-sm">{shortName}</span>

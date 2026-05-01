@@ -71,7 +71,7 @@ const ResearchSection = () => {
     <section
       id="research"
       data-nav-invert="true"
-      className="section-invert relative isolate overflow-hidden bg-[hsl(222_45%_4%)] py-20 text-foreground dark:bg-[hsl(220_30%_96%)]"
+      className="section-invert relative isolate z-0 overflow-hidden bg-[hsl(222_45%_4%)] py-20 text-foreground dark:z-10 dark:bg-[hsl(220_30%_96%)]"
     >
       <DotGrid
         dotSize={2}
