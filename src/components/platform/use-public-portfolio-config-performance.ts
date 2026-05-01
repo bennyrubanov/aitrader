@@ -220,6 +220,7 @@ export function usePublicPortfolioConfigPerformance({
           config: j.config ?? null,
           nextRebalanceDate: j.nextRebalanceDate ?? null,
           isHoldingPeriod: j.isHoldingPeriod ?? false,
+          modelInceptionDate: j.modelInceptionDate ?? null,
         });
         lastResolvedPerfResolutionKeyRef.current = resolutionKey;
       } else {

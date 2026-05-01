@@ -46,6 +46,8 @@ export type PublicPortfolioPerfApiPayload = {
   } | null;
   nextRebalanceDate?: string | null;
   isHoldingPeriod?: boolean;
+  /** First `ai_run_batches.run_date` for the strategy (YYYY-MM-DD); same source as ranked configs. */
+  modelInceptionDate?: string | null;
 };
 
 type LoadOptions = {
@@ -75,12 +77,27 @@ export async function loadPublicPortfolioConfigPerformance(
   if (strategyError || !strategyData) return null;
   const strategyId = (strategyData as { id: string }).id;
 
-  const configId = await resolveConfigId(
-    supabase,
-    slice.riskLevel,
-    slice.rebalanceFrequency,
-    slice.weightingMethod
-  );
+  const [configId, inceptionRes] = await Promise.all([
+    resolveConfigId(
+      supabase,
+      slice.riskLevel,
+      slice.rebalanceFrequency,
+      slice.weightingMethod
+    ),
+    supabase
+      .from('ai_run_batches')
+      .select('run_date')
+      .eq('strategy_id', strategyId)
+      .order('run_date', { ascending: true })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+
+  const modelInceptionDate =
+    inceptionRes.data != null &&
+    typeof (inceptionRes.data as { run_date?: unknown }).run_date === 'string'
+      ? (inceptionRes.data as { run_date: string }).run_date
+      : null;
 
   if (!configId) {
     return {
@@ -91,6 +108,7 @@ export async function loadPublicPortfolioConfigPerformance(
       metrics: null,
       fullMetrics: null,
       config: null,
+      modelInceptionDate,
     };
   }
 
@@ -190,6 +208,7 @@ export async function loadPublicPortfolioConfigPerformance(
     config: configPayload ?? null,
     nextRebalanceDate,
     isHoldingPeriod,
+    modelInceptionDate,
   };
 }
 
@@ -200,7 +219,8 @@ export function getCachedPublicPortfolioConfigPerformance(
   const configSlug = portfolioSliceToConfigSlug(slice);
   return unstable_cache(
     () => loadPublicPortfolioConfigPerformance(slug, slice, { enqueueOnEmpty: false }),
-    [PUBLIC_CACHE_TAGS.publicPortfolioConfigPerformance, slug, configSlug],
+    // Bump inner key when payload shape changes so cached HTML/API responses pick up new fields.
+    [PUBLIC_CACHE_TAGS.publicPortfolioConfigPerformance, slug, configSlug, 'v2-model-inception'],
     {
       revalidate: PUBLIC_DATA_CACHE_TTL_SECONDS,
       tags: [

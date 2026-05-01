@@ -343,6 +343,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
 
   // Add-to-portfolio dialog state
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [addDialogPortalHost, setAddDialogPortalHost] = useState<HTMLElement | null>(null);
   const [addTarget, setAddTarget] = useState<RankedConfig | null>(null);
   const [addStartDate, setAddStartDate] = useState(localTodayYmd);
   const [addInvestment, setAddInvestment] = useState('10000');
@@ -1349,7 +1350,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
         open={addDialogOpen}
         onOpenChange={setAddDialogOpen}
       >
-        <DialogContent className="sm:max-w-md">
+        <DialogContent ref={setAddDialogPortalHost} className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <CalendarIcon className="size-4 text-trader-blue" />
@@ -1414,6 +1415,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
                 maxYmd={entryMaxYmd}
                 modelInceptionYmd={modelInceptionDate}
                 disabled={addBusy}
+                popoverPortalContainer={addDialogPortalHost}
                 calendarPrompt="Or pick a different date to enter the portfolio (can change anytime):"
               />
             </div>

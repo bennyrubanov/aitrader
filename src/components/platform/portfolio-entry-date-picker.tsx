@@ -25,6 +25,12 @@ export type PortfolioEntryDatePickerProps = {
   triggerId?: string;
   /** Shown above the date trigger when non-empty (e.g. explore follow dialog). */
   calendarPrompt?: string;
+  /**
+   * Mount the popover portal inside this element (e.g. the open `DialogContent` node). Required
+   * for **modal** Radix `Dialog`, which sets `body { pointer-events: none }` and only restores
+   * hits on the dialog layer — a default body portal never receives clicks.
+   */
+  popoverPortalContainer?: HTMLElement | null;
 };
 
 export function PortfolioEntryDatePicker({
@@ -36,6 +42,7 @@ export function PortfolioEntryDatePicker({
   disabled,
   triggerId,
   calendarPrompt = '',
+  popoverPortalContainer = null,
 }: PortfolioEntryDatePickerProps) {
   const [popoverOpen, setPopoverOpen] = useState(false);
   /** `null` until mounted — SSR + first paint match Popover branch to avoid hydration mismatch. */
@@ -49,6 +56,7 @@ export function PortfolioEntryDatePicker({
     return () => mql.removeEventListener('change', sync);
   }, []);
 
+  /** Inline below `lg` (touch in nested dialogs); desktop uses Popover, portaled into host when provided. */
   const useInlineCalendar = inlineCalendarLgDown === true;
 
   const inceptionForLegend = modelInceptionYmd?.trim()
@@ -222,7 +230,11 @@ export function PortfolioEntryDatePicker({
               <span className="min-w-0 flex-1">{dateTriggerLabel}</span>
             </Button>
           </PopoverTrigger>
-          <PopoverContent className="w-auto p-0" align="start">
+          <PopoverContent
+            className="w-auto p-0"
+            align="start"
+            portalContainer={popoverPortalContainer ?? undefined}
+          >
             {calendarPanel}
           </PopoverContent>
         </Popover>

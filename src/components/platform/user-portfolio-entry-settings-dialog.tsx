@@ -75,6 +75,8 @@ export function UserPortfolioEntrySettingsDialog({
   const [startDate, setStartDate] = useState('');
   const [busy, setBusy] = useState(false);
   const [modelInceptionYmd, setModelInceptionYmd] = useState<string | null>(null);
+  /** Popover portal must mount under `DialogContent` so modal dialog `pointer-events` does not swallow clicks. */
+  const [entryDialogPortalHost, setEntryDialogPortalHost] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
     if (!open || !profile) return;
@@ -242,7 +244,10 @@ export function UserPortfolioEntrySettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="grid max-h-[min(90dvh,calc(100dvh-2rem))] min-h-0 w-[calc(100vw-1.5rem)] max-w-md grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-md">
+      <DialogContent
+        ref={setEntryDialogPortalHost}
+        className="grid max-h-[min(90dvh,calc(100dvh-2rem))] min-h-0 w-[calc(100vw-1.5rem)] max-w-md grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-visible p-0 sm:max-w-md"
+      >
         <div className="min-w-0 shrink-0 px-6 pb-2 pt-6 pr-12">
           <DialogHeader className="space-y-1.5 p-0">
             <DialogTitle>Entry settings</DialogTitle>
@@ -284,6 +289,7 @@ export function UserPortfolioEntrySettingsDialog({
                 maxYmd={maxYmd}
                 modelInceptionYmd={modelInceptionYmd}
                 disabled={busy}
+                popoverPortalContainer={entryDialogPortalHost}
               />
             </div>
           </div>

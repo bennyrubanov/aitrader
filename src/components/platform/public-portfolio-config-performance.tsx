@@ -57,6 +57,18 @@ const fmt = {
     v == null || !Number.isFinite(v) ? 'N/A' : v.toFixed(digits),
 };
 
+const keyMetricsInceptionFormatter = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+  timeZone: 'UTC',
+});
+
+function formatInceptionForKeyMetrics(ymd: string | null | undefined): string | null {
+  if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd.trim())) return null;
+  return keyMetricsInceptionFormatter.format(new Date(`${ymd.trim()}T00:00:00Z`));
+}
+
 /** Same risk colors as explore / sidebar portfolio rows */
 const CONFIG_CARD_RISK_DOT: Record<RiskLevel, string> = {
   1: 'bg-emerald-500',
@@ -266,6 +278,8 @@ export function PortfolioAtAGlanceCard({
       ? (CONFIG_CARD_RISK_DOT[portfolioConfig.riskLevel] ?? 'bg-muted')
       : 'bg-muted';
 
+  const keyMetricsSinceLabel = formatInceptionForKeyMetrics(perf?.modelInceptionDate);
+
   /** Ranking / accolade pills only — risk tier stays in the title row */
   const rankingBadgePills = (() => {
     const seen = new Set<string>();
@@ -416,8 +430,15 @@ export function PortfolioAtAGlanceCard({
             )}
         </div>
 
-        <div className="p-5 md:p-6 flex flex-col justify-center min-h-[200px]">
-          <h3 className="mb-4 text-lg font-semibold tracking-tight text-foreground">Key metrics</h3>
+        <div className="p-5 md:p-6 flex flex-col min-h-[200px]">
+          <div className="mb-4 flex min-w-0 items-center justify-between gap-3">
+            <h3 className="text-lg font-semibold tracking-tight text-foreground">Key metrics</h3>
+            {keyMetricsSinceLabel ? (
+              <p className="shrink-0 text-right text-[11px] text-muted-foreground tabular-nums md:text-xs">
+                Since {keyMetricsSinceLabel}
+              </p>
+            ) : null}
+          </div>
           {perfLoading || !portfolioConfig ? (
             <div className="space-y-3">
               {[1, 2, 3, 4, 5, 6].map((i) => (

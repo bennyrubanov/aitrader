@@ -2006,6 +2006,12 @@ const handleRequest = async (req: Request) => {
       revalidateTag(CONFIG_DAILY_SERIES_CACHE_TAG);
       // MTM walk inputs (`loadConfigWalkInputsForMtm`); explore-holdings uses client memory/localStorage only — no Next tag.
       revalidateTag('mtm-walk-inputs');
+      // Align Tier-2 ISR + landing loaders with snapshot writes (full branch already does this on rebalance days).
+      revalidateTag(LANDING_TOP_PORTFOLIO_PERFORMANCE_CACHE_TAG);
+      revalidatePath('/strategy-models');
+      revalidatePath('/strategy-models', 'page');
+      revalidatePath('/', 'page');
+      revalidatePath('/strategy-models/[slug]', 'page');
 
       const totalSeconds = ((Date.now() - t0) / 1000).toFixed(1);
       return NextResponse.json({

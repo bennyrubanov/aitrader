@@ -206,6 +206,8 @@ type Props = {
    * `performancePicker`: no vertical tooltip cursor, no pin/dots, no X-scrub; lines ↔ sidebar and
    * benchmark pills ↔ lines still highlight on hover. Pills and sidebar $ values stay at the latest
    * run in the full series (nominal $), even when the chart range is zoomed to a date subset.
+   * Does not merge `livePoint` into lines — uses snapshot `equities[]` only (aligned with ranked
+   * metrics / landing). `explore` still merges optional `livePoint` for stale bulk snapshots.
    */
   variant?: 'explore' | 'performancePicker';
   /**
@@ -262,6 +264,13 @@ export function ExplorePortfoliosEquityChart({
     if (!dates.length || !visibleSeries.length) {
       return { effectiveDates: dates, effectiveSeries: visibleSeries };
     }
+    // `performancePicker` (/strategy-models, sidebar picker): keep lines on the persisted
+    // snapshot `equities[]` only so they match ranked row $ / landing / platform — same
+    // contract as `performance-stats-single-source.mdc`. Explore variant still merges
+    // optional `livePoint` for the bulk stale-snapshot safety net.
+    if (isPicker) {
+      return { effectiveDates: dates, effectiveSeries: visibleSeries };
+    }
     const lastDate = dates[dates.length - 1]!;
     let appendDate: string | null = null;
     for (const s of visibleSeries) {
@@ -300,7 +309,7 @@ export function ExplorePortfoliosEquityChart({
       return s;
     });
     return { effectiveDates: nextDates, effectiveSeries: nextSeries };
-  }, [dates, visibleSeries]);
+  }, [dates, visibleSeries, isPicker]);
 
   const benchmarksValid =
     benchmarks != null &&

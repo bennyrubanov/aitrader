@@ -303,20 +303,28 @@ function getSidebarRowPerf(p: UserPortfolioProfileRow): {
   if (!c) {
     return { showLoading: true, valueStr: null, returnFr: null };
   }
-  const ready =
-    c.computeStatus === 'ready' &&
-    c.hasMultipleObservations === true &&
-    (c.series?.length ?? 0) > 0;
-  if (!ready) {
-    if (c.computeStatus === 'failed') {
-      return { showLoading: false, valueStr: null, returnFr: null };
-    }
+  if (c.computeStatus === 'failed') {
+    return { showLoading: false, valueStr: null, returnFr: null };
+  }
+  /** `gathering_data` = one user-track point so far ($ still known; % is 0 until a second point). */
+  const canShowValueFromSeries =
+    (c.series?.length ?? 0) > 0 &&
+    (c.computeStatus === 'ready' || c.computeStatus === 'gathering_data');
+  if (!canShowValueFromSeries) {
     return { showLoading: true, valueStr: null, returnFr: null };
   }
   const v = computeYourPortfolioValue(c.series, Number(p.investment_size), p.user_start_date);
-  const r = c.metrics?.totalReturn;
   const valueStr = v != null && Number.isFinite(v) ? formatYourPortfolioCurrency(v) : null;
-  const returnFr = r != null && Number.isFinite(r) ? r : null;
+  if (valueStr == null) {
+    return { showLoading: true, valueStr: null, returnFr: null };
+  }
+  const r = c.metrics?.totalReturn;
+  const returnFr =
+    r != null && Number.isFinite(r)
+      ? r
+      : c.computeStatus === 'gathering_data'
+        ? 0
+        : null;
   return { showLoading: false, valueStr, returnFr };
 }
 

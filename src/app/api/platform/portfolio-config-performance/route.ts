@@ -16,7 +16,8 @@
  *     rows: ConfigPerfRow[],
  *     series: PerformanceSeriesPoint[],  // chart-ready (same shape as public strategy-models payload)
  *     metrics: { sharpeRatio, totalReturn, cagr, maxDrawdown } | null,
- *     config: { riskLevel, rebalanceFrequency, weightingMethod, topN, label }
+ *     config: { riskLevel, rebalanceFrequency, weightingMethod, topN, label },
+ *     modelInceptionDate: string | null  // first ai_run_batches.run_date for the strategy (YYYY-MM-DD)
  *   }
  */
 
