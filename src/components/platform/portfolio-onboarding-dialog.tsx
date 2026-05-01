@@ -778,6 +778,7 @@ export function PortfolioOnboardingDialog({
     setGuestDeclinedAccountNudgeThisSession();
     setGuestAccountDialogOpen(false);
     void markOnboardingDone();
+    onForceOpenLocalOnlyChange?.(false);
   };
 
   const handleFollowThisPortfolio = async () => {
@@ -839,6 +840,7 @@ export function PortfolioOnboardingDialog({
       setConfig(draft);
       setEntryDate(entryYmd);
       await markOnboardingDone();
+      onForceOpenLocalOnlyChange?.(false);
       queuePlatformPostOnboardingTour();
       router.refresh();
 
@@ -874,6 +876,7 @@ export function PortfolioOnboardingDialog({
     setConfig(DEFAULT_PORTFOLIO_CONFIG);
     setEntryDate(localTodayYmd());
     void markOnboardingDone();
+    onForceOpenLocalOnlyChange?.(false);
   };
 
   const selectedStrategy =
@@ -1434,7 +1437,7 @@ export function PortfolioOnboardingDialog({
                         type="button"
                         variant="ghost"
                         size="sm"
-                        className="-ml-2 h-auto shrink-0 gap-1 px-2 text-[11px] text-muted-foreground hover:text-foreground sm:gap-1.5 sm:text-sm"
+                        className="-ml-2 h-auto shrink-0 gap-1 px-2 text-[11px] text-muted-foreground hover:bg-transparent hover:text-foreground active:bg-transparent sm:gap-1.5 sm:text-sm"
                         onClick={() => goToStep('frequency')}
                       >
                         <ArrowLeft className="size-3.5" />

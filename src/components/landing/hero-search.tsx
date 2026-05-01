@@ -1,11 +1,14 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { ArrowRight, ExternalLink, Lock, Search, TrendingDown, TrendingUp, X } from 'lucide-react';
+import GlassSurface from '@/components/landing/glass-surface';
 import { Input } from '@/components/ui/input';
 import { useAuthState } from '@/components/auth/auth-state-context';
 import { invalidateStocksListClient, loadStocksListClient } from '@/lib/stocks-client';
+import { cn } from '@/lib/utils';
 import type { Stock } from '@/types/stock';
 
 type RatingBucket = 'buy' | 'hold' | 'sell' | null;
@@ -87,7 +90,13 @@ function selectedRatingPillLabel(
   return formatRating(rating);
 }
 
-export function HeroSearch() {
+export type HeroSearchProps = {
+  /** Default `center` matches hero-style layout; `left` aligns the field and result cards to the start. */
+  align?: 'center' | 'left';
+};
+
+export function HeroSearch({ align = 'center' }: HeroSearchProps) {
+  const alignLeft = align === 'left';
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [stocks, setStocks] = useState<HeroStock[]>([]);
@@ -95,6 +104,7 @@ export function HeroSearch() {
   const [isTracked, setIsTracked] = useState<boolean | null>(null);
   const [activeOptionIndex, setActiveOptionIndex] = useState(-1);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const comboAnchorRef = useRef<HTMLDivElement | null>(null);
   const blurTimeoutRef = useRef<number | null>(null);
   const priceFetchAbortRef = useRef<AbortController | null>(null);
   const authState = useAuthState();
@@ -152,6 +162,54 @@ export function HeroSearch() {
   const hasSearchOptions = filteredMembers.length > 0;
   const listboxId = 'hero-stock-search-listbox';
   const listOpen = isSearchFocused && hasSearchOptions;
+
+  const [dropdownFixedRect, setDropdownFixedRect] = useState<{
+    top: number;
+    left: number;
+    width: number;
+  } | null>(null);
+
+  useLayoutEffect(() => {
+    if (!listOpen) {
+      setDropdownFixedRect(null);
+      return;
+    }
+
+    const update = () => {
+      const el = comboAnchorRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      setDropdownFixedRect({
+        top: r.bottom + 4,
+        left: r.left,
+        width: r.width,
+      });
+    };
+
+    update();
+    const raf = requestAnimationFrame(update);
+
+    const ro =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(() => {
+            requestAnimationFrame(update);
+          })
+        : null;
+    if (comboAnchorRef.current) {
+      ro?.observe(comboAnchorRef.current);
+    }
+
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, true);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      ro?.disconnect();
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update, true);
+      setDropdownFixedRect(null);
+    };
+  }, [listOpen, filteredMembers.length, searchQuery]);
 
   useEffect(() => {
     setActiveOptionIndex((prev) => {
@@ -367,112 +425,174 @@ export function HeroSearch() {
   };
 
   return (
-    <div className="mx-auto max-w-3xl animate-fade-in" style={{ animationDelay: '0.4s' }}>
+    <div
+      className={cn('w-full max-w-3xl animate-fade-in', !alignLeft && 'mx-auto')}
+      style={{ animationDelay: '0.4s' }}
+    >
       <form
         onSubmit={handleSubmit}
-        className="flex justify-center"
+        className={cn('flex', alignLeft ? 'justify-start' : 'justify-center')}
       >
-        <div className="relative w-full sm:max-w-[540px]">
-          <Search
-            className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground"
-            size={20}
-          />
-          <Input
-            ref={searchInputRef}
-            role="combobox"
-            aria-expanded={listOpen}
-            aria-controls={listOpen ? listboxId : undefined}
-            aria-autocomplete="list"
-            aria-activedescendant={
-              listOpen && activeOptionIndex >= 0
-                ? `hero-stock-search-option-${activeOptionIndex}`
-                : undefined
-            }
-            type="text"
-            placeholder="Search for a stock (e.g., AAPL, Tesla)"
-            className="w-full rounded-xl border border-border bg-background py-6 pl-12 pr-12 shadow-sm transition-colors focus-visible:border-border focus-visible:ring-0 focus-visible:ring-offset-0"
-            value={searchQuery}
-            onChange={handleSearch}
-            onKeyDown={handleSearchKeyDown}
-            onFocus={handleFocus}
-            onBlur={() => {
-              cancelPendingBlur();
-              blurTimeoutRef.current = window.setTimeout(() => {
-                setIsSearchFocused(false);
-                blurTimeoutRef.current = null;
-              }, 200);
-            }}
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              aria-label="Clear search"
-              className="absolute right-3 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-trader-blue/30"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => {
-                clearSearch();
-                searchInputRef.current?.focus();
-              }}
-            >
-              <X size={16} />
-            </button>
-          )}
-          {listOpen && (
-            <div
-              id={listboxId}
-              role="listbox"
-              aria-label="Stock matches"
-              className="absolute left-0 right-0 z-30 mt-1 max-h-72 overflow-y-auto rounded-xl border border-border bg-card text-left shadow-elevated animate-scale-in"
-            >
-              <div className="p-2">
-                {filteredMembers.map((m, index) => (
-                  <button
-                    key={m.symbol}
-                    id={`hero-stock-search-option-${index}`}
-                    type="button"
-                    role="option"
-                    aria-selected={activeOptionIndex === index}
-                    className={`w-full cursor-pointer rounded-lg px-3 py-2 text-left transition-colors hover:bg-trader-gray dark:hover:bg-muted ${
-                      activeOptionIndex === index ? 'bg-trader-gray dark:bg-muted' : ''
-                    }`}
-                    onMouseEnter={() => setActiveOptionIndex(index)}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => handleSelectMember(m)}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium">{m.symbol}</span>
-                          {m.isPremium && (
-                            <span className="inline-flex items-center gap-0.5 rounded bg-trader-blue/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-trader-blue">
-                              <Lock size={9} />
-                              Premium
-                            </span>
-                          )}
-                        </div>
-                        <p className="truncate text-sm text-muted-foreground">{m.name}</p>
-                      </div>
-                      <span
-                        className={`ml-3 inline-flex items-center whitespace-nowrap rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${
-                          m.isPremium && !hasPremiumAccess
-                            ? 'border-trader-blue/20 bg-trader-blue/10 text-trader-blue'
-                            : 'border-foreground/10 bg-foreground text-background'
-                        }`}
-                      >
-                        {getDropdownRatingLabel(m)}
-                      </span>
-                    </div>
-                  </button>
-                ))}
-              </div>
+        <div ref={comboAnchorRef} className="relative w-full sm:max-w-[540px]">
+          <GlassSurface
+            width="100%"
+            height={80}
+            borderRadius={12}
+            borderWidth={0.08}
+            backgroundOpacity={0.08}
+            blur={10}
+            saturation={1.2}
+            displace={0}
+            className="w-full"
+            innerClassName="h-full w-full items-stretch p-0 rounded-[inherit]"
+          >
+            <div className="relative h-full w-full overflow-hidden rounded-[12px]">
+              <Search
+                className="pointer-events-none absolute left-4 top-1/2 z-[2] -translate-y-1/2 text-muted-foreground"
+                size={20}
+              />
+              <Input
+                ref={searchInputRef}
+                role="combobox"
+                aria-expanded={listOpen}
+                aria-controls={listOpen ? listboxId : undefined}
+                aria-autocomplete="list"
+                aria-activedescendant={
+                  listOpen && activeOptionIndex >= 0
+                    ? `hero-stock-search-option-${activeOptionIndex}`
+                    : undefined
+                }
+                type="text"
+                placeholder="Search for a stock (AAPL, Tesla)"
+                className="relative z-[1] h-full min-h-[80px] w-full rounded-[12px] border-0 bg-transparent py-6 pl-12 pr-12 shadow-none transition-colors focus-visible:ring-0 focus-visible:ring-offset-0"
+                value={searchQuery}
+                onChange={handleSearch}
+                onKeyDown={handleSearchKeyDown}
+                onFocus={handleFocus}
+                onBlur={() => {
+                  cancelPendingBlur();
+                  blurTimeoutRef.current = window.setTimeout(() => {
+                    setIsSearchFocused(false);
+                    blurTimeoutRef.current = null;
+                  }, 200);
+                }}
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  aria-label="Clear search"
+                  className="absolute right-3 top-1/2 z-[2] inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-trader-blue/30"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    clearSearch();
+                    searchInputRef.current?.focus();
+                  }}
+                >
+                  <X size={16} />
+                </button>
+              )}
             </div>
-          )}
+          </GlassSurface>
+          {listOpen &&
+            dropdownFixedRect &&
+            typeof document !== 'undefined' &&
+            createPortal(
+              <div
+                className="pointer-events-auto fixed z-[9999] text-left"
+                style={{
+                  top: dropdownFixedRect.top,
+                  left: dropdownFixedRect.left,
+                  width: dropdownFixedRect.width,
+                }}
+              >
+                <GlassSurface
+                  fitContent
+                  width="100%"
+                  borderRadius={12}
+                  borderWidth={0.08}
+                  backgroundOpacity={0.1}
+                  blur={10}
+                  saturation={1.2}
+                  displace={0}
+                  className="w-full shadow-elevated"
+                  innerClassName="h-auto w-full items-stretch p-0 rounded-[inherit]"
+                >
+                  <div
+                    id={listboxId}
+                    role="listbox"
+                    aria-label="Stock matches"
+                    className="w-full min-w-0 max-h-[14rem] overflow-y-auto p-2 [scrollbar-color:hsl(var(--border))_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-2"
+                  >
+                    {filteredMembers.map((m, index) => (
+                      <button
+                        key={m.symbol}
+                        id={`hero-stock-search-option-${index}`}
+                        type="button"
+                        role="option"
+                        aria-selected={activeOptionIndex === index}
+                        className={cn(
+                          'w-full cursor-pointer rounded-lg px-3 py-2 text-left transition-colors',
+                          activeOptionIndex === index
+                            ? 'bg-muted/50 dark:bg-muted/40'
+                            : 'hover:bg-muted/35 dark:hover:bg-muted/25',
+                        )}
+                        onMouseEnter={() => setActiveOptionIndex(index)}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => handleSelectMember(m)}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium">{m.symbol}</span>
+                              {m.isPremium && (
+                                <span className="inline-flex items-center gap-0.5 rounded bg-trader-blue/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-trader-blue">
+                                  <Lock size={9} />
+                                  Premium
+                                </span>
+                              )}
+                            </div>
+                            <p className="truncate text-sm text-muted-foreground">{m.name}</p>
+                          </div>
+                          <span
+                            className={`ml-3 inline-flex items-center whitespace-nowrap rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${
+                              m.isPremium && !hasPremiumAccess
+                                ? 'border-trader-blue/20 bg-trader-blue/10 text-trader-blue'
+                                : 'border-foreground/10 bg-foreground text-background'
+                            }`}
+                          >
+                            {getDropdownRatingLabel(m)}
+                          </span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </GlassSurface>
+              </div>,
+              document.body,
+            )}
         </div>
       </form>
 
       {selectedResult && selectedResult.found && (
-        <div className="relative mx-auto mt-6 max-w-2xl animate-fade-in rounded-xl border border-blue-200/40 bg-blue-50/60 p-5 dark:bg-blue-950/20">
-          <div className={shouldBlurSelectedResult ? 'pointer-events-none select-none blur-sm' : ''}>
+        <GlassSurface
+          fitContent
+          width="100%"
+          borderRadius={12}
+          borderWidth={0.08}
+          backgroundOpacity={0.1}
+          blur={10}
+          saturation={1.2}
+          displace={0}
+          className={cn(
+            'relative mt-6 max-w-2xl animate-fade-in',
+            alignLeft ? 'w-full' : 'mx-auto',
+          )}
+          innerClassName="h-auto w-full items-stretch p-0 rounded-[inherit]"
+        >
+          <div className="relative overflow-hidden rounded-[inherit] p-5">
+            <div
+              className={shouldBlurSelectedResult ? 'pointer-events-none select-none blur-sm' : ''}
+            >
             <div className="mb-3 flex items-center justify-between gap-3">
               <div className="flex min-w-0 flex-1 items-center gap-2">
                 <span className="shrink-0 text-lg font-bold">{selectedResult.symbol}</span>
@@ -545,9 +665,9 @@ export function HeroSearch() {
                 </Link>
               )}
             </div>
-          </div>
+            </div>
 
-          {shouldBlurSelectedResult && (
+            {shouldBlurSelectedResult && (
             <div className="absolute inset-0 flex items-center justify-center p-4">
               <Link
                 href={blurredOverlayCta.href}
@@ -557,13 +677,28 @@ export function HeroSearch() {
                 <ArrowRight size={14} className="ml-1" />
               </Link>
             </div>
-          )}
-        </div>
+            )}
+          </div>
+        </GlassSurface>
       )}
 
       {selectedResult && !selectedResult.found && authLoaded && (
-        <div className="mx-auto mt-6 max-w-2xl animate-fade-in rounded-xl border border-amber-200/40 bg-amber-50/60 p-4 dark:bg-amber-950/20">
-          <p className="text-sm text-foreground/90">
+        <GlassSurface
+          fitContent
+          width="100%"
+          borderRadius={12}
+          borderWidth={0.08}
+          backgroundOpacity={0.1}
+          blur={10}
+          saturation={1.2}
+          displace={0}
+          className={cn(
+            'mt-6 max-w-2xl animate-fade-in',
+            alignLeft ? 'w-full' : 'mx-auto',
+          )}
+          innerClassName="h-auto w-full items-stretch p-0 rounded-[inherit]"
+        >
+          <p className="p-4 text-sm text-foreground/90">
             <span className="font-semibold">{selectedResult.symbol}</span> isn&apos;t currently
             tracked by this strategy model.
             {!isAuthenticated && (
@@ -585,7 +720,7 @@ export function HeroSearch() {
               </>
             )}
           </p>
-        </div>
+        </GlassSurface>
       )}
     </div>
   );

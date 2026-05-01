@@ -1,13 +1,13 @@
 'use client';
 
-import { useMemo } from 'react';
-import { CartesianGrid, Line, LineChart, ReferenceLine, Tooltip, XAxis, YAxis } from 'recharts';
+import { useId, useMemo } from 'react';
+import { Area, CartesianGrid, ComposedChart, Line, ReferenceLine, Tooltip, XAxis, YAxis } from 'recharts';
 import { ChartContainer } from '@/components/ui/chart';
 import type { ChartConfig } from '@/components/ui/chart';
 import {
-  CHART_INDEX_SERIES_COLORS,
   CHART_NEUTRAL_REFERENCE_STROKE,
   CHART_PORTFOLIO_SERIES_COLOR,
+  CHART_SP500_LANDING_LINE,
 } from '@/lib/chart-index-series-colors';
 import type { LandingAllPortfoliosSeriesRow } from '@/lib/landing-all-portfolios-performance';
 
@@ -34,22 +34,83 @@ function formatDisplayDate(date: string) {
   return displayDateFormatter.format(parsed);
 }
 
-function formatEquityAxisTick(v: number): string {
-  if (Number.isNaN(v) || !Number.isFinite(v)) return '';
-  const abs = Math.abs(v);
-  if (abs >= 1_000_000) {
-    const m = v / 1_000_000;
-    const s =
-      Math.abs(m - Math.round(m)) < 0.05
-        ? Math.round(m).toString()
-        : m.toFixed(1).replace(/\.0$/, '');
-    return `$${s}M`;
-  }
+function formatEquityPill(v: number): string {
+  if (!Number.isFinite(v)) return '';
+  if (Math.abs(v) >= 1000) return `$${(v / 1000).toFixed(1).replace(/\.0$/, '')}K`;
   return `$${Math.round(v).toLocaleString('en-US')}`;
 }
 
 function dataKeyForConfig(configId: string) {
   return `c_${configId}`;
+}
+
+type EndValuePillDotProps = {
+  cx?: number | string;
+  cy?: number | string;
+  index?: number | string;
+  value?: number | string;
+  payload?: Record<string, unknown>;
+};
+
+function makeEndValuePill({
+  lastIndex,
+  dataKey,
+  color,
+  textColor = '#ffffff',
+  yOffset = 0,
+}: {
+  lastIndex: number;
+  dataKey: string;
+  color: string;
+  textColor?: string;
+  yOffset?: number;
+}) {
+  const Dot = (rawProps: unknown) => {
+    const props = rawProps as EndValuePillDotProps;
+    const index = Number(props.index);
+    const cx = Number(props.cx);
+    const cy = Number(props.cy);
+    const value = Number(props.value ?? props.payload?.[dataKey]);
+
+    if (index !== lastIndex || !Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(value)) {
+      return null;
+    }
+
+    const label = formatEquityPill(value);
+    const width = Math.max(46, label.length * 7 + 16);
+    const height = 22;
+    const x = cx + 9;
+    const y = cy - height / 2 + yOffset;
+
+    return (
+      <g key={`${dataKey}-end-pill`} pointerEvents="none">
+        <rect
+          x={x}
+          y={y}
+          width={width}
+          height={height}
+          rx={height / 2}
+          fill={color}
+          fillOpacity={0.96}
+          stroke="rgba(255,255,255,0.65)"
+          strokeWidth={1}
+        />
+        <text
+          x={x + width / 2}
+          y={y + 14.5}
+          textAnchor="middle"
+          fill={textColor}
+          fontSize={11}
+          fontWeight={700}
+          style={{ fontVariantNumeric: 'tabular-nums' }}
+        >
+          {label}
+        </text>
+      </g>
+    );
+  };
+  Dot.displayName = `EndValuePillDot(${String(dataKey)})`;
+  return Dot;
 }
 
 type Props = {
@@ -70,7 +131,12 @@ export function AllPortfoliosEquityChart({
   topPortfolioConfigId,
   className,
 }: Props) {
-  const { chartData, chartConfig, portfolioKeys, yDomain } = useMemo(() => {
+  const reactId = useId().replace(/:/g, '');
+  const topAreaGradientId = `landing-top-area-${reactId}`;
+  const avgAreaGradientId = `landing-avg-area-${reactId}`;
+  const topGlowFilterId = `landing-top-glow-${reactId}`;
+
+  const { chartData, chartConfig, portfolioKeys, yDomain, xTicks } = useMemo(() => {
     type YDomain = [number, number] | ['auto', 'auto'];
 
     if (!dates.length || !series.length) {
@@ -79,6 +145,7 @@ export function AllPortfoliosEquityChart({
         chartConfig: {} as ChartConfig,
         portfolioKeys: [] as string[],
         yDomain: ['auto', 'auto'] as YDomain,
+        xTicks: [] as string[],
       };
     }
 
@@ -86,7 +153,7 @@ export function AllPortfoliosEquityChart({
 
     const cfg: ChartConfig = {
       avg: { label: LABEL_AVERAGE_PORTFOLIO, color: CHART_PORTFOLIO_SERIES_COLOR },
-      bm_sp: { label: 'S&P 500', color: CHART_INDEX_SERIES_COLORS.sp500 },
+      bm_sp: { label: 'S&P 500', color: CHART_SP500_LANDING_LINE },
     };
     for (const s of series) {
       const k = dataKeyForConfig(s.configId);
@@ -132,12 +199,15 @@ export function AllPortfoliosEquityChart({
         const basePad = Math.max(Math.abs(min) * 0.01, 50);
         yDom = [Math.max(0, min - basePad), max + basePad] as [number, number];
       } else {
-        const pad = span * 0.08;
+        const pad = span * 0.1;
         yDom = [Math.max(0, min - pad), max + pad] as [number, number];
       }
     }
 
-    return { chartData: rows, chartConfig: cfg, portfolioKeys: portfolioKeysInner, yDomain: yDom };
+    const tickRows = rows.length <= 3 ? rows : [rows[0], rows[Math.floor((rows.length - 1) / 2)], rows[rows.length - 1]];
+    const ticks = tickRows.map((row) => String(row.shortDate));
+
+    return { chartData: rows, chartConfig: cfg, portfolioKeys: portfolioKeysInner, yDomain: yDom, xTicks: ticks };
   }, [dates, series, benchmarks, topPortfolioConfigId]);
 
   if (!dates.length || !series.length) {
@@ -157,26 +227,77 @@ export function AllPortfoliosEquityChart({
   const greyPortfolioKeys = topKey
     ? portfolioKeys.filter((k) => k !== topKey)
     : portfolioKeys;
+  const lastIndex = chartData.length - 1;
 
   return (
-    <ChartContainer config={chartConfig} className={`h-[min(360px,55vh)] w-full min-h-[280px] ${className ?? ''}`}>
-      <LineChart data={chartData} margin={{ top: 8, right: 8, left: 8, bottom: 4 }}>
-        <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.4} />
-        <XAxis dataKey="shortDate" tick={{ fontSize: 10 }} />
-        <YAxis
-          domain={yDomain}
-          tickFormatter={formatEquityAxisTick}
-          tick={{ fontSize: 10 }}
-          width={68}
-          minTickGap={8}
+    <ChartContainer config={chartConfig} className={`h-[min(380px,55vh)] w-full min-h-[300px] ${className ?? ''}`}>
+      <ComposedChart data={chartData} margin={{ top: 8, right: 92, left: 32, bottom: 4 }}>
+        <defs>
+          <linearGradient id={topAreaGradientId} x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor={TOP_PORTFOLIO_STROKE} stopOpacity="0.2" />
+            <stop offset="52%" stopColor={TOP_PORTFOLIO_STROKE} stopOpacity="0.07" />
+            <stop offset="100%" stopColor={TOP_PORTFOLIO_STROKE} stopOpacity="0" />
+          </linearGradient>
+          <linearGradient id={avgAreaGradientId} x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor={CHART_PORTFOLIO_SERIES_COLOR} stopOpacity="0.16" />
+            <stop offset="58%" stopColor={CHART_PORTFOLIO_SERIES_COLOR} stopOpacity="0.05" />
+            <stop offset="100%" stopColor={CHART_PORTFOLIO_SERIES_COLOR} stopOpacity="0" />
+          </linearGradient>
+          <filter id={topGlowFilterId} x="-15%" y="-60%" width="130%" height="220%">
+            <feGaussianBlur stdDeviation="2.5" result="coloredBlur" />
+            <feMerge>
+              <feMergeNode in="coloredBlur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+
+        <CartesianGrid strokeDasharray="2 5" strokeOpacity={0.28} vertical={false} />
+        <XAxis
+          dataKey="shortDate"
+          ticks={xTicks}
+          interval={0}
+          tick={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.04em' }}
+          tickLine={false}
+          axisLine={false}
+          tickMargin={10}
+          padding={{ left: 12, right: 0 }}
+          minTickGap={24}
         />
+        <YAxis domain={yDomain} hide width={0} />
         <ReferenceLine
           y={INITIAL_CAPITAL}
           stroke={CHART_NEUTRAL_REFERENCE_STROKE}
           strokeWidth={1}
-          strokeDasharray="5 4"
-          strokeOpacity={0.55}
+          strokeDasharray="4 5"
+          strokeOpacity={0.5}
         />
+
+        <Area
+          type="monotone"
+          dataKey="avg"
+          stroke="none"
+          fill={`url(#${avgAreaGradientId})`}
+          baseValue={INITIAL_CAPITAL}
+          dot={false}
+          activeDot={false}
+          connectNulls
+          isAnimationActive={false}
+        />
+        {topKey ? (
+          <Area
+            type="monotone"
+            dataKey={topKey}
+            stroke="none"
+            fill={`url(#${topAreaGradientId})`}
+            baseValue={INITIAL_CAPITAL}
+            dot={false}
+            activeDot={false}
+            connectNulls
+            isAnimationActive={false}
+          />
+        ) : null}
+
         {greyPortfolioKeys.map((k) => (
           <Line
             key={k}
@@ -185,22 +306,48 @@ export function AllPortfoliosEquityChart({
             name={String(chartConfig[k]?.label ?? k)}
             stroke={PORTFOLIO_GREY}
             strokeWidth={1}
-            strokeOpacity={0.18}
+            strokeOpacity={0.32}
             dot={false}
+            activeDot={false}
             connectNulls
             isAnimationActive={false}
           />
         ))}
         <Line
+          key="avg"
           type="monotone"
           dataKey="avg"
           name={LABEL_AVERAGE_PORTFOLIO}
           stroke={CHART_PORTFOLIO_SERIES_COLOR}
           strokeWidth={2.5}
-          dot={false}
+          dot={makeEndValuePill({
+            lastIndex,
+            dataKey: 'avg',
+            color: CHART_PORTFOLIO_SERIES_COLOR,
+            yOffset: 2,
+          })}
+          activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff', fill: CHART_PORTFOLIO_SERIES_COLOR }}
           connectNulls
           isAnimationActive={false}
         />
+        {topKey ? (
+          <Line
+            key={`${topKey}-glow`}
+            type="monotone"
+            dataKey={topKey}
+            name={`${LABEL_CURRENT_TOP_PORTFOLIO} glow`}
+            stroke={TOP_PORTFOLIO_STROKE}
+            strokeWidth={7}
+            strokeOpacity={0.24}
+            dot={false}
+            activeDot={false}
+            connectNulls
+            isAnimationActive={false}
+            filter={`url(#${topGlowFilterId})`}
+            legendType="none"
+            tooltipType="none"
+          />
+        ) : null}
         {topKey ? (
           <Line
             key={topKey}
@@ -208,25 +355,38 @@ export function AllPortfoliosEquityChart({
             dataKey={topKey}
             name={LABEL_CURRENT_TOP_PORTFOLIO}
             stroke={TOP_PORTFOLIO_STROKE}
-            strokeWidth={2.25}
-            strokeOpacity={0.92}
-            dot={false}
+            strokeWidth={2.45}
+            strokeOpacity={0.96}
+            dot={makeEndValuePill({
+              lastIndex,
+              dataKey: topKey,
+              color: TOP_PORTFOLIO_STROKE,
+              yOffset: -2,
+            })}
+            activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff', fill: TOP_PORTFOLIO_STROKE }}
             connectNulls
             isAnimationActive={false}
           />
         ) : null}
         <Line
+          key="bm_sp"
           type="monotone"
           dataKey="bm_sp"
           name="S&P 500"
-          stroke={CHART_INDEX_SERIES_COLORS.sp500}
+          stroke={CHART_SP500_LANDING_LINE}
           strokeWidth={2}
-          dot={false}
+          dot={makeEndValuePill({
+            lastIndex,
+            dataKey: 'bm_sp',
+            color: CHART_SP500_LANDING_LINE,
+            yOffset: 14,
+          })}
+          activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff', fill: CHART_SP500_LANDING_LINE }}
           connectNulls
           isAnimationActive={false}
         />
         <Tooltip
-          cursor={{ stroke: CHART_NEUTRAL_REFERENCE_STROKE, strokeWidth: 1, strokeOpacity: 0.45 }}
+          cursor={false}
           content={({ active, payload }) => {
             if (!active || !payload?.length) return null;
             const row = payload[0]?.payload as { shortDate?: string } | undefined;
@@ -241,7 +401,7 @@ export function AllPortfoliosEquityChart({
             }
             rows.push(
               { key: 'avg', label: LABEL_AVERAGE_PORTFOLIO, color: CHART_PORTFOLIO_SERIES_COLOR },
-              { key: 'bm_sp', label: 'S&P 500', color: CHART_INDEX_SERIES_COLORS.sp500 }
+              { key: 'bm_sp', label: 'S&P 500', color: CHART_SP500_LANDING_LINE }
             );
             return (
               <div className="rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl">
@@ -284,7 +444,7 @@ export function AllPortfoliosEquityChart({
             );
           }}
         />
-      </LineChart>
+      </ComposedChart>
     </ChartContainer>
   );
 }

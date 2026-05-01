@@ -1,6 +1,22 @@
 ---
 description: Supabase database schema, table relationships, and conventions for AITrader
-alwaysApply: true
+globs:
+  - supabase/**
+  - src/app/api/cron/**
+  - src/app/api/internal/**
+  - src/app/api/stripe/**
+  - src/app/api/auth/**
+  - src/app/api/platform/**
+  - src/app/api/stocks/**
+  - src/lib/aiPrompt.ts
+  - src/lib/strategyConfig.ts
+  - src/lib/ai-strategy-registry.ts
+  - src/lib/platform-server-data.ts
+  - src/lib/config-daily-series.ts
+  - src/lib/live-mark-to-market.ts
+  - src/lib/strategy-plan-access.ts
+  - src/lib/app-access.ts
+alwaysApply: false
 ---
 
 # Supabase Database Schema

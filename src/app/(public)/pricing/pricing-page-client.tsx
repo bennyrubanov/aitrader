@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowRight, Check, Loader2, Minus, Sparkles } from 'lucide-react';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
+import { BgDots } from '@/components/landing/bg-dots';
 import { Button } from '@/components/ui/button';
 import { PlanLabel } from '@/components/account/plan-label';
 import { useAuthState, useRefreshAuthProfile } from '@/components/auth/auth-state-context';
@@ -409,7 +410,13 @@ function PricingPageContent() {
   );
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col">
+    <div className="relative min-h-screen bg-background text-foreground flex flex-col">
+      <BgDots
+        mode="static"
+        color="rgba(10, 132, 255, 0.10)"
+        className="pointer-events-none absolute inset-0 z-0"
+      />
+      <div className="relative z-10 flex min-h-screen flex-col">
       <Navbar />
       <main className="flex-grow">
         <section className="py-20">
@@ -944,6 +951,7 @@ function PricingPageContent() {
           router.refresh();
         }}
       />
+      </div>
     </div>
   );
 }

@@ -1,0 +1,8 @@
+# Plans / transcripts — readable on demand, not indexed
+.cursor/plans/**
+
+# Supabase generated SQL dumps if any
+supabase/dumps/**
+
+# Test snapshots
+**/__snapshots__/**

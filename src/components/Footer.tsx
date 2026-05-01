@@ -51,7 +51,7 @@ const Footer: React.FC = () => {
           </div>
         </div>
         
-        <div className="mt-12 flex flex-col items-center justify-between gap-4 border-t border-border pt-8 md:flex-row">
+        <div className="mt-12 flex flex-col items-center justify-between gap-4 pt-8 md:flex-row">
           <p className="text-center text-sm text-muted-foreground md:text-left">
             &copy; {currentYear} AITrader. All rights reserved.
           </p>

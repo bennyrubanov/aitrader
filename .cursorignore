@@ -1,0 +1,30 @@
+# Build / generated output
+dist/
+build/
+out/
+coverage/
+.turbo/
+.vercel/
+.swc/
+storybook-static/
+
+# TypeScript incremental
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+
+# Generated code
+**/__generated__/
+**/*.generated.ts
+**/*.gen.ts
+
+# Large data dumps / fixtures (defense in depth)
+**/fixtures/large/**
+**/*.snapshot.json
+data/**/*.parquet
+data/**/*.csv
+
+# Secrets (defense in depth — .env* already default)
+**/credentials.json
+**/secrets.json
+**/*.pem
+**/*.key

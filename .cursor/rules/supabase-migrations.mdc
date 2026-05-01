@@ -1,6 +1,8 @@
 ---
 description: Supabase migration file naming — real creation timestamp, no future dates
-alwaysApply: true
+globs:
+  - supabase/migrations/**
+alwaysApply: false
 ---
 
 # Supabase migration filenames

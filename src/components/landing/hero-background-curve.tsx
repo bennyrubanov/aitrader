@@ -83,7 +83,9 @@ export function HeroBackgroundCurve({ points }: Props) {
 
   const reactId = useId();
   const fillGradientId = `hero-bg-curve-fill-${reactId.replace(/:/g, '')}`;
+  const shadowGradientId = `hero-bg-curve-shadow-${reactId.replace(/:/g, '')}`;
   const wipeClipId = `hero-bg-curve-wipe-${reactId.replace(/:/g, '')}`;
+  const glowFilterId = `hero-bg-curve-glow-${reactId.replace(/:/g, '')}`;
 
   const geom = useMemo(() => {
     if (points.length < 2) return null;
@@ -255,7 +257,7 @@ export function HeroBackgroundCurve({ points }: Props) {
   return (
     <div
       ref={containerRef}
-      className="pointer-events-none absolute bottom-0 left-4 right-4 top-64 z-0 sm:left-8 sm:right-8 sm:top-24 md:left-12 md:right-12 md:top-28 lg:left-20 lg:right-20 lg:top-36"
+      className="pointer-events-none absolute bottom-0 left-4 right-4 top-72 z-0 sm:left-8 sm:right-8 sm:top-24 md:left-12 md:right-12 md:top-28 lg:left-20 lg:right-20 lg:top-36"
       aria-hidden="true"
     >
       <svg
@@ -265,16 +267,42 @@ export function HeroBackgroundCurve({ points }: Props) {
       >
         <defs>
           <linearGradient id={fillGradientId} x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor="#0A84FF" stopOpacity="0.18" />
+            <stop offset="0%" stopColor="#0A84FF" stopOpacity="0.3" />
+            <stop offset="42%" stopColor="#0A84FF" stopOpacity="0.11" />
             <stop offset="100%" stopColor="#0A84FF" stopOpacity="0" />
           </linearGradient>
+          <linearGradient id={shadowGradientId} x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor="#0A84FF" stopOpacity="0.2" />
+            <stop offset="55%" stopColor="#0A84FF" stopOpacity="0.08" />
+            <stop offset="100%" stopColor="#0A84FF" stopOpacity="0" />
+          </linearGradient>
+          <filter
+            id={glowFilterId}
+            x="-20%"
+            y="-50%"
+            width="140%"
+            height="200%"
+            filterUnits="userSpaceOnUse"
+          >
+            <feGaussianBlur stdDeviation="2" result="coloredBlur" />
+            <feMerge>
+              <feMergeNode in="coloredBlur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
           <clipPath id={wipeClipId}>
             <rect ref={wipeRectRef} x="0" y="0" width="0" height={VIEW_H} />
           </clipPath>
         </defs>
 
         <g clipPath={`url(#${wipeClipId})`}>
-          <path d={geom.fillD} fill={`url(#${fillGradientId})`} opacity={0.6} />
+          <path
+            d={geom.fillD}
+            fill={`url(#${shadowGradientId})`}
+            opacity={0.85}
+            filter={`url(#${glowFilterId})`}
+          />
+          <path d={geom.fillD} fill={`url(#${fillGradientId})`} opacity={0.75} />
           <path
             d={geom.spD}
             fill="none"
@@ -290,11 +318,22 @@ export function HeroBackgroundCurve({ points }: Props) {
             d={geom.aiD}
             fill="none"
             stroke="#0A84FF"
+            strokeWidth="3.5"
+            strokeLinejoin="round"
+            strokeLinecap="round"
+            vectorEffect="non-scaling-stroke"
+            opacity={0.25}
+            filter={`url(#${glowFilterId})`}
+          />
+          <path
+            d={geom.aiD}
+            fill="none"
+            stroke="#0A84FF"
             strokeWidth="2.5"
             strokeLinejoin="round"
             strokeLinecap="round"
             vectorEffect="non-scaling-stroke"
-            opacity={0.45}
+            opacity={0.7}
           />
         </g>
       </svg>
@@ -302,10 +341,14 @@ export function HeroBackgroundCurve({ points }: Props) {
       {marker && marker.visible && (
         <>
           {/* Experiment-start annotation — static, marks where both lines start at $10,000. */}
-          <span
-            className="absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-slate-400 ring-2 ring-background"
+          <div
+            className="absolute h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full"
             style={{ left: marker.inceptionX, top: marker.inceptionY }}
-          />
+          >
+            <span className="absolute inset-0 rounded-full bg-trader-blue/20 blur-[3px]" />
+            <span className="absolute inset-1 rounded-full border border-trader-blue/35 bg-trader-blue/10 shadow-[0_0_12px_rgba(10,132,255,0.35)]" />
+            <span className="absolute left-1/2 top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/70 bg-trader-blue shadow-[0_0_10px_rgba(10,132,255,0.65)] dark:border-white/40" />
+          </div>
           <div
             className="absolute flex select-none flex-col items-center whitespace-nowrap text-[10px] font-semibold leading-tight tracking-wide text-muted-foreground"
             style={{
@@ -355,7 +398,7 @@ export function HeroBackgroundCurve({ points }: Props) {
           </div>
           {/* AI portfolio dot (primary). */}
           <span
-            className="absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-trader-blue shadow-[0_0_0_4px_rgba(10,132,255,0.18)]"
+            className="absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-trader-blue shadow-[0_0_12px_rgba(10,132,255,0.55),0_0_0_4px_rgba(10,132,255,0.18)]"
             style={{ left: marker.x, top: marker.aiY }}
           />
           <div

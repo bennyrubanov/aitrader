@@ -2,6 +2,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
+import { BgDots } from '@/components/landing/bg-dots';
 
 export const dynamic = 'force-static';
 /** Must match `PUBLIC_STATIC_REVALIDATE` in `@/lib/public-cache` (Next requires a literal here). */
@@ -44,7 +45,13 @@ const blogPosts: BlogPostPreview[] = [
 
 const BlogPage = () => {
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col">
+    <div className="relative min-h-screen bg-background text-foreground flex flex-col">
+      <BgDots
+        mode="static"
+        color="rgba(10, 132, 255, 0.10)"
+        className="pointer-events-none absolute inset-0 z-0"
+      />
+      <div className="relative z-10 flex min-h-screen flex-col">
       <Navbar />
       <main className="flex-grow">
         <section className="py-20">
@@ -102,6 +109,7 @@ const BlogPage = () => {
         </section>
       </main>
       <Footer />
+      </div>
     </div>
   );
 };

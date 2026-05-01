@@ -1,6 +1,6 @@
 ---
-description: Product language for user entry vs model inception (UI and API error strings)
-alwaysApply: true
+description: Product language for user entry vs model inception (UI and API error strings). Apply when writing user-facing copy, form labels, error strings, or chart axis labels that mention entry/inception.
+alwaysApply: false
 ---
 
 # Entry vs inception (copy)

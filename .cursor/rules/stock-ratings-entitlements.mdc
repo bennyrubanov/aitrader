@@ -1,6 +1,13 @@
 ---
 description: Server-side plan gating for stock ratings and anti-scraping data patterns
-alwaysApply: true
+globs:
+  - src/app/api/stocks/**
+  - src/app/api/platform/**
+  - src/lib/platform-server-data.ts
+  - src/lib/app-access.ts
+  - src/lib/strategy-plan-access.ts
+  - src/app/(platform)/**
+alwaysApply: false
 ---
 
 # Stock ratings & plan-tier data

@@ -1,6 +1,13 @@
 ---
 description: Enforce one-daily-write many-reads for portfolio MTM series
-alwaysApply: true
+globs:
+  - src/app/api/cron/**
+  - src/app/api/internal/compute-portfolio-config/**
+  - src/app/api/internal/compute-portfolio-configs-batch/**
+  - src/lib/config-daily-series*.ts
+  - src/lib/live-mark-to-market.ts
+  - src/lib/portfolio-config-holdings*.ts
+alwaysApply: false
 ---
 
 # Daily snapshot invariant

@@ -85,6 +85,175 @@
 }
 
 @layer base {
+  /*
+   * Performance stripe: theme-token inversion.
+   *
+   * The performance section is intentionally rendered in the *opposite* tone
+   * from the rest of the page (light page → dark stripe, dark page → light
+   * stripe). Re-declaring the design-token variables on `.section-invert`
+   * makes every descendant `text-foreground`, `bg-muted`, `border-border`,
+   * etc. resolve to the inverted theme automatically, so we don't have to
+   * sprinkle one-off overrides through the section.
+   */
+  .section-invert {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 212.7 26.8% 83.9%;
+  }
+
+  .dark .section-invert {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 210 100% 52%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 222.2 84% 4.9%;
+  }
+
+  /*
+   * Navbar theme is scroll-driven — NOT time-driven. The scroll handler on
+   * the nav writes a 0-to-1 `--nav-invert-progress` to the header in real
+   * time, representing the fraction of the nav strip currently overlapping
+   * any `data-nav-invert="true"` section. This rule linearly interpolates
+   * every nav-relevant design token between its normal value and its
+   * `.section-invert` value using that progress, so the theme follows the
+   * scroll exactly: pause mid-scroll and the nav pauses mid-transition.
+   *
+   * Channels are kept unitless for hue and percent for saturation/lightness
+   * to match the project's `--foreground: H S% L%` / `hsl(var(--foreground))`
+   * convention. Endpoints are the raw values from :root / .dark (normal)
+   * and .section-invert / .dark .section-invert (inverted).
+   */
+  .nav-theme-progressive {
+    --_p: var(--nav-invert-progress, 0);
+    --_n: calc(1 - var(--_p));
+
+    /*
+     * Light page → dark inverted stripe.
+     *
+     * `--background` and `--card` are the large-area tokens that drive the
+     * nav's gradient backdrop, button chip fills, and dropdown panels, so
+     * their mid-interpolation color is visually dominant. To keep the
+     * midpoint a neutral mid-gray (not a saturated mid-blue), we pin their
+     * saturation to 0% throughout; at the inverted endpoint L = 4.9% is
+     * already near-black, so dropping the 84% blue saturation changes
+     * the endpoint imperceptibly while eliminating the blue haze on the
+     * way there.
+     *
+     * The smaller tokens (`--border`, `--muted`, `--accent`, etc.) keep
+     * their native saturation — that's the base design system's intended
+     * subtle blue-gray chrome, not an interpolation artifact.
+     */
+    --foreground:
+      calc(222.2 * var(--_n) + 210 * var(--_p))
+      calc(84% * var(--_n) + 40% * var(--_p))
+      calc(4.9% * var(--_n) + 98% * var(--_p));
+    --muted-foreground:
+      calc(215.4 * var(--_n) + 215 * var(--_p))
+      calc(16.3% * var(--_n) + 20.2% * var(--_p))
+      calc(46.9% * var(--_n) + 65.1% * var(--_p));
+    --background:
+      222.2
+      0%
+      calc(100% * var(--_n) + 4.9% * var(--_p));
+    --border:
+      calc(214.3 * var(--_n) + 217.2 * var(--_p))
+      calc(31.8% * var(--_n) + 32.6% * var(--_p))
+      calc(91.4% * var(--_n) + 17.5% * var(--_p));
+    --muted:
+      calc(210 * var(--_n) + 217.2 * var(--_p))
+      calc(40% * var(--_n) + 32.6% * var(--_p))
+      calc(96.1% * var(--_n) + 17.5% * var(--_p));
+    --accent:
+      calc(210 * var(--_n) + 217.2 * var(--_p))
+      calc(40% * var(--_n) + 32.6% * var(--_p))
+      calc(96.1% * var(--_n) + 17.5% * var(--_p));
+    --card:
+      222.2
+      0%
+      calc(100% * var(--_n) + 4.9% * var(--_p));
+    --card-foreground:
+      calc(222.2 * var(--_n) + 210 * var(--_p))
+      calc(84% * var(--_n) + 40% * var(--_p))
+      calc(4.9% * var(--_n) + 98% * var(--_p));
+  }
+
+  .dark .nav-theme-progressive {
+    /*
+     * Dark page → light inverted stripe: endpoints swap, and the neutral
+     * saturation pinning for --background / --card carries over (still
+     * interpolates lightness only, keeping the midpoint a clean gray).
+     */
+    --foreground:
+      calc(210 * var(--_n) + 222.2 * var(--_p))
+      calc(40% * var(--_n) + 84% * var(--_p))
+      calc(98% * var(--_n) + 4.9% * var(--_p));
+    --muted-foreground:
+      calc(215 * var(--_n) + 215.4 * var(--_p))
+      calc(20.2% * var(--_n) + 16.3% * var(--_p))
+      calc(65.1% * var(--_n) + 46.9% * var(--_p));
+    --background:
+      222.2
+      0%
+      calc(4.9% * var(--_n) + 100% * var(--_p));
+    --border:
+      calc(217.2 * var(--_n) + 214.3 * var(--_p))
+      calc(32.6% * var(--_n) + 31.8% * var(--_p))
+      calc(17.5% * var(--_n) + 91.4% * var(--_p));
+    --muted:
+      calc(217.2 * var(--_n) + 210 * var(--_p))
+      calc(32.6% * var(--_n) + 40% * var(--_p))
+      calc(17.5% * var(--_n) + 96.1% * var(--_p));
+    --accent:
+      calc(217.2 * var(--_n) + 210 * var(--_p))
+      calc(32.6% * var(--_n) + 40% * var(--_p))
+      calc(17.5% * var(--_n) + 96.1% * var(--_p));
+    --card:
+      222.2
+      0%
+      calc(4.9% * var(--_n) + 100% * var(--_p));
+    --card-foreground:
+      calc(210 * var(--_n) + 222.2 * var(--_p))
+      calc(40% * var(--_n) + 84% * var(--_p))
+      calc(98% * var(--_n) + 4.9% * var(--_p));
+  }
+
+  /*
+   * Nav content still needs its variant `transition-colors` suppressed —
+   * otherwise the 150ms Button/Link transitions would smooth over the
+   * frame-accurate scroll-driven token changes and the motion would feel
+   * laggy instead of tight. Keep transform / opacity / shadow transitions
+   * so chevron rotations, dropdown fade-in/out, and hover lifts still work.
+   */
+  .nav-theme-instant * {
+    transition-property: transform, opacity, box-shadow !important;
+  }
+
   * {
     @apply border-border;
   }

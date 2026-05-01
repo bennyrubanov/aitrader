@@ -1,4 +1,6 @@
 import Link from 'next/link';
+import BorderGlow from '@/components/landing/border-glow';
+import { DotGrid } from '@/components/landing/dot-grid';
 import { HeroBackgroundCurve } from '@/components/landing/hero-background-curve';
 import { PrimaryCtaButton } from '@/components/landing/primary-cta-button';
 import type { LandingTopPortfolioPerformance } from '@/lib/landing-top-portfolio-performance';
@@ -20,8 +22,20 @@ const Hero = ({ performance }: HeroProps) => {
       : [];
 
   return (
-    <section className="relative overflow-hidden pb-28 pt-20 md:pb-40 md:pt-32 lg:pb-48">
+    <section className="relative z-10 overflow-visible pb-28 pt-20 md:z-auto md:overflow-hidden md:pb-40 md:pt-32 lg:pb-48">
       <div className="absolute inset-x-0 top-0 z-0 h-[80vh] bg-gradient-to-b from-trader-gray to-background dark:from-slate-950 dark:to-background" />
+      <DotGrid
+        dotSize={2}
+        gap={12}
+        baseColor="#0A84FF"
+        activeColor="#0A84FF"
+        proximity={70}
+        shockRadius={150}
+        shockStrength={6}
+        resistance={550}
+        returnDuration={1.2}
+        className="pointer-events-none absolute inset-0 z-0 opacity-[0.18]"
+      />
       {curvePoints.length >= 2 && <HeroBackgroundCurve points={curvePoints} />}
       <div className="container relative z-10 mx-auto px-4">
         <div className="mx-auto grid max-w-6xl grid-cols-1 gap-12 lg:grid-cols-12 lg:gap-8">
@@ -45,7 +59,24 @@ const Hero = ({ performance }: HeroProps) => {
               className={`mb-6 flex justify-center lg:justify-start ${HERO_FADE_IN}`}
               style={{ animationDelay: '0.25s' }}
             >
-              <PrimaryCtaButton className="h-12 rounded-xl bg-trader-blue px-7 text-white hover:bg-trader-blue-dark" />
+              <BorderGlow
+                className="inline-flex shrink-0 border-0"
+                edgeSensitivity={20}
+                glowColor="210 90 58"
+                backgroundColor="transparent"
+                borderRadius={12}
+                glowRadius={40}
+                glowIntensity={1.2}
+                coneSpread={28}
+                animated
+                glowAfterIntro="never"
+                fillOpacity={0.4}
+                colors={['#38bdf8', '#0A84FF', '#30D158']}
+                elevated={false}
+                contentOverflow="visible"
+              >
+                <PrimaryCtaButton />
+              </BorderGlow>
             </div>
 
             <p

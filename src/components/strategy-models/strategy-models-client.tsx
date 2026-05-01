@@ -6,9 +6,12 @@ import { Baby, BarChart2, Sparkles, Star, TrendingUp } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ContentPageLayout } from '@/components/ContentPageLayout';
+import { BgDots } from '@/components/landing/bg-dots';
 import { formatStrategyDescriptionForDisplay } from '@/lib/format-strategy-description';
 import { type StrategyListItem } from '@/lib/platform-performance-payload';
+import { isDefaultAitModelSlug, LEGACY_AIT1_SLUG } from '@/lib/default-ait-model-grainient';
 import { type RankedStrategyModel } from '@/lib/strategy-models-ranked';
+import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import { cn } from '@/lib/utils';
 import { hasAvgSp500ExcessInsight } from '@/components/model-header-card-insights';
 import {
@@ -100,11 +103,14 @@ function AvgSp500ExcessMini({
 type SortKey = 'performance' | 'newest';
 
 /**
- * Generate a unique deterministic gradient per slug.
+ * Generate a unique deterministic gradient per slug. Used as a fallback for
+ * any model that doesn't use the animated default-model panel.
  */
 function slugGradient(slug: string): string {
   const known: Record<string, string> = {
-    'ai-top20-nasdaq100-v1-0-0-m2-0':
+    [STRATEGY_CONFIG.slug]:
+      'linear-gradient(135deg, #0f2557 0%, #1a4a9e 40%, #2563eb 70%, #06b6d4 100%)',
+    [LEGACY_AIT1_SLUG]:
       'linear-gradient(135deg, #0f2557 0%, #1a4a9e 40%, #2563eb 70%, #06b6d4 100%)',
   };
   if (known[slug]) return known[slug];
@@ -152,6 +158,15 @@ export function StrategyModelsClient({ strategies, rankedStrategies }: Props) {
       <ContentPageLayout
         title="Strategy Models"
         titleSectionClassName="mt-2 md:mt-4"
+        viewportUnderlay={
+          <BgDots
+            mode="static"
+            layout="viewport"
+            dotSize={1.25}
+            gap={12}
+            color="rgba(10, 132, 255, 0.10)"
+          />
+        }
       >
         {/* Top bar */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
@@ -215,12 +230,7 @@ export function StrategyModelsClient({ strategies, rankedStrategies }: Props) {
             return (
               <article
                 key={strategy.id}
-                className={cn(
-                  'relative rounded-xl border bg-card overflow-hidden transition-shadow hover:shadow-md focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2',
-                  isTop
-                    ? 'border-trader-blue/40 ring-1 ring-trader-blue/10'
-                    : '',
-                )}
+                className="relative rounded-xl bg-card overflow-hidden focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2"
               >
                 <Link
                   href={modelHref}
@@ -231,17 +241,33 @@ export function StrategyModelsClient({ strategies, rankedStrategies }: Props) {
                 </Link>
                 <div className="pointer-events-none relative z-[1] flex flex-col sm:flex-row">
                   {/* Gradient image panel */}
-                  <div
-                    className="flex items-center justify-center text-white font-bold text-lg text-center px-6 select-none sm:w-[200px] min-h-[90px] sm:min-h-0"
-                    style={{
-                      background: slugGradient(strategy.slug),
-                      flexShrink: 0,
-                    }}
-                  >
-                    <span className="drop-shadow-md leading-tight">
-                      {strategy.name}
-                    </span>
-                  </div>
+                  {isDefaultAitModelSlug(strategy.slug) ? (
+                    <div
+                      className="relative flex items-center justify-center overflow-hidden text-white font-bold text-lg text-center px-6 select-none sm:w-[200px] min-h-[90px] sm:min-h-0 bg-[#0c1e4a]"
+                      style={{ flexShrink: 0 }}
+                    >
+                      <BgDots
+                        mode="static"
+                        color="rgba(10, 132, 255, 0.10)"
+                        className="pointer-events-none absolute inset-0 z-0"
+                      />
+                      <span className="relative z-[1] drop-shadow-md leading-tight">
+                        {strategy.name}
+                      </span>
+                    </div>
+                  ) : (
+                    <div
+                      className="flex items-center justify-center text-white font-bold text-lg text-center px-6 select-none sm:w-[200px] min-h-[90px] sm:min-h-0"
+                      style={{
+                        background: slugGradient(strategy.slug),
+                        flexShrink: 0,
+                      }}
+                    >
+                      <span className="drop-shadow-md leading-tight">
+                        {strategy.name}
+                      </span>
+                    </div>
+                  )}
 
                   {/* Details panel */}
                   <div className="flex-1 min-w-0 p-5">
@@ -309,10 +335,9 @@ export function StrategyModelsClient({ strategies, rankedStrategies }: Props) {
                                 )}
                               >
                                 {fmtBeatPct(ranked.beatSp500Pct)}
-                                <span className="text-[10px] font-semibold tabular-nums leading-none text-foreground">
-                                  {' '}
-                                  ({ranked.beatSp500Beating} of{' '}
-                                  {ranked.beatSp500Comparable})
+                                <span className="ml-1.5 text-[10px] font-semibold tabular-nums leading-none text-foreground">
+                                  {ranked.beatSp500Beating} of{' '}
+                                  {ranked.beatSp500Comparable}
                                 </span>
                               </p>
                             ) : (

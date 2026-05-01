@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import { BgDots } from "@/components/landing/bg-dots";
 import { Button } from "@/components/ui/button";
 
 export const dynamic = "force-static";
@@ -28,7 +29,13 @@ const sections = [
 
 const ExperimentResearchPage = () => {
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col">
+    <div className="relative min-h-screen bg-background text-foreground flex flex-col">
+      <BgDots
+        mode="static"
+        color="rgba(10, 132, 255, 0.10)"
+        className="pointer-events-none absolute inset-0 z-0"
+      />
+      <div className="relative z-10 flex min-h-screen flex-col">
       <Navbar />
       <main className="flex-grow">
         <section className="py-20">
@@ -79,6 +86,7 @@ const ExperimentResearchPage = () => {
         </section>
       </main>
       <Footer />
+      </div>
     </div>
   );
 };

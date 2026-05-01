@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ContentPageLayout } from '@/components/ContentPageLayout';
+import { BgDots } from '@/components/landing/bg-dots';
 import { RegressionScatterExample } from '@/components/strategy-models/regression-scatter-example';
 import { SectionHeadingAnchor, SectionHeadingJumpLink } from '@/components/section-heading-anchor';
 import { WhitepaperGetStartedCta } from '@/components/whitepaper/whitepaper-get-started-cta';
@@ -44,6 +45,15 @@ export default async function WhitepaperContentPage() {
       tocPosition="right"
       contentClassName="max-w-4xl"
       titleSectionClassName="mt-2 md:mt-4"
+      viewportUnderlay={
+        <BgDots
+          mode="static"
+          layout="viewport"
+          dotSize={1.25}
+          gap={12}
+          color="rgba(10, 132, 255, 0.10)"
+        />
+      }
     >
       <section
         id="whitepaper-overview"

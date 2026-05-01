@@ -3,11 +3,15 @@
 import Link from 'next/link';
 import { useMemo, useRef } from 'react';
 import { ArrowRight } from 'lucide-react';
+import BorderGlow from '@/components/landing/border-glow';
+import { LandingSectionPerformanceAmbient } from '@/components/landing/landing-section-performance-ambient';
+import CountUp from '@/components/landing/count-up';
 import { AllPortfoliosEquityChart } from '@/components/landing/all-portfolios-equity-chart';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { LandingAllPortfoliosPerformance } from '@/lib/landing-all-portfolios-performance';
 import type { LandingHeroStats } from '@/lib/landing-hero-stats';
+import { CHART_SP500_LANDING_LINE } from '@/lib/chart-index-series-colors';
 import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import { useHasBeenVisible } from '@/lib/animations';
 
@@ -23,15 +27,34 @@ function formatInceptionFootnote(ymd: string | null | undefined): string | null 
   }).format(parsed);
 }
 
-function formatBeatPct(pct: number | null): string {
-  if (pct == null || !Number.isFinite(pct)) return '—';
-  return `${pct % 1 === 0 ? pct.toFixed(0) : pct.toFixed(1)}%`;
-}
-
-function formatSignedAvgExcess(pct: number | null): string {
-  if (pct == null || !Number.isFinite(pct)) return '—';
-  const sign = pct >= 0 ? '+' : '';
-  return `${sign}${pct.toFixed(1)}%`;
+function PerformanceFullStatsCta({ href }: { href: string }) {
+  return (
+    <BorderGlow
+      className="group inline-flex shrink-0 border-transparent"
+      edgeSensitivity={20}
+      glowColor="210 90 58"
+      backgroundColor="transparent"
+      borderRadius={10}
+      glowRadius={45}
+      glowIntensity={1.8}
+      coneSpread={9}
+      animated
+      fillOpacity={0}
+      colors={['#38bdf8', '#0A84FF', '#30D158']}
+      elevated={false}
+    >
+      <Button
+        asChild
+        variant="ghost"
+        className="h-10 gap-2 rounded-[inherit] border-0 bg-transparent px-4 py-2 shadow-none hover:bg-transparent dark:hover:bg-transparent"
+      >
+        <Link href={href}>
+          See full performance stats
+          <ArrowRight className="h-4 w-4 shrink-0 transition-transform duration-200 ease-out group-hover:translate-x-0.5" />
+        </Link>
+      </Button>
+    </BorderGlow>
+  );
 }
 
 type Props = {
@@ -91,140 +114,198 @@ export function LandingPerformanceSection({ allPortfolios, heroStats, visibleRef
   const excessPositive = excess != null && excess > 0;
   const excessNegative = excess != null && excess < 0;
 
+  const subheader = (
+    <p className="text-pretty text-sm leading-relaxed text-muted-foreground sm:text-base">
+      Every portfolio from the top-performing model, live, vs the S&amp;P 500{inceptionFormatted ? (
+        <>
+          ,{' '}
+          <span className="whitespace-nowrap">
+            since <span className="font-medium text-foreground">{inceptionFormatted}</span>.
+          </span>
+        </>
+      ) : (
+        '.'
+      )}
+    </p>
+  );
+
+  const legend = (
+    <ul className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-medium text-muted-foreground sm:gap-x-4 sm:text-xs">
+      <li className="flex items-center gap-1.5">
+        <span
+          className="inline-block h-1.5 w-3 rounded-full"
+          style={{ backgroundColor: '#30D158' }}
+          aria-hidden
+        />
+        Top portfolio
+      </li>
+      <li className="flex items-center gap-1.5">
+        <span
+          className="inline-block h-1.5 w-3 rounded-full"
+          style={{ backgroundColor: '#0A84FF' }}
+          aria-hidden
+        />
+        Avg. portfolio
+      </li>
+      <li className="flex items-center gap-1.5">
+        <span
+          className="inline-block h-1.5 w-3 rounded-full"
+          style={{ backgroundColor: CHART_SP500_LANDING_LINE }}
+          aria-hidden
+        />
+        S&amp;P 500
+      </li>
+    </ul>
+  );
+
   return (
-    <section id="performance" className="bg-muted/30 py-20">
+    <section
+      id="performance"
+      data-nav-invert="true"
+      className="section-invert relative isolate overflow-hidden bg-[hsl(222_45%_4%)] py-20 text-foreground dark:bg-[hsl(220_30%_96%)]"
+    >
+      <LandingSectionPerformanceAmbient />
       <div
         ref={ref}
-        className={`container mx-auto max-w-5xl px-4 transition-all duration-700 ${
+        className={`relative mx-auto w-full max-w-[min(82rem,calc(100vw-4.5rem))] px-6 transition-all duration-700 sm:px-8 lg:px-10 xl:px-14 ${
           hasRevealed ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'
         }`}
       >
-        <div className="mb-10 text-center">
-          <p className="mb-3 text-sm font-semibold uppercase tracking-wide text-trader-blue">
-            Performance
-          </p>
-          <h3 className="mb-4 text-3xl font-bold md:text-4xl">Live results since launch</h3>
-          <p className="mx-auto max-w-2xl text-muted-foreground">
-            Every portfolio from the top-performing model, live, vs the S&amp;P 500{inceptionFormatted ? (
-              <>
-                {', since '}
-                <span className="font-medium text-foreground">{inceptionFormatted}</span>.
-              </>
-            ) : (
-              '.'
-            )}
-          </p>
+        <div>
+          <div className="grid gap-8 lg:grid-cols-[minmax(0,auto)_minmax(0,1fr)] lg:items-start lg:gap-10">
+          <div className="mx-auto w-full max-w-2xl lg:mx-0">
+            {showHeadlineStats ? (
+              <BorderGlow
+                className="w-full border-0"
+                edgeSensitivity={20}
+                glowColor="210 90 58"
+                backgroundColor="transparent"
+                borderRadius={12}
+                glowRadius={45}
+                glowIntensity={1.8}
+                coneSpread={36}
+                animated
+                fillOpacity={0.42}
+                colors={['#38bdf8', '#0A84FF', '#30D158']}
+                elevated={false}
+              >
+                <div className="grid grid-cols-1 divide-y divide-border px-4 py-5 md:grid-cols-2 md:divide-x md:divide-y-0 md:px-6 md:py-6">
+                  <div className="pb-5 text-left md:pb-0 md:pr-5">
+                    <p className="text-sm font-medium text-muted-foreground">
+                      Portfolios Beating S&amp;P 500
+                    </p>
+                    <p className="mt-2 flex flex-wrap items-baseline justify-start gap-x-2">
+                      <span
+                        className={cn(
+                          'text-3xl font-bold tabular-nums md:text-4xl',
+                          beatPositive && 'text-trader-green',
+                          beatNegative && 'text-red-600 dark:text-red-400',
+                          !beatPositive && !beatNegative && 'text-foreground'
+                        )}
+                      >
+                        <CountUp
+                          from={0}
+                          to={heroStats!.beatSp500Pct}
+                          duration={0.3}
+                          separator=""
+                          fractionDigits={heroStats!.beatSp500Pct % 1 === 0 ? 0 : 1}
+                          className="inline tabular-nums"
+                        />
+                        <span>%</span>
+                      </span>
+                      <span className="text-xs font-normal tabular-nums text-foreground sm:text-sm">
+                        <span className="tabular-nums">{heroStats!.beatSp500Beating}</span>
+                        {' of '}
+                        <span className="tabular-nums">{heroStats!.beatSp500Comparable}</span>
+                      </span>
+                    </p>
+                  </div>
+                  <div className="pt-5 text-left md:pl-5 md:pt-0">
+                    <p className="text-sm font-medium text-muted-foreground">
+                      Mean Portfolio Return vs S&amp;P 500
+                    </p>
+                    <p
+                      className={cn(
+                        'mt-2 text-3xl font-bold tabular-nums md:text-4xl',
+                        excessPositive && 'text-trader-green',
+                        excessNegative && 'text-red-600 dark:text-red-400',
+                        excess === 0 && 'text-foreground',
+                        excess == null && 'text-muted-foreground'
+                      )}
+                    >
+                      {excess != null && Number.isFinite(excess) ? (
+                        <>
+                          {excess >= 0 ? <span className="inline">+</span> : null}
+                          <CountUp
+                            from={0}
+                            to={excess}
+                            duration={0.5}
+                            separator=""
+                            fractionDigits={1}
+                            className="inline tabular-nums"
+                          />
+                          <span>%</span>
+                        </>
+                      ) : (
+                        '—'
+                      )}
+                    </p>
+                  </div>
+                </div>
+              </BorderGlow>
+            ) : heroStats && heroStats.beatSp500Comparable === 0 ? (
+              <p className="text-center text-sm text-muted-foreground lg:text-left">
+                Benchmark series not ready for all configs yet.
+              </p>
+            ) : null}
+          </div>
+
+          <div className="text-center lg:text-right">
+            <p className="mb-3 text-sm font-semibold uppercase tracking-wide text-trader-blue">
+              Performance
+            </p>
+            <h3 className="text-balance text-[clamp(1.85rem,3.6vw,3.25rem)] font-bold leading-[1.05] tracking-tight text-foreground xl:whitespace-nowrap">
+              Live results since launch
+            </h3>
+            <div className="mt-3 lg:ml-auto lg:max-w-md">
+              {subheader}
+            </div>
+          </div>
+        </div>
         </div>
 
-        <div className="rounded-xl border border-border bg-card p-6 shadow-elevated md:p-8">
-          {showHeadlineStats ? (
-            <div className="mb-8 rounded-xl border border-border bg-background/80 px-4 py-6 md:px-8 md:py-7">
-              <div className="grid grid-cols-1 divide-y divide-border md:grid-cols-2 md:divide-x md:divide-y-0">
-                <div className="pb-6 text-center md:pb-0 md:pr-8">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground md:text-xs">
-                    Portfolios beating S&amp;P 500
-                  </p>
-                  <p
-                    className={cn(
-                      'mt-2 text-3xl font-bold tabular-nums md:text-4xl',
-                      beatPositive && 'text-trader-green',
-                      beatNegative && 'text-red-600 dark:text-red-400',
-                      !beatPositive && !beatNegative && 'text-foreground'
-                    )}
-                  >
-                    {formatBeatPct(heroStats!.beatSp500Pct)}
-                  </p>
-                  <p className="mt-2 text-xs text-muted-foreground md:text-sm">
-                    <span className="font-semibold tabular-nums text-foreground">
-                      {heroStats!.beatSp500Beating}
-                    </span>{' '}
-                    of{' '}
-                    <span className="font-semibold tabular-nums text-foreground">
-                      {heroStats!.beatSp500Comparable}
-                    </span>{' '}
-                    portfolios
-                  </p>
-                </div>
-                <div className="pt-6 text-center md:pl-8 md:pt-0">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground md:text-xs">
-                    Avg. excess return vs S&amp;P 500
-                  </p>
-                  <p
-                    className={cn(
-                      'mt-2 text-3xl font-bold tabular-nums md:text-4xl',
-                      excessPositive && 'text-trader-green',
-                      excessNegative && 'text-red-600 dark:text-red-400',
-                      excess === 0 && 'text-foreground',
-                      excess == null && 'text-muted-foreground'
-                    )}
-                  >
-                    {formatSignedAvgExcess(heroStats!.avgExcessReturnPct)}
-                  </p>
-                  <p className="mt-2 text-xs text-muted-foreground md:text-sm">
-                    Mean portfolio return above index
-                  </p>
-                </div>
-              </div>
+        <div>
+        {showCharts && allPortfolios ? (
+          <div className="mt-8">
+            <div className="mb-3 flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm font-semibold text-foreground">All portfolios vs S&amp;P 500</p>
+              {legend}
             </div>
-          ) : heroStats && heroStats.beatSp500Comparable === 0 ? (
-            <p className="mb-6 text-center text-sm text-muted-foreground">
-              Benchmark series not ready for all configs yet.
+
+            <AllPortfoliosEquityChart
+              dates={allPortfolios.dates}
+              series={allPortfolios.series}
+              benchmarks={allPortfolios.benchmarks}
+              topPortfolioConfigId={allPortfolios.topPortfolioConfigId}
+            />
+
+            <div className="mt-4 flex justify-end">
+              <PerformanceFullStatsCta href={modelPagePath} />
+            </div>
+          </div>
+        ) : (
+          <div className="mt-10 rounded-lg border border-dashed border-border bg-muted/20 px-4 py-10 text-center">
+            <p className="mx-auto max-w-md text-sm text-muted-foreground">
+              {statusLine ?? 'Live charts will appear here after the next portfolio compute.'}
             </p>
-          ) : null}
+          </div>
+        )}
 
-          {showCharts && allPortfolios ? (
-            <div className="rounded-lg border border-border bg-muted/10 p-2 md:p-4">
-              <p className="pb-2 text-center text-sm font-semibold text-foreground sm:text-left md:pb-3">
-                All portfolios vs S&amp;P 500
-              </p>
-              <AllPortfoliosEquityChart
-                dates={allPortfolios.dates}
-                series={allPortfolios.series}
-                benchmarks={allPortfolios.benchmarks}
-                topPortfolioConfigId={allPortfolios.topPortfolioConfigId}
-              />
-              <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between md:gap-4">
-                <p className="order-1 min-w-0 text-center text-[11px] leading-snug text-muted-foreground md:max-w-[min(100%,32rem)] md:flex-1 md:text-left">
-                  What <strong className="text-foreground">$10,000</strong> would have turned into if
-                  invested
-                  {inceptionFormatted ? (
-                    <>
-                      {' '}
-                      on <strong className="text-foreground">{inceptionFormatted}</strong>
-                    </>
-                  ) : (
-                    <> at model inception</>
-                  )}
-                  . Net of trading costs.
-                </p>
-                <div className="order-2 flex shrink-0 justify-center md:justify-end">
-                  <Button asChild variant="outline" className="gap-2">
-                    <Link href={modelPagePath}>
-                      See full performance stats
-                      <ArrowRight className="h-4 w-4" />
-                    </Link>
-                  </Button>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="rounded-lg border border-dashed border-border bg-muted/20 px-4 py-10 text-center">
-              <p className="mx-auto max-w-md text-sm text-muted-foreground">
-                {statusLine ?? 'Live charts will appear here after the next portfolio compute.'}
-              </p>
-            </div>
-          )}
-
-          {!showCharts ? (
-            <div className="mt-8 flex justify-end">
-              <Button asChild variant="outline" className="gap-2">
-                <Link href={modelPagePath}>
-                  See full performance stats
-                  <ArrowRight className="h-4 w-4" />
-                </Link>
-              </Button>
-            </div>
-          ) : null}
+        {!showCharts ? (
+          <div className="mt-8 flex justify-end">
+            <PerformanceFullStatsCta href={modelPagePath} />
+          </div>
+        ) : null}
         </div>
       </div>
     </section>

@@ -5,6 +5,9 @@ import Link from 'next/link';
 import { Activity, ArrowRight, BarChart3, Star, TrendingUp } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { BgDots } from '@/components/landing/bg-dots';
+import { isDefaultAitModelSlug, LEGACY_AIT1_SLUG } from '@/lib/default-ait-model-grainient';
+import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import { cn } from '@/lib/utils';
 import { pickBeatSlotToReplace } from '@/components/model-header-card-insights';
 import {
@@ -78,7 +81,9 @@ type ModelHeaderCardProps = {
 
 function slugGradient(slug: string): string {
   const known: Record<string, string> = {
-    'ai-top20-nasdaq100-v1-0-0-m2-0':
+    [STRATEGY_CONFIG.slug]:
+      'linear-gradient(135deg, #0f2557 0%, #1a4a9e 40%, #2563eb 70%, #06b6d4 100%)',
+    [LEGACY_AIT1_SLUG]:
       'linear-gradient(135deg, #0f2557 0%, #1a4a9e 40%, #2563eb 70%, #06b6d4 100%)',
   };
   if (known[slug]) return known[slug];
@@ -454,12 +459,23 @@ export function ModelHeaderCard({
       <>
       {/* Top row: icon + name + badges + CTA */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 pb-3">
-        <div
-          className="size-12 rounded-xl flex items-center justify-center text-white font-bold text-sm shrink-0 select-none"
-          style={{ background: slugGradient(slug) }}
-        >
-          {shortName}
-        </div>
+        {isDefaultAitModelSlug(slug) ? (
+          <div className="relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#0c1e4a] text-white font-bold text-sm select-none">
+            <BgDots
+              mode="static"
+              color="rgba(10, 132, 255, 0.10)"
+              className="pointer-events-none absolute inset-0 z-0 rounded-xl"
+            />
+            <span className="relative z-[1] drop-shadow-sm">{shortName}</span>
+          </div>
+        ) : (
+          <div
+            className="size-12 rounded-xl flex items-center justify-center text-white font-bold text-sm shrink-0 select-none"
+            style={{ background: slugGradient(slug) }}
+          >
+            {shortName}
+          </div>
+        )}
 
         <div className="flex-1 min-w-0">
           {omitTitle && <span className="sr-only">{name}</span>}

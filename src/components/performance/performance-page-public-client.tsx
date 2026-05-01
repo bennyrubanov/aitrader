@@ -76,6 +76,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ContentPageLayout } from '@/components/ContentPageLayout';
+import { BgDots } from '@/components/landing/bg-dots';
 import { Disclaimer } from '@/components/Disclaimer';
 import { ModelHeaderCard } from '@/components/ModelHeaderCard';
 import {
@@ -2232,6 +2233,15 @@ function PerformancePagePublicClientInner({
       sidebarSlot={sidebarSlot}
       tocPosition="right"
       contentClassName={cn('mt-6 md:mt-8', isModelLanding && 'max-w-4xl')}
+      viewportUnderlay={
+        <BgDots
+          mode="static"
+          layout="viewport"
+          dotSize={1.25}
+          gap={12}
+          color="rgba(10, 132, 255, 0.10)"
+        />
+      }
     >
       <Suspense fallback={null}>
         <SearchParamsStringSync onSerializedChange={setSearchParamsString} />

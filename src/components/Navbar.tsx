@@ -24,6 +24,7 @@ import {
   TriangleAlert,
   type LucideIcon,
 } from "lucide-react";
+import { useTheme } from "next-themes";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -116,7 +117,7 @@ function NavbarAccountDropdown({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background/80 transition-colors hover:bg-muted"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/80 bg-background/70 shadow-sm backdrop-blur-md transition-colors hover:bg-muted/80"
           aria-label="Open account menu"
         >
           <div className="relative">
@@ -223,6 +224,7 @@ const MARKETING_PREFETCH_ROUTES = [
 
 const Navbar: React.FC = () => {
   const [scrolled, setScrolled] = useState(false);
+  const headerRef = useRef<HTMLElement | null>(null);
   const [isNavigatingToSignIn, setIsNavigatingToSignIn] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -232,6 +234,7 @@ const Navbar: React.FC = () => {
   /** Avoid nav active-state hydration mismatches when SSR pathname and client usePathname() disagree. */
   const [navPathReady, setNavPathReady] = useState(false);
   const router = useRouter();
+  const { resolvedTheme } = useTheme();
   const authState = useAuthState();
   const isAuthenticated = authState.isAuthenticated;
   const hasPremiumAccess = authState.hasPremiumAccess;
@@ -240,6 +243,15 @@ const Navbar: React.FC = () => {
   const showAuthenticatedUi = authUiReady && isAuthenticated;
   const showGuestUi = authUiReady && !isAuthenticated;
   const primaryCtaHref = showAuthenticatedUi ? "/platform/overview" : "/sign-up";
+  /**
+   * Landing page is marketing surface: we want a single branded appearance
+   * driven by system / OS preference (honored by `ThemeProvider`
+   * `defaultTheme="system" enableSystem`), not a user-switchable chrome.
+   * Expose the toggle only in localdev so engineers can still verify both
+   * themes while iterating. Applies to `/` only — every other page (platform,
+   * legal, etc.) keeps the toggle.
+   */
+  const showThemeToggle = pathname !== "/" || process.env.NODE_ENV !== "production";
   const account = {
     name: authState.name,
     email: authState.email,
@@ -266,6 +278,67 @@ const Navbar: React.FC = () => {
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
+
+  /**
+   * Scroll-driven nav theme progress.
+   *
+   * Instead of a binary snap at a single detection line, we expose the
+   * *fraction* of the nav strip currently sitting over any section that has
+   * opted in via `data-nav-invert="true"` as a CSS custom property
+   * `--nav-invert-progress` (0 = nav is fully over normal sections, 1 =
+   * nav is fully over an inverted section). Every nav-relevant theme token
+   * is linearly interpolated against this progress in globals.css (see
+   * `.nav-theme-progressive`), so the theme crossfades *with scroll
+   * position* — pausing mid-scroll pauses the nav mid-transition, matching
+   * public.com-style section-aware chrome.
+   *
+   * Writing the custom property directly on the ref'd header node (rather
+   * than going through React state) keeps every scroll frame a plain DOM
+   * write, no reconciliation.
+   */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    let rafId = 0;
+
+    const computeProgress = () => {
+      rafId = 0;
+      const headerEl = headerRef.current;
+      if (!headerEl) return;
+      const navHeight = headerEl.offsetHeight || 80;
+      const sections = document.querySelectorAll<HTMLElement>('[data-nav-invert="true"]');
+      let maxCoverage = 0;
+      for (const section of Array.from(sections)) {
+        const rect = section.getBoundingClientRect();
+        // Clamp the section's extent to the nav strip's y-range [0, navHeight]
+        // and measure how many px of the nav the section currently covers.
+        const top = Math.max(0, Math.min(navHeight, rect.top));
+        const bottom = Math.max(0, Math.min(navHeight, rect.bottom));
+        const covered = Math.max(0, bottom - top);
+        if (covered > maxCoverage) maxCoverage = covered;
+      }
+      const progress = Math.min(1, Math.max(0, maxCoverage / navHeight));
+      headerEl.style.setProperty("--nav-invert-progress", progress.toFixed(4));
+    };
+
+    const schedule = () => {
+      if (rafId !== 0) return;
+      rafId = window.requestAnimationFrame(computeProgress);
+    };
+
+    computeProgress();
+    window.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule);
+    return () => {
+      window.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
+      if (rafId !== 0) window.cancelAnimationFrame(rafId);
+    };
+    // `resolvedTheme` is included so the progress recomputes after the user
+    // toggles light/dark mode — a section's rendered appearance swaps with
+    // the mode (performance stripe is dark-navy in light, light-gray in
+    // dark), and the interpolation endpoints live in mode-scoped rules.
+  }, [pathname, resolvedTheme]);
 
   useEffect(() => {
     // Keep aggressive route warming for production UX, but avoid
@@ -371,11 +444,25 @@ const Navbar: React.FC = () => {
 
   return (
     <header
-      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-        scrolled ? "bg-background/80 py-3 shadow-sm backdrop-blur-md" : "bg-transparent py-5"
+      ref={headerRef}
+      className={`nav-theme-progressive nav-theme-instant fixed top-0 left-0 right-0 z-50 bg-transparent transition-[padding] duration-300 ${
+        scrolled ? "py-3" : "py-5"
       }`}
     >
-      <div className="container mx-auto px-4 md:px-6">
+      {/*
+       * Theme-aware top fade (public.com-style). Sits behind every nav
+       * element and extends a shade of the section's own background upward
+       * through the strip so nav text/buttons always read clearly over busy
+       * content (e.g. the beams on the performance stripe). Descendant of
+       * `<header>` so `section-invert` flips the `--background` token
+       * automatically. `h-[180%]` lets the gradient soft-land into the
+       * section below the nav rather than hard-cutting at the nav edge.
+       */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-[180%] bg-gradient-to-b from-background via-background/55 to-transparent"
+      />
+      <div className="relative container mx-auto px-4 md:px-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center">
             <Link
@@ -548,7 +635,9 @@ const Navbar: React.FC = () => {
           </nav>
 
           <div className="hidden items-center gap-2 md:flex">
-            <ThemeToggle className="rounded-full" />
+            {showThemeToggle ? (
+              <ThemeToggle className="rounded-full border border-border/80 bg-background/70 text-foreground shadow-sm backdrop-blur-md hover:bg-accent/80 hover:text-foreground" />
+            ) : null}
             {showAuthenticatedUi ? (
               <NavbarAccountDropdown
                 account={account}
@@ -561,7 +650,7 @@ const Navbar: React.FC = () => {
             {showGuestUi && (
               <Button
                 variant="outline"
-                className="rounded-full px-5"
+                className="rounded-full border-border/80 bg-background/70 px-5 text-foreground shadow-sm backdrop-blur-md hover:bg-accent/80 hover:text-foreground"
                 onClick={handleLogin}
                 disabled={isNavigatingToSignIn || !authUiReady}
               >
@@ -590,7 +679,9 @@ const Navbar: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2 md:hidden">
-            <ThemeToggle className="rounded-full" />
+            {showThemeToggle ? (
+              <ThemeToggle className="rounded-full border border-border/80 bg-background/70 text-foreground shadow-sm backdrop-blur-md hover:bg-accent/80 hover:text-foreground" />
+            ) : null}
             {showAuthenticatedUi ? (
               <NavbarAccountDropdown
                 account={account}
@@ -603,7 +694,12 @@ const Navbar: React.FC = () => {
             {hasHydrated ? (
               <Sheet open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
                 <SheetTrigger asChild>
-                  <Button variant="outline" size="icon" className="rounded-full" aria-label="Open navigation menu">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="rounded-full border-border/80 bg-background/70 text-foreground shadow-sm backdrop-blur-md hover:bg-accent/80 hover:text-foreground"
+                    aria-label="Open navigation menu"
+                  >
                     <Menu size={18} />
                   </Button>
                 </SheetTrigger>
@@ -754,7 +850,7 @@ const Navbar: React.FC = () => {
               <Button
                 variant="outline"
                 size="icon"
-                className="rounded-full"
+                className="rounded-full border-border/80 bg-background/70 text-foreground shadow-sm backdrop-blur-md hover:bg-accent/80 hover:text-foreground"
                 aria-label="Open navigation menu"
                 disabled
               >

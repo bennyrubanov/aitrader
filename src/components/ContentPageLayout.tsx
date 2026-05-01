@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Menu } from 'lucide-react';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
+import { BgDots } from '@/components/landing/bg-dots';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
 import { scrollInstantlyToSection } from '@/components/section-heading-anchor';
@@ -35,6 +36,11 @@ interface ContentPageLayoutProps {
    * 'right': TOC floats on the right side (docs-style), left sidebar only shows sidebarSlot.
    */
   tocPosition?: 'left' | 'right';
+  /**
+   * Full-viewport layer behind navbar/gradient/main (first paint inside the page root, on top of
+   * the root `bg-background`). Use `fixed inset-0` + `pointer-events-none` in the child.
+   */
+  viewportUnderlay?: React.ReactNode;
 }
 
 export const ContentPageLayout: React.FC<ContentPageLayoutProps> = ({
@@ -50,6 +56,7 @@ export const ContentPageLayout: React.FC<ContentPageLayoutProps> = ({
   contentClassName,
   titleSectionClassName,
   tocPosition = 'left',
+  viewportUnderlay,
 }) => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const isRightToc = tocPosition === 'right';
@@ -155,6 +162,7 @@ export const ContentPageLayout: React.FC<ContentPageLayoutProps> = ({
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
+      {viewportUnderlay}
       <Navbar />
       {/* Decorative gradient — fixed so it never clips the sticky sidebar */}
       <div className="pointer-events-none fixed inset-x-0 top-0 h-64 bg-gradient-to-b from-trader-blue/5 to-transparent z-0" />
@@ -260,12 +268,24 @@ export const LegalPageLayout: React.FC<{
   lastUpdated: string;
   children: React.ReactNode;
   tableOfContents?: { id: string; label: string }[];
-}> = ({ title, lastUpdated, children, tableOfContents }) => (
+  viewportUnderlay?: React.ReactNode;
+}> = ({ title, lastUpdated, children, tableOfContents, viewportUnderlay }) => (
   <ContentPageLayout
     title={title}
     subtitle={`Last updated: ${lastUpdated}`}
     tableOfContents={tableOfContents}
     legalProse
+    viewportUnderlay={
+      viewportUnderlay ?? (
+        <BgDots
+          mode="static"
+          layout="viewport"
+          dotSize={1.25}
+          gap={12}
+          color="rgba(10, 132, 255, 0.10)"
+        />
+      )
+    }
   >
     {children}
   </ContentPageLayout>

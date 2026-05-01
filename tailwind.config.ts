@@ -157,7 +157,16 @@ export default {
 						opacity: '1',
 						transform: 'scale(1)'
 					}
-				}
+				},
+				/** React Bits StarBorder — longer diagonal sweep + higher floor opacity (duration via inline style) */
+				'star-movement-bottom': {
+					'0%': { transform: 'translate(14%, -26%)', opacity: '1' },
+					'100%': { transform: 'translate(-122%, 20%)', opacity: '0.62' },
+				},
+				'star-movement-top': {
+					'0%': { transform: 'translate(-14%, 26%)', opacity: '1' },
+					'100%': { transform: 'translate(122%, -20%)', opacity: '0.62' },
+				},
 			},
 			animation: {
 				'accordion-down': 'accordion-down 0.2s ease-out',
@@ -168,7 +177,9 @@ export default {
 				'float': 'float 6s ease-in-out infinite',
 				'pulse-slow': 'pulse-slow 4s ease-in-out infinite',
 				'live-dot-pulse': 'live-dot-pulse 2.8s ease-in-out infinite',
-				'scale-in': 'scale-in 0.5s ease-out'
+				'scale-in': 'scale-in 0.5s ease-out',
+				'star-movement-bottom': 'star-movement-bottom linear infinite alternate',
+				'star-movement-top': 'star-movement-top linear infinite alternate',
 			},
 			fontFamily: {
 				sans: ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', 'sans-serif'],

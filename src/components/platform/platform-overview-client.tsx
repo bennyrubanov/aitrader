@@ -219,7 +219,7 @@ const spotlightHoldingsShortDateFmt = new Intl.DateTimeFormat('en-US', {
 /** Metrics column + chart + table — matches loaded Top portfolio layout (not overview tiles). */
 function OverviewTopPortfolioSpotlightSkeleton() {
   return (
-    <section className="rounded-xl border border-border bg-card/50 p-4 sm:p-5">
+    <>
       <div className="mb-2">
         <Skeleton className="h-6 w-full max-w-3xl rounded-md" />
       </div>
@@ -235,7 +235,7 @@ function OverviewTopPortfolioSpotlightSkeleton() {
         <Skeleton className="min-h-[288px] rounded-lg sm:min-h-[328px]" />
         <Skeleton className="min-h-[200px] rounded-lg lg:min-h-[260px]" />
       </div>
-    </section>
+    </>
   );
 }
 
@@ -3128,7 +3128,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                       const { excessVsSp500 } = benchmarkStatsFromSeries(series);
                       const spotlightDisplayTotalReturn: number | null = st.totalReturn ?? null;
                       return (
-                        <section className="rounded-xl border border-border bg-card/50 p-4 sm:p-5 lg:h-[calc(100svh-14.75rem)] lg:overflow-hidden">
+                        <>
                           <div className="mb-2 flex min-w-0 items-start justify-between gap-3">
                             <div className="min-w-0 flex flex-wrap items-center gap-x-1.5 gap-y-1">
                               <h2 className="shrink-0 text-sm font-semibold tracking-tight text-foreground">
@@ -3977,16 +3977,14 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                 </div>
                               </div>
                             </div>
-                        </section>
+                        </>
                       );
                     })()
                   ) : (
-                    <section className="rounded-xl border border-border bg-card/50 p-4 sm:p-5">
-                      <p className="text-sm text-muted-foreground">
-                        No return data to compare yet — add a portfolio with a start date, or wait
-                        for metrics to sync.
-                      </p>
-                    </section>
+                    <p className="text-sm text-muted-foreground">
+                      No return data to compare yet — add a portfolio with a start date, or wait
+                      for metrics to sync.
+                    </p>
                   )}
                 </div>
               </TabsContent>

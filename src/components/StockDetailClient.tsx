@@ -9,6 +9,7 @@ import {
   ExternalLink,
   Lock,
   LockKeyholeOpen,
+  Menu,
   Search,
   Star,
   TrendingUp,
@@ -19,6 +20,7 @@ import Footer from '@/components/Footer';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StockPriceRatingChart } from '@/components/platform/stock-chart-dialog';
 import { StrategyModelSidebarDropdown } from '@/components/platform/strategy-model-sidebar-dropdown';
@@ -137,7 +139,7 @@ const PREMIUM_CACHE_TTL_MS = 10 * 60 * 1000;
 const formatBucket = (bucket: string | null) =>
   bucket ? bucket.charAt(0).toUpperCase() + bucket.slice(1) : 'N/A';
 
-/** `YYYY-MM-DD` from API → compact label for “Latest AI rating on” pill. */
+/** `YYYY-MM-DD` from API → compact label for “Latest AI rating on” copy. */
 function formatLatestRatingOnDate(ymd: string): string {
   const d = new Date(`${ymd}T12:00:00Z`);
   if (Number.isNaN(d.getTime())) {
@@ -553,6 +555,16 @@ const StockDetailClient = ({
   const [portfolioPresence, setPortfolioPresence] = useState<PortfolioPresencePayload | null>(null);
   const [portfolioPresenceLoading, setPortfolioPresenceLoading] = useState(false);
   const [portfolioPresenceError, setPortfolioPresenceError] = useState<string | null>(null);
+  const [stockMobileSidebarOpen, setStockMobileSidebarOpen] = useState(false);
+  /** Matches Tailwind `lg` so we never mount the sidebar panel in both the column and the sheet. */
+  const [isLgViewport, setIsLgViewport] = useState(false);
+  useLayoutEffect(() => {
+    const mql = window.matchMedia('(min-width: 1024px)');
+    const sync = () => setIsLgViewport(mql.matches);
+    sync();
+    mql.addEventListener('change', sync);
+    return () => mql.removeEventListener('change', sync);
+  }, []);
 
   const canLoadPortfolioPresence = useMemo(() => {
     if (!isLoaded) {
@@ -824,10 +836,113 @@ const StockDetailClient = ({
       : ('neutral' as const);
   const portfolioBreadthClass = portfolioBreadthValueClass(portfolioBreadth);
 
+  const latestRatingRunSubline = canLoadPortfolioPresence
+    ? portfolioPresenceLoading
+      ? (
+          <div
+            className="mb-2 flex justify-center"
+            aria-busy="true"
+            aria-label="Loading rating date"
+          >
+            <Skeleton className="h-3.5 w-[min(100%,14rem)] rounded-full" />
+          </div>
+        )
+      : portfolioPresence?.runDate
+        ? (
+            <p
+              className="mb-2 text-center text-[11px] leading-snug text-muted-foreground tabular-nums"
+              title="Trading week for the latest AI ratings run used on this page."
+            >
+              <span className="font-medium text-muted-foreground/90"></span>{' '}
+              <span className="text-foreground/85">
+                {formatLatestRatingOnDate(portfolioPresence.runDate)}
+              </span>
+            </p>
+          )
+        : null
+    : null;
+
   // Quote header UI (last sale, net chg, day %, session, quote ingested, page served, footnote) is
   // hidden for now. Server still loads and passes `price` from `src/app/stocks/[symbol]/page.tsx`
   // (nasdaq_100_daily_raw row + labels) so we can restore pills without re-plumbing.
   void price;
+
+  const stockSidebarPanel = (
+    <div className="space-y-5 pb-2">
+      <StockSidebarSearch
+        currentSymbol={normalizedSymbol}
+        isAuthenticated={isAuthenticated}
+        subscriptionTier={subscriptionTier}
+        authLoaded={isLoaded}
+      />
+      {strategyPickerStrategies.length > 0 ? (
+        <StrategyModelSidebarDropdown
+          strategies={strategyPickerStrategies}
+          selectedSlug={selectedStrategySlug}
+          onSelectStrategy={setSelectedStrategySlug}
+          hideBottomBorder
+        >
+          {effectivePickerStrategy ? (
+            <div className="space-y-0.5">
+              {isTopPickerStrategy ? (
+                <div className="flex items-start gap-1.5 text-xs min-h-7 py-1.5 px-1 whitespace-normal text-left leading-snug text-muted-foreground">
+                  <Star className="size-3 shrink-0 mt-0.5" fill="currentColor" />
+                  <span>
+                    Top performing strategy model{' '}
+                    <Link
+                      href="/whitepaper#model-ranking"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="group inline-flex items-center font-medium text-trader-blue dark:text-trader-blue-light underline-offset-2 transition hover:underline"
+                    >
+                      (by composite ranking)
+                      <ExternalLink
+                        className="size-3 shrink-0 ml-1 mt-0.5 opacity-0 transition-opacity group-hover:opacity-100"
+                        aria-hidden
+                      />
+                    </Link>
+                  </span>
+                </div>
+              ) : null}
+              <Button
+                asChild
+                variant="ghost"
+                size="sm"
+                className="w-full justify-start gap-1.5 text-xs h-7 px-1"
+              >
+                <Link href={`/strategy-models/${effectivePickerStrategy.slug}`}>
+                  <ExternalLink className="size-3 shrink-0" />
+                  How this model works
+                </Link>
+              </Button>
+              <Button
+                asChild
+                variant="ghost"
+                size="sm"
+                className="w-full justify-start gap-1.5 text-xs h-7 px-1"
+              >
+                <Link href={`/strategy-models/${effectivePickerStrategy.slug}`}>
+                  <TrendingUp className="size-3 shrink-0" />
+                  See performance
+                </Link>
+              </Button>
+            </div>
+          ) : null}
+        </StrategyModelSidebarDropdown>
+      ) : (
+        <div className="space-y-4 pt-5 pb-4">
+          <div className="space-y-1.5">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Strategy model
+            </p>
+            <p className="text-[10px] text-muted-foreground leading-snug">
+              Model list is unavailable right now.
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
@@ -857,40 +972,20 @@ const StockDetailClient = ({
                 </div>
                 <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-x-2.5 gap-y-2 self-center lg:justify-end">
                   {(portfolioPresenceLoading ||
-                    portfolioPresence?.runDate ||
                     (portfolioPresence?.modelRank != null &&
                       portfolioPresence.modelRankTotal != null &&
                       portfolioPresence.modelRankTotal > 0)) && (
                     <TooltipProvider delayDuration={200}>
                       {portfolioPresenceLoading ? (
-                        <>
-                          <span
-                            className="inline-flex max-w-full truncate rounded-full border border-dashed border-border bg-muted/25 px-3 py-1.5 text-xs font-medium text-muted-foreground"
-                            aria-hidden
-                          >
-                            Latest AI rating on {'  '}
-                          </span>
-                          <div
-                            className="inline-flex max-w-full items-center rounded-full border border-dashed border-border bg-muted/25 px-3 py-1.5"
-                            aria-busy="true"
-                            aria-label="Loading rank"
-                          >
-                            <Skeleton className="h-4 w-24 rounded-full sm:w-28" aria-hidden />
-                          </div>
-                        </>
+                        <div
+                          className="inline-flex max-w-full items-center rounded-full border border-dashed border-border bg-muted/25 px-3 py-1.5"
+                          aria-busy="true"
+                          aria-label="Loading rank"
+                        >
+                          <Skeleton className="h-4 w-24 rounded-full sm:w-28" aria-hidden />
+                        </div>
                       ) : (
                         <>
-                          {portfolioPresence?.runDate ? (
-                            <span
-                              className="inline-flex max-w-full items-center truncate gap-x-1.5 rounded-full border border-border bg-muted/35 px-3 py-1.5 text-xs font-medium text-muted-foreground"
-                              title="Trading week for the latest AI ratings run used on this page."
-                            >
-                              <span className="font-semibold text-muted-foreground/90">Latest AI rating on</span>
-                              <span className="tabular-nums text-foreground/90">
-                                {formatLatestRatingOnDate(portfolioPresence.runDate)}
-                              </span>
-                            </span>
-                          ) : null}
                           {portfolioPresence?.modelRank != null &&
                           portfolioPresence.modelRankTotal != null &&
                           portfolioPresence.modelRankTotal > 0 ? (
@@ -927,81 +1022,8 @@ const StockDetailClient = ({
               </div>
 
               <div className="flex flex-col gap-8 lg:flex-row lg:items-start lg:gap-10">
-                <aside className="w-full shrink-0 lg:sticky lg:top-24 lg:max-h-[calc(100vh-7rem)] lg:w-64 lg:overflow-y-auto lg:overscroll-y-contain lg:pr-3 lg:[scrollbar-gutter:stable]">
-                  <div className="space-y-5 pb-2">
-                    <StockSidebarSearch
-                      currentSymbol={normalizedSymbol}
-                      isAuthenticated={isAuthenticated}
-                      subscriptionTier={subscriptionTier}
-                      authLoaded={isLoaded}
-                    />
-                    {strategyPickerStrategies.length > 0 ? (
-                      <StrategyModelSidebarDropdown
-                        strategies={strategyPickerStrategies}
-                        selectedSlug={selectedStrategySlug}
-                        onSelectStrategy={setSelectedStrategySlug}
-                        hideBottomBorder
-                      >
-                        {effectivePickerStrategy ? (
-                          <div className="space-y-0.5">
-                            {isTopPickerStrategy ? (
-                              <div className="flex items-start gap-1.5 text-xs min-h-7 py-1.5 px-1 whitespace-normal text-left leading-snug text-muted-foreground">
-                                <Star className="size-3 shrink-0 mt-0.5" fill="currentColor" />
-                                <span>
-                                  Top performing strategy model{' '}
-                                  <Link
-                                    href="/whitepaper#model-ranking"
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="group inline-flex items-center font-medium text-trader-blue dark:text-trader-blue-light underline-offset-2 transition hover:underline"
-                                  >
-                                    (by composite ranking)
-                                    <ExternalLink
-                                      className="size-3 shrink-0 ml-1 mt-0.5 opacity-0 transition-opacity group-hover:opacity-100"
-                                      aria-hidden
-                                    />
-                                  </Link>
-                                </span>
-                              </div>
-                            ) : null}
-                            <Button
-                              asChild
-                              variant="ghost"
-                              size="sm"
-                              className="w-full justify-start gap-1.5 text-xs h-7 px-1"
-                            >
-                              <Link href={`/strategy-models/${effectivePickerStrategy.slug}`}>
-                                <ExternalLink className="size-3 shrink-0" />
-                                How this model works
-                              </Link>
-                            </Button>
-                            <Button
-                              asChild
-                              variant="ghost"
-                              size="sm"
-                              className="w-full justify-start gap-1.5 text-xs h-7 px-1"
-                            >
-                              <Link href={`/strategy-models/${effectivePickerStrategy.slug}`}>
-                                <TrendingUp className="size-3 shrink-0" />
-                                See performance
-                              </Link>
-                            </Button>
-                          </div>
-                        ) : null}
-                      </StrategyModelSidebarDropdown>
-                    ) : (
-                      <div className="space-y-4 pt-5 pb-4">
-                        <div className="space-y-1.5">
-                          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                            Strategy model
-                          </p>
-                          <p className="text-[10px] text-muted-foreground leading-snug">
-                            Model list is unavailable right now.
-                          </p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                <aside className="hidden shrink-0 lg:block lg:sticky lg:top-24 lg:max-h-[calc(100vh-7rem)] lg:w-64 lg:overflow-y-auto lg:overscroll-y-contain lg:pr-3 lg:[scrollbar-gutter:stable]">
+                  {isLgViewport ? stockSidebarPanel : null}
                 </aside>
 
                 <div className="min-w-0 flex-1 space-y-6">
@@ -1028,16 +1050,14 @@ const StockDetailClient = ({
 
                     <div className="space-y-6">
                       <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
-                        <h2 className="text-xl font-semibold mb-4">Latest recommendation</h2>
+                        <h2 className="text-xl font-semibold">Latest recommendation</h2>
                         {!isAuthenticated ? (
                           guestSeesLiveLatestBucket ? (
                             <div className="space-y-3">
+                              {latestRatingRunSubline}
                               <div
                                 className={`rounded-lg border px-3 py-3 text-center ${bucketHeroSurfaceClass(latestBucket)}`}
                               >
-                                <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/90 mb-0.5">
-                                  Recommendation
-                                </p>
                                 <p className="text-xl sm:text-2xl font-extrabold tracking-tight uppercase">
                                   {formatBucket(latestBucket)}
                                 </p>
@@ -1083,15 +1103,15 @@ const StockDetailClient = ({
                             </div>
                           </div>
                         ) : (
-                          <div
-                            className={`rounded-lg border px-3 py-3 text-center ${bucketHeroSurfaceClass(latestBucket)}`}
-                          >
-                            <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/90 mb-0.5">
-                              Recommendation
-                            </p>
-                            <p className="text-xl sm:text-2xl font-extrabold tracking-tight uppercase">
-                              {formatBucket(latestBucket)}
-                            </p>
+                          <div className="space-y-3">
+                            {latestRatingRunSubline}
+                            <div
+                              className={`rounded-lg border px-3 py-3 text-center ${bucketHeroSurfaceClass(latestBucket)}`}
+                            >
+                              <p className="text-xl sm:text-2xl font-extrabold tracking-tight uppercase">
+                                {formatBucket(latestBucket)}
+                              </p>
+                            </div>
                           </div>
                         )}
                       </div>
@@ -1407,6 +1427,34 @@ const StockDetailClient = ({
         </section>
       </main>
       <Footer />
+
+      <>
+        <button
+          type="button"
+          onClick={() => setStockMobileSidebarOpen(true)}
+          className="lg:hidden fixed bottom-6 right-4 z-40 flex items-center gap-2 rounded-full bg-trader-blue text-white shadow-lg px-4 py-2.5 text-sm font-medium"
+          aria-label="Open stock search and strategy model"
+        >
+          <Menu className="size-4 shrink-0" aria-hidden />
+          Stock
+        </button>
+
+        <Sheet open={stockMobileSidebarOpen} onOpenChange={setStockMobileSidebarOpen}>
+          <SheetContent
+            side="right"
+            className="flex h-[100dvh] max-h-[100dvh] w-[80vw] max-w-xs flex-col gap-0 overflow-hidden p-0 pt-12"
+          >
+            <SheetHeader className="sr-only">
+              <SheetTitle>Stock search and strategy model</SheetTitle>
+            </SheetHeader>
+            {stockMobileSidebarOpen ? (
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-6 pb-6 pt-2">
+                <div className="space-y-5 pr-1">{stockSidebarPanel}</div>
+              </div>
+            ) : null}
+          </SheetContent>
+        </Sheet>
+      </>
     </div>
   );
 };
