@@ -8,6 +8,8 @@ import {
 export type UserPortfolioProfilesPayload = {
   profiles?: unknown[];
   overviewSlotAssignments?: Record<string, string>;
+  /** Server-derived cap for active follows; omit on older responses. */
+  maxFollowedPortfolios?: number;
 };
 
 const inflight = new Map<string, Promise<UserPortfolioProfilesPayload | null>>();

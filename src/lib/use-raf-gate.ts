@@ -1,6 +1,17 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type RefObject,
+} from 'react';
+
+import { useMobileLayoutMatch } from '@/hooks/use-mobile';
+
+const RAF_GATE_MARGIN_PX = 200;
 
 function isElementVisibleWithMargin(el: Element, marginPx: number): boolean {
   const rect = el.getBoundingClientRect();
@@ -16,14 +27,18 @@ function isElementVisibleWithMargin(el: Element, marginPx: number): boolean {
 
 /**
  * Gates RAF-heavy visuals: `active` is false when the element is outside the viewport
- * (with rootMargin) or when the document is hidden. Defaults to `true` until the first
- * IntersectionObserver callback so SSR / first paint match.
+ * (with rootMargin) or when the document is hidden.
+ *
+ * Desktop layout: defaults to `true` until IntersectionObserver fires (legacy behavior).
+ * Mobile layout: runs a synchronous geometry pass in `useLayoutEffect` so hydration does
+ * not treat every gated node as visible for a full frame.
  */
 export function useRafGate<T extends Element>(): {
   ref: RefObject<T | null>;
   active: boolean;
 } {
   const ref = useRef<T | null>(null);
+  const mobileLayout = useMobileLayoutMatch();
   const [active, setActive] = useState(true);
 
   const recompute = useCallback(() => {
@@ -33,8 +48,16 @@ export function useRafGate<T extends Element>(): {
       setActive(false);
       return;
     }
-    setActive(isElementVisibleWithMargin(el, 200));
+    setActive(isElementVisibleWithMargin(el, RAF_GATE_MARGIN_PX));
   }, []);
+
+  useLayoutEffect(() => {
+    if (mobileLayout) {
+      recompute();
+    } else {
+      setActive(true);
+    }
+  }, [mobileLayout, recompute]);
 
   useEffect(() => {
     const onVisibility = () => {
@@ -58,6 +81,7 @@ export function useRafGate<T extends Element>(): {
       return undefined;
     }
 
+    const rootMargin = `${RAF_GATE_MARGIN_PX}px`;
     const io = new IntersectionObserver(
       ([entry]) => {
         if (typeof document !== 'undefined' && document.hidden) {
@@ -66,7 +90,7 @@ export function useRafGate<T extends Element>(): {
         }
         setActive(entry.isIntersecting);
       },
-      { root: null, rootMargin: '200px', threshold: 0 },
+      { root: null, rootMargin, threshold: 0 },
     );
 
     io.observe(el);

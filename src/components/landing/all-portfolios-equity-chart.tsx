@@ -1,8 +1,9 @@
 'use client';
 
-import { useId, useMemo } from 'react';
+import { useCallback, useId, useMemo } from 'react';
 import { Area, CartesianGrid, ComposedChart, Line, ReferenceLine, Tooltip, XAxis, YAxis } from 'recharts';
 import { ChartContainer } from '@/components/ui/chart';
+import { useIsMobile } from '@/hooks/use-mobile';
 import type { ChartConfig } from '@/components/ui/chart';
 import {
   CHART_NEUTRAL_REFERENCE_STROKE,
@@ -18,7 +19,7 @@ const PORTFOLIO_GREY = '#94a3b8';
 /** Matches `theme.extend.colors.trader.green` in tailwind.config.ts */
 const TOP_PORTFOLIO_STROKE = '#30D158';
 
-const LABEL_CURRENT_TOP_PORTFOLIO = 'Current Top Portfolio';
+const LABEL_TOP_PORTFOLIO = 'Top portfolio';
 const LABEL_AVERAGE_PORTFOLIO = 'Average Portfolio';
 
 const displayDateFormatter = new Intl.DateTimeFormat('en-US', {
@@ -58,12 +59,15 @@ function makeEndValuePill({
   color,
   textColor = '#ffffff',
   yOffset = 0,
+  /** `trailing`: pill to the right of the point (desktop). `leading`: pill to the left (narrow / mobile). */
+  pillSide = 'trailing',
 }: {
   lastIndex: number;
   dataKey: string;
   color: string;
   textColor?: string;
   yOffset?: number;
+  pillSide?: 'trailing' | 'leading';
 }) {
   const Dot = (rawProps: unknown) => {
     const props = rawProps as EndValuePillDotProps;
@@ -79,7 +83,8 @@ function makeEndValuePill({
     const label = formatEquityPill(value);
     const width = Math.max(46, label.length * 7 + 16);
     const height = 22;
-    const x = cx + 9;
+    const gap = 10;
+    const x = pillSide === 'leading' ? cx - width - gap : cx + gap;
     const y = cy - height / 2 + yOffset;
 
     return (
@@ -119,7 +124,7 @@ type Props = {
   benchmarks: {
     sp500: number[];
   };
-  /** Rank-1 portfolio config id; line is drawn in green as “Current Top Portfolio”. */
+  /** Rank-1 portfolio config id; line is drawn in green as “Top portfolio”. */
   topPortfolioConfigId?: string | null;
   className?: string;
 };
@@ -131,12 +136,13 @@ export function AllPortfoliosEquityChart({
   topPortfolioConfigId,
   className,
 }: Props) {
+  const isMobile = useIsMobile();
   const reactId = useId().replace(/:/g, '');
   const topAreaGradientId = `landing-top-area-${reactId}`;
   const avgAreaGradientId = `landing-avg-area-${reactId}`;
   const topGlowFilterId = `landing-top-glow-${reactId}`;
 
-  const { chartData, chartConfig, portfolioKeys, yDomain, xTicks } = useMemo(() => {
+  const { chartData, chartConfig, portfolioKeys, yDomain, xTicksDesktop, xTicksMobile } = useMemo(() => {
     type YDomain = [number, number] | ['auto', 'auto'];
 
     if (!dates.length || !series.length) {
@@ -145,7 +151,8 @@ export function AllPortfoliosEquityChart({
         chartConfig: {} as ChartConfig,
         portfolioKeys: [] as string[],
         yDomain: ['auto', 'auto'] as YDomain,
-        xTicks: [] as string[],
+        xTicksDesktop: [] as string[],
+        xTicksMobile: [] as string[],
       };
     }
 
@@ -159,7 +166,7 @@ export function AllPortfoliosEquityChart({
       const k = dataKeyForConfig(s.configId);
       const isTop = Boolean(topPortfolioConfigId && s.configId === topPortfolioConfigId);
       cfg[k] = {
-        label: isTop ? LABEL_CURRENT_TOP_PORTFOLIO : s.label,
+        label: isTop ? LABEL_TOP_PORTFOLIO : s.label,
         color: isTop ? TOP_PORTFOLIO_STROKE : PORTFOLIO_GREY,
       };
     }
@@ -204,11 +211,89 @@ export function AllPortfoliosEquityChart({
       }
     }
 
-    const tickRows = rows.length <= 3 ? rows : [rows[0], rows[Math.floor((rows.length - 1) / 2)], rows[rows.length - 1]];
-    const ticks = tickRows.map((row) => String(row.shortDate));
+    const desktopTickRows =
+      rows.length <= 3
+        ? rows
+        : [rows[0], rows[Math.floor((rows.length - 1) / 2)], rows[rows.length - 1]];
+    const xTicksDesktop = desktopTickRows.map((row) => String(row.shortDate));
+    const xTicksMobile =
+      rows.length <= 1
+        ? rows.length === 1
+          ? [String(rows[0].shortDate)]
+          : []
+        : [String(rows[0].shortDate), String(rows[rows.length - 1].shortDate)];
 
-    return { chartData: rows, chartConfig: cfg, portfolioKeys: portfolioKeysInner, yDomain: yDom, xTicks: ticks };
+    return {
+      chartData: rows,
+      chartConfig: cfg,
+      portfolioKeys: portfolioKeysInner,
+      yDomain: yDom,
+      xTicksDesktop,
+      xTicksMobile,
+    };
   }, [dates, series, benchmarks, topPortfolioConfigId]);
+
+  const xTicks = isMobile ? xTicksMobile : xTicksDesktop;
+
+  /** Nudge date ticks left; first label shifts more than the last (“today”) label. */
+  const renderXAxisTick = useCallback(
+    (raw: unknown) => {
+      const p = raw as { x?: number; y?: number; payload?: { value?: string } };
+      const x = Number(p.x);
+      const y = Number(p.y);
+      const value = String(p.payload?.value ?? '');
+      if (!Number.isFinite(x) || !Number.isFinite(y) || !value) return null;
+
+      const firstVal = xTicks[0];
+      const lastVal = xTicks[xTicks.length - 1];
+      const isFirst = value === firstVal;
+      const isLast = value === lastVal;
+
+      let anchor: 'start' | 'middle' = 'middle';
+      let dx = 0;
+      if (isMobile) {
+        anchor = xTicks.length <= 1 ? 'middle' : isFirst ? 'start' : 'middle';
+        if (xTicks.length <= 1) dx = -4;
+        else if (isFirst) dx = -14;
+        else if (isLast) dx = -6;
+        else dx = -5;
+      } else {
+        // Desktop: `middle` + negative `dx` on the first tick clipped “Feb …”.
+        // Anchor the start date at the tick so text grows rightward into the plot.
+        if (xTicks.length <= 1) {
+          anchor = 'middle';
+          dx = 0;
+        } else if (isFirst) {
+          anchor = 'start';
+          /* Slight left nudge while keeping `start` so “Feb” stays on-screen vs `middle` + dx. */
+          dx = -6;
+        } else if (isLast) {
+          anchor = 'middle';
+          dx = -5;
+        } else {
+          anchor = 'middle';
+          dx = -4;
+        }
+      }
+
+      return (
+        <text
+          x={x}
+          y={y}
+          dx={dx}
+          dy={14}
+          textAnchor={anchor}
+          className="fill-muted-foreground"
+          fontSize={10}
+          fontWeight={500}
+          style={{ letterSpacing: '0.04em' }}
+        >
+          {value}
+        </text>
+      );
+    },
+    [xTicks, isMobile],
+  );
 
   if (!dates.length || !series.length) {
     return (
@@ -229,9 +314,18 @@ export function AllPortfoliosEquityChart({
     : portfolioKeys;
   const lastIndex = chartData.length - 1;
 
+  const chartMargin = isMobile
+    ? { top: 6, right: 0, left: 0, bottom: 22 }
+    : { top: 8, right: 78, left: 10, bottom: 4 };
+
+  const endPillSide = isMobile ? 'leading' : 'trailing';
+
   return (
-    <ChartContainer config={chartConfig} className={`h-[min(380px,55vh)] w-full min-h-[300px] ${className ?? ''}`}>
-      <ComposedChart data={chartData} margin={{ top: 8, right: 92, left: 32, bottom: 4 }}>
+    <ChartContainer
+      config={chartConfig}
+      className={`h-[min(380px,55vh)] w-full min-h-[300px] max-md:aspect-auto max-md:max-w-none max-md:overflow-visible [&_.recharts-wrapper]:max-md:overflow-visible [&_.recharts-surface]:max-md:overflow-visible ${className ?? ''}`}
+    >
+      <ComposedChart data={chartData} margin={chartMargin} style={{ isolation: 'isolate' }}>
         <defs>
           <linearGradient id={topAreaGradientId} x1="0" x2="0" y1="0" y2="1">
             <stop offset="0%" stopColor={TOP_PORTFOLIO_STROKE} stopOpacity="0.2" />
@@ -257,12 +351,12 @@ export function AllPortfoliosEquityChart({
           dataKey="shortDate"
           ticks={xTicks}
           interval={0}
-          tick={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.04em' }}
+          tick={renderXAxisTick}
           tickLine={false}
           axisLine={false}
-          tickMargin={10}
-          padding={{ left: 12, right: 0 }}
-          minTickGap={24}
+          tickMargin={isMobile ? 6 : 10}
+          padding={isMobile ? { left: 0, right: 0 } : { left: 4, right: 2 }}
+          minTickGap={isMobile ? 4 : 24}
         />
         <YAxis domain={yDomain} hide width={0} />
         <ReferenceLine
@@ -325,6 +419,7 @@ export function AllPortfoliosEquityChart({
             dataKey: 'avg',
             color: CHART_PORTFOLIO_SERIES_COLOR,
             yOffset: 2,
+            pillSide: endPillSide,
           })}
           activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff', fill: CHART_PORTFOLIO_SERIES_COLOR }}
           connectNulls
@@ -335,7 +430,7 @@ export function AllPortfoliosEquityChart({
             key={`${topKey}-glow`}
             type="monotone"
             dataKey={topKey}
-            name={`${LABEL_CURRENT_TOP_PORTFOLIO} glow`}
+            name={`${LABEL_TOP_PORTFOLIO} glow`}
             stroke={TOP_PORTFOLIO_STROKE}
             strokeWidth={7}
             strokeOpacity={0.24}
@@ -353,7 +448,7 @@ export function AllPortfoliosEquityChart({
             key={topKey}
             type="monotone"
             dataKey={topKey}
-            name={LABEL_CURRENT_TOP_PORTFOLIO}
+            name={LABEL_TOP_PORTFOLIO}
             stroke={TOP_PORTFOLIO_STROKE}
             strokeWidth={2.45}
             strokeOpacity={0.96}
@@ -362,6 +457,7 @@ export function AllPortfoliosEquityChart({
               dataKey: topKey,
               color: TOP_PORTFOLIO_STROKE,
               yOffset: -2,
+              pillSide: endPillSide,
             })}
             activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff', fill: TOP_PORTFOLIO_STROKE }}
             connectNulls
@@ -380,6 +476,7 @@ export function AllPortfoliosEquityChart({
             dataKey: 'bm_sp',
             color: CHART_SP500_LANDING_LINE,
             yOffset: 14,
+            pillSide: endPillSide,
           })}
           activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff', fill: CHART_SP500_LANDING_LINE }}
           connectNulls
@@ -394,7 +491,7 @@ export function AllPortfoliosEquityChart({
             if (topKey) {
               rows.push({
                 key: topKey,
-                label: LABEL_CURRENT_TOP_PORTFOLIO,
+                label: LABEL_TOP_PORTFOLIO,
                 color: TOP_PORTFOLIO_STROKE,
                 emphasize: true,
               });
@@ -428,7 +525,7 @@ export function AllPortfoliosEquityChart({
                           <span
                             className={
                               emphasize
-                                ? 'font-medium text-trader-green'
+                                ? 'font-semibold text-trader-blue'
                                 : 'font-medium text-foreground'
                             }
                           >

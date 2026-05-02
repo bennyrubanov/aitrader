@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useMobileLayoutMatch } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 import { useRafGate } from '@/lib/use-raf-gate';
 
@@ -216,6 +217,7 @@ export default function BeamsBackground({
   cameraFov = 30,
   className,
 }: BeamsBackgroundProps) {
+  const mobileLayout = useMobileLayoutMatch();
   const { ref: containerRef, active } = useRafGate<HTMLDivElement>();
   const activeRef = useRef(active);
   activeRef.current = active;
@@ -244,7 +246,7 @@ export default function BeamsBackground({
         powerPreference: 'high-performance',
       });
       renderer.setClearColor(0x000000, 0);
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, mobileLayout ? 1.35 : 2));
       renderer.domElement.className = 'h-full w-full';
       container.appendChild(renderer.domElement);
 
@@ -400,6 +402,7 @@ export default function BeamsBackground({
     speed,
     enabled,
     containerRef,
+    mobileLayout,
   ]);
 
   useEffect(() => {

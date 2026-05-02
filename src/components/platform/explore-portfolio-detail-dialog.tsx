@@ -75,6 +75,7 @@ import {
   loadConfigPerformance,
 } from '@/lib/portfolio-config-performance-cache';
 import { sharpeRatioValueClass } from '@/lib/sharpe-value-class';
+import { followLimitDisabledTooltip, MAX_FOLLOWED_PORTFOLIOS_PAID } from '@/lib/follow-limits';
 import Link from 'next/link';
 import {
   ArrowUpRight,
@@ -636,6 +637,7 @@ export function ExplorePortfolioDetailDialog({
   onUnfollow,
   unfollowBusy = false,
   followLimitReached = false,
+  followLimitMax = MAX_FOLLOWED_PORTFOLIOS_PAID,
   onOpenNotificationSettings,
 }: {
   open: boolean;
@@ -659,6 +661,8 @@ export function ExplorePortfolioDetailDialog({
   unfollowBusy?: boolean;
   /** When true, disable Follow (user already follows the max number of portfolios). */
   followLimitReached?: boolean;
+  /** Server cap from GET `maxFollowedPortfolios` (tooltip copy). */
+  followLimitMax?: number;
   /** Shown when already following; opens per-portfolio notification settings (parent handles UI). */
   onOpenNotificationSettings?: () => void;
 }) {
@@ -2671,7 +2675,7 @@ export function ExplorePortfolioDetailDialog({
                     </span>
                   </TooltipTrigger>
                   <TooltipContent side="top" className="max-w-xs text-xs">
-                    Follow limit reached (20). Unfollow one to make room.
+                    {followLimitDisabledTooltip(followLimitMax)}
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>

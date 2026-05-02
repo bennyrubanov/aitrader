@@ -3,9 +3,13 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { gsap } from 'gsap';
 import { InertiaPlugin } from 'gsap/InertiaPlugin';
+import { useMobileLayoutMatch } from '@/hooks/use-mobile';
 import { useRafGate } from '@/lib/use-raf-gate';
 
 gsap.registerPlugin(InertiaPlugin);
+
+/** Landing mobile: limit canvas backing store without visible change on desktop. */
+const DOTGRID_MOBILE_MAX_DPR = 1.35;
 
 type Dot = {
   cx: number;
@@ -67,6 +71,7 @@ export function DotGrid({
   className = '',
   style,
 }: DotGridProps) {
+  const mobileLayout = useMobileLayoutMatch();
   const { ref: gateRef, active } = useRafGate<HTMLElement>();
   const wrapperRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -106,7 +111,8 @@ export function DotGrid({
     if (!wrap || !canvas) return;
 
     const { width, height } = wrap.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
+    const rawDpr = window.devicePixelRatio || 1;
+    const dpr = mobileLayout ? Math.min(rawDpr, DOTGRID_MOBILE_MAX_DPR) : rawDpr;
     sizeRef.current = { width, height };
 
     canvas.width = Math.max(1, Math.floor(width * dpr));
@@ -141,7 +147,7 @@ export function DotGrid({
     }
     dotsRef.current = dots;
     needsRepaintRef.current = true;
-  }, [dotSize, gap]);
+  }, [dotSize, gap, mobileLayout]);
 
   useEffect(() => {
     if (!circlePath) return;

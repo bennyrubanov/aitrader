@@ -1,9 +1,8 @@
 import CTA from '@/components/CTA';
-import ExperimentSection from '@/components/ExperimentSection';
 import Footer from '@/components/Footer';
 import Hero from '@/components/Hero';
 import Navbar from '@/components/Navbar';
-import ResearchSection from '@/components/ResearchSection';
+import { LandingPageBelowPerformance } from '@/components/landing/landing-page-below-performance';
 import { LandingPerformanceSection } from '@/components/landing-performance-section';
 import { getLandingAllPortfoliosPerformance } from '@/lib/landing-all-portfolios-performance';
 import { getLandingHeroStats } from '@/lib/landing-hero-stats';
@@ -25,8 +24,7 @@ const HomePage = async () => {
       <main>
         <Hero performance={landingPerformance} />
         <LandingPerformanceSection allPortfolios={allPortfolios} heroStats={heroStats} />
-        <ExperimentSection />
-        <ResearchSection />
+        <LandingPageBelowPerformance />
         <CTA />
       </main>
       <Footer />

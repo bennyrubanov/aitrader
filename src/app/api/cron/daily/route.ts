@@ -39,6 +39,8 @@ import { runWithSupabaseQueryCount } from '@/utils/supabase/query-counter';
 // Intentional: operator-only cron digest to CRON_ERROR_EMAIL (Gmail→Gmail). User-facing mail uses Resend via @/lib/mailer.
 import { sendEmailByGmail } from '@/lib/sendEmailByGmail';
 import { upsertWeeklyResearchHeadlineForStrategy } from '@/lib/research-headline';
+import { findEmptyConfigHoldingsRows } from '@/lib/audit-empty-config-holdings';
+import { logPortfolioComputeDiagnostic } from '@/lib/portfolio-compute-diagnostics';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -1733,6 +1735,53 @@ const handleRequest = async (req: Request) => {
     if (digestMeta.notifications) digestMeta.notifications.dryUserId = dryUserId;
 
     log('CONFIG', `runDate=${runDate}, forceRun=${forceRun}, isRebalanceDay=${isRebalanceDay}`);
+
+    /**
+     * `CRON_AUDIT_EMPTY_HOLDINGS`: unset = every weekday run; `off` = skip; `weekly` = rating /
+     * rebalance days only (`isRebalanceDay`). Never throws the cron — failures become digest rows.
+     */
+    try {
+      const gate = process.env.CRON_AUDIT_EMPTY_HOLDINGS?.trim().toLowerCase() ?? '';
+      const skipAudit = gate === 'off';
+      const weeklyOnly = gate === 'weekly';
+      if (!skipAudit && (!weeklyOnly || isRebalanceDay)) {
+        const { rows, truncated, queryError } = await findEmptyConfigHoldingsRows(supabase, {
+          limit: 200,
+        });
+        if (queryError) {
+          recordCronError('Empty config holdings audit query failed', new Error(queryError));
+        } else {
+          for (const row of rows) {
+            recordCronError(
+              'Config holdings JSON empty (MTM carries prior basket)',
+              new Error(`run_date=${row.run_date}`),
+              `strategy=${row.strategy_id} config=${row.config_id} run_date=${row.run_date}`
+            );
+            logPortfolioComputeDiagnostic(supabase, {
+              source: 'cron_daily',
+              event: 'config_holdings_empty_snapshot',
+              strategyId: row.strategy_id,
+              configId: row.config_id,
+              asOfRunDate: row.run_date,
+              message: 'strategy_portfolio_config_holdings row has empty holdings JSON',
+              payload: {},
+            });
+          }
+          if (truncated) {
+            recordCronError(
+              'Config holdings JSON empty (MTM carries prior basket)',
+              new Error('audit truncated'),
+              'empty_config_holdings_truncated=true remaining_omitted'
+            );
+          }
+        }
+      }
+    } catch (auditErr) {
+      recordCronError(
+        'Empty config holdings audit threw',
+        auditErr instanceof Error ? auditErr : new Error(String(auditErr))
+      );
+    }
 
     // ----- Step 1: Fetch NASDAQ-100 list (API -> DB fallback) -----
     let nasdaqRows: NasdaqRow[] = [];

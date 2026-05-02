@@ -351,3 +351,20 @@ FROM (
   CROSS JOIN verdict v
 ) report
 ORDER BY sort_order;
+
+-- --- Empty config holdings (json length 0), recent rows only ---
+-- MTM skips rebalance dates with empty `holdings` JSON and carries the prior basket.
+-- Uncomment to list offending rows (holdings column is jsonb in schema).
+--
+-- SELECT
+--   h.strategy_id,
+--   h.config_id,
+--   h.run_date,
+--   coalesce(jsonb_array_length(h.holdings), 0) AS n_positions,
+--   pc.label AS config_label
+-- FROM public.strategy_portfolio_config_holdings h
+-- LEFT JOIN public.portfolio_configs pc ON pc.id = h.config_id
+-- WHERE coalesce(jsonb_array_length(h.holdings), 0) = 0
+--   AND h.run_date >= (current_date - interval '540 days')
+-- ORDER BY h.run_date DESC
+-- LIMIT 100;

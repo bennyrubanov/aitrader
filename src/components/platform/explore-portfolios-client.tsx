@@ -97,7 +97,12 @@ import {
   type ExplorePortfoliosBrowseMode,
 } from '@/lib/platform-explore-portfolios-browse';
 import { cn } from '@/lib/utils';
-import { FOLLOW_LIMIT_ERROR_CODE, MAX_FOLLOWED_PORTFOLIOS } from '@/lib/follow-limits';
+import {
+  followLimitDisabledTooltip,
+  isFollowLimitReachedCode,
+  maxFollowedPortfoliosFromApiPayload,
+  MAX_FOLLOWED_PORTFOLIOS_PAID,
+} from '@/lib/follow-limits';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -354,6 +359,9 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
   >({});
   /** Total active followed portfolios (all models); used for the global follow cap. */
   const [followedProfilesTotalCount, setFollowedProfilesTotalCount] = useState(0);
+  /** From GET until known; permissive paid default avoids Tier C false blocks. */
+  const [maxFollowedPortfoliosCap, setMaxFollowedPortfoliosCap] =
+    useState(MAX_FOLLOWED_PORTFOLIOS_PAID);
   const [unfollowBusyProfileId, setUnfollowBusyProfileId] = useState<string | null>(null);
 
   const [detailOpen, setDetailOpen] = useState(false);
@@ -435,11 +443,16 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
     if (!authState.isAuthenticated) {
       setFollowedProfileIdByConfigId({});
       setFollowedProfilesTotalCount(0);
+      setMaxFollowedPortfoliosCap(MAX_FOLLOWED_PORTFOLIOS_PAID);
       return;
     }
     try {
-      const data = (await loadUserPortfolioProfilesClient()) as { profiles?: UserProfileFollowRow[] } | null;
+      const data = (await loadUserPortfolioProfilesClient()) as {
+        profiles?: UserProfileFollowRow[];
+        maxFollowedPortfolios?: unknown;
+      } | null;
       if (!data) return;
+      setMaxFollowedPortfoliosCap(maxFollowedPortfoliosFromApiPayload(data));
       setFollowedProfilesTotalCount((data.profiles ?? []).length);
       const map: Record<string, string> = {};
       for (const p of data.profiles ?? []) {
@@ -462,7 +475,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
     [followedProfileIdByConfigId]
   );
 
-  const atFollowLimit = followedProfilesTotalCount >= MAX_FOLLOWED_PORTFOLIOS;
+  const atFollowLimit = followedProfilesTotalCount >= maxFollowedPortfoliosCap;
 
   const { minYmd: entryMinYmd, maxYmd: entryMaxYmd } = useMemo(
     () => portfolioEntryDateBounds(modelInceptionDate),
@@ -750,7 +763,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
       return;
     }
     if (atFollowLimit) {
-      showFollowLimitToast();
+      showFollowLimitToast({ maxCap: maxFollowedPortfoliosCap });
       return;
     }
     if (followedConfigIdSet.has(c.id)) {
@@ -805,8 +818,8 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
         code?: string;
       };
       if (!res.ok) {
-        if (j.code === FOLLOW_LIMIT_ERROR_CODE) {
-          showFollowLimitToast();
+        if (isFollowLimitReachedCode(j.code)) {
+          showFollowLimitToast({ code: j.code });
         } else {
           toast({
             title: 'Could not follow portfolio',
@@ -1218,6 +1231,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
                       strategySlug={strategySlug}
                       isFollowing={followedConfigIdSet.has(c.id)}
                       atFollowLimit={atFollowLimit}
+                      followLimitMax={maxFollowedPortfoliosCap}
                       followProfileId={followPid}
                       unfollowBusy={followPid != null && unfollowBusyProfileId === followPid}
                       onOpenDetails={() => {
@@ -1462,6 +1476,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
             : undefined
         }
         followLimitReached={atFollowLimit}
+        followLimitMax={maxFollowedPortfoliosCap}
         onFollow={() => {
           if (!detailConfig) return;
           const c = detailConfig;
@@ -1510,6 +1525,7 @@ function ConfigCard({
   strategySlug,
   isFollowing,
   atFollowLimit,
+  followLimitMax,
   followProfileId,
   unfollowBusy,
   onOpenDetails,
@@ -1524,6 +1540,7 @@ function ConfigCard({
   strategySlug: string;
   isFollowing: boolean;
   atFollowLimit: boolean;
+  followLimitMax: number;
   followProfileId: string | null;
   unfollowBusy: boolean;
   onOpenDetails: () => void;
@@ -1615,7 +1632,7 @@ function ConfigCard({
             </span>
           </TooltipTrigger>
           <TooltipContent side="top" className="max-w-xs text-xs">
-            Follow limit reached (20). Unfollow one to make room.
+            {followLimitDisabledTooltip(followLimitMax)}
           </TooltipContent>
         </Tooltip>
       ) : (

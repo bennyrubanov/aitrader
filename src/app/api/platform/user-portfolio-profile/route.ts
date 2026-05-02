@@ -10,9 +10,9 @@ import {
   replaceUserPortfolioPositionsForRunDate,
 } from '@/lib/user-portfolio-entry';
 import {
-  FOLLOW_LIMIT_ERROR_CODE,
-  MAX_FOLLOWED_PORTFOLIOS,
-  followLimitReachedMessage,
+  followLimitReachedPayload,
+  getMaxFollowedPortfoliosForTier,
+  loadSubscriptionTierForUser,
 } from '@/lib/follow-limits';
 
 export const runtime = 'nodejs';
@@ -86,7 +86,7 @@ export async function GET() {
     )
   `;
 
-  const [profilesResult, assignResult] = await Promise.all([
+  const [profilesResult, assignResult, subscriptionTier] = await Promise.all([
     supabase
       .from('user_portfolio_profiles')
       .select(fullSelect)
@@ -97,7 +97,9 @@ export async function GET() {
       .from('user_overview_slot_assignments')
       .select('slot_number, profile_id')
       .eq('user_id', user.id),
+    loadSubscriptionTierForUser(supabase, user.id),
   ]);
+  const maxFollowedPortfolios = getMaxFollowedPortfoliosForTier(subscriptionTier);
 
   if (profilesResult.error) {
     console.error('[user-portfolio-profile GET] full query failed:', profilesResult.error.message);
@@ -149,6 +151,7 @@ export async function GET() {
   return NextResponse.json({
     profiles: data ?? [],
     overviewSlotAssignments,
+    maxFollowedPortfolios,
   });
 }
 
@@ -238,6 +241,9 @@ export async function POST(req: Request) {
     }
   }
 
+  const subscriptionTier = await loadSubscriptionTierForUser(supabase, user.id);
+  const maxFollows = getMaxFollowedPortfoliosForTier(subscriptionTier);
+
   const { count: activeFollowCount, error: activeFollowCountErr } = await supabase
     .from('user_portfolio_profiles')
     .select('id', { count: 'exact', head: true })
@@ -248,11 +254,9 @@ export async function POST(req: Request) {
     console.error('[user-portfolio-profile POST] follow limit count:', activeFollowCountErr.message);
     return NextResponse.json({ error: 'Unable to verify follow limit.' }, { status: 500 });
   }
-  if ((activeFollowCount ?? 0) >= MAX_FOLLOWED_PORTFOLIOS) {
-    return NextResponse.json(
-      { error: followLimitReachedMessage(), code: FOLLOW_LIMIT_ERROR_CODE },
-      { status: 409 }
-    );
+  if ((activeFollowCount ?? 0) >= maxFollows) {
+    const { error: limitMsg, code } = followLimitReachedPayload(subscriptionTier, maxFollows);
+    return NextResponse.json({ error: limitMsg, code }, { status: 409 });
   }
 
   const now = new Date().toISOString();
@@ -597,6 +601,8 @@ export async function PATCH(req: Request) {
       }
       const wasInactive = (priorRow as { is_active: boolean }).is_active === false;
       if (wasInactive) {
+        const subscriptionTierPatch = await loadSubscriptionTierForUser(supabase, user.id);
+        const maxFollowsPatch = getMaxFollowedPortfoliosForTier(subscriptionTierPatch);
         const { count: reactivateCount, error: reactivateCountErr } = await supabase
           .from('user_portfolio_profiles')
           .select('id', { count: 'exact', head: true })
@@ -609,11 +615,12 @@ export async function PATCH(req: Request) {
           );
           return NextResponse.json({ error: 'Unable to verify follow limit.' }, { status: 500 });
         }
-        if ((reactivateCount ?? 0) >= MAX_FOLLOWED_PORTFOLIOS) {
-          return NextResponse.json(
-            { error: followLimitReachedMessage(), code: FOLLOW_LIMIT_ERROR_CODE },
-            { status: 409 }
+        if ((reactivateCount ?? 0) >= maxFollowsPatch) {
+          const { error: limitMsg, code } = followLimitReachedPayload(
+            subscriptionTierPatch,
+            maxFollowsPatch
           );
+          return NextResponse.json({ error: limitMsg, code }, { status: 409 });
         }
       }
     }

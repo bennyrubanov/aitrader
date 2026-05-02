@@ -3,6 +3,7 @@
 import type { HTMLAttributes } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { Color, Mesh, Program, Renderer, Triangle } from 'ogl';
+import { useMobileLayoutMatch } from '@/hooks/use-mobile';
 import { useRafGate } from '@/lib/use-raf-gate';
 import { cn } from '@/lib/utils';
 
@@ -69,6 +70,7 @@ export default function Iridescence({
   className,
   ...rest
 }: IridescenceProps) {
+  const mobileLayout = useMobileLayoutMatch();
   const { ref: ctnDom, active } = useRafGate<HTMLDivElement>();
   const activeRef = useRef(active);
   activeRef.current = active;
@@ -87,7 +89,8 @@ export default function Iridescence({
     const ctn = ctnDom.current;
     if (!ctn) return;
 
-    const dpr = Math.min(typeof window !== 'undefined' ? window.devicePixelRatio : 1, 2);
+    const raw = typeof window !== 'undefined' ? window.devicePixelRatio : 1;
+    const dpr = Math.min(raw, mobileLayout ? 1.35 : 2);
     const renderer = new Renderer({
       dpr,
       alpha: false,
@@ -201,7 +204,7 @@ export default function Iridescence({
       }
       gl.getExtension('WEBGL_lose_context')?.loseContext();
     };
-  }, [enabled, c0, c1, c2, speed, amplitude, mouseReact, ctnDom]);
+  }, [enabled, c0, c1, c2, speed, amplitude, mouseReact, ctnDom, mobileLayout]);
 
   useEffect(() => {
     if (active && enabled) kickRef.current?.();

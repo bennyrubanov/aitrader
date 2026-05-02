@@ -3,7 +3,13 @@
 import { toast } from '@/hooks/use-toast';
 import { ToastAction } from '@/components/ui/toast';
 import { cn } from '@/lib/utils';
-import { FOLLOW_LIMIT_ERROR_CODE, followLimitReachedMessage } from '@/lib/follow-limits';
+import {
+  FOLLOW_LIMIT_FREE_UPGRADE,
+  MAX_FOLLOWED_PORTFOLIOS_FREE,
+  followLimitReachedMessageFree,
+  followLimitReachedMessagePaid,
+  isFollowLimitReachedCode,
+} from '@/lib/follow-limits';
 
 /** Fired after follow is undone (PATCH isActive: false) so clients can refetch profiles. */
 export const USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT = 'user-portfolio-profiles-invalidate';
@@ -78,13 +84,36 @@ export async function setUserPortfolioProfileActive(
   return { ok: false, ...(code ? { code } : {}) };
 }
 
+export type ShowFollowLimitToastOptions = {
+  /** From a 409 response when available. */
+  code?: string;
+  /**
+   * Server cap from GET when no `code` (e.g. client pre-check). If free cap, shows upgrade CTA.
+   */
+  maxCap?: number;
+};
+
 /** Destructive toast + CTA when the user hits the max followed portfolios cap. */
-export function showFollowLimitToast(): void {
+export function showFollowLimitToast(opts?: ShowFollowLimitToastOptions): void {
+  const wantsUpgrade =
+    opts?.code === FOLLOW_LIMIT_FREE_UPGRADE ||
+    (opts?.code == null && opts?.maxCap === MAX_FOLLOWED_PORTFOLIOS_FREE);
   toast({
     title: 'Follow limit reached',
-    description: followLimitReachedMessage(),
+    description: wantsUpgrade ? followLimitReachedMessageFree() : followLimitReachedMessagePaid(),
     variant: 'destructive',
-    action: (
+    action: wantsUpgrade ? (
+      <ToastAction
+        altText="View pricing"
+        onClick={() => {
+          if (typeof window !== 'undefined') {
+            window.location.assign('/pricing');
+          }
+        }}
+      >
+        View pricing
+      </ToastAction>
+    ) : (
       <ToastAction
         altText="Open Your portfolios"
         onClick={() => {
@@ -127,8 +156,8 @@ export function showPortfolioUnfollowToast({
               onAfterUndo();
               toast({ title: `Following ${label} again` });
             } else {
-              if (outcome.code === FOLLOW_LIMIT_ERROR_CODE) {
-                showFollowLimitToast();
+              if (isFollowLimitReachedCode(outcome.code)) {
+                showFollowLimitToast({ code: outcome.code });
               } else {
                 toast({
                   title: 'Could not undo',
@@ -179,8 +208,8 @@ export function showPortfolioFollowToast({
             await onAfterUndo?.();
             toast({ title: `Stopped following ${label}` });
           } else {
-            if (outcome.code === FOLLOW_LIMIT_ERROR_CODE) {
-              showFollowLimitToast();
+            if (isFollowLimitReachedCode(outcome.code)) {
+              showFollowLimitToast({ code: outcome.code });
             } else {
               toast({
                 title: 'Could not undo',

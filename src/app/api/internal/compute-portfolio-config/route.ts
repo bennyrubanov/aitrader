@@ -28,6 +28,7 @@ import {
   backfillBenchmarkEquities,
   type PerformanceRowLite,
 } from '@/lib/portfolio-config-compute-core';
+import { assertWeightedHoldingsNonEmpty } from '@/lib/portfolio-config-holdings-guard';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -301,6 +302,7 @@ export async function POST(req: Request) {
         weightingMethod === 'cap'
           ? buildCapWeightHoldings(scores, config.top_n, capsByDate.get(batch.run_date) ?? new Map())
           : buildEqualWeightHoldings(scores, config.top_n);
+      assertWeightedHoldingsNonEmpty(weighted.length, batch.run_date, batch.id);
       const holdings = weighted.map((h, idx) => {
         const rank = idx + 1;
         const meta = scoreMetaByBatchAndStock.get(`${batch.id}\0${h.stock_id}`);

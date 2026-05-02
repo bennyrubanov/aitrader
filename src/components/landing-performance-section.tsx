@@ -172,8 +172,8 @@ export function LandingPerformanceSection({ allPortfolios, heroStats, visibleRef
         }`}
       >
         <div>
-          <div className="grid gap-8 lg:grid-cols-[minmax(0,auto)_minmax(0,1fr)] lg:items-start lg:gap-10">
-          <div className="mx-auto w-full max-w-2xl lg:mx-0">
+          <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,auto)_minmax(0,1fr)] lg:items-start lg:gap-10">
+          <div className="order-2 mx-auto w-full max-w-2xl lg:order-1 lg:mx-0">
             {showHeadlineStats ? (
               <BorderGlow
                 className="w-full border-0"
@@ -260,7 +260,7 @@ export function LandingPerformanceSection({ allPortfolios, heroStats, visibleRef
             ) : null}
           </div>
 
-          <div className="text-center lg:text-right">
+          <div className="order-1 text-center lg:order-2 lg:text-right">
             <p className="mb-3 text-sm font-semibold uppercase tracking-wide text-trader-blue">
               Performance
             </p>
@@ -282,12 +282,14 @@ export function LandingPerformanceSection({ allPortfolios, heroStats, visibleRef
               {legend}
             </div>
 
-            <AllPortfoliosEquityChart
-              dates={allPortfolios.dates}
-              series={allPortfolios.series}
-              benchmarks={allPortfolios.benchmarks}
-              topPortfolioConfigId={allPortfolios.topPortfolioConfigId}
-            />
+            <div className="-mx-4 w-[calc(100%+2rem)] overflow-visible sm:-mx-5 sm:w-[calc(100%+2.5rem)] md:-mx-6 md:w-[calc(100%+3rem)]">
+              <AllPortfoliosEquityChart
+                dates={allPortfolios.dates}
+                series={allPortfolios.series}
+                benchmarks={allPortfolios.benchmarks}
+                topPortfolioConfigId={allPortfolios.topPortfolioConfigId}
+              />
+            </div>
 
             <div className="mt-4 flex justify-end">
               <PerformanceFullStatsCta href={modelPagePath} />

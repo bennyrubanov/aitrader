@@ -16,6 +16,11 @@
  * Cheaper than the full `/api/internal/compute-portfolio-config` path: only
  * the missing rebalance dates are computed, and it only touches the holdings
  * JSONB (performance equity rows are left to the full compute route).
+ *
+ * **Product invariant:** For cadence rebalance rows, persisted `holdings` must be non-empty
+ * (same normalization as MTM). Empty `[]` is invalid — it causes the daily MTM walk to skip
+ * the rebalance and carry the prior basket. If the product later supports intentional 100% cash
+ * snapshots, revisit sync + audit + compute guard together.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -51,6 +56,29 @@ export type SyncConfigHoldingsResult = {
   written: number;
   missingDates: string[];
 };
+
+/**
+ * Normalizes stored JSON the same way as `loadConfigWalkInputsUncached` in `live-mark-to-market.ts`
+ * (symbol non-empty, finite weight &gt; 0).
+ */
+export function normalizedStoredHoldingsCount(holdings: unknown): number {
+  if (holdings == null || !Array.isArray(holdings)) return 0;
+  if (holdings.length === 0) return 0;
+  let n = 0;
+  for (const h of holdings) {
+    const x = h as { symbol?: unknown; weight?: unknown };
+    const symbol = String(x.symbol ?? '').toUpperCase();
+    const weight = Number(x.weight);
+    if (symbol && Number.isFinite(weight) && weight > 0) n += 1;
+  }
+  return n;
+}
+
+/** True when the row is absent or `holdings` is empty / unusable after normalization. */
+export function needsConfigHoldingsUpsert(storedRow: { holdings: unknown } | null | undefined): boolean {
+  if (!storedRow) return true;
+  return normalizedStoredHoldingsCount(storedRow.holdings) === 0;
+}
 
 type StoredHolding = {
   symbol: string;
@@ -89,15 +117,22 @@ export async function syncMissingConfigHoldingsSnapshots(
     const rebalanceBatches = filterRebalanceBatches(allBatches, config.rebalance_frequency);
     if (!rebalanceBatches.length) return { written: 0, missingDates: [] };
 
-    const { data: storedDatesRows, error: storedErr } = await admin
+    const { data: storedRowsRaw, error: storedErr } = await admin
       .from('strategy_portfolio_config_holdings')
-      .select('run_date')
+      .select('run_date, holdings')
       .eq('strategy_id', strategyId)
       .eq('config_id', config.id);
     if (storedErr) return { written: 0, missingDates: [] };
 
-    const storedDates = new Set((storedDatesRows ?? []).map((r) => (r as { run_date: string }).run_date));
-    const missing = rebalanceBatches.filter((b) => !storedDates.has(b.run_date));
+    const storedByRunDate = new Map<string, { holdings: unknown }>();
+    for (const r of storedRowsRaw ?? []) {
+      const row = r as { run_date: string; holdings: unknown };
+      storedByRunDate.set(row.run_date, { holdings: row.holdings });
+    }
+
+    const missing = rebalanceBatches.filter((b) =>
+      needsConfigHoldingsUpsert(storedByRunDate.get(b.run_date) ?? null)
+    );
     if (!missing.length) return { written: 0, missingDates: [] };
 
     const missingIds = missing.map((b) => b.id);

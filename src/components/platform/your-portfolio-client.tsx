@@ -132,7 +132,12 @@ import { usePersistedYourPortfoliosSortMetric } from '@/lib/portfolio-list-sort-
 import { PORTFOLIO_EXPLORE_QUICK_PICKS } from '@/lib/portfolio-explore-quick-picks';
 import { loadRankedConfigsClient } from '@/lib/portfolio-configs-ranked-client';
 import { loadUserPortfolioProfilesClient } from '@/lib/user-portfolio-profiles-client';
-import { FOLLOW_LIMIT_ERROR_CODE, MAX_FOLLOWED_PORTFOLIOS } from '@/lib/follow-limits';
+import {
+  followLimitDisabledTooltip,
+  isFollowLimitReachedCode,
+  maxFollowedPortfoliosFromApiPayload,
+  MAX_FOLLOWED_PORTFOLIOS_PAID,
+} from '@/lib/follow-limits';
 import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import { formatYmdDisplay, ymdForInitialRebalanceDisplay } from '@/lib/format-ymd-display';
 import {
@@ -163,6 +168,7 @@ import {
   type CostBasisDateSnapshot,
 } from '@/lib/portfolio-holdings-cost-basis';
 import { createConcurrencyLimit } from '@/lib/concurrency-limit';
+import { resolveHoldingsLiveRebalanceNotional } from '@/lib/resolve-holdings-live-notional';
 import {
   getCachedConfigPerfPayload,
   getCachedUserEntryPayload,
@@ -1343,6 +1349,7 @@ function PresetBentoGrid({
   showCancel,
   strategySlug,
   atFollowLimit = false,
+  followLimitMax = MAX_FOLLOWED_PORTFOLIOS_PAID,
 }: {
   rankedConfigs?: RankedConfig[];
   busyKey: string | null;
@@ -1353,6 +1360,7 @@ function PresetBentoGrid({
   showCancel: boolean;
   strategySlug?: string;
   atFollowLimit?: boolean;
+  followLimitMax?: number;
 }) {
   return (
     <TooltipProvider delayDuration={150}>
@@ -1434,7 +1442,7 @@ function PresetBentoGrid({
                   <span className="block w-full">{card}</span>
                 </TooltipTrigger>
                 <TooltipContent side="top" className="max-w-xs text-xs">
-                  Follow limit reached (20). Unfollow one to make room.
+                  {followLimitDisabledTooltip(followLimitMax)}
                 </TooltipContent>
               </Tooltip>
             ) : (
@@ -1489,6 +1497,8 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const [profiles, setProfiles] = useState<UserPortfolioProfileRow[]>([]);
   const [isLoadingProfiles, setIsLoadingProfiles] = useState(true);
   const [presetBusyKey, setPresetBusyKey] = useState<string | null>(null);
+  const [maxFollowedPortfoliosCap, setMaxFollowedPortfoliosCap] =
+    useState(MAX_FOLLOWED_PORTFOLIOS_PAID);
 
   const [isLoadingPerf, setIsLoadingPerf] = useState(true);
   const [perfPayload, setPerfPayload] = useState<ConfigPerfApiResponse | null>(null);
@@ -1557,7 +1567,9 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         opts?.silent ? { bypassCache: true } : undefined
       )) as {
         profiles?: UserPortfolioProfileRow[];
+        maxFollowedPortfolios?: unknown;
       } | null;
+      setMaxFollowedPortfoliosCap(maxFollowedPortfoliosFromApiPayload(data));
       const list = data?.profiles ?? [];
       setProfiles(
         list.map((p) => {
@@ -2464,9 +2476,10 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const holdingsAllocationBaseNotional = useMemo(() => {
     const investmentSize = num(selectedProfile?.investment_size);
     const pts = (displaySeries as PerformanceSeriesPoint[]) ?? [];
+    const modelPts = (modelDisplaySeries as PerformanceSeriesPoint[]) ?? [];
     const asOf = configHoldingsAsOf;
 
-    if (holdingsDateSelect !== HOLDINGS_TODAY_SENTINEL && holdingsMovementSlice) {
+    if (holdingsMovementSlice) {
       const n =
         holdingsMovementSlice.notionalAtCurrRebalanceEnd ??
         holdingsMovementSlice.movementNotional ??
@@ -2474,29 +2487,23 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       if (n != null && Number.isFinite(n) && n > 0) return n;
     }
 
-    if (asOf && holdingsRebalanceAnchorDate && asOf === holdingsRebalanceAnchorDate) {
-      return investmentSize;
-    }
-    if (asOf && pts.length > 0) {
-      const exact = pts.find((p) => p.date === asOf)?.aiPortfolio;
-      if (exact != null && Number.isFinite(exact) && exact > 0) return exact;
-      let onOrBefore: number | null = null;
-      for (const p of pts) {
-        if (p.date <= asOf && Number.isFinite(p.aiPortfolio) && p.aiPortfolio > 0) {
-          onOrBefore = p.aiPortfolio;
-        }
-      }
-      if (onOrBefore != null) return onOrBefore;
-    }
-    const latest = pts[pts.length - 1]?.aiPortfolio;
-    if (latest != null && Number.isFinite(latest) && latest > 0) return latest;
+    const resolved = resolveHoldingsLiveRebalanceNotional({
+      asOfYmd: asOf,
+      displaySeries: pts,
+      modelSeries: modelPts.length ? modelPts : pts,
+      userStartYmd: selectedProfile?.user_start_date?.trim() ?? null,
+      investmentSize,
+      rawRows,
+    });
+    if (resolved != null) return resolved;
     return investmentSize;
   }, [
     displaySeries,
+    modelDisplaySeries,
     configHoldingsAsOf,
     selectedProfile?.investment_size,
-    holdingsRebalanceAnchorDate,
-    holdingsDateSelect,
+    selectedProfile?.user_start_date,
+    rawRows,
     holdingsMovementSlice,
   ]);
 
@@ -2565,9 +2572,10 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const holdingsAsOfNotional = useMemo(() => {
     const investmentSize = num(selectedProfile?.investment_size);
     const pts = (effectiveDisplaySeries as PerformanceSeriesPoint[]) ?? [];
+    const modelPts = (modelDisplaySeries as PerformanceSeriesPoint[]) ?? [];
     const asOf = configHoldingsAsOf;
 
-    if (holdingsDateSelect !== HOLDINGS_TODAY_SENTINEL && holdingsMovementSlice) {
+    if (holdingsMovementSlice) {
       const n =
         holdingsMovementSlice.notionalAtCurrRebalanceEnd ??
         holdingsMovementSlice.movementNotional ??
@@ -2575,29 +2583,23 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       if (n != null && Number.isFinite(n) && n > 0) return n;
     }
 
-    if (asOf && holdingsRebalanceAnchorDate && asOf === holdingsRebalanceAnchorDate) {
-      return investmentSize;
-    }
-    if (asOf && pts.length > 0) {
-      const exact = pts.find((p) => p.date === asOf)?.aiPortfolio;
-      if (exact != null && Number.isFinite(exact) && exact > 0) return exact;
-      let onOrBefore: number | null = null;
-      for (const p of pts) {
-        if (p.date <= asOf && Number.isFinite(p.aiPortfolio) && p.aiPortfolio > 0) {
-          onOrBefore = p.aiPortfolio;
-        }
-      }
-      if (onOrBefore != null) return onOrBefore;
-    }
-    const latest = pts[pts.length - 1]?.aiPortfolio;
-    if (latest != null && Number.isFinite(latest) && latest > 0) return latest;
+    const resolved = resolveHoldingsLiveRebalanceNotional({
+      asOfYmd: asOf,
+      displaySeries: pts,
+      modelSeries: modelPts.length ? modelPts : pts,
+      userStartYmd: selectedProfile?.user_start_date?.trim() ?? null,
+      investmentSize,
+      rawRows,
+    });
+    if (resolved != null) return resolved;
     return investmentSize;
   }, [
     effectiveDisplaySeries,
+    modelDisplaySeries,
     configHoldingsAsOf,
     selectedProfile?.investment_size,
-    holdingsRebalanceAnchorDate,
-    holdingsDateSelect,
+    selectedProfile?.user_start_date,
+    rawRows,
     holdingsMovementSlice,
   ]);
 
@@ -2793,8 +2795,8 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     holdingsMovementView && Boolean(holdingsPrevRebalanceDate) && prevMovementLoading;
 
   const handleCreatePreset = async (preset: PresetConfig) => {
-    if (profiles.length >= MAX_FOLLOWED_PORTFOLIOS) {
-      showFollowLimitToast();
+    if (profiles.length >= maxFollowedPortfoliosCap) {
+      showFollowLimitToast({ maxCap: maxFollowedPortfoliosCap });
       return;
     }
     setPresetBusyKey(preset.key);
@@ -2819,8 +2821,8 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         code?: string;
       };
       if (!res.ok) {
-        if (j.code === FOLLOW_LIMIT_ERROR_CODE) {
-          showFollowLimitToast();
+        if (isFollowLimitReachedCode(j.code)) {
+          showFollowLimitToast({ code: j.code });
         } else {
           toast({
             title: 'Could not follow portfolio',
@@ -3123,7 +3125,8 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
             subtitle={`Ranked picks for ${presetStrategyLabel}. Presets use today’s date and $10,000 tracking notional.`}
             showCancel={false}
             strategySlug={presetSlug}
-            atFollowLimit={profiles.length >= MAX_FOLLOWED_PORTFOLIOS}
+            atFollowLimit={profiles.length >= maxFollowedPortfoliosCap}
+            followLimitMax={maxFollowedPortfoliosCap}
           />
         </div>
       </div>

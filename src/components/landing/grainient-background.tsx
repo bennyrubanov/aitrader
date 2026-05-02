@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useMobileLayoutMatch } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 import { useRafGate } from '@/lib/use-raf-gate';
 
@@ -178,6 +179,7 @@ export default function GrainientBackground({
   color3 = '#B497CF',
   className,
 }: GrainientProps) {
+  const mobileLayout = useMobileLayoutMatch();
   const { ref: containerRef, active } = useRafGate<HTMLDivElement>();
   const activeRef = useRef(active);
   activeRef.current = active;
@@ -204,7 +206,7 @@ export default function GrainientBackground({
         webgl: 2,
         alpha: true,
         antialias: false,
-        dpr: Math.min(window.devicePixelRatio || 1, 2),
+        dpr: Math.min(window.devicePixelRatio || 1, mobileLayout ? 1.35 : 2),
       });
       const gl = renderer.gl;
       const canvas = gl.canvas as HTMLCanvasElement;
@@ -335,6 +337,7 @@ export default function GrainientBackground({
     zoom,
     enabled,
     containerRef,
+    mobileLayout,
   ]);
 
   useEffect(() => {

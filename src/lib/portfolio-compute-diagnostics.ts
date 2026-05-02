@@ -49,6 +49,8 @@ export type PortfolioComputeDiagnosticInput = {
  * | `daily_walk_too_few_points` | Daily returned 0–1 points; weekly fallback (same outcome as null for persistence). |
  * | `daily_shorter_than_weekly` | Daily length &lt; weekly length (degrade may still block at persistence). |
  * | `degrade_block` | Persistence refused to shorten an existing snapshot (`existingLen` vs `newLen` in payload). |
+ * | `config_holdings_empty_snapshot` | Cron (or other) audit found `strategy_portfolio_config_holdings` row with empty `holdings` JSON — MTM would carry prior basket until healed. |
+ * | `config_holdings_empty_fallback` | MTM walk used live-computed holdings because stored JSON was empty (Phase 3 optional path). |
  *
  * ### Related SQL script
  *
@@ -63,6 +65,8 @@ export const PORTFOLIO_COMPUTE_DIAGNOSTIC_EVENT_NAMES = [
   'daily_walk_too_few_points',
   'daily_shorter_than_weekly',
   'degrade_block',
+  'config_holdings_empty_snapshot',
+  'config_holdings_empty_fallback',
 ] as const;
 
 /**

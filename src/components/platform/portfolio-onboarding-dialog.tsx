@@ -75,7 +75,12 @@ import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/r
 import type { FullConfigPerformanceMetrics } from '@/lib/config-performance-chart';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
 import { loadUserPortfolioProfilesClient } from '@/lib/user-portfolio-profiles-client';
-import { FOLLOW_LIMIT_ERROR_CODE, MAX_FOLLOWED_PORTFOLIOS } from '@/lib/follow-limits';
+import {
+  followLimitDisabledTooltip,
+  isFollowLimitReachedCode,
+  maxFollowedPortfoliosFromApiPayload,
+  MAX_FOLLOWED_PORTFOLIOS_PAID,
+} from '@/lib/follow-limits';
 import { setGuestDeclinedAccountNudgeThisSession } from '@/lib/guest-account-nudge-session';
 import {
   isPostOnboardingTourQueuePending,
@@ -373,6 +378,8 @@ export function PortfolioOnboardingDialog({
 
   const [followPhase, setFollowPhase] = useState<'idle' | 'posting'>('idle');
   const [followedProfilesTotalCount, setFollowedProfilesTotalCount] = useState<number | null>(null);
+  const [maxFollowedPortfoliosCap, setMaxFollowedPortfoliosCap] =
+    useState(MAX_FOLLOWED_PORTFOLIOS_PAID);
   const [guestAccountDialogOpen, setGuestAccountDialogOpen] = useState(false);
   const [recommendedPerf, setRecommendedPerf] = useState<{
     computeStatus: 'ready' | 'in_progress' | 'failed' | 'empty' | 'unsupported';
@@ -459,6 +466,7 @@ export function PortfolioOnboardingDialog({
   useEffect(() => {
     if (step !== 'recommended' || !authState.isAuthenticated) {
       setFollowedProfilesTotalCount(null);
+      setMaxFollowedPortfoliosCap(MAX_FOLLOWED_PORTFOLIOS_PAID);
       return;
     }
     let cancelled = false;
@@ -466,6 +474,7 @@ export function PortfolioOnboardingDialog({
       const data = await loadUserPortfolioProfilesClient({ bypassCache: true });
       if (cancelled) return;
       const profiles = data?.profiles;
+      setMaxFollowedPortfoliosCap(maxFollowedPortfoliosFromApiPayload(data));
       setFollowedProfilesTotalCount(Array.isArray(profiles) ? profiles.length : 0);
     })();
     return () => {
@@ -475,7 +484,7 @@ export function PortfolioOnboardingDialog({
 
   const recommendedFollowLimitReached =
     followedProfilesTotalCount !== null &&
-    followedProfilesTotalCount >= MAX_FOLLOWED_PORTFOLIOS;
+    followedProfilesTotalCount >= maxFollowedPortfoliosCap;
 
   const [strategies, setStrategies] = useState<OnboardingMetaStrategyRow[]>([]);
   const [metaLoading, setMetaLoading] = useState(true);
@@ -788,9 +797,9 @@ export function PortfolioOnboardingDialog({
     }
     if (
       followedProfilesTotalCount !== null &&
-      followedProfilesTotalCount >= MAX_FOLLOWED_PORTFOLIOS
+      followedProfilesTotalCount >= maxFollowedPortfoliosCap
     ) {
-      showFollowLimitToast();
+      showFollowLimitToast({ maxCap: maxFollowedPortfoliosCap });
       return;
     }
     setFollowPhase('posting');
@@ -816,8 +825,8 @@ export function PortfolioOnboardingDialog({
         code?: string;
       };
       if (!res.ok) {
-        if (j.code === FOLLOW_LIMIT_ERROR_CODE) {
-          showFollowLimitToast();
+        if (isFollowLimitReachedCode(j.code)) {
+          showFollowLimitToast({ code: j.code });
         } else {
           toast({
             title: 'Could not follow portfolio',
@@ -1458,7 +1467,7 @@ export function PortfolioOnboardingDialog({
                             </span>
                           </TooltipTrigger>
                           <TooltipContent side="top" className="max-w-xs text-xs">
-                            Follow limit reached (20). Unfollow one to make room.
+                            {followLimitDisabledTooltip(maxFollowedPortfoliosCap)}
                           </TooltipContent>
                         </Tooltip>
                       ) : (

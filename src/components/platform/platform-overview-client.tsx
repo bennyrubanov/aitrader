@@ -156,7 +156,11 @@ import {
   fetchGuestPortfolioConfigPerformanceJson,
   isGuestLocalProfileId,
 } from '@/lib/guest-local-profile';
-import { loadUserEntryPayloadCached } from '@/lib/your-portfolio-data-cache';
+import {
+  getCachedConfigPerfPayload,
+  loadUserEntryPayloadCached,
+} from '@/lib/your-portfolio-data-cache';
+import { resolveHoldingsLiveRebalanceNotional } from '@/lib/resolve-holdings-live-notional';
 import {
   computeWeeklyConsistencyVsNasdaqCap,
   computeWeeklyPctBeatingBenchmark,
@@ -2471,37 +2475,78 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     return topSpotlightRebalanceDates.slice(0, idx + 1);
   }, [topSpotlightRebalanceDates, spotlightHoldingsRebalanceAnchorDate]);
 
+  const spotlightHoldingsMovementSlice = useMemo(() => {
+    if (!spotlightHoldingsMovementTimeline || 'error' in spotlightHoldingsMovementTimeline) {
+      return null;
+    }
+    const data = spotlightHoldingsMovementTimeline.data;
+    if (data.status !== 'ok' || !data.byRebalanceDate) return null;
+    const date =
+      spotlightHoldingsDateSelect === HOLDINGS_TODAY_SENTINEL
+        ? scopedTopSpotlightRebalanceDates[0] ?? null
+        : spotlightHoldingsDateSelect;
+    if (!date) return null;
+    return data.byRebalanceDate[date] ?? null;
+  }, [
+    spotlightHoldingsMovementTimeline,
+    spotlightHoldingsDateSelect,
+    scopedTopSpotlightRebalanceDates,
+  ]);
+
+  const spotlightCachedModelPerf = useMemo(() => {
+    const slug = topSpotlightOverview?.profile.strategy_models?.slug?.trim();
+    const cfg = topSpotlightOverview?.profile.portfolio_config;
+    if (!slug || !cfg) return null;
+    return getCachedConfigPerfPayload(
+      slug,
+      cfg.risk_level,
+      cfg.rebalance_frequency,
+      cfg.weighting_method
+    );
+  }, [topSpotlightOverview?.profile]);
+
+  const spotlightModelSeries = useMemo(
+    () => spotlightCachedModelPerf?.series ?? [],
+    [spotlightCachedModelPerf?.series]
+  );
+  const spotlightModelRawRows = useMemo(
+    () => spotlightCachedModelPerf?.rows ?? [],
+    [spotlightCachedModelPerf?.rows]
+  );
+
   /** Anchored to raw user-entry series for `buildLiveHoldingsAllocationResult` (not the tailed series). */
   const spotlightHoldingsAllocationBaseNotional = useMemo(() => {
     const investmentSize = Number(topSpotlightOverview?.profile.investment_size);
-    const pts = topSpotlightOverview?.state.series ?? [];
+    const displayPts = (topSpotlightOverview?.state.series ?? []) as PerformanceSeriesPoint[];
+    const modelPts = (spotlightModelSeries.length ? spotlightModelSeries : displayPts) as PerformanceSeriesPoint[];
     const asOf = topSpotlightHoldingsAsOf;
-    if (
-      asOf &&
-      spotlightHoldingsRebalanceAnchorDate &&
-      asOf === spotlightHoldingsRebalanceAnchorDate &&
-      Number.isFinite(investmentSize) &&
-      investmentSize > 0
-    ) {
-      return investmentSize;
+    if (spotlightHoldingsMovementSlice) {
+      const n =
+        spotlightHoldingsMovementSlice.notionalAtCurrRebalanceEnd ??
+        spotlightHoldingsMovementSlice.movementNotional ??
+        null;
+      if (n != null && Number.isFinite(n) && n > 0) return n;
     }
-    if (asOf && pts.length > 0) {
-      const exact = pts.find((p) => p.date === asOf)?.aiPortfolio;
-      if (exact != null && Number.isFinite(exact) && exact > 0) return exact;
-      let onOrBefore: number | null = null;
-      for (const p of pts) {
-        if (p.date <= asOf && Number.isFinite(p.aiPortfolio) && p.aiPortfolio > 0) {
-          onOrBefore = p.aiPortfolio;
-        }
-      }
-      if (onOrBefore != null) return onOrBefore;
-    }
-    const latest = pts[pts.length - 1]?.aiPortfolio;
-    if (latest != null && Number.isFinite(latest) && latest > 0) return latest;
+    const resolved = resolveHoldingsLiveRebalanceNotional({
+      asOfYmd: asOf,
+      displaySeries: displayPts,
+      modelSeries: modelPts,
+      userStartYmd: topSpotlightUserStartYmd || null,
+      investmentSize: Number.isFinite(investmentSize) ? investmentSize : 0,
+      rawRows: spotlightModelRawRows,
+    });
+    if (resolved != null) return resolved;
     return Number.isFinite(investmentSize) && investmentSize > 0
       ? investmentSize
       : Number(topSpotlightOverview?.profile.investment_size);
-  }, [topSpotlightOverview, topSpotlightHoldingsAsOf, spotlightHoldingsRebalanceAnchorDate]);
+  }, [
+    topSpotlightOverview,
+    topSpotlightHoldingsAsOf,
+    spotlightHoldingsMovementSlice,
+    spotlightModelSeries,
+    spotlightModelRawRows,
+    topSpotlightUserStartYmd,
+  ]);
 
   const spotlightHoldingsValuationMode: HoldingsValuationMode =
     spotlightHoldingsDateSelect === HOLDINGS_TODAY_SENTINEL ? 'live' : 'as-of';
@@ -2553,29 +2598,24 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   const spotlightHoldingsDisplayNotional = useMemo(() => {
     const investmentSize = Number(topSpotlightOverview?.profile.investment_size);
     const pts = effectiveTopSpotlightDisplaySeries as PerformanceSeriesPoint[];
+    const modelPts = (spotlightModelSeries.length ? spotlightModelSeries : pts) as PerformanceSeriesPoint[];
     const asOf = topSpotlightHoldingsAsOf;
-    if (
-      asOf &&
-      spotlightHoldingsRebalanceAnchorDate &&
-      asOf === spotlightHoldingsRebalanceAnchorDate &&
-      Number.isFinite(investmentSize) &&
-      investmentSize > 0
-    ) {
-      return investmentSize;
+    if (spotlightHoldingsMovementSlice) {
+      const n =
+        spotlightHoldingsMovementSlice.notionalAtCurrRebalanceEnd ??
+        spotlightHoldingsMovementSlice.movementNotional ??
+        null;
+      if (n != null && Number.isFinite(n) && n > 0) return n;
     }
-    if (asOf && pts.length > 0) {
-      const exact = pts.find((p) => p.date === asOf)?.aiPortfolio;
-      if (exact != null && Number.isFinite(exact) && exact > 0) return exact;
-      let onOrBefore: number | null = null;
-      for (const p of pts) {
-        if (p.date <= asOf && Number.isFinite(p.aiPortfolio) && p.aiPortfolio > 0) {
-          onOrBefore = p.aiPortfolio;
-        }
-      }
-      if (onOrBefore != null) return onOrBefore;
-    }
-    const latest = pts[pts.length - 1]?.aiPortfolio;
-    if (latest != null && Number.isFinite(latest) && latest > 0) return latest;
+    const resolved = resolveHoldingsLiveRebalanceNotional({
+      asOfYmd: asOf,
+      displaySeries: pts,
+      modelSeries: modelPts,
+      userStartYmd: topSpotlightUserStartYmd || null,
+      investmentSize: Number.isFinite(investmentSize) ? investmentSize : 0,
+      rawRows: spotlightModelRawRows,
+    });
+    if (resolved != null) return resolved;
     return Number.isFinite(investmentSize) && investmentSize > 0
       ? investmentSize
       : Number(topSpotlightOverview?.profile.investment_size);
@@ -2583,7 +2623,10 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     topSpotlightOverview,
     effectiveTopSpotlightDisplaySeries,
     topSpotlightHoldingsAsOf,
-    spotlightHoldingsRebalanceAnchorDate,
+    spotlightHoldingsMovementSlice,
+    spotlightModelSeries,
+    spotlightModelRawRows,
+    topSpotlightUserStartYmd,
   ]);
 
   const spotlightPortfolioValueAsOfCloseLabel = useMemo(() => {
@@ -4252,7 +4295,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
 
 
               <div className="!mt-3 flex justify-end">
-                <div className="inline-flex max-w-full flex-col items-end gap-1.5 rounded-2xl border border-border/80 bg-card/95 p-1.5 shadow-lg shadow-black/[0.06] ring-1 ring-black/[0.04] backdrop-blur-sm sm:flex-row sm:flex-wrap sm:justify-end dark:bg-card/90 dark:shadow-black/20 dark:ring-white/[0.06]">
+                <div className="inline-flex max-w-full flex-col items-end gap-1.5 sm:flex-row sm:flex-wrap sm:justify-end">
                   {OVERVIEW_PAGE_QUICK_LINKS.map(({ href, label, icon: Icon }) => (
                     <Link
                       key={href}

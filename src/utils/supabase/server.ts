@@ -5,6 +5,7 @@
  * For Client Components, use `@/utils/supabase/browser` instead.
  * For privileged admin operations (cron, API routes), use `@/utils/supabase/admin`.
  */
+import 'server-only';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { instrumentSupabaseFetch } from '@/utils/supabase/query-counter';

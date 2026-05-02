@@ -11,21 +11,29 @@ type AsyncLocalStorageLike<T> = {
   getStore(): T | undefined;
 };
 
-function loadAsyncLocalStorage(): AsyncLocalStorageLike<QueryCounterStore> | null {
-  // Keep this dynamic so browser/client bundles do not try to resolve Node built-ins.
+/**
+ * Lazy Node ALS — avoid top-level `require('async_hooks')`, which can break
+ * webpack's RSC factory graph. Safe when this module is bundled for the
+ * browser: first call returns null and counting is a no-op.
+ */
+let als: AsyncLocalStorageLike<QueryCounterStore> | null | undefined;
+
+function getAls(): AsyncLocalStorageLike<QueryCounterStore> | null {
+  if (als !== undefined) return als;
+  als = null;
+  if (typeof window !== 'undefined') return null;
   if (typeof process === 'undefined' || !process.versions?.node) return null;
   try {
     const req = eval('require') as (id: string) => {
       AsyncLocalStorage: new <T>() => AsyncLocalStorageLike<T>;
     };
     const { AsyncLocalStorage } = req('async_hooks');
-    return new AsyncLocalStorage<QueryCounterStore>();
+    als = new AsyncLocalStorage<QueryCounterStore>();
   } catch {
-    return null;
+    als = null;
   }
+  return als;
 }
-
-const als = loadAsyncLocalStorage();
 
 const defaultThreshold = () => {
   const raw = Number(process.env.SUPABASE_QUERY_WARN_THRESHOLD ?? 50);
@@ -40,8 +48,9 @@ export async function runWithSupabaseQueryCount<T>(
   fn: () => Promise<T>,
   threshold = defaultThreshold()
 ): Promise<T> {
-  if (!als) return fn();
-  return als.run(
+  const a = getAls();
+  if (!a) return fn();
+  return a.run(
     {
       path,
       count: 0,
@@ -60,7 +69,9 @@ export async function runWithSupabaseQueryCount<T>(
 }
 
 function increment(source: string): void {
-  const store = als?.getStore();
+  const a = getAls();
+  if (!a) return;
+  const store = a.getStore();
   if (!store) return;
   store.count += 1;
   if (store.count > store.threshold) {
@@ -80,7 +91,9 @@ export function instrumentSupabaseFetch(fetchImpl: typeof fetch, source: string)
 }
 
 export function finalizeSupabaseQueryCount(): void {
-  const store = als?.getStore();
+  const a = getAls();
+  if (!a) return;
+  const store = a.getStore();
   if (!store || store.finalized) return;
   store.finalized = true;
   const elapsed = Date.now() - store.startedAt;

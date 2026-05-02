@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { cn } from '@/lib/utils';
 
 type Point = {
   date: string;
@@ -10,6 +12,8 @@ type Point = {
 
 type Props = {
   points: Point[];
+  /** `section`: absolute band aligned to hero (md+). `inline`: in-flow under copy (mobile). */
+  variant?: 'section' | 'inline';
 };
 
 const VIEW_W = 1000;
@@ -53,6 +57,21 @@ function lerp(a: number, b: number, t: number) {
   return a + (b - a) * t;
 }
 
+function clamp01(t: number) {
+  return Math.max(0, Math.min(1, t));
+}
+
+/** Fade scrub date in along draw progress: faster on desktop, slower on mobile. */
+function scrubAxisDateOpacity(progress: number, isMobile: boolean): number {
+  if (progress <= 0) return 0;
+  if (isMobile) {
+    const t = clamp01((progress - 0.18) / 0.82);
+    return t * t;
+  }
+  const t = clamp01(progress / 0.34);
+  return 1 - (1 - t) * (1 - t);
+}
+
 type MarkerState = {
   /** container-relative px (shared by AI dot and SP dot) */
   x: number;
@@ -71,9 +90,12 @@ type MarkerState = {
   inceptionDate: string;
   /** Hidden during the gap phase between cycles. */
   visible: boolean;
+  /** Opacity for scrub x-axis date (draw progress + cycle fade). */
+  axisDateOpacity: number;
 };
 
-export function HeroBackgroundCurve({ points }: Props) {
+export function HeroBackgroundCurve({ points, variant = 'section' }: Props) {
+  const isMobile = useIsMobile();
   const wipeRectRef = useRef<SVGRectElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [marker, setMarker] = useState<MarkerState | null>(null);
@@ -183,6 +205,8 @@ export function HeroBackgroundCurve({ points }: Props) {
         ? ((dataPoint.sp500 - spBase) / spBase) * 100
         : 0;
 
+      const axisDateOpacity = scrubAxisDateOpacity(progress, isMobile) * opacity;
+
       setMarker({
         x: xPx,
         aiY: aiYPx,
@@ -194,6 +218,7 @@ export function HeroBackgroundCurve({ points }: Props) {
         inceptionY,
         inceptionDate: points[0].date,
         visible: opacity > 0.02 && progress > 0.001,
+        axisDateOpacity,
       });
     };
 
@@ -250,14 +275,19 @@ export function HeroBackgroundCurve({ points }: Props) {
       cancelAnimationFrame(raf);
       ro.disconnect();
     };
-  }, [points, geom]);
+  }, [points, geom, isMobile]);
 
   if (!geom || points.length < 2) return null;
 
   return (
     <div
       ref={containerRef}
-      className="pointer-events-none absolute bottom-0 left-4 right-4 top-72 z-0 sm:left-8 sm:right-8 sm:top-24 md:left-12 md:right-12 md:top-28 lg:left-20 lg:right-20 lg:top-36"
+      className={cn(
+        'pointer-events-none z-0',
+        variant === 'section' &&
+          'absolute bottom-0 left-4 right-4 top-72 sm:left-8 sm:right-8 sm:top-24 md:left-12 md:right-12 md:top-28 lg:left-20 lg:right-20 lg:top-36',
+        variant === 'inline' && 'relative h-full w-full overflow-visible',
+      )}
       aria-hidden="true"
     >
       <svg
@@ -375,23 +405,24 @@ export function HeroBackgroundCurve({ points }: Props) {
             style={{ left: marker.x, top: marker.spY }}
           />
           <div
-            className="absolute hidden select-none whitespace-nowrap text-[10px] font-semibold uppercase tracking-wide text-slate-500 md:block"
+            className="absolute select-none whitespace-nowrap text-[10px] font-semibold uppercase tracking-wide text-slate-500"
             style={{
-              left: marker.x + 10,
+              left: marker.x,
               top: marker.spY,
-              transform: 'translateY(-50%)',
+              transform: isMobile
+                ? 'translate(calc(-100% - 6px), -50%)'
+                : 'translate(10px, -50%)',
             }}
           >
             <span>S&amp;P 500</span>
-            <span className="mx-1.5 text-slate-400/60">·</span>
             <span
-              className={
+              className={`ml-1 ${
                 marker.spReturnPct > 0
                   ? 'text-green-600 dark:text-green-400'
                   : marker.spReturnPct < 0
                     ? 'text-red-600 dark:text-red-400'
                     : 'text-slate-500'
-              }
+              }`}
             >
               {formatPctSigned(marker.spReturnPct)}
             </span>
@@ -402,36 +433,37 @@ export function HeroBackgroundCurve({ points }: Props) {
             style={{ left: marker.x, top: marker.aiY }}
           />
           <div
-            className="absolute hidden select-none whitespace-nowrap text-[10px] font-semibold uppercase tracking-wide text-trader-blue md:block"
-            style={{
-              left: marker.x + 10,
-              top: marker.aiY,
-              transform: 'translateY(-50%)',
-            }}
-          >
-            Current top portfolio
-          </div>
-          <div
-            className="absolute select-none whitespace-nowrap rounded-full border border-border bg-card/95 px-2.5 py-1 text-xs font-medium text-foreground shadow-soft backdrop-blur"
+            className="absolute z-[2] inline-flex max-w-[min(calc(100%-1.5rem),20rem)] select-none items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-card/95 px-2.5 py-1 text-xs font-medium shadow-soft backdrop-blur"
             style={{
               left: `clamp(72px, ${marker.x}px, calc(100% - 80px))`,
               top: `max(40px, ${marker.aiY - 14}px)`,
               transform: 'translate(-50%, -100%)',
             }}
           >
-            <span className="text-muted-foreground">{formatDate(marker.date)}</span>
-            <span className="mx-1.5 text-muted-foreground/60">·</span>
+            <span className="font-semibold text-trader-blue">Top portfolio</span>
             <span
-              className={
+              className={cn(
+                'tabular-nums',
                 marker.returnPct > 0
                   ? 'text-green-600 dark:text-green-400'
                   : marker.returnPct < 0
                     ? 'text-red-600 dark:text-red-400'
-                    : 'text-foreground'
-              }
+                    : 'text-foreground',
+              )}
             >
               {formatPctSigned(marker.returnPct)}
             </span>
+          </div>
+          {/* Scrub date on bottom x-axis (same horizontal anchor as the marker). */}
+          <div
+            className="pointer-events-none absolute bottom-0 z-[1] select-none whitespace-nowrap text-[10px] font-medium tabular-nums text-muted-foreground md:bottom-12"
+            style={{
+              left: `clamp(52px, ${marker.x}px, calc(100% - 52px))`,
+              transform: isMobile ? 'translate(-50%, 3px)' : 'translate(-50%, 0)',
+              opacity: marker.axisDateOpacity,
+            }}
+          >
+            {formatDate(marker.date)}
           </div>
         </>
       )}

@@ -455,12 +455,13 @@ const Navbar: React.FC = () => {
        * through the strip so nav text/buttons always read clearly over busy
        * content (e.g. the beams on the performance stripe). Descendant of
        * `<header>` so `section-invert` flips the `--background` token
-       * automatically. `h-[180%]` lets the gradient soft-land into the
-       * section below the nav rather than hard-cutting at the nav edge.
+       * automatically. `h-[180%]` on md+ lets the gradient soft-land into the
+       * section below the nav; compact mobile header needs a shorter band so
+       * the fade is not ~2× taller than the visible bar.
        */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-[180%] bg-gradient-to-b from-background via-background/55 to-transparent"
+        className="pointer-events-none absolute inset-x-0 top-0 h-[105%] bg-gradient-to-b from-background via-background/55 to-transparent md:h-[180%]"
       />
       <div className="relative container mx-auto px-4 md:px-6">
         <div className="flex items-center justify-between">

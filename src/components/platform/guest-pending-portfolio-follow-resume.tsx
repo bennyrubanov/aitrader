@@ -30,7 +30,7 @@ import { useToast } from '@/hooks/use-toast';
 import { formatYmdDisplay } from '@/lib/format-ymd-display';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
 import { queuePlatformPostOnboardingTour } from '@/lib/platform-post-onboarding-tour';
-import { FOLLOW_LIMIT_ERROR_CODE } from '@/lib/follow-limits';
+import { isFollowLimitReachedCode } from '@/lib/follow-limits';
 
 let guestPortfolioResumeInFlight: Promise<void> | null = null;
 
@@ -128,8 +128,8 @@ export function GuestPendingPortfolioFollowResume() {
 
         if (!res.ok) {
           console.error('[GuestPendingPortfolioFollowResume]', j?.error ?? res.status);
-          if (j.code === FOLLOW_LIMIT_ERROR_CODE) {
-            showFollowLimitToast();
+          if (isFollowLimitReachedCode(j.code)) {
+            showFollowLimitToast({ code: j.code });
           } else {
             toast({
               title: 'Could not save your portfolio',
