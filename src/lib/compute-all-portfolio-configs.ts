@@ -9,6 +9,7 @@ import { createAdminClient } from '@/utils/supabase/admin';
 import {
   filterRebalanceBatches,
   buildScoresByBatch,
+  fetchAiAnalysisRunsForBatches,
   buildPricesAndCapsByDate,
   computeEquityUpsertRows,
   backfillBenchmarkEquities,
@@ -187,17 +188,10 @@ export async function computeAllPortfolioConfigs(
 
   if (allBatches.length) {
     const allBatchIds = allBatches.map((b) => b.id);
-    const { data: scoreData, error: scoreErr } = await supabase
-      .from('ai_analysis_runs')
-      .select('batch_id, stock_id, score, latent_rank, stocks(symbol)')
-      .in('batch_id', allBatchIds);
-
-    if (scoreErr) {
-      throw new Error(`Score fetch failed: ${scoreErr.message}`);
-    }
+    const scoreData = await fetchAiAnalysisRunsForBatches(supabase, allBatchIds);
 
     scoresByBatch = buildScoresByBatch(
-      (scoreData ?? []) as Parameters<typeof buildScoresByBatch>[0]
+      scoreData as Parameters<typeof buildScoresByBatch>[0]
     );
 
     const uniqueDates = [...new Set(allBatches.map((b) => b.run_date))];

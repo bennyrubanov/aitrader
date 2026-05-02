@@ -1,3 +1,4 @@
+import { modelWeeklyCompetitionRankMap } from '@/lib/model-weekly-competition-rank';
 import { unstable_cache } from 'next/cache';
 import type { RecommendationBucket } from '@/lib/recommendation-bucket';
 import { bucketFromScore } from '@/lib/recommendation-bucket';
@@ -265,35 +266,7 @@ const assignRanks = (rows: RatingsBaseRow[]) => {
 
 const buildRankMap = (
   rows: Array<{ stock_id: string; score: number | null; latent_rank: number | null }>
-) => {
-  const sorted = [...rows].sort((a, b) => {
-    const latentA = a.latent_rank ?? -1;
-    const latentB = b.latent_rank ?? -1;
-    if (latentA !== latentB) {
-      return latentB - latentA;
-    }
-    const scoreA = a.score ?? -999;
-    const scoreB = b.score ?? -999;
-    if (scoreA !== scoreB) {
-      return scoreB - scoreA;
-    }
-    return a.stock_id.localeCompare(b.stock_id);
-  });
-
-  const rankMap = new Map<string, number>();
-  let previousKey: string | null = null;
-  let previousRank = 1;
-
-  sorted.forEach((row, index) => {
-    const currentKey = `${row.latent_rank ?? 'null'}:${row.score ?? 'null'}`;
-    const rank = index === 0 ? 1 : currentKey === previousKey ? previousRank : index + 1;
-    previousKey = currentKey;
-    previousRank = rank;
-    rankMap.set(row.stock_id, rank);
-  });
-
-  return rankMap;
-};
+) => modelWeeklyCompetitionRankMap(rows, { requireFiniteLatent: false });
 
 const bucketOrderValue = (bucket: RecommendationBucket) => {
   if (bucket === 'buy') return 2;

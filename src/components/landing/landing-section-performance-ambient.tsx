@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useTheme } from 'next-themes';
+import { useEffectiveResolvedTheme } from '@/hooks/use-effective-resolved-theme';
 import BeamsBackground from '@/components/landing/beams-background';
 import GrainientBackground from '@/components/landing/grainient-background';
 
@@ -50,7 +50,7 @@ const LIGHT_STRIPE_GRAINIENT = {
 } as const;
 
 export function LandingSectionPerformanceAmbient() {
-  const { resolvedTheme } = useTheme();
+  const effectiveTheme = useEffectiveResolvedTheme();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -62,7 +62,7 @@ export function LandingSectionPerformanceAmbient() {
   // Defaults to beams pre-mount so SSR HTML matches; the WebGL canvases are
   // empty until their respective imports resolve, so the post-mount swap is
   // visually invisible.
-  const isPageDark = mounted && resolvedTheme === 'dark';
+  const isPageDark = mounted && effectiveTheme === 'dark';
 
   return (
     <>

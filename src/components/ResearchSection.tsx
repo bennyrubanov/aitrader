@@ -4,6 +4,7 @@ import { useRef } from 'react';
 import Link from 'next/link';
 import { ArrowRight, CheckCircle, ExternalLink, Info } from 'lucide-react';
 import BorderGlow from '@/components/landing/border-glow';
+import { BgDots } from '@/components/landing/bg-dots';
 import { DotGrid } from '@/components/landing/dot-grid';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -73,18 +74,30 @@ const ResearchSection = () => {
       data-nav-invert="true"
       className="section-invert relative isolate z-0 overflow-hidden bg-[hsl(222_45%_4%)] py-20 text-foreground dark:z-10 dark:bg-[hsl(220_30%_96%)]"
     >
-      <DotGrid
-        dotSize={2}
-        gap={12}
-        baseColor="#0A84FF"
-        activeColor="#0A84FF"
-        proximity={70}
-        shockRadius={150}
-        shockStrength={6}
-        resistance={550}
-        returnDuration={1.2}
-        className="pointer-events-none absolute inset-0 z-0 opacity-[0.24] dark:opacity-[0.16]"
-      />
+      <div className="pointer-events-none absolute inset-0 z-0 md:hidden">
+        <BgDots
+          mode="static"
+          layout="contained"
+          dotSize={1.25}
+          gap={12}
+          color="rgba(10, 132, 255, 0.10)"
+          className="opacity-[0.24] dark:opacity-[0.16]"
+        />
+      </div>
+      <div className="pointer-events-none absolute inset-0 z-0 hidden md:block">
+        <DotGrid
+          dotSize={2}
+          gap={12}
+          baseColor="#0A84FF"
+          activeColor="#0A84FF"
+          proximity={70}
+          shockRadius={150}
+          shockStrength={6}
+          resistance={550}
+          returnDuration={1.2}
+          className="h-full w-full opacity-[0.24] dark:opacity-[0.16]"
+        />
+      </div>
       <div
         aria-hidden
         className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-border/70 to-transparent"

@@ -183,6 +183,76 @@ function InsightPlanUpgradeBlock({ children }: { children: React.ReactNode }) {
   );
 }
 
+function StockDetailPortfolioPresenceSkeleton() {
+  return (
+    <div className="space-y-2" aria-busy="true" aria-label="Loading portfolio presence">
+      <Skeleton className="h-4 w-24" />
+      <Skeleton className="h-9 w-[min(100%,12rem)] sm:h-10 sm:w-[min(100%,14rem)]" />
+      <Skeleton className="h-4 w-[min(100%,16rem)]" />
+      <Skeleton className="h-3 w-[min(100%,14rem)]" />
+    </div>
+  );
+}
+
+function StockDetailAnalysisSkeleton() {
+  return (
+    <div
+      className="max-h-96 space-y-2.5"
+      aria-busy="true"
+      aria-label="Loading analysis"
+    >
+      <Skeleton className="h-3.5 w-full" />
+      <Skeleton className="h-3.5 w-[min(100%,95%)]" />
+      <Skeleton className="h-3.5 w-full" />
+      <Skeleton className="h-3.5 w-[min(100%,88%)]" />
+      <Skeleton className="h-3.5 w-full" />
+      <Skeleton className="h-3.5 w-[min(100%,70%)]" />
+    </div>
+  );
+}
+
+function StockDetailRisksSkeleton() {
+  return (
+    <div className="max-h-60 space-y-2.5 pl-1" aria-busy="true" aria-label="Loading risks">
+      {[0, 1, 2, 3].map((i) => (
+        <div key={i} className="flex min-w-0 gap-2">
+          <Skeleton className="mt-1.5 size-1.5 shrink-0 rounded-full" aria-hidden />
+          <Skeleton
+            className={cn(
+              'h-3.5 min-w-0 flex-1 rounded-md',
+              i === 1 ? 'max-w-[92%]' : i === 3 ? 'max-w-[80%]' : ''
+            )}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function StockDetailRationaleHistorySkeleton() {
+  return (
+    <div className="space-y-4 py-1" aria-busy="true" aria-label="Loading change history">
+      {[0, 1, 2].map((i) => (
+        <div
+          key={i}
+          className="space-y-3 border-b border-border pb-4 last:border-b-0 last:pb-0"
+        >
+          <div className="flex flex-wrap items-center gap-3">
+            <Skeleton className="h-5 w-14 rounded-full" />
+            <Skeleton className="h-4 w-28" />
+            <Skeleton className="h-3 w-36" />
+          </div>
+          <div className="space-y-2">
+            <Skeleton className="h-3.5 w-full" />
+            <Skeleton className="h-3.5 w-[min(100%,92%)]" />
+            <Skeleton className="h-3.5 w-[min(100%,78%)]" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function StockSidebarSearch({
   currentSymbol,
   isAuthenticated,
@@ -804,6 +874,12 @@ const StockDetailClient = ({
   const rationaleScrollRef = useRef<HTMLDivElement>(null);
   const [rationaleScrollHintVisible, setRationaleScrollHintVisible] = useState(false);
 
+  const risksScrollRef = useRef<HTMLDivElement>(null);
+  const [risksScrollHintVisible, setRisksScrollHintVisible] = useState(false);
+
+  const analysisScrollRef = useRef<HTMLDivElement>(null);
+  const [analysisScrollHintVisible, setAnalysisScrollHintVisible] = useState(false);
+
   useLayoutEffect(() => {
     const el = rationaleScrollRef.current;
     if (!el || !showPremium) {
@@ -824,6 +900,48 @@ const StockDetailClient = ({
       el.removeEventListener('scroll', update);
     };
   }, [showPremium, rationaleHistory]);
+
+  useLayoutEffect(() => {
+    const el = risksScrollRef.current;
+    if (!el || !showPremium || latestRisks.length === 0) {
+      setRisksScrollHintVisible(false);
+      return;
+    }
+    const update = () => {
+      const overflow = el.scrollHeight > el.clientHeight + 1;
+      const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 12;
+      setRisksScrollHintVisible(overflow && !atBottom);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    el.addEventListener('scroll', update, { passive: true });
+    return () => {
+      ro.disconnect();
+      el.removeEventListener('scroll', update);
+    };
+  }, [showPremium, latestRisks]);
+
+  useLayoutEffect(() => {
+    const el = analysisScrollRef.current;
+    if (!el || !showPremium || latestSummary == null || latestSummary === '') {
+      setAnalysisScrollHintVisible(false);
+      return;
+    }
+    const update = () => {
+      const overflow = el.scrollHeight > el.clientHeight + 1;
+      const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 12;
+      setAnalysisScrollHintVisible(overflow && !atBottom);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    el.addEventListener('scroll', update, { passive: true });
+    return () => {
+      ro.disconnect();
+      el.removeEventListener('scroll', update);
+    };
+  }, [showPremium, latestSummary]);
 
   /** Signed-in free plan: show Analysis / Key risks shells with lock + upgrade when premium payload is unavailable. */
   const insightPlanLocked =
@@ -1145,7 +1263,7 @@ const StockDetailClient = ({
                             </div>
                           )
                         ) : portfolioPresenceLoading ? (
-                          <p className="text-sm text-muted-foreground">Loading…</p>
+                          <StockDetailPortfolioPresenceSkeleton />
                         ) : portfolioPresenceError ? (
                           <p className="text-sm text-destructive">{portfolioPresenceError}</p>
                         ) : portfolioPresence && portfolioPresence.total > 0 ? (
@@ -1187,26 +1305,62 @@ const StockDetailClient = ({
 
                   {isAuthenticated ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+                      <div className="rounded-xl border border-border bg-card px-5 pt-5 pb-0 overflow-hidden shadow-sm">
                         <h3 className="text-sm font-semibold text-foreground mb-2">Analysis</h3>
                         {showPremium ? (
-                          <p className="text-sm text-foreground/90 leading-relaxed">
-                            {latestSummary ?? 'No analysis summary for this run yet.'}
-                          </p>
+                          latestSummary != null && latestSummary !== '' ? (
+                            <div className="relative">
+                              <div
+                                ref={analysisScrollRef}
+                                className="max-h-96 overflow-y-auto overscroll-contain pr-2 -mr-1 scroll-smooth [scrollbar-gutter:stable]"
+                              >
+                                <p className="text-sm text-foreground/90 leading-relaxed">
+                                  <RiskTextWithLinks text={latestSummary} />
+                                </p>
+                              </div>
+                              {analysisScrollHintVisible ? (
+                                <>
+                                  <div
+                                    className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] h-10 rounded-b-md bg-gradient-to-t from-card via-card/85 to-transparent"
+                                    aria-hidden
+                                  />
+                                  <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[2] flex justify-center px-2 pb-1.5">
+                                    <div className="flex flex-row items-center gap-1">
+                                      <ChevronDown
+                                        className="size-3.5 shrink-0 text-muted-foreground/80 motion-safe:animate-bounce"
+                                        aria-hidden
+                                      />
+                                      <span className="text-[10px] font-semibold uppercase tracking-wider leading-none text-muted-foreground">
+                                        Scroll for more
+                                      </span>
+                                    </div>
+                                  </div>
+                                </>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <p className="text-sm text-muted-foreground pb-5">
+                              No analysis summary for this run yet.
+                            </p>
+                          )
                         ) : historyLoading ? (
-                          <p className="text-sm text-muted-foreground">Loading analysis…</p>
+                          <div className="pb-5">
+                            <StockDetailAnalysisSkeleton />
+                          </div>
                         ) : insightPlanLocked ? (
-                          <InsightPlanUpgradeBlock>
-                            {isPremiumStock
-                              ? 'Full AI analysis for premium Nasdaq-100 names is on Supporter and Outperformer.'
-                              : 'Full AI analysis text is included on Supporter and Outperformer.'}
-                          </InsightPlanUpgradeBlock>
+                          <div className="pb-5">
+                            <InsightPlanUpgradeBlock>
+                              {isPremiumStock
+                                ? 'Full AI analysis for premium Nasdaq-100 names is on Supporter and Outperformer.'
+                                : 'Full AI analysis text is included on Supporter and Outperformer.'}
+                            </InsightPlanUpgradeBlock>
+                          </div>
                         ) : historyEligible ? (
-                          <p className="text-sm text-muted-foreground">
+                          <p className="text-sm text-muted-foreground pb-5">
                             Detailed analysis appears with your latest model run.
                           </p>
                         ) : (
-                          <p className="text-sm text-muted-foreground">
+                          <p className="text-sm text-muted-foreground pb-5">
                             <Link
                               href={upgradeHref}
                               className="text-trader-blue hover:underline font-medium"
@@ -1217,36 +1371,66 @@ const StockDetailClient = ({
                           </p>
                         )}
                       </div>
-                      <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+                      <div className="rounded-xl border border-border bg-card px-5 pt-5 pb-0 overflow-hidden shadow-sm">
                         <h3 className="text-sm font-semibold text-foreground mb-2">Key risks</h3>
                         {showPremium ? (
                           latestRisks.length > 0 ? (
-                            <ul className="text-sm text-foreground/90 list-disc pl-5 space-y-1">
-                              {latestRisks.map((risk) => (
-                                <li key={risk}>
-                                  <RiskTextWithLinks text={risk} />
-                                </li>
-                              ))}
-                            </ul>
+                            <div className="relative">
+                              <div
+                                ref={risksScrollRef}
+                                className="max-h-60 overflow-y-auto overscroll-contain pr-2 -mr-1 scroll-smooth [scrollbar-gutter:stable]"
+                              >
+                                <ul className="text-sm text-foreground/90 list-disc pl-5 space-y-1">
+                                  {latestRisks.map((risk) => (
+                                    <li key={risk}>
+                                      <RiskTextWithLinks text={risk} />
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                              {risksScrollHintVisible ? (
+                                <>
+                                  <div
+                                    className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] h-10 rounded-b-md bg-gradient-to-t from-card via-card/85 to-transparent"
+                                    aria-hidden
+                                  />
+                                  <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[2] flex justify-center px-2 pb-1.5">
+                                    <div className="flex flex-row items-center gap-1">
+                                      <ChevronDown
+                                        className="size-3.5 shrink-0 text-muted-foreground/80 motion-safe:animate-bounce"
+                                        aria-hidden
+                                      />
+                                      <span className="text-[10px] font-semibold uppercase tracking-wider leading-none text-muted-foreground">
+                                        Scroll for more
+                                      </span>
+                                    </div>
+                                  </div>
+                                </>
+                              ) : null}
+                            </div>
                           ) : (
-                            <p className="text-sm text-muted-foreground">
+                            <p className="text-sm text-muted-foreground pb-5">
                               No risks listed for this run.
                             </p>
                           )
                         ) : historyLoading ? (
-                          <p className="text-sm text-muted-foreground">Loading risks…</p>
+                          <div className="pb-5">
+                            <StockDetailRisksSkeleton />
+                          </div>
                         ) : insightPlanLocked ? (
-                          <InsightPlanUpgradeBlock>
-                            {isPremiumStock
-                              ? 'Detailed risk factors for premium names unlock on Supporter and Outperformer.'
-                              : 'Detailed risk bullets are included on Supporter and Outperformer.'}
-                          </InsightPlanUpgradeBlock>
+                          <div className="pb-5">
+                            <InsightPlanUpgradeBlock>
+                              {isPremiumStock
+                                ? 'Detailed risk factors for premium names unlock on Supporter and Outperformer.'
+                                : 'Detailed risk bullets are included on Supporter and Outperformer.'}
+                            </InsightPlanUpgradeBlock>
+                          </div>
                         ) : historyEligible ? (
-                          <p className="text-sm text-muted-foreground">
+                          <p className="text-sm text-muted-foreground pb-5">
                             Detailed risks appear with the latest analysis run.
                           </p>
                         ) : (
-                          <p className="text-sm text-muted-foreground">
+                          <p className="text-sm text-muted-foreground pb-5">
                             <Link
                               href={upgradeHref}
                               className="text-trader-blue hover:underline font-medium"
@@ -1260,7 +1444,7 @@ const StockDetailClient = ({
                     </div>
                   ) : null}
 
-                  <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+                  <div className="rounded-xl border border-border bg-card px-6 pt-6 pb-0 overflow-hidden shadow-sm">
                     <h2 className="text-xl font-semibold mb-4">
                       Recommendation changes & rationale
                     </h2>
@@ -1292,9 +1476,13 @@ const StockDetailClient = ({
                                     </span>
                                   </div>
                                   <p className="text-sm text-foreground/90">
-                                    {entry.changeExplanation ??
-                                      entry.summary ??
-                                      'No explanation available.'}
+                                    <RiskTextWithLinks
+                                      text={
+                                        entry.changeExplanation ??
+                                        entry.summary ??
+                                        'No explanation available.'
+                                      }
+                                    />
                                   </p>
                                 </div>
                               ))
@@ -1308,25 +1496,29 @@ const StockDetailClient = ({
                         {rationaleScrollHintVisible ? (
                           <>
                             <div
-                              className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] h-16 rounded-b-md bg-gradient-to-t from-card via-card/85 to-transparent"
+                              className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] h-10 rounded-b-md bg-gradient-to-t from-card via-card/85 to-transparent"
                               aria-hidden
                             />
-                            <div className="pointer-events-none absolute inset-x-0 bottom-2 z-[2] flex flex-col items-center gap-0.5">
-                              <ChevronDown
-                                className="size-4 text-muted-foreground/80 motion-safe:animate-bounce"
-                                aria-hidden
-                              />
-                              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                                Scroll for more
-                              </span>
+                            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[2] flex justify-center px-2 pb-1.5">
+                              <div className="flex flex-row items-center gap-1">
+                                <ChevronDown
+                                  className="size-3.5 shrink-0 text-muted-foreground/80 motion-safe:animate-bounce"
+                                  aria-hidden
+                                />
+                                <span className="text-[10px] font-semibold uppercase tracking-wider leading-none text-muted-foreground">
+                                  Scroll for more
+                                </span>
+                              </div>
                             </div>
                           </>
                         ) : null}
                       </div>
                     ) : historyLoading ? (
-                      <p className="text-sm text-muted-foreground py-4">Loading change history…</p>
+                      <div className="pb-5">
+                        <StockDetailRationaleHistorySkeleton />
+                      </div>
                     ) : (
-                      <div className="rounded-lg border border-dashed border-border bg-muted/40 p-6 text-sm text-muted-foreground">
+                      <div className="rounded-lg border border-dashed border-border bg-muted/40 p-6 pb-8 text-sm text-muted-foreground">
                         <p className="font-medium text-foreground">
                           Unlock change explanations and weekly history
                         </p>
@@ -1371,43 +1563,45 @@ const StockDetailClient = ({
                                 href={item.link}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="group flex items-start gap-2 font-medium text-foreground hover:underline"
+                                className="group block rounded-lg -mx-1.5 -my-0.5 px-1.5 py-1.5 text-left outline-offset-2 transition-colors hover:bg-muted/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                               >
-                                <span className="min-w-0 flex-1">{item.title}</span>
-                                <ExternalLink
-                                  className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-60 transition-opacity group-hover:opacity-100"
-                                  aria-hidden
-                                />
-                              </a>
-                              {item.snippet ? (
-                                <p className="mt-1.5 text-sm leading-snug text-muted-foreground line-clamp-2">
-                                  {item.snippet}
-                                </p>
-                              ) : null}
-                              <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                                {item.source ? (
-                                  <Badge variant="secondary" className="max-w-[200px] truncate font-normal">
-                                    {item.source}
-                                  </Badge>
-                                ) : (
-                                  <span>Unknown source</span>
-                                )}
-                                {pubValid && relative ? (
-                                  <>
-                                    <span className="text-muted-foreground/70" aria-hidden>
-                                      ·
-                                    </span>
-                                    <time
-                                      dateTime={pub.toISOString()}
-                                      title={absoluteLabel ?? undefined}
-                                      className="cursor-default border-b border-dotted border-muted-foreground/40"
-                                      suppressHydrationWarning
-                                    >
-                                      {relative}
-                                    </time>
-                                  </>
+                                <div className="flex items-start gap-2 font-medium text-foreground">
+                                  <span className="min-w-0 flex-1">{item.title}</span>
+                                  <ExternalLink
+                                    className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-60 transition-opacity group-hover:opacity-100"
+                                    aria-hidden
+                                  />
+                                </div>
+                                {item.snippet ? (
+                                  <p className="mt-1.5 text-sm leading-snug text-muted-foreground line-clamp-2">
+                                    {item.snippet}
+                                  </p>
                                 ) : null}
-                              </div>
+                                <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                                  {item.source ? (
+                                    <Badge variant="secondary" className="max-w-[200px] truncate font-normal">
+                                      {item.source}
+                                    </Badge>
+                                  ) : (
+                                    <span>Unknown source</span>
+                                  )}
+                                  {pubValid && relative ? (
+                                    <>
+                                      <span className="text-muted-foreground/70" aria-hidden>
+                                        ·
+                                      </span>
+                                      <time
+                                        dateTime={pub.toISOString()}
+                                        title={absoluteLabel ?? undefined}
+                                        className="border-b border-dotted border-muted-foreground/40"
+                                        suppressHydrationWarning
+                                      >
+                                        {relative}
+                                      </time>
+                                    </>
+                                  ) : null}
+                                </div>
+                              </a>
                             </article>
                           );
                         })}

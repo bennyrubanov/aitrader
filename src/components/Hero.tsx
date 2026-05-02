@@ -1,6 +1,7 @@
 import { ArrowUpRight } from 'lucide-react';
 import Link from 'next/link';
 import BorderGlow from '@/components/landing/border-glow';
+import { BgDots } from '@/components/landing/bg-dots';
 import { DotGrid } from '@/components/landing/dot-grid';
 import { HeroBackgroundCurve } from '@/components/landing/hero-background-curve';
 import { PrimaryCtaButton } from '@/components/landing/primary-cta-button';
@@ -23,27 +24,39 @@ const Hero = ({ performance }: HeroProps) => {
       : [];
 
   return (
-    <section className="relative z-10 overflow-visible pt-20 pb-16 max-md:flex max-md:min-h-svh max-md:flex-col md:z-auto md:overflow-hidden md:pb-40 md:pt-32 lg:pb-48">
-      {/* Full-bleed backdrop on small screens (min-h-svh) so gradient + dots are not cut off at 80vh; md+ keeps the shorter layered look. */}
+    <section className="relative z-10 overflow-visible pt-20 pb-16 md:z-auto md:overflow-hidden md:pb-40 md:pt-32 lg:pb-48">
+      {/* Full-bleed backdrop: small screens match section height; md+ uses fixed 80vh for the layered curve look. */}
       <div className="absolute inset-x-0 top-0 z-0 bg-gradient-to-b from-trader-gray to-background max-md:bottom-0 max-md:h-auto dark:from-slate-950 dark:to-background md:bottom-auto md:h-[80vh]" />
-      <DotGrid
-        dotSize={2}
-        gap={12}
-        baseColor="#0A84FF"
-        activeColor="#0A84FF"
-        proximity={70}
-        shockRadius={150}
-        shockStrength={6}
-        resistance={550}
-        returnDuration={1.2}
-        className="pointer-events-none absolute inset-0 z-0 opacity-[0.18]"
-      />
+      <div className="pointer-events-none absolute inset-0 z-0 md:hidden">
+        <BgDots
+          mode="static"
+          layout="contained"
+          dotSize={1.25}
+          gap={12}
+          color="rgba(10, 132, 255, 0.10)"
+          className="opacity-[0.95]"
+        />
+      </div>
+      <div className="pointer-events-none absolute inset-0 z-0 hidden md:block">
+        <DotGrid
+          dotSize={2}
+          gap={12}
+          baseColor="#0A84FF"
+          activeColor="#0A84FF"
+          proximity={70}
+          shockRadius={150}
+          shockStrength={6}
+          resistance={550}
+          returnDuration={1.2}
+          className="h-full w-full opacity-[0.18]"
+        />
+      </div>
       {curvePoints.length >= 2 && (
         <div className="hidden md:block" aria-hidden>
           <HeroBackgroundCurve points={curvePoints} variant="section" />
         </div>
       )}
-      <div className="container relative z-10 mx-auto max-md:flex max-md:flex-1 max-md:flex-col px-4">
+      <div className="container relative z-10 mx-auto px-4">
         <div className="mx-auto grid max-w-6xl grid-cols-1 gap-12 lg:grid-cols-12 lg:gap-8">
           <div className="text-center lg:col-span-7 lg:text-left">
             <h1
@@ -117,8 +130,6 @@ const Hero = ({ performance }: HeroProps) => {
           {/* Right column: intentional breathing room — the bg curve traces in here. */}
           <div className="hidden lg:col-span-5 lg:block" aria-hidden="true" />
         </div>
-        {/* Absorb remaining viewport height on small screens so the hero still fills svh without a floating chart. */}
-        <div className="max-md:flex-1 max-md:min-h-0" aria-hidden />
       </div>
     </section>
   );

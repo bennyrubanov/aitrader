@@ -234,7 +234,7 @@ const Navbar: React.FC = () => {
   /** Avoid nav active-state hydration mismatches when SSR pathname and client usePathname() disagree. */
   const [navPathReady, setNavPathReady] = useState(false);
   const router = useRouter();
-  const { resolvedTheme } = useTheme();
+  const { resolvedTheme, forcedTheme } = useTheme();
   const authState = useAuthState();
   const isAuthenticated = authState.isAuthenticated;
   const hasPremiumAccess = authState.hasPremiumAccess;
@@ -245,8 +245,8 @@ const Navbar: React.FC = () => {
   const primaryCtaHref = showAuthenticatedUi ? "/platform/overview" : "/sign-up";
   /**
    * Landing page is marketing surface: we want a single branded appearance
-   * driven by system / OS preference (honored by `ThemeProvider`
-   * `defaultTheme="system" enableSystem`), not a user-switchable chrome.
+   * driven by system / OS preference (`ThemeProvider` forces light/dark from
+   * `prefers-color-scheme` on `/` while `localStorage` stays unchanged).
    * Expose the toggle only in localdev so engineers can still verify both
    * themes while iterating. Applies to `/` only — every other page (platform,
    * legal, etc.) keeps the toggle.
@@ -338,7 +338,7 @@ const Navbar: React.FC = () => {
     // toggles light/dark mode — a section's rendered appearance swaps with
     // the mode (performance stripe is dark-navy in light, light-gray in
     // dark), and the interpolation endpoints live in mode-scoped rules.
-  }, [pathname, resolvedTheme]);
+  }, [pathname, resolvedTheme, forcedTheme]);
 
   useEffect(() => {
     // Keep aggressive route warming for production UX, but avoid

@@ -10,6 +10,7 @@ import {
   followLimitReachedMessagePaid,
   isFollowLimitReachedCode,
 } from '@/lib/follow-limits';
+import { yourPortfoliosHrefWithSessionRecall } from '@/lib/your-portfolios-last-profile-session';
 
 /** Fired after follow is undone (PATCH isActive: false) so clients can refetch profiles. */
 export const USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT = 'user-portfolio-profiles-invalidate';
@@ -118,7 +119,7 @@ export function showFollowLimitToast(opts?: ShowFollowLimitToastOptions): void {
         altText="Open Your portfolios"
         onClick={() => {
           if (typeof window !== 'undefined') {
-            window.location.assign('/platform/your-portfolios');
+            window.location.assign(yourPortfoliosHrefWithSessionRecall());
           }
         }}
       >

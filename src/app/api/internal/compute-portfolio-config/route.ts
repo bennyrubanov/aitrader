@@ -21,6 +21,7 @@ import { runWithSupabaseQueryCount } from '@/utils/supabase/query-counter';
 import {
   filterRebalanceBatches,
   buildScoresByBatch,
+  fetchAiAnalysisRunsForBatches,
   buildEqualWeightHoldings,
   buildCapWeightHoldings,
   buildPricesAndCapsByDate,
@@ -217,24 +218,7 @@ export async function POST(req: Request) {
     }
 
     const allBatchIds = allBatches.map((b) => b.id);
-    const { data: scoreData, error: scoreErr } = await supabase
-      .from('ai_analysis_runs')
-      .select('batch_id, stock_id, score, latent_rank, bucket, stocks(symbol, company_name)')
-      .in('batch_id', allBatchIds);
-
-    if (scoreErr) throw new Error(`Score fetch failed: ${scoreErr.message}`);
-
-    const scoreRows = (scoreData ?? []) as Array<{
-      batch_id: string;
-      stock_id: string;
-      score: number;
-      latent_rank: number | null;
-      bucket: string | null;
-      stocks:
-        | { symbol: string; company_name: string | null }
-        | { symbol: string; company_name: string | null }[]
-        | null;
-    }>;
+    const scoreRows = await fetchAiAnalysisRunsForBatches(supabase, allBatchIds);
     const scoresByBatch = buildScoresByBatch(
       scoreRows as Parameters<typeof buildScoresByBatch>[0]
     );

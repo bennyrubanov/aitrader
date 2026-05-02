@@ -3,6 +3,7 @@ import { unstable_cache } from 'next/cache';
 import { canQueryStockCurrentRecommendation, getAppAccessState } from '@/lib/app-access';
 import { buildAuthStateFromUserAndProfile } from '@/lib/build-auth-state';
 import { PUBLIC_CACHE_TAGS, PUBLIC_DATA_CACHE_TTL_SECONDS } from '@/lib/public-cache';
+import { modelWeeklyCompetitionRankMap } from '@/lib/model-weekly-competition-rank';
 import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { createClient } from '@/utils/supabase/server';
@@ -108,28 +109,13 @@ const fetchPortfolioPresenceBase = async (
   ]);
 
   const rows = (runRows ?? []) as RunRow[];
-  const withRank = rows.filter(
-    (r) => r.latent_rank !== null && r.latent_rank !== undefined && Number.isFinite(Number(r.latent_rank)),
-  );
-
-  const sorted = [...withRank].sort((a, b) => {
-    const lr = Number(b.latent_rank) - Number(a.latent_rank);
-    if (lr !== 0) return lr;
-    const sa = Number(a.score ?? 0);
-    const sb = Number(b.score ?? 0);
-    if (sb !== sa) return sb - sa;
-    return a.stock_id.localeCompare(b.stock_id);
-  });
-
-  const modelRankByStockId: Record<string, number> = {};
-  sorted.forEach((r, i) => {
-    modelRankByStockId[r.stock_id] = i + 1;
-  });
+  const rankMap = modelWeeklyCompetitionRankMap(rows, { requireFiniteLatent: true });
+  const modelRankByStockId = Object.fromEntries(rankMap);
 
   return {
     runDate: batchRow.run_date ?? null,
     modelRankByStockId,
-    modelRankTotal: sorted.length > 0 ? sorted.length : null,
+    modelRankTotal: rankMap.size > 0 ? rankMap.size : null,
     portfolioTopNs: (configs ?? [])
       .map((config) => Number(config.top_n))
       .filter((topN) => Number.isFinite(topN)),

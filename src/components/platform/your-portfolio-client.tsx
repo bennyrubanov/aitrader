@@ -129,6 +129,14 @@ import {
   sortProfilesByUserEntryCache,
 } from '@/lib/portfolio-profile-list-sort';
 import { usePersistedYourPortfoliosSortMetric } from '@/lib/portfolio-list-sort-preference-local';
+import {
+  readYourPortfoliosLastProfileId,
+  writeYourPortfoliosLastProfileId,
+} from '@/lib/your-portfolios-last-profile-session';
+import {
+  mergeYourPortfolioPortfolioUiSession,
+  readYourPortfolioPortfolioUiSession,
+} from '@/lib/your-portfolios-portfolio-ui-session';
 import { PORTFOLIO_EXPLORE_QUICK_PICKS } from '@/lib/portfolio-explore-quick-picks';
 import { loadRankedConfigsClient } from '@/lib/portfolio-configs-ranked-client';
 import { loadUserPortfolioProfilesClient } from '@/lib/user-portfolio-profiles-client';
@@ -856,10 +864,6 @@ function PortfolioRebalanceActionsTimeline({
   const hasEntry = Boolean(profile.user_start_date?.trim());
 
   useEffect(() => {
-    setSelectedRebalanceDate(null);
-  }, [profileId]);
-
-  useEffect(() => {
     setRebalanceActionsChevronDismissed(false);
   }, [profileId, selectedRebalanceDate]);
 
@@ -949,8 +953,33 @@ function PortfolioRebalanceActionsTimeline({
   const payload = !state.loading && 'data' in state ? state.data : null;
   const error = !state.loading && 'error' in state ? state.error : null;
   const timelineDates = payload?.rebalanceDates ?? [];
+  const timelineDatesKey = timelineDates.join('\0');
   const initialRebalanceDate = timelineDates.length > 0 ? timelineDates[timelineDates.length - 1]! : null;
   const selectedDate = selectedRebalanceDate ?? timelineDates[0] ?? null;
+
+  useEffect(() => {
+    if (!timelineDates.length) {
+      setSelectedRebalanceDate(null);
+      return;
+    }
+    const stored = readYourPortfolioPortfolioUiSession(profileId).rebalanceActionsDate;
+    if (stored === undefined) {
+      setSelectedRebalanceDate(null);
+      return;
+    }
+    if (stored === null) {
+      setSelectedRebalanceDate(null);
+      return;
+    }
+    if (typeof stored === 'string' && timelineDates.includes(stored)) {
+      const newest = timelineDates[0]!;
+      setSelectedRebalanceDate(stored === newest ? null : stored);
+      return;
+    }
+    setSelectedRebalanceDate(null);
+    mergeYourPortfolioPortfolioUiSession(profileId, { rebalanceActionsDate: null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `timelineDatesKey` fingerprints date list; `timelineDates` is rebuilt each render
+  }, [profileId, timelineDatesKey]);
   const selectedDateRow =
     payload?.status === 'ok' && selectedDate != null
       ? payload.byRebalanceDate?.[selectedDate] ??
@@ -994,7 +1023,11 @@ function PortfolioRebalanceActionsTimeline({
                 value={selectedDate ?? timelineDates[0]!}
                 onValueChange={(v) => {
                   const newest = timelineDates[0];
-                  setSelectedRebalanceDate(newest != null && v === newest ? null : v);
+                  const internal = newest != null && v === newest ? null : v;
+                  setSelectedRebalanceDate(internal);
+                  mergeYourPortfolioPortfolioUiSession(profileId, {
+                    rebalanceActionsDate: internal,
+                  });
                 }}
               >
                 <SelectTrigger
@@ -1895,16 +1928,23 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   );
 
   // Sync ?profile= only on this route — workspace keeps this tree mounted while other platform tabs are open.
+  // URL is canonical; sessionStorage recalls last portfolio when landing without ?profile= (e.g. sidebar link).
   useEffect(() => {
     if (!isYourPortfoliosRoute) return;
     if (isLoadingProfiles) return;
     if (profiles.length === 0) return;
     const valid = profileParam && profiles.some((p) => p.id === profileParam);
-    if (!valid) {
-      router.replace(`/platform/your-portfolios?profile=${encodeURIComponent(profiles[0]!.id)}`, {
-        scroll: false,
-      });
+    if (valid) {
+      writeYourPortfoliosLastProfileId(profileParam!);
+      return;
     }
+    const fromSession = readYourPortfoliosLastProfileId();
+    const sessionOk = Boolean(fromSession && profiles.some((p) => p.id === fromSession));
+    const targetId = sessionOk ? fromSession! : profiles[0]!.id;
+    router.replace(`/platform/your-portfolios?profile=${encodeURIComponent(targetId)}`, {
+      scroll: false,
+    });
+    writeYourPortfoliosLastProfileId(targetId);
   }, [isLoadingProfiles, isYourPortfoliosRoute, profiles, profileParam, router]);
 
   const strategySlug = selectedProfile?.strategy_models?.slug ?? portfolioConfigCtx.strategySlug;
@@ -2255,12 +2295,22 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     setConfigHoldingsLatestPriceBySymbol({});
     setConfigHoldingsRebalanceDates([]);
     setConfigHoldingsRefreshing(false);
-    setHoldingsDateSelect(HOLDINGS_TODAY_SENTINEL);
+    {
+      const pid = selectedProfile?.id?.trim();
+      const persisted = pid ? readYourPortfolioPortfolioUiSession(pid) : null;
+      const initDate =
+        persisted &&
+        typeof persisted.holdingsDateSelect === 'string' &&
+        persisted.holdingsDateSelect.trim().length > 0
+          ? persisted.holdingsDateSelect.trim()
+          : HOLDINGS_TODAY_SENTINEL;
+      setHoldingsDateSelect(initDate);
+      setHoldingsMovementView(Boolean(persisted?.holdingsMovementView));
+    }
 
     setPrevMovementHoldings(null);
     setPrevMovementLoading(false);
     setPrevMovementError(false);
-    setHoldingsMovementView(false);
     setHoldingsRowChartSymbol(null);
     setHoldingsMovementTimeline(null);
 
@@ -2380,13 +2430,16 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       setHoldingsDateSelect(HOLDINGS_TODAY_SENTINEL);
       return;
     }
-    void fetchYourPortfolioConfigHoldings(null);
+    const asOf =
+      holdingsDateSelect === HOLDINGS_TODAY_SENTINEL ? null : holdingsDateSelect;
+    void fetchYourPortfolioConfigHoldings(asOf);
   }, [
     selectedProfile?.id,
     selectedProfileConfigId,
     strategySlug,
     selectedProfile?.user_start_date,
     selectedProfile?.investment_size,
+    holdingsDateSelect,
     fetchYourPortfolioConfigHoldings,
   ]);
 
@@ -2396,11 +2449,18 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     if (!scopedConfigHoldingsRebalanceDates.includes(holdingsDateSelect)) {
       setHoldingsDateSelect(HOLDINGS_TODAY_SENTINEL);
       void fetchYourPortfolioConfigHoldings(null);
+      const id = selectedProfile?.id?.trim();
+      if (id) {
+        mergeYourPortfolioPortfolioUiSession(id, {
+          holdingsDateSelect: HOLDINGS_TODAY_SENTINEL,
+        });
+      }
     }
   }, [
     scopedConfigHoldingsRebalanceDates,
     holdingsDateSelect,
     fetchYourPortfolioConfigHoldings,
+    selectedProfile?.id,
   ]);
 
   useEffect(() => {
@@ -2408,7 +2468,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   }, [selectedProfile?.id, selectedProfileConfigId]);
 
   useEffect(() => {
-    setHoldingsMovementView(false);
     setPrevMovementHoldings(null);
     setPrevMovementError(false);
     setPrevMovementLoading(false);
@@ -3947,9 +4006,10 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                           onValueChange={(v) => {
                             if (!v || v === holdingsDateSelect) return;
                             setHoldingsDateSelect(v);
-                            void fetchYourPortfolioConfigHoldings(
-                              v === HOLDINGS_TODAY_SENTINEL ? null : v
-                            );
+                            const pid = selectedProfile?.id?.trim();
+                            if (pid) {
+                              mergeYourPortfolioPortfolioUiSession(pid, { holdingsDateSelect: v });
+                            }
                           }}
                           disabled={configHoldingsLoading}
                         >
@@ -3994,7 +4054,15 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                             <Switch
                               id="your-portfolio-holdings-movement"
                               checked={holdingsMovementView}
-                              onCheckedChange={setHoldingsMovementView}
+                              onCheckedChange={(v) => {
+                                setHoldingsMovementView(v);
+                                const pid = selectedProfile?.id?.trim();
+                                if (pid) {
+                                  mergeYourPortfolioPortfolioUiSession(pid, {
+                                    holdingsMovementView: v,
+                                  });
+                                }
+                              }}
                               disabled={configHoldingsLoading}
                               aria-label="Show which holdings entered, stayed, or exited vs prior rebalance"
                             />

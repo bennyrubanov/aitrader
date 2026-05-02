@@ -83,6 +83,7 @@ export function DotGrid({
   // canvas empty until the pointer enters the proximity radius — the dots
   // appear to "pop in" only on first hover instead of on first paint.
   const needsRepaintRef = useRef(true);
+  const kickRedrawRef = useRef<(() => void) | null>(null);
   const pointerRef = useRef({
     x: Number.POSITIVE_INFINITY,
     y: Number.POSITIVE_INFINITY,
@@ -147,11 +148,13 @@ export function DotGrid({
     }
     dotsRef.current = dots;
     needsRepaintRef.current = true;
+    queueMicrotask(() => kickRedrawRef.current?.());
   }, [dotSize, gap, mobileLayout]);
 
   useEffect(() => {
     if (!circlePath) return;
     if (!active) {
+      kickRedrawRef.current = null;
       return () => {};
     }
 
@@ -163,10 +166,13 @@ export function DotGrid({
     // baseColor / circlePath deps.
     needsRepaintRef.current = true;
 
-    const draw = () => {
+    const loop = () => {
       const canvas = canvasRef.current;
       const ctx = canvas?.getContext('2d');
-      if (!canvas || !ctx) return;
+      if (!canvas || !ctx) {
+        rafId = 0;
+        return;
+      }
 
       const { width, height } = sizeRef.current;
       const pr = pointerRef.current;
@@ -223,11 +229,26 @@ export function DotGrid({
       }
       // else: idle and already painted — leave the canvas pixels alone.
 
-      rafId = requestAnimationFrame(draw);
+      if (!idle || needsRepaintRef.current) {
+        rafId = requestAnimationFrame(loop);
+      } else {
+        rafId = 0;
+      }
     };
 
-    draw();
-    return () => cancelAnimationFrame(rafId);
+    const kick = () => {
+      if (rafId === 0) {
+        rafId = requestAnimationFrame(loop);
+      }
+    };
+
+    kickRedrawRef.current = kick;
+    kick();
+
+    return () => {
+      kickRedrawRef.current = null;
+      if (rafId !== 0) cancelAnimationFrame(rafId);
+    };
   }, [proximity, baseColor, activeRgb, baseRgb, circlePath, active]);
 
   useEffect(() => {
@@ -265,6 +286,7 @@ export function DotGrid({
       if (!isInside) {
         pr.x = Number.POSITIVE_INFINITY;
         pr.y = Number.POSITIVE_INFINITY;
+        kickRedrawRef.current?.();
         return;
       }
 
@@ -291,6 +313,8 @@ export function DotGrid({
       pr.x = e.clientX - rect.left;
       pr.y = e.clientY - rect.top;
 
+      kickRedrawRef.current?.();
+
       if (prefersReducedMotion) return;
 
       for (const dot of dotsRef.current) {
@@ -312,6 +336,7 @@ export function DotGrid({
               dot._inertiaApplied = false;
             },
           });
+          kickRedrawRef.current?.();
         }
       }
     };
@@ -352,6 +377,7 @@ export function DotGrid({
               dot._inertiaApplied = false;
             },
           });
+          kickRedrawRef.current?.();
         }
       }
     };

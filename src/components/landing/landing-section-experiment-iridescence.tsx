@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useTheme } from 'next-themes';
+import { useEffectiveResolvedTheme } from '@/hooks/use-effective-resolved-theme';
 import Iridescence from '@/components/landing/iridescence';
 
 /**
@@ -22,14 +22,14 @@ const DARK = {
 };
 
 export function LandingSectionExperimentIridescence() {
-  const { resolvedTheme } = useTheme();
+  const effectiveTheme = useEffectiveResolvedTheme();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  const isLight = mounted && resolvedTheme === 'light';
+  const isLight = mounted && effectiveTheme === 'light';
   const cfg = isLight ? LIGHT : DARK;
 
   return (

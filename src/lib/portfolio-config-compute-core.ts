@@ -211,6 +211,49 @@ export function buildScoresByBatch(
   return scoresByBatch;
 }
 
+export type AiAnalysisRunScoreRow = {
+  batch_id: string;
+  stock_id: string;
+  score: number;
+  latent_rank: number | null;
+  bucket: string | null;
+  stocks:
+    | { symbol: string; company_name: string | null }
+    | { symbol: string; company_name: string | null }[]
+    | null;
+};
+
+const AI_ANALYSIS_RUNS_PAGE = 1000;
+
+/**
+ * Loads all `ai_analysis_runs` for the given batch IDs. PostgREST caps unbounded selects
+ * (~1000 rows per request); strategies with many weekly batches exceed that, which drops
+ * the latest batches in memory and yields empty holdings or a failed compute guard.
+ */
+export async function fetchAiAnalysisRunsForBatches(
+  supabase: SupabaseAdmin,
+  batchIds: string[]
+): Promise<AiAnalysisRunScoreRow[]> {
+  if (batchIds.length === 0) return [];
+  const out: AiAnalysisRunScoreRow[] = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await supabase
+      .from('ai_analysis_runs')
+      .select('batch_id, stock_id, score, latent_rank, bucket, stocks(symbol, company_name)')
+      .in('batch_id', batchIds)
+      .order('batch_id', { ascending: true })
+      .order('stock_id', { ascending: true })
+      .range(from, from + AI_ANALYSIS_RUNS_PAGE - 1);
+    if (error) throw new Error(`Score fetch failed: ${error.message}`);
+    if (!data?.length) break;
+    out.push(...(data as AiAnalysisRunScoreRow[]));
+    if (data.length < AI_ANALYSIS_RUNS_PAGE) break;
+    from += AI_ANALYSIS_RUNS_PAGE;
+  }
+  return out;
+}
+
 export function buildPricesAndCapsByDate(
   rawData: Array<{
     run_date: string;

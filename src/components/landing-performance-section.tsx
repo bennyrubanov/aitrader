@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight } from 'lucide-react';
 import BorderGlow from '@/components/landing/border-glow';
 import { LandingSectionPerformanceAmbient } from '@/components/landing/landing-section-performance-ambient';
@@ -65,8 +65,23 @@ type Props = {
 
 export function LandingPerformanceSection({ allPortfolios, heroStats, visibleRef }: Props) {
   const localRef = useRef<HTMLDivElement>(null);
+  const sectionIoRef = useRef<HTMLElement | null>(null);
+  const [mountAmbient, setMountAmbient] = useState(false);
   const ref = visibleRef ?? localRef;
   const hasRevealed = useHasBeenVisible(ref);
+
+  useEffect(() => {
+    const el = sectionIoRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      ([e]) => {
+        if (e.isIntersecting) setMountAmbient(true);
+      },
+      { root: null, rootMargin: '0px 0px 360px 0px', threshold: 0 },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
 
   const modelPagePath = useMemo(() => {
     const slug =
@@ -160,11 +175,12 @@ export function LandingPerformanceSection({ allPortfolios, heroStats, visibleRef
 
   return (
     <section
+      ref={sectionIoRef}
       id="performance"
       data-nav-invert="true"
       className="section-invert relative isolate overflow-hidden bg-[hsl(222_45%_4%)] py-20 text-foreground dark:bg-[hsl(220_30%_96%)]"
     >
-      <LandingSectionPerformanceAmbient />
+      {mountAmbient ? <LandingSectionPerformanceAmbient /> : null}
       <div
         ref={ref}
         className={`relative mx-auto w-full max-w-[min(82rem,calc(100vw-4.5rem))] px-6 transition-all duration-700 sm:px-8 lg:px-10 xl:px-14 ${

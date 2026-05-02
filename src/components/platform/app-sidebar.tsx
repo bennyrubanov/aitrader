@@ -39,6 +39,7 @@ import { NavUser } from '@/components/platform/nav-user';
 import { getSupabaseBrowserClient } from '@/utils/supabase/browser';
 import { useAuthState } from '@/components/auth/auth-state-context';
 import { navigateWithFallback } from '@/lib/client-navigation';
+import { useYourPortfoliosNavHref } from '@/lib/your-portfolios-last-profile-session';
 import { cn } from '@/lib/utils';
 import { Disclaimer } from '@/components/Disclaimer';
 import {
@@ -119,6 +120,7 @@ const isItemActive = (pathname: string, href: string) => {
 export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
+  const yourPortfoliosNavHref = useYourPortfoliosNavHref();
   const { isMobile, setOpenMobile } = useSidebar();
   const closeMobileSidebar = () => {
     if (isMobile) setOpenMobile(false);
@@ -148,7 +150,11 @@ export function AppSidebar() {
     const prefetchTargets = [
       '/',
       ...mainItems.flatMap((item) => (item.href ? [item.href] : [])),
-      ...platformItems.flatMap((item) => (item.href ? [item.href] : [])),
+      ...platformItems.flatMap((item) => {
+        if (!item.href) return [];
+        if (item.href === '/platform/your-portfolios') return [yourPortfoliosNavHref];
+        return [item.href];
+      }),
       ...advancedItems.flatMap((item) => (item.href ? [item.href] : [])),
       '/platform/settings',
       '/strategy-models',
@@ -218,7 +224,7 @@ export function AppSidebar() {
         globalThis.clearTimeout(timeoutId);
       }
     };
-  }, [router]);
+  }, [router, yourPortfoliosNavHref]);
 
   const openPath = (href: string) => {
     router.prefetch(href);
@@ -268,7 +274,8 @@ export function AppSidebar() {
         <NavMain
           items={[...mainItems, ...platformItems].map((item) => ({
             title: item.title,
-            url: item.href,
+            url:
+              item.href === '/platform/your-portfolios' ? yourPortfoliosNavHref : item.href,
             icon: item.icon,
             isActive: item.href ? isItemActive(pathname, item.href) : false,
             onNavigate: handleNavigateStart,

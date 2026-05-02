@@ -10,7 +10,7 @@ import {
   type FC,
   type ReactNode,
 } from 'react';
-import { useTheme } from 'next-themes';
+import { useEffectiveResolvedTheme } from '@/hooks/use-effective-resolved-theme';
 
 import { cn } from '@/lib/utils';
 
@@ -114,14 +114,14 @@ const GlassSurface: FC<GlassSurfaceProps> = ({
   const blueGradId = `blue-grad-${uniqueId}`;
 
   const [svgSupported, setSvgSupported] = useState(false);
-  const { resolvedTheme } = useTheme();
+  const effectiveTheme = useEffectiveResolvedTheme();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  const isDarkMode = mounted && resolvedTheme === 'dark';
+  const isDarkMode = mounted && effectiveTheme === 'dark';
 
   const containerRef = useRef<HTMLDivElement>(null);
   const feImageRef = useRef<SVGFEImageElement>(null);

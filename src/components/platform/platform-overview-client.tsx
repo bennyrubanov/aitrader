@@ -141,6 +141,7 @@ import {
   PLATFORM_OVERVIEW_TAB_PARAM,
   type PlatformOverviewTab,
 } from '@/lib/platform-overview-tab';
+import { useYourPortfoliosNavHref } from '@/lib/your-portfolios-last-profile-session';
 import { createConcurrencyLimit } from '@/lib/concurrency-limit';
 import {
   overviewCardSortValue,
@@ -1408,6 +1409,7 @@ type OverviewProps = {
 export function PlatformOverviewClient({ strategies }: OverviewProps) {
   const router = useRouter();
   const pathname = usePathname();
+  const yourPortfoliosNavHref = useYourPortfoliosNavHref();
   const searchParams = useSearchParams();
   const rawOverviewTab = searchParams.get(PLATFORM_OVERVIEW_TAB_PARAM);
   const urlTab = parsePlatformOverviewTab(rawOverviewTab);
@@ -3080,7 +3082,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                     <Link href="/platform/explore-portfolios">Explore portfolios</Link>
                   </Button>
                   <Button asChild size="sm" variant="outline">
-                    <Link href="/platform/your-portfolios">Your portfolios</Link>
+                    <Link href={yourPortfoliosNavHref}>Your portfolios</Link>
                   </Button>
                 </CardContent>
               </Card>
@@ -4296,21 +4298,25 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
 
               <div className="!mt-3 flex justify-end">
                 <div className="inline-flex max-w-full flex-col items-end gap-1.5 sm:flex-row sm:flex-wrap sm:justify-end">
-                  {OVERVIEW_PAGE_QUICK_LINKS.map(({ href, label, icon: Icon }) => (
-                    <Link
-                      key={href}
-                      href={href}
-                      prefetch
-                      onMouseEnter={() => router.prefetch(href)}
-                      onFocus={() => router.prefetch(href)}
-                      onPointerDown={() => router.prefetch(href)}
-                      className="inline-flex items-center gap-2 rounded-xl border border-border/70 bg-background/95 px-3 py-1.5 text-sm font-medium shadow-sm transition-colors hover:bg-muted/60"
-                    >
-                      <Icon className="size-4 shrink-0 text-trader-blue" />
-                      <span className="leading-tight">{label}</span>
-                      <ArrowRight className="size-3.5 shrink-0 text-muted-foreground" />
-                    </Link>
-                  ))}
+                  {OVERVIEW_PAGE_QUICK_LINKS.map(({ href, label, icon: Icon }) => {
+                    const linkHref =
+                      href === '/platform/your-portfolios' ? yourPortfoliosNavHref : href;
+                    return (
+                      <Link
+                        key={href}
+                        href={linkHref}
+                        prefetch
+                        onMouseEnter={() => router.prefetch(linkHref)}
+                        onFocus={() => router.prefetch(linkHref)}
+                        onPointerDown={() => router.prefetch(linkHref)}
+                        className="inline-flex items-center gap-2 rounded-xl border border-border/70 bg-background/95 px-3 py-1.5 text-sm font-medium shadow-sm transition-colors hover:bg-muted/60"
+                      >
+                        <Icon className="size-4 shrink-0 text-trader-blue" />
+                        <span className="leading-tight">{label}</span>
+                        <ArrowRight className="size-3.5 shrink-0 text-muted-foreground" />
+                      </Link>
+                    );
+                  })}
                   {process.env.NODE_ENV === 'development' ? (
                     <>
                       <Button

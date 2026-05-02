@@ -27,6 +27,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   filterRebalanceBatches,
   buildScoresByBatch,
+  fetchAiAnalysisRunsForBatches,
   buildEqualWeightHoldings,
   buildCapWeightHoldings,
   buildPricesAndCapsByDate,
@@ -138,23 +139,12 @@ export async function syncMissingConfigHoldingsSnapshots(
     const missingIds = missing.map((b) => b.id);
     const missingDates = [...new Set(missing.map((b) => b.run_date))];
 
-    const { data: scoreData, error: scoreErr } = await admin
-      .from('ai_analysis_runs')
-      .select('batch_id, stock_id, score, latent_rank, bucket, stocks(symbol, company_name)')
-      .in('batch_id', missingIds);
-    if (scoreErr) return { written: 0, missingDates };
-
-    const scoreRows = (scoreData ?? []) as Array<{
-      batch_id: string;
-      stock_id: string;
-      score: number;
-      latent_rank: number | null;
-      bucket: string | null;
-      stocks:
-        | { symbol: string; company_name: string | null }
-        | { symbol: string; company_name: string | null }[]
-        | null;
-    }>;
+    let scoreRows: Awaited<ReturnType<typeof fetchAiAnalysisRunsForBatches>>;
+    try {
+      scoreRows = await fetchAiAnalysisRunsForBatches(admin, missingIds);
+    } catch {
+      return { written: 0, missingDates };
+    }
     const scoresByBatch = buildScoresByBatch(
       scoreRows as Parameters<typeof buildScoresByBatch>[0]
     );
