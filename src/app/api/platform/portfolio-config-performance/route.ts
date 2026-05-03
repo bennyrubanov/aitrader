@@ -103,7 +103,7 @@ export async function GET(req: Request) {
       const message = err instanceof Error ? err.message : 'Internal error';
       return NextResponse.json(
         { error: message },
-        { status: 500, headers: { 'Cache-Control': CACHE_CONTROL_NO_STORE } }
+        { status: 503, headers: { 'Cache-Control': CACHE_CONTROL_NO_STORE } }
       );
     }
   });

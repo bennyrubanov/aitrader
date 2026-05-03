@@ -211,7 +211,6 @@ const MARKETING_PREFETCH_ROUTES = [
   "/blog",
   "/contact",
   "/help",
-  "/payment",
   "/about",
   "/roadmap-changelog",
   "/privacy",

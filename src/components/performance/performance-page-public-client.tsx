@@ -2367,6 +2367,7 @@ function PerformancePagePublicClientInner({
             endingValueRank={portfolioPerf.portfolioEndingValueRank}
             endingValueRankPeerCount={portfolioPerf.portfolioEndingValueRankPeers}
             effectiveMetricsOverride={portfolioAtAGlanceEffectiveMetricsOverride}
+            statusMessage={portfolioPerf.statusMessage}
           />
         </section>
       ) : null}

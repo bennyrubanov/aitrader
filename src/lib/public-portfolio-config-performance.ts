@@ -54,6 +54,14 @@ type LoadOptions = {
   enqueueOnEmpty?: boolean;
 };
 
+/** Thrown from inside `unstable_cache` when the slug has no `strategy_models` row so `null` is never cached. */
+class PublicPortfolioConfigPerfStrategyNotFoundError extends Error {
+  constructor() {
+    super('public-portfolio-config-performance:strategy-not-found');
+    this.name = 'PublicPortfolioConfigPerfStrategyNotFoundError';
+  }
+}
+
 function mapComputeStatusForClient(
   s: 'ready' | 'pending' | 'failed' | 'empty'
 ): 'ready' | 'in_progress' | 'failed' | 'empty' {
@@ -67,14 +75,17 @@ export async function loadPublicPortfolioConfigPerformance(
 ): Promise<PublicPortfolioPerfApiPayload | null> {
   const supabase = createPublicClient();
 
+  // Match `loadPortfolioConfigsRankedPayload`: resolve by slug only so ranked + perf never disagree.
   const { data: strategyData, error: strategyError } = await supabase
     .from('strategy_models')
     .select('id')
     .eq('slug', slug)
-    .eq('status', 'active')
     .maybeSingle();
 
-  if (strategyError || !strategyData) return null;
+  if (strategyError) {
+    throw new Error(strategyError.message ?? 'Strategy lookup failed');
+  }
+  if (!strategyData) return null;
   const strategyId = (strategyData as { id: string }).id;
 
   const [configId, inceptionRes] = await Promise.all([
@@ -212,13 +223,21 @@ export async function loadPublicPortfolioConfigPerformance(
   };
 }
 
-export function getCachedPublicPortfolioConfigPerformance(
+export async function getCachedPublicPortfolioConfigPerformance(
   slug: string,
   slice: PortfolioConfigSlice
 ): Promise<PublicPortfolioPerfApiPayload | null> {
   const configSlug = portfolioSliceToConfigSlug(slice);
-  return unstable_cache(
-    () => loadPublicPortfolioConfigPerformance(slug, slice, { enqueueOnEmpty: false }),
+  const cachedLoader = unstable_cache(
+    async () => {
+      const result = await loadPublicPortfolioConfigPerformance(slug, slice, {
+        enqueueOnEmpty: false,
+      });
+      if (result === null) {
+        throw new PublicPortfolioConfigPerfStrategyNotFoundError();
+      }
+      return result;
+    },
     // Bump inner key when payload shape changes so cached HTML/API responses pick up new fields.
     [PUBLIC_CACHE_TAGS.publicPortfolioConfigPerformance, slug, configSlug, 'v2-model-inception'],
     {
@@ -228,5 +247,17 @@ export function getCachedPublicPortfolioConfigPerformance(
         `${PUBLIC_CACHE_TAGS.publicPortfolioConfigPerformance}:${slug}`,
       ],
     }
-  )();
+  );
+  try {
+    return await cachedLoader();
+  } catch (e) {
+    if (
+      e instanceof PublicPortfolioConfigPerfStrategyNotFoundError ||
+      (e instanceof Error &&
+        e.name === 'PublicPortfolioConfigPerfStrategyNotFoundError')
+    ) {
+      return null;
+    }
+    throw e;
+  }
 }

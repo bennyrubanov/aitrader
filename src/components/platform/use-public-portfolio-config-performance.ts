@@ -87,6 +87,7 @@ export function usePublicPortfolioConfigPerformance({
   const perfRef = useRef(perf);
   perfRef.current = perf;
   const [perfLoading, setPerfLoading] = useState(false);
+  const [perfLoadError, setPerfLoadError] = useState(false);
   const [rankedConfigBadges, setRankedConfigBadges] = useState<string[]>([]);
   const [benchmarkEndingValues, setBenchmarkEndingValues] =
     useState<BenchmarkEndingValues | null>(null);
@@ -132,6 +133,7 @@ export function usePublicPortfolioConfigPerformance({
     setBenchmarkEndingValues(null);
     setPerf(initialPortfolioPerformanceRef.current);
     lastResolvedPerfResolutionKeyRef.current = null;
+    setPerfLoadError(false);
 
     let cancelled = false;
     void loadRankedConfigsClient(slug)
@@ -172,17 +174,23 @@ export function usePublicPortfolioConfigPerformance({
     setPortfolioConfig(initialPortfolioSliceRef.current);
     setPerf(initialPortfolioPerformanceRef.current);
     lastResolvedPerfResolutionKeyRef.current = null;
+    setPerfLoadError(false);
   }, [initialPortfolioSliceKey, initialPortfolioPerfKey, setPortfolioConfig]);
 
   const loadPerf = useCallback(async () => {
     if (perfFetchDisabled) return;
-    if (!slug || !portfolioConfig) return;
+    if (!slug || !portfolioConfig) {
+      setPerfLoading(false);
+      setPerfLoadError(false);
+      return;
+    }
 
     const resolutionKey = `${slug}|${portfolioSliceToConfigSlug(portfolioConfig)}`;
     if (
       lastResolvedPerfResolutionKeyRef.current === resolutionKey &&
       perfRef.current?.computeStatus !== 'in_progress'
     ) {
+      setPerfLoadError(false);
       return;
     }
 
@@ -197,9 +205,11 @@ export function usePublicPortfolioConfigPerformance({
       lastResolvedPerfResolutionKeyRef.current = resolutionKey;
       setPerf(initialPerf);
       setPerfLoading(false);
+      setPerfLoadError(false);
       return;
     }
     setPerfLoading(true);
+    setPerfLoadError(false);
     try {
       const params = new URLSearchParams({
         slug,
@@ -223,13 +233,16 @@ export function usePublicPortfolioConfigPerformance({
           modelInceptionDate: j.modelInceptionDate ?? null,
         });
         lastResolvedPerfResolutionKeyRef.current = resolutionKey;
+        setPerfLoadError(false);
       } else {
         setPerf(null);
         lastResolvedPerfResolutionKeyRef.current = null;
+        setPerfLoadError(true);
       }
     } catch {
       setPerf(null);
       lastResolvedPerfResolutionKeyRef.current = null;
+      setPerfLoadError(true);
     } finally {
       setPerfLoading(false);
     }
@@ -317,7 +330,10 @@ export function usePublicPortfolioConfigPerformance({
 
   const statusMessage = useMemo(() => {
     if (!portfolioConfig || perfLoading) return null;
-    if (perf == null) return 'Could not load performance for this portfolio.';
+    if (perfLoadError) {
+      return 'Could not load performance for this portfolio.';
+    }
+    if (perf == null) return null;
     const s = perf.computeStatus;
     if (s === 'in_progress') return 'Performance for this portfolio is computing — check back shortly.';
     if (s === 'empty') return 'No performance rows yet for this portfolio — we queue calculation automatically.';
@@ -327,7 +343,7 @@ export function usePublicPortfolioConfigPerformance({
       return 'Performance was marked ready but no series points were returned — try refreshing.';
     }
     return null;
-  }, [portfolioConfig, perf, perfLoading]);
+  }, [portfolioConfig, perf, perfLoading, perfLoadError]);
 
   return {
     rankedConfigs,

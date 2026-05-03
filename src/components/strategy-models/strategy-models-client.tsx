@@ -235,12 +235,12 @@ export function StrategyModelsClient({ strategies, rankedStrategies }: Props) {
             return (
               <article
                 key={strategy.id}
-                className="relative rounded-xl bg-card overflow-hidden focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2"
+                className="relative rounded-xl bg-card overflow-hidden"
               >
                 <Link
                   href={modelHref}
                   aria-label={`Open model: ${strategy.name}`}
-                  className="absolute inset-0 z-0 rounded-xl focus:outline-none"
+                  className="absolute inset-0 z-0 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                 >
                   <span className="sr-only">{`Open model: ${strategy.name}`}</span>
                 </Link>

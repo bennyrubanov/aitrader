@@ -1,0 +1,13 @@
+---
+description: >-
+  Plan markdown for this repository must live under the repo’s .cursor/plans
+  directory (git-tracked), not only ~/.cursor/plans. Use when creating,
+  updating, or migrating *.plan.md for aitrader.
+alwaysApply: true
+---
+
+# Plan files for this repository
+
+- When you **create or edit** a plan for this codebase, write the file under **`.cursor/plans/`** at the **project root** (path: `Coding_Projects/aitrader/.cursor/plans/`).
+- Do **not** leave the only copy under `~/.cursor/plans/` if the user wants it versioned here. Prefer the **Write** tool into `.cursor/plans/`, or tell the user to use **Save to Workspace** in Cursor’s Plan UI so the file moves into this repo’s `.cursor/plans/`.
+- After a plan exists in both places, treat **`.cursor/plans/<name>.plan.md` in git** as canonical.

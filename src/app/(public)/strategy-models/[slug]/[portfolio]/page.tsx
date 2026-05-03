@@ -105,7 +105,18 @@ export default async function StrategyModelPortfolioPage({ params, searchParams 
     getPerformancePayloadBySlug(slug),
     getStrategiesList(),
     getCachedRankedConfigsPayload(slug),
-    getCachedPublicPortfolioConfigPerformance(slug, initialPortfolioSlice),
+    (async () => {
+      try {
+        return await getCachedPublicPortfolioConfigPerformance(slug, initialPortfolioSlice);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(
+          '[strategy-models portfolio page] getCachedPublicPortfolioConfigPerformance failed',
+          { slug, portfolioSlice: initialPortfolioSlice, message: msg }
+        );
+        return null;
+      }
+    })(),
   ]);
 
   if (!payload.strategy) {

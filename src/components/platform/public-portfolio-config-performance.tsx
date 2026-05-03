@@ -125,6 +125,8 @@ export function PortfolioAtAGlanceCard({
   badges = [],
   /** When set (e.g. live-tailed effective metrics), overrides `perf.metrics` / `perf.fullMetrics` for displayed rows. */
   effectiveMetricsOverride = null,
+  /** From `usePublicPortfolioConfigPerformance` — load / compute errors for Key metrics copy */
+  statusMessage = null,
 }: {
   className?: string;
   portfolioConfig: PortfolioConfigSlice | null;
@@ -143,6 +145,7 @@ export function PortfolioAtAGlanceCard({
     fullMetrics: FullConfigPerformanceMetrics | null;
     metrics: PublicPortfolioPerfApiPayload['metrics'] | null;
   } | null;
+  statusMessage?: string | null;
 }) {
   const m = effectiveMetricsOverride?.metrics ?? perf?.metrics;
   const fm = effectiveMetricsOverride?.fullMetrics ?? perf?.fullMetrics;
@@ -447,9 +450,11 @@ export function PortfolioAtAGlanceCard({
             </div>
           ) : metricRows.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              {perf?.computeStatus === 'in_progress'
-                ? 'Computing performance for this portfolio...'
-                : 'Metrics appear when performance is ready.'}
+              {statusMessage
+                ? statusMessage
+                : perf?.computeStatus === 'in_progress'
+                  ? 'Computing performance for this portfolio...'
+                  : 'Metrics appear when performance is ready.'}
             </p>
           ) : (
             <ul className="space-y-4">
