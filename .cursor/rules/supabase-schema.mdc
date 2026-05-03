@@ -90,3 +90,7 @@ You must also keep this file up to date.
 - When modifying the schema, update `supabase/schema.sql`, `supabase/rls_policies.sql`, the cron job, and this rule file.
 - When modifying strategy parameters, prompt, model, or portfolio rules, bump `appVersion` in the active `AI_STRATEGIES` entry in `src/lib/ai-strategy-registry.ts`.
 - SQL helper functions: `public.backfill_portfolio_config_mappings()` (backfills default config performance from weekly data), `public.verify_strategy_model_migration()` (validates FK integrity and slug uniqueness), `public.stock_ai_analysis_history_for_strategies(p_stock_id, p_strategy_ids, p_limit)` (latest analysis rows for a stock joined to batches; **service_role execute only** — API resolves `p_strategy_ids` from `strategy_models.minimum_plan_tier` + user tier), `public.auth_user_id_by_email(p_email)` (returns `auth.users.id` for case-insensitive email match; **service_role execute only** — used by `/api/stripe/webhook` email fallback).
+
+## Cursor Supabase MCP
+
+**plugin-supabase-supabase** tools (`execute_sql`, `list_migrations`, …) require **`project_id`**: use **`SUPABASE_PROJECT_REF`** from `.env.local` (see `.env.example`), or parse the hostname of `NEXT_PUBLIC_SUPABASE_URL` (`https://<ref>.supabase.co`). If env is unavailable, call **`list_projects`** once to read `id` / `ref` for the linked Supabase account.
