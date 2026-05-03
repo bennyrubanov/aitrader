@@ -1,6 +1,6 @@
 "use client";
 
-import dynamic from "next/dynamic";
+import { createPerformanceChartDynamic } from "@/components/platform/performance-chart-dynamic";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -102,14 +102,9 @@ function AuthPreviewPortfolioHeaderSkeleton() {
   );
 }
 
-const PerformanceChart = dynamic(
-  () =>
-    import("@/components/platform/performance-chart").then((m) => m.PerformanceChart),
-  {
-    ssr: false,
-    loading: () => <AuthPreviewChartBlockSkeleton />,
-  }
-);
+const PerformanceChart = createPerformanceChartDynamic({
+  loading: () => <AuthPreviewChartBlockSkeleton />,
+});
 
 type GuestPreviewResponse = {
   strategySlug: string;

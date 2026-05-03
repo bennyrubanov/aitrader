@@ -525,7 +525,7 @@ export function AllPortfoliosEquityChart({
                           <span
                             className={
                               emphasize
-                                ? 'font-semibold text-trader-blue'
+                                ? 'font-semibold text-trader-green'
                                 : 'font-medium text-foreground'
                             }
                           >

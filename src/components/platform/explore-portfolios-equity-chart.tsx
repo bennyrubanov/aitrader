@@ -9,8 +9,8 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { CartesianGrid, Line, LineChart, ReferenceLine, Tooltip as RechartsTooltip, XAxis, YAxis } from 'recharts';
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
+import { CartesianGrid, Line, LineChart, ReferenceLine, XAxis, YAxis } from 'recharts';
+import { ChartContainer, ChartTooltip } from '@/components/ui/chart';
 import {
   dataKeyForExploreConfig,
   formatModelInceptionFootnoteDate,
@@ -215,8 +215,6 @@ type Props = {
    * instead of inferring from the latest chart point.
    */
   designatedTopPortfolioConfigId?: string | null;
-  /** Performance picker: parent-driven line hover (e.g. “Go to top portfolio” button). */
-  pickerExternalHoverDataKey?: string | null;
 };
 
 export function ExplorePortfoliosEquityChart({
@@ -229,7 +227,6 @@ export function ExplorePortfoliosEquityChart({
   className,
   variant = 'explore',
   designatedTopPortfolioConfigId = null,
-  pickerExternalHoverDataKey = null,
 }: Props) {
   const isPicker = variant === 'performancePicker';
   const isNarrowLayout = useIsNarrowExploreChartLayout();
@@ -250,8 +247,6 @@ export function ExplorePortfoliosEquityChart({
   const [exploreScrubStickyIndex, setExploreScrubStickyIndex] = useState<number | null>(null);
   /** Sync: hover on a line ↔ highlight row; hover on row ↔ highlight line */
   const [hoveredLineKey, setHoveredLineKey] = useState<string | null>(null);
-  /** Chart / chip / sidebar use this; pointer-driven hover wins over parent `pickerExternalHoverDataKey`. */
-  const hoverKeyForUi = hoveredLineKey ?? pickerExternalHoverDataKey ?? null;
   const sidebarScrollRef = useRef<HTMLDivElement>(null);
   const hoverSourceRef = useRef<'chart' | 'sidebar' | null>(null);
 
@@ -482,14 +477,6 @@ export function ExplorePortfoliosEquityChart({
     };
   }, [isPicker, pickerLatestRow, pickerTopPortfolioDataKey, effectiveSeries]);
 
-  const effectiveIndex = isPicker
-    ? null
-    : pinnedIndex != null
-      ? pinnedIndex
-      : hoverIndex != null
-        ? hoverIndex
-        : null;
-
   const displayValueIndex = isPicker
     ? null
     : (pinnedIndex ?? hoverIndex ?? exploreScrubStickyIndex ?? latestIdx);
@@ -498,10 +485,6 @@ export function ExplorePortfoliosEquityChart({
     : displayValueIndex != null
       ? chartData[displayValueIndex]
       : null;
-
-  /** Narrow layout: always show a date column (defaults to latest); wide layout: only while hover/pin. */
-  const sidebarValueIndex =
-    isPicker ? null : isNarrowLayout ? (effectiveIndex ?? latestIdx) : effectiveIndex;
 
   const averageBenchOutperformance = useMemo(() => {
     if (isPicker || !effectiveBenchmarksValid || !effectiveBenchmarks || !displayValueRow) return null;
@@ -537,7 +520,6 @@ export function ExplorePortfoliosEquityChart({
     return {
       vsSp500: mean(vsSp),
       vsNasdaqCap: mean(vsNd),
-      atShortDate: String(displayValueRow.shortDate),
     };
   }, [
     isPicker,
@@ -549,7 +531,8 @@ export function ExplorePortfoliosEquityChart({
   ]);
 
   const sidebarRows = useMemo((): ExploreSidebarListRow[] => {
-    const row = isPicker ? pickerLatestRow : sidebarValueIndex != null ? chartData[sidebarValueIndex] : null;
+    const row =
+      isPicker ? pickerLatestRow : displayValueIndex != null ? chartData[displayValueIndex] : null;
     if (!row) return [];
 
     const portfolios: Omit<Extract<ExploreSidebarListRow, { kind: 'portfolio' }>, 'portfolioRank'>[] =
@@ -615,7 +598,7 @@ export function ExplorePortfoliosEquityChart({
   }, [
     isPicker,
     pickerLatestRow,
-    sidebarValueIndex,
+    displayValueIndex,
     chartData,
     dataKeys,
     effectiveSeries,
@@ -629,25 +612,13 @@ export function ExplorePortfoliosEquityChart({
 
   /** When hovering a line, scroll the matching row within the sidebar only (not the page). */
   useLayoutEffect(() => {
-    if (!hoverKeyForUi) return;
-    const scrollForExternalPicker =
-      isPicker &&
-      pickerExternalHoverDataKey != null &&
-      hoveredLineKey == null &&
-      hoverKeyForUi === pickerExternalHoverDataKey;
-    if (hoverSourceRef.current !== 'chart' && !scrollForExternalPicker) return;
+    if (!hoveredLineKey) return;
+    if (hoverSourceRef.current !== 'chart') return;
     const root = sidebarScrollRef.current;
     if (!root) return;
-    const el = root.querySelector<HTMLElement>(`[data-explore-sidebar-row="${hoverKeyForUi}"]`);
+    const el = root.querySelector<HTMLElement>(`[data-explore-sidebar-row="${hoveredLineKey}"]`);
     if (el) scrollWithinContainer(root, el);
-  }, [
-    hoverKeyForUi,
-    hoveredLineKey,
-    pickerExternalHoverDataKey,
-    isPicker,
-    sidebarRows,
-    effectiveIndex,
-  ]);
+  }, [hoveredLineKey, sidebarRows, displayValueIndex]);
 
   const clearPin = useCallback(() => {
     setPinnedIndex(null);
@@ -780,13 +751,6 @@ export function ExplorePortfoliosEquityChart({
     );
   }
 
-  const sidebarDateLabel = isPicker
-    ? (pickerLatestRow?.shortDate ?? '—')
-    : (() => {
-        const idx = isNarrowLayout ? (effectiveIndex ?? latestIdx) : effectiveIndex;
-        return idx != null ? (chartData[idx]?.shortDate ?? '—') : null;
-      })();
-
   const pinnedXLabel =
     !isPicker &&
     !isNarrowLayout &&
@@ -820,19 +784,9 @@ export function ExplorePortfoliosEquityChart({
               <button
                 type="button"
                 onClick={() => onSelectConfig(pickerTopPortfolioChip.configId)}
-                onMouseEnter={() => {
-                  hoverSourceRef.current = 'chart';
-                  setHoveredLineKey(pickerTopPortfolioChip.dataKey);
-                }}
-                onMouseLeave={() => {
-                  setHoveredLineKey((cur) =>
-                    cur === pickerTopPortfolioChip.dataKey ? null : cur
-                  );
-                  hoverSourceRef.current = null;
-                }}
                 className={cn(
                   'inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-left text-xs transition-opacity',
-                  hoverKeyForUi === pickerTopPortfolioChip.dataKey && 'shadow-sm ring-2 ring-primary/35'
+                  hoveredLineKey === pickerTopPortfolioChip.dataKey && 'shadow-sm ring-2 ring-primary/35'
                 )}
               >
                 <span
@@ -855,7 +809,7 @@ export function ExplorePortfoliosEquityChart({
                   const num = Number(raw);
                   const valueStr = Number.isFinite(num) ? formatEquityTooltipValue(num) : null;
                   const hidden = hiddenBenchmarkKeys.has(k);
-                  const lineHover = !hidden && hoverKeyForUi === k;
+                  const lineHover = !hidden && hoveredLineKey === k;
                   return (
                     <button
                       key={k}
@@ -863,15 +817,6 @@ export function ExplorePortfoliosEquityChart({
                       aria-pressed={!hidden}
                       title={hidden ? `Show ${cfg.label}` : `Hide ${cfg.label}`}
                       onClick={() => toggleBenchmarkSeries(k)}
-                      onMouseEnter={() => {
-                        if (hidden) return;
-                        hoverSourceRef.current = 'chart';
-                        setHoveredLineKey(k);
-                      }}
-                      onMouseLeave={() => {
-                        setHoveredLineKey((cur) => (cur === k ? null : cur));
-                        hoverSourceRef.current = null;
-                      }}
                       className={cn(
                         'inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-left text-xs transition-opacity',
                         hidden ? 'opacity-40' : '',
@@ -903,7 +848,7 @@ export function ExplorePortfoliosEquityChart({
               ? EXPLORE_BM_ORDER.map((k) => {
                   const cfg = EXPLORE_BM_CONFIG[k];
                   const hidden = hiddenBenchmarkKeys.has(k);
-                  const lineHover = !hidden && hoverKeyForUi === k;
+                  const lineHover = !hidden && hoveredLineKey === k;
                   const raw = displayValueRow[k];
                   const bmVal = Number(raw);
                   const valueStr = Number.isFinite(bmVal) ? formatEquityTooltipValue(bmVal) : null;
@@ -968,7 +913,7 @@ export function ExplorePortfoliosEquityChart({
                 className={cn(
                   'inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-left text-xs transition-opacity',
                   averageLineHidden ? 'opacity-40' : '',
-                  hoverKeyForUi === EXPLORE_AVERAGE_PORTFOLIO_DATA_KEY && 'shadow-sm ring-2 ring-primary/35'
+                  hoveredLineKey === EXPLORE_AVERAGE_PORTFOLIO_DATA_KEY && 'shadow-sm ring-2 ring-primary/35'
                 )}
               >
                 <span
@@ -1002,12 +947,6 @@ export function ExplorePortfoliosEquityChart({
             <div className="min-w-0 flex-1">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                 Average portfolio performance versus benchmarks
-              </p>
-              <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
-                through{' '}
-                <span className="font-medium text-foreground">
-                  {averageBenchOutperformance.atShortDate}
-                </span>
               </p>
             </div>
             <div className="flex shrink-0 flex-wrap items-baseline justify-end gap-x-5 gap-y-1 text-sm max-sm:basis-full">
@@ -1044,12 +983,15 @@ export function ExplorePortfoliosEquityChart({
 
       <div className="grid min-h-0 gap-3 lg:h-[360px] lg:min-h-[360px] lg:max-h-[360px] lg:grid-cols-[minmax(0,1fr)_minmax(260px,300px)] lg:items-stretch lg:gap-4">
         <div className="flex min-h-[320px] min-w-0 flex-col lg:min-h-0">
-          <ChartContainer config={chartConfig} className="h-[320px] w-full">
+          <ChartContainer
+            config={chartConfig}
+            className="aspect-auto h-[320px] w-full min-h-[320px] shrink-0 [&_.recharts-responsive-container]:!h-full"
+          >
             <LineChart
               data={chartData}
               margin={{ top: 8, right: 8, left: 8, bottom: 4 }}
-              onMouseMove={isPicker && isNarrowLayout ? undefined : handleChartMouseMove}
-              onMouseLeave={isPicker && isNarrowLayout ? undefined : handleChartMouseLeave}
+              onMouseMove={isPicker ? undefined : handleChartMouseMove}
+              onMouseLeave={isPicker ? undefined : handleChartMouseLeave}
               onClick={isPicker ? undefined : handleChartClick}
             >
               <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.4} />
@@ -1077,9 +1019,7 @@ export function ExplorePortfoliosEquityChart({
                   strokeOpacity={0.65}
                 />
               ) : null}
-              {isPicker && isNarrowLayout ? (
-                <RechartsTooltip cursor={false} content={() => null} isAnimationActive={false} />
-              ) : (
+              {!isPicker ? (
                 <ChartTooltip
                   cursor={{
                     stroke: CHART_NEUTRAL_REFERENCE_STROKE,
@@ -1087,41 +1027,24 @@ export function ExplorePortfoliosEquityChart({
                     strokeOpacity: 0.9,
                     strokeDasharray: '4 3',
                   }}
-                  content={
-                    <ChartTooltipContent
-                      className="max-w-[16rem] px-2 py-1.5"
-                      labelKey="shortDate"
-                      formatter={(value, rawName) => {
-                        const key = String(rawName ?? '');
-                        if (
-                          (EXPLORE_BM_ORDER as readonly string[]).includes(key) &&
-                          hiddenBenchmarkKeys.has(key as ExploreBenchmarkKey)
-                        ) {
-                          return null;
-                        }
-                        const num = Number(value);
-                        if (!Number.isFinite(num)) return null;
-                        const label = chartConfig[key]?.label ?? key;
-                        return (
-                          <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 leading-none">
-                            <span className="min-w-0 truncate text-muted-foreground">{label}</span>
-                            <span className="font-mono font-medium tabular-nums text-foreground">
-                              {formatEquityTooltipValue(num)}
-                            </span>
-                          </div>
-                        );
-                      }}
-                    />
-                  }
+                  content={() => null}
+                  wrapperStyle={{
+                    visibility: 'hidden',
+                    width: 0,
+                    height: 0,
+                    padding: 0,
+                    border: 'none',
+                    pointerEvents: 'none',
+                  }}
                   isAnimationActive={false}
                 />
-              )}
+              ) : null}
               {dataKeys.map((k) => {
                 const cfgId =
                   effectiveSeries.find((s) => dataKeyForExploreConfig(s.configId) === k)?.configId ??
                   '';
                 const sel = selectedConfigId === cfgId;
-                const lineHover = hoverKeyForUi === k;
+                const lineHover = hoveredLineKey === k;
                 const baseColor = chartConfig[k]?.color ?? CHART_NEUTRAL_REFERENCE_STROKE;
                 const pickerTopLine = isPicker && k === pickerTopPortfolioDataKey;
                 const color = isPicker
@@ -1205,7 +1128,7 @@ export function ExplorePortfoliosEquityChart({
                           : false
                     }
                     activeDot={
-                      (isPicker && isNarrowLayout) || showPinDots
+                      isPicker || showPinDots
                         ? false
                         : isNarrowLayout
                           ? { r: 5, strokeWidth: 1 }
@@ -1231,9 +1154,9 @@ export function ExplorePortfoliosEquityChart({
                   type="monotone"
                   dataKey={exploreAverageLineActive}
                   stroke={EXPLORE_AVERAGE_PORTFOLIO_COLOR}
-                  strokeWidth={hoverKeyForUi === exploreAverageLineActive ? 4.25 : 3.5}
+                  strokeWidth={hoveredLineKey === exploreAverageLineActive ? 4.25 : 3.5}
                   strokeOpacity={
-                    hoverKeyForUi === exploreAverageLineActive
+                    hoveredLineKey === exploreAverageLineActive
                       ? 1
                       : selectedConfigId
                         ? 0.9
@@ -1241,7 +1164,7 @@ export function ExplorePortfoliosEquityChart({
                   }
                   dot={false}
                   activeDot={
-                    (isPicker && isNarrowLayout) || (!isNarrowLayout && pinnedIndex != null)
+                    isPicker || (!isNarrowLayout && pinnedIndex != null)
                       ? false
                       : {
                           r: 4,
@@ -1264,7 +1187,7 @@ export function ExplorePortfoliosEquityChart({
               ) : null}
               {benchmarkKeys.map((k) => {
                 const color = chartConfig[k]?.color ?? CHART_NEUTRAL_REFERENCE_STROKE;
-                const lineHover = hoverKeyForUi === k;
+                const lineHover = hoveredLineKey === k;
                 const showPinDots = !isPicker && !isNarrowLayout && pinnedIndex != null;
                 return (
                   <Line
@@ -1276,7 +1199,7 @@ export function ExplorePortfoliosEquityChart({
                     strokeOpacity={lineHover ? 1 : selectedConfigId ? 0.88 : 0.92}
                     dot={false}
                     activeDot={
-                      (isPicker && isNarrowLayout) || showPinDots
+                      isPicker || showPinDots
                         ? false
                         : { r: 3, strokeWidth: 1, fill: color }
                     }
@@ -1313,46 +1236,30 @@ export function ExplorePortfoliosEquityChart({
 
         <aside className="flex w-full max-h-[360px] min-h-[280px] flex-col overflow-hidden rounded-lg border border-border bg-card lg:h-full lg:min-h-0 lg:max-h-full lg:w-full">
           <div className="shrink-0 space-y-2 border-b border-border px-3 py-2.5">
-            {isPicker ? (
-              <div className="flex items-center justify-between gap-2">
+            <div className="space-y-2">
+              <div className="flex items-start justify-between gap-2">
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                   Portfolio values
                 </p>
-                <p className="shrink-0 text-xs font-semibold text-foreground tabular-nums">
-                  {sidebarDateLabel}
-                </p>
-              </div>
-            ) : (
-              <>
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                      Portfolio Value at date
-                    </p>
-                    <p className="truncate text-sm font-semibold text-foreground">
-                      {sidebarDateLabel ?? '—'}
-                    </p>
-                  </div>
-                  {!isNarrowLayout && pinnedIndex != null ? (
-                    <span className="shrink-0 rounded-full bg-trader-blue/15 px-2 py-0.5 text-[10px] font-medium text-trader-blue">
-                      Pinned
-                    </span>
-                  ) : null}
-                </div>
-                {!isNarrowLayout && pinnedIndex != null ? (
-                  <button
-                    type="button"
-                    onClick={clearPin}
-                    className="flex w-full items-center justify-between gap-2 rounded-md border border-border bg-background px-2 py-1.5 text-left text-xs font-medium text-foreground transition-colors hover:bg-muted/60"
-                  >
-                    <span>Resume following pointer</span>
-                    <kbd className="shrink-0 rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px] font-normal text-muted-foreground">
-                      Esc
-                    </kbd>
-                  </button>
+                {!isPicker && !isNarrowLayout && pinnedIndex != null ? (
+                  <span className="shrink-0 rounded-full bg-trader-blue/15 px-2 py-0.5 text-[10px] font-medium text-trader-blue">
+                    Pinned
+                  </span>
                 ) : null}
-              </>
-            )}
+              </div>
+              {!isPicker && !isNarrowLayout && pinnedIndex != null ? (
+                <button
+                  type="button"
+                  onClick={clearPin}
+                  className="flex w-full items-center justify-between gap-2 rounded-md border border-border bg-background px-2 py-1.5 text-left text-xs font-medium text-foreground transition-colors hover:bg-muted/60"
+                >
+                  <span>Resume following pointer</span>
+                  <kbd className="shrink-0 rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px] font-normal text-muted-foreground">
+                    Esc
+                  </kbd>
+                </button>
+              ) : null}
+            </div>
           </div>
           <div
             ref={sidebarScrollRef}
@@ -1375,7 +1282,7 @@ export function ExplorePortfoliosEquityChart({
             ) : (
               <ul className="space-y-0.5">
                 {sidebarRows.map((r) => {
-                  const rowActive = hoverKeyForUi === r.dataKey;
+                  const rowActive = hoveredLineKey === r.dataKey;
                   const rowIsPickerTopPortfolio =
                     isPicker && r.kind === 'portfolio' && r.dataKey === pickerTopPortfolioDataKey;
                   if (r.kind === 'benchmark') {

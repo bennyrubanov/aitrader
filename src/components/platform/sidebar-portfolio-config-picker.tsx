@@ -659,6 +659,20 @@ export function SidebarPortfolioConfigPicker({
     [rankedConfigs, selectedId]
   );
 
+  /** Best ending $ among the current filter matches (falls back when designated id is not on the chart). */
+  const designatedTopPortfolioConfigId = useMemo(() => {
+    let best: RankedConfig | null = null;
+    let bestValue = Number.NEGATIVE_INFINITY;
+    for (const config of filteredList) {
+      const value = config.metrics.endingValuePortfolio;
+      if (value != null && Number.isFinite(value) && value > bestValue) {
+        best = config;
+        bestValue = value;
+      }
+    }
+    return best?.id ?? filteredList[0]?.id ?? null;
+  }, [filteredList]);
+
   const handlePick = (c: RankedConfig) => {
     onPortfolioConfigChange(sliceFromConfig(c));
     onDialogPortfolioCommitted?.();
@@ -907,6 +921,7 @@ export function SidebarPortfolioConfigPicker({
                                   }))}
                                   benchmarks={equitySeriesPayload.benchmarks}
                                   visibleConfigIds={visibleConfigIds}
+                                  designatedTopPortfolioConfigId={designatedTopPortfolioConfigId}
                                   selectedConfigId={selectedId || null}
                                   onSelectConfig={handleChartSeriesPick}
                                 />

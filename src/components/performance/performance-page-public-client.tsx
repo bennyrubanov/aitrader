@@ -1,6 +1,6 @@
 'use client';
 
-import dynamic from 'next/dynamic';
+import { createPerformanceChartDynamic } from '@/components/platform/performance-chart-dynamic';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
@@ -35,7 +35,6 @@ import {
   ExplorePortfoliosEquityChart,
 } from '@/components/platform/explore-portfolios-equity-chart';
 import {
-  dataKeyForExploreConfig,
   type ExploreBenchmarkSeries,
   type ExploreEquitySeriesRow,
 } from '@/components/platform/explore-portfolios-equity-chart-shared';
@@ -166,13 +165,9 @@ import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
 import type { PortfolioConfigsRankedPayload } from '@/lib/portfolio-configs-ranked-core';
 import { loadExploreEquitySeries } from '@/lib/explore-equity-series-cache';
 
-const PerformanceChart = dynamic(
-  () => import('@/components/platform/performance-chart').then((module) => module.PerformanceChart),
-  {
-    ssr: false,
-    loading: () => <Skeleton className="h-[360px] w-full" />,
-  }
-);
+const PerformanceChart = createPerformanceChartDynamic({
+  loading: () => <Skeleton className="h-[360px] w-full" />,
+});
 
 const PERFORMANCE_TOC_BASE = [
   { id: 'strategy-model', label: 'Strategy model' },
@@ -652,7 +647,6 @@ function PortfolioValuesSection({
   const equitySeriesInFlightRef = useRef(false);
   /** Bumps on slug change so in-flight fetches from a previous model ignore stale responses. */
   const equitySeriesFetchEpochRef = useRef(0);
-  const [goToTopPortfolioButtonHovered, setGoToTopPortfolioButtonHovered] = useState(false);
 
   useEffect(() => {
     equitySeriesFetchEpochRef.current += 1;
@@ -749,8 +743,6 @@ function PortfolioValuesSection({
             className="group gap-1.5"
             disabled={!topConfig}
             onClick={goToTopPortfolio}
-            onMouseEnter={() => setGoToTopPortfolioButtonHovered(true)}
-            onMouseLeave={() => setGoToTopPortfolioButtonHovered(false)}
           >
             <span className="sm:hidden">Top portfolio</span>
             <span className="hidden sm:inline">Top portfolio details</span>
@@ -779,11 +771,6 @@ function PortfolioValuesSection({
               benchmarks={equitySeriesPayload.benchmarks}
               visibleConfigIds={visibleConfigIds}
               designatedTopPortfolioConfigId={topConfig?.id ?? null}
-              pickerExternalHoverDataKey={
-                goToTopPortfolioButtonHovered && topConfig
-                  ? dataKeyForExploreConfig(topConfig.id)
-                  : null
-              }
               selectedConfigId={selectedConfig?.id ?? null}
               onSelectConfig={(configId) => {
                 const found = rankedConfigs.find((c) => c.id === configId);

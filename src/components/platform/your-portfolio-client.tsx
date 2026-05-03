@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import dynamic from 'next/dynamic';
 import {
   ArrowRight,
   ArrowUpDown,
@@ -48,6 +47,7 @@ import {
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { createPerformanceChartDynamic } from '@/components/platform/performance-chart-dynamic';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -175,10 +175,9 @@ import {
   prefetchYourPortfolioMainData,
 } from '@/lib/your-portfolio-data-cache';
 
-const PerformanceChart = dynamic(
-  () => import('@/components/platform/performance-chart').then((m) => m.PerformanceChart),
-  { ssr: false, loading: () => <Skeleton className="h-[320px] w-full rounded-lg" /> }
-);
+const PerformanceChart = createPerformanceChartDynamic({
+  loading: () => <Skeleton className="h-[320px] w-full rounded-lg" />,
+});
 
 /** Same $10k model baseline as config performance charts. */
 const YOUR_PORTFOLIOS_MODEL_INITIAL = 10_000;

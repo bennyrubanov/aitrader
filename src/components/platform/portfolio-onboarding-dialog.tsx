@@ -1,6 +1,6 @@
 'use client';
 
-import dynamic from 'next/dynamic';
+import { createPerformanceChartDynamic } from '@/components/platform/performance-chart-dynamic';
 import {
   useEffect,
   useLayoutEffect,
@@ -177,15 +177,11 @@ const ONBOARDING_SHELL_HEIGHT = 'min(26rem, calc((100dvh - 5.5rem) * 0.68))';
 const RECOMMENDED_SHELL_HEIGHT = 'min(36rem, calc((100dvh - 5.5rem) * 0.82))';
 const RECOMMENDED_CHART_HEIGHT_CLASS = 'h-[192px]';
 
-const RecommendedPerformanceChart = dynamic(
-  () => import('@/components/platform/performance-chart').then((m) => m.PerformanceChart),
-  {
-    ssr: false,
-    loading: () => (
-      <Skeleton className={cn(RECOMMENDED_CHART_HEIGHT_CLASS, 'w-full rounded-lg')} />
-    ),
-  }
-);
+const RecommendedPerformanceChart = createPerformanceChartDynamic({
+  loading: () => (
+    <Skeleton className={cn(RECOMMENDED_CHART_HEIGHT_CLASS, 'w-full rounded-lg')} />
+  ),
+});
 
 function fmtRecommendedPct(v: number | null | undefined, digits = 1) {
   if (v == null || !Number.isFinite(v)) return '—';

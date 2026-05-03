@@ -265,15 +265,6 @@ function normalizePayload(data: ExploreHoldingsApiResponse): ExploreHoldingsPayl
   };
 }
 
-/** v1 localStorage entries may omit `latestRunDate`. */
-function padExploreHoldingsPayload(value: ExploreHoldingsPayload): ExploreHoldingsPayload {
-  const lr = (value as { latestRunDate?: unknown }).latestRunDate;
-  return {
-    ...value,
-    latestRunDate: typeof lr === 'string' && DATE_RE.test(lr) ? lr : null,
-  };
-}
-
 function normalizeDates(dates: readonly string[]): string[] {
   return [...new Set(dates.map((d) => d.trim()).filter((d) => DATE_RE.test(d)))].sort((a, b) =>
     b.localeCompare(a)
@@ -328,27 +319,37 @@ function resolveEntryFromStore(
 ): ExploreHoldingsPayload | undefined {
   const memoryEntry = memoryStore.get(logicalKey);
   if (memoryEntry) {
-    if (isFresh(memoryEntry.updatedAt)) return padExploreHoldingsPayload(memoryEntry.value);
+    if (isFresh(memoryEntry.updatedAt)) {
+      const coerced = normalizePayload(memoryEntry.value as ExploreHoldingsApiResponse);
+      memoryStore.set(logicalKey, { value: coerced, updatedAt: memoryEntry.updatedAt });
+      return coerced;
+    }
     if (isStaleButUsable(memoryEntry.updatedAt)) {
       if (revalidate) scheduleRevalidate(slug, configId, asOf);
-      return padExploreHoldingsPayload(memoryEntry.value);
+      const coerced = normalizePayload(memoryEntry.value as ExploreHoldingsApiResponse);
+      memoryStore.set(logicalKey, { value: coerced, updatedAt: memoryEntry.updatedAt });
+      return coerced;
     }
     memoryStore.delete(logicalKey);
   }
 
   const diskEntry = readPersistentEntry(logicalKey);
   if (diskEntry) {
-    const padded = { ...diskEntry, value: padExploreHoldingsPayload(diskEntry.value) };
+    const coerced = normalizePayload(diskEntry.value as ExploreHoldingsApiResponse);
+    const nextEntry: CacheEntry<ExploreHoldingsPayload> = {
+      value: coerced,
+      updatedAt: diskEntry.updatedAt,
+    };
     if (isFresh(diskEntry.updatedAt)) {
-      memoryStore.set(logicalKey, padded);
+      memoryStore.set(logicalKey, nextEntry);
       touchLruOrder(logicalKey);
-      return padded.value;
+      return coerced;
     }
     if (isStaleButUsable(diskEntry.updatedAt)) {
-      memoryStore.set(logicalKey, padded);
+      memoryStore.set(logicalKey, nextEntry);
       touchLruOrder(logicalKey);
       if (revalidate) scheduleRevalidate(slug, configId, asOf);
-      return padded.value;
+      return coerced;
     }
     removePersistentEntry(logicalKey);
   }

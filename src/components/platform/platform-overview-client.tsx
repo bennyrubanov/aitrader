@@ -9,7 +9,6 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
-import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
@@ -79,6 +78,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { createPerformanceChartDynamic } from '@/components/platform/performance-chart-dynamic';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import {
@@ -183,10 +183,9 @@ import {
   type CostBasisDateSnapshot,
 } from '@/lib/portfolio-holdings-cost-basis';
 
-const PerformanceChart = dynamic(
-  () => import('@/components/platform/performance-chart').then((m) => m.PerformanceChart),
-  { ssr: false, loading: () => <Skeleton className="h-[328px] w-full rounded-lg" /> }
-);
+const PerformanceChart = createPerformanceChartDynamic({
+  loading: () => <Skeleton className="h-[328px] w-full rounded-lg" />,
+});
 
 /** Every overview grid cell (portfolio tile or “add”) uses this fixed row height — layout does not grow/shrink per content. */
 /** Overview portfolio tiles (incl. rebalance column): tall enough to avoid inner scroll. */

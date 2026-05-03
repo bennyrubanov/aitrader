@@ -1,6 +1,6 @@
 'use client';
 
-import dynamic from 'next/dynamic';
+import { createPerformanceChartDynamic } from '@/components/platform/performance-chart-dynamic';
 import { type ReactNode } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
@@ -46,10 +46,9 @@ import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
 import { CalendarDays, Hash, Scale, Shield, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-const PerformanceChart = dynamic(
-  () => import('@/components/platform/performance-chart').then((m) => m.PerformanceChart),
-  { ssr: false, loading: () => <Skeleton className="h-[360px] w-full" /> }
-);
+const PerformanceChart = createPerformanceChartDynamic({
+  loading: () => <Skeleton className="h-[360px] w-full" />,
+});
 
 const fmt = {
   pct: (v: number | null | undefined, digits = 1) =>

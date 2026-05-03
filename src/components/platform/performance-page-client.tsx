@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import dynamic from 'next/dynamic';
+import { createPerformanceChartDynamic } from '@/components/platform/performance-chart-dynamic';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -19,13 +19,9 @@ import { cn } from '@/lib/utils';
 import { Disclaimer } from '@/components/Disclaimer';
 import { MetricReadinessPill } from '@/components/platform/metric-readiness-pill';
 
-const PerformanceChart = dynamic(
-  () => import('@/components/platform/performance-chart').then((module) => module.PerformanceChart),
-  {
-    ssr: false,
-    loading: () => <Skeleton className="h-[360px] w-full" />,
-  }
-);
+const PerformanceChart = createPerformanceChartDynamic({
+  loading: () => <Skeleton className="h-[360px] w-full" />,
+});
 
 const formatCurrency = (value: number | null | undefined) =>
   typeof value === 'number' && Number.isFinite(value)

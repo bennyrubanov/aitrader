@@ -139,13 +139,39 @@ function bindInvalidateListener(): void {
 export function getCachedExploreEquitySeries(slug: string): ExploreEquitySeriesPayload | null {
   const key = cacheKey(slug);
   const memoryEntry = memoryStore.get(key);
-  if (memoryEntry && isFresh(memoryEntry.updatedAt)) return memoryEntry.value;
+  if (memoryEntry && isFresh(memoryEntry.updatedAt)) {
+    const coerced = normalize(memoryEntry.value);
+    if (coerced.dates.length === 0 && coerced.series.length === 0) {
+      memoryStore.delete(key);
+      if (typeof window !== 'undefined') {
+        try {
+          window.sessionStorage.removeItem(storageKey(key));
+        } catch {
+          // ignore
+        }
+      }
+      return null;
+    }
+    memoryStore.set(key, { value: coerced, updatedAt: memoryEntry.updatedAt });
+    return coerced;
+  }
   if (memoryEntry) memoryStore.delete(key);
 
   const sessionEntry = readSessionEntry(key);
   if (sessionEntry && isFresh(sessionEntry.updatedAt)) {
-    memoryStore.set(key, sessionEntry);
-    return sessionEntry.value;
+    const coerced = normalize(sessionEntry.value);
+    if (coerced.dates.length === 0 && coerced.series.length === 0) {
+      if (typeof window !== 'undefined') {
+        try {
+          window.sessionStorage.removeItem(storageKey(key));
+        } catch {
+          // ignore
+        }
+      }
+      return null;
+    }
+    memoryStore.set(key, { value: coerced, updatedAt: sessionEntry.updatedAt });
+    return coerced;
   }
   return null;
 }
