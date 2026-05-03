@@ -52,7 +52,7 @@ const newsPublishedAbsoluteFormatter = new Intl.DateTimeFormat('en-US', {
   timeZone: 'UTC',
 });
 
-/** Higher share of preset portfolios = broader model footprint (good); very low = weak footprint. */
+/** Higher share of portfolios = broader model footprint (good); very low = weak footprint. */
 function portfolioBreadthSentiment(percent: number): 'good' | 'bad' | 'neutral' {
   if (percent > 12) return 'good';
   if (percent < 6) return 'bad';
@@ -599,7 +599,7 @@ const StockDetailClient = ({
     : "Create a free account or sign in to see this week's AI buy/hold/sell call, summary, key risks, and weekly history for non-premium stocks.";
   const guestPortfolioPresenceCopy = isPremiumStock
     ? 'Portfolio footprint uses the same AI ranking access as ratings. Premium Nasdaq-100 names require Supporter or Outperformer after you sign in.'
-    : 'Sign in to see how many preset portfolios include this stock for the selected model (non-premium names on a free plan).';
+    : 'Sign in to see how many portfolios include this stock for the selected model (non-premium names on a free plan).';
   /** Guest-visible stocks: server may include current bucket for marketing preview. */
   const guestSeesLiveLatestBucket =
     !isAuthenticated && !isPremiumStock && latest.bucket != null;

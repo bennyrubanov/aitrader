@@ -137,7 +137,7 @@ const getCachedPortfolioPresenceBase = (strategySlug: string | null) => {
 };
 
 /**
- * How many of our preset portfolio_configs would include this stock at the latest weekly
+ * How many of our portfolios would include this stock at the latest weekly
  * AI run for the strategy (same latent_rank sort as config compute). Public; admin-only DB read.
  */
 export async function GET(req: Request, { params }: RouteContext) {

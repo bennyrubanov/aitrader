@@ -996,29 +996,41 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
           <div className="px-4 py-2 sm:px-6 sm:py-2.5">
             {!isLoading && filteredConfigs.length > 0 ? (
               <>
-                {/* Mobile: one row — sort (or chart label) + chart/list toggle (icons only); meta below */}
+                {/* Mobile: row 1 — sort/chart label + portfolio count + toggle; row 2 — clear filters only when active */}
                 <div className="flex flex-col gap-2 md:hidden">
-                  <div className="flex min-w-0 flex-row items-center justify-between gap-2">
+                  <div className="flex min-w-0 flex-row items-center justify-between gap-2 pt-1">
                     {browseMode === 'list' ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="relative h-9 shrink-0 gap-1.5 overflow-visible pr-2.5 text-xs"
-                        onClick={() => setSortDialogOpen(true)}
-                      >
-                        <ArrowUpDown className="size-3.5 shrink-0" aria-hidden />
-                        Sort
-                        <PortfolioListSortActiveIndicator metric={sortMetric} className="-right-1.5 -top-1.5" />
-                      </Button>
+                      <div className="flex min-w-0 flex-1 items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="relative h-9 shrink-0 gap-1.5 overflow-visible pr-2.5 text-xs"
+                          onClick={() => setSortDialogOpen(true)}
+                        >
+                          <ArrowUpDown className="size-3.5 shrink-0" aria-hidden />
+                          Sort
+                          <PortfolioListSortActiveIndicator metric={sortMetric} className="-right-1.5 -top-1.5" />
+                        </Button>
+                        <span className="min-w-0 truncate text-xs text-muted-foreground">
+                          {filteredConfigs.length} portfolio{filteredConfigs.length !== 1 ? 's' : ''}
+                          {activeFilterCount > 0 ? ' matching filters' : ''}
+                        </span>
+                      </div>
                     ) : (
-                      <div className="flex shrink-0 items-center gap-1.5 py-0.5">
-                        <LineChart
-                          className="size-4 shrink-0 text-trader-blue dark:text-trader-blue-light"
-                          aria-hidden
-                        />
-                        <span className="whitespace-nowrap text-sm font-semibold text-foreground">
-                          Portfolio
+                      <div className="flex min-w-0 flex-1 items-center gap-2 py-0.5">
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          <LineChart
+                            className="size-4 shrink-0 text-trader-blue dark:text-trader-blue-light"
+                            aria-hidden
+                          />
+                          <span className="whitespace-nowrap text-sm font-semibold text-foreground">
+                            Portfolios
+                          </span>
+                        </div>
+                        <span className="min-w-0 truncate text-xs text-muted-foreground">
+                          {filteredConfigs.length} portfolio{filteredConfigs.length !== 1 ? 's' : ''}
+                          {activeFilterCount > 0 ? ' matching filters' : ''}
                         </span>
                       </div>
                     )}
@@ -1067,10 +1079,6 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
                         </span>
                       </Button>
                     ) : null}
-                    <span className="text-xs text-muted-foreground">
-                      {filteredConfigs.length} portfolio{filteredConfigs.length !== 1 ? 's' : ''}
-                      {activeFilterCount > 0 ? ' matching filters' : ''}
-                    </span>
                   </div>
                 </div>
 
@@ -1708,58 +1716,64 @@ function ConfigCard({
                     date. Parentheses show total return over that period.
                   </TooltipContent>
                 </Tooltip>
-                <MetricPill
-                  label="Performance vs S&P 500"
-                  value={fmt(outperformanceVsSp500Cap, 'pct')}
-                  positive={(outperformanceVsSp500Cap ?? 0) > 0}
-                  title="Portfolio cumulative return minus S&P 500 benchmark cumulative return over the same period ($10k start)."
-                  labelClassName="whitespace-normal"
-                />
-                <MetricPill
-                  label="Sharpe"
-                  value={fmt(config.metrics.sharpeRatio, 'num')}
-                  valueClassName={
-                    config.metrics.sharpeRatio != null && Number.isFinite(config.metrics.sharpeRatio)
-                      ? sharpeRatioValueClass(config.metrics.sharpeRatio)
-                      : undefined
-                  }
-                  afterLabel={
-                    <MetricReadinessPill
-                      kind="sharpe"
-                      value={config.metrics.sharpeRatio}
-                      weeksOfData={weeklyObservations}
-                    />
-                  }
-                />
-                <MetricPill
-                  label="CAGR"
-                  value={fmt(config.metrics.cagr, 'pct')}
-                  positive={(config.metrics.cagr ?? 0) >= 0}
-                  afterLabel={
-                    <MetricReadinessPill
-                      kind="cagr"
-                      value={config.metrics.cagr}
-                      weeksOfData={weeklyObservations}
-                    />
-                  }
-                />
-                <MetricPill
-                  label="Max drawdown"
-                  value={fmt(config.metrics.maxDrawdown, 'pct')}
-                  positive={
-                    config.metrics.maxDrawdown != null &&
-                    Number.isFinite(config.metrics.maxDrawdown)
-                      ? config.metrics.maxDrawdown > -0.2
-                      : undefined
-                  }
-                />
+                <div className="grid grid-cols-2 gap-x-3 gap-y-3">
+                  <MetricPill
+                    className="min-w-0"
+                    label="Performance vs S&P 500"
+                    value={fmt(outperformanceVsSp500Cap, 'pct')}
+                    positive={(outperformanceVsSp500Cap ?? 0) > 0}
+                    title="Portfolio cumulative return minus S&P 500 benchmark cumulative return over the same period ($10k start)."
+                    labelClassName="whitespace-normal"
+                  />
+                  <MetricPill
+                    className="min-w-0"
+                    label="Sharpe"
+                    value={fmt(config.metrics.sharpeRatio, 'num')}
+                    valueClassName={
+                      config.metrics.sharpeRatio != null && Number.isFinite(config.metrics.sharpeRatio)
+                        ? sharpeRatioValueClass(config.metrics.sharpeRatio)
+                        : undefined
+                    }
+                    afterLabel={
+                      <MetricReadinessPill
+                        kind="sharpe"
+                        value={config.metrics.sharpeRatio}
+                        weeksOfData={weeklyObservations}
+                      />
+                    }
+                  />
+                  <MetricPill
+                    className="min-w-0"
+                    label="CAGR"
+                    value={fmt(config.metrics.cagr, 'pct')}
+                    positive={(config.metrics.cagr ?? 0) >= 0}
+                    afterLabel={
+                      <MetricReadinessPill
+                        kind="cagr"
+                        value={config.metrics.cagr}
+                        weeksOfData={weeklyObservations}
+                      />
+                    }
+                  />
+                  <MetricPill
+                    className="min-w-0"
+                    label="Max drawdown"
+                    value={fmt(config.metrics.maxDrawdown, 'pct')}
+                    positive={
+                      config.metrics.maxDrawdown != null &&
+                      Number.isFinite(config.metrics.maxDrawdown)
+                        ? config.metrics.maxDrawdown > -0.2
+                        : undefined
+                    }
+                  />
+                </div>
               </>
             )}
           </div>
         ) : (
           <p className="text-[11px] text-muted-foreground">Performance computing…</p>
         )}
-        <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-2">
+        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border/60 pt-2">
           {followUnfollowButtons}
         </div>
       </div>
@@ -1899,12 +1913,14 @@ function ConfigCardMetricsSkeletonMobile() {
         <Skeleton className="h-2.5 w-12" />
         <Skeleton className="h-4 w-40" />
       </div>
-      {Array.from({ length: 4 }).map((_, i) => (
-        <div key={i} className="space-y-1">
-          <Skeleton className="h-2.5 w-28" />
-          <Skeleton className="h-4 w-24" />
-        </div>
-      ))}
+      <div className="grid grid-cols-2 gap-x-3 gap-y-3">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="min-w-0 space-y-1">
+            <Skeleton className="h-2.5 w-full max-w-[10rem]" />
+            <Skeleton className="h-4 w-20" />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

@@ -500,6 +500,7 @@ function ExploreActionsCardSkeleton({ rows = 4 }: { rows?: number }) {
 function FlipCard({
   label,
   value,
+  valueSuffix,
   explanation,
   loading = false,
   positive,
@@ -510,6 +511,7 @@ function FlipCard({
 }: {
   label: string;
   value: string;
+  valueSuffix?: string | null;
   explanation: string;
   loading?: boolean;
   positive?: boolean;
@@ -569,7 +571,11 @@ function FlipCard({
         if (!loading && (e.key === 'Enter' || e.key === ' ')) setFlipped((f) => !f);
       }}
       aria-disabled={loading}
-      aria-label={loading ? `${label}: loading` : `${label}: ${value}. Click for explanation.`}
+      aria-label={
+        loading
+          ? `${label}: loading`
+          : `${label}: ${value}${valueSuffix ? ` (${valueSuffix})` : ''}. Click for explanation.`
+      }
     >
       <div
         className="absolute inset-0 transition-transform duration-500"
@@ -589,7 +595,18 @@ function FlipCard({
           {loading ? (
             <Skeleton className="h-6 w-24" />
           ) : (
-            <p className={`text-lg font-bold leading-tight truncate ${colorClass}`}>{value}</p>
+            <p className={cn('min-w-0 font-bold tabular-nums leading-tight', colorClass)}>
+              {valueSuffix ? (
+                <span className="flex max-w-full flex-col gap-0.5 md:inline md:gap-0">
+                  <span className="text-lg max-md:text-base md:inline md:text-lg">{value}</span>
+                  <span className="text-lg max-md:text-[11px] max-md:font-semibold max-md:leading-snug md:ml-1 md:inline md:text-base md:font-bold">
+                    ({valueSuffix})
+                  </span>
+                </span>
+              ) : (
+                <span className="block truncate text-lg max-md:text-base md:text-lg">{value}</span>
+              )}
+            </p>
           )}
           <p className="text-[9px] text-muted-foreground">{loading ? 'loading…' : 'tap to explain'}</p>
         </div>
@@ -1207,10 +1224,10 @@ export function ExplorePortfolioDetailDialog({
     endingVal != null && Number.isFinite(endingVal) && endingVal > 0
       ? endingVal / INITIAL_CAPITAL - 1
       : (m?.totalReturn ?? null);
-  const headlinePortfolioValue =
+  const headlinePortfolioValueFlip =
     endingVal != null && Number.isFinite(endingVal)
-      ? `${fmtUsd(endingVal)} (${fmtPct(headlineTotalReturn)})`
-      : '—';
+      ? { value: fmtUsd(endingVal), valueSuffix: fmtPct(headlineTotalReturn) }
+      : { value: '—' as const, valueSuffix: null as string | null };
 
   const benchNasdaqTotalReturn =
     m?.endingValueMarket != null ? m.endingValueMarket / INITIAL_CAPITAL - 1 : null;
@@ -1543,8 +1560,9 @@ export function ExplorePortfolioDetailDialog({
 
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <FlipCard
-                  label="Portfolio value (return%)"
-                  value={headlinePortfolioValue}
+                  label="Portfolio value"
+                  value={headlinePortfolioValueFlip.value}
+                  valueSuffix={headlinePortfolioValueFlip.valueSuffix ?? undefined}
                   explanation="Current value for the model portfolio if you had invested $10,000 at inception, with total cumulative return shown in parentheses."
                   positive={(m.totalReturn ?? 0) > 0}
                 />

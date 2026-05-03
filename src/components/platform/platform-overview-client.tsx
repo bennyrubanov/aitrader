@@ -142,6 +142,7 @@ import {
   type PlatformOverviewTab,
 } from '@/lib/platform-overview-tab';
 import { useYourPortfoliosNavHref } from '@/lib/your-portfolios-last-profile-session';
+import { useIsBelowLg } from '@/hooks/use-is-below-lg';
 import { createConcurrencyLimit } from '@/lib/concurrency-limit';
 import {
   overviewCardSortValue,
@@ -1604,11 +1605,6 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   const spotlightHoldingsRequestIdRef = useRef(0);
   const spotlightHoldingsLenRef = useRef(0);
   spotlightHoldingsLenRef.current = topSpotlightHoldings.length;
-  const spotlightHoldingsScrollRef = useRef<HTMLDivElement | null>(null);
-  const spotlightHoldingsInnerRef = useRef<HTMLTableElement | null>(null);
-  const [showSpotlightHoldingsScrollFade, setShowSpotlightHoldingsScrollFade] = useState(false);
-  const [spotlightHoldingsChevronDismissed, setSpotlightHoldingsChevronDismissed] =
-    useState(false);
   const [spotlightStockChartSymbol, setSpotlightStockChartSymbol] = useState<string | null>(null);
   const [spotlightHoldingsMovementView, setSpotlightHoldingsMovementView] = useState(false);
   const [prevSpotlightMovementHoldings, setPrevSpotlightMovementHoldings] = useState<
@@ -2303,6 +2299,14 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   const topSpotlightConfigId = topSpotlightOverview?.profile.portfolio_config?.id ?? null;
   const topSpotlightSlug = topSpotlightOverview?.profile.strategy_models?.slug ?? null;
   const holdingsCacheVersion = useExploreHoldingsCacheVersion();
+  const isBelowLg = useIsBelowLg();
+  const [spotlightMobileSubTab, setSpotlightMobileSubTab] = useState<'performance' | 'holdings'>(
+    'performance'
+  );
+
+  useEffect(() => {
+    setSpotlightMobileSubTab('performance');
+  }, [topSpotlightProfileId]);
 
   const fetchTopSpotlightHoldings = useCallback(
     async (asOf: string | null) => {
@@ -2406,59 +2410,6 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     setSpotlightHoldingsMovementTimeline(null);
     setSpotlightHoldingsDateSelect(HOLDINGS_TODAY_SENTINEL);
   }, [topSpotlightProfileId, topSpotlightConfigId]);
-
-  useEffect(() => {
-    setSpotlightHoldingsChevronDismissed(false);
-  }, [topSpotlightProfileId, topSpotlightConfigId, topSpotlightHoldingsAsOf, spotlightHoldingsDateSelect]);
-
-  const nudgeSpotlightHoldingsScroll = useCallback(() => {
-    const el = spotlightHoldingsScrollRef.current;
-    if (!el) return;
-    setSpotlightHoldingsChevronDismissed(true);
-    const delta = Math.min(180, Math.max(80, Math.round(el.clientHeight * 0.6)));
-    el.scrollBy({ top: delta, behavior: 'smooth' });
-  }, []);
-
-  useEffect(() => {
-    const scrollEl = spotlightHoldingsScrollRef.current;
-    if (!scrollEl) return;
-
-    const updateScrollUi = () => {
-      const canScroll = scrollEl.scrollHeight > scrollEl.clientHeight + 2;
-      const isAtTop = scrollEl.scrollTop <= 2;
-      setShowSpotlightHoldingsScrollFade(canScroll && isAtTop);
-      if (scrollEl.scrollTop > 2) {
-        setSpotlightHoldingsChevronDismissed(true);
-      }
-    };
-
-    updateScrollUi();
-    const raf = requestAnimationFrame(updateScrollUi);
-    scrollEl.addEventListener('scroll', updateScrollUi, { passive: true });
-    window.addEventListener('resize', updateScrollUi);
-    const roScroll = new ResizeObserver(updateScrollUi);
-    roScroll.observe(scrollEl);
-    const inner = spotlightHoldingsInnerRef.current;
-    let roInner: ResizeObserver | null = null;
-    if (inner) {
-      roInner = new ResizeObserver(updateScrollUi);
-      roInner.observe(inner);
-    }
-
-    return () => {
-      cancelAnimationFrame(raf);
-      scrollEl.removeEventListener('scroll', updateScrollUi);
-      window.removeEventListener('resize', updateScrollUi);
-      roScroll.disconnect();
-      roInner?.disconnect();
-    };
-  }, [
-    topSpotlightProfileId,
-    topSpotlightHoldings,
-    topSpotlightHoldingsLoading,
-    topSpotlightHoldingsRefreshing,
-    spotlightHoldingsMovementView,
-  ]);
 
   const spotlightHoldingsTopN =
     topSpotlightOverview?.profile.portfolio_config?.top_n ?? 20;
@@ -3172,78 +3123,49 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                       const investmentSize = Number(bp.investment_size);
                       const { excessVsSp500 } = benchmarkStatsFromSeries(series);
                       const spotlightDisplayTotalReturn: number | null = st.totalReturn ?? null;
-                      return (
-                        <>
-                          <div className="mb-2 flex min-w-0 items-start justify-between gap-3">
-                            <div className="min-w-0 flex flex-wrap items-center gap-x-1.5 gap-y-1">
-                              <h2 className="shrink-0 text-sm font-semibold tracking-tight text-foreground">
-                                Your top portfolio by return
-                              </h2>
-                              <span className="shrink-0 text-muted-foreground/60" aria-hidden>
-                                ·
-                              </span>
-                              <span className="min-w-0 text-sm text-muted-foreground">
-                                {strategyTitle}
-                              </span>
-                              {pc && spotlightRiskTitle ? (
-                                <>
-                                  <span className="shrink-0 text-muted-foreground/60" aria-hidden>
-                                    ·
-                                  </span>
-                                  <span
-                                    className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border/80 bg-muted/40 px-2 py-0.5 text-[10px] font-semibold"
-                                    title={spotlightRiskTitle}
-                                  >
-                                    <span
-                                      className={cn(
-                                        'size-1.5 shrink-0 rounded-full',
-                                        spotlightRiskDot
-                                      )}
-                                      aria-hidden
-                                    />
-                                    {spotlightRiskTitle}
-                                  </span>
-                                </>
-                              ) : null}
-                              {spotlightConfigLine ? (
-                                <>
-                                  <span className="shrink-0 text-muted-foreground/60" aria-hidden>
-                                    ·
-                                  </span>
-                                  <span className="min-w-0 text-sm text-muted-foreground">
-                                    {spotlightConfigLine}
-                                  </span>
-                                </>
-                              ) : !pc ? (
-                                <>
-                                  <span className="shrink-0 text-muted-foreground/60" aria-hidden>
-                                    ·
-                                  </span>
-                                  <span className="text-sm text-muted-foreground">
-                                    Portfolio
-                                  </span>
-                                </>
-                              ) : null}
+
+                      function renderOverviewSpotlightHeadlineMetrics() {
+                        return (
+                          <div className="mx-auto w-full max-w-full lg:mx-0">
+                            <div className="grid w-full grid-cols-2 gap-2 sm:gap-3">
+                              <div data-platform-tour="overview-portfolio-value-card">
+                                <SpotlightStatCard
+                                  tooltipKey="portfolio_value"
+                                  label="Portfolio value"
+                                  value={val != null ? formatOverviewCurrency(val) : '—'}
+                                  valueSuffix={
+                                    val != null
+                                      ? ` (${fmt.pct(spotlightDisplayTotalReturn)})`
+                                      : undefined
+                                  }
+                                  suffixPositive={
+                                    val != null &&
+                                    spotlightDisplayTotalReturn != null &&
+                                    Number.isFinite(spotlightDisplayTotalReturn)
+                                      ? spotlightDisplayTotalReturn > 0
+                                      : undefined
+                                  }
+                                  asOfCloseDate={spotlightPortfolioValueAsOfCloseLabel}
+                                />
+                              </div>
+                              <SpotlightStatCard
+                                tooltipKey="vs_sp500"
+                                label="Performance vs S&P 500"
+                                value={fmt.pct(excessVsSp500)}
+                                positive={
+                                  excessVsSp500 != null && Number.isFinite(excessVsSp500)
+                                    ? excessVsSp500 > 0
+                                    : undefined
+                                }
+                              />
                             </div>
-                            {bp.user_start_date ? (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
-                                aria-label="Edit starting investment and entry"
-                                onClick={() => setEntrySettingsProfileId(bp.id)}
-                              >
-                                <Settings2 className="size-4" />
-                              </Button>
-                            ) : null}
                           </div>
-                          {!st.loading && st.gatheringData ? (
-                            <p className="mb-3 text-[11px] leading-snug text-muted-foreground">
-                              Data still gathering — returns update after more market closes.
-                            </p>
-                          ) : null}
-                          <div className="grid gap-4 lg:h-full lg:min-h-0 lg:grid-cols-[minmax(0,11rem)_minmax(0,1.25fr)_minmax(0,0.8fr)] lg:items-start">
+                        );
+                      }
+
+                      function renderOverviewSpotlightCol1Full() {
+                        return (
+
                               <div className="mx-auto flex w-full max-w-full flex-col gap-2 sm:gap-3 lg:mx-0 lg:max-w-[11rem] lg:gap-2 lg:max-h-[min(68vh,520px)] lg:overflow-y-auto lg:pr-1">
                                 <div className="grid w-full grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-1 lg:gap-2">
                                   <div data-platform-tour="overview-portfolio-value-card">
@@ -3368,6 +3290,10 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                   />
                                 </div>
                               </div>
+                        );
+                      }
+                      function renderOverviewSpotlightCol2() {
+                        return (
                               <div
                                 className="relative min-w-0 rounded-xl border bg-background/60 p-3 sm:p-4"
                                 data-platform-tour="overview-performance-chart"
@@ -3433,106 +3359,201 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                   </Link>
                                 </Button>
                               </div>
-                              <div className="min-w-0 space-y-2 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
+                        );
+                      }
+                      function renderOverviewSpotlightHoldingsInner() {
+                        return (
+                        <>
                                 <div
                                   className="flex flex-col gap-2"
                                   data-platform-tour="overview-portfolio-holdings"
                                 >
-                                  <h4 className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                                    Portfolio holdings
-                                  </h4>
-                                  {overviewPaidHoldings && scopedTopSpotlightRebalanceDates.length > 0 ? (
-                                    <div className="flex min-w-0 flex-nowrap items-center justify-start gap-x-1.5 overflow-x-auto sm:gap-x-2">
-                                      <Select
-                                        value={spotlightHoldingsDateSelect}
-                                        onValueChange={(v) => {
-                                          if (!v || v === spotlightHoldingsDateSelect) return;
-                                          setSpotlightHoldingsDateSelect(v);
-                                          void fetchTopSpotlightHoldings(
-                                            v === HOLDINGS_TODAY_SENTINEL ? null : v
-                                          );
-                                        }}
-                                        disabled={topSpotlightHoldingsLoading}
-                                      >
-                                        <SelectTrigger
-                                          className={cn(
-                                            'h-9 rounded-md border border-input bg-background px-2 text-left text-xs shadow-none ring-0 hover:bg-muted/30 focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:ring-0 data-[state=open]:ring-offset-0',
-                                            PORTFOLIO_HOLDINGS_DATE_SELECT_WIDTH_CLASSES
-                                          )}
-                                        >
-                                          <SelectValue placeholder="Rebalance date" />
-                                        </SelectTrigger>
-                                        <SelectContent align="start">
-                                          <SelectItem
-                                            value={HOLDINGS_TODAY_SENTINEL}
-                                            className="text-xs"
-                                          >
-                                            Today
-                                          </SelectItem>
-                                          {scopedTopSpotlightRebalanceDates.map((d) => {
-                                            const initialD =
-                                              scopedTopSpotlightRebalanceDates[
-                                                scopedTopSpotlightRebalanceDates.length - 1
-                                              ];
-                                            return (
-                                            <SelectItem key={d} value={d} className="text-xs">
-                                              {d === initialD
-                                                ? `${spotlightHoldingsShortDateFmt.format(
-                                                    new Date(
-                                                      `${ymdForInitialRebalanceDisplay(
-                                                        d,
-                                                        topSpotlightUserStartYmd
-                                                      )}T00:00:00Z`
-                                                    )
-                                                  )} (initial)`
-                                                : spotlightHoldingsShortDateFmt.format(
-                                                    new Date(`${d}T00:00:00Z`)
-                                                  )}
-                                            </SelectItem>
-                                            );
-                                          })}
-                                        </SelectContent>
-                                      </Select>
-                                      {spotlightHoldingsPrevRebalanceDate ? (
-                                        <div className="flex shrink-0 items-center gap-1.5">
-                                          <Switch
-                                            id="overview-spotlight-holdings-movement"
-                                            checked={spotlightHoldingsMovementView}
-                                            onCheckedChange={setSpotlightHoldingsMovementView}
-                                            disabled={topSpotlightHoldingsLoading}
-                                            aria-label="Show which holdings entered, stayed, or exited vs prior rebalance"
+                                  <div className="md:hidden">
+                                    <div className="mb-2 grid w-full max-sm:grid-cols-[minmax(0,1fr)_auto] max-sm:items-end max-sm:gap-x-2 sm:mb-4 sm:ml-auto sm:flex sm:w-auto sm:flex-none sm:flex-row sm:items-end sm:gap-4">
+                                        {overviewPaidHoldings &&
+                                        scopedTopSpotlightRebalanceDates.length > 0 ? (
+                                          <HoldingsPortfolioValueLine
+                                            value={spotlightPortfolioValueLineAmount}
+                                            formatCurrency={formatOverviewCurrency}
+                                            className="min-w-0 max-sm:col-start-1 max-sm:justify-self-start"
+                                            stackAsOfOnNarrow
+                                            asOfCloseDate={spotlightPortfolioValueAsOfCloseLabel}
                                           />
-                                          <Label
-                                            htmlFor="overview-spotlight-holdings-movement"
-                                            className="text-xs text-muted-foreground cursor-pointer whitespace-nowrap leading-none"
-                                          >
-                                            Movement
-                                          </Label>
-                                          <HoldingsMovementInfoTooltip />
-                                          {spotlightHoldingsMovementView &&
-                                          prevSpotlightMovementLoading ? (
-                                            <Loader2
-                                              className="size-3.5 shrink-0 animate-spin text-muted-foreground"
-                                              aria-hidden
-                                            />
-                                          ) : null}
-                                        </div>
-                                      ) : null}
+                                        ) : null}
+                                        {overviewPaidHoldings &&
+                                        scopedTopSpotlightRebalanceDates.length >= 1 ? (
+                                          <div className="flex max-w-[13rem] flex-col items-end max-sm:col-start-2 max-sm:max-w-[min(100%,11.5rem)] max-sm:justify-self-end max-sm:shrink-0 sm:shrink-0">
+                                            <Select
+                                              value={spotlightHoldingsDateSelect}
+                                              onValueChange={(v) => {
+                                                if (!v || v === spotlightHoldingsDateSelect) return;
+                                                setSpotlightHoldingsDateSelect(v);
+                                                void fetchTopSpotlightHoldings(
+                                                  v === HOLDINGS_TODAY_SENTINEL ? null : v
+                                                );
+                                              }}
+                                              disabled={topSpotlightHoldingsLoading}
+                                            >
+                                              <SelectTrigger
+                                                id="overview-spotlight-holdings-rebalance-date"
+                                                aria-label="Rebalance date"
+                                                className={cn(
+                                                  'h-8 min-h-8 w-full min-w-0 rounded-md border border-input bg-background px-2 text-left text-xs shadow-none ring-0 hover:bg-muted/30 focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:ring-0 data-[state=open]:ring-offset-0 [&_svg]:size-3.5',
+                                                  PORTFOLIO_REBALANCE_DATE_SELECT_WIDTH_CLASSES,
+                                                  'max-md:w-full max-md:min-w-[9rem] max-md:max-w-[min(100%,10rem)]'
+                                                )}
+                                              >
+                                                <SelectValue placeholder="Choose date" />
+                                              </SelectTrigger>
+                                              <SelectContent align="start" className="text-xs">
+                                                <SelectItem
+                                                  value={HOLDINGS_TODAY_SENTINEL}
+                                                  className="py-1.5 text-xs"
+                                                >
+                                                  Today
+                                                </SelectItem>
+                                                {scopedTopSpotlightRebalanceDates.map((d) => {
+                                                  const initialD =
+                                                    scopedTopSpotlightRebalanceDates[
+                                                      scopedTopSpotlightRebalanceDates.length - 1
+                                                    ];
+                                                  return (
+                                                    <SelectItem key={d} value={d} className="py-1.5 text-xs">
+                                                      {d === initialD
+                                                        ? `${spotlightHoldingsShortDateFmt.format(
+                                                            new Date(
+                                                              `${ymdForInitialRebalanceDisplay(
+                                                                d,
+                                                                topSpotlightUserStartYmd
+                                                              )}T00:00:00Z`
+                                                            )
+                                                          )} (initial)`
+                                                        : spotlightHoldingsShortDateFmt.format(
+                                                            new Date(`${d}T00:00:00Z`)
+                                                          )}
+                                                    </SelectItem>
+                                                  );
+                                                })}
+                                              </SelectContent>
+                                            </Select>
+                                          </div>
+                                        ) : null}
                                     </div>
-                                  ) : overviewPaidHoldings &&
+                                    {overviewPaidHoldings &&
                                     !topSpotlightHoldingsLoading &&
                                     scopedTopSpotlightRebalanceDates.length === 0 ? (
-                                    <p className="shrink-0 text-left text-[11px] text-muted-foreground">
-                                      No rebalance history yet.
-                                    </p>
-                                  ) : null}
-                                  {overviewPaidHoldings && scopedTopSpotlightRebalanceDates.length > 0 ? (
-                                    <HoldingsPortfolioValueLine
-                                      value={spotlightPortfolioValueLineAmount}
-                                      formatCurrency={formatOverviewCurrency}
-                                      asOfCloseDate={spotlightPortfolioValueAsOfCloseLabel}
-                                    />
-                                  ) : null}
+                                      <p className="shrink-0 text-left text-[11px] text-muted-foreground">
+                                        No rebalance history yet.
+                                      </p>
+                                    ) : null}
+                                  </div>
+                                  <div className="hidden md:flex md:flex-col md:gap-2">
+                                    {overviewPaidHoldings && scopedTopSpotlightRebalanceDates.length > 0 ? (
+                                      <div className="flex min-w-0 flex-row items-start justify-between gap-4">
+                                        <div className="min-w-0 flex-1 space-y-2 text-left">
+                                          <h4 className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                            Portfolio holdings
+                                          </h4>
+                                          <HoldingsPortfolioValueLine
+                                            value={spotlightPortfolioValueLineAmount}
+                                            formatCurrency={formatOverviewCurrency}
+                                            className="min-w-0"
+                                            asOfCloseDate={spotlightPortfolioValueAsOfCloseLabel}
+                                            stackValueAndAsOfLines
+                                          />
+                                        </div>
+                                        <div className="flex shrink-0 flex-col items-end gap-2">
+                                          <Select
+                                            value={spotlightHoldingsDateSelect}
+                                            onValueChange={(v) => {
+                                              if (!v || v === spotlightHoldingsDateSelect) return;
+                                              setSpotlightHoldingsDateSelect(v);
+                                              void fetchTopSpotlightHoldings(
+                                                v === HOLDINGS_TODAY_SENTINEL ? null : v
+                                              );
+                                            }}
+                                            disabled={topSpotlightHoldingsLoading}
+                                          >
+                                            <SelectTrigger
+                                              id="overview-spotlight-holdings-rebalance-date-md"
+                                              className={cn(
+                                                'h-9 rounded-md border border-input bg-background px-2 text-right text-xs shadow-none ring-0 hover:bg-muted/30 focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:ring-0 data-[state=open]:ring-offset-0',
+                                                PORTFOLIO_HOLDINGS_DATE_SELECT_WIDTH_CLASSES
+                                              )}
+                                            >
+                                              <SelectValue placeholder="Rebalance date" />
+                                            </SelectTrigger>
+                                            <SelectContent align="end">
+                                              <SelectItem
+                                                value={HOLDINGS_TODAY_SENTINEL}
+                                                className="text-xs"
+                                              >
+                                                Today
+                                              </SelectItem>
+                                              {scopedTopSpotlightRebalanceDates.map((d) => {
+                                                const initialD =
+                                                  scopedTopSpotlightRebalanceDates[
+                                                    scopedTopSpotlightRebalanceDates.length - 1
+                                                  ];
+                                                return (
+                                                  <SelectItem key={d} value={d} className="text-xs">
+                                                    {d === initialD
+                                                      ? `${spotlightHoldingsShortDateFmt.format(
+                                                          new Date(
+                                                            `${ymdForInitialRebalanceDisplay(
+                                                              d,
+                                                              topSpotlightUserStartYmd
+                                                            )}T00:00:00Z`
+                                                          )
+                                                        )} (initial)`
+                                                      : spotlightHoldingsShortDateFmt.format(
+                                                          new Date(`${d}T00:00:00Z`)
+                                                        )}
+                                                  </SelectItem>
+                                                );
+                                              })}
+                                            </SelectContent>
+                                          </Select>
+                                          {spotlightHoldingsPrevRebalanceDate ? (
+                                            <div className="flex shrink-0 items-center justify-end gap-1.5">
+                                              <Switch
+                                                id="overview-spotlight-holdings-movement"
+                                                checked={spotlightHoldingsMovementView}
+                                                onCheckedChange={setSpotlightHoldingsMovementView}
+                                                disabled={topSpotlightHoldingsLoading}
+                                                aria-label="Show which holdings entered, stayed, or exited vs prior rebalance"
+                                              />
+                                              <Label
+                                                htmlFor="overview-spotlight-holdings-movement"
+                                                className="cursor-pointer whitespace-nowrap text-xs leading-none text-muted-foreground"
+                                              >
+                                                Movement
+                                              </Label>
+                                              <HoldingsMovementInfoTooltip />
+                                              {spotlightHoldingsMovementView &&
+                                              prevSpotlightMovementLoading ? (
+                                                <Loader2
+                                                  className="size-3.5 shrink-0 animate-spin text-muted-foreground"
+                                                  aria-hidden
+                                                />
+                                              ) : null}
+                                            </div>
+                                          ) : null}
+                                        </div>
+                                      </div>
+                                    ) : overviewPaidHoldings &&
+                                      !topSpotlightHoldingsLoading &&
+                                      scopedTopSpotlightRebalanceDates.length === 0 ? (
+                                      <div className="space-y-2 text-left">
+                                        <h4 className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                          Portfolio holdings
+                                        </h4>
+                                        <p className="shrink-0 text-[11px] text-muted-foreground">
+                                          No rebalance history yet.
+                                        </p>
+                                      </div>
+                                    ) : null}
+                                  </div>
                                 </div>
                                 {!overviewPaidHoldings ? (
                                   <div className="space-y-3">
@@ -3595,215 +3616,49 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                           topSpotlightHoldingsRefreshing && 'opacity-[0.65]'
                                         )}
                                       >
-                                    <div className="relative">
-                                    <div
-                                      ref={spotlightHoldingsScrollRef}
-                                      className="max-h-[13.25rem] overflow-auto overscroll-y-contain rounded-md border [scrollbar-width:thin]"
-                                    >
-                                      <Table ref={spotlightHoldingsInnerRef} noScrollWrapper>
-                                        <TableHeader>
-                                          <TableRow className="hover:bg-transparent">
-                                            <TableHead className="h-9 min-w-[4.25rem] py-1.5 pl-2 pr-0.5 text-left align-middle tabular-nums">
-                                              #
-                                            </TableHead>
-                                            <TableHead className="h-9 w-16 px-1.5 py-1.5 text-left align-middle">
-                                              Stock
-                                            </TableHead>
-                                            <TableHead className="h-9 px-1.5 py-1.5 text-center align-middle whitespace-nowrap">
-                                              <span className="inline-flex items-center justify-center gap-1">
-                                                Value
-                                                <HoldingsAllocationColumnTooltip
-                                                  weightingMethod={pc?.weighting_method}
-                                                  topN={pc?.top_n}
-                                                  showCurrentVsTargetCopy
-                                                />
-                                              </span>
-                                            </TableHead>
-                                            <TableHead className="h-9 py-1.5 pl-1.5 pr-3 text-right align-middle whitespace-nowrap">
-                                              <span className="inline-flex min-w-0 max-w-full items-center justify-end gap-1">
-                                                <span className="truncate">Cost basis</span>
-                                                <HoldingsCostBasisColumnTooltip variant="user" />
-                                              </span>
-                                            </TableHead>
-                                          </TableRow>
-                                        </TableHeader>
+                                        <div className="md:hidden">
+                                        <div
+                                          className={cn(
+                                            'rounded-lg border overflow-hidden',
+                                            'max-md:[&_th]:!px-0 max-md:[&_td]:!px-0 max-md:[&_th]:!py-2 max-md:[&_td]:!py-2',
+                                            'max-md:[&_th:first-child]:!pl-1 max-md:[&_td:first-child]:!pl-1',
+                                            'max-md:[&_th:last-child]:!pr-1 max-md:[&_td:last-child]:!pr-1',
+                                            'max-md:[&_th:first-child]:!w-8 max-md:[&_td:first-child]:!w-8 max-md:[&_th:first-child]:!max-w-8 max-md:[&_td:first-child]:!max-w-8',
+                                            'max-md:[&_th]:!min-w-0 max-md:[&_td]:!min-w-0'
+                                          )}
+                                        >
+                                          <Table
+                                            noScrollWrapper
+                                            className="max-md:table-fixed max-md:w-full max-md:min-w-0"
+                                          >
+                                            <TableHeader>
+                                              <TableRow>
+                                                <TableHead className="max-md:h-auto max-md:text-center max-md:text-xs md:min-w-[4.25rem] md:px-4 md:text-left">
+                                                  #
+                                                </TableHead>
+                                                <TableHead className="max-md:h-auto max-md:text-center max-md:text-xs md:px-4 md:text-left">
+                                                  Stock
+                                                </TableHead>
+                                                <TableHead className="text-left max-md:h-auto max-md:text-center max-md:text-xs md:min-w-0 md:w-auto md:px-4">
+                                                  <span className="inline-flex max-w-full flex-wrap items-center justify-center gap-0.5 md:gap-1 md:justify-start">
+                                                    Value
+                                                    <HoldingsAllocationColumnTooltip
+                                                      weightingMethod={pc?.weighting_method}
+                                                      topN={pc?.top_n}
+                                                      showCurrentVsTargetCopy
+                                                    />
+                                                  </span>
+                                                </TableHead>
+                                                <TableHead className="text-right max-md:h-auto max-md:text-center max-md:text-xs md:min-w-0 md:w-auto md:px-4">
+                                                  <span className="inline-flex max-w-full flex-wrap items-center justify-center gap-0.5 md:gap-1 md:ml-auto md:justify-end">
+                                                    Cost basis
+                                                    <HoldingsCostBasisColumnTooltip variant="user" />
+                                                  </span>
+                                                </TableHead>
+                                              </TableRow>
+                                            </TableHeader>
                                         <TableBody>
-                                          {spotlightHoldingsMovementModel
-                                            ? (
-                                              <>
-                                                {spotlightHoldingsMovementModel.active.map(
-                                                  ({ holding: h, kind }) => {
-                                                    const company =
-                                                      typeof h.companyName === 'string' &&
-                                                      h.companyName.trim().length > 0
-                                                        ? h.companyName.trim()
-                                                        : null;
-                                                    const liveRow =
-                                                      liveTopSpotlightAllocation.bySymbol[
-                                                        h.symbol.toUpperCase()
-                                                      ];
-                                                    const showLive =
-                                                      liveTopSpotlightAllocation.hasCompleteCoverage &&
-                                                      liveRow?.currentValue != null &&
-                                                      liveRow.currentWeight != null;
-                                                    return (
-                                                      <TableRow
-                                                        key={`${h.symbol}-${h.rank}-m`}
-                                                        className={cn(
-                                                          'cursor-pointer hover:bg-muted/50',
-                                                          holdingMovementRowCn(kind)
-                                                        )}
-                                                        tabIndex={0}
-                                                        onClick={() =>
-                                                          setSpotlightStockChartSymbol(h.symbol)
-                                                        }
-                                                        onKeyDown={(e) => {
-                                                          if (e.key === 'Enter' || e.key === ' ') {
-                                                            e.preventDefault();
-                                                            setSpotlightStockChartSymbol(h.symbol);
-                                                          }
-                                                        }}
-                                                      >
-                                                        <TableCell className="py-1.5 pl-2 pr-0.5 text-muted-foreground">
-                                                          <HoldingRankWithChange
-                                                            rank={h.rank}
-                                                            rankChange={h.rankChange}
-                                                          />
-                                                        </TableCell>
-                                                        <TableCell className="px-1.5 py-1.5 text-left">
-                                                          {company ? (
-                                                            <Tooltip>
-                                                              <TooltipTrigger asChild>
-                                                                <span className="block truncate font-medium">
-                                                                  {h.symbol}
-                                                                </span>
-                                                              </TooltipTrigger>
-                                                              <TooltipContent
-                                                                side="top"
-                                                                className="max-w-xs text-left"
-                                                              >
-                                                                {company}
-                                                              </TooltipContent>
-                                                            </Tooltip>
-                                                          ) : (
-                                                            <span className="block truncate font-medium">
-                                                              {h.symbol}
-                                                            </span>
-                                                          )}
-                                                        </TableCell>
-                                                        <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap">
-                                                          {showLive ? (
-                                                            spotlightHoldingsDateSelect ===
-                                                            HOLDINGS_TODAY_SENTINEL ? (
-                                                              <div className="leading-tight">
-                                                                <div>
-                                                                  {`${formatOverviewCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
-                                                                </div>
-                                                                <div className="text-[11px] text-muted-foreground">
-                                                                  Target: {(h.weight * 100).toFixed(1)}%
-                                                                </div>
-                                                              </div>
-                                                            ) : (
-                                                              `${formatOverviewCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`
-                                                            )
-                                                          ) : Number.isFinite(investmentSize) &&
-                                                            investmentSize > 0 ? (
-                                                            `${formatOverviewCurrency(h.weight * investmentSize)} (${(h.weight * 100).toFixed(1)}%)`
-                                                          ) : (
-                                                            `— (${(h.weight * 100).toFixed(1)}%)`
-                                                          )}
-                                                        </TableCell>
-                                                        <TableCell className="py-1.5 pl-1.5 pr-3 text-right align-top">
-                                                          <SpotlightCostBasisCell
-                                                            symbol={h.symbol}
-                                                            snapshot={selectedSpotlightCostBasisSnapshot}
-                                                          loading={spotlightCostBasisLoading}
-                                                          />
-                                                        </TableCell>
-                                                      </TableRow>
-                                                    );
-                                                  }
-                                                )}
-                                                {spotlightHoldingsMovementModel.exited.length > 0 ? (
-                                                  <TableRow className="pointer-events-none border-t bg-muted/25 hover:bg-muted/25">
-                                                    <TableCell
-                                                      colSpan={4}
-                                                      className="py-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"
-                                                    >
-                                                      Exited (vs prior rebalance)
-                                                    </TableCell>
-                                                  </TableRow>
-                                                ) : null}
-                                                {spotlightHoldingsMovementModel.exited.map((h) => {
-                                                  const company =
-                                                    typeof h.companyName === 'string' &&
-                                                    h.companyName.trim().length > 0
-                                                      ? h.companyName.trim()
-                                                      : null;
-                                                  return (
-                                                    <TableRow
-                                                      key={`${h.symbol}-${h.rank}-x`}
-                                                      className={cn(
-                                                        'cursor-pointer hover:bg-muted/50',
-                                                        holdingMovementRowCn('exited')
-                                                      )}
-                                                      tabIndex={0}
-                                                      onClick={() =>
-                                                        setSpotlightStockChartSymbol(h.symbol)
-                                                      }
-                                                      onKeyDown={(e) => {
-                                                        if (e.key === 'Enter' || e.key === ' ') {
-                                                          e.preventDefault();
-                                                          setSpotlightStockChartSymbol(h.symbol);
-                                                        }
-                                                      }}
-                                                    >
-                                                      <TableCell className="py-1.5 pl-2 pr-0.5 text-muted-foreground">
-                                                        <HoldingRankWithChange
-                                                          rank={h.rank}
-                                                          rankChange={null}
-                                                        />
-                                                      </TableCell>
-                                                      <TableCell className="px-1.5 py-1.5 text-left">
-                                                        {company ? (
-                                                          <Tooltip>
-                                                            <TooltipTrigger asChild>
-                                                              <span className="block truncate font-medium">
-                                                                {h.symbol}
-                                                              </span>
-                                                            </TooltipTrigger>
-                                                            <TooltipContent
-                                                              side="top"
-                                                              className="max-w-xs text-left"
-                                                            >
-                                                              {company}
-                                                            </TooltipContent>
-                                                          </Tooltip>
-                                                        ) : (
-                                                          <span className="block truncate font-medium">
-                                                            {h.symbol}
-                                                          </span>
-                                                        )}
-                                                      </TableCell>
-                                                      <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap text-muted-foreground">
-                                                        <span className="text-[11px]">
-                                                          Was {(h.weight * 100).toFixed(1)}%
-                                                        </span>
-                                                      </TableCell>
-                                                      <TableCell className="py-1.5 pl-1.5 pr-3 text-right align-top">
-                                                        <SpotlightCostBasisCell
-                                                          symbol={h.symbol}
-                                                          snapshot={selectedSpotlightCostBasisSnapshot}
-                                                          loading={spotlightCostBasisLoading}
-                                                          exited
-                                                        />
-                                                      </TableCell>
-                                                    </TableRow>
-                                                  );
-                                                })}
-                                              </>
-                                            )
-                                            : topSpotlightHoldings.slice(0, spotlightHoldingsTopN).map((h) => {
+                                          {topSpotlightHoldings.slice(0, spotlightHoldingsTopN).map((h) => {
                                                 const company =
                                                   typeof h.companyName === 'string' &&
                                                   h.companyName.trim().length > 0
@@ -3832,83 +3687,383 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                                       }
                                                     }}
                                                   >
-                                                    <TableCell className="py-1.5 pl-2 pr-0.5 text-muted-foreground">
-                                                      <HoldingRankWithChange
-                                                        rank={h.rank}
-                                                        rankChange={h.rankChange}
-                                                      />
+                                                    <TableCell className="text-muted-foreground max-md:text-center max-md:text-xs max-md:align-middle md:w-auto md:p-4">
+                                                      <div className="flex max-md:items-center max-md:justify-center md:contents">
+                                                        <HoldingRankWithChange
+                                                          rank={h.rank}
+                                                          rankChange={h.rankChange}
+                                                          hideRankChangeBelowMd
+                                                        />
+                                                      </div>
                                                     </TableCell>
-                                                    <TableCell className="px-1.5 py-1.5 text-left">
-                                                      {company ? (
-                                                        <Tooltip>
-                                                          <TooltipTrigger asChild>
-                                                            <span className="block truncate font-medium">
+                                                    <TableCell className="min-w-0 max-md:text-center max-md:text-xs max-md:align-middle md:w-auto md:p-4">
+                                                      <div className="flex max-md:items-center max-md:justify-center md:contents">
+                                                        {company ? (
+                                                          <>
+                                                            <span className="block max-w-full truncate font-medium md:hidden">
                                                               {h.symbol}
                                                             </span>
-                                                          </TooltipTrigger>
-                                                          <TooltipContent
-                                                            side="top"
-                                                            className="max-w-xs text-left"
-                                                          >
-                                                            {company}
-                                                          </TooltipContent>
-                                                        </Tooltip>
-                                                      ) : (
-                                                        <span className="block truncate font-medium">
-                                                          {h.symbol}
-                                                        </span>
-                                                      )}
-                                                    </TableCell>
-                                                    <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap">
-                                                      {showLive ? (
-                                                        spotlightHoldingsDateSelect ===
-                                                        HOLDINGS_TODAY_SENTINEL ? (
-                                                          <div className="leading-tight">
-                                                            <div>
-                                                              {`${formatOverviewCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
-                                                            </div>
-                                                            <div className="text-[11px] text-muted-foreground">
-                                                              Target: {(h.weight * 100).toFixed(1)}%
-                                                            </div>
-                                                          </div>
+                                                            <Tooltip>
+                                                              <TooltipTrigger asChild>
+                                                                <span className="hidden max-w-full truncate font-medium cursor-help rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 md:block">
+                                                                  {h.symbol}
+                                                                </span>
+                                                              </TooltipTrigger>
+                                                              <TooltipContent side="top" className="max-w-xs text-left">
+                                                                {company}
+                                                              </TooltipContent>
+                                                            </Tooltip>
+                                                          </>
                                                         ) : (
-                                                          `${formatOverviewCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`
-                                                        )
-                                                      ) : Number.isFinite(investmentSize) &&
-                                                        investmentSize > 0 ? (
-                                                        `${formatOverviewCurrency(h.weight * investmentSize)} (${(h.weight * 100).toFixed(1)}%)`
-                                                      ) : (
-                                                        `— (${(h.weight * 100).toFixed(1)}%)`
-                                                      )}
+                                                          <span className="font-medium">{h.symbol}</span>
+                                                        )}
+                                                      </div>
                                                     </TableCell>
-                                                    <TableCell className="py-1.5 pl-1.5 pr-3 text-right align-top">
-                                                      <SpotlightCostBasisCell
-                                                        symbol={h.symbol}
-                                                        snapshot={selectedSpotlightCostBasisSnapshot}
-                                                        loading={spotlightCostBasisLoading}
-                                                      />
+                                                    <TableCell className="text-left tabular-nums max-md:text-center max-md:text-xs max-md:align-middle max-md:break-words md:min-w-0 md:w-auto md:p-4">
+                                                      <div className="flex max-md:flex-col max-md:items-center max-md:justify-center max-md:gap-0.5 max-md:py-0.5 max-md:text-center max-md:leading-tight md:contents md:text-left">
+                                                        {showLive ? (
+                                                          spotlightHoldingsDateSelect ===
+                                                          HOLDINGS_TODAY_SENTINEL ? (
+                                                            <div className="space-y-0.5 leading-tight">
+                                                              <div>
+                                                                {`${formatOverviewCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
+                                                              </div>
+                                                              <div className="text-xs text-muted-foreground">
+                                                                Target: {(h.weight * 100).toFixed(1)}%
+                                                              </div>
+                                                            </div>
+                                                          ) : (
+                                                            <span>
+                                                              {`${formatOverviewCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
+                                                            </span>
+                                                          )
+                                                        ) : Number.isFinite(investmentSize) &&
+                                                          investmentSize > 0 ? (
+                                                          <span>
+                                                            {`${formatOverviewCurrency(h.weight * investmentSize)} (${(h.weight * 100).toFixed(1)}%)`}
+                                                          </span>
+                                                        ) : (
+                                                          <span>
+                                                            {`— (${(h.weight * 100).toFixed(1)}%)`}
+                                                          </span>
+                                                        )}
+                                                      </div>
+                                                    </TableCell>
+                                                    <TableCell className="text-right align-top max-md:text-center max-md:text-xs max-md:align-middle max-md:break-words md:min-w-0 md:w-auto md:p-4">
+                                                      <div className="flex max-md:flex-col max-md:items-center max-md:justify-center max-md:gap-0.5 max-md:py-0.5 md:contents md:items-end md:justify-end">
+                                                        <SpotlightCostBasisCell
+                                                          symbol={h.symbol}
+                                                          snapshot={selectedSpotlightCostBasisSnapshot}
+                                                          loading={spotlightCostBasisLoading}
+                                                        />
+                                                      </div>
                                                     </TableCell>
                                                   </TableRow>
                                                 );
                                               })}
                                         </TableBody>
                                       </Table>
-                                    </div>
-                                    {showSpotlightHoldingsScrollFade ? (
-                                      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] flex h-10 items-end justify-center bg-gradient-to-t from-background/90 via-background/45 to-transparent pb-1 pt-5">
-                                        {!spotlightHoldingsChevronDismissed ? (
-                                          <button
-                                            type="button"
-                                            className="pointer-events-auto inline-flex size-8 items-center justify-center rounded-full border border-trader-blue/35 bg-background/90 shadow-sm ring-offset-background transition-colors hover:border-trader-blue/55 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-trader-blue/40 focus-visible:ring-offset-2"
-                                            onClick={nudgeSpotlightHoldingsScroll}
-                                            aria-label="Scroll down to see more holdings"
-                                          >
-                                            <ChevronDown className="size-5 animate-bounce text-trader-blue" aria-hidden />
-                                          </button>
-                                        ) : null}
-                                      </div>
-                                    ) : null}
-                                    </div>
+                                        </div>
+                                        </div>
+                                        <div className="hidden md:block">
+                                          <div className="max-h-[13.25rem] overflow-auto overscroll-y-contain rounded-md border [scrollbar-width:thin]">
+                                            <Table noScrollWrapper className="min-w-0 w-full table-auto text-[11px]">
+                                              <TableHeader>
+                                                <TableRow className="hover:bg-transparent">
+                                                  <TableHead className="h-9 min-w-[4.25rem] py-1.5 pl-2 pr-0.5 text-left align-middle tabular-nums">
+                                                    #
+                                                  </TableHead>
+                                                  <TableHead className="h-9 w-16 px-1.5 py-1.5 text-left align-middle">
+                                                    Stock
+                                                  </TableHead>
+                                                  <TableHead className="h-9 px-1.5 py-1.5 text-center align-middle whitespace-nowrap">
+                                                    <span className="inline-flex items-center justify-center gap-1">
+                                                      Value
+                                                      <HoldingsAllocationColumnTooltip
+                                                        weightingMethod={pc?.weighting_method}
+                                                        topN={pc?.top_n}
+                                                        showCurrentVsTargetCopy
+                                                      />
+                                                    </span>
+                                                  </TableHead>
+                                                  <TableHead className="h-9 py-1.5 pl-1.5 pr-3 text-right align-middle whitespace-nowrap">
+                                                    <span className="inline-flex min-w-0 max-w-full items-center justify-end gap-1">
+                                                      <span className="truncate">Cost basis</span>
+                                                      <HoldingsCostBasisColumnTooltip variant="user" />
+                                                    </span>
+                                                  </TableHead>
+                                                </TableRow>
+                                              </TableHeader>
+                                              <TableBody>
+                                                {spotlightHoldingsMovementModel ? (
+                                                  <>
+                                                    {spotlightHoldingsMovementModel.active.map(
+                                                      ({ holding: h, kind }) => {
+                                                        const company =
+                                                          typeof h.companyName === 'string' &&
+                                                          h.companyName.trim().length > 0
+                                                            ? h.companyName.trim()
+                                                            : null;
+                                                        const liveRow =
+                                                          liveTopSpotlightAllocation.bySymbol[
+                                                            h.symbol.toUpperCase()
+                                                          ];
+                                                        const showLive =
+                                                          liveTopSpotlightAllocation.hasCompleteCoverage &&
+                                                          liveRow?.currentValue != null &&
+                                                          liveRow.currentWeight != null;
+                                                        return (
+                                                          <TableRow
+                                                            key={`${h.symbol}-${h.rank}-m`}
+                                                            className={cn(
+                                                              'cursor-pointer hover:bg-muted/50',
+                                                              holdingMovementRowCn(kind)
+                                                            )}
+                                                            tabIndex={0}
+                                                            onClick={() =>
+                                                              setSpotlightStockChartSymbol(h.symbol)
+                                                            }
+                                                            onKeyDown={(e) => {
+                                                              if (e.key === 'Enter' || e.key === ' ') {
+                                                                e.preventDefault();
+                                                                setSpotlightStockChartSymbol(h.symbol);
+                                                              }
+                                                            }}
+                                                          >
+                                                            <TableCell className="py-1.5 pl-2 pr-0.5 text-muted-foreground">
+                                                              <HoldingRankWithChange
+                                                                rank={h.rank}
+                                                                rankChange={h.rankChange}
+                                                              />
+                                                            </TableCell>
+                                                            <TableCell className="px-1.5 py-1.5 text-left">
+                                                              {company ? (
+                                                                <Tooltip>
+                                                                  <TooltipTrigger asChild>
+                                                                    <span className="block cursor-help truncate font-medium rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+                                                                      {h.symbol}
+                                                                    </span>
+                                                                  </TooltipTrigger>
+                                                                  <TooltipContent
+                                                                    side="top"
+                                                                    className="max-w-xs text-left"
+                                                                  >
+                                                                    {company}
+                                                                  </TooltipContent>
+                                                                </Tooltip>
+                                                              ) : (
+                                                                <span className="block truncate font-medium">
+                                                                  {h.symbol}
+                                                                </span>
+                                                              )}
+                                                            </TableCell>
+                                                            <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap">
+                                                              {showLive ? (
+                                                                spotlightHoldingsDateSelect ===
+                                                                HOLDINGS_TODAY_SENTINEL ? (
+                                                                  <div className="leading-tight">
+                                                                    <div>
+                                                                      {`${formatOverviewCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
+                                                                    </div>
+                                                                    <div className="text-[11px] text-muted-foreground">
+                                                                      Target: {(h.weight * 100).toFixed(1)}%
+                                                                    </div>
+                                                                  </div>
+                                                                ) : (
+                                                                  `${formatOverviewCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`
+                                                                )
+                                                              ) : Number.isFinite(investmentSize) &&
+                                                                investmentSize > 0 ? (
+                                                                `${formatOverviewCurrency(h.weight * investmentSize)} (${(h.weight * 100).toFixed(1)}%)`
+                                                              ) : (
+                                                                `— (${(h.weight * 100).toFixed(1)}%)`
+                                                              )}
+                                                            </TableCell>
+                                                            <TableCell className="py-1.5 pl-1.5 pr-3 text-right align-top">
+                                                              <SpotlightCostBasisCell
+                                                                symbol={h.symbol}
+                                                                snapshot={selectedSpotlightCostBasisSnapshot}
+                                                                loading={spotlightCostBasisLoading}
+                                                              />
+                                                            </TableCell>
+                                                          </TableRow>
+                                                        );
+                                                      }
+                                                    )}
+                                                    {spotlightHoldingsMovementModel.exited.length > 0 ? (
+                                                      <TableRow className="pointer-events-none border-t bg-muted/25 hover:bg-muted/25">
+                                                        <TableCell
+                                                          colSpan={4}
+                                                          className="py-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"
+                                                        >
+                                                          Exited (vs prior rebalance)
+                                                        </TableCell>
+                                                      </TableRow>
+                                                    ) : null}
+                                                    {spotlightHoldingsMovementModel.exited.map((h) => {
+                                                      const company =
+                                                        typeof h.companyName === 'string' &&
+                                                        h.companyName.trim().length > 0
+                                                          ? h.companyName.trim()
+                                                          : null;
+                                                      return (
+                                                        <TableRow
+                                                          key={`${h.symbol}-${h.rank}-x`}
+                                                          className={cn(
+                                                            'cursor-pointer hover:bg-muted/50',
+                                                            holdingMovementRowCn('exited')
+                                                          )}
+                                                          tabIndex={0}
+                                                          onClick={() =>
+                                                            setSpotlightStockChartSymbol(h.symbol)
+                                                          }
+                                                          onKeyDown={(e) => {
+                                                            if (e.key === 'Enter' || e.key === ' ') {
+                                                              e.preventDefault();
+                                                              setSpotlightStockChartSymbol(h.symbol);
+                                                            }
+                                                          }}
+                                                        >
+                                                          <TableCell className="py-1.5 pl-2 pr-0.5 text-muted-foreground">
+                                                            <HoldingRankWithChange
+                                                              rank={h.rank}
+                                                              rankChange={null}
+                                                            />
+                                                          </TableCell>
+                                                          <TableCell className="px-1.5 py-1.5 text-left">
+                                                            {company ? (
+                                                              <Tooltip>
+                                                                <TooltipTrigger asChild>
+                                                                  <span className="block cursor-help truncate font-medium rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+                                                                    {h.symbol}
+                                                                  </span>
+                                                                </TooltipTrigger>
+                                                                <TooltipContent
+                                                                  side="top"
+                                                                  className="max-w-xs text-left"
+                                                                >
+                                                                  {company}
+                                                                </TooltipContent>
+                                                              </Tooltip>
+                                                            ) : (
+                                                              <span className="block truncate font-medium">
+                                                                {h.symbol}
+                                                              </span>
+                                                            )}
+                                                          </TableCell>
+                                                          <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap text-muted-foreground">
+                                                            <span className="text-[11px]">
+                                                              Was {(h.weight * 100).toFixed(1)}%
+                                                            </span>
+                                                          </TableCell>
+                                                          <TableCell className="py-1.5 pl-1.5 pr-3 text-right align-top">
+                                                            <SpotlightCostBasisCell
+                                                              symbol={h.symbol}
+                                                              snapshot={selectedSpotlightCostBasisSnapshot}
+                                                              loading={spotlightCostBasisLoading}
+                                                              exited
+                                                            />
+                                                          </TableCell>
+                                                        </TableRow>
+                                                      );
+                                                    })}
+                                                  </>
+                                                ) : (
+                                                  topSpotlightHoldings
+                                                    .slice(0, spotlightHoldingsTopN)
+                                                    .map((h) => {
+                                                      const company =
+                                                        typeof h.companyName === 'string' &&
+                                                        h.companyName.trim().length > 0
+                                                          ? h.companyName.trim()
+                                                          : null;
+                                                      const liveRow =
+                                                        liveTopSpotlightAllocation.bySymbol[
+                                                          h.symbol.toUpperCase()
+                                                        ];
+                                                      const showLive =
+                                                        liveTopSpotlightAllocation.hasCompleteCoverage &&
+                                                        liveRow?.currentValue != null &&
+                                                        liveRow.currentWeight != null;
+                                                      return (
+                                                        <TableRow
+                                                          key={`${h.symbol}-${h.rank}`}
+                                                          className="cursor-pointer hover:bg-muted/50"
+                                                          tabIndex={0}
+                                                          onClick={() =>
+                                                            setSpotlightStockChartSymbol(h.symbol)
+                                                          }
+                                                          onKeyDown={(e) => {
+                                                            if (e.key === 'Enter' || e.key === ' ') {
+                                                              e.preventDefault();
+                                                              setSpotlightStockChartSymbol(h.symbol);
+                                                            }
+                                                          }}
+                                                        >
+                                                          <TableCell className="py-1.5 pl-2 pr-0.5 text-muted-foreground">
+                                                            <HoldingRankWithChange
+                                                              rank={h.rank}
+                                                              rankChange={h.rankChange}
+                                                            />
+                                                          </TableCell>
+                                                          <TableCell className="px-1.5 py-1.5 text-left">
+                                                            {company ? (
+                                                              <Tooltip>
+                                                                <TooltipTrigger asChild>
+                                                                  <span className="block cursor-help truncate font-medium rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+                                                                    {h.symbol}
+                                                                  </span>
+                                                                </TooltipTrigger>
+                                                                <TooltipContent
+                                                                  side="top"
+                                                                  className="max-w-xs text-left"
+                                                                >
+                                                                  {company}
+                                                                </TooltipContent>
+                                                              </Tooltip>
+                                                            ) : (
+                                                              <span className="block truncate font-medium">
+                                                                {h.symbol}
+                                                              </span>
+                                                            )}
+                                                          </TableCell>
+                                                          <TableCell className="px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap">
+                                                            {showLive ? (
+                                                              spotlightHoldingsDateSelect ===
+                                                              HOLDINGS_TODAY_SENTINEL ? (
+                                                                <div className="leading-tight">
+                                                                  <div>
+                                                                    {`${formatOverviewCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
+                                                                  </div>
+                                                                  <div className="text-[11px] text-muted-foreground">
+                                                                    Target: {(h.weight * 100).toFixed(1)}%
+                                                                  </div>
+                                                                </div>
+                                                              ) : (
+                                                                `${formatOverviewCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`
+                                                              )
+                                                            ) : Number.isFinite(investmentSize) &&
+                                                              investmentSize > 0 ? (
+                                                              `${formatOverviewCurrency(h.weight * investmentSize)} (${(h.weight * 100).toFixed(1)}%)`
+                                                            ) : (
+                                                              `— (${(h.weight * 100).toFixed(1)}%)`
+                                                            )}
+                                                          </TableCell>
+                                                          <TableCell className="py-1.5 pl-1.5 pr-3 text-right align-top">
+                                                            <SpotlightCostBasisCell
+                                                              symbol={h.symbol}
+                                                              snapshot={selectedSpotlightCostBasisSnapshot}
+                                                              loading={spotlightCostBasisLoading}
+                                                            />
+                                                          </TableCell>
+                                                        </TableRow>
+                                                      );
+                                                    })
+                                                )}
+                                              </TableBody>
+                                            </Table>
+                                          </div>
+                                        </div>
                                       </div>
                                     </div>
                                   </TooltipProvider>
@@ -3925,7 +4080,13 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                     enabled={overviewPaidHoldings}
                                   />
                                 </div>
-                                <div className="space-y-2 lg:hidden">
+                        </>
+                        );
+                      }
+                      function renderOverviewSpotlightDetailCards() {
+                        return (
+                        <>
+
                                   <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                                     Details
                                   </h4>
@@ -4019,9 +4180,196 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                       />
                                     </div>
                                   </div>
+                        </>
+                        );
+                      }
+
+                      const spotlightHeaderSettingsButton =
+                        bp.user_start_date ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
+                            aria-label="Edit starting investment and entry"
+                            onClick={() => setEntrySettingsProfileId(bp.id)}
+                          >
+                            <Settings2 className="size-4" />
+                          </Button>
+                        ) : null;
+
+                      return (
+                        <>
+                          <div className="mb-2 min-w-0 lg:hidden">
+                            <div className="flex min-w-0 items-center justify-between gap-3">
+                              <div className="min-w-0 flex flex-1 flex-col gap-0.5">
+                                <h2 className="text-sm font-semibold leading-tight tracking-tight text-foreground">
+                                  Your top portfolio by return
+                                </h2>
+                                <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+                                  <span className="min-w-0 text-sm text-muted-foreground">
+                                    {strategyTitle}
+                                  </span>
+                                  {pc && spotlightRiskTitle ? (
+                                    <>
+                                      <span
+                                        className="shrink-0 text-muted-foreground/60"
+                                        aria-hidden
+                                      >
+                                        ·
+                                      </span>
+                                      <span
+                                        className={cn(
+                                          'inline-block size-1.5 shrink-0 rounded-full align-middle',
+                                          spotlightRiskDot
+                                        )}
+                                        title={spotlightRiskTitle}
+                                        aria-label={spotlightRiskTitle}
+                                      />
+                                    </>
+                                  ) : null}
+                                  {spotlightConfigLine ? (
+                                    <>
+                                      <span
+                                        className="shrink-0 text-muted-foreground/60"
+                                        aria-hidden
+                                      >
+                                        ·
+                                      </span>
+                                      <span className="min-w-0 text-sm text-muted-foreground">
+                                        {spotlightConfigLine}
+                                      </span>
+                                    </>
+                                  ) : !pc ? (
+                                    <>
+                                      <span
+                                        className="shrink-0 text-muted-foreground/60"
+                                        aria-hidden
+                                      >
+                                        ·
+                                      </span>
+                                      <span className="text-sm text-muted-foreground">
+                                        Portfolio
+                                      </span>
+                                    </>
+                                  ) : null}
                                 </div>
                               </div>
+                              {spotlightHeaderSettingsButton}
                             </div>
+                          </div>
+                          <div className="mb-2 hidden min-w-0 items-start justify-between gap-3 lg:flex">
+                            <div className="min-w-0 flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                              <h2 className="shrink-0 text-sm font-semibold tracking-tight text-foreground">
+                                Your top portfolio by return
+                              </h2>
+                              <span className="shrink-0 text-muted-foreground/60" aria-hidden>
+                                ·
+                              </span>
+                              <span className="min-w-0 text-sm text-muted-foreground">
+                                {strategyTitle}
+                              </span>
+                              {pc && spotlightRiskTitle ? (
+                                <>
+                                  <span className="shrink-0 text-muted-foreground/60" aria-hidden>
+                                    ·
+                                  </span>
+                                  <span
+                                    className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border/80 bg-muted/40 px-2 py-0.5 text-[10px] font-semibold"
+                                    title={spotlightRiskTitle}
+                                  >
+                                    <span
+                                      className={cn(
+                                        'size-1.5 shrink-0 rounded-full',
+                                        spotlightRiskDot
+                                      )}
+                                      aria-hidden
+                                    />
+                                    {spotlightRiskTitle}
+                                  </span>
+                                </>
+                              ) : null}
+                              {spotlightConfigLine ? (
+                                <>
+                                  <span className="shrink-0 text-muted-foreground/60" aria-hidden>
+                                    ·
+                                  </span>
+                                  <span className="min-w-0 text-sm text-muted-foreground">
+                                    {spotlightConfigLine}
+                                  </span>
+                                </>
+                              ) : !pc ? (
+                                <>
+                                  <span className="shrink-0 text-muted-foreground/60" aria-hidden>
+                                    ·
+                                  </span>
+                                  <span className="text-sm text-muted-foreground">Portfolio</span>
+                                </>
+                              ) : null}
+                            </div>
+                            {spotlightHeaderSettingsButton}
+                          </div>
+                          {!st.loading && st.gatheringData ? (
+                            <p className="mb-3 text-[11px] leading-snug text-muted-foreground">
+                              Data still gathering — returns update after more market closes.
+                            </p>
+                          ) : null}
+                          {isBelowLg ? (
+                            <div className="w-full space-y-4">
+                              {renderOverviewSpotlightHeadlineMetrics()}
+                              <Tabs
+                                value={spotlightMobileSubTab}
+                                onValueChange={(v) =>
+                                  setSpotlightMobileSubTab(v as 'performance' | 'holdings')}
+                                className="w-full space-y-4"
+                              >
+                                <TabsList className="relative grid h-auto w-full grid-cols-2 gap-0 rounded-none border-0 border-b border-border bg-transparent p-0 text-muted-foreground shadow-none">
+                                  <TabsTrigger
+                                    value="performance"
+                                    className="relative rounded-none border-0 bg-transparent py-3 text-sm font-medium text-muted-foreground shadow-none ring-offset-0 transition-colors hover:text-foreground focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=inactive]:after:opacity-0 data-[state=active]:after:absolute data-[state=active]:after:inset-x-1 data-[state=active]:after:bottom-0 data-[state=active]:after:h-0.5 data-[state=active]:after:rounded-full data-[state=active]:after:bg-trader-blue data-[state=active]:after:content-[''] dark:data-[state=active]:after:bg-trader-blue-light"
+                                  >
+                                    Performance
+                                  </TabsTrigger>
+                                  <TabsTrigger
+                                    value="holdings"
+                                    className="relative rounded-none border-0 bg-transparent py-3 text-sm font-medium text-muted-foreground shadow-none ring-offset-0 transition-colors hover:text-foreground focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=inactive]:after:opacity-0 data-[state=active]:after:absolute data-[state=active]:after:inset-x-1 data-[state=active]:after:bottom-0 data-[state=active]:after:h-0.5 data-[state=active]:after:rounded-full data-[state=active]:after:bg-trader-blue data-[state=active]:after:content-[''] dark:data-[state=active]:after:bg-trader-blue-light"
+                                  >
+                                    Holdings
+                                  </TabsTrigger>
+                                </TabsList>
+                                <TabsContent
+                                  value="performance"
+                                  className="mt-0 space-y-4 ring-offset-0 focus-visible:outline-none focus-visible:ring-0 data-[state=inactive]:hidden"
+                                >
+                                  <div className="flex flex-col gap-4">
+                                    {renderOverviewSpotlightCol2()}
+                                    <div className="space-y-2">
+                                      {renderOverviewSpotlightDetailCards()}
+                                    </div>
+                                  </div>
+                                </TabsContent>
+                                <TabsContent
+                                  value="holdings"
+                                  className="mt-0 space-y-2 ring-offset-0 focus-visible:outline-none focus-visible:ring-0 data-[state=inactive]:hidden"
+                                >
+                                  <div className="min-w-0 space-y-2 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
+                                    {renderOverviewSpotlightHoldingsInner()}
+                                  </div>
+                                </TabsContent>
+                              </Tabs>
+                            </div>
+                          ) : (
+                            <div className="grid gap-4 lg:h-full lg:min-h-0 lg:grid-cols-[minmax(0,11rem)_minmax(0,1.25fr)_minmax(0,0.8fr)] lg:items-start">
+                              {renderOverviewSpotlightCol1Full()}
+                              {renderOverviewSpotlightCol2()}
+                              <div className="min-w-0 space-y-2 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
+                                {renderOverviewSpotlightHoldingsInner()}
+                                <div className="space-y-2 lg:hidden">{renderOverviewSpotlightDetailCards()}</div>
+                              </div>
+                            </div>
+                          )}
+
+
                         </>
                       );
                     })()
