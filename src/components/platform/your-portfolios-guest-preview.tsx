@@ -608,8 +608,8 @@ export function YourPortfoliosGuestPreview({ signInHref, signUpHref }: Props) {
       <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-y-auto overscroll-y-contain px-1 py-1 lg:h-full lg:max-h-full lg:min-h-0 lg:pl-8">
         <TooltipProvider delayDuration={200}>
           <div className="flex min-h-0 w-full min-w-0 max-w-none flex-1 flex-col self-stretch">
-            <div className="shrink-0 border-b bg-background/95 px-5 py-3 sm:px-7 sm:py-3">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="shrink-0">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-1.5 gap-y-2">
                     <span
@@ -622,16 +622,9 @@ export function YourPortfoliosGuestPreview({ signInHref, signUpHref }: Props) {
                       />
                       {headerRiskTitle}
                     </span>
-                    <h2 className="min-w-0 text-base font-semibold text-foreground">
+                    <h2 className="min-w-0 text-base font-semibold text-foreground lg:text-sm">
                       {p.portfolioTitle}
                     </h2>
-                  </div>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Investment: <MaskedValue>{p.investmentLabel}</MaskedValue>
-                    {' · '}
-                    Entered on <MaskedValue>{p.entryLabel}</MaskedValue>
-                  </p>
-                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5 gap-y-1">
                     <PortfolioConfigBadgePill
                       name="Top ranked"
                       strategySlug={STRATEGY_CONFIG.slug}
@@ -641,6 +634,11 @@ export function YourPortfoliosGuestPreview({ signInHref, signUpHref }: Props) {
                       strategySlug={STRATEGY_CONFIG.slug}
                     />
                   </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Investment: <MaskedValue>{p.investmentLabel}</MaskedValue>
+                    {' · '}
+                    Entered on <MaskedValue>{p.entryLabel}</MaskedValue>
+                  </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Button
@@ -850,7 +848,7 @@ export function YourPortfoliosGuestPreview({ signInHref, signUpHref }: Props) {
                   </div>
                 </div>
 
-                <div className="min-w-0 w-full max-w-full rounded-xl border border-border/80 bg-background/80 p-3 shadow-sm sm:p-4">
+                <div className="min-w-0 w-full max-w-full">
                   <p className="mb-2 text-xs font-semibold text-muted-foreground">
                     Portfolio vs. benchmarks
                   </p>

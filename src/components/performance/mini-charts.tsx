@@ -282,6 +282,12 @@ export function CagrOverTimeChart({
           <YAxis tickFormatter={(v) => `${v.toFixed(0)}%`} tick={{ fontSize: 10 }} width={40} />
           <ReferenceLine y={0} stroke="#94a3b8" />
           <ChartTooltip
+            cursor={{
+              stroke: CHART_NEUTRAL_REFERENCE_STROKE,
+              strokeWidth: 1.5,
+              strokeOpacity: 0.9,
+              strokeDasharray: '4 3',
+            }}
             content={
               <ChartTooltipContent
                 formatter={(v, name) => [
@@ -443,6 +449,12 @@ export function DrawdownOverTimeChart({
           />
           <ReferenceLine y={0} stroke={CHART_NEUTRAL_REFERENCE_STROKE} strokeDasharray="4 2" />
           <ChartTooltip
+            cursor={{
+              stroke: CHART_NEUTRAL_REFERENCE_STROKE,
+              strokeWidth: 1.5,
+              strokeOpacity: 0.9,
+              strokeDasharray: '4 3',
+            }}
             content={
               <ChartTooltipContent
                 formatter={(v, name) => {
@@ -650,6 +662,12 @@ export function RollingSharpeRatioChart({
           />
           <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="4 2" />
           <ChartTooltip
+            cursor={{
+              stroke: CHART_NEUTRAL_REFERENCE_STROKE,
+              strokeWidth: 1.5,
+              strokeOpacity: 0.9,
+              strokeDasharray: '4 3',
+            }}
             content={
               <ChartTooltipContent
                 formatter={(v, name) => {
@@ -923,6 +941,12 @@ export function CumulativeSharpeRatioChart({
           />
           <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="4 2" />
           <ChartTooltip
+            cursor={{
+              stroke: CHART_NEUTRAL_REFERENCE_STROKE,
+              strokeWidth: 1.5,
+              strokeOpacity: 0.9,
+              strokeDasharray: '4 3',
+            }}
             content={
               <ChartTooltipContent
                 formatter={(v, name) => {
@@ -1154,6 +1178,12 @@ export function CumulativeReturnsChart({
           <YAxis tickFormatter={(v) => `${v.toFixed(1)}%`} tick={{ fontSize: 10 }} width={48} />
           <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="4 2" />
           <ChartTooltip
+            cursor={{
+              stroke: CHART_NEUTRAL_REFERENCE_STROKE,
+              strokeWidth: 1.5,
+              strokeOpacity: 0.9,
+              strokeDasharray: '4 3',
+            }}
             content={
               <ChartTooltipContent
                 formatter={(v, name) => {
@@ -1300,6 +1330,12 @@ export function RelativeOutperformanceChart({
           <YAxis tickFormatter={(v) => `${v.toFixed(0)}%`} tick={{ fontSize: 10 }} width={40} />
           <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="4 2" />
           <ChartTooltip
+            cursor={{
+              stroke: CHART_NEUTRAL_REFERENCE_STROKE,
+              strokeWidth: 1.5,
+              strokeOpacity: 0.9,
+              strokeDasharray: '4 3',
+            }}
             content={
               <ChartTooltipContent
                 formatter={(v, name) => {

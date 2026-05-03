@@ -9,8 +9,8 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { CartesianGrid, Line, LineChart, ReferenceLine, Tooltip, XAxis, YAxis } from 'recharts';
-import { ChartContainer } from '@/components/ui/chart';
+import { CartesianGrid, Line, LineChart, ReferenceLine, Tooltip as RechartsTooltip, XAxis, YAxis } from 'recharts';
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import {
   dataKeyForExploreConfig,
   formatModelInceptionFootnoteDate,
@@ -1048,8 +1048,8 @@ export function ExplorePortfoliosEquityChart({
             <LineChart
               data={chartData}
               margin={{ top: 8, right: 8, left: 8, bottom: 4 }}
-              onMouseMove={isPicker ? undefined : handleChartMouseMove}
-              onMouseLeave={isPicker ? undefined : handleChartMouseLeave}
+              onMouseMove={isPicker && isNarrowLayout ? undefined : handleChartMouseMove}
+              onMouseLeave={isPicker && isNarrowLayout ? undefined : handleChartMouseLeave}
               onClick={isPicker ? undefined : handleChartClick}
             >
               <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.4} />
@@ -1077,19 +1077,45 @@ export function ExplorePortfoliosEquityChart({
                   strokeOpacity={0.65}
                 />
               ) : null}
-              <Tooltip
-                cursor={
-                  isPicker
-                    ? false
-                    : {
-                        stroke: CHART_NEUTRAL_REFERENCE_STROKE,
-                        strokeWidth: 1,
-                        strokeOpacity: 0.45,
-                      }
-                }
-                content={() => null}
-                isAnimationActive={false}
-              />
+              {isPicker && isNarrowLayout ? (
+                <RechartsTooltip cursor={false} content={() => null} isAnimationActive={false} />
+              ) : (
+                <ChartTooltip
+                  cursor={{
+                    stroke: CHART_NEUTRAL_REFERENCE_STROKE,
+                    strokeWidth: 1.5,
+                    strokeOpacity: 0.9,
+                    strokeDasharray: '4 3',
+                  }}
+                  content={
+                    <ChartTooltipContent
+                      className="max-w-[16rem] px-2 py-1.5"
+                      labelKey="shortDate"
+                      formatter={(value, rawName) => {
+                        const key = String(rawName ?? '');
+                        if (
+                          (EXPLORE_BM_ORDER as readonly string[]).includes(key) &&
+                          hiddenBenchmarkKeys.has(key as ExploreBenchmarkKey)
+                        ) {
+                          return null;
+                        }
+                        const num = Number(value);
+                        if (!Number.isFinite(num)) return null;
+                        const label = chartConfig[key]?.label ?? key;
+                        return (
+                          <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 leading-none">
+                            <span className="min-w-0 truncate text-muted-foreground">{label}</span>
+                            <span className="font-mono font-medium tabular-nums text-foreground">
+                              {formatEquityTooltipValue(num)}
+                            </span>
+                          </div>
+                        );
+                      }}
+                    />
+                  }
+                  isAnimationActive={false}
+                />
+              )}
               {dataKeys.map((k) => {
                 const cfgId =
                   effectiveSeries.find((s) => dataKeyForExploreConfig(s.configId) === k)?.configId ??
@@ -1131,7 +1157,6 @@ export function ExplorePortfoliosEquityChart({
                     key={k}
                     type="monotone"
                     dataKey={k}
-                    name={chartConfig[k]?.label}
                     stroke={color}
                     strokeWidth={lineStroke}
                     strokeOpacity={
@@ -1180,7 +1205,7 @@ export function ExplorePortfoliosEquityChart({
                           : false
                     }
                     activeDot={
-                      isPicker || showPinDots
+                      (isPicker && isNarrowLayout) || showPinDots
                         ? false
                         : isNarrowLayout
                           ? { r: 5, strokeWidth: 1 }
@@ -1205,7 +1230,6 @@ export function ExplorePortfoliosEquityChart({
                   key={exploreAverageLineActive}
                   type="monotone"
                   dataKey={exploreAverageLineActive}
-                  name={chartConfig[exploreAverageLineActive]?.label}
                   stroke={EXPLORE_AVERAGE_PORTFOLIO_COLOR}
                   strokeWidth={hoverKeyForUi === exploreAverageLineActive ? 4.25 : 3.5}
                   strokeOpacity={
@@ -1217,7 +1241,7 @@ export function ExplorePortfoliosEquityChart({
                   }
                   dot={false}
                   activeDot={
-                    isPicker || (!isNarrowLayout && pinnedIndex != null)
+                    (isPicker && isNarrowLayout) || (!isNarrowLayout && pinnedIndex != null)
                       ? false
                       : {
                           r: 4,
@@ -1247,12 +1271,15 @@ export function ExplorePortfoliosEquityChart({
                     key={k}
                     type="monotone"
                     dataKey={k}
-                    name={chartConfig[k]?.label}
                     stroke={color}
                     strokeWidth={lineHover ? 2.5 : 2}
                     strokeOpacity={lineHover ? 1 : selectedConfigId ? 0.88 : 0.92}
                     dot={false}
-                    activeDot={isPicker || showPinDots ? false : { r: 3, strokeWidth: 1, fill: color }}
+                    activeDot={
+                      (isPicker && isNarrowLayout) || showPinDots
+                        ? false
+                        : { r: 3, strokeWidth: 1, fill: color }
+                    }
                     connectNulls
                     isAnimationActive={false}
                     onMouseEnter={() => {

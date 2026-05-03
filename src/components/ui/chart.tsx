@@ -3,7 +3,6 @@
 import * as React from "react"
 import * as RechartsPrimitive from "recharts"
 
-import { useIsBelowMd } from "@/hooks/use-is-below-md"
 import { cn } from "@/lib/utils"
 
 // Format: { THEME_NAME: CSS_SELECTOR }
@@ -53,7 +52,7 @@ const ChartContainer = React.forwardRef<
         data-chart={chartId}
         ref={ref}
         className={cn(
-          "flex aspect-video justify-center text-xs [&_.recharts-cartesian-axis-tick_text]:fill-muted-foreground [&_.recharts-cartesian-grid_line[stroke='#ccc']]:stroke-border/50 [&_.recharts-curve.recharts-tooltip-cursor]:stroke-border [&_.recharts-dot[stroke='#fff']]:stroke-transparent [&_.recharts-layer]:outline-none [&_.recharts-polar-grid_[stroke='#ccc']]:stroke-border [&_.recharts-radial-bar-background-sector]:fill-muted [&_.recharts-rectangle.recharts-tooltip-cursor]:fill-muted [&_.recharts-reference-line_[stroke='#ccc']]:stroke-border [&_.recharts-sector[stroke='#fff']]:stroke-transparent [&_.recharts-sector]:outline-none [&_.recharts-surface]:outline-none",
+          "flex aspect-video justify-center text-xs [&_.recharts-cartesian-axis-tick_text]:fill-muted-foreground [&_.recharts-cartesian-grid_line[stroke='#ccc']]:stroke-border/50 [&_.recharts-dot[stroke='#fff']]:stroke-transparent [&_.recharts-layer]:outline-none [&_.recharts-polar-grid_[stroke='#ccc']]:stroke-border [&_.recharts-radial-bar-background-sector]:fill-muted [&_.recharts-rectangle.recharts-tooltip-cursor]:fill-muted [&_.recharts-reference-line_[stroke='#ccc']]:stroke-border [&_.recharts-sector[stroke='#fff']]:stroke-transparent [&_.recharts-sector]:outline-none [&_.recharts-surface]:outline-none",
           className
         )}
         {...props}
@@ -101,19 +100,11 @@ ${colorConfig
   )
 }
 
-type ChartTooltipProps = React.ComponentProps<typeof RechartsPrimitive.Tooltip>
-
-/** On narrow viewports, allow the cursor tooltip to escape the chart box so it is less likely to clip. */
-function ChartTooltip(props: ChartTooltipProps) {
-  const { allowEscapeViewBox, ...rest } = props
-  const isBelowMd = useIsBelowMd()
-  const resolvedEscape =
-    allowEscapeViewBox ?? (isBelowMd ? ({ x: true, y: true } as const) : undefined)
-  return (
-    <RechartsPrimitive.Tooltip allowEscapeViewBox={resolvedEscape} {...rest} />
-  )
-}
-ChartTooltip.displayName = 'ChartTooltip'
+const ChartTooltip = RechartsPrimitive.Tooltip
+// Recharts `generateCategoricalChart` locates `<Tooltip />` via `findChildByType(children, Tooltip)`,
+// which matches `child.type.displayName === 'Tooltip'`. This alias is the same function reference as
+// `RechartsPrimitive.Tooltip`, so overriding displayName to anything else breaks tooltips + axis cursor.
+ChartTooltip.displayName = "Tooltip"
 
 const ChartTooltipContent = React.forwardRef<
   HTMLDivElement,

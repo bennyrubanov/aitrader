@@ -175,7 +175,10 @@ type PerformanceChartProps = {
   chartContainerClassName?: string;
   /** When true, lines draw without enter animation (reduces flicker on remount / tight embeds). */
   disableLineAnimation?: boolean;
-  /** When true, renders series chips inline with top controls, right-aligned. */
+  /**
+   * When true, renders series chips inline with top controls (e.g. dialog), scrollable with
+   * Growth/Drawdown on the same row.
+   */
   chipsInControlsRow?: boolean;
 };
 
@@ -350,6 +353,53 @@ export function PerformanceChart({
   const usePointMarkers = chartData.length > 0 && chartData.length < 3;
 
   const showTopControlsRow = !hideTimeRangeControls || !hideDrawdown;
+
+  const timeRangeControl =
+    !hideTimeRangeControls ? (
+      <div
+        className={cn(
+          'flex flex-wrap items-center gap-1 lg:pr-3',
+          chipsInControlsRow && 'shrink-0'
+        )}
+      >
+        {TIME_RANGES.map((r) => (
+          <button
+            key={r}
+            type="button"
+            onClick={() => setRange(r)}
+            className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+              range === r
+                ? 'bg-trader-blue text-white'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+            }`}
+          >
+            {r}
+          </button>
+        ))}
+      </div>
+    ) : null;
+
+  const drawdownToggle = !hideDrawdown ? (
+    <div className="flex items-center gap-1 rounded-md border p-0.5">
+      <Button
+        variant={view === 'equity' ? 'default' : 'ghost'}
+        size="sm"
+        className="h-7 text-xs px-2.5"
+        onClick={() => setView('equity')}
+      >
+        Growth
+      </Button>
+      <Button
+        variant={view === 'drawdown' ? 'default' : 'ghost'}
+        size="sm"
+        className="h-7 text-xs px-2.5"
+        onClick={() => setView('drawdown')}
+      >
+        Drawdown
+      </Button>
+    </div>
+  ) : null;
+
   const renderSeriesChips = () => (
     <div className="flex flex-wrap gap-1.5">
       {(Object.entries(config) as [SeriesKey, { label: string; color: string }][]).map(
@@ -377,83 +427,49 @@ export function PerformanceChart({
   );
 
   return (
-    <div className="space-y-3">
-      {/* Controls row */}
-      {showTopControlsRow ? (
-        <div
-          className={cn(
-            'flex items-center justify-between gap-2',
-            chipsInControlsRow ? 'flex-nowrap' : 'flex-wrap'
-          )}
-        >
-          {!hideTimeRangeControls ? (
-            <div className={cn('flex items-center gap-1', chipsInControlsRow && 'shrink-0')}>
-              {TIME_RANGES.map((r) => (
-                <button
-                  key={r}
-                  type="button"
-                  onClick={() => setRange(r)}
-                  className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                    range === r
-                      ? 'bg-trader-blue text-white'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-                  }`}
-                >
-                  {r}
-                </button>
-              ))}
+    <div
+      className="space-y-3"
+      onMouseLeave={(e) => {
+        const next = e.relatedTarget;
+        if (
+          !next ||
+          !(next instanceof Node) ||
+          !e.currentTarget.contains(next)
+        ) {
+          setEmphasizedSeriesKey(null);
+        }
+      }}
+    >
+      {showTopControlsRow && chipsInControlsRow ? (
+        <div className="flex flex-nowrap items-center justify-between gap-2">
+          {timeRangeControl ?? (!hideDrawdown ? <span className="min-w-0 shrink" aria-hidden /> : null)}
+          <div className="flex min-w-0 flex-1 items-center justify-end gap-2 overflow-hidden">
+            <div className="min-w-0 overflow-x-auto whitespace-nowrap [scrollbar-width:thin]">
+              {renderSeriesChips()}
             </div>
-          ) : !hideDrawdown ? (
-            <span className="min-w-0 shrink" aria-hidden />
-          ) : null}
-
-          <div className="flex min-w-0 items-center justify-end gap-2 overflow-hidden">
-            {chipsInControlsRow ? (
-              <div className="min-w-0 overflow-x-auto whitespace-nowrap [scrollbar-width:thin]">
-                {renderSeriesChips()}
-              </div>
-            ) : null}
-            {!hideDrawdown && (
-              <div className="flex items-center gap-1 rounded-md border p-0.5">
-                <Button
-                  variant={view === 'equity' ? 'default' : 'ghost'}
-                  size="sm"
-                  className="h-7 text-xs px-2.5"
-                  onClick={() => setView('equity')}
-                >
-                  Growth
-                </Button>
-                <Button
-                  variant={view === 'drawdown' ? 'default' : 'ghost'}
-                  size="sm"
-                  className="h-7 text-xs px-2.5"
-                  onClick={() => setView('drawdown')}
-                >
-                  Drawdown
-                </Button>
-              </div>
-            )}
+            {drawdownToggle}
           </div>
         </div>
+      ) : showTopControlsRow && !chipsInControlsRow ? (
+        <>
+          <div className="space-y-3 lg:hidden">
+            <div className="flex items-center justify-between gap-2">
+              {timeRangeControl ?? (!hideDrawdown ? <span className="min-w-0 shrink" aria-hidden /> : null)}
+              <div className="flex min-w-0 shrink-0 items-center justify-end gap-2">{drawdownToggle}</div>
+            </div>
+            {renderSeriesChips()}
+          </div>
+          <div className="hidden lg:flex lg:flex-row lg:flex-wrap lg:items-center lg:gap-x-2 lg:gap-y-2">
+            {timeRangeControl}
+            {renderSeriesChips()}
+            {drawdownToggle ? (
+              <div className="ml-auto flex shrink-0 items-center justify-end gap-2">{drawdownToggle}</div>
+            ) : null}
+          </div>
+        </>
       ) : null}
 
-      <div
-        className="space-y-3"
-        onMouseLeave={(e) => {
-          const next = e.relatedTarget;
-          if (
-            !next ||
-            !(next instanceof Node) ||
-            !e.currentTarget.contains(next)
-          ) {
-            setEmphasizedSeriesKey(null);
-          }
-        }}
-      >
-        {/* Series toggle chips — hover emphasizes matching line (no SVG pointer handlers). */}
-        {!chipsInControlsRow ? renderSeriesChips() : null}
-
-        <ChartContainer
+      <ChartContainer
           className={cn('w-full', chartContainerClassName ?? 'h-[340px]')}
           config={Object.fromEntries(
             Object.entries(config).map(([key, cfg]) => [key, { label: cfg.label, color: cfg.color }])
@@ -482,6 +498,12 @@ export function PerformanceChart({
             />
           )}
           <ChartTooltip
+            cursor={{
+              stroke: CHART_NEUTRAL_REFERENCE_STROKE,
+              strokeWidth: 1.5,
+              strokeOpacity: 0.9,
+              strokeDasharray: '4 3',
+            }}
             content={
               <ChartTooltipContent
                 className="max-w-[14rem] px-2 py-1.5"
@@ -525,7 +547,6 @@ export function PerformanceChart({
           })}
         </LineChart>
       </ChartContainer>
-      </div>
 
       {/* Was Recharts legend (series names); chips above still toggle series. */}
       {view === 'equity' && (

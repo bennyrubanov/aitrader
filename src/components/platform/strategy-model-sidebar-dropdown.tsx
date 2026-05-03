@@ -46,7 +46,7 @@ export function StrategyModelSidebarDropdown({
   return (
     <div
       className={cn(
-        'space-y-4 pt-5 pb-4',
+        'space-y-4 pt-3 pb-4',
         !hideBottomBorder && 'border-b border-border',
       )}
     >

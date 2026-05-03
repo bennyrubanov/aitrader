@@ -50,6 +50,7 @@ import { Label } from '@/components/ui/label';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Table,
   TableBody,
@@ -69,6 +70,7 @@ import { HoldingsPortfolioValueLine } from '@/components/platform/holdings-portf
 import { MetricReadinessPill } from '@/components/platform/metric-readiness-pill';
 import { SpotlightStatCard } from '@/components/tooltips/spotlight-overview-tooltips';
 import { useToast } from '@/hooks/use-toast';
+import { useIsBelowLg } from '@/hooks/use-is-below-lg';
 import {
   showPortfolioUnfollowToast,
   showPortfolioFollowToast,
@@ -431,8 +433,8 @@ function YourPortfoliosSkeletonShell() {
 
       <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-y-auto overscroll-y-contain px-1 py-1 lg:h-full lg:max-h-full lg:min-h-0 lg:pl-8">
         <div className="flex min-h-0 w-full min-w-0 max-w-none flex-1 flex-col self-stretch">
-          <div className="shrink-0 border-b bg-background/95 px-5 py-3 sm:px-7 sm:py-3">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="shrink-0">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-1.5 gap-y-2">
                   <Skeleton className="h-6 w-28 shrink-0 rounded-full" />
@@ -1056,7 +1058,7 @@ function PortfolioRebalanceActionsTimeline({
           <div className="relative min-h-0 w-full flex-1 overflow-hidden lg:min-h-0">
             <div
               ref={rebalanceActionsScrollRef}
-              className="max-h-[min(56vh,400px)] w-full min-h-0 overflow-y-auto overflow-x-hidden rounded-md border [scrollbar-width:thin] lg:max-h-none lg:h-full lg:flex-1"
+              className="max-h-[min(56vh,400px)] w-full min-h-0 overflow-y-auto overflow-x-hidden [scrollbar-width:thin] lg:max-h-none lg:h-full lg:flex-1"
             >
               <div ref={rebalanceActionsInnerRef} className="min-w-0 space-y-2 p-1">
                 {selectedDateRow ? (
@@ -1514,6 +1516,10 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   /** Entry-scoped movement timeline (same cache as rebalance actions) for cost-basis replay. */
   const [holdingsMovementTimeline, setHoldingsMovementTimeline] =
     useState<PortfolioMovementResolved | null>(null);
+  const isBelowLg = useIsBelowLg();
+  const [yourPortfolioMobileSubTab, setYourPortfolioMobileSubTab] = useState<
+    'performance' | 'holdings'
+  >('performance');
 
   const loadProfiles = useCallback(async (opts?: { silent?: boolean }) => {
     const showLoader = opts?.silent !== true;
@@ -2396,6 +2402,10 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     setPrevMovementLoading(false);
   }, [selectedProfile?.id, selectedProfileConfigId]);
 
+  useEffect(() => {
+    setYourPortfolioMobileSubTab('performance');
+  }, [selectedProfile?.id]);
+
   const modelChart = useMemo(
     () =>
       buildConfigPerformanceChart(
@@ -3126,6 +3136,771 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
 
   const chartStrategyName = 'Your portfolio';
 
+  const renderYourPortfolioHoldingsAndRebalancePanels = () => (
+    <>
+                  <div className="relative flex min-h-0 w-full max-w-full min-w-0 flex-col gap-1.5 overflow-hidden sm:gap-2 lg:flex-1 lg:basis-0">
+                  <div className="flex shrink-0 min-w-0 w-full flex-col gap-2">
+                    <h4 className="hidden shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground lg:block">
+                      Portfolio holdings
+                    </h4>
+                    {yourPortfoliosHoldingsPaid && scopedConfigHoldingsRebalanceDates.length > 0 ? (
+                      <div className="flex min-w-0 flex-nowrap items-center justify-start gap-x-1.5 overflow-x-auto sm:gap-x-2">
+                        <Select
+                            value={holdingsDateSelect}
+                            onValueChange={(v) => {
+                              if (!v || v === holdingsDateSelect) return;
+                              setHoldingsDateSelect(v);
+                              const pid = selectedProfile?.id?.trim();
+                              if (pid) {
+                                mergeYourPortfolioPortfolioUiSession(pid, { holdingsDateSelect: v });
+                              }
+                            }}
+                            disabled={configHoldingsLoading}
+                          >
+                            <SelectTrigger
+                              className={cn(
+                                'h-9 rounded-md border border-input bg-background px-2 text-left text-xs shadow-none ring-0 hover:bg-muted/30 focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:ring-0 data-[state=open]:ring-offset-0',
+                                PORTFOLIO_HOLDINGS_DATE_SELECT_WIDTH_CLASSES
+                              )}
+                            >
+                              <SelectValue placeholder="Rebalance date" />
+                            </SelectTrigger>
+                            <SelectContent align="start">
+                              <SelectItem value={HOLDINGS_TODAY_SENTINEL} className="text-xs">
+                                Today
+                              </SelectItem>
+                              {scopedConfigHoldingsRebalanceDates.map((d) => {
+                                const initialD =
+                                  scopedConfigHoldingsRebalanceDates[
+                                    scopedConfigHoldingsRebalanceDates.length - 1
+                                  ];
+                                return (
+                                <SelectItem key={d} value={d} className="text-xs">
+                                  {d === initialD
+                                    ? `${yourPortfolioHoldingsShortDateFmt.format(
+                                        new Date(
+                                          `${ymdForInitialRebalanceDisplay(
+                                            d,
+                                            userStartForHoldingsYmd
+                                          )}T00:00:00Z`
+                                        )
+                                      )} (initial)`
+                                    : yourPortfolioHoldingsShortDateFmt.format(
+                                        new Date(`${d}T00:00:00Z`)
+                                      )}
+                                </SelectItem>
+                                );
+                              })}
+                            </SelectContent>
+                          </Select>
+                        {holdingsPrevRebalanceDate ? (
+                          <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                            <Switch
+                              id="your-portfolio-holdings-movement"
+                              checked={holdingsMovementView}
+                              onCheckedChange={(v) => {
+                                setHoldingsMovementView(v);
+                                const pid = selectedProfile?.id?.trim();
+                                if (pid) {
+                                  mergeYourPortfolioPortfolioUiSession(pid, {
+                                    holdingsMovementView: v,
+                                  });
+                                }
+                              }}
+                              disabled={configHoldingsLoading}
+                              aria-label="Show which holdings entered, stayed, or exited vs prior rebalance"
+                            />
+                            <Label
+                              htmlFor="your-portfolio-holdings-movement"
+                              className="text-xs text-muted-foreground cursor-pointer whitespace-nowrap leading-none"
+                            >
+                              Movement
+                            </Label>
+                            <HoldingsMovementInfoTooltip />
+                            {holdingsMovementView && prevMovementLoading ? (
+                              <Loader2
+                                className="size-3.5 shrink-0 animate-spin text-muted-foreground"
+                                aria-hidden
+                              />
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : yourPortfoliosHoldingsPaid &&
+                      !configHoldingsLoading &&
+                      scopedConfigHoldingsRebalanceDates.length === 0 ? (
+                      <p className="shrink-0 text-left text-[11px] text-muted-foreground">
+                        No rebalance history yet.
+                      </p>
+                    ) : null}
+                    {yourPortfoliosHoldingsPaid && scopedConfigHoldingsRebalanceDates.length > 0 ? (
+                      <HoldingsPortfolioValueLine
+                        value={holdingsPortfolioValueLineAmount}
+                        formatCurrency={formatYourPortfolioCurrency}
+                        className="shrink-0"
+                        asOfCloseDate={holdingsPortfolioValueAsOfCloseLabel}
+                      />
+                    ) : null}
+                    {holdingsMovementView && prevMovementError ? (
+                      <p className="w-full text-[11px] text-destructive">
+                        Could not load the prior rebalance to compare.
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="relative min-h-0 w-full flex-1 overflow-hidden lg:min-h-0">
+                    <div
+                      ref={yourPortfolioHoldingsScrollRef}
+                      className="max-h-[min(56vh,400px)] w-full min-h-0 overflow-y-auto overflow-x-hidden lg:max-h-none lg:h-full lg:flex-1"
+                    >
+                  {!yourPortfoliosHoldingsPaid ? (
+                    <div className="flex min-h-[12rem] flex-col items-center justify-center gap-3 px-4 py-8 text-center">
+                      <Lock className="size-8 shrink-0 text-muted-foreground" aria-hidden />
+                      <p className="max-w-sm text-sm text-muted-foreground">
+                        Portfolio holdings and allocations are available on the Supporter or Outperformer plans.
+                      </p>
+                      <Button size="sm" asChild>
+                        <Link href="/pricing">View plans</Link>
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                  {configHoldingsLoading && configHoldings.length === 0 ? (
+                    <div ref={yourPortfolioHoldingsInnerRef}>
+                      <Skeleton className="h-48 w-full rounded-md" />
+                    </div>
+                  ) : configHoldings.length === 0 ? (
+                    <div ref={yourPortfolioHoldingsInnerRef}>
+                      <p className="text-sm text-muted-foreground">
+                        No holdings for this date — scores may still be processing.
+                      </p>
+                    </div>
+                  ) : (
+                    <TooltipProvider delayDuration={200}>
+                      <div ref={yourPortfolioHoldingsInnerRef} className="relative w-full min-w-0">
+                        {configHoldingsRefreshing ? (
+                          <div
+                            className="pointer-events-none absolute inset-0 z-[1] flex justify-center rounded-md bg-background/50 pt-6 backdrop-blur-[0.5px]"
+                            aria-hidden
+                          >
+                            <Skeleton className="h-36 w-full max-w-lg rounded-md" />
+                          </div>
+                        ) : null}
+                        <div
+                          className={cn(
+                            configHoldingsRefreshing && 'opacity-[0.65]',
+                            '@container min-w-0 w-full overflow-x-auto overflow-y-clip'
+                          )}
+                        >
+                        <Table noScrollWrapper className="min-w-0 w-full table-auto text-[11px]">
+                          <TableHeader>
+                            <TableRow className="hover:bg-transparent">
+                              <TableHead className="h-9 w-0 shrink-0 whitespace-nowrap py-1.5 pl-2 pr-1 text-left align-middle tabular-nums">
+                                <span className="inline-flex min-w-0 max-w-full items-center gap-1">
+                                  <span>#</span>
+                                  <InfoIconTooltip ariaLabel="How holding rank works">
+                                    <p className="mb-1 font-semibold">Holding rank</p>
+                                    <p className="text-muted-foreground">
+                                      Current rank in the AI&apos;s latest ratings. The arrow badge
+                                      shows how many spots the holding moved since the prior
+                                      rebalance.
+                                    </p>
+                                  </InfoIconTooltip>
+                                </span>
+                              </TableHead>
+                              <TableHead className="h-9 w-0 min-w-[4rem] px-1.5 py-1.5 text-left align-middle">
+                                Stock
+                              </TableHead>
+                              <TableHead className="h-9 w-0 min-w-[5.5rem] px-1.5 py-1.5 text-left align-middle whitespace-nowrap">
+                                <span className="inline-flex min-w-0 max-w-full items-center justify-start gap-1">
+                                  <span className="truncate">Value</span>
+                                  <HoldingsAllocationColumnTooltip
+                                    weightingMethod={
+                                      selectedProfile?.portfolio_config?.weighting_method
+                                    }
+                                    topN={selectedProfile?.portfolio_config?.top_n}
+                                    showCurrentVsTargetCopy
+                                  />
+                                </span>
+                              </TableHead>
+                              <TableHead className="h-9 w-full min-w-[5.5rem] py-1.5 pl-1.5 pr-2 text-left align-middle whitespace-nowrap">
+                                <span className="inline-flex min-w-0 max-w-full items-center justify-start gap-1">
+                                  <span className="truncate">Cost basis</span>
+                                  <HoldingsCostBasisColumnTooltip variant="user" />
+                                </span>
+                              </TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {holdingsMovementRowsLoading
+                              ? configHoldings.slice(0, Math.min(topN, 8)).map((h, idx) => (
+                                  <TableRow
+                                    key={`holdings-movement-loading-${h.symbol}-${idx}`}
+                                    className="pointer-events-none"
+                                  >
+                                    <TableCell className="w-0 shrink-0 whitespace-nowrap py-1.5 pl-2 pr-1 text-muted-foreground">
+                                      <Skeleton className="h-3.5 w-11 rounded-sm" />
+                                    </TableCell>
+                                    <TableCell className="min-w-0 px-1.5 py-1.5 text-left">
+                                      <Skeleton className="h-3.5 w-14 rounded-sm" />
+                                    </TableCell>
+                                    <TableCell className="min-w-0 px-1.5 py-1.5 text-left tabular-nums">
+                                      <span className="inline-flex w-full justify-start">
+                                        <Skeleton className="h-3.5 w-24 rounded-sm" />
+                                      </span>
+                                    </TableCell>
+                                    <TableCell className="min-w-0 py-1.5 pl-1.5 pr-2 text-left align-top">
+                                      <YourPortfolioCostBasisCell
+                                        symbol={h.symbol}
+                                        snapshot={selectedHoldingsCostBasisSnapshot}
+                                        loading={holdingsCostBasisLoading}
+                                      />
+                                    </TableCell>
+                                  </TableRow>
+                                ))
+                              : holdingsMovementModel
+                              ? (
+                                <>
+                                  {holdingsMovementModel.active.map(({ holding: h, kind }) => {
+                                    const company =
+                                      typeof h.companyName === 'string' &&
+                                      h.companyName.trim().length > 0
+                                        ? h.companyName.trim()
+                                        : null;
+                                    const inv = num(selectedProfile?.investment_size);
+                                    const liveRow =
+                                      liveConfigHoldingsAllocation.bySymbol[h.symbol.toUpperCase()];
+                                    const showLive =
+                                      liveConfigHoldingsAllocation.hasCompleteCoverage &&
+                                      liveRow?.currentValue != null &&
+                                      liveRow.currentWeight != null;
+                                    return (
+                                      <TableRow
+                                        key={`${h.symbol}-${h.rank}-m`}
+                                        className={cn(
+                                          'cursor-pointer hover:bg-muted/50',
+                                          holdingMovementRowCn(kind)
+                                        )}
+                                        tabIndex={0}
+                                        onClick={() => setHoldingsRowChartSymbol(h.symbol)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter' || e.key === ' ') {
+                                            e.preventDefault();
+                                            setHoldingsRowChartSymbol(h.symbol);
+                                          }
+                                        }}
+                                      >
+                                        <TableCell className="w-0 shrink-0 whitespace-nowrap py-1.5 pl-2 pr-1 text-muted-foreground">
+                                          <HoldingRankWithChange
+                                            rank={h.rank}
+                                            rankChange={h.rankChange}
+                                            hideChangeOnNarrow
+                                          />
+                                        </TableCell>
+                                        <TableCell className="min-w-0 px-1.5 py-1.5 text-left">
+                                          {company ? (
+                                            <Tooltip>
+                                              <TooltipTrigger asChild>
+                                                <span className="block truncate font-medium">
+                                                  {h.symbol}
+                                                </span>
+                                              </TooltipTrigger>
+                                              <TooltipContent
+                                                side="top"
+                                                className="max-w-xs text-left"
+                                              >
+                                                {company}
+                                              </TooltipContent>
+                                            </Tooltip>
+                                          ) : (
+                                            <span className="block truncate font-medium">
+                                              {h.symbol}
+                                            </span>
+                                          )}
+                                        </TableCell>
+                                        <TableCell className="min-w-0 px-1.5 py-1.5 text-left tabular-nums">
+                                          {showLive ? (
+                                            holdingsDateSelect === HOLDINGS_TODAY_SENTINEL ? (
+                                              <div className="min-w-0 space-y-0.5 leading-tight">
+                                                <div className="truncate">
+                                                  {`${formatYourPortfolioCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
+                                                </div>
+                                                <div className="truncate text-[11px] text-muted-foreground">
+                                                  Target: {(h.weight * 100).toFixed(1)}%
+                                                </div>
+                                              </div>
+                                            ) : (
+                                              <span className="block min-w-0 truncate">
+                                                {`${formatYourPortfolioCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
+                                              </span>
+                                            )
+                                          ) : Number.isFinite(inv) && inv > 0 ? (
+                                            <span className="block min-w-0 truncate">
+                                              {`${formatYourPortfolioCurrency(h.weight * inv)} (${(h.weight * 100).toFixed(1)}%)`}
+                                            </span>
+                                          ) : (
+                                            <span className="block min-w-0 truncate">
+                                              {`— (${(h.weight * 100).toFixed(1)}%)`}
+                                            </span>
+                                          )}
+                                        </TableCell>
+                                        <TableCell className="min-w-0 py-1.5 pl-1.5 pr-2 text-left align-top">
+                                          <YourPortfolioCostBasisCell
+                                            symbol={h.symbol}
+                                            snapshot={selectedHoldingsCostBasisSnapshot}
+                                            loading={holdingsCostBasisLoading}
+                                          />
+                                        </TableCell>
+                                      </TableRow>
+                                    );
+                                  })}
+                                  {holdingsMovementModel.exited.length > 0 ? (
+                                    <TableRow className="pointer-events-none border-t bg-muted/25 hover:bg-muted/25">
+                                      <TableCell
+                                        colSpan={4}
+                                        className="py-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"
+                                      >
+                                        Exited (vs prior rebalance)
+                                      </TableCell>
+                                    </TableRow>
+                                  ) : null}
+                                  {holdingsMovementModel.exited.map((h) => {
+                                    const company =
+                                      typeof h.companyName === 'string' &&
+                                      h.companyName.trim().length > 0
+                                        ? h.companyName.trim()
+                                        : null;
+                                    return (
+                                      <TableRow
+                                        key={`${h.symbol}-${h.rank}-x`}
+                                        className={cn(
+                                          'cursor-pointer hover:bg-muted/50',
+                                          holdingMovementRowCn('exited')
+                                        )}
+                                        tabIndex={0}
+                                        onClick={() => setHoldingsRowChartSymbol(h.symbol)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter' || e.key === ' ') {
+                                            e.preventDefault();
+                                            setHoldingsRowChartSymbol(h.symbol);
+                                          }
+                                        }}
+                                      >
+                                        <TableCell className="w-0 shrink-0 whitespace-nowrap py-1.5 pl-2 pr-1 text-muted-foreground">
+                                          <HoldingRankWithChange
+                                            rank={h.rank}
+                                            rankChange={null}
+                                            hideChangeOnNarrow
+                                          />
+                                        </TableCell>
+                                        <TableCell className="min-w-0 px-1.5 py-1.5 text-left">
+                                          {company ? (
+                                            <Tooltip>
+                                              <TooltipTrigger asChild>
+                                                <span className="block truncate font-medium">
+                                                  {h.symbol}
+                                                </span>
+                                              </TooltipTrigger>
+                                              <TooltipContent
+                                                side="top"
+                                                className="max-w-xs text-left"
+                                              >
+                                                {company}
+                                              </TooltipContent>
+                                            </Tooltip>
+                                          ) : (
+                                            <span className="block truncate font-medium">
+                                              {h.symbol}
+                                            </span>
+                                          )}
+                                        </TableCell>
+                                        <TableCell className="min-w-0 px-1.5 py-1.5 text-left tabular-nums text-muted-foreground">
+                                          <span className="block min-w-0 truncate text-[11px]">
+                                            Was {(h.weight * 100).toFixed(1)}%
+                                          </span>
+                                        </TableCell>
+                                        <TableCell className="min-w-0 py-1.5 pl-1.5 pr-2 text-left align-top">
+                                          <YourPortfolioCostBasisCell
+                                            symbol={h.symbol}
+                                            snapshot={selectedHoldingsCostBasisSnapshot}
+                                            loading={holdingsCostBasisLoading}
+                                            exited
+                                          />
+                                        </TableCell>
+                                      </TableRow>
+                                    );
+                                  })}
+                                </>
+                              )
+                              : configHoldings.slice(0, topN).map((h) => {
+                                  const company =
+                                    typeof h.companyName === 'string' &&
+                                    h.companyName.trim().length > 0
+                                      ? h.companyName.trim()
+                                      : null;
+                                  const inv = num(selectedProfile?.investment_size);
+                                  const liveRow =
+                                    liveConfigHoldingsAllocation.bySymbol[h.symbol.toUpperCase()];
+                                  const showLive =
+                                    liveConfigHoldingsAllocation.hasCompleteCoverage &&
+                                    liveRow?.currentValue != null &&
+                                    liveRow.currentWeight != null;
+                                  return (
+                                    <TableRow
+                                      key={`${h.symbol}-${h.rank}`}
+                                      className="cursor-pointer hover:bg-muted/50"
+                                      tabIndex={0}
+                                      onClick={() => setHoldingsRowChartSymbol(h.symbol)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter' || e.key === ' ') {
+                                          e.preventDefault();
+                                          setHoldingsRowChartSymbol(h.symbol);
+                                        }
+                                      }}
+                                    >
+                                      <TableCell className="w-0 shrink-0 whitespace-nowrap py-1.5 pl-2 pr-1 text-muted-foreground">
+                                        <HoldingRankWithChange
+                                          rank={h.rank}
+                                          rankChange={h.rankChange}
+                                          hideChangeOnNarrow
+                                        />
+                                      </TableCell>
+                                      <TableCell className="min-w-0 px-1.5 py-1.5 text-left">
+                                        {company ? (
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <span className="block truncate font-medium">
+                                                {h.symbol}
+                                              </span>
+                                            </TooltipTrigger>
+                                            <TooltipContent
+                                              side="top"
+                                              className="max-w-xs text-left"
+                                            >
+                                              {company}
+                                            </TooltipContent>
+                                          </Tooltip>
+                                        ) : (
+                                          <span className="block truncate font-medium">
+                                            {h.symbol}
+                                          </span>
+                                        )}
+                                      </TableCell>
+                                      <TableCell className="min-w-0 px-1.5 py-1.5 text-left tabular-nums">
+                                        {showLive ? (
+                                          holdingsDateSelect === HOLDINGS_TODAY_SENTINEL ? (
+                                            <div className="min-w-0 space-y-0.5 leading-tight">
+                                              <div className="truncate">
+                                                {`${formatYourPortfolioCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
+                                              </div>
+                                              <div className="truncate text-[11px] text-muted-foreground">
+                                                Target: {(h.weight * 100).toFixed(1)}%
+                                              </div>
+                                            </div>
+                                          ) : (
+                                            <span className="block min-w-0 truncate">
+                                              {`${formatYourPortfolioCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
+                                            </span>
+                                          )
+                                        ) : Number.isFinite(inv) && inv > 0 ? (
+                                          <span className="block min-w-0 truncate">
+                                            {`${formatYourPortfolioCurrency(h.weight * inv)} (${(h.weight * 100).toFixed(1)}%)`}
+                                          </span>
+                                        ) : (
+                                          <span className="block min-w-0 truncate">
+                                            {`— (${(h.weight * 100).toFixed(1)}%)`}
+                                          </span>
+                                        )}
+                                      </TableCell>
+                                      <TableCell className="min-w-0 py-1.5 pl-1.5 pr-2 text-left align-top">
+                                        <YourPortfolioCostBasisCell
+                                          symbol={h.symbol}
+                                          snapshot={selectedHoldingsCostBasisSnapshot}
+                                          loading={holdingsCostBasisLoading}
+                                        />
+                                      </TableCell>
+                                    </TableRow>
+                                  );
+                                })}
+                          </TableBody>
+                        </Table>
+                      {configHoldings.length > topN ? (
+                        <p className="px-2 py-2 text-center text-xs text-muted-foreground">
+                          Showing top {topN} of {configHoldings.length} positions.
+                        </p>
+                      ) : null}
+                        </div>
+                      </div>
+                    </TooltipProvider>
+                  )}
+                    </>
+                  )}
+                    </div>
+                    {showYourPortfolioHoldingsScrollFade ? (
+                      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] flex h-10 items-end justify-center bg-gradient-to-t from-background/90 via-background/45 to-transparent pb-1 pt-5">
+                        {!yourPortfolioHoldingsChevronDismissed ? (
+                          <button
+                            type="button"
+                            className="pointer-events-auto inline-flex size-8 items-center justify-center rounded-full border border-trader-blue/35 bg-background/90 shadow-sm ring-offset-background transition-colors hover:border-trader-blue/55 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-trader-blue/40 focus-visible:ring-offset-2"
+                            onClick={nudgeYourPortfolioHoldingsScroll}
+                            aria-label="Scroll down to see more holdings"
+                          >
+                            <ChevronDown className="size-5 animate-bounce text-trader-blue" aria-hidden />
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+                <div
+                  className="pointer-events-none relative hidden shrink-0 self-stretch lg:block lg:w-px"
+                  aria-hidden
+                >
+                  <div className="absolute left-1/2 top-1/2 h-1/2 w-px -translate-x-1/2 -translate-y-1/2 bg-border" />
+                </div>
+                <div className="relative flex min-h-0 w-full max-w-full min-w-0 flex-col gap-1.5 overflow-hidden sm:gap-2 lg:flex-1 lg:basis-0">
+                  {!yourPortfoliosHoldingsPaid ? (
+                    <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Rebalance actions
+                    </h4>
+                  ) : null}
+                  {!yourPortfoliosHoldingsPaid ? (
+                    <div className="flex min-h-[10rem] flex-1 flex-col items-center justify-center gap-3 px-4 py-6 text-center">
+                      <Lock className="size-7 shrink-0 text-muted-foreground" aria-hidden />
+                      <p className="max-w-md text-sm text-muted-foreground">
+                        Rebalance actions are available on the Supporter or Outperformer plans.
+                      </p>
+                      <Button size="sm" asChild>
+                        <Link href="/pricing">View plans</Link>
+                      </Button>
+                    </div>
+                  ) : selectedProfile ? (
+                    <div className="relative min-h-0 w-full flex-1 overflow-hidden lg:min-h-0">
+                      <PortfolioRebalanceActionsTimeline
+                        profile={selectedProfile}
+                        tourMarker
+                        showProfileSummary={false}
+                        anchorId="rebalance-actions"
+                        className="h-full min-h-0 bg-transparent p-0"
+                      />
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Select a portfolio to view actions.</p>
+                  )}
+                </div>
+    </>
+  );
+
+  const renderYourPortfolioSecondaryMetricsGrid = () => (
+    <>
+                        <div className="rounded-lg border bg-card px-2 py-2">
+                          <div className="flex items-start justify-between gap-1">
+                            <p className="min-w-0 flex-1 text-[10px] font-medium uppercase leading-tight tracking-wide text-muted-foreground">
+                              Entry date
+                            </p>
+                            {selectedProfile ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="size-6 shrink-0 -mr-1 -mt-0.5 text-muted-foreground hover:text-foreground"
+                                aria-label="Entry settings"
+                                onClick={() => setEntrySettingsOpen(true)}
+                              >
+                                <Settings2 className="size-3.5" aria-hidden />
+                              </Button>
+                            ) : null}
+                          </div>
+                          <p className="text-sm font-semibold tabular-nums leading-tight text-foreground">
+                            {selectedProfile?.user_start_date?.trim()
+                              ? formatYmdDisplay(selectedProfile.user_start_date.trim())
+                              : '—'}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border bg-card px-2 py-2">
+                          <div className="flex items-start justify-between gap-1">
+                            <p className="min-w-0 flex-1 text-[10px] font-medium uppercase leading-tight tracking-wide text-muted-foreground">
+                              Initial investment
+                            </p>
+                            {selectedProfile ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="size-6 shrink-0 -mr-1 -mt-0.5 text-muted-foreground hover:text-foreground"
+                                aria-label="Entry settings"
+                                onClick={() => setEntrySettingsOpen(true)}
+                              >
+                                <Settings2 className="size-3.5" aria-hidden />
+                              </Button>
+                            ) : null}
+                          </div>
+                          <p className="text-sm font-semibold tabular-nums leading-tight text-foreground">
+                            {num(selectedProfile?.investment_size) > 0
+                              ? formatYourPortfolioCurrency(num(selectedProfile?.investment_size))
+                              : '—'}
+                          </p>
+                        </div>
+                    <SpotlightStatCard
+                      tooltipKey="sharpe_ratio"
+                      label="Sharpe ratio"
+                      value={spotlightFmt.num(effectiveDisplayMetrics?.sharpeRatio)}
+                      valueClassName={
+                        effectiveDisplayMetrics?.sharpeRatio != null &&
+                        Number.isFinite(effectiveDisplayMetrics.sharpeRatio)
+                          ? sharpeRatioValueClass(effectiveDisplayMetrics.sharpeRatio)
+                          : undefined
+                      }
+                      afterLabel={
+                        <MetricReadinessPill
+                          kind="sharpe"
+                          value={effectiveDisplayMetrics?.sharpeRatio ?? null}
+                          weeksOfData={
+                            effectiveDisplayMetrics?.weeklyObservations ??
+                            (selectedProfile?.user_start_date ? undefined : rawRows.length)
+                          }
+                        />
+                      }
+                    />
+                    <SpotlightStatCard
+                      tooltipKey="cagr"
+                      label="CAGR"
+                      value={spotlightFmt.pct(effectiveDisplayMetrics?.cagr)}
+                      positive={
+                        effectiveDisplayMetrics?.cagr != null &&
+                        Number.isFinite(effectiveDisplayMetrics.cagr)
+                          ? effectiveDisplayMetrics.cagr > 0
+                          : undefined
+                      }
+                      afterLabel={
+                        <MetricReadinessPill
+                          kind="cagr"
+                          value={effectiveDisplayMetrics?.cagr ?? null}
+                          weeksOfData={
+                            effectiveDisplayMetrics?.weeklyObservations ??
+                            (selectedProfile?.user_start_date ? undefined : rawRows.length)
+                          }
+                        />
+                      }
+                    />
+                    <SpotlightStatCard
+                      tooltipKey="max_drawdown"
+                      label="Max drawdown"
+                      value={spotlightFmt.pct(effectiveDisplayMetrics?.maxDrawdown)}
+                      positive={
+                        effectiveDisplayMetrics?.maxDrawdown != null &&
+                        Number.isFinite(effectiveDisplayMetrics.maxDrawdown)
+                          ? effectiveDisplayMetrics.maxDrawdown > -0.2
+                          : undefined
+                      }
+                    />
+                    <SpotlightStatCard
+                      tooltipKey="vs_nasdaq_cap"
+                      label="Performance vs Nasdaq-100"
+                      value={spotlightFmt.pct(excessNdxForSpotlight)}
+                      positive={
+                        excessNdxForSpotlight != null && Number.isFinite(excessNdxForSpotlight)
+                          ? excessNdxForSpotlight > 0
+                          : undefined
+                      }
+                    />
+                    <SpotlightStatCard
+                      tooltipKey="vs_nasdaq_equal"
+                      label="Performance vs Nasdaq-100 (equal-weight)"
+                      value={spotlightFmt.pct(benchmarkBench.excessVsNasdaqEqual)}
+                      positive={
+                        benchmarkBench.excessVsNasdaqEqual != null &&
+                        Number.isFinite(benchmarkBench.excessVsNasdaqEqual)
+                          ? benchmarkBench.excessVsNasdaqEqual > 0
+                          : undefined
+                      }
+                    />
+                    <SpotlightStatCard
+                      tooltipKey="consistency"
+                      label="% weeks beating Nasdaq-100"
+                      value={
+                        weeklyBeatRates.ndxCap != null
+                          ? spotlightFmt.pct(weeklyBeatRates.ndxCap, 0)
+                          : '—'
+                      }
+                      positive={
+                        weeklyBeatRates.ndxCap != null ? weeklyBeatRates.ndxCap > 0.5 : undefined
+                      }
+                    />
+                    <SpotlightStatCard
+                      tooltipKey="weeks_beating_sp500"
+                      label="% weeks beating S&P 500"
+                      value={
+                        weeklyBeatRates.sp500 != null
+                          ? spotlightFmt.pct(weeklyBeatRates.sp500, 0)
+                          : '—'
+                      }
+                      positive={
+                        weeklyBeatRates.sp500 != null ? weeklyBeatRates.sp500 > 0.5 : undefined
+                      }
+                    />
+                    <SpotlightStatCard
+                      tooltipKey="weeks_beating_nasdaq_equal"
+                      label="% weeks beating Nasdaq-100 (equal-weight)"
+                      value={
+                        weeklyBeatRates.ndxEq != null
+                          ? spotlightFmt.pct(weeklyBeatRates.ndxEq, 0)
+                          : '—'
+                      }
+                      positive={
+                        weeklyBeatRates.ndxEq != null ? weeklyBeatRates.ndxEq > 0.5 : undefined
+                      }
+                    />
+    </>
+  );
+
+  const renderYourPortfolioPerformanceChartCard = () => (
+
+                <div className="min-w-0 w-full max-w-full">
+                  <p className="mb-2 text-xs font-semibold text-muted-foreground">
+                    {selectedProfile?.user_start_date
+                      ? 'Portfolio vs. benchmarks'
+                      : 'Model track vs. benchmarks'}
+                  </p>
+                  {effectiveDisplaySeries.length > 1 ? (
+                    <PerformanceChart
+                      series={effectiveDisplaySeries}
+                      strategyName={chartStrategyName}
+                      hideDrawdown
+                      nominalDollars
+                      initialNotional={chartInitialNotional}
+                      firstPointDisplayNotional={
+                        selectedProfile?.user_start_date && num(selectedProfile?.investment_size) > 0
+                          ? num(selectedProfile?.investment_size)
+                          : undefined
+                      }
+                      chartContainerClassName="h-[300px] sm:h-[340px]"
+                    />
+                  ) : (
+                    <div className="flex h-[260px] flex-col items-center justify-center gap-2 px-4 text-center text-sm text-muted-foreground lg:h-[340px]">
+                      <p>Not enough history to chart yet.</p>
+                      {selectedProfile?.user_start_date ? (
+                        <>
+                          <p className="max-w-sm text-xs leading-snug">
+                            You can change your portfolio entry date to see more data and
+                            change how much performance history this chart shows.
+                          </p>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="mt-1 gap-1.5"
+                            onClick={() => setEntrySettingsOpen(true)}
+                          >
+                            <Settings2 className="size-3.5" aria-hidden />
+                            Entry settings
+                          </Button>
+                        </>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+  );
+
   return (
     <div
         className={cn(
@@ -3558,74 +4333,88 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       {/* Main — single scroll column (header + body), same as explore-portfolios */}
       <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-y-auto overscroll-y-contain px-1 py-1 lg:h-full lg:max-h-full lg:min-h-0 lg:pl-8">
         <div className="flex min-h-0 w-full min-w-0 max-w-none flex-1 flex-col self-stretch">
-          <div className="shrink-0 border-b bg-background/95 px-5 py-3 sm:px-7 sm:py-3">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-1.5 gap-y-2">
-                <span
-                  className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border/80 bg-muted/50 px-2 py-0.5 text-[11px] font-semibold text-foreground"
-                  title={headerRiskTitle}
-                >
-                  <span className={cn('size-1.5 shrink-0 rounded-full', headerRiskDot)} aria-hidden />
-                  {headerRiskTitle}
-                </span>
-                {cfg?.label ? (
-                  <h2 className="min-w-0 text-base font-semibold text-foreground">{cfg.label}</h2>
-                ) : (
-                  <h2 className="min-w-0 text-base font-semibold text-foreground">Portfolio</h2>
-                )}
+          <div className="shrink-0">
+            <div className="flex flex-col gap-2 sm:gap-2.5">
+              <div className="flex min-w-0 items-center justify-between gap-2">
+                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-1.5">
+                  <span
+                    className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border/80 bg-muted/50 px-1.5 py-0.5 text-[10px] font-semibold text-foreground lg:gap-1.5 lg:px-2 lg:text-[11px]"
+                    title={headerRiskTitle}
+                  >
+                    <span
+                      className={cn('size-1 shrink-0 rounded-full lg:size-1.5', headerRiskDot)}
+                      aria-hidden
+                    />
+                    {headerRiskTitle}
+                  </span>
+                  {cfg?.label ? (
+                    <h2 className="min-w-0 text-xs font-semibold leading-tight text-foreground lg:text-sm">
+                      {cfg.label}
+                    </h2>
+                  ) : (
+                    <h2 className="min-w-0 text-xs font-semibold leading-tight text-foreground lg:text-sm">
+                      Portfolio
+                    </h2>
+                  )}
+                  {(selectedRanked?.badges ?? []).length > 0 ? (
+                    <div className="hidden min-w-0 flex-wrap items-center gap-1.5 lg:flex">
+                      {(selectedRanked?.badges ?? []).map((b) => (
+                        <PortfolioConfigBadgePill key={b} name={b} strategySlug={strategySlug} />
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+                <div className="flex shrink-0 items-center justify-end gap-1.5 lg:gap-2">
+                  {selectedProfile ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 gap-1 px-2 text-[11px] lg:h-8 lg:gap-1.5 lg:px-3 lg:text-xs"
+                      onClick={() => setEntrySettingsOpen(true)}
+                    >
+                      <Settings2 className="size-2.5 shrink-0 lg:size-3" />
+                      <span className="hidden sm:inline">Entry settings</span>
+                    </Button>
+                  ) : null}
+                  {selectedProfile && !isGuestLocalProfileId(selectedProfile.id) ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 gap-1 px-2 text-[11px] lg:h-8 lg:gap-1.5 lg:px-3 lg:text-xs"
+                      onClick={() => setPortfolioAlertsOpen(true)}
+                    >
+                      <Bell className="size-2.5 shrink-0 lg:size-3" />
+                      <span className="hidden sm:inline">Alerts</span>
+                    </Button>
+                  ) : null}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 gap-1 px-2 text-[11px] text-muted-foreground hover:text-rose-600 lg:h-8 lg:gap-1.5 lg:px-3 lg:text-xs"
+                        disabled={!selectedProfile || unfollowBusy}
+                        onClick={() => void handleUnfollowSelected()}
+                      >
+                        <UserMinus className="size-2.5 shrink-0 lg:size-3" aria-hidden />
+                        <span className="hidden sm:inline">Unfollow</span>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="max-w-xs text-xs">
+                      Stop following this portfolio.
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
               </div>
               {(selectedRanked?.badges ?? []).length > 0 ? (
-                <div className="mt-1.5 flex flex-wrap items-center gap-1.5 gap-y-1">
+                <div className="flex flex-row flex-wrap items-center gap-1.5 lg:hidden">
                   {(selectedRanked?.badges ?? []).map((b) => (
                     <PortfolioConfigBadgePill key={b} name={b} strategySlug={strategySlug} />
                   ))}
                 </div>
               ) : null}
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {selectedProfile ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="gap-1.5 h-8 text-xs"
-                  onClick={() => setEntrySettingsOpen(true)}
-                >
-                  <Settings2 className="size-3.5" />
-                  <span className="hidden sm:inline">Entry settings</span>
-                </Button>
-              ) : null}
-              {selectedProfile && !isGuestLocalProfileId(selectedProfile.id) ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="gap-1.5 h-8 text-xs"
-                  onClick={() => setPortfolioAlertsOpen(true)}
-                >
-                  <Bell className="size-3.5" />
-                  <span className="hidden sm:inline">Alerts</span>
-                </Button>
-              ) : null}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-rose-600"
-                    disabled={!selectedProfile || unfollowBusy}
-                    onClick={() => void handleUnfollowSelected()}
-                  >
-                    <UserMinus className="size-3.5 shrink-0" aria-hidden />
-                    <span className="hidden sm:inline">Unfollow</span>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="max-w-xs text-xs">
-                  Stop following this portfolio.
-                </TooltipContent>
-              </Tooltip>
-            </div>
             </div>
           </div>
 
@@ -3697,20 +4486,13 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                 </div>
               ) : null}
 
-                <div className="flex w-full max-w-full min-w-0 flex-col gap-4 lg:max-h-[min(48vh,340px)] lg:min-h-0 lg:flex-row lg:items-stretch lg:gap-5 lg:overflow-hidden">
-                  <div className="relative flex w-full min-w-0 shrink-0 flex-col lg:min-h-0 lg:w-[11rem] lg:max-w-[11rem] lg:shrink-0 lg:basis-auto lg:flex-none">
-                    <div
-                      ref={yourPortfolioMetricsScrollRef}
-                      className="flex max-h-[min(42vh,300px)] min-h-0 flex-col gap-2 overflow-y-auto lg:max-h-none lg:flex-1"
-                    >
-                      <div
-                        ref={yourPortfolioMetricsInnerRef}
-                        className="grid min-w-0 grid-cols-2 gap-2 lg:grid-cols-1 [&>*]:min-w-0"
-                      >
-                    {/* Two columns below lg; single column in the fixed-width sidebar at lg+. */}
+                {isBelowLg ? (
+                  <div className="w-full space-y-4">
+                    <div className="mx-auto w-full max-w-full">
+                      <div className="grid w-full grid-cols-2 gap-2 sm:gap-3">
                         <SpotlightStatCard
                           tooltipKey="portfolio_value"
-                          label="Value since your entry"
+                          label="Portfolio value"
                           value={
                             portfolioValueAmount != null
                               ? formatYourPortfolioCurrency(portfolioValueAmount)
@@ -3741,771 +4523,122 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                               : undefined
                           }
                         />
-                        <div className="rounded-lg border bg-card px-2 py-2">
-                          <div className="flex items-start justify-between gap-1">
-                            <p className="min-w-0 flex-1 text-[10px] font-medium uppercase leading-tight tracking-wide text-muted-foreground">
-                              Entry date
-                            </p>
-                            {selectedProfile ? (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="size-6 shrink-0 -mr-1 -mt-0.5 text-muted-foreground hover:text-foreground"
-                                aria-label="Entry settings"
-                                onClick={() => setEntrySettingsOpen(true)}
-                              >
-                                <Settings2 className="size-3.5" aria-hidden />
-                              </Button>
-                            ) : null}
-                          </div>
-                          <p className="text-sm font-semibold tabular-nums leading-tight text-foreground">
-                            {selectedProfile?.user_start_date?.trim()
-                              ? formatYmdDisplay(selectedProfile.user_start_date.trim())
-                              : '—'}
-                          </p>
-                        </div>
-                        <div className="rounded-lg border bg-card px-2 py-2">
-                          <div className="flex items-start justify-between gap-1">
-                            <p className="min-w-0 flex-1 text-[10px] font-medium uppercase leading-tight tracking-wide text-muted-foreground">
-                              Initial investment
-                            </p>
-                            {selectedProfile ? (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="size-6 shrink-0 -mr-1 -mt-0.5 text-muted-foreground hover:text-foreground"
-                                aria-label="Entry settings"
-                                onClick={() => setEntrySettingsOpen(true)}
-                              >
-                                <Settings2 className="size-3.5" aria-hidden />
-                              </Button>
-                            ) : null}
-                          </div>
-                          <p className="text-sm font-semibold tabular-nums leading-tight text-foreground">
-                            {num(selectedProfile?.investment_size) > 0
-                              ? formatYourPortfolioCurrency(num(selectedProfile?.investment_size))
-                              : '—'}
-                          </p>
-                        </div>
-                    <SpotlightStatCard
-                      tooltipKey="sharpe_ratio"
-                      label="Sharpe ratio"
-                      value={spotlightFmt.num(effectiveDisplayMetrics?.sharpeRatio)}
-                      valueClassName={
-                        effectiveDisplayMetrics?.sharpeRatio != null &&
-                        Number.isFinite(effectiveDisplayMetrics.sharpeRatio)
-                          ? sharpeRatioValueClass(effectiveDisplayMetrics.sharpeRatio)
-                          : undefined
-                      }
-                      afterLabel={
-                        <MetricReadinessPill
-                          kind="sharpe"
-                          value={effectiveDisplayMetrics?.sharpeRatio ?? null}
-                          weeksOfData={
-                            effectiveDisplayMetrics?.weeklyObservations ??
-                            (selectedProfile?.user_start_date ? undefined : rawRows.length)
-                          }
-                        />
-                      }
-                    />
-                    <SpotlightStatCard
-                      tooltipKey="cagr"
-                      label="CAGR"
-                      value={spotlightFmt.pct(effectiveDisplayMetrics?.cagr)}
-                      positive={
-                        effectiveDisplayMetrics?.cagr != null &&
-                        Number.isFinite(effectiveDisplayMetrics.cagr)
-                          ? effectiveDisplayMetrics.cagr > 0
-                          : undefined
-                      }
-                      afterLabel={
-                        <MetricReadinessPill
-                          kind="cagr"
-                          value={effectiveDisplayMetrics?.cagr ?? null}
-                          weeksOfData={
-                            effectiveDisplayMetrics?.weeklyObservations ??
-                            (selectedProfile?.user_start_date ? undefined : rawRows.length)
-                          }
-                        />
-                      }
-                    />
-                    <SpotlightStatCard
-                      tooltipKey="max_drawdown"
-                      label="Max drawdown"
-                      value={spotlightFmt.pct(effectiveDisplayMetrics?.maxDrawdown)}
-                      positive={
-                        effectiveDisplayMetrics?.maxDrawdown != null &&
-                        Number.isFinite(effectiveDisplayMetrics.maxDrawdown)
-                          ? effectiveDisplayMetrics.maxDrawdown > -0.2
-                          : undefined
-                      }
-                    />
-                    <SpotlightStatCard
-                      tooltipKey="vs_nasdaq_cap"
-                      label="Performance vs Nasdaq-100"
-                      value={spotlightFmt.pct(excessNdxForSpotlight)}
-                      positive={
-                        excessNdxForSpotlight != null && Number.isFinite(excessNdxForSpotlight)
-                          ? excessNdxForSpotlight > 0
-                          : undefined
-                      }
-                    />
-                    <SpotlightStatCard
-                      tooltipKey="vs_nasdaq_equal"
-                      label="Performance vs Nasdaq-100 (equal-weight)"
-                      value={spotlightFmt.pct(benchmarkBench.excessVsNasdaqEqual)}
-                      positive={
-                        benchmarkBench.excessVsNasdaqEqual != null &&
-                        Number.isFinite(benchmarkBench.excessVsNasdaqEqual)
-                          ? benchmarkBench.excessVsNasdaqEqual > 0
-                          : undefined
-                      }
-                    />
-                    <SpotlightStatCard
-                      tooltipKey="consistency"
-                      label="% weeks beating Nasdaq-100"
-                      value={
-                        weeklyBeatRates.ndxCap != null
-                          ? spotlightFmt.pct(weeklyBeatRates.ndxCap, 0)
-                          : '—'
-                      }
-                      positive={
-                        weeklyBeatRates.ndxCap != null ? weeklyBeatRates.ndxCap > 0.5 : undefined
-                      }
-                    />
-                    <SpotlightStatCard
-                      tooltipKey="weeks_beating_sp500"
-                      label="% weeks beating S&P 500"
-                      value={
-                        weeklyBeatRates.sp500 != null
-                          ? spotlightFmt.pct(weeklyBeatRates.sp500, 0)
-                          : '—'
-                      }
-                      positive={
-                        weeklyBeatRates.sp500 != null ? weeklyBeatRates.sp500 > 0.5 : undefined
-                      }
-                    />
-                    <SpotlightStatCard
-                      tooltipKey="weeks_beating_nasdaq_equal"
-                      label="% weeks beating Nasdaq-100 (equal-weight)"
-                      value={
-                        weeklyBeatRates.ndxEq != null
-                          ? spotlightFmt.pct(weeklyBeatRates.ndxEq, 0)
-                          : '—'
-                      }
-                      positive={
-                        weeklyBeatRates.ndxEq != null ? weeklyBeatRates.ndxEq > 0.5 : undefined
-                      }
-                    />
                       </div>
                     </div>
-                    {showYourPortfolioMetricsScrollFade ? (
-                      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] flex h-10 items-end justify-center bg-gradient-to-t from-background/90 via-background/45 to-transparent pb-1 pt-5">
-                        {!yourPortfolioMetricsChevronDismissed ? (
-                          <button
-                            type="button"
-                            className="pointer-events-auto inline-flex size-8 items-center justify-center rounded-full border border-trader-blue/35 bg-background/90 shadow-sm ring-offset-background transition-colors hover:border-trader-blue/55 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-trader-blue/40 focus-visible:ring-offset-2"
-                            onClick={nudgeYourPortfolioMetricsScroll}
-                            aria-label="Scroll down to see more metrics"
-                          >
-                            <ChevronDown className="size-5 animate-bounce text-trader-blue" aria-hidden />
-                          </button>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div className="relative flex min-h-0 w-full max-w-full min-w-0 flex-col gap-1.5 overflow-hidden rounded-xl border border-border/80 bg-background/80 p-3 shadow-sm sm:gap-2 sm:p-4 lg:flex-1 lg:basis-0">
-                  <div className="flex shrink-0 min-w-0 w-full flex-col gap-2">
-                    <h4 className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      Portfolio holdings
-                    </h4>
-                    {yourPortfoliosHoldingsPaid && scopedConfigHoldingsRebalanceDates.length > 0 ? (
-                      <div className="flex min-w-0 flex-nowrap items-center justify-start gap-x-1.5 overflow-x-auto sm:gap-x-2">
-                        <Select
-                          value={holdingsDateSelect}
-                          onValueChange={(v) => {
-                            if (!v || v === holdingsDateSelect) return;
-                            setHoldingsDateSelect(v);
-                            const pid = selectedProfile?.id?.trim();
-                            if (pid) {
-                              mergeYourPortfolioPortfolioUiSession(pid, { holdingsDateSelect: v });
-                            }
-                          }}
-                          disabled={configHoldingsLoading}
-                        >
-                          <SelectTrigger
-                            className={cn(
-                              'h-9 rounded-md border border-input bg-background px-2 text-left text-xs shadow-none ring-0 hover:bg-muted/30 focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:ring-0 data-[state=open]:ring-offset-0',
-                              PORTFOLIO_HOLDINGS_DATE_SELECT_WIDTH_CLASSES
-                            )}
-                          >
-                            <SelectValue placeholder="Rebalance date" />
-                          </SelectTrigger>
-                          <SelectContent align="start">
-                            <SelectItem value={HOLDINGS_TODAY_SENTINEL} className="text-xs">
-                              Today
-                            </SelectItem>
-                            {scopedConfigHoldingsRebalanceDates.map((d) => {
-                              const initialD =
-                                scopedConfigHoldingsRebalanceDates[
-                                  scopedConfigHoldingsRebalanceDates.length - 1
-                                ];
-                              return (
-                              <SelectItem key={d} value={d} className="text-xs">
-                                {d === initialD
-                                  ? `${yourPortfolioHoldingsShortDateFmt.format(
-                                      new Date(
-                                        `${ymdForInitialRebalanceDisplay(
-                                          d,
-                                          userStartForHoldingsYmd
-                                        )}T00:00:00Z`
-                                      )
-                                    )} (initial)`
-                                  : yourPortfolioHoldingsShortDateFmt.format(
-                                      new Date(`${d}T00:00:00Z`)
-                                    )}
-                              </SelectItem>
-                              );
-                            })}
-                          </SelectContent>
-                        </Select>
-                        {holdingsPrevRebalanceDate ? (
-                          <div className="ml-auto flex shrink-0 items-center gap-1.5">
-                            <Switch
-                              id="your-portfolio-holdings-movement"
-                              checked={holdingsMovementView}
-                              onCheckedChange={(v) => {
-                                setHoldingsMovementView(v);
-                                const pid = selectedProfile?.id?.trim();
-                                if (pid) {
-                                  mergeYourPortfolioPortfolioUiSession(pid, {
-                                    holdingsMovementView: v,
-                                  });
-                                }
-                              }}
-                              disabled={configHoldingsLoading}
-                              aria-label="Show which holdings entered, stayed, or exited vs prior rebalance"
-                            />
-                            <Label
-                              htmlFor="your-portfolio-holdings-movement"
-                              className="text-xs text-muted-foreground cursor-pointer whitespace-nowrap leading-none"
-                            >
-                              Movement
-                            </Label>
-                            <HoldingsMovementInfoTooltip />
-                            {holdingsMovementView && prevMovementLoading ? (
-                              <Loader2
-                                className="size-3.5 shrink-0 animate-spin text-muted-foreground"
-                                aria-hidden
-                              />
-                            ) : null}
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : yourPortfoliosHoldingsPaid &&
-                      !configHoldingsLoading &&
-                      scopedConfigHoldingsRebalanceDates.length === 0 ? (
-                      <p className="shrink-0 text-left text-[11px] text-muted-foreground">
-                        No rebalance history yet.
-                      </p>
-                    ) : null}
-                    {yourPortfoliosHoldingsPaid && scopedConfigHoldingsRebalanceDates.length > 0 ? (
-                      <HoldingsPortfolioValueLine
-                        value={holdingsPortfolioValueLineAmount}
-                        formatCurrency={formatYourPortfolioCurrency}
-                        className="shrink-0"
-                        asOfCloseDate={holdingsPortfolioValueAsOfCloseLabel}
-                      />
-                    ) : null}
-                    {holdingsMovementView && prevMovementError ? (
-                      <p className="w-full text-[11px] text-destructive">
-                        Could not load the prior rebalance to compare.
-                      </p>
-                    ) : null}
-                  </div>
-                  <div className="relative min-h-0 w-full flex-1 overflow-hidden lg:min-h-0">
-                    <div
-                      ref={yourPortfolioHoldingsScrollRef}
-                      className="max-h-[min(56vh,400px)] w-full min-h-0 overflow-y-auto overflow-x-hidden rounded-md border lg:max-h-none lg:h-full lg:flex-1"
+                    <Tabs
+                      value={yourPortfolioMobileSubTab}
+                      onValueChange={(v) =>
+                        setYourPortfolioMobileSubTab(v as 'performance' | 'holdings')}
+                      className="w-full space-y-4"
                     >
-                  {!yourPortfoliosHoldingsPaid ? (
-                    <div className="flex min-h-[12rem] flex-col items-center justify-center gap-3 px-4 py-8 text-center">
-                      <Lock className="size-8 shrink-0 text-muted-foreground" aria-hidden />
-                      <p className="max-w-sm text-sm text-muted-foreground">
-                        Portfolio holdings and allocations are available on the Supporter or Outperformer plans.
-                      </p>
-                      <Button size="sm" asChild>
-                        <Link href="/pricing">View plans</Link>
-                      </Button>
-                    </div>
-                  ) : (
-                    <>
-                  {configHoldingsLoading && configHoldings.length === 0 ? (
-                    <div ref={yourPortfolioHoldingsInnerRef}>
-                      <Skeleton className="h-48 w-full rounded-md" />
-                    </div>
-                  ) : configHoldings.length === 0 ? (
-                    <div ref={yourPortfolioHoldingsInnerRef}>
-                      <p className="text-sm text-muted-foreground">
-                        No holdings for this date — scores may still be processing.
-                      </p>
-                    </div>
-                  ) : (
-                    <TooltipProvider delayDuration={200}>
-                      <div ref={yourPortfolioHoldingsInnerRef} className="relative w-full min-w-0">
-                        {configHoldingsRefreshing ? (
+                      <TabsList className="relative grid h-auto w-full grid-cols-2 gap-0 rounded-none border-0 border-b border-border bg-transparent p-0 text-muted-foreground shadow-none">
+                        <TabsTrigger
+                          value="performance"
+                          className="relative rounded-none border-0 bg-transparent py-3 text-sm font-medium text-muted-foreground shadow-none ring-offset-0 transition-colors hover:text-foreground focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=inactive]:after:opacity-0 data-[state=active]:after:absolute data-[state=active]:after:inset-x-1 data-[state=active]:after:bottom-0 data-[state=active]:after:h-0.5 data-[state=active]:after:rounded-full data-[state=active]:after:bg-trader-blue data-[state=active]:after:content-[''] dark:data-[state=active]:after:bg-trader-blue-light"
+                        >
+                          Performance
+                        </TabsTrigger>
+                        <TabsTrigger
+                          value="holdings"
+                          className="relative rounded-none border-0 bg-transparent py-3 text-sm font-medium text-muted-foreground shadow-none ring-offset-0 transition-colors hover:text-foreground focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=inactive]:after:opacity-0 data-[state=active]:after:absolute data-[state=active]:after:inset-x-1 data-[state=active]:after:bottom-0 data-[state=active]:after:h-0.5 data-[state=active]:after:rounded-full data-[state=active]:after:bg-trader-blue data-[state=active]:after:content-[''] dark:data-[state=active]:after:bg-trader-blue-light"
+                        >
+                          Holdings
+                        </TabsTrigger>
+                      </TabsList>
+                      <TabsContent
+                        value="performance"
+                        className="mt-0 space-y-4 ring-offset-0 focus-visible:outline-none focus-visible:ring-0 data-[state=inactive]:hidden"
+                      >
+                        <div className="flex flex-col gap-4">
+                          {renderYourPortfolioPerformanceChartCard()}
+                          <div className="grid min-w-0 grid-cols-2 gap-2 [&>*]:min-w-0">
+                            {renderYourPortfolioSecondaryMetricsGrid()}
+                          </div>
+                        </div>
+                      </TabsContent>
+                      <TabsContent
+                        value="holdings"
+                        className="mt-0 space-y-2 ring-offset-0 focus-visible:outline-none focus-visible:ring-0 data-[state=inactive]:hidden"
+                      >
+                        <div className="flex min-w-0 flex-col gap-4">
+                          {renderYourPortfolioHoldingsAndRebalancePanels()}
+                        </div>
+                      </TabsContent>
+                    </Tabs>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex w-full max-w-full min-w-0 flex-col gap-4 lg:max-h-[min(48vh,340px)] lg:min-h-0 lg:flex-row lg:items-stretch lg:gap-5 lg:overflow-hidden">
+                      <div className="relative flex w-full min-w-0 shrink-0 flex-col lg:min-h-0 lg:w-[11rem] lg:max-w-[11rem] lg:shrink-0 lg:basis-auto lg:flex-none">
+                        <div
+                          ref={yourPortfolioMetricsScrollRef}
+                          className="flex max-h-[min(42vh,300px)] min-h-0 flex-col gap-2 overflow-y-auto lg:max-h-none lg:flex-1"
+                        >
                           <div
-                            className="pointer-events-none absolute inset-0 z-[1] flex justify-center rounded-md bg-background/50 pt-6 backdrop-blur-[0.5px]"
-                            aria-hidden
+                            ref={yourPortfolioMetricsInnerRef}
+                            className="grid min-w-0 grid-cols-2 gap-2 lg:grid-cols-1 [&>*]:min-w-0"
                           >
-                            <Skeleton className="h-36 w-full max-w-lg rounded-md" />
+                            {/* Two columns below lg; single column in the fixed-width sidebar at lg+. */}
+                            <SpotlightStatCard
+                              tooltipKey="portfolio_value"
+                              label="Value since your entry"
+                              value={
+                                portfolioValueAmount != null
+                                  ? formatYourPortfolioCurrency(portfolioValueAmount)
+                                  : '—'
+                              }
+                              valueSuffix={
+                                portfolioValueAmount != null
+                                  ? ` (${spotlightFmt.pct(portfolioValueDisplayTotalReturn)})`
+                                  : undefined
+                              }
+                              suffixPositive={
+                                portfolioValueAmount != null &&
+                                portfolioValueDisplayTotalReturn != null &&
+                                Number.isFinite(portfolioValueDisplayTotalReturn)
+                                  ? portfolioValueDisplayTotalReturn > 0
+                                  : undefined
+                              }
+                              asOfCloseDate={holdingsPortfolioValueAsOfCloseLabel}
+                            />
+                            <SpotlightStatCard
+                              tooltipKey="vs_sp500"
+                              label="Performance vs S&P 500"
+                              value={spotlightFmt.pct(benchmarkBench.excessVsSp500)}
+                              positive={
+                                benchmarkBench.excessVsSp500 != null &&
+                                Number.isFinite(benchmarkBench.excessVsSp500)
+                                  ? benchmarkBench.excessVsSp500 > 0
+                                  : undefined
+                              }
+                            />
+                            {renderYourPortfolioSecondaryMetricsGrid()}
+                          </div>
+                        </div>
+                        {showYourPortfolioMetricsScrollFade ? (
+                          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] flex h-10 items-end justify-center bg-gradient-to-t from-background/90 via-background/45 to-transparent pb-1 pt-5">
+                            {!yourPortfolioMetricsChevronDismissed ? (
+                              <button
+                                type="button"
+                                className="pointer-events-auto inline-flex size-8 items-center justify-center rounded-full border border-trader-blue/35 bg-background/90 shadow-sm ring-offset-background transition-colors hover:border-trader-blue/55 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-trader-blue/40 focus-visible:ring-offset-2"
+                                onClick={nudgeYourPortfolioMetricsScroll}
+                                aria-label="Scroll down to see more metrics"
+                              >
+                                <ChevronDown
+                                  className="size-5 animate-bounce text-trader-blue"
+                                  aria-hidden
+                                />
+                              </button>
+                            ) : null}
                           </div>
                         ) : null}
-                        <div
-                          className={cn(
-                            configHoldingsRefreshing && 'opacity-[0.65]',
-                            '@container min-w-0 w-full overflow-x-auto overflow-y-clip'
-                          )}
-                        >
-                        <Table noScrollWrapper className="min-w-0 w-full table-auto text-[11px]">
-                          <TableHeader>
-                            <TableRow className="hover:bg-transparent">
-                              <TableHead className="h-9 w-0 shrink-0 whitespace-nowrap py-1.5 pl-2 pr-1 text-left align-middle tabular-nums">
-                                <span className="inline-flex min-w-0 max-w-full items-center gap-1">
-                                  <span>#</span>
-                                  <InfoIconTooltip ariaLabel="How holding rank works">
-                                    <p className="mb-1 font-semibold">Holding rank</p>
-                                    <p className="text-muted-foreground">
-                                      Current rank in the AI&apos;s latest ratings. The arrow badge
-                                      shows how many spots the holding moved since the prior
-                                      rebalance.
-                                    </p>
-                                  </InfoIconTooltip>
-                                </span>
-                              </TableHead>
-                              <TableHead className="h-9 w-0 min-w-[4rem] px-1.5 py-1.5 text-left align-middle">
-                                Stock
-                              </TableHead>
-                              <TableHead className="h-9 w-0 min-w-[5.5rem] px-1.5 py-1.5 text-left align-middle whitespace-nowrap">
-                                <span className="inline-flex min-w-0 max-w-full items-center justify-start gap-1">
-                                  <span className="truncate">Value</span>
-                                  <HoldingsAllocationColumnTooltip
-                                    weightingMethod={
-                                      selectedProfile?.portfolio_config?.weighting_method
-                                    }
-                                    topN={selectedProfile?.portfolio_config?.top_n}
-                                    showCurrentVsTargetCopy
-                                  />
-                                </span>
-                              </TableHead>
-                              <TableHead className="h-9 w-full min-w-[5.5rem] py-1.5 pl-1.5 pr-2 text-left align-middle whitespace-nowrap">
-                                <span className="inline-flex min-w-0 max-w-full items-center justify-start gap-1">
-                                  <span className="truncate">Cost basis</span>
-                                  <HoldingsCostBasisColumnTooltip variant="user" />
-                                </span>
-                              </TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {holdingsMovementRowsLoading
-                              ? configHoldings.slice(0, Math.min(topN, 8)).map((h, idx) => (
-                                  <TableRow
-                                    key={`holdings-movement-loading-${h.symbol}-${idx}`}
-                                    className="pointer-events-none"
-                                  >
-                                    <TableCell className="w-0 shrink-0 whitespace-nowrap py-1.5 pl-2 pr-1 text-muted-foreground">
-                                      <Skeleton className="h-3.5 w-11 rounded-sm" />
-                                    </TableCell>
-                                    <TableCell className="min-w-0 px-1.5 py-1.5 text-left">
-                                      <Skeleton className="h-3.5 w-14 rounded-sm" />
-                                    </TableCell>
-                                    <TableCell className="min-w-0 px-1.5 py-1.5 text-left tabular-nums">
-                                      <span className="inline-flex w-full justify-start">
-                                        <Skeleton className="h-3.5 w-24 rounded-sm" />
-                                      </span>
-                                    </TableCell>
-                                    <TableCell className="min-w-0 py-1.5 pl-1.5 pr-2 text-left align-top">
-                                      <YourPortfolioCostBasisCell
-                                        symbol={h.symbol}
-                                        snapshot={selectedHoldingsCostBasisSnapshot}
-                                        loading={holdingsCostBasisLoading}
-                                      />
-                                    </TableCell>
-                                  </TableRow>
-                                ))
-                              : holdingsMovementModel
-                              ? (
-                                <>
-                                  {holdingsMovementModel.active.map(({ holding: h, kind }) => {
-                                    const company =
-                                      typeof h.companyName === 'string' &&
-                                      h.companyName.trim().length > 0
-                                        ? h.companyName.trim()
-                                        : null;
-                                    const inv = num(selectedProfile?.investment_size);
-                                    const liveRow =
-                                      liveConfigHoldingsAllocation.bySymbol[h.symbol.toUpperCase()];
-                                    const showLive =
-                                      liveConfigHoldingsAllocation.hasCompleteCoverage &&
-                                      liveRow?.currentValue != null &&
-                                      liveRow.currentWeight != null;
-                                    return (
-                                      <TableRow
-                                        key={`${h.symbol}-${h.rank}-m`}
-                                        className={cn(
-                                          'cursor-pointer hover:bg-muted/50',
-                                          holdingMovementRowCn(kind)
-                                        )}
-                                        tabIndex={0}
-                                        onClick={() => setHoldingsRowChartSymbol(h.symbol)}
-                                        onKeyDown={(e) => {
-                                          if (e.key === 'Enter' || e.key === ' ') {
-                                            e.preventDefault();
-                                            setHoldingsRowChartSymbol(h.symbol);
-                                          }
-                                        }}
-                                      >
-                                        <TableCell className="w-0 shrink-0 whitespace-nowrap py-1.5 pl-2 pr-1 text-muted-foreground">
-                                          <HoldingRankWithChange
-                                            rank={h.rank}
-                                            rankChange={h.rankChange}
-                                            hideChangeOnNarrow
-                                          />
-                                        </TableCell>
-                                        <TableCell className="min-w-0 px-1.5 py-1.5 text-left">
-                                          {company ? (
-                                            <Tooltip>
-                                              <TooltipTrigger asChild>
-                                                <span className="block truncate font-medium">
-                                                  {h.symbol}
-                                                </span>
-                                              </TooltipTrigger>
-                                              <TooltipContent
-                                                side="top"
-                                                className="max-w-xs text-left"
-                                              >
-                                                {company}
-                                              </TooltipContent>
-                                            </Tooltip>
-                                          ) : (
-                                            <span className="block truncate font-medium">
-                                              {h.symbol}
-                                            </span>
-                                          )}
-                                        </TableCell>
-                                        <TableCell className="min-w-0 px-1.5 py-1.5 text-left tabular-nums">
-                                          {showLive ? (
-                                            holdingsDateSelect === HOLDINGS_TODAY_SENTINEL ? (
-                                              <div className="min-w-0 space-y-0.5 leading-tight">
-                                                <div className="truncate">
-                                                  {`${formatYourPortfolioCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
-                                                </div>
-                                                <div className="truncate text-[11px] text-muted-foreground">
-                                                  Target: {(h.weight * 100).toFixed(1)}%
-                                                </div>
-                                              </div>
-                                            ) : (
-                                              <span className="block min-w-0 truncate">
-                                                {`${formatYourPortfolioCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
-                                              </span>
-                                            )
-                                          ) : Number.isFinite(inv) && inv > 0 ? (
-                                            <span className="block min-w-0 truncate">
-                                              {`${formatYourPortfolioCurrency(h.weight * inv)} (${(h.weight * 100).toFixed(1)}%)`}
-                                            </span>
-                                          ) : (
-                                            <span className="block min-w-0 truncate">
-                                              {`— (${(h.weight * 100).toFixed(1)}%)`}
-                                            </span>
-                                          )}
-                                        </TableCell>
-                                        <TableCell className="min-w-0 py-1.5 pl-1.5 pr-2 text-left align-top">
-                                          <YourPortfolioCostBasisCell
-                                            symbol={h.symbol}
-                                            snapshot={selectedHoldingsCostBasisSnapshot}
-                                            loading={holdingsCostBasisLoading}
-                                          />
-                                        </TableCell>
-                                      </TableRow>
-                                    );
-                                  })}
-                                  {holdingsMovementModel.exited.length > 0 ? (
-                                    <TableRow className="pointer-events-none border-t bg-muted/25 hover:bg-muted/25">
-                                      <TableCell
-                                        colSpan={4}
-                                        className="py-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"
-                                      >
-                                        Exited (vs prior rebalance)
-                                      </TableCell>
-                                    </TableRow>
-                                  ) : null}
-                                  {holdingsMovementModel.exited.map((h) => {
-                                    const company =
-                                      typeof h.companyName === 'string' &&
-                                      h.companyName.trim().length > 0
-                                        ? h.companyName.trim()
-                                        : null;
-                                    return (
-                                      <TableRow
-                                        key={`${h.symbol}-${h.rank}-x`}
-                                        className={cn(
-                                          'cursor-pointer hover:bg-muted/50',
-                                          holdingMovementRowCn('exited')
-                                        )}
-                                        tabIndex={0}
-                                        onClick={() => setHoldingsRowChartSymbol(h.symbol)}
-                                        onKeyDown={(e) => {
-                                          if (e.key === 'Enter' || e.key === ' ') {
-                                            e.preventDefault();
-                                            setHoldingsRowChartSymbol(h.symbol);
-                                          }
-                                        }}
-                                      >
-                                        <TableCell className="w-0 shrink-0 whitespace-nowrap py-1.5 pl-2 pr-1 text-muted-foreground">
-                                          <HoldingRankWithChange
-                                            rank={h.rank}
-                                            rankChange={null}
-                                            hideChangeOnNarrow
-                                          />
-                                        </TableCell>
-                                        <TableCell className="min-w-0 px-1.5 py-1.5 text-left">
-                                          {company ? (
-                                            <Tooltip>
-                                              <TooltipTrigger asChild>
-                                                <span className="block truncate font-medium">
-                                                  {h.symbol}
-                                                </span>
-                                              </TooltipTrigger>
-                                              <TooltipContent
-                                                side="top"
-                                                className="max-w-xs text-left"
-                                              >
-                                                {company}
-                                              </TooltipContent>
-                                            </Tooltip>
-                                          ) : (
-                                            <span className="block truncate font-medium">
-                                              {h.symbol}
-                                            </span>
-                                          )}
-                                        </TableCell>
-                                        <TableCell className="min-w-0 px-1.5 py-1.5 text-left tabular-nums text-muted-foreground">
-                                          <span className="block min-w-0 truncate text-[11px]">
-                                            Was {(h.weight * 100).toFixed(1)}%
-                                          </span>
-                                        </TableCell>
-                                        <TableCell className="min-w-0 py-1.5 pl-1.5 pr-2 text-left align-top">
-                                          <YourPortfolioCostBasisCell
-                                            symbol={h.symbol}
-                                            snapshot={selectedHoldingsCostBasisSnapshot}
-                                            loading={holdingsCostBasisLoading}
-                                            exited
-                                          />
-                                        </TableCell>
-                                      </TableRow>
-                                    );
-                                  })}
-                                </>
-                              )
-                              : configHoldings.slice(0, topN).map((h) => {
-                                  const company =
-                                    typeof h.companyName === 'string' &&
-                                    h.companyName.trim().length > 0
-                                      ? h.companyName.trim()
-                                      : null;
-                                  const inv = num(selectedProfile?.investment_size);
-                                  const liveRow =
-                                    liveConfigHoldingsAllocation.bySymbol[h.symbol.toUpperCase()];
-                                  const showLive =
-                                    liveConfigHoldingsAllocation.hasCompleteCoverage &&
-                                    liveRow?.currentValue != null &&
-                                    liveRow.currentWeight != null;
-                                  return (
-                                    <TableRow
-                                      key={`${h.symbol}-${h.rank}`}
-                                      className="cursor-pointer hover:bg-muted/50"
-                                      tabIndex={0}
-                                      onClick={() => setHoldingsRowChartSymbol(h.symbol)}
-                                      onKeyDown={(e) => {
-                                        if (e.key === 'Enter' || e.key === ' ') {
-                                          e.preventDefault();
-                                          setHoldingsRowChartSymbol(h.symbol);
-                                        }
-                                      }}
-                                    >
-                                      <TableCell className="w-0 shrink-0 whitespace-nowrap py-1.5 pl-2 pr-1 text-muted-foreground">
-                                        <HoldingRankWithChange
-                                          rank={h.rank}
-                                          rankChange={h.rankChange}
-                                          hideChangeOnNarrow
-                                        />
-                                      </TableCell>
-                                      <TableCell className="min-w-0 px-1.5 py-1.5 text-left">
-                                        {company ? (
-                                          <Tooltip>
-                                            <TooltipTrigger asChild>
-                                              <span className="block truncate font-medium">
-                                                {h.symbol}
-                                              </span>
-                                            </TooltipTrigger>
-                                            <TooltipContent
-                                              side="top"
-                                              className="max-w-xs text-left"
-                                            >
-                                              {company}
-                                            </TooltipContent>
-                                          </Tooltip>
-                                        ) : (
-                                          <span className="block truncate font-medium">
-                                            {h.symbol}
-                                          </span>
-                                        )}
-                                      </TableCell>
-                                      <TableCell className="min-w-0 px-1.5 py-1.5 text-left tabular-nums">
-                                        {showLive ? (
-                                          holdingsDateSelect === HOLDINGS_TODAY_SENTINEL ? (
-                                            <div className="min-w-0 space-y-0.5 leading-tight">
-                                              <div className="truncate">
-                                                {`${formatYourPortfolioCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
-                                              </div>
-                                              <div className="truncate text-[11px] text-muted-foreground">
-                                                Target: {(h.weight * 100).toFixed(1)}%
-                                              </div>
-                                            </div>
-                                          ) : (
-                                            <span className="block min-w-0 truncate">
-                                              {`${formatYourPortfolioCurrency(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
-                                            </span>
-                                          )
-                                        ) : Number.isFinite(inv) && inv > 0 ? (
-                                          <span className="block min-w-0 truncate">
-                                            {`${formatYourPortfolioCurrency(h.weight * inv)} (${(h.weight * 100).toFixed(1)}%)`}
-                                          </span>
-                                        ) : (
-                                          <span className="block min-w-0 truncate">
-                                            {`— (${(h.weight * 100).toFixed(1)}%)`}
-                                          </span>
-                                        )}
-                                      </TableCell>
-                                      <TableCell className="min-w-0 py-1.5 pl-1.5 pr-2 text-left align-top">
-                                        <YourPortfolioCostBasisCell
-                                          symbol={h.symbol}
-                                          snapshot={selectedHoldingsCostBasisSnapshot}
-                                          loading={holdingsCostBasisLoading}
-                                        />
-                                      </TableCell>
-                                    </TableRow>
-                                  );
-                                })}
-                          </TableBody>
-                        </Table>
-                      {configHoldings.length > topN ? (
-                        <p className="px-2 py-2 text-center text-xs text-muted-foreground">
-                          Showing top {topN} of {configHoldings.length} positions.
-                        </p>
-                      ) : null}
-                        </div>
                       </div>
-                    </TooltipProvider>
-                  )}
-                    </>
-                  )}
-                    </div>
-                    {showYourPortfolioHoldingsScrollFade ? (
-                      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] flex h-10 items-end justify-center bg-gradient-to-t from-background/90 via-background/45 to-transparent pb-1 pt-5">
-                        {!yourPortfolioHoldingsChevronDismissed ? (
-                          <button
-                            type="button"
-                            className="pointer-events-auto inline-flex size-8 items-center justify-center rounded-full border border-trader-blue/35 bg-background/90 shadow-sm ring-offset-background transition-colors hover:border-trader-blue/55 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-trader-blue/40 focus-visible:ring-offset-2"
-                            onClick={nudgeYourPortfolioHoldingsScroll}
-                            aria-label="Scroll down to see more holdings"
-                          >
-                            <ChevronDown className="size-5 animate-bounce text-trader-blue" aria-hidden />
-                          </button>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-                <div className="relative flex min-h-0 w-full max-w-full min-w-0 flex-col gap-1.5 overflow-hidden rounded-xl border border-border/80 bg-background/80 p-3 shadow-sm sm:gap-2 sm:p-4 lg:flex-1 lg:basis-0">
-                  {!yourPortfoliosHoldingsPaid ? (
-                    <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      Rebalance actions
-                    </h4>
-                  ) : null}
-                  {!yourPortfoliosHoldingsPaid ? (
-                    <div className="flex min-h-[10rem] flex-1 flex-col items-center justify-center gap-3 rounded-md border border-dashed px-4 py-6 text-center">
-                      <Lock className="size-7 shrink-0 text-muted-foreground" aria-hidden />
-                      <p className="max-w-md text-sm text-muted-foreground">
-                        Rebalance actions are available on the Supporter or Outperformer plans.
-                      </p>
-                      <Button size="sm" asChild>
-                        <Link href="/pricing">View plans</Link>
-                      </Button>
-                    </div>
-                  ) : selectedProfile ? (
-                    <div className="relative min-h-0 w-full flex-1 overflow-hidden lg:min-h-0">
-                      <PortfolioRebalanceActionsTimeline
-                        profile={selectedProfile}
-                        tourMarker
-                        showProfileSummary={false}
-                        anchorId="rebalance-actions"
-                        className="h-full min-h-0 bg-transparent p-0"
-                      />
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">Select a portfolio to view actions.</p>
-                  )}
-                </div>
-                </div>
 
-                <div className="min-w-0 w-full max-w-full rounded-xl border border-border/80 bg-background/80 p-3 shadow-sm sm:p-4">
-                  <p className="mb-2 text-xs font-semibold text-muted-foreground">
-                    {selectedProfile?.user_start_date
-                      ? 'Portfolio vs. benchmarks'
-                      : 'Model track vs. benchmarks'}
-                  </p>
-                  {effectiveDisplaySeries.length > 1 ? (
-                    <PerformanceChart
-                      series={effectiveDisplaySeries}
-                      strategyName={chartStrategyName}
-                      hideDrawdown
-                      nominalDollars
-                      initialNotional={chartInitialNotional}
-                      firstPointDisplayNotional={
-                        selectedProfile?.user_start_date && num(selectedProfile?.investment_size) > 0
-                          ? num(selectedProfile?.investment_size)
-                          : undefined
-                      }
-                      chartContainerClassName="h-[300px] sm:h-[340px]"
-                    />
-                  ) : (
-                    <div className="flex h-[260px] flex-col items-center justify-center gap-2 px-4 text-center text-sm text-muted-foreground lg:h-[340px]">
-                      <p>Not enough history to chart yet.</p>
-                      {selectedProfile?.user_start_date ? (
-                        <>
-                          <p className="max-w-sm text-xs leading-snug">
-                            You can change your portfolio entry date to see more data and
-                            change how much performance history this chart shows.
-                          </p>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="mt-1 gap-1.5"
-                            onClick={() => setEntrySettingsOpen(true)}
-                          >
-                            <Settings2 className="size-3.5" aria-hidden />
-                            Entry settings
-                          </Button>
-                        </>
-                      ) : null}
+                      {renderYourPortfolioHoldingsAndRebalancePanels()}
                     </div>
-                  )}
-                </div>
+                    {renderYourPortfolioPerformanceChartCard()}
+                  </>
+                )}
               </div>
             )}
           </div>
