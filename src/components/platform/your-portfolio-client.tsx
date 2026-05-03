@@ -4,7 +4,6 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
-import type { LucideIcon } from 'lucide-react';
 import {
   ArrowRight,
   ArrowUpDown,
@@ -15,18 +14,10 @@ import {
   ExternalLink,
   FilterX,
   FolderHeart,
-  HelpCircle,
-  Layers,
-  LayoutTemplate,
   ListFilter,
   Lock,
-  Percent,
   Plus,
-  Scale,
-  Shield,
   Settings2,
-  TrendingUp,
-  Trophy,
   UserMinus,
   Bell,
 } from 'lucide-react';
@@ -120,10 +111,6 @@ import {
 } from '@/lib/holdings-rebalance-movement';
 import { sharpeRatioValueClass } from '@/lib/sharpe-value-class';
 import { computeWeeklyPctBeatingBenchmark } from '@/lib/user-entry-performance';
-import {
-  portfolioConfigBadgeClassName,
-  portfolioConfigBadgeTooltip,
-} from '@/lib/portfolio-config-badges';
 import {
   buildCompositeMapFromUserEntryCache,
   sortProfilesByUserEntryCache,
@@ -1304,70 +1291,6 @@ function profileMatchesYourPortfolioFilters(
   if (opts.filterBeatNasdaq && ranked?.metrics.beatsMarket !== true) return false;
   if (opts.filterBeatSp500 && ranked?.metrics.beatsSp500 !== true) return false;
   return true;
-}
-
-const SIDEBAR_BADGE_ICON: Record<string, LucideIcon> = {
-  'Top ranked': Trophy,
-  'Best risk-adjusted': Scale,
-  'Most consistent': Layers,
-  Default: LayoutTemplate,
-  'Best CAGR': TrendingUp,
-  'Best total return': Percent,
-  Steadiest: Shield,
-};
-
-/** Compact badge affordance for the your-portfolios sidebar only (icons + titled tooltips). */
-function SidebarPortfolioBadgeIcon({
-  name,
-}: {
-  name: string;
-  strategySlug: string;
-}) {
-  const tip = portfolioConfigBadgeTooltip(name);
-  const styles = portfolioConfigBadgeClassName(name);
-  const Icon = SIDEBAR_BADGE_ICON[name] ?? HelpCircle;
-  const rankingHowHref =
-    name === 'Top ranked' ? '/whitepaper#portfolio-ranking' : null;
-
-  const trigger = (
-    <span
-      role="img"
-      aria-label={name}
-      className={cn(
-        'inline-flex size-6 shrink-0 cursor-default items-center justify-center rounded-full border',
-        styles
-      )}
-      onClick={(e) => e.stopPropagation()}
-    >
-      <Icon className="size-3.5 stroke-[2.25]" aria-hidden />
-    </span>
-  );
-
-  return (
-    <TooltipProvider delayDuration={200}>
-      <Tooltip>
-        <TooltipTrigger asChild>{trigger}</TooltipTrigger>
-        <TooltipContent
-          side="top"
-          className="max-w-[min(22rem,calc(100vw-2rem))] text-xs leading-relaxed"
-        >
-          <div className="space-y-2">
-            <p className="text-sm font-semibold leading-snug text-foreground">{name}</p>
-            {tip ? <p>{tip}</p> : null}
-            {rankingHowHref ? (
-              <Link
-                href={rankingHowHref}
-                className="inline-flex font-medium text-trader-blue underline-offset-2 hover:underline dark:text-trader-blue-light"
-                onClick={(e) => e.stopPropagation()}
-              >
-                Composite ranking — how it works
-              </Link>
-            ) : null}
-          </div>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-  );
 }
 
 // ── Bento grid (add / empty state) ────────────────────────────────────────────
@@ -3408,7 +3331,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                         {(rowRanked?.badges ?? []).length > 0 ? (
                           <div className="flex flex-wrap items-center gap-1.5">
                             {(rowRanked?.badges ?? []).map((b) => (
-                              <SidebarPortfolioBadgeIcon
+                              <PortfolioConfigBadgePill
                                 key={b}
                                 name={b}
                                 strategySlug={rowStrategySlug}
@@ -3612,7 +3535,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                             {(rowRanked?.badges ?? []).length > 0 ? (
                               <div className="flex flex-wrap items-center gap-1.5">
                                 {(rowRanked?.badges ?? []).map((b) => (
-                                  <SidebarPortfolioBadgeIcon
+                                  <PortfolioConfigBadgePill
                                     key={b}
                                     name={b}
                                     strategySlug={rowStrategySlug}

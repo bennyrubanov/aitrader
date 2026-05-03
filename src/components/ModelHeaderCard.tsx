@@ -216,37 +216,87 @@ function StatGrid({ stats }: { stats: ModelHeaderStat[] }) {
   );
 }
 
+function portfoliosWinningCountFooter(beating: number, comparable: number) {
+  return (
+    <p className="text-[11px] leading-relaxed text-muted-foreground md:text-xs">
+      <span className="font-medium text-foreground tabular-nums">{beating}</span>
+      {' of '}
+      <span className="font-medium text-foreground tabular-nums">{comparable}</span>
+      {' portfolios'}
+    </p>
+  );
+}
+
 function InsightCardShell({
   icon: Icon,
   title,
   subtitle,
-  children,
+  primary,
+  primaryAccessoryMobile,
+  secondary,
+  secondaryMdOnly = false,
 }: {
   icon: ComponentType<{ className?: string }>;
   title: string;
   /** Muted line directly under the title (e.g. benchmark scope). */
   subtitle?: string;
-  children: ReactNode;
+  /** Main metric (headline number or loading / error state). */
+  primary: ReactNode;
+  /**
+   * Narrow viewports only: caption under the headline, right-aligned in the value column
+   * (e.g. “40 of 44 portfolios”).
+   */
+  primaryAccessoryMobile?: ReactNode;
+  /** Fine print below the primary (desktop under value; full-width under the block from md). */
+  secondary?: ReactNode;
+  /** When true, `secondary` is hidden until `md` (no reserved row on mobile). */
+  secondaryMdOnly?: boolean;
 }) {
   return (
-    <div className="flex h-full flex-col gap-3 p-5 md:p-6">
-      <div className="flex items-start gap-2.5">
-        <div
-          className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-trader-blue dark:text-trader-blue-light"
-          aria-hidden
-        >
-          <Icon className="size-4" />
+    <div className="flex h-full flex-col gap-1.5 px-3 py-2.5 md:gap-3 md:p-6">
+      {/* Mobile: one row (icon + titles | primary). Desktop: icon + titles row, then primary below. */}
+      <div className="flex min-w-0 flex-col gap-2 md:gap-2">
+        <div className="flex min-w-0 items-center justify-between gap-2 md:flex-col md:items-stretch md:justify-start md:gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2 md:flex-none md:items-start md:gap-2.5">
+            <div
+              className="flex size-6 shrink-0 items-center justify-center rounded-md bg-muted text-trader-blue dark:text-trader-blue-light md:size-9"
+              aria-hidden
+            >
+              <Icon className="size-3 md:size-4" />
+            </div>
+            <div className="min-w-0 flex-1 md:pt-0.5">
+              <p className="text-[10px] font-semibold uppercase leading-tight tracking-wide text-muted-foreground md:text-xs">
+                {title}
+              </p>
+              {subtitle ? (
+                <p className="mt-0.5 text-[10px] font-normal normal-case leading-tight text-muted-foreground md:mt-1 md:text-xs md:leading-snug">
+                  {subtitle}
+                </p>
+              ) : null}
+            </div>
+          </div>
+          <div className="max-w-[52%] shrink-0 self-center text-right md:max-w-none md:self-start md:pl-0 md:text-left [&_p]:text-right md:[&_p]:text-left">
+            <div className="flex w-full flex-col items-end gap-0.5 md:mt-1 md:items-start">
+              {primary}
+              {primaryAccessoryMobile != null ? (
+                <div className="w-full text-right leading-relaxed md:hidden">
+                  {primaryAccessoryMobile}
+                </div>
+              ) : null}
+            </div>
+          </div>
         </div>
-        <div className="min-w-0 pt-0.5">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
-          {subtitle ? (
-            <p className="mt-1 text-xs font-normal normal-case leading-snug text-muted-foreground">
-              {subtitle}
-            </p>
-          ) : null}
-        </div>
+        {secondary != null ? (
+          <div
+            className={cn(
+              'pl-8 text-xs leading-snug text-muted-foreground md:pl-0 md:leading-snug',
+              secondaryMdOnly && 'hidden md:block'
+            )}
+          >
+            {secondary}
+          </div>
+        ) : null}
       </div>
-      <div className="flex min-h-0 flex-1 flex-col gap-2">{children}</div>
     </div>
   );
 }
@@ -357,7 +407,7 @@ export function ModelHeaderCard({
 
   /** Primary value line — keep identical across insight cards */
   const insightHighlightClass =
-    'text-xl font-bold tabular-nums tracking-tight text-foreground md:text-2xl break-words';
+    'text-base font-bold tabular-nums tracking-tight text-foreground max-md:leading-tight md:text-2xl break-words';
 
   const replaceBeatSlot =
     showBeatCard && beatSummary && sp500BeatSummary
@@ -370,8 +420,7 @@ export function ModelHeaderCard({
         icon={TrendingUp}
         title="Mean Portfolio Return"
         subtitle="vs S&P 500"
-      >
-        <div className="mt-1">
+        primary={
           <p
             className={cn(
               insightHighlightClass,
@@ -384,68 +433,71 @@ export function ModelHeaderCard({
           >
             {fmtSignedPctFromDecimal(avgExcessVsSp500, 1)}
           </p>
-          <p className="text-xs leading-snug text-muted-foreground">
+        }
+        secondary={
+          <p className="text-xs leading-snug text-muted-foreground md:leading-snug">
             {maxExcessVsSp500 != null && Number.isFinite(maxExcessVsSp500)
               ? maxExcessVsSp500 >= 0
                 ? `Top portfolio winning ${fmtSignedPctFromDecimal(maxExcessVsSp500, 1)} vs S&P 500`
                 : `Top portfolio trailing S&P 500 by ${fmtSignedPctFromDecimal(maxExcessVsSp500, 1).replace('-', '')}`
               : 'Averaged across portfolio configurations with S\u0026P 500 benchmark data since initiation'}
           </p>
-        </div>
-      </InsightCardShell>
+        }
+        secondaryMdOnly
+      />
     ) : null;
 
+  const sp500ShowPortfoliosFooter =
+    Boolean(sp500BeatSummary && sp500BeatSummary.comparable > 0);
+  const nasdaqShowPortfoliosFooter = Boolean(beatSummary && beatSummary.comparable > 0);
+
   const sp500OutperformanceInsightEl = showBeatCard ? (
-    <InsightCardShell icon={BarChart3} title="Portfolios Winning" subtitle="vs S&P 500">
-      <div className="mt-1">
-        {beatLoading && (
-          <div className="h-9 w-24 rounded-md bg-muted animate-pulse" aria-hidden />
-        )}
-        {!beatLoading && beatError && <p className="text-sm text-muted-foreground">{beatError}</p>}
-        {!beatLoading &&
+    <InsightCardShell
+      icon={BarChart3}
+      title="Portfolios Winning"
+      subtitle="vs S&P 500"
+      primary={
+        beatLoading ? (
+          <div className="h-8 w-20 rounded-md bg-muted animate-pulse md:h-9 md:w-24" aria-hidden />
+        ) : beatError ? (
+          <p className="text-right text-xs text-muted-foreground sm:text-sm">{beatError}</p>
+        ) : sp500BeatSummary && sp500BeatSummary.comparable === 0 ? (
+          <p className={cn(insightHighlightClass, 'text-muted-foreground')}>—</p>
+        ) : !beatLoading &&
           !beatError &&
           sp500BeatSummary &&
-          sp500BeatSummary.comparable === 0 && (
-            <div className="space-y-1">
-              <p className={cn(insightHighlightClass, 'text-muted-foreground')}>—</p>
-              <p className="text-xs leading-relaxed text-muted-foreground">
-                Benchmark series not ready for all configs yet.
-              </p>
-            </div>
-          )}
-        {!beatLoading &&
-          !beatError &&
-          sp500BeatSummary &&
-          sp500BeatSummary.comparable > 0 && (
-            <>
-              {sp500PctDisplay && (
-                <p
-                  className={cn(
-                    insightHighlightClass,
-                    sp500BeatSummary.pct != null && sp500BeatSummary.pct > 50
-                      ? 'text-green-600 dark:text-green-400'
-                      : sp500BeatSummary.pct != null && sp500BeatSummary.pct < 50
-                        ? 'text-red-600 dark:text-red-400'
-                        : 'text-foreground'
-                  )}
-                >
-                  {sp500PctDisplay}
-                </p>
-              )}
-              <p className="text-xs leading-relaxed text-muted-foreground">
-                <span className="font-medium text-foreground tabular-nums">
-                  {sp500BeatSummary.beating}
-                </span>
-                {' of '}
-                <span className="font-medium text-foreground tabular-nums">
-                  {sp500BeatSummary.comparable}
-                </span>
-                {' portfolios'}
-              </p>
-            </>
-          )}
-      </div>
-    </InsightCardShell>
+          sp500BeatSummary.comparable > 0 &&
+          sp500PctDisplay ? (
+          <p
+            className={cn(
+              insightHighlightClass,
+              sp500BeatSummary.pct != null && sp500BeatSummary.pct > 50
+                ? 'text-green-600 dark:text-green-400'
+                : sp500BeatSummary.pct != null && sp500BeatSummary.pct < 50
+                  ? 'text-red-600 dark:text-red-400'
+                  : 'text-foreground'
+            )}
+          >
+            {sp500PctDisplay}
+          </p>
+        ) : null
+      }
+      primaryAccessoryMobile={
+        !beatLoading && !beatError && sp500BeatSummary && sp500ShowPortfoliosFooter
+          ? portfoliosWinningCountFooter(sp500BeatSummary.beating, sp500BeatSummary.comparable)
+          : undefined
+      }
+      secondary={
+        beatLoading || beatError ? null : sp500BeatSummary && sp500BeatSummary.comparable === 0 ? (
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            Benchmark series not ready for all configs yet.
+          </p>
+        ) : sp500BeatSummary && sp500ShowPortfoliosFooter ? (
+          portfoliosWinningCountFooter(sp500BeatSummary.beating, sp500BeatSummary.comparable)
+        ) : null
+      }
+      secondaryMdOnly={!beatLoading && !beatError && sp500ShowPortfoliosFooter}
+    />
   ) : null;
 
   const insightCardCount = (showBeatCard ? 2 : 0) + (showRegressionCards ? 1 : 0);
@@ -458,29 +510,46 @@ export function ModelHeaderCard({
           ? 'sm:grid-cols-3'
           : 'sm:grid-cols-2 lg:grid-cols-4';
 
+  const modelIconEl = isDefaultAitModelSlug(slug) ? (
+    <div className="relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#032147] text-white font-bold text-sm select-none">
+      <GrainientBackground
+        {...DEFAULT_AIT_MODEL_GRAINIENT}
+        className="pointer-events-none absolute inset-0 z-0 rounded-xl"
+      />
+      <span className="relative z-[1] drop-shadow-sm">{shortName}</span>
+    </div>
+  ) : (
+    <div
+      className="flex size-12 shrink-0 select-none items-center justify-center rounded-xl text-sm font-bold text-white"
+      style={{ background: slugGradient(slug) }}
+    >
+      {shortName}
+    </div>
+  );
+
   return (
     <TooltipProvider delayDuration={200}>
       <>
       {/* Top row: icon + name + badges + CTA */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 pb-3">
-        {isDefaultAitModelSlug(slug) ? (
-          <div className="relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#032147] text-white font-bold text-sm select-none">
-            <GrainientBackground
-              {...DEFAULT_AIT_MODEL_GRAINIENT}
-              className="pointer-events-none absolute inset-0 z-0 rounded-xl"
-            />
-            <span className="relative z-[1] drop-shadow-sm">{shortName}</span>
+      <div className="flex flex-col items-start gap-4 pb-3 sm:flex-row sm:items-center">
+        {variant === 'performance' ? (
+          <div className="flex w-full min-w-0 items-center justify-between gap-3 sm:hidden">
+            {modelIconEl}
+            <Button asChild size="sm" variant="ghost" className="shrink-0 gap-1.5">
+              <Link href="/platform/ratings">
+                Stock ratings <ArrowRight className="size-3.5" />
+              </Link>
+            </Button>
           </div>
+        ) : null}
+
+        {variant === 'performance' ? (
+          <div className="hidden shrink-0 sm:block">{modelIconEl}</div>
         ) : (
-          <div
-            className="size-12 rounded-xl flex items-center justify-center text-white font-bold text-sm shrink-0 select-none"
-            style={{ background: slugGradient(slug) }}
-          >
-            {shortName}
-          </div>
+          modelIconEl
         )}
 
-        <div className="flex-1 min-w-0">
+        <div className="min-w-0 flex-1">
           {omitTitle && <span className="sr-only">{name}</span>}
           <div className="flex flex-wrap items-center gap-2">
             {!omitTitle && <h3 className="text-xl font-bold tracking-tight">{name}</h3>}
@@ -537,9 +606,14 @@ export function ModelHeaderCard({
           ) : null}
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div
+          className={cn(
+            'flex shrink-0 items-center gap-2',
+            variant === 'performance' && 'hidden sm:flex'
+          )}
+        >
           {variant === 'performance' && (
-            <Button asChild size="sm" variant="outline" className="gap-1.5">
+            <Button asChild size="sm" variant="ghost" className="gap-1.5">
               <Link href="/platform/ratings">
                 Stock ratings <ArrowRight className="size-3.5" />
               </Link>
@@ -573,52 +647,48 @@ export function ModelHeaderCard({
               icon={BarChart3}
               title="Portfolios Winning"
               subtitle="vs Nasdaq-100"
-            >
-              <div className="mt-1">
-                {beatLoading && (
-                  <div className="h-9 w-24 rounded-md bg-muted animate-pulse" aria-hidden />
-                )}
-                {!beatLoading && beatError && (
-                  <p className="text-sm text-muted-foreground">{beatError}</p>
-                )}
-                {!beatLoading && !beatError && beatSummary && beatSummary.comparable === 0 && (
-                  <div className="space-y-1">
-                    <p className={cn(insightHighlightClass, 'text-muted-foreground')}>—</p>
-                    <p className="text-xs leading-relaxed text-muted-foreground">
-                      Benchmark series not ready for all configs yet.
-                    </p>
-                  </div>
-                )}
-                {!beatLoading && !beatError && beatSummary && beatSummary.comparable > 0 && (
-                  <>
-                    {pctDisplay && (
-                      <p
-                        className={cn(
-                          insightHighlightClass,
-                          beatSummary.pct != null && beatSummary.pct > 50
-                            ? 'text-green-600 dark:text-green-400'
-                            : beatSummary.pct != null && beatSummary.pct < 50
-                              ? 'text-red-600 dark:text-red-400'
-                              : 'text-foreground'
-                        )}
-                      >
-                        {pctDisplay}
-                      </p>
+              primary={
+                beatLoading ? (
+                  <div className="h-8 w-20 rounded-md bg-muted animate-pulse md:h-9 md:w-24" aria-hidden />
+                ) : beatError ? (
+                  <p className="text-right text-xs text-muted-foreground sm:text-sm">{beatError}</p>
+                ) : beatSummary && beatSummary.comparable === 0 ? (
+                  <p className={cn(insightHighlightClass, 'text-muted-foreground')}>—</p>
+                ) : !beatLoading &&
+                  !beatError &&
+                  beatSummary &&
+                  beatSummary.comparable > 0 &&
+                  pctDisplay ? (
+                  <p
+                    className={cn(
+                      insightHighlightClass,
+                      beatSummary.pct != null && beatSummary.pct > 50
+                        ? 'text-green-600 dark:text-green-400'
+                        : beatSummary.pct != null && beatSummary.pct < 50
+                          ? 'text-red-600 dark:text-red-400'
+                          : 'text-foreground'
                     )}
-                    <p className="text-xs leading-relaxed text-muted-foreground">
-                      <span className="font-medium text-foreground tabular-nums">
-                        {beatSummary.beating}
-                      </span>
-                      {' of '}
-                      <span className="font-medium text-foreground tabular-nums">
-                        {beatSummary.comparable}
-                      </span>
-                      {' portfolios'}
-                    </p>
-                  </>
-                )}
-              </div>
-            </InsightCardShell>
+                  >
+                    {pctDisplay}
+                  </p>
+                ) : null
+              }
+              primaryAccessoryMobile={
+                !beatLoading && !beatError && beatSummary && nasdaqShowPortfoliosFooter
+                  ? portfoliosWinningCountFooter(beatSummary.beating, beatSummary.comparable)
+                  : undefined
+              }
+              secondary={
+                beatLoading || beatError ? null : beatSummary && beatSummary.comparable === 0 ? (
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    Benchmark series not ready for all configs yet.
+                  </p>
+                ) : beatSummary && nasdaqShowPortfoliosFooter ? (
+                  portfoliosWinningCountFooter(beatSummary.beating, beatSummary.comparable)
+                ) : null
+              }
+              secondaryMdOnly={!beatLoading && !beatError && nasdaqShowPortfoliosFooter}
+            />
           ) : null}
 
           {showBeatCard && replaceBeatSlot === 'nasdaq' ? sp500OutperformanceInsightEl : null}
@@ -637,41 +707,39 @@ export function ModelHeaderCard({
                 icon={Activity}
                 title="Beta (β)"
                 subtitle="Average β across all weeks"
-              >
-                {(() => {
-                  const {
-                    latestBeta,
-                    avgBetaRecent8w,
-                    avgBetaAllWeeks,
-                    betaPositiveRate,
-                    totalWeeks,
-                  } = crossSectionRegression;
+                primary={(() => {
+                  const { latestBeta, avgBetaAllWeeks, betaPositiveRate, totalWeeks } =
+                    crossSectionRegression;
                   const heroBeta = avgBetaAllWeeks;
                   const heroGood = heroBeta != null && heroBeta > 0;
+                  return (
+                    <p
+                      className={cn(
+                        insightHighlightClass,
+                        heroBeta == null
+                          ? 'text-muted-foreground'
+                          : heroGood
+                            ? 'text-green-600 dark:text-green-400'
+                            : 'text-red-600 dark:text-red-400'
+                      )}
+                    >
+                      {fmtRegressionStat(heroBeta, 4)}
+                    </p>
+                  );
+                })()}
+                secondary={(() => {
+                  const { latestBeta, betaPositiveRate, totalWeeks } = crossSectionRegression;
                   const pctFmt = (v: number | null) =>
                     v == null ? '—' : `${Math.round(v * 100)}%`;
                   return (
-                    <div className="mt-1">
-                      <p
-                        className={cn(
-                          insightHighlightClass,
-                          heroBeta == null
-                            ? 'text-muted-foreground'
-                            : heroGood
-                              ? 'text-green-600 dark:text-green-400'
-                              : 'text-red-600 dark:text-red-400'
-                        )}
-                      >
-                        {fmtRegressionStat(heroBeta, 4)}
-                      </p>
-                      <p className="text-xs leading-snug text-muted-foreground">
-                        β&gt;0 in {pctFmt(betaPositiveRate)} of {totalWeeks} weeks · latest{' '}
-                        {fmtRegressionStat(latestBeta, 4)}
-                      </p>
-                    </div>
+                    <p className="text-xs leading-snug text-muted-foreground md:leading-snug">
+                      β&gt;0 in {pctFmt(betaPositiveRate)} of {totalWeeks} weeks · latest{' '}
+                      {fmtRegressionStat(latestBeta, 4)}
+                    </p>
                   );
                 })()}
-              </InsightCardShell>
+                secondaryMdOnly
+              />
             </>
           ) : null}
           {insightCardCount > 1

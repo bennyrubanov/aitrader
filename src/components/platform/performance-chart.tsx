@@ -478,19 +478,12 @@ export function PerformanceChart({
                       ? `${num.toFixed(2)}%`
                       : formatEquityTooltipValue(num, startingReferenceNotional);
                   return (
-                    <>
-                      <span
-                        className="mt-0.5 size-2 shrink-0 rounded-full"
-                        style={{ backgroundColor: cfg?.color ?? 'currentColor' }}
-                        aria-hidden
-                      />
-                      <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 leading-none">
-                        <span className="min-w-0 truncate text-muted-foreground">{label}</span>
-                        <span className="font-mono font-medium tabular-nums text-foreground">
-                          {formatted}
-                        </span>
-                      </div>
-                    </>
+                    <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 leading-none">
+                      <span className="min-w-0 truncate text-muted-foreground">{label}</span>
+                      <span className="font-mono font-medium tabular-nums text-foreground">
+                        {formatted}
+                      </span>
+                    </div>
                   );
                 }}
               />

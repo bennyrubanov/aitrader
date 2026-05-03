@@ -1,12 +1,38 @@
 'use client';
 
 import Link from 'next/link';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import type { LucideIcon } from 'lucide-react';
+import {
+  HelpCircle,
+  LayoutTemplate,
+  Layers,
+  Percent,
+  Scale,
+  Shield,
+  TrendingUp,
+  Trophy,
+} from 'lucide-react';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import {
   portfolioConfigBadgeClassName,
   portfolioConfigBadgeTooltip,
 } from '@/lib/portfolio-config-badges';
 import { cn } from '@/lib/utils';
+
+const BADGE_ICON: Record<string, LucideIcon> = {
+  'Top ranked': Trophy,
+  'Best risk-adjusted': Scale,
+  'Most consistent': Layers,
+  Default: LayoutTemplate,
+  'Best CAGR': TrendingUp,
+  'Best total return': Percent,
+  Steadiest: Shield,
+};
 
 type Props = {
   name: string;
@@ -18,41 +44,51 @@ type Props = {
 export function PortfolioConfigBadgePill({ name, className }: Props) {
   const tip = portfolioConfigBadgeTooltip(name);
   const styles = portfolioConfigBadgeClassName(name);
-  const rankingHowHref =
-    name === 'Top ranked' ? '/whitepaper#portfolio-ranking' : null;
+  const Icon = BADGE_ICON[name] ?? HelpCircle;
+  const rankingHowHref = name === 'Top ranked' ? '/whitepaper#portfolio-ranking' : null;
 
-  const pill = (
+  const trigger = (
     <span
+      role="img"
+      aria-label={name}
       className={cn(
-        'inline-flex cursor-default items-center rounded-full border px-2 py-0.5 text-[10px] font-medium',
+        'inline-flex size-5 shrink-0 cursor-default touch-manipulation items-center justify-center rounded-full border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
         styles,
         className
       )}
+      onClick={(e) => e.stopPropagation()}
     >
-      {name}
+      <Icon className="size-3 stroke-[2.1]" aria-hidden />
     </span>
   );
-  if (!tip) return pill;
+
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>{pill}</TooltipTrigger>
-      <TooltipContent
-        side="top"
-        className="max-w-[min(22rem,calc(100vw-2rem))] text-xs leading-relaxed"
-      >
-        <div className="space-y-2">
-          <p>{tip}</p>
-          {rankingHowHref ? (
-            <Link
-              href={rankingHowHref}
-              className="inline-flex font-medium text-trader-blue underline-offset-2 hover:underline dark:text-trader-blue-light"
-              onClick={(e) => e.stopPropagation()}
-            >
-              Composite ranking — how it works
-            </Link>
-          ) : null}
-        </div>
-      </TooltipContent>
-    </Tooltip>
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>{trigger}</TooltipTrigger>
+        <TooltipContent
+          side="top"
+          className="max-w-[min(22rem,calc(100vw-2rem))] text-xs leading-relaxed"
+        >
+          <div className="space-y-2">
+            <p className="text-sm font-semibold leading-snug text-foreground">{name}</p>
+            {tip ? (
+              <p>{tip}</p>
+            ) : (
+              <p className="text-muted-foreground">No description is available for this accolade yet.</p>
+            )}
+            {rankingHowHref ? (
+              <Link
+                href={rankingHowHref}
+                className="inline-flex font-medium text-trader-blue underline-offset-2 hover:underline dark:text-trader-blue-light"
+                onClick={(e) => e.stopPropagation()}
+              >
+                Composite ranking — how it works
+              </Link>
+            ) : null}
+          </div>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }

@@ -24,7 +24,6 @@ import { PortfolioEntryDatePicker } from '@/components/platform/portfolio-entry-
 import { portfolioEntryDateBounds } from '@/components/platform/portfolio-entry-date-utils';
 import { ExplorePortfolioFilterControls } from '@/components/platform/explore-portfolio-filter-controls';
 import { MetricReadinessPill } from '@/components/platform/metric-readiness-pill';
-import { PortfolioRankingTooltipBody } from '@/components/tooltips';
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
 import { StrategyModelSidebarDropdown } from '@/components/platform/strategy-model-sidebar-dropdown';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
@@ -996,7 +995,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
           <div className="px-4 py-2 sm:px-6 sm:py-2.5">
             {!isLoading && filteredConfigs.length > 0 ? (
               <>
-                {/* Mobile: one row — sort (or chart label) + chart/list toggle; short labels; meta below */}
+                {/* Mobile: one row — sort (or chart label) + chart/list toggle (icons only); meta below */}
                 <div className="flex flex-col gap-2 md:hidden">
                   <div className="flex min-w-0 flex-row items-center justify-between gap-2">
                     {browseMode === 'list' ? (
@@ -1022,34 +1021,32 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
                         </span>
                       </div>
                     )}
-                    <div className="inline-flex shrink-0 gap-0.5 rounded-md border bg-muted/30 p-0.5">
+                    <div className="inline-flex max-w-full shrink-0 flex-wrap items-center gap-0 overflow-hidden rounded-md border bg-muted/30 p-0">
                       <button
                         type="button"
                         onClick={() => setBrowseMode('chart')}
-                        aria-label="Values chart"
+                        aria-label="Values"
                         className={cn(
-                          'inline-flex h-9 shrink-0 items-center justify-center gap-1 rounded px-2.5 text-[11px] font-medium transition-colors',
+                          'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-none text-[11px] font-medium transition-colors',
                           browseMode === 'chart'
                             ? 'bg-background text-foreground shadow-sm'
                             : 'text-muted-foreground hover:text-foreground'
                         )}
                       >
                         <LineChart className="size-3.5 shrink-0" aria-hidden />
-                        Chart
                       </button>
                       <button
                         type="button"
                         onClick={() => setBrowseMode('list')}
-                        aria-label="Rankings list"
+                        aria-label="Rankings"
                         className={cn(
-                          'inline-flex h-9 shrink-0 items-center justify-center gap-1 rounded px-2.5 text-[11px] font-medium transition-colors',
+                          'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-none text-[11px] font-medium transition-colors',
                           browseMode === 'list'
                             ? 'bg-background text-foreground shadow-sm'
                             : 'text-muted-foreground hover:text-foreground'
                         )}
                       >
                         <LayoutList className="size-3.5 shrink-0" aria-hidden />
-                        List
                       </button>
                     </div>
                   </div>
@@ -1076,7 +1073,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
                   </div>
                 </div>
 
-                {/* md+: sort / chart context left, full toggle labels right */}
+                {/* md+: sort / chart context left; toggle: Values / Rankings */}
                 <div className="hidden flex-wrap items-center justify-between gap-2 gap-y-2 md:flex">
                   <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
                     {browseMode === 'list' ? (
@@ -1141,32 +1138,34 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
                       </div>
                     )}
                   </div>
-                  <div className="inline-flex max-w-full flex-wrap items-center justify-center gap-1 rounded-md border bg-muted/30 p-0.5">
+                  <div className="inline-flex max-w-full shrink-0 flex-wrap items-center gap-0 overflow-hidden rounded-md border bg-muted/30 p-0">
                     <button
                       type="button"
                       onClick={() => setBrowseMode('chart')}
+                      aria-label="Values"
                       className={cn(
-                        'inline-flex min-h-9 items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-center text-[11px] font-medium transition-colors sm:px-3 sm:text-xs',
+                        'inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-none px-3 py-0 text-center text-xs font-medium transition-colors',
                         browseMode === 'chart'
                           ? 'bg-background text-foreground shadow-sm'
                           : 'text-muted-foreground hover:text-foreground'
                       )}
                     >
                       <LineChart className="size-3.5 shrink-0" aria-hidden />
-                      Values chart
+                      Values
                     </button>
                     <button
                       type="button"
                       onClick={() => setBrowseMode('list')}
+                      aria-label="Rankings"
                       className={cn(
-                        'inline-flex min-h-9 items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-center text-[11px] font-medium transition-colors sm:px-3 sm:text-xs',
+                        'inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-none px-3 py-0 text-center text-xs font-medium transition-colors',
                         browseMode === 'list'
                           ? 'bg-background text-foreground shadow-sm'
                           : 'text-muted-foreground hover:text-foreground'
                       )}
                     >
                       <LayoutList className="size-3.5 shrink-0" aria-hidden />
-                      Rankings list
+                      Rankings
                     </button>
                   </div>
                 </div>
@@ -1653,31 +1652,8 @@ function ConfigCard({
       onPointerDown={onPrefetchHoldings}
       onTouchStart={onPrefetchHoldings}
     >
-      {/* Mobile: rank rail (centered) + stacked body — row 1 = risk pill + title */}
-      <div className="flex min-w-0 lg:hidden">
-        <div className="flex w-11 shrink-0 self-stretch border-r border-border/70 bg-muted/25 sm:w-12">
-          <div className="flex w-full flex-1 flex-col items-center justify-center px-1 py-3">
-            {config.rank != null ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    className="cursor-help border-0 bg-transparent p-0 text-xl font-bold tabular-nums leading-none text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                    aria-label={`Rank ${config.rank}, more info`}
-                  >
-                    {config.rank}
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="max-w-xs text-xs">
-                  <PortfolioRankingTooltipBody rank={config.rank} strategySlug={strategySlug} />
-                </TooltipContent>
-              </Tooltip>
-            ) : (
-              <span className="text-sm font-semibold tabular-nums text-muted-foreground/50">—</span>
-            )}
-          </div>
-        </div>
-        <div className="flex min-w-0 flex-1 flex-col gap-2 p-3 pl-2.5 sm:pl-3">
+      {/* Mobile: stacked body — row 1 = risk pill + title */}
+      <div className="flex min-w-0 flex-col gap-2 p-3 lg:hidden">
           <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5">
             <span
               className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border/80 bg-muted/50 px-2 py-0.5 text-[11px] font-semibold text-foreground"
@@ -1788,34 +1764,10 @@ function ConfigCard({
         <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-2">
           {followUnfollowButtons}
         </div>
-        </div>
       </div>
 
-      <div className="hidden lg:flex">
-        {/* Rank badge — prominent left column */}
-        <div className="flex w-14 shrink-0 flex-col items-center justify-center border-r bg-muted/20">
-          {config.rank != null ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  className="flex h-full min-h-[3.25rem] w-full flex-col items-center justify-center border-0 bg-transparent p-0 text-lg font-bold tabular-nums text-foreground cursor-help hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  aria-label={`Rank ${config.rank}, more info`}
-                >
-                  {config.rank}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right" className="max-w-xs text-xs">
-                <PortfolioRankingTooltipBody rank={config.rank} strategySlug={strategySlug} />
-              </TooltipContent>
-            </Tooltip>
-          ) : (
-            <span className="text-sm text-muted-foreground/50">—</span>
-          )}
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 min-w-0 px-4 py-3 space-y-2">
+      <div className="hidden min-w-0 lg:block">
+        <div className="min-w-0 space-y-2 px-4 py-3">
           {/* Top line: label, badges, actions */}
           <div className="flex items-start gap-3">
             <div className="flex-1 min-w-0">

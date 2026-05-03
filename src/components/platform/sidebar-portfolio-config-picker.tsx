@@ -230,7 +230,8 @@ function buildMergedRankTable(
   return rows;
 }
 
-const INDEX_RAIL_W = 'sm:w-[10.5rem]';
+/** Width reserved for benchmark “index” cards + portfolio row spacer so columns line up (desktop). */
+const INDEX_RAIL_W = 'sm:w-[min(100%,15rem)]';
 
 /** Count benchmarks (with valid ending values) strictly above portfolio ending value. */
 function countIndicesBelowPortfolio(
@@ -281,28 +282,50 @@ function PortfolioPickerTableRow({
     return (
       <div
         ref={benchmarkAnchorRef}
-        className="flex flex-col gap-2 sm:flex-row sm:items-stretch sm:gap-3"
+        className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3"
       >
         <div className="hidden min-h-[3rem] flex-1 sm:block" aria-hidden />
         <div
           className={cn(
-            'flex w-full flex-col justify-center rounded-xl border border-dashed border-border/35 bg-muted/25 px-3 py-2.5',
+            'flex w-full flex-col rounded-xl border border-dashed border-border/35 bg-muted/25 px-3 py-2.5 sm:justify-center',
             INDEX_RAIL_W,
             'sm:shrink-0'
           )}
         >
-          <p className="text-xs font-semibold leading-tight text-foreground">{row.label}</p>
-          <div className="mt-1 space-y-0.5 text-right text-[11px] tabular-nums leading-tight">
-            <p className="text-muted-foreground">
-              $10k → <span className="font-bold text-foreground">{fmtUsd(row.value)}</span>
+          {/* Mobile: match portfolio row — vertically centered; $10k above %, both right-aligned */}
+          <div className="flex min-h-[3rem] items-center justify-between gap-2 sm:hidden">
+            <p className="min-w-0 truncate text-xs font-semibold leading-tight text-foreground">
+              {row.label}
             </p>
-            <p className={cn('font-medium', signedReturnColorClass(row.value))}>
-              Return {fmtTotalReturnPctFromEnding(row.value)}
+            <div className="shrink-0 space-y-0.5 text-right text-[11px] tabular-nums leading-tight">
+              <p className="text-muted-foreground">
+                $10k → <span className="font-bold text-foreground">{fmtUsd(row.value)}</span>
+              </p>
+              <p className={cn('font-medium', signedReturnColorClass(row.value))}>
+                {fmtTotalReturnPctFromEnding(row.value)}
+              </p>
+            </div>
+          </div>
+
+          {/* Desktop: original two-line layout (INDEX_RAIL_W width unchanged) */}
+          <div className="hidden flex-col gap-1 sm:flex">
+            <div className="flex flex-row items-baseline justify-between gap-2">
+              <p className="text-xs font-semibold leading-tight text-foreground sm:min-w-0 sm:truncate">
+                {row.label}
+              </p>
+              <p className="shrink-0 text-[11px] tabular-nums leading-tight text-muted-foreground sm:text-right">
+                $10k → <span className="font-bold text-foreground">{fmtUsd(row.value)}</span>
+              </p>
+            </div>
+            <p
+              className={cn(
+                'mt-1 text-right text-[11px] font-medium tabular-nums leading-tight sm:mt-1.5',
+                signedReturnColorClass(row.value)
+              )}
+            >
+              {fmtTotalReturnPctFromEnding(row.value)}
             </p>
           </div>
-          <p className="mt-1 text-[10px] leading-snug text-muted-foreground sm:hidden">
-            Same period as portfolios
-          </p>
         </div>
       </div>
     );
@@ -331,7 +354,7 @@ function PortfolioPickerTableRow({
   };
 
   return (
-    <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch sm:gap-3">
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
       <Link
         href={href}
         prefetch={false}
@@ -339,31 +362,41 @@ function PortfolioPickerTableRow({
         onFocus={() => void router.prefetch(href)}
         onClick={handleClick}
         className={cn(
-          'flex min-w-0 flex-1 items-stretch gap-3 rounded-xl border px-3 py-2.5 text-left transition-all',
+          'flex min-w-0 flex-1 items-center gap-2 rounded-xl border px-2 py-2 text-left transition-all sm:gap-3 sm:px-3 sm:py-2.5',
           selected
             ? 'border-primary/50 bg-primary/[0.06] shadow-sm ring-1 ring-primary/25'
             : 'border-border/35 bg-card/90 hover:border-border/55 hover:bg-muted/15'
         )}
       >
-        <div className="flex size-10 shrink-0 flex-col items-center justify-center rounded-full bg-muted/55 py-0.5">
+        <div className="flex size-8 shrink-0 flex-col items-center justify-center rounded-full bg-muted/55 py-0.5">
           {row.valueRank != null ? (
-            <span className="text-sm font-bold tabular-nums leading-none">{row.valueRank}</span>
+            <span className="text-xs font-bold tabular-nums leading-none">{row.valueRank}</span>
           ) : c.rank != null ? (
             <>
-              <span className="text-sm font-bold tabular-nums leading-none">{c.rank}</span>
-              <span className="text-[7px] font-medium uppercase tracking-wider text-muted-foreground">
+              <span className="text-xs font-bold tabular-nums leading-none">{c.rank}</span>
+              <span className="text-[6px] font-medium uppercase leading-none tracking-wider text-muted-foreground">
                 rank
               </span>
             </>
           ) : (
-            <span className="text-xs text-muted-foreground">—</span>
+            <span className="text-[10px] text-muted-foreground">—</span>
           )}
         </div>
         <div className="min-w-0 flex-1 space-y-1.5">
-          <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center justify-between gap-2 sm:gap-3">
             <div className="min-w-0 flex-1 flex flex-wrap items-center gap-1.5 gap-y-1">
               <span
-                className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-background/80 px-2 py-0.5 text-[11px] font-semibold text-foreground shrink-0"
+                className="inline-flex shrink-0 items-center gap-1.5 self-center sm:hidden"
+                aria-label={riskTitle}
+              >
+                <span
+                  className={cn('size-1.5 shrink-0 rounded-full', riskColor)}
+                  title={riskTitle}
+                  aria-hidden
+                />
+              </span>
+              <span
+                className="hidden shrink-0 items-center gap-1.5 self-center rounded-full border border-border/60 bg-background/80 px-2 py-0.5 text-[11px] font-semibold text-foreground sm:inline-flex"
                 title={riskTitle}
               >
                 <span className={cn('size-1.5 shrink-0 rounded-full', riskColor)} aria-hidden />
@@ -601,9 +634,15 @@ export function SidebarPortfolioConfigPicker({
   const cycleScrollToNextIndex = useCallback(() => {
     if (benchmarkCount === 0) return;
     const els = benchmarkElByOrderRef.current;
-    const i = indicesScrollCursorRef.current % benchmarkCount;
-    els[i]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    indicesScrollCursorRef.current = (i + 1) % benchmarkCount;
+    /** One step per index (value order), then one step for top of list, then repeat. */
+    const cycleLen = benchmarkCount + 1;
+    const step = indicesScrollCursorRef.current % cycleLen;
+    if (step < benchmarkCount) {
+      els[step]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else {
+      listScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    indicesScrollCursorRef.current = (step + 1) % cycleLen;
   }, [benchmarkCount]);
 
   const selectedId = useMemo(() => {
@@ -717,7 +756,7 @@ export function SidebarPortfolioConfigPicker({
             </DialogTrigger>
             <DialogContent
               className={cn(
-                'flex h-[min(90vh,820px)] w-[calc(100vw-1.5rem)] flex-col gap-0 overflow-hidden p-0 sm:w-full',
+                'flex h-[min(90vh,820px)] w-[calc(100vw-0.5rem)] flex-col gap-0 overflow-hidden p-0 sm:w-full',
                 browseMode === 'chart'
                   ? cn('h-[min(92vh,900px)]', filtersOpen ? 'max-w-[min(96vw,72rem)]' : 'max-w-6xl')
                   : filtersOpen
@@ -729,112 +768,133 @@ export function SidebarPortfolioConfigPicker({
               <TooltipProvider delayDuration={300}>
                 <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row md:items-stretch">
                   <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-                    <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-6 pb-2 pt-6 pr-14">
+                    <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-2.5 pb-2 pt-6 sm:px-6 sm:pr-14">
                       <div className="space-y-3">
-                        <DialogHeader>
-                          <DialogTitle>Choose portfolio</DialogTitle>
-                          <DialogDescription>
-                            See how much <strong>$10000</strong> would have turned into if you
-                            followed each portfolio
-                            {modelInceptionDisplay ? (
-                              <>
-                                {' '}
-                                since the strategy model started rating stocks ({modelInceptionDisplay}).
-                              </>
-                            ) : (
-                              <> since the strategy model started rating stocks.</>
-                            )}
-                          </DialogDescription>
-                        </DialogHeader>
-
-                        {totalListed > 0 ? (
-                          <div className="flex flex-wrap items-center justify-between gap-3">
-                            <div className="inline-flex max-w-full flex-wrap items-center gap-1 rounded-md border bg-muted/30 p-0.5">
-                              <button
-                                type="button"
-                                onClick={() => setBrowseMode('list')}
-                                className={cn(
-                                  'inline-flex items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-center text-[11px] font-medium transition-colors sm:px-3 sm:text-xs',
-                                  browseMode === 'list'
-                                    ? 'bg-background text-foreground shadow-sm'
-                                    : 'text-muted-foreground hover:text-foreground'
-                                )}
-                              >
-                                <LayoutList className="size-3.5 shrink-0" aria-hidden />
-                                Rankings list
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setBrowseMode('chart')}
-                                className={cn(
-                                  'inline-flex items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-center text-[11px] font-medium transition-colors sm:px-3 sm:text-xs',
-                                  browseMode === 'chart'
-                                    ? 'bg-background text-foreground shadow-sm'
-                                    : 'text-muted-foreground hover:text-foreground'
-                                )}
-                              >
-                                <LineChart className="size-3.5 shrink-0" aria-hidden />
-                                Values chart
-                              </button>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              {activeFilterCount > 0 ? (
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-8 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
-                                  onClick={clearFilters}
-                                >
-                                  <FilterX className="size-3.5 shrink-0" aria-hidden />
-                                  Clear filters
-                                </Button>
-                              ) : null}
-                              <Button
-                                type="button"
-                                variant={filtersOpen ? 'secondary' : 'outline'}
-                                size="sm"
-                                className="h-8 gap-1.5 shrink-0 text-xs"
-                                onClick={() => setFiltersOpen((v) => !v)}
-                                aria-expanded={filtersOpen}
-                                aria-controls="portfolio-picker-filters-panel"
-                              >
-                                <ListFilter className="size-3.5 shrink-0" aria-hidden />
-                                Filters
-                                {activeFilterCount > 0 ? (
-                                  <span className="rounded-full bg-primary/15 px-1.5 text-[10px] font-semibold tabular-nums text-foreground">
-                                    {activeFilterCount}
-                                  </span>
-                                ) : null}
-                              </Button>
-                            </div>
-                          </div>
-                        ) : null}
+                        <div className="max-sm:pr-7 sm:pr-0">
+                          <DialogHeader>
+                            <DialogTitle>Choose portfolio</DialogTitle>
+                            <DialogDescription>
+                              Returns on <strong>$10,000</strong> if invested on
+                              {modelInceptionDisplay ? (
+                                <>
+                                  {' '}
+                                  this strategy model's initiation on {modelInceptionDisplay}.
+                                </>
+                              ) : (
+                                <>.</>
+                              )}
+                            </DialogDescription>
+                          </DialogHeader>
+                        </div>
                       </div>
 
-                      <div className="mt-4 space-y-4 pb-4">
+                      <div className="mt-4 space-y-3 pb-4">
                         {totalListed === 0 ? (
                           <p className="py-8 text-center text-sm text-muted-foreground">
                             No portfolios loaded.
                           </p>
-                        ) : totalFiltered === 0 ? (
-                          <p className="py-8 text-center text-sm text-muted-foreground">
-                            No portfolios match the selected filters.
-                          </p>
-                        ) : browseMode === 'chart' ? (
-                          <div className="space-y-3">
-                            <div className="flex flex-wrap items-center gap-2 px-0.5">
-                              <LineChart
-                                className="size-4 shrink-0 text-trader-blue dark:text-trader-blue-light"
-                                aria-hidden
-                              />
-                              <h3 className="text-sm font-semibold">Portfolio Values</h3>
-                              <span className="text-xs text-muted-foreground">
-                                {totalFiltered} portfolio{totalFiltered !== 1 ? 's' : ''}
-                                {activeFilterCount > 0 ? ' matching filters' : ''}
-                              </span>
+                        ) : (
+                          <>
+                            <div
+                              className={cn(
+                                'flex flex-wrap items-center gap-x-3 gap-y-2 px-0.5',
+                                totalFiltered > 0 ? 'justify-between' : 'justify-end'
+                              )}
+                            >
+                              {totalFiltered > 0 ? (
+                                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                                  {browseMode === 'chart' ? (
+                                    <>
+                                      <LineChart
+                                        className="size-4 shrink-0 text-trader-blue dark:text-trader-blue-light"
+                                        aria-hidden
+                                      />
+                                      <h3 className="text-sm font-semibold">Portfolio Values</h3>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <LayoutList
+                                        className="size-4 shrink-0 text-trader-blue dark:text-trader-blue-light"
+                                        aria-hidden
+                                      />
+                                      <h3 className="text-sm font-semibold">Ranked by return</h3>
+                                    </>
+                                  )}
+                                </div>
+                              ) : null}
+                              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 md:gap-3">
+                                <div className="flex shrink-0 items-center gap-2">
+                                  {activeFilterCount > 0 ? (
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      aria-label="Clear filters"
+                                      className="h-8 shrink-0 gap-0 px-2 text-xs text-muted-foreground hover:text-foreground md:gap-1.5"
+                                      onClick={clearFilters}
+                                    >
+                                      <FilterX className="size-3.5 shrink-0" aria-hidden />
+                                      <span className="hidden md:inline">Clear filters</span>
+                                    </Button>
+                                  ) : null}
+                                  <Button
+                                    type="button"
+                                    variant={filtersOpen ? 'secondary' : 'outline'}
+                                    size="sm"
+                                    aria-label="Filters"
+                                    className="h-8 shrink-0 gap-1 px-2 text-xs md:gap-1.5"
+                                    onClick={() => setFiltersOpen((v) => !v)}
+                                    aria-expanded={filtersOpen}
+                                    aria-controls="portfolio-picker-filters-panel"
+                                  >
+                                    <ListFilter className="size-3.5 shrink-0" aria-hidden />
+                                    <span className="hidden md:inline">Filters</span>
+                                    {activeFilterCount > 0 ? (
+                                      <span className="rounded-full bg-primary/15 px-1.5 text-[10px] font-semibold tabular-nums text-foreground">
+                                        {activeFilterCount}
+                                      </span>
+                                    ) : null}
+                                  </Button>
+                                </div>
+                                <div className="inline-flex max-w-full shrink-0 flex-wrap items-center gap-0 overflow-hidden rounded-md border bg-muted/30 p-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => setBrowseMode('list')}
+                                    aria-label="Rankings"
+                                    className={cn(
+                                      'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-none text-center text-[11px] font-medium transition-colors md:h-8 md:w-auto md:gap-1.5 md:px-3 md:py-0 md:text-xs',
+                                      browseMode === 'list'
+                                        ? 'bg-background text-foreground shadow-sm'
+                                        : 'text-muted-foreground hover:text-foreground'
+                                    )}
+                                  >
+                                    <LayoutList className="size-3.5 shrink-0" aria-hidden />
+                                    <span className="hidden md:inline">Rankings</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setBrowseMode('chart')}
+                                    aria-label="Values"
+                                    className={cn(
+                                      'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-none text-center text-[11px] font-medium transition-colors md:h-8 md:w-auto md:gap-1.5 md:px-3 md:py-0 md:text-xs',
+                                      browseMode === 'chart'
+                                        ? 'bg-background text-foreground shadow-sm'
+                                        : 'text-muted-foreground hover:text-foreground'
+                                    )}
+                                  >
+                                    <LineChart className="size-3.5 shrink-0" aria-hidden />
+                                    <span className="hidden md:inline">Values</span>
+                                  </button>
+                                </div>
+                              </div>
                             </div>
-                            <div className="rounded-xl border bg-card p-3 sm:p-4">
+
+                            {totalFiltered === 0 ? (
+                              <p className="py-8 text-center text-sm text-muted-foreground">
+                                No portfolios match the selected filters.
+                              </p>
+                            ) : browseMode === 'chart' ? (
+                              <div className="rounded-xl border bg-card p-2 sm:p-4">
                               {equitySeriesLoading || equitySeriesPayload == null ? (
                                 <Skeleton className="h-[min(380px,50vh)] w-full rounded-lg" />
                               ) : (
@@ -854,17 +914,8 @@ export function SidebarPortfolioConfigPicker({
                                 />
                               )}
                             </div>
-                          </div>
-                        ) : (
-                          <div className="space-y-2">
-                            <div className="flex flex-wrap items-center gap-2 px-0.5">
-                              <LayoutList
-                                className="size-4 shrink-0 text-trader-blue dark:text-trader-blue-light"
-                                aria-hidden
-                              />
-                              <h3 className="text-sm font-semibold">Ranked by total return</h3>
-                            </div>
-                            <div className="rounded-lg bg-muted/10 px-1 py-1.5 sm:px-2">
+                            ) : (
+                          <div className="rounded-lg bg-muted/10 px-0 py-1.5 sm:px-2">
                               <div className="mb-2 flex items-end justify-between gap-3 px-0.5 sm:px-1">
                                 <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                                   Portfolios
@@ -876,9 +927,9 @@ export function SidebarPortfolioConfigPicker({
                                   className={cn(
                                     'inline-flex items-center justify-end gap-0.5 text-right text-[10px] font-semibold uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-50',
                                     INDEX_RAIL_W,
-                                    'min-w-[4.5rem] sm:min-w-0'
+                                    'min-w-[3.25rem] sm:min-w-0'
                                   )}
-                                  aria-label="Scroll to indices — click again for each index in value order"
+                                  aria-label="Scroll to each index in value order, then to the top of the list, then repeat from the first index"
                                 >
                                   Indices
                                   <ArrowDown
@@ -890,7 +941,7 @@ export function SidebarPortfolioConfigPicker({
                               </div>
                               <div
                                 ref={listScrollRef}
-                                className="max-h-[min(52vh,480px)] space-y-2.5 overflow-y-auto overscroll-y-contain py-0.5 pr-0.5"
+                                className="max-h-[min(52vh,480px)] space-y-2.5 overflow-y-auto overscroll-y-contain py-0.5"
                               >
                                 {mergedRankRows.map((row, rowIndex) => (
                                   <PortfolioPickerTableRow
@@ -919,7 +970,8 @@ export function SidebarPortfolioConfigPicker({
                                 ))}
                               </div>
                             </div>
-                          </div>
+                            )}
+                          </>
                         )}
                       </div>
                     </div>
@@ -930,8 +982,8 @@ export function SidebarPortfolioConfigPicker({
                       id="portfolio-picker-filters-panel"
                       className="flex max-h-[min(42vh,360px)] w-full shrink-0 flex-col gap-4 overflow-y-auto overscroll-y-contain border-t border-border bg-muted/20 px-4 py-4 md:max-h-none md:w-[min(19.5rem,100%)] md:border-l md:border-t-0 md:py-5"
                     >
-                      <div className="flex h-6 items-center gap-1">
-                        <p className="min-w-0 truncate text-xs font-semibold uppercase tracking-wider text-muted-foreground leading-none">
+                      <div className="flex h-6 min-w-0 items-center justify-between gap-1 md:justify-start">
+                        <p className="min-w-0 flex-1 truncate text-xs font-semibold uppercase tracking-wider text-muted-foreground leading-none md:flex-none">
                           Filter portfolios
                         </p>
                         {activeFilterCount > 0 ? (
@@ -1032,14 +1084,16 @@ export function SidebarPortfolioConfigPicker({
                 </div>
               </TooltipProvider>
 
-              <DialogFooter className="shrink-0 border-t px-6 py-3 sm:justify-between">
-                <p className="hidden text-xs text-muted-foreground sm:block">
-                  {activeFilterCount > 0
-                    ? `${totalFiltered} of ${totalListed} match filters`
-                    : `${totalListed} portfolio${totalListed === 1 ? '' : 's'}`}
+              <DialogFooter className="shrink-0 flex-row items-center justify-between gap-2 border-t px-3 py-3 sm:px-6">
+                <p className="min-w-0 flex-1 text-left text-xs text-muted-foreground">
+                  {totalListed === 0
+                    ? 'No portfolios loaded'
+                    : activeFilterCount > 0
+                      ? `${totalFiltered} of ${totalListed} match filters`
+                      : `${totalListed} portfolio${totalListed === 1 ? '' : 's'}`}
                 </p>
                 <DialogClose asChild>
-                  <Button type="button" variant="secondary" size="sm">
+                  <Button type="button" variant="secondary" size="sm" className="w-auto shrink-0">
                     Close
                   </Button>
                 </DialogClose>

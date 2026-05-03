@@ -109,25 +109,38 @@ export function PortfolioListSortDialog({
                         <Icon className="size-4" />
                       </span>
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-semibold">{opt.label}</p>
-                        <p className="mt-1 text-xs leading-snug text-muted-foreground">
-                          {opt.description}
-                          {opt.inlineDetailsLink ? (
-                            <>
-                              {' '}
+                        {opt.inlineDetailsLink ? (
+                          <>
+                            <div className="flex min-w-0 items-center justify-between gap-2">
+                              <p className="min-w-0 flex-1 text-sm font-semibold leading-snug">
+                                {opt.label}
+                              </p>
                               <Link
                                 href={opt.inlineDetailsLink.href}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="inline-flex items-center gap-0.5 font-medium text-primary underline-offset-2 hover:underline"
+                                className="group/more inline-flex shrink-0 items-center gap-0.5 text-right text-[11px] font-medium leading-none text-primary underline-offset-2 hover:underline"
                                 onClick={(e) => e.stopPropagation()}
                               >
                                 {opt.inlineDetailsLink.label}
-                                <ArrowUpRight className="size-3 shrink-0" aria-hidden />
+                                <ArrowUpRight
+                                  className="size-3 shrink-0 transition-transform duration-200 ease-out group-hover/more:translate-x-px group-hover/more:-translate-y-px"
+                                  aria-hidden
+                                />
                               </Link>
-                            </>
-                          ) : null}
-                        </p>
+                            </div>
+                            <p className="mt-1 text-xs leading-snug text-muted-foreground">
+                              {opt.description}
+                            </p>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-sm font-semibold">{opt.label}</p>
+                            <p className="mt-1 text-xs leading-snug text-muted-foreground">
+                              {opt.description}
+                            </p>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>

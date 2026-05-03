@@ -79,6 +79,30 @@ const CONFIG_CARD_RISK_DOT: Record<RiskLevel, string> = {
   6: 'bg-rose-600',
 };
 
+function ConfigRowLabelWithInfo({
+  label,
+  tooltip,
+  tooltipContentClassName,
+}: {
+  label: string;
+  tooltip: ReactNode;
+  tooltipContentClassName?: string;
+}) {
+  return (
+    <div className="flex min-w-0 items-center gap-1">
+      <p className="text-[10px] font-medium uppercase leading-tight tracking-wider text-muted-foreground">
+        {label}
+      </p>
+      <InfoIconTooltip
+        ariaLabel={`About ${label}`}
+        contentClassName={tooltipContentClassName}
+      >
+        {tooltip}
+      </InfoIconTooltip>
+    </div>
+  );
+}
+
 function ConfigRow({
   icon: Icon,
   label,
@@ -93,21 +117,29 @@ function ConfigRow({
   tooltipContentClassName?: string;
 }) {
   return (
-    <div className="flex gap-3 py-3 border-b border-border/60 last:border-0">
-      <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center text-trader-blue">
-        <Icon className="size-4" />
+    <div className="flex items-center gap-2 border-b border-border/60 py-1.5 last:border-0 md:items-start md:gap-3 md:py-3">
+      <div className="flex size-6 shrink-0 items-center justify-center text-trader-blue md:mt-0.5 md:size-8">
+        <Icon className="size-3 md:size-4" />
       </div>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1">
-          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
-          <InfoIconTooltip
-            ariaLabel={`About ${label}`}
-            contentClassName={tooltipContentClassName}
-          >
-            {tooltip}
-          </InfoIconTooltip>
+        <div className="flex min-w-0 items-center justify-between gap-2 md:hidden">
+          <ConfigRowLabelWithInfo
+            label={label}
+            tooltip={tooltip}
+            tooltipContentClassName={tooltipContentClassName}
+          />
+          <p className="max-w-[58%] shrink-0 text-right text-sm font-medium leading-tight text-foreground tabular-nums">
+            {value}
+          </p>
         </div>
-        <p className="text-sm font-medium text-foreground leading-snug mt-0.5">{value}</p>
+        <div className="hidden md:block">
+          <ConfigRowLabelWithInfo
+            label={label}
+            tooltip={tooltip}
+            tooltipContentClassName={tooltipContentClassName}
+          />
+          <p className="mt-0.5 text-sm font-medium leading-snug text-foreground">{value}</p>
+        </div>
       </div>
     </div>
   );
@@ -311,19 +343,14 @@ export function PortfolioAtAGlanceCard({
                   <Skeleton className="h-6 w-28 rounded-full" />
                   <Skeleton className="h-6 w-52 max-w-full" />
                 </div>
-                <div className="space-y-2">
-                  <p className="text-[11px] text-muted-foreground">
-                    Configuration for the selected portfolio
-                  </p>
-                  <Skeleton className="h-6 w-40 rounded-md" />
-                </div>
+                <Skeleton className="h-6 w-40 rounded-md" />
                 <div className="space-y-0 overflow-hidden">
                   {[1, 2, 3, 4].map((i) => (
                     <div
                       key={i}
-                      className="flex gap-3 py-3 border-b border-border/60 last:border-0"
+                      className="flex items-center gap-2 border-b border-border/60 py-1.5 last:border-0 md:items-start md:gap-3 md:py-3"
                     >
-                      <Skeleton className="mt-0.5 size-4 shrink-0" />
+                      <Skeleton className="size-3 shrink-0 rounded-sm md:mt-0.5 md:size-4" />
                       <div className="min-w-0 flex-1 space-y-2">
                         <Skeleton className="h-3 w-24" />
                         <Skeleton className="h-4 w-36 max-w-full" />
@@ -339,16 +366,28 @@ export function PortfolioAtAGlanceCard({
                     <>
                       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 gap-y-1">
                         {portfolioConfig ? (
-                          <span
-                            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border/80 bg-muted/50 px-2 py-0.5 text-[11px] font-semibold text-foreground"
-                            title={riskPillTitle}
-                          >
+                          <>
                             <span
-                              className={cn('size-1.5 shrink-0 rounded-full', riskDotClass)}
-                              aria-hidden
-                            />
-                            {riskPillTitle}
-                          </span>
+                              className="inline-flex shrink-0 items-center self-center sm:hidden"
+                              aria-label={riskPillTitle}
+                            >
+                              <span
+                                className={cn('size-1.5 shrink-0 rounded-full', riskDotClass)}
+                                title={riskPillTitle}
+                                aria-hidden
+                              />
+                            </span>
+                            <span
+                              className="hidden shrink-0 items-center gap-1.5 self-center rounded-full border border-border/80 bg-muted/50 px-2 py-0.5 text-[11px] font-semibold text-foreground sm:inline-flex"
+                              title={riskPillTitle}
+                            >
+                              <span
+                                className={cn('size-1.5 shrink-0 rounded-full', riskDotClass)}
+                                aria-hidden
+                              />
+                              {riskPillTitle}
+                            </span>
+                          </>
                         ) : null}
                         <p className="min-w-0 text-base font-semibold text-foreground tracking-tight">
                           {cardTitle}
@@ -376,10 +415,7 @@ export function PortfolioAtAGlanceCard({
                     <Skeleton className="h-6 w-48" />
                   )}
                 </div>
-                <div className="mb-4 space-y-2">
-                  <p className="text-[11px] text-muted-foreground">
-                    Configuration for the selected portfolio
-                  </p>
+                <div className="mb-4">
                   {rankingBadgePills.length > 0 ? (
                     <div className="flex flex-wrap gap-1.5">
                       {rankingBadgePills.map((b) => (

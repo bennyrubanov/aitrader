@@ -152,7 +152,7 @@ export function WeeklyReturnsChart({
     <div className="rounded-lg border bg-card p-4">
       <p className="text-sm font-semibold mb-1">Weekly returns</p>
       <p className="text-xs text-muted-foreground mb-3">
-        Week-over-week percentage change (ISO weeks).
+        Week-over-week percentage change.
       </p>
       <ChartContainer
         className="h-[180px] w-full"
@@ -235,7 +235,7 @@ export function CagrOverTimeChart({
     <div className="rounded-lg border bg-card p-4">
       <p className="text-sm font-semibold mb-1">CAGR over time</p>
       <p className="text-xs text-muted-foreground mb-3">
-        Annualized growth since inception, recomputed each week.
+        Annualized growth since inception.
       </p>
       {showPreliminaryNote ? (
         <p className="text-xs text-muted-foreground mb-3 rounded-md border border-dashed border-border/80 bg-muted/30 px-2.5 py-2">
@@ -376,7 +376,7 @@ export function DrawdownOverTimeChart({
     <>
       <p className="text-sm font-semibold mb-1">Drawdown over time</p>
       <p className="text-xs text-muted-foreground mb-3">
-        Drawdown from rolling peak for each series. Tap chips to show or hide lines.
+        Drawdown from rolling peak for each series.
       </p>
       <div className="flex flex-wrap gap-1.5 mb-3">
         {(Object.entries(RETURNS_SERIES) as [ReturnsKey, (typeof RETURNS_SERIES)[ReturnsKey]][]).map(
@@ -439,7 +439,7 @@ export function DrawdownOverTimeChart({
         </LineChart>
       </ChartContainer>
       <p className="text-[11px] text-muted-foreground mt-2">
-        Deeper troughs = larger losses from peak. 0% means at the all-time high for that window.
+        Deeper troughs = larger losses from peak. 0% means the portfolio was at its all-time high for that time period.
       </p>
     </>
   );
@@ -572,7 +572,7 @@ export function RollingSharpeRatioChart({
     <>
       <p className="text-sm font-semibold mb-1">Rolling Sharpe ratio ({sharpeWindow}-week)</p>
       <p className="text-xs text-muted-foreground mb-3">
-        Rolling {sharpeWindow}-week Sharpe (annualized) for each series. Tap chips to show or hide lines.
+        Rolling {sharpeWindow}-week Sharpe (annualized) for each series.
         Above 1.0 is often cited as “good” for equities.
       </p>
       <div className="flex flex-wrap gap-1.5 mb-3">
@@ -791,7 +791,7 @@ export function CumulativeSharpeRatioChart({
       <>
         <p className="text-sm font-semibold mb-1">Holding-period Sharpe over time</p>
         <p className="text-xs text-muted-foreground mb-3">
-          Annualized Sharpe from inception through each week — mirrors the Sharpe in Key metrics. The
+          Annualized Sharpe from inception through each week. The
           chart begins once the strategy has at least {MIN_OBS_FOR_SHARPE} weekly returns, the minimum
           for a stable estimate.
         </p>
@@ -811,9 +811,9 @@ export function CumulativeSharpeRatioChart({
     <>
       <p className="text-sm font-semibold mb-1">Holding-period Sharpe over time</p>
       <p className="text-xs text-muted-foreground mb-3">
-        Annualized Sharpe from inception through each week — mirrors the Sharpe in Key metrics. The
+        Annualized Sharpe from inception through each week. The
         line begins once the strategy has at least {warmupWeeks} weekly returns, the minimum for a
-        stable estimate; the shaded band on the left marks that warm-up window.
+        stable estimate.
       </p>
       <div className="flex flex-wrap items-center gap-1.5 mb-3">
         {(Object.entries(RETURNS_SERIES) as [ReturnsKey, (typeof RETURNS_SERIES)[ReturnsKey]][]).map(
@@ -991,7 +991,7 @@ export function RiskChart({
           title={
             rollingSharpeReady
               ? undefined
-              : `Rolling Sharpe uses a ${ROLLING_SHARPE_WINDOW_WEEKS}-week window, so this chart needs at least ${ROLLING_SHARPE_WINDOW_WEEKS} completed ISO weeks. The headline Sharpe in Key metrics is available earlier (around 8 weeks).`
+              : `Rolling Sharpe uses a ${ROLLING_SHARPE_WINDOW_WEEKS}-week window, so this chart needs at least ${ROLLING_SHARPE_WINDOW_WEEKS} completed weeks. The headline Sharpe in Key metrics is available earlier (around 8 weeks).`
           }
           onClick={() => setView('sharpe-rolling')}
           className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
@@ -1166,11 +1166,18 @@ export function RelativeOutperformanceChart({
     if (series.length < 2) return [];
     const base = series[0];
     return series.map((point) => {
-      const aiGrowth = point.aiPortfolio / base.aiPortfolio;
+      const aiRet = point.aiPortfolio / base.aiPortfolio - 1;
+      const ndxRet = point.nasdaq100CapWeight / base.nasdaq100CapWeight - 1;
+      const spRet = point.sp500 / base.sp500 - 1;
       return {
         date: shortDate(point.date),
-        vsNdxCap: ((aiGrowth / (point.nasdaq100CapWeight / base.nasdaq100CapWeight)) - 1) * 100,
-        vsSp500: ((aiGrowth / (point.sp500 / base.sp500)) - 1) * 100,
+        /**
+         * Additive percentage-point outperformance vs each benchmark — matches the
+         * "Compared to benchmarks" table's "+X% vs Nasdaq-100" / "+X% vs S&P 500" stats
+         * at the last point.
+         */
+        vsNdxCap: (aiRet - ndxRet) * 100,
+        vsSp500: (aiRet - spRet) * 100,
       };
     });
   }, [series]);
@@ -1182,14 +1189,14 @@ export function RelativeOutperformanceChart({
     <div className="rounded-lg border bg-card p-4">
       <p className="text-sm font-semibold mb-1">Cumulative performance vs benchmarks</p>
       <p className="text-xs text-muted-foreground mb-3">
-        How much{' '}
+        How many percentage points{' '}
         <span
           className="inline-flex max-w-full min-w-0 items-center truncate rounded-full border border-border bg-muted/40 px-2.5 py-0.5 align-middle text-[0.8125rem] font-medium text-foreground"
           title={aiLabel}
         >
           {aiLabel}
         </span>{' '}
-        is ahead of (or behind) each benchmark over time. Above zero = AI is winning.
+        is ahead of (or behind) each benchmark at every date (cumulative return − benchmark cumulative return). Above zero = this portfolio is winning.
       </p>
 
       <div className="flex flex-wrap gap-1.5 mb-3">
@@ -1212,7 +1219,10 @@ export function RelativeOutperformanceChart({
       <ChartContainer
         className="h-[220px] w-full"
         config={Object.fromEntries(
-          Object.entries(OUTPERF_SERIES).map(([key, cfg]) => [key, { label: cfg.label, color: cfg.color }])
+          Object.entries(OUTPERF_SERIES).map(([key, cfg]) => [
+            key,
+            { label: cfg.label, color: cfg.color },
+          ])
         )}
       >
         <AreaChart data={relativePerf} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>

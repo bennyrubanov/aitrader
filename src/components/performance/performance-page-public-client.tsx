@@ -724,8 +724,8 @@ function PortfolioValuesSection({
 
   return (
     <section id="portfolio-values" className="mb-10 scroll-mt-[4.5rem] md:scroll-mt-[5rem]">
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
+      <div className="mb-4 flex flex-row items-center justify-between gap-3 sm:items-end">
+        <div className="min-w-0 flex-1">
           <h2 className="group relative flex flex-wrap items-center gap-x-1 text-2xl font-bold tracking-tight">
             <SectionHeadingJumpLink
               fragmentId="portfolio-values"
@@ -737,10 +737,10 @@ function PortfolioValuesSection({
             <SectionHeadingAnchor fragmentId="portfolio-values" hrefBase={sectionHrefBase} />
           </h2>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="shrink-0">
           <Button
             type="button"
-            variant="outline"
+            variant="ghost"
             size="sm"
             className="group gap-1.5"
             disabled={!topConfig}
@@ -748,7 +748,8 @@ function PortfolioValuesSection({
             onMouseEnter={() => setGoToTopPortfolioButtonHovered(true)}
             onMouseLeave={() => setGoToTopPortfolioButtonHovered(false)}
           >
-            <span>Top portfolio details</span>
+            <span className="sm:hidden">Top portfolio</span>
+            <span className="hidden sm:inline">Top portfolio details</span>
             <ArrowRight
               className="size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 ease-out group-hover:translate-x-0.5"
               aria-hidden
@@ -870,7 +871,7 @@ function PublicPerformanceReturnsLoadingSkeleton() {
       aria-busy="true"
       aria-label="Loading returns for selected portfolio"
     >
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         {Array.from({ length: 2 }).map((_, idx) => (
           <div key={`returns-metric-skeleton-${idx}`} className="rounded-lg border bg-card p-3">
             <div className="space-y-2">
@@ -893,15 +894,20 @@ function PublicPerformanceReturnsLoadingSkeleton() {
 function PerformanceHoldingsCostBasisCell({
   symbol,
   snapshot,
+  className,
 }: {
   symbol: string;
   snapshot: CostBasisDateSnapshot | null;
+  className?: string;
 }) {
   const sym = symbol.toUpperCase();
   const gap = snapshot?.incompleteFirstDateBySymbol[sym];
   if (gap) {
     return (
-      <span className="tabular-nums text-muted-foreground" title={costBasisIncompleteTooltip(gap)}>
+      <span
+        className={cn('tabular-nums text-muted-foreground', className)}
+        title={costBasisIncompleteTooltip(gap)}
+      >
         —
       </span>
     );
@@ -909,7 +915,7 @@ function PerformanceHoldingsCostBasisCell({
   const total = snapshot?.costBasisBySymbol[sym] ?? 0;
   const openedOn = formatInvestedOnCalendarDate(snapshot?.openedDateBySymbol[sym] ?? null);
   return (
-    <span className="inline-flex flex-col leading-tight">
+    <span className={cn('inline-flex flex-col leading-tight', className)}>
       <span className="tabular-nums">{perfFormatUsd(total)}</span>
       {openedOn ? <span className="text-[11px] text-muted-foreground">{openedOn}</span> : null}
     </span>
@@ -1830,7 +1836,7 @@ function PerformancePagePublicClientInner({
     return false;
   }, [configMetricsReady, configPerfSlice, slug, portfolioPerf.portfolioConfig]);
 
-  /** Selected portfolio risk tier (Layer B), for overview subtitle; DB strategy status is separate. */
+  /** Selected portfolio risk tier (Layer B); DB strategy status is separate. */
   const whatYouSeeRiskLevel = useMemo((): RiskLevel | null => {
     if (configMetricsReady && configPerfSlice?.portfolioConfig?.riskLevel != null) {
       return configPerfSlice.portfolioConfig.riskLevel as RiskLevel;
@@ -1845,31 +1851,15 @@ function PerformancePagePublicClientInner({
     return null;
   }, [configMetricsReady, configPerfSlice, slug, portfolioPerf.portfolioConfig, whatYouSeeTopN]);
 
-  /** After Performance Overview: optional discontinued, risk pill, then Top N · cadence · weighting (canonical caps). */
-  const performanceOverviewSubtitle = useMemo(() => {
+  /** After Performance Overview: portfolio config line on desktop only (`hidden sm:flex`). */
+  const performanceOverviewConfigLine = useMemo(() => {
     if (!effectiveStrategy) return null;
-    const st = (effectiveStrategy.status ?? '').trim().toLowerCase();
-    const showDiscontinued = st === 'discontinued';
-    const riskPill =
-      whatYouSeeRiskLevel != null
-        ? {
-            label: RISK_LABELS[whatYouSeeRiskLevel],
-            dotClass: RETURNS_TABLE_RISK_DOT[whatYouSeeRiskLevel] ?? 'bg-muted',
-          }
-        : null;
-    const configLine = formatPortfolioConfigLabel({
+    return formatPortfolioConfigLabel({
       topN: whatYouSeeTopN,
       weightingMethod: whatYouSeeWeightCap ? 'cap' : 'equal',
       rebalanceFrequency: whatYouSeeFreq as RebalanceFrequency,
     });
-    return { showDiscontinued, riskPill, configLine };
-  }, [
-    effectiveStrategy,
-    whatYouSeeRiskLevel,
-    whatYouSeeTopN,
-    whatYouSeeFreq,
-    whatYouSeeWeightCap,
-  ]);
+  }, [effectiveStrategy, whatYouSeeTopN, whatYouSeeFreq, whatYouSeeWeightCap]);
 
   const whatYouSeeFreqLabel = useMemo(() => {
     const f = whatYouSeeFreq;
@@ -2136,6 +2126,8 @@ function PerformancePagePublicClientInner({
     holdingsAsOfDate,
   ]);
 
+  const benchmarkTableStrategyDisplayName = effectiveStrategy?.name ?? 'AI Strategy';
+
   // ── Sidebar slot ─────────────────────────────────────────────────────────
 
   const sidebarSlot = isModelLanding
@@ -2160,7 +2152,7 @@ function PerformancePagePublicClientInner({
                     buttonVariants({ variant: 'outline', size: 'sm' }),
                     'group w-full cursor-pointer justify-between gap-2 text-left transition-colors hover:border-primary/50 hover:bg-primary/[0.04]'
                   )}
-                  aria-label={`Back to model list (currently viewing ${effectiveStrategy.name})`}
+                  aria-label={`Back to models (currently viewing ${effectiveStrategy.name})`}
                   onClick={() => {
                     router.push('/strategy-models');
                   }}
@@ -2259,13 +2251,22 @@ function PerformancePagePublicClientInner({
       ) : null}
       {effectiveStrategy ? (
         <>
-          <div className="mb-6 flex scroll-mt-[4.5rem] md:scroll-mt-[5rem] flex-row flex-wrap items-center justify-between gap-x-4 gap-y-2">
-            <div className="min-w-0 flex-1">
+          <div
+            className={cn(
+              'mb-6 flex scroll-mt-[4.5rem] md:scroll-mt-[5rem] gap-x-4 gap-y-2',
+              !isModelLanding
+                ? 'flex-col items-stretch sm:flex-row sm:flex-wrap sm:items-center sm:justify-between'
+                : 'flex-row flex-wrap items-center justify-between'
+            )}
+          >
+            <div
+              className={cn('min-w-0', !isModelLanding ? 'w-full sm:flex-1' : 'flex-1')}
+            >
               <Breadcrumb>
                 <BreadcrumbList>
                   <BreadcrumbItem>
                     <BreadcrumbLink asChild>
-                      <Link href="/strategy-models">Model list</Link>
+                      <Link href="/strategy-models">Models</Link>
                     </BreadcrumbLink>
                   </BreadcrumbItem>
                   <BreadcrumbSeparator />
@@ -2311,7 +2312,14 @@ function PerformancePagePublicClientInner({
               </Breadcrumb>
             </div>
             {performancePageUpdatedLabel ? (
-              <p className="ml-auto shrink-0 text-xs text-muted-foreground tabular-nums">
+              <p
+                className={cn(
+                  'shrink-0 text-xs text-muted-foreground tabular-nums',
+                  !isModelLanding
+                    ? 'text-left sm:ml-auto'
+                    : 'ml-auto'
+                )}
+              >
                 Updated {performancePageUpdatedLabel}
               </p>
             ) : null}
@@ -2391,37 +2399,31 @@ function PerformancePagePublicClientInner({
           </div>
           {overviewPortfolioDataLoading ? (
             <Skeleton className="h-5 w-56 max-w-full shrink-0 sm:max-w-[min(100%,20rem)]" aria-hidden />
-          ) : performanceOverviewSubtitle ? (
-            <div className="flex max-w-full shrink-0 flex-wrap items-center justify-end gap-x-2 gap-y-1 text-right text-sm font-normal tracking-normal text-muted-foreground sm:max-w-[min(100%,28rem)]">
-              {performanceOverviewSubtitle.showDiscontinued ? (
-                <>
-                  <span className="font-medium text-foreground/90">Discontinued</span>
-                  <span aria-hidden className="select-none">
-                    ·
-                  </span>
-                </>
-              ) : null}
-              {performanceOverviewSubtitle.riskPill ? (
-                <>
+          ) : performanceOverviewConfigLine || whatYouSeeRiskLevel != null ? (
+            <div className="hidden max-w-full shrink-0 flex-wrap items-center justify-end gap-x-2 gap-y-1 text-right text-sm font-normal tracking-normal text-muted-foreground sm:flex sm:max-w-[min(100%,28rem)]">
+              {whatYouSeeRiskLevel != null ? (
+                <span
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border/80 bg-muted/50 px-2 py-0.5 text-[11px] font-semibold text-foreground"
+                  title={RISK_LABELS[whatYouSeeRiskLevel]}
+                >
                   <span
-                    className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border/80 bg-muted/50 px-2 py-0.5 text-[11px] font-semibold text-foreground"
-                    title={performanceOverviewSubtitle.riskPill.label}
-                  >
-                    <span
-                      className={cn(
-                        'size-1.5 shrink-0 rounded-full',
-                        performanceOverviewSubtitle.riskPill.dotClass
-                      )}
-                      aria-hidden
-                    />
-                    {performanceOverviewSubtitle.riskPill.label}
-                  </span>
-                  <span aria-hidden className="select-none">
-                    ·
-                  </span>
-                </>
+                    className={cn(
+                      'size-1.5 shrink-0 rounded-full',
+                      RETURNS_TABLE_RISK_DOT[whatYouSeeRiskLevel] ?? 'bg-muted'
+                    )}
+                    aria-hidden
+                  />
+                  {RISK_LABELS[whatYouSeeRiskLevel]}
+                </span>
               ) : null}
-              <span className="min-w-0">{performanceOverviewSubtitle.configLine}</span>
+              {whatYouSeeRiskLevel != null && performanceOverviewConfigLine ? (
+                <span aria-hidden className="select-none">
+                  ·
+                </span>
+              ) : null}
+              {performanceOverviewConfigLine ? (
+                <span className="min-w-0">{performanceOverviewConfigLine}</span>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -2458,8 +2460,8 @@ function PerformancePagePublicClientInner({
         )}
 
         {!overviewPortfolioDataLoading && displayMetrics ? (
-          <div className="rounded-lg border bg-muted/30 overflow-hidden">
-            <div className="border-b p-4">
+          <div className="rounded-lg border bg-muted/30 sm:overflow-hidden">
+            <div className="p-4">
               <p className="text-sm font-medium">Compared to benchmarks</p>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 All returns measured from{' '}
@@ -2467,21 +2469,35 @@ function PerformancePagePublicClientInner({
                 to {latestDisplayDate ? fmt.date(latestDisplayDate) : 'present'}.
               </p>
             </div>
-            <Table>
+            {/*
+              Mobile: fixed layout + min-width so columns do not crush; scroll horizontally inside Table wrapper.
+              Column mins (rem) unchanged; mobile uses minimal horizontal padding so gutters stay tight.
+            */}
+            <Table className="w-full max-sm:table-fixed max-sm:min-w-[43rem] caption-bottom text-sm">
               <TableHeader>
                 <TableRow>
-                  <TableHead>Strategy / Benchmark</TableHead>
-                  <TableHead className="text-right">Total return</TableHead>
-                  <TableHead className="text-right">CAGR</TableHead>
-                  <TableHead className="text-right">Max drawdown</TableHead>
+                  <TableHead className="max-sm:min-w-[17.5rem] max-sm:whitespace-nowrap max-sm:py-2 max-sm:pl-3 max-sm:pr-1 text-left sm:min-w-0 sm:whitespace-normal sm:py-3 sm:pl-4 sm:pr-2">
+                    Strategy / Benchmark
+                  </TableHead>
+                  <TableHead className="max-sm:min-w-[7.75rem] max-sm:whitespace-nowrap max-sm:py-2 max-sm:pl-0 max-sm:pr-1 text-center sm:min-w-0 sm:py-3 sm:px-4">
+                    Total return
+                  </TableHead>
+                  <TableHead className="max-sm:min-w-[6.75rem] max-sm:whitespace-nowrap max-sm:py-2 max-sm:px-1 text-center sm:min-w-0 sm:py-3 sm:px-4">
+                    CAGR
+                  </TableHead>
+                  <TableHead className="max-sm:min-w-[9.25rem] max-sm:whitespace-nowrap max-sm:py-2 max-sm:pl-1 max-sm:pr-3 text-center sm:min-w-0 sm:py-3 sm:px-4 sm:pl-4">
+                    Max drawdown
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 <TableRow className="bg-trader-blue/5">
-                  <TableCell className="font-medium">
-                    <div className="space-y-1">
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                        <span>{effectiveStrategy?.name ?? 'AI Strategy'}</span>
+                  <TableCell className="max-sm:min-w-[17.5rem] max-sm:py-2.5 max-sm:pl-3 max-sm:pr-1 text-left font-medium sm:min-w-0 sm:px-4 sm:py-4 sm:pr-2">
+                    <div className="space-y-1 text-left">
+                      <div className="flex min-w-0 w-full flex-wrap items-center justify-start gap-x-2 gap-y-0.5">
+                        <span className="min-w-0 max-w-full truncate font-medium sm:max-w-none sm:whitespace-normal">
+                          {benchmarkTableStrategyDisplayName}
+                        </span>
                         {returnsBenchmarkTablePortfolioLine ? (
                           <span className="inline-flex items-center gap-1.5 text-xs font-normal text-muted-foreground">
                             <span
@@ -2497,43 +2513,49 @@ function PerformancePagePublicClientInner({
                       </div>
                       {outperformanceVsCap != null && (
                         <div
-                          className={`text-xs font-normal ${outperformanceVsCap >= 0 ? 'text-green-600' : 'text-red-500'}`}
+                          className={`text-left text-xs font-normal ${outperformanceVsCap >= 0 ? 'text-green-600' : 'text-red-500'}`}
                         >
                           {outperformanceVsCap >= 0 ? '+' : ''}
-                          {(outperformanceVsCap * 100).toFixed(1)}% vs Nasdaq-100 (cumulative)
+                          {(outperformanceVsCap * 100).toFixed(1)}% vs Nasdaq-100
                         </div>
                       )}
                     </div>
                   </TableCell>
-                  <TableCell className="text-right font-semibold">
+                  <TableCell className="max-sm:min-w-[7.75rem] max-sm:py-2.5 max-sm:pl-0 max-sm:pr-1 text-center font-semibold tabular-nums sm:min-w-0 sm:px-4 sm:py-4">
                     {fmt.pct(effectiveDisplayMetrics?.totalReturn)}
                   </TableCell>
-                  <TableCell className="text-right">{fmt.pct(effectiveDisplayMetrics?.cagr)}</TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="max-sm:min-w-[6.75rem] max-sm:py-2.5 max-sm:px-1 text-center tabular-nums sm:min-w-0 sm:px-4 sm:py-4">
+                    {fmt.pct(effectiveDisplayMetrics?.cagr)}
+                  </TableCell>
+                  <TableCell className="max-sm:min-w-[9.25rem] max-sm:py-2.5 max-sm:pl-1 max-sm:pr-3 text-center tabular-nums sm:min-w-0 sm:px-4 sm:py-4 sm:pl-4">
                     {fmt.pct(effectiveDisplayMetrics?.maxDrawdown)}
                   </TableCell>
                 </TableRow>
                 <TableRow>
-                  <TableCell className="text-muted-foreground">Nasdaq-100</TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="max-sm:min-w-[17.5rem] max-sm:py-2.5 max-sm:pl-3 max-sm:pr-1 text-left text-muted-foreground max-sm:whitespace-nowrap sm:min-w-0 sm:px-4 sm:py-4 sm:pr-2">
+                    Nasdaq-100
+                  </TableCell>
+                  <TableCell className="max-sm:min-w-[7.75rem] max-sm:py-2.5 max-sm:pl-0 max-sm:pr-1 text-center tabular-nums sm:min-w-0 sm:px-4 sm:py-4">
                     {fmt.pct(effectiveDisplayMetrics?.benchmarks.nasdaq100CapWeight.totalReturn)}
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="max-sm:min-w-[6.75rem] max-sm:py-2.5 max-sm:px-1 text-center tabular-nums sm:min-w-0 sm:px-4 sm:py-4">
                     {fmt.pct(effectiveDisplayMetrics?.benchmarks.nasdaq100CapWeight.cagr)}
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="max-sm:min-w-[9.25rem] max-sm:py-2.5 max-sm:pl-1 max-sm:pr-3 text-center tabular-nums sm:min-w-0 sm:px-4 sm:py-4 sm:pl-4">
                     {fmt.pct(effectiveDisplayMetrics?.benchmarks.nasdaq100CapWeight.maxDrawdown)}
                   </TableCell>
                 </TableRow>
                 <TableRow>
-                  <TableCell className="text-muted-foreground">S&amp;P 500</TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="max-sm:min-w-[17.5rem] max-sm:py-2.5 max-sm:pl-3 max-sm:pr-1 text-left text-muted-foreground sm:min-w-0 sm:px-4 sm:py-4 sm:pr-2">
+                    S&amp;P 500
+                  </TableCell>
+                  <TableCell className="max-sm:min-w-[7.75rem] max-sm:py-2.5 max-sm:pl-0 max-sm:pr-1 text-center tabular-nums sm:min-w-0 sm:px-4 sm:py-4">
                     {fmt.pct(effectiveDisplayMetrics?.benchmarks.sp500.totalReturn)}
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="max-sm:min-w-[6.75rem] max-sm:py-2.5 max-sm:px-1 text-center tabular-nums sm:min-w-0 sm:px-4 sm:py-4">
                     {fmt.pct(effectiveDisplayMetrics?.benchmarks.sp500.cagr)}
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="max-sm:min-w-[9.25rem] max-sm:py-2.5 max-sm:pl-1 max-sm:pr-3 text-center tabular-nums sm:min-w-0 sm:px-4 sm:py-4 sm:pl-4">
                     {fmt.pct(effectiveDisplayMetrics?.benchmarks.sp500.maxDrawdown)}
                   </TableCell>
                 </TableRow>
@@ -2611,8 +2633,6 @@ function PerformancePagePublicClientInner({
                     positive={(effectiveDisplayMetrics?.sharpeRatio ?? 0) > 1}
                     positiveTone="brand"
                   />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
                   <FlipCard
                     label="CAGR"
                     afterLabel={
@@ -2640,7 +2660,7 @@ function PerformancePagePublicClientInner({
                   Detailed metrics
                 </p>
                 <div className="space-y-2">
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                     <FlipCard
                       label="Decision-cadence Sharpe"
                       value={fmt.num(effectiveDisplayMetrics?.sharpeRatioDecisionCadence)}
@@ -2680,12 +2700,6 @@ function PerformancePagePublicClientInner({
                       explanation="How often this portfolio's weekly return exceeded the S&P 500 benchmark's weekly return. Above 50% means it wins more weeks than it loses."
                       positive={(effectiveDisplayMetrics?.pctWeeksBeatingSp500 ?? 0) > 0.5}
                     />
-                    <FlipCard
-                      label="% weeks beating Nasdaq-100 (equal-weight)"
-                      value={fmt.pct(effectiveDisplayMetrics?.pctWeeksBeatingNasdaq100EqualWeight, 0)}
-                      explanation="How often this portfolio's weekly return exceeded the Nasdaq-100 equal-weight benchmark's weekly return. Above 50% means it wins more weeks than it loses."
-                      positive={(effectiveDisplayMetrics?.pctWeeksBeatingNasdaq100EqualWeight ?? 0) > 0.5}
-                    />
                   </div>
                 </div>
               </div>
@@ -2723,9 +2737,8 @@ function PerformancePagePublicClientInner({
                 <li className="flex items-start gap-2">
                   <CheckCircle2 className="size-4 text-trader-blue mt-0.5 shrink-0" />
                   <span>
-                    We pick the <strong>top {whatYouSeeTopN} stocks</strong> every{' '}
-                    <strong>{whatYouSeeFreqLabel}</strong> from the Nasdaq-100, ranked by AI score
-                    (selected portfolio).
+                    We pick the <strong>top {whatYouSeeTopN} AI-ranked stocks</strong> every{' '}
+                    <strong>{whatYouSeeFreqLabel}</strong> from the Nasdaq-100.
                   </span>
                 </li>
                 <li className="flex items-start gap-2">
@@ -2733,12 +2746,11 @@ function PerformancePagePublicClientInner({
                   <span>
                     {whatYouSeeWeightCap ? (
                       <>
-                        Holdings are <strong>cap-weighted</strong> by market cap within the top picks.
+                        Holdings are <strong>cap-weighted</strong> by market cap.
                       </>
                     ) : (
                       <>
-                        Each stock gets <strong>equal weight</strong> — no outsized bets on single
-                        names.
+                        Each stock gets <strong>equal weight</strong> in the portfolio.
                       </>
                     )}
                   </span>
@@ -2746,18 +2758,7 @@ function PerformancePagePublicClientInner({
                 <li className="flex items-start gap-2">
                   <CheckCircle2 className="size-4 text-trader-blue mt-0.5 shrink-0" />
                   <span>
-                    Model batch day:{' '}
-                    <strong>{WEEKDAY_LABELS[effectiveStrategy.rebalanceDayOfWeek]}</strong>
-                    {whatYouSeeFreq === 'weekly'
-                      ? ' (weekly rebalance aligns with each batch).'
-                      : ' — longer cadences use the first batch in each period.'}
-                  </span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <CheckCircle2 className="size-4 text-trader-blue mt-0.5 shrink-0" />
-                  <span>
-                    We subtract <strong>realistic trading costs</strong> so the chart reflects what
-                    you would actually keep.
+                    We subtract <strong>realistic trading costs</strong> to get closer to real return predictions.
                   </span>
                 </li>
                 <li className="flex items-start gap-2">
@@ -2800,64 +2801,72 @@ function PerformancePagePublicClientInner({
                   </SectionHeadingJumpLink>
                   <SectionHeadingAnchor fragmentId="holdings" hrefBase={sectionHrefBase} />
                 </h2>
-                <p className="text-sm text-muted-foreground">
-                  Positions for the selected portfolio ({portfolioHoldingsSubtitle}).
-                </p>
               </div>
-              {holdingsRebalanceDates.length > 0 ? (
-                <HoldingsPortfolioValueLine
-                  value={performanceHoldingsPortfolioValue}
-                  formatCurrency={perfFormatUsd}
-                  className="sm:ml-auto"
-                  asOfCloseDate={performanceHoldingsAsOfCloseLabel}
-                />
-              ) : null}
-              {holdingsRebalanceDates.length >= 1 ? (
-                <div className="flex w-full max-w-[13rem] flex-col gap-1 sm:shrink-0 sm:items-end">
-                  <Label
-                    htmlFor="holdings-rebalance-date"
-                    className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:text-right"
-                  >
-                    Rebalance date
-                  </Label>
-                  <Select
-                    value={holdingsAsOfDate ?? HOLDINGS_TODAY_SENTINEL}
-                    onValueChange={(v) =>
-                      setHoldingsAsOfDate(v === HOLDINGS_TODAY_SENTINEL ? null : v)
-                    }
-                  >
-                    <SelectTrigger
-                      id="holdings-rebalance-date"
-                      className={cn(
-                        'h-8 min-h-8 rounded-md border border-input bg-background px-2 text-left text-xs shadow-none ring-0 hover:bg-muted/30 focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:ring-0 data-[state=open]:ring-offset-0 [&_svg]:size-3.5 min-w-[10rem]',
-                        PORTFOLIO_REBALANCE_DATE_SELECT_WIDTH_CLASSES
-                      )}
+              <div className="grid w-full max-sm:grid-cols-[minmax(0,1fr)_auto] max-sm:items-end max-sm:gap-x-2 sm:ml-auto sm:flex sm:w-auto sm:flex-none sm:flex-row sm:items-end sm:gap-4">
+                {holdingsRebalanceDates.length > 0 ? (
+                  <HoldingsPortfolioValueLine
+                    value={performanceHoldingsPortfolioValue}
+                    formatCurrency={perfFormatUsd}
+                    className="min-w-0 max-sm:col-start-1 max-sm:justify-self-start"
+                    stackAsOfOnNarrow
+                    asOfCloseDate={performanceHoldingsAsOfCloseLabel}
+                  />
+                ) : null}
+                {holdingsRebalanceDates.length >= 1 ? (
+                  <div className="flex max-w-[13rem] flex-col items-end gap-1 max-sm:col-start-2 max-sm:max-w-[min(100%,11.5rem)] max-sm:justify-self-end max-sm:shrink-0 sm:shrink-0">
+                    <Label
+                      htmlFor="holdings-rebalance-date"
+                      className="w-full text-right text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
                     >
-                      <SelectValue placeholder="Choose date" />
-                    </SelectTrigger>
-                    <SelectContent align="start" className="text-xs">
-                      <SelectItem value={HOLDINGS_TODAY_SENTINEL} className="py-1.5 text-xs">
-                        Today
-                      </SelectItem>
-                      {holdingsRebalanceDates.map((d) => (
-                        <SelectItem key={d} value={d} className="py-1.5 text-xs">
-                          {fmt.date(d)}
+                      Rebalance date
+                    </Label>
+                    <Select
+                      value={holdingsAsOfDate ?? HOLDINGS_TODAY_SENTINEL}
+                      onValueChange={(v) =>
+                        setHoldingsAsOfDate(v === HOLDINGS_TODAY_SENTINEL ? null : v)
+                      }
+                    >
+                      <SelectTrigger
+                        id="holdings-rebalance-date"
+                        className={cn(
+                          'h-8 min-h-8 w-full rounded-md border border-input bg-background px-2 text-left text-xs shadow-none ring-0 hover:bg-muted/30 focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:ring-0 data-[state=open]:ring-offset-0 [&_svg]:size-3.5 min-w-[10rem]',
+                          PORTFOLIO_REBALANCE_DATE_SELECT_WIDTH_CLASSES
+                        )}
+                      >
+                        <SelectValue placeholder="Choose date" />
+                      </SelectTrigger>
+                      <SelectContent align="start" className="text-xs">
+                        <SelectItem value={HOLDINGS_TODAY_SENTINEL} className="py-1.5 text-xs">
+                          Today
                         </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              ) : null}
+                        {holdingsRebalanceDates.map((d) => (
+                          <SelectItem key={d} value={d} className="py-1.5 text-xs">
+                            {fmt.date(d)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : null}
+              </div>
             </div>
             {holdings.length > 0 ? (
               <div className="rounded-lg border overflow-hidden">
-                <Table>
+                <Table className="max-md:table-fixed max-md:w-full">
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="min-w-[4.25rem]">#</TableHead>
-                      <TableHead>Stock</TableHead>
-                      <TableHead className="text-left">
-                        <span className="inline-flex items-center justify-start gap-1">
+                      <TableHead className="min-w-[4.25rem] max-md:relative max-md:h-10 max-md:w-1/4 max-md:min-w-0 max-md:px-1 max-md:py-2 max-md:text-xs md:px-4">
+                        <span className="max-md:absolute max-md:inset-0 max-md:flex max-md:items-center max-md:justify-center md:relative md:inset-auto md:inline md:text-left">
+                          #
+                        </span>
+                      </TableHead>
+                      <TableHead className="max-md:relative max-md:h-10 max-md:w-1/4 max-md:min-w-0 max-md:px-1 max-md:py-2 md:static md:px-4">
+                        <span className="max-md:absolute max-md:inset-0 max-md:flex max-md:items-center max-md:justify-center max-md:text-xs md:relative md:inset-auto md:inline md:text-left">
+                          Stock
+                        </span>
+                      </TableHead>
+                      <TableHead className="text-left max-md:relative max-md:h-10 max-md:w-1/4 max-md:min-w-0 max-md:px-1 max-md:py-2 max-md:text-xs md:min-w-0 md:w-auto md:px-4">
+                        <span className="max-md:absolute max-md:inset-0 max-md:flex max-md:items-center max-md:justify-center max-md:gap-1 max-md:px-0.5 md:relative md:inset-auto md:inline-flex md:items-center md:justify-start md:gap-1">
                           Value
                           <HoldingsAllocationColumnTooltip
                             weightingMethod={holdingsPortfolioConfig.weightingMethod}
@@ -2865,8 +2874,8 @@ function PerformancePagePublicClientInner({
                           />
                         </span>
                       </TableHead>
-                      <TableHead className="text-right">
-                        <span className="inline-flex items-center justify-end gap-1">
+                      <TableHead className="text-right max-md:relative max-md:h-10 max-md:w-1/4 max-md:min-w-0 max-md:px-1 max-md:py-2 max-md:text-xs md:min-w-0 md:w-auto md:px-4">
+                        <span className="max-md:absolute max-md:inset-0 max-md:flex max-md:items-center max-md:justify-center max-md:gap-1 max-md:px-0.5 md:relative md:inset-auto md:inline-flex md:items-center md:justify-end md:gap-1">
                           Cost basis
                           <HoldingsCostBasisColumnTooltip variant="publicModel" />
                         </span>
@@ -2883,47 +2892,72 @@ function PerformancePagePublicClientInner({
                         liveRow.currentWeight != null;
                       return (
                         <TableRow key={`${holding.symbol}-${holding.rank}`}>
-                          <TableCell className="text-muted-foreground">
-                            <HoldingRankWithChange
-                              rank={holding.rank}
-                              rankChange={holding.rankChange}
-                            />
+                          <TableCell className="text-muted-foreground max-md:relative max-md:w-1/4 max-md:min-w-0 max-md:px-1 max-md:py-2 max-md:text-xs md:w-auto md:p-4">
+                            <div className="max-md:absolute max-md:inset-0 max-md:flex max-md:items-center max-md:justify-center md:contents">
+                              <HoldingRankWithChange
+                                rank={holding.rank}
+                                rankChange={holding.rankChange}
+                              />
+                            </div>
                           </TableCell>
-                          <TableCell>
-                            <span className="font-medium">{holding.symbol}</span>
-                            {holding.companyName && holding.companyName !== holding.symbol && (
-                              <span className="text-xs text-muted-foreground ml-1.5">
-                                {holding.companyName}
-                              </span>
-                            )}
+                          <TableCell className="max-md:relative min-w-0 max-md:w-1/4 max-md:min-w-0 max-md:px-1 max-md:py-2 max-md:text-xs md:static md:w-auto md:p-4">
+                            <div className="max-md:absolute max-md:inset-0 max-md:flex max-md:items-center max-md:justify-center max-md:px-0.5 md:contents">
+                              {holding.companyName &&
+                              holding.companyName.trim() !== '' &&
+                              holding.companyName !== holding.symbol ? (
+                                <>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <span className="font-medium md:hidden cursor-help rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+                                        {holding.symbol}
+                                      </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top" align="start">
+                                      {holding.companyName}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                  <span className="hidden font-medium md:inline">{holding.symbol}</span>
+                                  <span className="hidden text-xs text-muted-foreground md:inline md:ml-1.5">
+                                    {holding.companyName}
+                                  </span>
+                                </>
+                              ) : (
+                                <span className="font-medium">{holding.symbol}</span>
+                              )}
+                            </div>
                           </TableCell>
-                          <TableCell className="text-left tabular-nums">
-                            {showLive ? (
-                              holdingsAsOfDate === null ? (
-                                <div className="space-y-0.5 leading-tight">
-                                  <div>
+                          <TableCell className="text-left tabular-nums max-md:relative max-md:w-1/4 max-md:min-w-0 max-md:px-1 max-md:py-2 max-md:text-xs md:min-w-0 md:w-auto md:p-4">
+                            <div className="max-md:absolute max-md:inset-0 max-md:flex max-md:flex-col max-md:items-center max-md:justify-center max-md:gap-0.5 max-md:px-0.5 max-md:text-center md:contents md:text-left">
+                              {showLive ? (
+                                holdingsAsOfDate === null ? (
+                                  <div className="space-y-0.5 leading-tight">
+                                    <div>
+                                      {`${perfFormatUsd(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
+                                    </div>
+                                    <div className="text-xs text-muted-foreground">
+                                      Target: {(holding.weight * 100).toFixed(1)}%
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <span>
                                     {`${perfFormatUsd(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
-                                  </div>
-                                  <div className="text-xs text-muted-foreground">
-                                    Target: {(holding.weight * 100).toFixed(1)}%
-                                  </div>
-                                </div>
+                                  </span>
+                                )
                               ) : (
                                 <span>
-                                  {`${perfFormatUsd(liveRow.currentValue)} (${(liveRow.currentWeight * 100).toFixed(1)}%)`}
+                                  {`${perfFormatUsd(holding.weight * performanceHoldingsModelNotional)} (${(holding.weight * 100).toFixed(1)}%)`}
                                 </span>
-                              )
-                            ) : (
-                              <span>
-                                {`${perfFormatUsd(holding.weight * performanceHoldingsModelNotional)} (${(holding.weight * 100).toFixed(1)}%)`}
-                              </span>
-                            )}
+                              )}
+                            </div>
                           </TableCell>
-                          <TableCell className="text-right align-top">
-                            <PerformanceHoldingsCostBasisCell
-                              symbol={holding.symbol}
-                              snapshot={performanceSelectedCostBasis}
-                            />
+                          <TableCell className="text-right align-top max-md:relative max-md:w-1/4 max-md:min-w-0 max-md:px-1 max-md:py-2 max-md:text-xs md:min-w-0 md:w-auto md:p-4">
+                            <div className="max-md:absolute max-md:inset-0 max-md:flex max-md:items-center max-md:justify-center md:contents">
+                              <PerformanceHoldingsCostBasisCell
+                                symbol={holding.symbol}
+                                snapshot={performanceSelectedCostBasis}
+                                className="max-md:items-center md:items-end"
+                              />
+                            </div>
                           </TableCell>
                         </TableRow>
                       );
@@ -3002,7 +3036,7 @@ function PerformancePagePublicClientInner({
           <PublicPerformanceReturnsLoadingSkeleton />
         ) : displayMetrics ? (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               <FlipCard
                 label="Total return"
                 value={fmt.pct(effectiveDisplayMetrics?.totalReturn)}
@@ -3063,7 +3097,7 @@ function PerformancePagePublicClientInner({
             aria-busy="true"
             aria-label="Loading risk metrics for selected portfolio"
           >
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               <Skeleton className="min-h-[118px] w-full rounded-lg" />
               <Skeleton className="min-h-[118px] w-full rounded-lg" />
               <Skeleton className="min-h-[118px] w-full rounded-lg" />
@@ -3075,7 +3109,7 @@ function PerformancePagePublicClientInner({
           </div>
         ) : displayMetrics ? (
           <div className="space-y-4">
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               <FlipCard
                 label="Max drawdown"
                 value={fmt.pct(effectiveDisplayMetrics?.maxDrawdown)}
@@ -3147,18 +3181,16 @@ function PerformancePagePublicClientInner({
             aria-busy="true"
             aria-label="Loading consistency metrics for selected portfolio"
           >
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              <Skeleton className="min-h-[118px] w-full rounded-lg" />
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               <Skeleton className="min-h-[118px] w-full rounded-lg" />
               <Skeleton className="min-h-[118px] w-full rounded-lg" />
             </div>
             <Skeleton className="h-[220px] w-full rounded-lg" />
           </div>
         ) : effectiveDisplayMetrics?.pctWeeksBeatingNasdaq100 != null ||
-          effectiveDisplayMetrics?.pctWeeksBeatingSp500 != null ||
-          effectiveDisplayMetrics?.pctWeeksBeatingNasdaq100EqualWeight != null ? (
+          effectiveDisplayMetrics?.pctWeeksBeatingSp500 != null ? (
           <div className="space-y-4">
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               {effectiveDisplayMetrics?.pctWeeksBeatingNasdaq100 != null && (
                 <FlipCard
                   label="% weeks outperforming Nasdaq-100"
@@ -3173,14 +3205,6 @@ function PerformancePagePublicClientInner({
                   value={fmt.pct(effectiveDisplayMetrics?.pctWeeksBeatingSp500, 0)}
                   explanation="Share of weeks where the portfolio beat the S&P 500 benchmark. Above 50% means it wins more weeks than it loses."
                   positive={(effectiveDisplayMetrics?.pctWeeksBeatingSp500 ?? 0) > 0.5}
-                />
-              )}
-              {effectiveDisplayMetrics?.pctWeeksBeatingNasdaq100EqualWeight != null && (
-                <FlipCard
-                  label="% weeks outperforming Nasdaq-100 (equal-weight)"
-                  value={fmt.pct(effectiveDisplayMetrics?.pctWeeksBeatingNasdaq100EqualWeight, 0)}
-                  explanation="Share of weeks where the portfolio beat the Nasdaq-100 equal-weight benchmark. Above 50% means it wins more weeks than it loses."
-                  positive={(effectiveDisplayMetrics?.pctWeeksBeatingNasdaq100EqualWeight ?? 0) > 0.5}
                 />
               )}
             </div>
