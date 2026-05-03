@@ -535,7 +535,7 @@ export function NotificationsBell() {
           </SheetTrigger>
           <SheetContent
             side="right"
-            className="flex w-full max-w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-md"
+            className="flex w-[min(100vw-1rem,22rem)] flex-col gap-0 overflow-hidden p-0 pt-10"
           >
             {panel}
           </SheetContent>

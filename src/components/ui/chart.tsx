@@ -3,6 +3,7 @@
 import * as React from "react"
 import * as RechartsPrimitive from "recharts"
 
+import { useIsBelowMd } from "@/hooks/use-is-below-md"
 import { cn } from "@/lib/utils"
 
 // Format: { THEME_NAME: CSS_SELECTOR }
@@ -100,7 +101,19 @@ ${colorConfig
   )
 }
 
-const ChartTooltip = RechartsPrimitive.Tooltip
+type ChartTooltipProps = React.ComponentProps<typeof RechartsPrimitive.Tooltip>
+
+/** On narrow viewports, allow the cursor tooltip to escape the chart box so it is less likely to clip. */
+function ChartTooltip(props: ChartTooltipProps) {
+  const { allowEscapeViewBox, ...rest } = props
+  const isBelowMd = useIsBelowMd()
+  const resolvedEscape =
+    allowEscapeViewBox ?? (isBelowMd ? ({ x: true, y: true } as const) : undefined)
+  return (
+    <RechartsPrimitive.Tooltip allowEscapeViewBox={resolvedEscape} {...rest} />
+  )
+}
+ChartTooltip.displayName = 'ChartTooltip'
 
 const ChartTooltipContent = React.forwardRef<
   HTMLDivElement,

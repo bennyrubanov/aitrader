@@ -170,6 +170,7 @@ export default async function StrategyModelPortfolioPage({ params, searchParams 
       initialPortfolioPerformance={initialPortfolioPerformance}
       initialPortfolioSlice={initialPortfolioSlice}
       portfolioPageLinks={portfolioPageLinks}
+      initialRankedPayload={rankedPayload}
     />
   );
 }

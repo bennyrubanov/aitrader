@@ -67,6 +67,8 @@ function bindUserProfilesInvalidateListener() {
     }
     userEntryStore.clear();
     userEntryInflight.clear();
+    configPerfStore.clear();
+    configPerfInflight.clear();
   });
 }
 
@@ -86,6 +88,7 @@ export async function loadConfigPerfPayloadCached(
   weighting: string,
   opts?: { bypassCache?: boolean }
 ): Promise<CachedConfigPerfPayload | null> {
+  bindUserProfilesInvalidateListener();
   const s = slug.trim();
   const k = configPerfKey(s, String(risk), frequency, weighting);
   if (opts?.bypassCache) {

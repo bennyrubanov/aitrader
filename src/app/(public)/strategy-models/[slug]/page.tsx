@@ -3,6 +3,7 @@ import {
   getPerformancePayloadBySlug,
   getStrategiesList,
 } from '@/lib/platform-performance-payload';
+import { getCachedRankedConfigsPayload } from '@/lib/portfolio-configs-ranked-core';
 import { PerformancePagePublicClient } from '@/components/performance/performance-page-public-client';
 import { LegacyPortfolioQueryRedirect } from '@/components/performance/legacy-portfolio-query-redirect';
 
@@ -47,9 +48,10 @@ export async function generateMetadata({ params }: Props) {
 const StrategyModelSlugPage = async ({ params }: Props) => {
   const { slug } = await params;
 
-  const [payload, strategies] = await Promise.all([
+  const [payload, strategies, initialRankedPayload] = await Promise.all([
     getPerformancePayloadBySlug(slug),
     getStrategiesList(),
+    getCachedRankedConfigsPayload(slug),
   ]);
 
   if (!payload.strategy) {
@@ -64,6 +66,7 @@ const StrategyModelSlugPage = async ({ params }: Props) => {
         strategies={strategies}
         slug={slug}
         viewMode="model"
+        initialRankedPayload={initialRankedPayload}
       />
     </>
   );

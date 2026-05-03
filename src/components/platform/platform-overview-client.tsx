@@ -823,7 +823,7 @@ function OverviewPortfolioTile({
 
         <div className="mt-3 grid grid-cols-2 gap-2 sm:gap-3">
           <div className="rounded-xl border bg-background/60 px-2.5 py-2">
-            <p className="text-[9px] uppercase text-muted-foreground">Portfolio value</p>
+            <p className="text-[9px] uppercase text-muted-foreground">Value since your entry</p>
             <p className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 text-base font-bold tabular-nums leading-tight">
               <span>{st?.loading ? '…' : portfolioValueDisplay}</span>
               {!st?.loading ? (

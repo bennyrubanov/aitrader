@@ -3710,7 +3710,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                     {/* Two columns below lg; single column in the fixed-width sidebar at lg+. */}
                         <SpotlightStatCard
                           tooltipKey="portfolio_value"
-                          label="Portfolio value"
+                          label="Value since your entry"
                           value={
                             portfolioValueAmount != null
                               ? formatYourPortfolioCurrency(portfolioValueAmount)

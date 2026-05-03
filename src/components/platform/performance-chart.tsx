@@ -18,6 +18,7 @@ import {
 } from '@/lib/chart-index-series-colors';
 import { cn } from '@/lib/utils';
 import { toDrawdownPercentSeries } from '@/lib/performance-series-drawdown';
+import { useIsBelowMd } from '@/hooks/use-is-below-md';
 
 type PerformancePoint = {
   date: string;
@@ -141,6 +142,11 @@ type PerformanceChartProps = {
   series: PerformancePoint[];
   /** Override the AI strategy label (e.g. model name) */
   strategyName?: string;
+  /**
+   * When set with `strategyName`, legend chips + chart tooltip use this label below the `md`
+   * breakpoint instead of the full `strategyName` (e.g. public strategy-models portfolio chart).
+   */
+  strategyLegendShortMobile?: string;
   /** When true, hides the drawdown toggle (drawdown lives in the Risk section) */
   hideDrawdown?: boolean;
   /** When true, hides 1M/3M/6M/YTD/All and always uses full history */
@@ -176,6 +182,7 @@ type PerformanceChartProps = {
 export function PerformanceChart({
   series,
   strategyName,
+  strategyLegendShortMobile,
   hideDrawdown = false,
   hideTimeRangeControls = false,
   hideFootnote = false,
@@ -189,6 +196,8 @@ export function PerformanceChart({
   disableLineAnimation = false,
   chipsInControlsRow = false,
 }: PerformanceChartProps) {
+  const isBelowMd = useIsBelowMd();
+
   const [range, setRange] = useState<TimeRange>('All');
   const [view, setView] = useState<'equity' | 'drawdown'>('equity');
   const [hidden, setHidden] = useState<Set<SeriesKey>>(new Set());
@@ -321,11 +330,18 @@ export function PerformanceChart({
         label: seriesLabelOverrides?.[key] ?? base.label,
       };
     }
-    if (strategyName && out.aiPortfolio) {
-      out.aiPortfolio = { ...out.aiPortfolio, label: strategyName };
+    const portfolioLineLabel =
+      strategyName &&
+      strategyLegendShortMobile &&
+      isBelowMd &&
+      strategyLegendShortMobile.trim() !== ''
+        ? strategyLegendShortMobile
+        : strategyName;
+    if (portfolioLineLabel && out.aiPortfolio) {
+      out.aiPortfolio = { ...out.aiPortfolio, label: portfolioLineLabel };
     }
     return out;
-  }, [chartSeriesKeys, strategyName, seriesLabelOverrides]);
+  }, [chartSeriesKeys, strategyName, strategyLegendShortMobile, isBelowMd, seriesLabelOverrides]);
 
   const yFormatter = (v: number) =>
     view === 'drawdown' ? `${v.toFixed(1)}%` : formatEquityAxisTick(v);

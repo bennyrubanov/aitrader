@@ -38,6 +38,7 @@ import {
   yearsBetweenUtcDates,
 } from '@/lib/performance-cagr';
 import { toDrawdownPercentSeries } from '@/lib/performance-series-drawdown';
+import { useIsBelowMd } from '@/hooks/use-is-below-md';
 
 /** Full-history span below this (years) shows a short “preliminary track” note on CAGR over time. */
 const CAGR_PRELIMINARY_NOTE_MAX_YEARS = 12 / 52;
@@ -59,6 +60,20 @@ const RETURNS_SERIES = {
 } as const;
 
 type ReturnsKey = keyof typeof RETURNS_SERIES;
+
+function usePortfolioLineDisplayName(
+  strategyName: string | undefined,
+  strategyLegendShortMobile: string | undefined
+): string | undefined {
+  const isBelowMd = useIsBelowMd();
+  return useMemo(() => {
+    if (!strategyName) return undefined;
+    if (strategyLegendShortMobile && isBelowMd && strategyLegendShortMobile.trim() !== '') {
+      return strategyLegendShortMobile;
+    }
+    return strategyName;
+  }, [strategyName, strategyLegendShortMobile, isBelowMd]);
+}
 
 const chartDateFormatter = new Intl.DateTimeFormat('en-US', {
   month: 'short',
@@ -123,11 +138,16 @@ function formatSharpeTick(v: number): string {
 export function WeeklyReturnsChart({
   series,
   strategyName,
+  strategyLegendShortMobile,
 }: {
   series: SeriesPoint[];
   /** Model name, or full overview-style track title (`model · Top n · weight · frequency`). */
   strategyName?: string;
+  /** Below `md`, used instead of `strategyName` for the portfolio series (e.g. "This Portfolio"). */
+  strategyLegendShortMobile?: string;
 }) {
+  const portfolioLineName = usePortfolioLineDisplayName(strategyName, strategyLegendShortMobile);
+
   const weeklyReturns = useMemo(() => {
     if (series.length < 2) return [];
     const weekly = downsampleSeriesToIsoWeek(series);
@@ -146,7 +166,7 @@ export function WeeklyReturnsChart({
   }, [series]);
 
   if (weeklyReturns.length < 2) return null;
-  const aiLabel = strategyName ?? 'AI Strategy';
+  const aiLabel = portfolioLineName ?? 'AI Strategy';
 
   return (
     <div className="rounded-lg border bg-card p-4">
@@ -183,11 +203,15 @@ export function WeeklyReturnsChart({
 export function CagrOverTimeChart({
   series,
   strategyName,
+  strategyLegendShortMobile,
 }: {
   series: SeriesPoint[];
   /** Model name, or full overview-style track title (`model · Top n · weight · frequency`). */
   strategyName?: string;
+  strategyLegendShortMobile?: string;
 }) {
+  const portfolioLineName = usePortfolioLineDisplayName(strategyName, strategyLegendShortMobile);
+
   const weeklySeries = useMemo(() => downsampleSeriesToIsoWeek(series), [series]);
 
   const cagrData = useMemo(() => {
@@ -229,7 +253,7 @@ export function CagrOverTimeChart({
   }, [weeklySeries]);
 
   if (cagrData.length < 2) return null;
-  const aiLabel = strategyName ?? 'AI Strategy';
+  const aiLabel = portfolioLineName ?? 'AI Strategy';
 
   return (
     <div className="rounded-lg border bg-card p-4">
@@ -314,13 +338,17 @@ function seriesLineLabels(strategyName?: string): Record<ReturnsKey, string> {
 export function DrawdownOverTimeChart({
   series,
   strategyName,
+  strategyLegendShortMobile,
   embedded = false,
 }: {
   series: SeriesPoint[];
   strategyName?: string;
+  strategyLegendShortMobile?: string;
   /** When true, omit outer card chrome (for use inside `RiskChart`). */
   embedded?: boolean;
 }) {
+  const portfolioLineName = usePortfolioLineDisplayName(strategyName, strategyLegendShortMobile);
+
   const [hiddenDd, setHiddenDd] = useState<Set<ReturnsKey>>(new Set());
 
   const toggleDd = (key: ReturnsKey) => {
@@ -370,7 +398,7 @@ export function DrawdownOverTimeChart({
 
   if (drawdownChartData.length < 2) return null;
 
-  const ddLabels = seriesLineLabels(strategyName);
+  const ddLabels = seriesLineLabels(portfolioLineName);
 
   const inner = (
     <>
@@ -451,12 +479,16 @@ export function DrawdownOverTimeChart({
 export function RollingSharpeRatioChart({
   series,
   strategyName,
+  strategyLegendShortMobile,
   embedded = false,
 }: {
   series: SeriesPoint[];
   strategyName?: string;
+  strategyLegendShortMobile?: string;
   embedded?: boolean;
 }) {
+  const portfolioLineName = usePortfolioLineDisplayName(strategyName, strategyLegendShortMobile);
+
   const [hiddenSh, setHiddenSh] = useState<Set<ReturnsKey>>(new Set());
 
   const toggleSh = (key: ReturnsKey) => {
@@ -540,7 +572,7 @@ export function RollingSharpeRatioChart({
     return [min - pad, max + pad];
   }, [sharpeData, hiddenSh]);
 
-  const ddLabels = seriesLineLabels(strategyName);
+  const ddLabels = seriesLineLabels(portfolioLineName);
 
   if (!sharpeData.length) {
     const W = sharpeWindow || ROLLING_SHARPE_WINDOW_WEEKS;
@@ -653,12 +685,16 @@ export function RollingSharpeRatioChart({
 export function CumulativeSharpeRatioChart({
   series,
   strategyName,
+  strategyLegendShortMobile,
   embedded = false,
 }: {
   series: SeriesPoint[];
   strategyName?: string;
+  strategyLegendShortMobile?: string;
   embedded?: boolean;
 }) {
+  const portfolioLineName = usePortfolioLineDisplayName(strategyName, strategyLegendShortMobile);
+
   const [hiddenSh, setHiddenSh] = useState<Set<ReturnsKey>>(new Set());
 
   const toggleSh = (key: ReturnsKey) => {
@@ -775,7 +811,7 @@ export function CumulativeSharpeRatioChart({
   const weeksNeededForSharpeTrend = MIN_OBS_FOR_SHARPE + 1;
   const weeksRemainingForSharpeTrend = Math.max(weeksNeededForSharpeTrend - weeklyReturnCount, 1);
 
-  const ddLabels = seriesLineLabels(strategyName);
+  const ddLabels = seriesLineLabels(portfolioLineName);
 
   if (!hasSharpeTrend) {
     const emptyBody =
@@ -925,10 +961,12 @@ export function CumulativeSharpeRatioChart({
 export function RiskChart({
   series,
   strategyName,
+  strategyLegendShortMobile,
 }: {
   series: SeriesPoint[];
   /** Model name, or full overview-style track title (`model · Top n · weight · frequency`). */
   strategyName?: string;
+  strategyLegendShortMobile?: string;
 }) {
   const [view, setView] = useState<'drawdown' | 'sharpe-holding' | 'sharpe-rolling'>('drawdown');
 
@@ -1006,11 +1044,26 @@ export function RiskChart({
 
       <div className="mb-3 min-w-0 pr-[18rem] sm:pr-[19.5rem]">
         {view === 'drawdown' ? (
-          <DrawdownOverTimeChart series={series} strategyName={strategyName} embedded />
+          <DrawdownOverTimeChart
+            series={series}
+            strategyName={strategyName}
+            strategyLegendShortMobile={strategyLegendShortMobile}
+            embedded
+          />
         ) : view === 'sharpe-holding' ? (
-          <CumulativeSharpeRatioChart series={series} strategyName={strategyName} embedded />
+          <CumulativeSharpeRatioChart
+            series={series}
+            strategyName={strategyName}
+            strategyLegendShortMobile={strategyLegendShortMobile}
+            embedded
+          />
         ) : (
-          <RollingSharpeRatioChart series={series} strategyName={strategyName} embedded />
+          <RollingSharpeRatioChart
+            series={series}
+            strategyName={strategyName}
+            strategyLegendShortMobile={strategyLegendShortMobile}
+            embedded
+          />
         )}
       </div>
     </div>
@@ -1022,13 +1075,17 @@ export function RiskChart({
 export function CumulativeReturnsChart({
   series,
   strategyName,
+  strategyLegendShortMobile,
   startingCapital = 10_000,
 }: {
   series: SeriesPoint[];
   /** Model name, or full overview-style track title (`model · Top n · weight · frequency`). */
   strategyName?: string;
+  strategyLegendShortMobile?: string;
   startingCapital?: number;
 }) {
+  const portfolioLineName = usePortfolioLineDisplayName(strategyName, strategyLegendShortMobile);
+
   const [hidden, setHidden] = useState<Set<ReturnsKey>>(new Set());
 
   const toggle = (key: ReturnsKey) => {
@@ -1053,7 +1110,7 @@ export function CumulativeReturnsChart({
   if (data.length < 2) return null;
 
   const labels: Record<ReturnsKey, string> = {
-    aiPortfolio: strategyName ?? 'AI Strategy',
+    aiPortfolio: portfolioLineName ?? 'AI Strategy',
     nasdaq100CapWeight: RETURNS_SERIES.nasdaq100CapWeight.label,
     sp500: RETURNS_SERIES.sp500.label,
   };
@@ -1146,11 +1203,15 @@ type OutperfKey = keyof typeof OUTPERF_SERIES;
 export function RelativeOutperformanceChart({
   series,
   strategyName,
+  strategyLegendShortMobile,
 }: {
   series: SeriesPoint[];
   /** Model name, or full overview-style track title (`model · Top n · weight · frequency`). */
   strategyName?: string;
+  strategyLegendShortMobile?: string;
 }) {
+  const portfolioLineName = usePortfolioLineDisplayName(strategyName, strategyLegendShortMobile);
+
   const [hidden, setHidden] = useState<Set<OutperfKey>>(new Set());
 
   const toggle = (key: OutperfKey) => {
@@ -1183,7 +1244,7 @@ export function RelativeOutperformanceChart({
   }, [series]);
 
   if (relativePerf.length < 2) return null;
-  const aiLabel = strategyName ?? 'AI Strategy';
+  const aiLabel = portfolioLineName ?? 'AI Strategy';
 
   return (
     <div className="rounded-lg border bg-card p-4">
@@ -1269,13 +1330,23 @@ export function RelativeOutperformanceChart({
 
 // ── Legacy combined export (kept for backwards compat if needed) ──────────────
 
-export function MiniCharts({ series, strategyName }: MiniChartsProps) {
+export function MiniCharts({ series, strategyName, strategyLegendShortMobile }: MiniChartsProps) {
   if (series.length < 3) return null;
   const showCagr = seriesHasMinimumPointsForCagrOverTimeChart(series.map((p) => p.date));
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <WeeklyReturnsChart series={series} strategyName={strategyName} />
-      {showCagr ? <CagrOverTimeChart series={series} strategyName={strategyName} /> : null}
+      <WeeklyReturnsChart
+        series={series}
+        strategyName={strategyName}
+        strategyLegendShortMobile={strategyLegendShortMobile}
+      />
+      {showCagr ? (
+        <CagrOverTimeChart
+          series={series}
+          strategyName={strategyName}
+          strategyLegendShortMobile={strategyLegendShortMobile}
+        />
+      ) : null}
     </div>
   );
 }
@@ -1283,4 +1354,5 @@ export function MiniCharts({ series, strategyName }: MiniChartsProps) {
 type MiniChartsProps = {
   series: SeriesPoint[];
   strategyName?: string;
+  strategyLegendShortMobile?: string;
 };

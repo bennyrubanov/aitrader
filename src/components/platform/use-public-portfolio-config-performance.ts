@@ -23,7 +23,8 @@ import {
   portfolioSlicesEqual,
   portfolioSliceToConfigSlug,
 } from '@/lib/performance-portfolio-url';
-import { loadRankedConfigsClient } from '@/lib/portfolio-configs-ranked-client';
+import type { PortfolioConfigsRankedPayload } from '@/lib/portfolio-configs-ranked-core';
+import { loadRankedConfigsClient, seedRankedConfigsClientCache } from '@/lib/portfolio-configs-ranked-client';
 
 export type { PublicPortfolioPerfApiPayload };
 
@@ -49,6 +50,8 @@ export type UsePublicPortfolioConfigPerformanceArgs = {
   initialPortfolioSlice?: PortfolioConfigSlice | null;
   /** When true: load ranked configs only; do not pick a default portfolio, fetch perf, or poll. */
   perfFetchDisabled?: boolean;
+  /** RSC `getCachedRankedConfigsPayload(slug)` — seeds client state + `loadRankedConfigsClient` cache (no empty flash). */
+  initialRankedPayload?: PortfolioConfigsRankedPayload | null;
 };
 
 export function usePublicPortfolioConfigPerformance({
@@ -62,8 +65,11 @@ export function usePublicPortfolioConfigPerformance({
   initialPortfolioPerformance = null,
   initialPortfolioSlice = null,
   perfFetchDisabled = false,
+  initialRankedPayload = null,
 }: UsePublicPortfolioConfigPerformanceArgs) {
-  const [rankedConfigs, setRankedConfigs] = useState<RankedConfig[]>([]);
+  const [rankedConfigs, setRankedConfigs] = useState<RankedConfig[]>(
+    () => initialRankedPayload?.configs ?? []
+  );
   const [internalPortfolioConfig, setInternalPortfolioConfig] = useState<PortfolioConfigSlice | null>(
     initialPortfolioSlice
   );
@@ -102,6 +108,9 @@ export function usePublicPortfolioConfigPerformance({
     [initialPortfolioSlice]
   );
 
+  const initialRankedPayloadRef = useRef(initialRankedPayload);
+  initialRankedPayloadRef.current = initialRankedPayload;
+
   const initialPortfolioPerfKey = useMemo(() => {
     const p = initialPortfolioPerformance;
     if (!p) return '';
@@ -129,8 +138,15 @@ export function usePublicPortfolioConfigPerformance({
   useEffect(() => {
     if (!slug) return;
     setPortfolioConfig(initialPortfolioSliceRef.current);
-    setRankedConfigs([]);
-    setBenchmarkEndingValues(null);
+    const rankedFromSsr = initialRankedPayloadRef.current;
+    if (rankedFromSsr?.configs?.length) {
+      seedRankedConfigsClientCache(slug, rankedFromSsr);
+      setRankedConfigs(rankedFromSsr.configs);
+      setBenchmarkEndingValues(rankedFromSsr.benchmarkEndingValues ?? null);
+    } else {
+      setRankedConfigs([]);
+      setBenchmarkEndingValues(null);
+    }
     setPerf(initialPortfolioPerformanceRef.current);
     lastResolvedPerfResolutionKeyRef.current = null;
     setPerfLoadError(false);
@@ -167,7 +183,7 @@ export function usePublicPortfolioConfigPerformance({
     return () => {
       cancelled = true;
     };
-  }, [slug, setPortfolioConfig, perfFetchDisabled]);
+  }, [slug, setPortfolioConfig, perfFetchDisabled, initialRankedPayload]);
 
   /** Same slug, new SSR portfolio slice/perf (e.g. client nav between portfolios): sync without clearing rankedConfigs. */
   useEffect(() => {

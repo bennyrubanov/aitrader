@@ -3,12 +3,12 @@
 import Link from 'next/link';
 import type { LucideIcon } from 'lucide-react';
 import {
+  Anchor,
   HelpCircle,
   LayoutTemplate,
   Layers,
   Percent,
   Scale,
-  Shield,
   TrendingUp,
   Trophy,
 } from 'lucide-react';
@@ -31,7 +31,7 @@ const BADGE_ICON: Record<string, LucideIcon> = {
   Default: LayoutTemplate,
   'Best CAGR': TrendingUp,
   'Best total return': Percent,
-  Steadiest: Shield,
+  Steadiest: Anchor,
 };
 
 type Props = {

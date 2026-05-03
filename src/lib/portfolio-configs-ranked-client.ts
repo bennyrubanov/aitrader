@@ -6,8 +6,16 @@ import {
   type UserPortfolioProfilesInvalidateDetail,
 } from '@/components/platform/portfolio-unfollow-toast';
 
+/** Aligns with explore equity API CDN `s-maxage=300` — stale in-tab ranked $ refetches after this window. */
+const RANKED_CLIENT_MAX_AGE_MS = 300_000;
+
+type RankedResolvedEntry = {
+  payload: PortfolioConfigsRankedPayload | null;
+  fetchedAt: number;
+};
+
 const inflight = new Map<string, Promise<PortfolioConfigsRankedPayload | null>>();
-const resolved = new Map<string, PortfolioConfigsRankedPayload | null>();
+const resolved = new Map<string, RankedResolvedEntry>();
 
 let invalidateListenerBound = false;
 
@@ -22,11 +30,26 @@ function bindInvalidateListener() {
   });
 }
 
+/** Prime the in-memory ranked cache from RSC so `loadRankedConfigsClient` does not refetch until TTL. */
+export function seedRankedConfigsClientCache(
+  slug: string,
+  payload: PortfolioConfigsRankedPayload | null
+): void {
+  if (typeof window === 'undefined' || !slug) return;
+  bindInvalidateListener();
+  if (payload == null) return;
+  resolved.set(slug, { payload, fetchedAt: Date.now() });
+}
+
 export function loadRankedConfigsClient(slug: string): Promise<PortfolioConfigsRankedPayload | null> {
   bindInvalidateListener();
 
-  if (resolved.has(slug)) {
-    return Promise.resolve(resolved.get(slug) ?? null);
+  const cached = resolved.get(slug);
+  if (cached != null) {
+    if (Date.now() - cached.fetchedAt <= RANKED_CLIENT_MAX_AGE_MS) {
+      return Promise.resolve(cached.payload);
+    }
+    resolved.delete(slug);
   }
 
   const existing = inflight.get(slug);
@@ -35,7 +58,7 @@ export function loadRankedConfigsClient(slug: string): Promise<PortfolioConfigsR
   const request = fetch(`/api/platform/portfolio-configs-ranked?slug=${encodeURIComponent(slug)}`)
     .then((r) => (r.ok ? (r.json() as Promise<PortfolioConfigsRankedPayload>) : null))
     .then((payload) => {
-      resolved.set(slug, payload);
+      resolved.set(slug, { payload, fetchedAt: Date.now() });
       return payload;
     })
     .catch(() => null)

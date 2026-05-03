@@ -1,7 +1,7 @@
 /** Tooltip copy aligned with explore detail FlipCard explanations; headers in TooltipContent. */
 export const SPOTLIGHT_STAT_TOOLTIPS = {
   portfolio_value: {
-    title: 'Portfolio value',
+    title: 'Value since your entry',
     body: 'Estimated current dollar value of this followed portfolio over your personal track (from your entry, positions, and investment size). The percentage in parentheses is cumulative return over that same window.',
   },
   return_pct: {

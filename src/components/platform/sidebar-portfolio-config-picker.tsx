@@ -41,6 +41,7 @@ import {
 import { PORTFOLIO_EXPLORE_QUICK_PICKS } from '@/lib/portfolio-explore-quick-picks';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
 import { loadRankedConfigsClient } from '@/lib/portfolio-configs-ranked-client';
+import { loadExploreEquitySeries } from '@/lib/explore-equity-series-cache';
 import { portfolioSliceToConfigSlug } from '@/lib/performance-portfolio-url';
 import { cn } from '@/lib/utils';
 
@@ -519,31 +520,28 @@ export function SidebarPortfolioConfigPicker({
     if (!dialogOpen || browseMode !== 'chart' || equitySeriesPayload != null) return;
     let cancelled = false;
     setEquitySeriesLoading(true);
-    void fetch(`/api/platform/explore-portfolios-equity-series?slug=${encodeURIComponent(slug)}`)
-      .then((r) => r.json())
-      .then(
-        (d: {
-          dates?: string[];
-          series?: ExploreEquitySeriesRow[];
-          benchmarks?: ExploreBenchmarkSeries;
-        }) => {
-          if (cancelled) return;
-          const dates = d.dates ?? [];
-          const bm = d.benchmarks;
-          const benchmarksValid =
-            bm &&
-            bm.nasdaq100Cap.length === dates.length &&
-            bm.nasdaq100Equal.length === dates.length &&
-            bm.sp500.length === dates.length
-              ? bm
-              : null;
-          setEquitySeriesPayload({
-            dates,
-            series: d.series ?? [],
-            benchmarks: benchmarksValid,
-          });
+    void loadExploreEquitySeries(slug)
+      .then((d) => {
+        if (cancelled) return;
+        if (!d) {
+          setEquitySeriesPayload({ dates: [], series: [], benchmarks: null });
+          return;
         }
-      )
+        const dates = d.dates ?? [];
+        const bm = d.benchmarks;
+        const benchmarksValid =
+          bm &&
+          bm.nasdaq100Cap.length === dates.length &&
+          bm.nasdaq100Equal.length === dates.length &&
+          bm.sp500.length === dates.length
+            ? bm
+            : null;
+        setEquitySeriesPayload({
+          dates,
+          series: d.series ?? [],
+          benchmarks: benchmarksValid,
+        });
+      })
       .catch(() => {
         if (!cancelled) setEquitySeriesPayload({ dates: [], series: [], benchmarks: null });
       })

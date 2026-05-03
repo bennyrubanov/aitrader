@@ -88,6 +88,7 @@ import {
   getCachedExploreEquitySeries,
   loadExploreEquitySeries,
 } from '@/lib/explore-equity-series-cache';
+import { exploreConfigCardDollars } from '@/lib/explore-config-card-ending-value';
 import { loadConfigPerformance } from '@/lib/portfolio-config-performance-cache';
 import {
   EXPLORE_PORTFOLIOS_BROWSE_PARAM,
@@ -1574,10 +1575,7 @@ function ConfigCard({
     config.metrics.endingValueSp500 != null
       ? config.metrics.endingValueSp500 / INITIAL_CAPITAL - 1
       : null;
-  const cardEndingValue =
-    livePoint?.aiPortfolio ??
-    config.metrics.endingValuePortfolio ??
-    (config.metrics.totalReturn != null ? INITIAL_CAPITAL * (1 + config.metrics.totalReturn) : null);
+  const cardEndingValue = exploreConfigCardDollars(config, livePoint);
   const cardTotalReturn =
     cardEndingValue != null && Number.isFinite(cardEndingValue)
       ? cardEndingValue / INITIAL_CAPITAL - 1

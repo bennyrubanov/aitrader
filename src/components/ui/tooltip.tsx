@@ -101,10 +101,12 @@ const TooltipContent = React.forwardRef<
         <PopoverPrimitive.Content
           ref={ref}
           sideOffset={sideOffset}
-          collisionPadding={16}
+          collisionPadding={24}
+          avoidCollisions
+          sticky="partial"
           className={cn(
             tooltipContentClassName,
-            'max-w-[min(20rem,calc(100vw-2rem))] text-left',
+            'max-w-[min(20rem,calc(100dvw-1.5rem))] text-left',
             className
           )}
           {...restPopover}
@@ -130,4 +132,10 @@ const TooltipContent = React.forwardRef<
 });
 TooltipContent.displayName = TooltipPrimitive.Content.displayName;
 
-export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider };
+export {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+  TooltipProvider,
+  useTouchTooltipMode,
+};

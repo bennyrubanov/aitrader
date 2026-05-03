@@ -164,6 +164,8 @@ import {
   stripPerformancePortfolioSearchParams,
 } from '@/lib/performance-portfolio-url';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
+import type { PortfolioConfigsRankedPayload } from '@/lib/portfolio-configs-ranked-core';
+import { loadExploreEquitySeries } from '@/lib/explore-equity-series-cache';
 
 const PerformanceChart = dynamic(
   () => import('@/components/platform/performance-chart').then((module) => module.PerformanceChart),
@@ -176,7 +178,7 @@ const PerformanceChart = dynamic(
 const PERFORMANCE_TOC_BASE = [
   { id: 'strategy-model', label: 'Strategy model' },
   { id: 'selected-portfolio', label: 'Selected portfolio' },
-  { id: 'portfolio-values', label: 'Portfolio Returns' },
+  { id: 'portfolio-values', label: 'Preset portfolio returns' },
   { id: 'model-overview', label: 'Model overview' },
   { id: 'model-overview-prompt-design', label: '↳ Prompt design' },
   { id: 'overview', label: 'Performance overview' },
@@ -665,10 +667,13 @@ function PortfolioValuesSection({
     equitySeriesInFlightRef.current = true;
     const epochAtStart = equitySeriesFetchEpochRef.current;
     setEquitySeriesLoading(true);
-    void fetch(`/api/platform/explore-portfolios-equity-series?slug=${encodeURIComponent(slug)}`)
-      .then((r) => r.json())
-      .then((d: { dates?: string[]; series?: ExploreEquitySeriesRow[]; benchmarks?: ExploreBenchmarkSeries }) => {
+    void loadExploreEquitySeries(slug)
+      .then((d) => {
         if (equitySeriesFetchEpochRef.current !== epochAtStart) return;
+        if (!d) {
+          setEquitySeriesPayload({ dates: [], series: [], benchmarks: null });
+          return;
+        }
         const dates = d.dates ?? [];
         const bm = d.benchmarks;
         const benchmarks =
@@ -732,10 +737,15 @@ function PortfolioValuesSection({
               hrefBase={sectionHrefBase}
               className="min-w-0"
             >
-              Portfolio Returns
+              Preset portfolio returns
             </SectionHeadingJumpLink>
             <SectionHeadingAnchor fragmentId="portfolio-values" hrefBase={sectionHrefBase} />
           </h2>
+          <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+            Each line is a preset grown from a hypothetical $10,000 at model inception. That is not
+            the same as your personal track if you follow later, at a different size, or from a
+            different entry.
+          </p>
         </div>
         <div className="shrink-0">
           <Button
@@ -760,7 +770,7 @@ function PortfolioValuesSection({
 
       <div className="rounded-xl border bg-card p-3 sm:p-4">
         {rankedConfigs.length === 0 ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">Portfolio returns are loading.</p>
+          <p className="py-8 text-center text-sm text-muted-foreground">Preset returns are loading.</p>
         ) : (
           equitySeriesLoading || equitySeriesPayload == null ? (
             <Skeleton className="h-[360px] w-full rounded-lg" />
@@ -1124,6 +1134,8 @@ type Props = {
   portfolioPageLinks?: Array<{ href: string; label: string }>;
   /** `model` = landing at `/strategy-models/[slug]`; `portfolio` = `/strategy-models/[slug]/[portfolio]` */
   viewMode?: 'model' | 'portfolio';
+  /** RSC `getCachedRankedConfigsPayload(slug)` for ranked SSR → client seed (Inv #4). */
+  initialRankedPayload?: PortfolioConfigsRankedPayload | null;
 };
 
 function PerformancePagePublicClientInner({
@@ -1135,6 +1147,7 @@ function PerformancePagePublicClientInner({
   initialPortfolioSlice = null,
   portfolioPageLinks = [],
   viewMode = 'portfolio',
+  initialRankedPayload = null,
 }: Props) {
   const isModelLanding = viewMode === 'model';
   const router = useRouter();
@@ -1258,6 +1271,7 @@ function PerformancePagePublicClientInner({
     initialPortfolioPerformance,
     initialPortfolioSlice,
     perfFetchDisabled: isModelLanding,
+    initialRankedPayload,
   });
 
   // URL → sidebar: only when the URL selection changes (avoids fighting user-driven portfolio picks).
@@ -3064,14 +3078,20 @@ function PerformancePagePublicClientInner({
                 <CumulativeReturnsChart
                   series={effectivePerformanceDisplaySeries}
                   strategyName={portfolioPerf.chartTitle}
+                  strategyLegendShortMobile="This Portfolio"
                   startingCapital={effectiveDisplayMetrics?.startingCapital ?? 10_000}
                 />
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <WeeklyReturnsChart
                     series={effectivePerformanceDisplaySeries}
                     strategyName={portfolioPerf.chartTitle}
+                    strategyLegendShortMobile="This Portfolio"
                   />
-                  <CagrOverTimeChart series={effectivePerformanceDisplaySeries} strategyName={portfolioPerf.chartTitle} />
+                  <CagrOverTimeChart
+                    series={effectivePerformanceDisplaySeries}
+                    strategyName={portfolioPerf.chartTitle}
+                    strategyLegendShortMobile="This Portfolio"
+                  />
                 </div>
               </>
             )}
@@ -3148,15 +3168,21 @@ function PerformancePagePublicClientInner({
             </div>
             {effectivePerformanceDisplaySeries.length > 2 && (
               <div className="space-y-4">
-                <DrawdownOverTimeChart series={effectivePerformanceDisplaySeries} strategyName={portfolioPerf.chartTitle} />
+                <DrawdownOverTimeChart
+                  series={effectivePerformanceDisplaySeries}
+                  strategyName={portfolioPerf.chartTitle}
+                  strategyLegendShortMobile="This Portfolio"
+                />
                 <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                   <CumulativeSharpeRatioChart
                     series={effectivePerformanceDisplaySeries}
                     strategyName={portfolioPerf.chartTitle}
+                    strategyLegendShortMobile="This Portfolio"
                   />
                   <RollingSharpeRatioChart
                     series={effectivePerformanceDisplaySeries}
                     strategyName={portfolioPerf.chartTitle}
+                    strategyLegendShortMobile="This Portfolio"
                   />
                 </div>
               </div>
@@ -3212,6 +3238,7 @@ function PerformancePagePublicClientInner({
               <RelativeOutperformanceChart
                 series={effectivePerformanceDisplaySeries}
                 strategyName={portfolioPerf.chartTitle}
+                strategyLegendShortMobile="This Portfolio"
               />
             )}
           </div>
@@ -4028,18 +4055,20 @@ function PerformancePagePublicClientInner({
 
       {/* ── Link to whitepaper ───────────────────────────────────────────── */}
       {effectiveStrategy && (
-        <div className="rounded-xl border border-trader-blue/20 bg-trader-blue/5 p-6 flex flex-col sm:flex-row items-start sm:items-center gap-4 mb-8">
-          <div className="flex-1">
+        <div className="rounded-xl border border-trader-blue/20 bg-trader-blue/5 p-6 flex flex-col sm:flex-row sm:items-center gap-4 mb-8">
+          <div className="min-w-0 flex-1">
             <p className="font-semibold mb-1">Want the methodology notes?</p>
             <p className="text-sm text-muted-foreground">
               See the full methodology, portfolio-ranking rules, and scientific grounding.
             </p>
           </div>
-          <Button asChild>
-            <Link href="/whitepaper" className="gap-2 shrink-0">
-              Whitepaper <ArrowRight className="size-4" />
-            </Link>
-          </Button>
+          <div className="flex w-full shrink-0 justify-end sm:w-auto sm:justify-start">
+            <Button asChild>
+              <Link href="/whitepaper" className="gap-2 shrink-0">
+                Whitepaper <ArrowRight className="size-4" />
+              </Link>
+            </Button>
+          </div>
         </div>
       )}
 

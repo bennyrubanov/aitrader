@@ -9,6 +9,7 @@ import {
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
+  useTouchTooltipMode,
 } from '@/components/ui/tooltip';
 import {
   FREQUENCY_LABELS,
@@ -209,12 +210,17 @@ export function PortfolioAtAGlanceCard({
       fm.endingValue != null && Number.isFinite(fm.endingValue)
         ? `${currency0(fm.endingValue)}${m.totalReturn != null ? ` (${fmt.pct(m.totalReturn)})` : ''}`
         : fmt.pct(m.totalReturn);
+    const modelInceptionFormatted = formatInceptionForKeyMetrics(perf.modelInceptionDate);
+    const portfolioValueHint =
+      modelInceptionFormatted != null
+        ? `Portfolio value if $10,000 was invested on the model's initiation date (${modelInceptionFormatted}) through today, net of trading costs.`
+        : `Portfolio value if $10,000 was invested on the model's initiation date through today, net of trading costs.`;
 
     metricRows.push(
       {
         label: 'Portfolio value',
         value: portfolioValueLine,
-        hint: `Simulated dollar value of the $10,000 model portfolio from inception through the latest AI ratings day (parentheses: cumulative return). ${metricsPeriodNote}`,
+        hint: portfolioValueHint,
         ...headerStatSentiment('Total return', m.totalReturn),
       },
       {
@@ -314,6 +320,7 @@ export function PortfolioAtAGlanceCard({
       : 'bg-muted';
 
   const keyMetricsSinceLabel = formatInceptionForKeyMetrics(perf?.modelInceptionDate);
+  const touchTooltip = useTouchTooltipMode();
 
   /** Ranking / accolade pills only — risk tier stays in the title row */
   const rankingBadgePills = (() => {
@@ -402,7 +409,11 @@ export function PortfolioAtAGlanceCard({
                               </Badge>
                             </span>
                           </TooltipTrigger>
-                          <TooltipContent className="max-w-xs" side="left">
+                          <TooltipContent
+                            className="max-w-xs"
+                            side={touchTooltip ? 'bottom' : 'left'}
+                            align={touchTooltip ? 'end' : 'center'}
+                          >
                             <PortfolioEndingValueRankTooltipBody
                               rank={endingValueRank}
                               peerCount={endingValueRankPeerCount}
@@ -479,9 +490,9 @@ export function PortfolioAtAGlanceCard({
             ) : null}
           </div>
           {perfLoading || !portfolioConfig ? (
-            <div className="space-y-3">
+            <div className="space-y-2 md:space-y-3">
               {[1, 2, 3, 4, 5, 6].map((i) => (
-                <Skeleton key={i} className="h-12 w-full rounded-lg" />
+                <Skeleton key={i} className="h-9 w-full rounded-lg md:h-12" />
               ))}
             </div>
           ) : metricRows.length === 0 ? (
@@ -493,7 +504,7 @@ export function PortfolioAtAGlanceCard({
                   : 'Metrics appear when performance is ready.'}
             </p>
           ) : (
-            <ul className="space-y-4">
+            <ul className="space-y-0 md:space-y-4">
               {metricRows.map((row) => {
                 const valueColor =
                   row.positive === undefined
@@ -506,9 +517,9 @@ export function PortfolioAtAGlanceCard({
                 return (
                   <li
                     key={row.label}
-                    className="flex items-start justify-between gap-4 border-b border-border/40 pb-3 last:border-0 last:pb-0"
+                    className="flex items-center justify-between gap-2 border-b border-border/40 py-1.5 last:border-0 md:items-start md:gap-4 md:py-0 md:pb-3 md:last:border-0 md:last:pb-0"
                   >
-                    <div className="min-w-0 flex-1">
+                    <div className="min-w-0 flex-1 self-center md:self-auto">
                       <div className="flex flex-wrap items-center gap-1">
                         <p className="text-xs text-muted-foreground">{row.label}</p>
                         {row.afterLabel}
@@ -517,7 +528,12 @@ export function PortfolioAtAGlanceCard({
                         ) : null}
                       </div>
                     </div>
-                    <span className={cn('text-lg font-semibold tabular-nums text-right shrink-0', valueColor)}>
+                    <span
+                      className={cn(
+                        'shrink-0 text-right text-base font-semibold tabular-nums md:text-lg',
+                        valueColor
+                      )}
+                    >
                       {row.value}
                     </span>
                   </li>
@@ -580,7 +596,12 @@ export function ConfigPerformanceChartBlock({
               periods are recorded.
             </p>
           )}
-          <PerformanceChart series={resolvedSeries} strategyName={chartTitle} hideDrawdown />
+          <PerformanceChart
+            series={resolvedSeries}
+            strategyName={chartTitle}
+            strategyLegendShortMobile="This Portfolio"
+            hideDrawdown
+          />
         </div>
       ) : (
         <div className="flex flex-col items-center justify-center min-h-[200px] rounded-lg border bg-muted/30 px-4 py-8 text-center text-sm text-muted-foreground">
