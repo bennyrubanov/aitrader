@@ -41,7 +41,10 @@ import {
 import { PORTFOLIO_EXPLORE_QUICK_PICKS } from '@/lib/portfolio-explore-quick-picks';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
 import { loadRankedConfigsClient } from '@/lib/portfolio-configs-ranked-client';
-import { loadExploreEquitySeries } from '@/lib/explore-equity-series-cache';
+import {
+  getCachedExploreEquitySeries,
+  loadExploreEquitySeries,
+} from '@/lib/explore-equity-series-cache';
 import { portfolioSliceToConfigSlug } from '@/lib/performance-portfolio-url';
 import { cn } from '@/lib/utils';
 
@@ -474,6 +477,8 @@ export function SidebarPortfolioConfigPicker({
   } | null>(null);
   const [equitySeriesLoading, setEquitySeriesLoading] = useState(false);
   const didInitDefault = useRef(false);
+  const equitySeriesSlugRef = useRef(slug);
+  equitySeriesSlugRef.current = slug;
 
   const load = useCallback(async () => {
     if (!slug) return;
@@ -518,17 +523,20 @@ export function SidebarPortfolioConfigPicker({
 
   useEffect(() => {
     if (!dialogOpen || browseMode !== 'chart' || equitySeriesPayload != null) return;
+    const requestedSlug = slug;
     let cancelled = false;
     setEquitySeriesLoading(true);
     void loadExploreEquitySeries(slug)
       .then((d) => {
-        if (cancelled) return;
-        if (!d) {
-          setEquitySeriesPayload({ dates: [], series: [], benchmarks: null });
+        const data = d ?? getCachedExploreEquitySeries(requestedSlug);
+        if (!data) {
+          if (!cancelled) {
+            setEquitySeriesPayload({ dates: [], series: [], benchmarks: null });
+          }
           return;
         }
-        const dates = d.dates ?? [];
-        const bm = d.benchmarks;
+        const dates = data.dates ?? [];
+        const bm = data.benchmarks;
         const benchmarksValid =
           bm &&
           bm.nasdaq100Cap.length === dates.length &&
@@ -536,17 +544,22 @@ export function SidebarPortfolioConfigPicker({
           bm.sp500.length === dates.length
             ? bm
             : null;
-        setEquitySeriesPayload({
+        const payload = {
           dates,
-          series: d.series ?? [],
+          series: data.series ?? [],
           benchmarks: benchmarksValid,
-        });
+        };
+        if (!cancelled) {
+          setEquitySeriesPayload(payload);
+        } else if (requestedSlug === equitySeriesSlugRef.current) {
+          setEquitySeriesPayload(payload);
+        }
       })
       .catch(() => {
-        if (!cancelled) setEquitySeriesPayload({ dates: [], series: [], benchmarks: null });
+        setEquitySeriesPayload({ dates: [], series: [], benchmarks: null });
       })
       .finally(() => {
-        if (!cancelled) setEquitySeriesLoading(false);
+        setEquitySeriesLoading(false);
       });
     return () => {
       cancelled = true;
@@ -697,6 +710,7 @@ export function SidebarPortfolioConfigPicker({
     if (!open) {
       setBrowseMode('list');
       setFiltersOpen(false);
+      setEquitySeriesLoading(false);
     }
   };
 

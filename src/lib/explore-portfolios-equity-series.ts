@@ -266,12 +266,15 @@ export async function mergeExplorePortfoliosEquitySeriesLiveTails(
     }
   }
 
-  const mergedSeries: ExplorePortfoliosEquitySeriesPayload['series'] = [];
-  for (const row of base.series) {
-    const cfg = configRows.find((c) => c.id === row.configId);
+  const configById = new Map(configRows.map((c) => [c.id, c]));
+  const MERGE_CONCURRENCY = 6;
+
+  async function mergeOneRow(
+    row: ExplorePortfoliosEquitySeriesPayload['series'][number]
+  ): Promise<ExplorePortfoliosEquitySeriesPayload['series'][number]> {
+    const cfg = configById.get(row.configId);
     if (!cfg) {
-      mergedSeries.push(row);
-      continue;
+      return row;
     }
     const snapLite = snapshotsByConfigId[cfg.id];
     const snapshotAsOf = snapLite?.asOfRunDate ?? null;
@@ -305,7 +308,14 @@ export async function mergeExplorePortfoliosEquitySeriesLiveTails(
         /* best-effort */
       }
     }
-    mergedSeries.push({ ...row, livePoint });
+    return { ...row, livePoint };
+  }
+
+  const mergedSeries: ExplorePortfoliosEquitySeriesPayload['series'] = [];
+  for (let i = 0; i < base.series.length; i += MERGE_CONCURRENCY) {
+    const slice = base.series.slice(i, i + MERGE_CONCURRENCY);
+    const part = await Promise.all(slice.map((row) => mergeOneRow(row)));
+    mergedSeries.push(...part);
   }
 
   return {

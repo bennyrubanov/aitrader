@@ -279,6 +279,8 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
   const { openSignupPrompt } = useAccountSignupPrompt();
   const { config, updateConfig } = usePortfolioConfig();
   const strategySlug = config.strategySlug;
+  const strategySlugRef = useRef(strategySlug);
+  strategySlugRef.current = strategySlug;
   const appAccess = useMemo(() => getAppAccessState(authState), [authState]);
   const exploreHoldingsUnlocked = useMemo(
     () =>
@@ -548,15 +550,29 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
       return;
     }
 
+    const requestedStrategySlug = strategySlug;
     let cancelled = false;
     setEquitySeriesLoading(true);
     void loadExploreEquitySeries(strategySlug)
-      .then((payload) => {
-        if (cancelled) return;
-        setEquitySeriesPayload(payload ?? { dates: [], series: [], benchmarks: null });
+      .then((d) => {
+        const data = d ?? getCachedExploreEquitySeries(requestedStrategySlug);
+        if (!data) {
+          if (!cancelled) {
+            setEquitySeriesPayload({ dates: [], series: [], benchmarks: null });
+          }
+          return;
+        }
+        if (!cancelled) {
+          setEquitySeriesPayload(data);
+        } else if (requestedStrategySlug === strategySlugRef.current) {
+          setEquitySeriesPayload(data);
+        }
+      })
+      .catch(() => {
+        setEquitySeriesPayload({ dates: [], series: [], benchmarks: null });
       })
       .finally(() => {
-        if (!cancelled) setEquitySeriesLoading(false);
+        setEquitySeriesLoading(false);
       });
     return () => {
       cancelled = true;

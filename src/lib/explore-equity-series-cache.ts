@@ -176,6 +176,14 @@ export function getCachedExploreEquitySeries(slug: string): ExploreEquitySeriesP
   return null;
 }
 
+function fetchExploreEquitySeriesWithTimeout(slug: string): Promise<Response> {
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), 75_000);
+  return fetch(`/api/platform/explore-portfolios-equity-series?slug=${encodeURIComponent(slug)}`, {
+    signal: ac.signal,
+  }).finally(() => clearTimeout(t));
+}
+
 export async function loadExploreEquitySeries(slug: string): Promise<ExploreEquitySeriesPayload | null> {
   bindInvalidateListener();
   const key = cacheKey(slug);
@@ -184,7 +192,7 @@ export async function loadExploreEquitySeries(slug: string): Promise<ExploreEqui
 
   let p = inflight.get(key);
   if (!p) {
-    p = fetch(`/api/platform/explore-portfolios-equity-series?slug=${encodeURIComponent(key)}`)
+    p = fetchExploreEquitySeriesWithTimeout(key)
       .then(async (r) => {
         if (!r.ok) return null;
         const normalized = normalize(await r.json());
