@@ -24,7 +24,7 @@ const Hero = ({ performance }: HeroProps) => {
       : [];
 
   return (
-    <section className="relative z-10 overflow-visible pt-20 pb-16 md:z-auto md:overflow-hidden md:pb-40 md:pt-32 lg:pb-48">
+    <section className="relative z-10 overflow-x-clip overflow-y-visible pt-20 pb-16 md:z-auto md:overflow-hidden md:pb-40 md:pt-32 lg:pb-48">
       {/* Full-bleed backdrop: small screens match section height; md+ uses fixed 80vh for the layered curve look. */}
       <div className="absolute inset-x-0 top-0 z-0 bg-gradient-to-b from-trader-gray to-background max-md:bottom-0 max-md:h-auto dark:from-slate-950 dark:to-background md:bottom-auto md:h-[80vh]" />
       <div className="pointer-events-none absolute inset-0 z-0 md:hidden">

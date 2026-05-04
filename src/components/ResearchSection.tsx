@@ -125,7 +125,7 @@ const ResearchSection = () => {
 
       <div
         ref={ref}
-        className={`relative z-10 mx-auto w-full max-w-[min(82rem,calc(100vw-4.5rem))] px-6 transition-all duration-700 sm:px-8 lg:px-10 xl:px-14 ${
+        className={`relative z-10 mx-auto w-full max-w-[min(82rem,calc(100%-4.5rem))] px-6 transition-all duration-700 sm:px-8 lg:px-10 xl:px-14 ${
           hasRevealed ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
         }`}
       >

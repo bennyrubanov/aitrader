@@ -31,7 +31,7 @@ const CTA = () => {
   const weeklyUpdatesButtonClassName = 'h-11 rounded-xl px-6';
 
   return (
-    <section className="relative isolate z-0 overflow-visible py-28 dark:z-[5] dark:pt-8 dark:pb-16 md:py-44 md:dark:pt-12 md:dark:pb-24">
+    <section className="relative isolate z-0 overflow-x-clip overflow-y-visible py-28 dark:z-[5] dark:pt-8 dark:pb-16 md:py-44 md:dark:pt-12 md:dark:pb-24">
       <DotGrid
         dotSize={2}
         gap={12}
@@ -44,8 +44,8 @@ const CTA = () => {
         returnDuration={1.2}
         className="pointer-events-none absolute inset-0 z-0 opacity-[0.2] dark:opacity-[0.14]"
       />
-      <div className="container relative z-10 mx-auto overflow-visible px-4">
-        <div className="relative isolate mx-auto flex w-full max-w-5xl flex-col overflow-visible pt-0 dark:pt-60 dark:sm:pt-[17.5rem]">
+      <div className="container relative z-10 mx-auto overflow-x-clip px-4">
+        <div className="relative isolate mx-auto flex w-full max-w-5xl flex-col overflow-x-clip pt-0 dark:pt-60 dark:sm:pt-[17.5rem]">
           <div
             className="pointer-events-none absolute inset-x-[-8%] top-0 z-[2] h-0 overflow-hidden opacity-0 mix-blend-screen dark:-top-64 dark:h-[36rem] dark:-translate-y-14 dark:opacity-[0.98] dark:sm:-top-72 dark:sm:h-[40rem] dark:sm:-translate-y-16"
             aria-hidden

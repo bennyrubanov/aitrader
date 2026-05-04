@@ -183,7 +183,7 @@ export function LandingPerformanceSection({ allPortfolios, heroStats, visibleRef
       {mountAmbient ? <LandingSectionPerformanceAmbient /> : null}
       <div
         ref={ref}
-        className={`relative mx-auto w-full max-w-[min(82rem,calc(100vw-4.5rem))] px-6 transition-all duration-700 sm:px-8 lg:px-10 xl:px-14 ${
+        className={`relative mx-auto w-full max-w-[min(82rem,calc(100%-4.5rem))] px-6 transition-all duration-700 sm:px-8 lg:px-10 xl:px-14 ${
           hasRevealed ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'
         }`}
       >
