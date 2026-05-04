@@ -11,6 +11,7 @@ import {
   type WeeklyBundleSection,
   type WeeklyProductUpdateRow,
 } from '@/lib/notifications/email-templates';
+import { CATALOG_ID } from '@/lib/notifications/notification-catalog';
 import { signUnsubscribePayload } from '@/lib/notifications/unsubscribe-token';
 import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 
@@ -532,7 +533,12 @@ export async function runWeeklyEmailBundle(
       }
     }
 
-    const willInapp = pref.weekly_digest_inapp && masterInapp;
+    const anyWeeklySectionInapp =
+      pref.weekly_product_updates_inapp ||
+      pref.weekly_portfolio_summary_inapp ||
+      pref.weekly_per_portfolio_inapp ||
+      pref.weekly_tracked_stocks_inapp;
+    const willInapp = pref.weekly_digest_inapp && masterInapp && anyWeeklySectionInapp;
     const willEmail = masterEmail && sections.length > 0;
     if (!willInapp && !willEmail) continue;
 
@@ -547,12 +553,22 @@ export async function runWeeklyEmailBundle(
         .limit(500);
       const c = weeklyInappCounts((countRows ?? []) as { type: string }[], pref);
       const body = `${c.portfolioUpdates} portfolio updates, ${c.ratingChanges} rating changes, ${c.priceAlerts} price alerts this week.`;
+      const threadId = `weekly:${pref.user_id}:${runWeekEnding}`;
+      await admin
+        .from('notifications')
+        .delete()
+        .eq('user_id', pref.user_id)
+        .eq('type', 'weekly_digest')
+        .contains('data', { run_week_ending: runWeekEnding });
       const { error: insErr } = await admin.from('notifications').insert({
         user_id: pref.user_id,
         type: 'weekly_digest',
         title: `Weekly summary - week ending ${runWeekEnding}`,
         body,
         data: {
+          catalog_id: CATALOG_ID.WEEKLY_BUNDLE,
+          thread_id: threadId,
+          thread_role: 'head',
           run_week_ending: runWeekEnding,
           by_type: {
             portfolio_updates: c.portfolioUpdates,

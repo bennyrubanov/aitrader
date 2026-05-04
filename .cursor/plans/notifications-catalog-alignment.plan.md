@@ -3,32 +3,32 @@ name: Notifications catalog alignment
 overview: Canonical implementation runbook (subsumes former “master notifications catalog” plan). Phase 0 DB, typed notification-catalog.ts, thread_id/catalog_id, weekly + welcome in-app, optional fan-out email, inbox threads, five settings categories, verification. Execute phases in order unless noted.
 todos:
   - id: db-weekly-inapp
-    content: "Phase 0: weekly *_inapp prefs — comments migration + willInapp gating + schema rule"
-    status: pending
+    content: 'Phase 0: weekly *_inapp prefs — comments migration + willInapp gating + schema rule'
+    status: completed
   - id: catalog-module
-    content: "Phase 1: notification-catalog.ts (lanes, ids, transports, prefs hooks) + Phase 1b smoketest"
-    status: pending
+    content: 'Phase 1: notification-catalog.ts (lanes, ids, transports, prefs hooks) + Phase 1b smoketest'
+    status: completed
   - id: thread-data-model
-    content: "Phase 2: catalog_id + thread_id contract in writers"
-    status: pending
+    content: 'Phase 2: catalog_id + thread_id contract in writers'
+    status: completed
   - id: weekly-thread-writer
-    content: "Phase 3: weekly in-app thread head in weekly-digest-cron"
-    status: pending
+    content: 'Phase 3: weekly in-app thread head in weekly-digest-cron'
+    status: completed
   - id: welcome-milestones
-    content: "Phase 4: welcome + paid-transition in-app rows + shared onboarding thread_id"
-    status: pending
+    content: 'Phase 4: welcome + paid-transition in-app rows + shared onboarding thread_id'
+    status: completed
   - id: fanout-email-parity
-    content: "Phase 5: optional paired immediate email from cron-fanout (catalog + email-templates)"
+    content: 'Phase 5: partial — notifyModelRatingsReady sends email when prefs allow; other fan-out kinds still in-app-only'
     status: pending
   - id: inbox-ui-thread
-    content: "Phase 6: bell + notifications API group by thread_id"
-    status: pending
+    content: 'Phase 6: bell + notifications API group by thread_id'
+    status: completed
   - id: settings-catalog
-    content: "Phase 7: five settings categories (+ prefs migration when model-performance notifications ship)"
-    status: pending
+    content: 'Phase 7: five settings categories (+ prefs migration when model-performance notifications ship)'
+    status: completed
   - id: doc-sync
-    content: "Phase 8: sync notifications-email-inapp-catalog + supabase-schema"
-    status: pending
+    content: 'Phase 8: sync notifications-email-inapp-catalog + supabase-schema'
+    status: completed
 isProject: true
 ---
 
@@ -54,10 +54,10 @@ isProject: true
 
 ### Current state (code snapshot)
 
-- **In-app:** [`cron-fanout.ts`](../../src/lib/notifications/cron-fanout.ts) inserts [`notifications`](../../supabase/migrations/20260421133925_notifications_center.sql) rows; types in [`types.ts`](../../src/lib/notifications/types.ts). [`weekly-digest-cron.ts`](../../src/lib/notifications/weekly-digest-cron.ts) pairs weekly email + in-app using prefs.
-- **Email HTML:** [`email-templates.ts`](../../src/lib/notifications/email-templates.ts) + [`welcome-email-templates.ts`](../../src/lib/notifications/welcome-email-templates.ts). **`cron-fanout` production paths return `emailsSent: 0`** for rating / rebalance / ratings-ready / entries / price — no immediate transactional email from fan-out today (smoketest only).
-- **Welcome:** [`welcome-series-send.ts`](../../src/lib/notifications/welcome-series-send.ts) is email-only per step. Signup in-app is a separate `system` row from [`handle_new_auth_user`](../../supabase/migrations/20260422000000_welcome_notification.sql).
-- **Smoketest:** [`smoketest/route.ts`](../../src/app/api/platform/notifications/smoketest/route.ts) maintains parallel `CORE_KINDS` / welcome kind unions — Phase 1b replaces with catalog-derived list.
+- **In-app:** [`cron-fanout.ts`](../../src/lib/notifications/cron-fanout.ts) inserts [`notifications`](../../supabase/migrations/20260421133925_notifications_center.sql) rows with `data.catalog_id` where applicable; types in [`types.ts`](../../src/lib/notifications/types.ts). [`weekly-digest-cron.ts`](../../src/lib/notifications/weekly-digest-cron.ts) pairs weekly email + in-app using prefs; weekly head uses `thread_id` + `thread_role: head`.
+- **Email HTML:** [`email-templates.ts`](../../src/lib/notifications/email-templates.ts) + [`welcome-email-templates.ts`](../../src/lib/notifications/welcome-email-templates.ts). Most **`cron-fanout`** paths still return **`emailsSent: 0`**; **`notifyModelRatingsReady`** can send transactional email when prefs allow.
+- **Welcome:** [`welcome-series-send.ts`](../../src/lib/notifications/welcome-series-send.ts) sends email and inserts in-app milestones under `onboarding:{userId}`. Signup in-app is still a separate `system` row from [`handle_new_auth_user`](../../supabase/migrations/20260422000000_welcome_notification.sql).
+- **Smoketest:** [`smoketest/route.ts`](../../src/app/api/platform/notifications/smoketest/route.ts) uses kinds from [`notification-catalog.ts`](../../src/lib/notifications/notification-catalog.ts) (Phase 1b).
 
 “Every email has an in-app equivalent” is a **product + code** change: needs **catalog** + writers that set `catalog_id` / `thread_id` and (where desired) call `sendTransactionalEmail`.
 
@@ -67,12 +67,12 @@ isProject: true
 
 **Lanes** (do not put auth in the same UX as product alerts):
 
-| Lane | Examples | In-app? | Notes |
-| ---- | -------- | ------- | ----- |
-| `product` | Rating change, rebalance, ratings ready, holdings, price move, weekly summary | Yes | Inbox rows + optional immediate email (Phase 5) |
-| `onboarding` | Welcome steps + paid transition | Yes (milestone/thread) | Tied to `user_welcome_email_progress`; email deferral via `email_enabled` as today |
-| `security` | Confirm signup, password reset | Optional / email-first | List in catalog for ops; minimal in-app v1 OK |
-| `internal` | Smoketest, cron errors | No user prefs | `internal: true` |
+| Lane         | Examples                                                                      | In-app?                | Notes                                                                              |
+| ------------ | ----------------------------------------------------------------------------- | ---------------------- | ---------------------------------------------------------------------------------- |
+| `product`    | Rating change, rebalance, ratings ready, holdings, price move, weekly summary | Yes                    | Inbox rows + optional immediate email (Phase 5)                                    |
+| `onboarding` | Welcome steps + paid transition                                               | Yes (milestone/thread) | Tied to `user_welcome_email_progress`; email deferral via `email_enabled` as today |
+| `security`   | Confirm signup, password reset                                                | Optional / email-first | List in catalog for ops; minimal in-app v1 OK                                      |
+| `internal`   | Smoketest, cron errors                                                        | No user prefs          | `internal: true`                                                                   |
 
 **Each catalog entry should document** (Phase 1 implements subset; grow over time):
 
@@ -155,12 +155,12 @@ comment on column public.user_notification_preferences.weekly_tracked_stocks_ina
 **B. Cron fix (same PR as migration A recommended)** — in `runWeeklyEmailBundle` in [`weekly-digest-cron.ts`](../../src/lib/notifications/weekly-digest-cron.ts), replace the single line that sets `willInapp` with:
 
 ```typescript
-    const anyWeeklySectionInapp =
-      pref.weekly_product_updates_inapp ||
-      pref.weekly_portfolio_summary_inapp ||
-      pref.weekly_per_portfolio_inapp ||
-      pref.weekly_tracked_stocks_inapp;
-    const willInapp = pref.weekly_digest_inapp && masterInapp && anyWeeklySectionInapp;
+const anyWeeklySectionInapp =
+  pref.weekly_product_updates_inapp ||
+  pref.weekly_portfolio_summary_inapp ||
+  pref.weekly_per_portfolio_inapp ||
+  pref.weekly_tracked_stocks_inapp;
+const willInapp = pref.weekly_digest_inapp && masterInapp && anyWeeklySectionInapp;
 ```
 
 (Remove the old `const willInapp = pref.weekly_digest_inapp && masterInapp;` line.)
@@ -188,11 +188,11 @@ comment on column public.user_notification_preferences.weekly_tracked_stocks_ina
 
 ### `notifications.data` JSON keys (additive)
 
-| Key | Type | Required when |
-| --- | --- | ------------- |
-| `catalog_id` | string | All **new** inserts from writers you touch in this project (e.g. `weekly.bundle`, `onboarding.welcome.milestone`, `portfolio.rebalance`). |
-| `thread_id` | string | Weekly digest head row; all onboarding companion rows for one user during welcome campaign. |
-| `thread_role` | `"head"` \| `"child"` \| omit | `head` = collapse group in UI; `child` = nested under same `thread_id` (optional v1: only `head` if UI cannot show children yet). |
+| Key           | Type                          | Required when                                                                                                                             |
+| ------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `catalog_id`  | string                        | All **new** inserts from writers you touch in this project (e.g. `weekly.bundle`, `onboarding.welcome.milestone`, `portfolio.rebalance`). |
+| `thread_id`   | string                        | Weekly digest head row; all onboarding companion rows for one user during welcome campaign.                                               |
+| `thread_role` | `"head"` \| `"child"` \| omit | `head` = collapse group in UI; `child` = nested under same `thread_id` (optional v1: only `head` if UI cannot show children yet).         |
 
 ### `thread_id` string formats (v1)
 
@@ -212,13 +212,13 @@ comment on column public.user_notification_preferences.weekly_tracked_stocks_ina
 
 Implement **exactly five** toggle blocks in the settings UI, each with a visible **section title** and **`border-t`** (or equivalent) before each block after the first. Column headers stay **Email** | **In-app** where applicable. The welcome **static note** (no switches) sits outside these five.
 
-| # | Category | Email | In-app | Notes |
-| - | -------- | ----- | ------ | ----- |
-| 1 | **Account activity** | Disabled, **on** | Disabled, **on** | **One row** for the whole category. Tooltip: cannot disable — required for security and billing. If no DB prefs yet, UI-only is OK for v1. |
-| 2 | **Product updates** | User toggle | Disabled, **on** | Tooltip on in-app: product-critical notices always show in-app. Maps to `weekly_product_updates_*` and future feature flags. |
-| 3 | **Portfolio updates** | User toggle | User toggle | Rebalance, entries/exits, price move (per followed profile), weekly portfolio / followed sections. Maps to `user_portfolio_profiles` + relevant `weekly_*` prefs. |
-| 4 | **Stock updates** | User toggle | User toggle | **Ticker-scoped** alerts: tracked `notify_rating_*`, price framing per ticker where applicable, “new ratings ready” / operational model alerts tied to **following** activity. Deep-link or aggregate PATCH for tracked list as today. |
-| 5 | **Strategy model updates** | User toggle | User toggle | **Strategy-model research / performance** surfaced per subscribed or followed model: e.g. beta, R², portfolio win rates vs benchmarks, quintile / regression highlights, narrative “model stats refreshed” digests. **Not** the same as single-stock bucket flips (category 4). When this ships, add prefs columns (or per-model flags) + `notification-catalog.ts` entries + writers; may include a weekly bundle section and/or dedicated cron. |
+| #   | Category                   | Email            | In-app           | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| --- | -------------------------- | ---------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **Account activity**       | Disabled, **on** | Disabled, **on** | **One row** for the whole category. Tooltip: cannot disable — required for security and billing. If no DB prefs yet, UI-only is OK for v1.                                                                                                                                                                                                                                                                                                        |
+| 2   | **Product updates**        | User toggle      | Disabled, **on** | Tooltip on in-app: product-critical notices always show in-app. Maps to `weekly_product_updates_*` and future feature flags.                                                                                                                                                                                                                                                                                                                      |
+| 3   | **Portfolio updates**      | User toggle      | User toggle      | Rebalance, entries/exits, price move (per followed profile), weekly portfolio / followed sections. Maps to `user_portfolio_profiles` + relevant `weekly_*` prefs.                                                                                                                                                                                                                                                                                 |
+| 4   | **Stock updates**          | User toggle      | User toggle      | **Ticker-scoped** alerts: tracked `notify_rating_*`, price framing per ticker where applicable, “new ratings ready” / operational model alerts tied to **following** activity. Deep-link or aggregate PATCH for tracked list as today.                                                                                                                                                                                                            |
+| 5   | **Strategy model updates** | User toggle      | User toggle      | **Strategy-model research / performance** surfaced per subscribed or followed model: e.g. beta, R², portfolio win rates vs benchmarks, quintile / regression highlights, narrative “model stats refreshed” digests. **Not** the same as single-stock bucket flips (category 4). When this ships, add prefs columns (or per-model flags) + `notification-catalog.ts` entries + writers; may include a weekly bundle section and/or dedicated cron. |
 
 **Not a category:** Welcome/onboarding — static note only: “Getting started emails: use links in those messages to change email.” (It is **not** one of the five toggle blocks above.)
 
@@ -382,6 +382,7 @@ Implement **exactly five** toggle blocks in the settings UI, each with a visible
 
 - [ ] Two child notifications same `thread_id` do not render as two unrelated full-width cards without a shared header.
 - [ ] Filter UI lists five category chips (hide or disable category 5 chip until first writer ships, if desired).
+- [ ] Bell tray badge **`unreadCount`** remains **per notification row** (`read_at is null`) by design; thread grouping in the list is UI-only (changing badge to “one per thread” would be a deliberate API follow-up).
 
 ---
 
@@ -427,11 +428,11 @@ Implement **exactly five** toggle blocks in the settings UI, each with a visible
 
 ## Glossary — `inappGranularity` (reference)
 
-| Value | Use when |
-| ----- | -------- |
-| `per_event` | Each distinct cron event gets its own row (rating change, rebalance, price move). |
-| `milestone` | Welcome / campaign — few rows per campaign. |
-| `weekly_summary` | One head row per weekly email period; thread in UI. |
+| Value            | Use when                                                                          |
+| ---------------- | --------------------------------------------------------------------------------- |
+| `per_event`      | Each distinct cron event gets its own row (rating change, rebalance, price move). |
+| `milestone`      | Welcome / campaign — few rows per campaign.                                       |
+| `weekly_summary` | One head row per weekly email period; thread in UI.                               |
 
 ---
 

@@ -19,6 +19,7 @@ import {
   Settings2,
   UserMinus,
   Bell,
+  BellOff,
 } from 'lucide-react';
 import { useAuthState } from '@/components/auth/auth-state-context';
 import { ExplorePortfolioFilterControls } from '@/components/platform/explore-portfolio-filter-controls';
@@ -81,10 +82,10 @@ import {
   setUserPortfolioProfileActive,
   USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT,
   invalidateUserPortfolioProfilesEntrySave,
+  invalidateUserPortfolioProfilesList,
   type UserPortfolioProfilesInvalidateDetail,
 } from '@/components/platform/portfolio-unfollow-toast';
 import { UserPortfolioEntrySettingsDialog } from '@/components/platform/user-portfolio-entry-settings-dialog';
-import { PortfolioAlertsDialog } from '@/components/platform/portfolio-alerts-dialog';
 import { YourPortfoliosGuestPreview } from '@/components/platform/your-portfolios-guest-preview';
 import {
   usePortfolioConfig,
@@ -132,6 +133,10 @@ import {
 import { PORTFOLIO_EXPLORE_QUICK_PICKS } from '@/lib/portfolio-explore-quick-picks';
 import { loadRankedConfigsClient } from '@/lib/portfolio-configs-ranked-client';
 import { loadUserPortfolioProfilesClient } from '@/lib/user-portfolio-profiles-client';
+import {
+  readCachedPortfolioProfiles,
+  setCachedPortfolioProfiles,
+} from '@/lib/notifications/settings-prewarm';
 import {
   followLimitDisabledTooltip,
   isFollowLimitReachedCode,
@@ -374,22 +379,91 @@ function SidebarRowPerfLoadingSkeleton() {
 }
 
 function YourPortfolioMainPerfSkeleton() {
+  const metricCellKeys = [
+    'm0',
+    'm1',
+    'm2',
+    'm3',
+    'm4',
+    'm5',
+    'm6',
+    'm7',
+    'm8',
+    'm9',
+  ] as const;
+
+  const chartBlock = (
+    <div className="min-w-0 w-full max-w-full space-y-2">
+      <Skeleton className="h-3 w-40 max-w-[min(100%,14rem)] rounded-sm" />
+      <Skeleton className="h-[300px] w-full rounded-md sm:h-[340px]" />
+    </div>
+  );
+
   return (
-    <div className="px-5 sm:px-7">
-      <div className="space-y-4">
-        <div className="grid w-full grid-cols-1 gap-4 rounded-lg border border-border/70 bg-muted/20 p-3 sm:gap-5 sm:p-4 lg:grid-cols-[11rem_minmax(0,1fr)] lg:p-5">
-          <div className="space-y-2">
-            {Array.from({ length: 7 }).map((_, idx) => (
-              <Skeleton key={`metric-skel-${idx}`} className="h-12 w-full rounded-lg" />
-            ))}
-          </div>
-          <div className="space-y-3 rounded-xl border border-border/80 bg-background/80 p-3 sm:p-4">
-            <Skeleton className="h-4 w-36 rounded-sm" />
-            <Skeleton className="h-8 w-44 rounded-md" />
-            <Skeleton className="h-[230px] w-full rounded-md" />
+    <div className="w-full min-w-0 max-w-full">
+      {/* Mirrors `isBelowLg`: headline stats, Performance/Holdings tabs, chart + metric grid */}
+      <div className="space-y-4 lg:hidden">
+        <div className="mx-auto w-full max-w-full">
+          <div className="grid w-full grid-cols-2 gap-2 sm:gap-3">
+            <Skeleton className="h-[4.25rem] w-full min-w-0 rounded-lg border border-border/60" />
+            <Skeleton className="h-[4.25rem] w-full min-w-0 rounded-lg border border-border/60" />
           </div>
         </div>
-        <Skeleton className="h-[300px] w-full rounded-xl sm:h-[340px]" />
+        <div className="w-full space-y-4">
+          <div className="grid h-auto w-full grid-cols-2 gap-0 border-b border-border">
+            <div className="flex h-12 items-center justify-center border-b-2 border-trader-blue pb-0.5">
+              <Skeleton className="h-4 w-24 rounded-sm" />
+            </div>
+            <div className="flex h-12 items-center justify-center pb-0.5">
+              <Skeleton className="h-4 w-20 rounded-sm" />
+            </div>
+          </div>
+          <div className="space-y-4">
+            {chartBlock}
+            <div className="grid min-w-0 grid-cols-2 gap-2 [&>*]:min-w-0">
+              {metricCellKeys.slice(0, 6).map((k) => (
+                <Skeleton key={`your-portfolio-mobile-metric-${k}`} className="h-16 w-full rounded-lg" />
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Mirrors lg+: metrics column | holdings, then full-width chart */}
+      <div className="hidden space-y-4 sm:space-y-5 lg:block">
+        <div className="flex w-full max-w-full min-w-0 flex-col gap-4 lg:max-h-[min(48vh,340px)] lg:min-h-0 lg:flex-row lg:items-stretch lg:gap-5 lg:overflow-hidden">
+          <div className="relative flex w-full min-w-0 shrink-0 flex-col gap-2 lg:min-h-0 lg:w-[11rem] lg:max-w-[11rem] lg:shrink-0 lg:basis-auto lg:flex-none">
+            <div className="flex min-h-8 shrink-0 items-center justify-between gap-2">
+              <Skeleton className="h-3 w-24 rounded-sm" />
+            </div>
+            <div className="flex max-h-[min(42vh,300px)] min-h-0 flex-col gap-2 overflow-y-auto lg:max-h-none lg:flex-1">
+              <div className="grid min-w-0 grid-cols-2 gap-2 lg:grid-cols-1 [&>*]:min-w-0">
+                {metricCellKeys.map((k) => (
+                  <Skeleton
+                    key={`your-portfolio-lg-metric-${k}`}
+                    className="h-16 w-full rounded-lg border border-border/50"
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="relative flex min-h-0 w-full min-w-0 flex-col gap-2 lg:flex-1 lg:basis-0">
+            <div className="flex shrink-0 min-w-0 w-full flex-col gap-2">
+              <div className="flex min-w-0 flex-col gap-2 lg:flex-row lg:items-center lg:justify-between lg:gap-3">
+                <Skeleton className="hidden h-3 w-32 rounded-sm lg:block" />
+                <div className="flex min-w-0 flex-nowrap items-center gap-2">
+                  <Skeleton className="h-9 w-[min(100%,11rem)] shrink-0 rounded-md lg:h-8" />
+                  <Skeleton className="h-8 w-28 shrink-0 rounded-md lg:hidden" />
+                </div>
+              </div>
+              <Skeleton className="h-5 w-[min(100%,18rem)] max-w-full rounded-sm" />
+            </div>
+            <div className="relative min-h-0 w-full flex-1 overflow-hidden lg:min-h-0">
+              <Skeleton className="h-[min(56vh,400px)] w-full min-h-[12rem] rounded-md border border-border/60 lg:h-full lg:max-h-none lg:min-h-[10rem]" />
+            </div>
+          </div>
+        </div>
+        <div className="min-w-0 w-full max-w-full">{chartBlock}</div>
       </div>
     </div>
   );
@@ -407,15 +481,24 @@ function YourPortfoliosSkeletonShell() {
       <aside className="hidden w-full shrink-0 flex-col lg:flex lg:h-full lg:min-h-0 lg:w-72 lg:max-h-full">
         <div
           className={cn(
-            'min-h-0 flex-1 space-y-0 px-4 pt-2 sm:px-6 lg:min-h-0 lg:flex-1 lg:overflow-x-hidden lg:overflow-y-auto lg:overscroll-y-contain lg:px-1 lg:pr-1 lg:pt-0'
+            'min-h-0 flex-1 space-y-0 px-4 pt-2 sm:px-6 lg:min-h-0 lg:flex-1 lg:overflow-x-hidden lg:overflow-y-auto lg:overscroll-y-contain lg:px-1 lg:pr-1 lg:pt-0',
+            '[scrollbar-width:thin] [scrollbar-color:hsl(var(--border)/0.55)_transparent]',
+            'lg:[&::-webkit-scrollbar]:w-1.5 lg:[&::-webkit-scrollbar]:h-1.5',
+            'lg:[&::-webkit-scrollbar-track]:bg-transparent',
+            'lg:[&::-webkit-scrollbar-thumb]:rounded-full lg:[&::-webkit-scrollbar-thumb]:bg-border/50',
+            'lg:hover:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/35'
           )}
         >
+          <div className="space-y-0.5">
+            <Skeleton className="h-9 w-full max-w-full rounded-md" />
+            <Skeleton className="h-7 w-full max-w-full rounded-md" />
+          </div>
           <div
             className={cn(
-              'flex items-center justify-between gap-2 p-3 sm:px-6 lg:px-0 lg:pr-1 lg:pt-2'
+              'flex items-center justify-between gap-2 p-3 sm:px-6 lg:px-0 lg:pr-1 pt-2 lg:pt-2'
             )}
           >
-            <Skeleton className="h-4 w-24 rounded-sm" />
+            <Skeleton className="h-3 w-24 rounded-sm" />
             <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
               <Skeleton className="size-8 shrink-0 rounded-md" />
               <Skeleton className="size-8 shrink-0 rounded-md" />
@@ -426,7 +509,7 @@ function YourPortfoliosSkeletonShell() {
             {Array.from({ length: 6 }).map((_, i) => (
               <Skeleton
                 key={`your-portfolios-sidebar-skel-${i}`}
-                className="h-16 w-[14rem] shrink-0 rounded-lg lg:h-16 lg:w-[7rem] lg:self-start"
+                className="h-16 w-[14rem] shrink-0 rounded-lg lg:h-16 lg:w-full lg:self-stretch"
               />
             ))}
           </nav>
@@ -436,16 +519,21 @@ function YourPortfoliosSkeletonShell() {
       <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-y-auto overscroll-y-contain px-1 py-1 lg:h-full lg:max-h-full lg:min-h-0 lg:pl-8">
         <div className="flex min-h-0 w-full min-w-0 max-w-none flex-1 flex-col self-stretch">
           <div className="shrink-0">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-1.5 gap-y-2">
-                  <Skeleton className="h-6 w-28 shrink-0 rounded-full" />
-                  <Skeleton className="h-6 w-48 max-w-full rounded-md" />
+            <div className="flex flex-col gap-2 sm:gap-2.5">
+              <div className="flex min-w-0 items-center justify-between gap-2">
+                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-1.5">
+                  <Skeleton className="h-5 w-24 shrink-0 rounded-full" />
+                  <Skeleton className="h-4 w-36 max-w-full rounded-sm sm:h-5 sm:max-w-[min(100%,20rem)]" />
+                </div>
+                <div className="flex shrink-0 items-center justify-end gap-1.5 lg:gap-2">
+                  <Skeleton className="h-7 w-[5.75rem] shrink-0 rounded-md lg:h-8 lg:w-[7.5rem]" />
+                  <Skeleton className="h-7 w-16 shrink-0 rounded-md lg:h-8 lg:w-[5.5rem]" />
+                  <Skeleton className="h-7 w-[5.5rem] shrink-0 rounded-md lg:h-8 lg:w-[6rem]" />
                 </div>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Skeleton className="h-8 w-[7.5rem] rounded-md" />
-                <Skeleton className="h-8 w-[5.5rem] rounded-md" />
+              <div className="flex flex-wrap items-center gap-1.5 lg:hidden">
+                <Skeleton className="h-5 w-14 shrink-0 rounded-full" />
+                <Skeleton className="h-5 w-20 shrink-0 rounded-full" />
               </div>
             </div>
           </div>
@@ -532,11 +620,43 @@ export type UserPortfolioProfileRow = {
   notify_price_move_email?: boolean;
   notify_entries_exits_inapp?: boolean;
   notify_entries_exits_email?: boolean;
+  /** Weekly digest email section for this followed portfolio (`/platform/settings/notifications` Email column). */
+  notify_weekly_email?: boolean;
   is_starting_portfolio?: boolean;
   strategy_models: StrategyModelEmbed;
   portfolio_config: PortfolioConfigEmbed;
   user_portfolio_positions: PositionRow[] | null;
 };
+
+/**
+ * Matches the followed-portfolio row on `/platform/settings/notifications`:
+ * Email = weekly section for this portfolio; In-app = rebalance + price + entries/exits all on.
+ */
+function portfolioNotificationSettingsRowInappTrioOn(p: UserPortfolioProfileRow): boolean {
+  const nr = p.notify_rebalance;
+  const nh = p.notify_holdings_change;
+  const email = p.email_enabled;
+  const inapp = p.inapp_enabled;
+  const rbIn = Boolean(p.notify_rebalance_inapp ?? (nr && inapp));
+  const pmIn = Boolean(p.notify_price_move_inapp ?? false);
+  const eeIn = Boolean(p.notify_entries_exits_inapp ?? (nh && inapp));
+  return rbIn && pmIn && eeIn;
+}
+
+function portfolioNotificationSettingsRowAnyOn(p: UserPortfolioProfileRow): boolean {
+  const weeklyOn = Boolean(p.notify_weekly_email ?? true);
+  return weeklyOn || portfolioNotificationSettingsRowInappTrioOn(p);
+}
+
+const PORTFOLIO_ALERTS_ON_DEFAULT = {
+  notifyWeeklyEmail: true,
+  notifyRebalanceInapp: true,
+  notifyRebalanceEmail: true,
+  notifyPriceMoveInapp: true,
+  notifyPriceMoveEmail: false,
+  notifyEntriesExitsInapp: true,
+  notifyEntriesExitsEmail: true,
+} as const;
 
 type PortfolioMovementApiPayload = {
   status:
@@ -1504,7 +1624,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const [hasSettledInitialSelectedPortfolioLoad, setHasSettledInitialSelectedPortfolioLoad] =
     useState(false);
   const [entrySettingsOpen, setEntrySettingsOpen] = useState(false);
-  const [portfolioAlertsOpen, setPortfolioAlertsOpen] = useState(false);
+  const [alertsToggleSaving, setAlertsToggleSaving] = useState(false);
   const [holdingsRowChartSymbol, setHoldingsRowChartSymbol] = useState<string | null>(null);
   const [holdingsMovementView, setHoldingsMovementView] = useState(false);
   const holdingsMovementViewRef = useRef(false);
@@ -1658,6 +1778,11 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         return;
       }
 
+      if (d?.profilesListOnly) {
+        void loadProfiles({ silent: true });
+        return;
+      }
+
       portfolioTimelineCache.clear();
       portfolioTimelineInflight.clear();
       void loadProfiles({ silent: true });
@@ -1675,6 +1800,11 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     }
     return profiles[0]!;
   }, [profiles, profileParam]);
+
+  const portfolioAlertsAnyOn = useMemo(
+    () => (selectedProfile ? portfolioNotificationSettingsRowAnyOn(selectedProfile) : false),
+    [selectedProfile]
+  );
 
   const strategyPickerList = useMemo(() => {
     const slugs = new Set(
@@ -2882,6 +3012,100 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       setUnfollowBusy(false);
     }
   }, [selectedProfile, toast, router]);
+
+  const togglePortfolioAlerts = useCallback(async () => {
+    if (!selectedProfile || isGuestLocalProfileId(selectedProfile.id)) return;
+    const profileId = selectedProfile.id;
+    const turningOn = !portfolioNotificationSettingsRowAnyOn(selectedProfile);
+    if (turningOn && appAccess === 'free') {
+      toast({
+        title: 'Portfolio alerts require a paid plan',
+        description: 'Upgrade to Supporter or Outperformer on the Pricing page.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const patch = turningOn
+      ? { ...PORTFOLIO_ALERTS_ON_DEFAULT }
+      : {
+          notifyWeeklyEmail: false,
+          notifyRebalanceInapp: false,
+          notifyRebalanceEmail: false,
+          notifyPriceMoveInapp: false,
+          notifyPriceMoveEmail: false,
+          notifyEntriesExitsInapp: false,
+          notifyEntriesExitsEmail: false,
+        };
+
+    setAlertsToggleSaving(true);
+    try {
+      const res = await fetch('/api/platform/user-portfolio-profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profileId, ...patch }),
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => null)) as { error?: string } | null;
+        toast({
+          title: 'Could not update alerts',
+          description: j?.error ?? 'Try again.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      const rbIn = patch.notifyRebalanceInapp;
+      const rbEm = patch.notifyRebalanceEmail;
+      const pmIn = patch.notifyPriceMoveInapp;
+      const pmEm = patch.notifyPriceMoveEmail;
+      const eeIn = patch.notifyEntriesExitsInapp;
+      const eeEm = patch.notifyEntriesExitsEmail;
+      const weeklyEm = patch.notifyWeeklyEmail;
+      setProfiles((rows) =>
+        rows.map((row) =>
+          row.id === profileId
+            ? {
+                ...row,
+                notify_weekly_email: weeklyEm,
+                notify_rebalance_inapp: rbIn,
+                notify_rebalance_email: rbEm,
+                notify_price_move_inapp: pmIn,
+                notify_price_move_email: pmEm,
+                notify_entries_exits_inapp: eeIn,
+                notify_entries_exits_email: eeEm,
+                notify_rebalance: rbIn || rbEm,
+                notify_holdings_change: eeIn || eeEm,
+              }
+            : row
+        )
+      );
+      const cachedProfiles = readCachedPortfolioProfiles();
+      if (cachedProfiles) {
+        setCachedPortfolioProfiles(
+          cachedProfiles.map((row) =>
+            row.id !== profileId
+              ? row
+              : {
+                  ...row,
+                  notify_weekly_email: weeklyEm,
+                  notify_rebalance_inapp: rbIn,
+                  notify_rebalance_email: rbEm,
+                  notify_price_move_inapp: pmIn,
+                  notify_price_move_email: pmEm,
+                  notify_entries_exits_inapp: eeIn,
+                  notify_entries_exits_email: eeEm,
+                  notify_rebalance: rbIn || rbEm,
+                  notify_holdings_change: eeIn || eeEm,
+                }
+          )
+        );
+      }
+      toast({ title: turningOn ? 'Alerts on' : 'Alerts off' });
+      invalidateUserPortfolioProfilesList();
+    } finally {
+      setAlertsToggleSaving(false);
+    }
+  }, [selectedProfile, appAccess, toast, loadProfiles]);
 
   const selectProfile = (id: string) => {
     router.push(`/platform/your-portfolios?profile=${id}`);
@@ -4421,16 +4645,39 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                     </Button>
                   ) : null}
                   {selectedProfile && !isGuestLocalProfileId(selectedProfile.id) ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-7 gap-1 px-2 text-[11px] lg:h-8 lg:gap-1.5 lg:px-3 lg:text-xs"
-                      onClick={() => setPortfolioAlertsOpen(true)}
-                    >
-                      <Bell className="size-2.5 shrink-0 lg:size-3" />
-                      <span className="hidden sm:inline">Alerts</span>
-                    </Button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className={cn(
+                            'h-7 gap-1 px-2 text-[11px] lg:h-8 lg:gap-1.5 lg:px-3 lg:text-xs',
+                            !portfolioAlertsAnyOn && 'text-muted-foreground'
+                          )}
+                          disabled={alertsToggleSaving}
+                          aria-pressed={portfolioAlertsAnyOn}
+                          aria-label={
+                            portfolioAlertsAnyOn
+                              ? 'Turn portfolio alerts off'
+                              : 'Turn portfolio alerts on'
+                          }
+                          onClick={() => void togglePortfolioAlerts()}
+                        >
+                          {portfolioAlertsAnyOn ? (
+                            <Bell className="size-2.5 shrink-0 lg:size-3" aria-hidden />
+                          ) : (
+                            <BellOff className="size-2.5 shrink-0 lg:size-3" aria-hidden />
+                          )}
+                          <span className="hidden sm:inline">Alerts</span>
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="max-w-xs text-xs">
+                        {portfolioAlertsAnyOn
+                          ? 'Turn off email and in-app alerts for this portfolio.'
+                          : 'Turn on email and in-app alerts for this portfolio.'}
+                      </TooltipContent>
+                    </Tooltip>
                   ) : null}
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -4882,22 +5129,6 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         }}
         prefetchedModelInceptionYmd={entrySettingsPrefetchedModelInceptionYmd}
       />
-      {selectedProfile && !isGuestLocalProfileId(selectedProfile.id) ? (
-        <PortfolioAlertsDialog
-          open={portfolioAlertsOpen}
-          onOpenChange={setPortfolioAlertsOpen}
-          profileId={selectedProfile.id}
-          initial={{
-            notifyRebalanceInapp: selectedProfile.notify_rebalance_inapp ?? true,
-            notifyRebalanceEmail: selectedProfile.notify_rebalance_email ?? true,
-            notifyPriceMoveInapp: selectedProfile.notify_price_move_inapp ?? false,
-            notifyPriceMoveEmail: selectedProfile.notify_price_move_email ?? false,
-            notifyEntriesExitsInapp: selectedProfile.notify_entries_exits_inapp ?? true,
-            notifyEntriesExitsEmail: selectedProfile.notify_entries_exits_email ?? true,
-          }}
-          onSaved={() => void loadProfiles({ silent: true })}
-        />
-      ) : null}
     </div>
   );
 }

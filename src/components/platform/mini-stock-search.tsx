@@ -217,7 +217,7 @@ export function MiniStockSearch() {
             blurTimeoutRef.current = null;
           }, 120);
         }}
-        placeholder="Search rated stocks"
+        placeholder="Search any stock"
         className={cn(
           "h-8 pl-9",
           query ? "pr-9" : showKbdHints ? "pr-[4.25rem]" : ""

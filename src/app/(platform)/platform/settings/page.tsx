@@ -13,8 +13,10 @@ import {
   Mail,
   ExternalLink,
   Pencil,
+  Sparkles,
+  CalendarClock,
 } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
+import { Badge, badgeVariants } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -713,7 +715,12 @@ const SettingsPageContent = () => {
       className={cn(
         'mx-auto w-full md:pt-2',
         authState.isLoaded
-          ? 'flex min-h-0 min-w-0 w-full max-w-5xl flex-col gap-6 max-md:h-auto max-md:flex-none md:h-full md:max-h-full md:flex-1 md:flex-row md:items-stretch md:overflow-hidden md:overscroll-y-contain lg:gap-10'
+          ? cn(
+              'flex min-h-0 min-w-0 w-full max-w-5xl flex-col gap-6 md:h-full md:max-h-full md:flex-1 md:flex-row md:items-stretch md:overflow-hidden md:overscroll-y-contain lg:gap-10',
+              activeSection === 'notifications'
+                ? 'max-md:flex max-md:flex-1 max-md:min-h-0 max-md:flex-col max-md:overflow-hidden'
+                : 'max-md:h-auto max-md:flex-none'
+            )
           : 'max-w-2xl space-y-6'
       )}
     >
@@ -729,14 +736,18 @@ const SettingsPageContent = () => {
       <div
         className={cn(
           /* flex + gap (not space-y) so md:hidden mobile strip is skipped for gap and does not push content down */
-          'flex min-w-0 flex-col gap-6',
+          'flex min-w-0 flex-col gap-3 md:gap-6',
           authState.isLoaded
-            ? 'min-h-0 md:max-w-2xl md:flex-1 md:overflow-y-auto md:overscroll-y-contain md:pl-6 lg:pl-8 md:h-full md:max-h-full md:min-h-0'
+            ? cn(
+                'min-h-0 md:max-w-2xl md:flex-1 md:overflow-y-auto md:overscroll-y-contain md:pl-6 lg:pl-8 md:h-full md:max-h-full md:min-h-0',
+                activeSection === 'notifications' &&
+                  'max-md:flex-1 max-md:min-h-0 max-md:overflow-hidden'
+              )
             : 'mx-auto max-w-2xl'
         )}
       >
         {/* Mobile: horizontal section chips (in flow; md+ uses sidebar). */}
-        <div className="pb-3 pt-0 md:hidden">
+        <div className="pb-1 pt-0 md:hidden">
           <h1 className="sr-only">Settings</h1>
 
           {authState.isLoaded ? (
@@ -1153,7 +1164,7 @@ const SettingsPageContent = () => {
                 <div className={billingSettingsCopyClass}>
                   <p className="text-sm font-medium">Customer portal</p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    Review & change payment details, your past payment invoices, or cancel your subscription.
+                    Review payment details, past invoices, and subscription details.
                   </p>
                 </div>
                 <div className={billingSettingsActionWrapClass}>
@@ -1275,33 +1286,93 @@ const SettingsPageContent = () => {
                 <div className={billingSettingsRowClass}>
                   <div className={billingSettingsCopyClass}>
                     <p className="text-sm font-medium">Billing interval</p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      {authState.stripeRecurringInterval === 'month'
-                        ? 'Switch to yearly for 3 months off.'
-                        : 'Monthly billing starts when your current yearly period ends.'}
-                    </p>
+                    {authState.stripeRecurringInterval === 'month' ? (
+                      <div className="mt-0.5 flex items-start gap-2 text-xs text-muted-foreground">
+                        <Sparkles
+                          className="mt-0.5 size-3.5 shrink-0 text-amber-500 dark:text-amber-400"
+                          aria-hidden
+                        />
+                        <p className="min-w-0 leading-relaxed">
+                          <span className="font-medium text-foreground">
+                            Get 3 months off when you pay yearly.
+                          </span>
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="mt-0.5 flex items-start gap-2 text-xs text-muted-foreground">
+                        <CalendarClock className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                        <p className="min-w-0 leading-relaxed">
+                          Monthly billing starts when your current yearly period ends—no surprises
+                          until then.
+                        </p>
+                      </div>
+                    )}
                   </div>
                   <div className={billingSettingsActionWrapClass}>
-                    <Button
-                      size="sm"
-                      variant="ghost"
+                    <div
                       className={cn(
-                        billingSettingsButtonClass,
-                        billingSettingsGhostChromeClass,
-                        billingSettingsNeutralGhostClass
+                        'flex w-full items-center justify-end gap-2 sm:w-auto',
+                        /* Keep pill + CTA on one row on narrow screens; avoid w-full button forcing a wrap. */
+                        authState.stripeRecurringInterval === 'month'
+                          ? 'max-sm:flex-nowrap max-sm:min-w-0'
+                          : 'flex-wrap'
                       )}
-                      disabled={isOpeningPortal}
-                      onClick={() => {
-                        setBillingSwitchTarget(
-                          authState.stripeRecurringInterval === 'month' ? 'year' : 'month'
-                        );
-                        setBillingIntervalDialogOpen(true);
-                      }}
                     >
-                      {authState.stripeRecurringInterval === 'month'
-                        ? 'Switch to yearly billing'
-                        : 'Switch to monthly billing'}
-                    </Button>
+                      {authState.stripeRecurringInterval === 'month' ? (
+                        <>
+                          <button
+                            type="button"
+                            disabled={isOpeningPortal}
+                            aria-label="Switch to yearly billing — 3 months off"
+                            className={cn(
+                              badgeVariants({ variant: 'outline' }),
+                              'shrink-0 gap-1 border-amber-500/40 bg-amber-500/10 font-semibold text-amber-950 shadow-sm ring-offset-background transition-colors hover:bg-amber-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 dark:border-amber-400/35 dark:bg-amber-400/10 dark:text-amber-100 dark:hover:bg-amber-400/15 sm:hidden'
+                            )}
+                            onClick={() => {
+                              setBillingSwitchTarget('year');
+                              setBillingIntervalDialogOpen(true);
+                            }}
+                          >
+                            <Sparkles
+                              className="size-3 shrink-0 text-amber-500 dark:text-amber-400"
+                              aria-hidden
+                            />
+                            3 months off
+                          </button>
+                          <Badge
+                            variant="outline"
+                            className="hidden shrink-0 gap-1 border-amber-500/40 bg-amber-500/10 font-semibold text-amber-950 shadow-sm dark:border-amber-400/35 dark:bg-amber-400/10 dark:text-amber-100 sm:inline-flex"
+                          >
+                            <Sparkles
+                              className="size-3 shrink-0 text-amber-500 dark:text-amber-400"
+                              aria-hidden
+                            />
+                            3 months off
+                          </Badge>
+                        </>
+                      ) : null}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className={cn(
+                          billingSettingsButtonClass,
+                          billingSettingsGhostChromeClass,
+                          billingSettingsNeutralGhostClass,
+                          authState.stripeRecurringInterval === 'month' && 'max-sm:!w-auto'
+                        )}
+                        disabled={isOpeningPortal}
+                        onClick={() => {
+                          setBillingSwitchTarget(
+                            authState.stripeRecurringInterval === 'month' ? 'year' : 'month'
+                          );
+                          setBillingIntervalDialogOpen(true);
+                        }}
+                      >
+                        {authState.stripeRecurringInterval === 'month'
+                          ? 'Switch to yearly billing'
+                          : 'Switch to monthly billing'}
+                      </Button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -1315,35 +1386,39 @@ const SettingsPageContent = () => {
               id="notifications"
               className={cn(
                 'scroll-mt-4 md:scroll-mt-6',
-                activeSection === 'notifications' ? 'block' : 'hidden'
+                activeSection === 'notifications'
+                  ? 'flex min-h-0 flex-1 flex-col overflow-hidden scroll-mt-4 md:scroll-mt-6'
+                  : 'hidden'
               )}
             >
             <NotificationsSettingsSection />
             </section>
           )}
 
-          {/* ── Sign out ── */}
-          <div className="flex justify-end pb-4">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-destructive"
-              onClick={handleSignOut}
-              disabled={isSigningOut}
-            >
-              {isSigningOut ? (
-                <>
-                  <Loader2 className="mr-1.5 size-3.5 animate-spin" />
-                  Signing out...
-                </>
-              ) : (
-                <>
-                  <LogOut className="mr-1.5 size-3.5" />
-                  Log out
-                </>
-              )}
-            </Button>
-          </div>
+          {/* ── Sign out (account tab only) ── */}
+          {activeSection === 'account' ? (
+            <div className="flex justify-end pb-4">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground hover:text-destructive"
+                onClick={handleSignOut}
+                disabled={isSigningOut}
+              >
+                {isSigningOut ? (
+                  <>
+                    <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                    Signing out...
+                  </>
+                ) : (
+                  <>
+                    <LogOut className="mr-1.5 size-3.5" />
+                    Log out
+                  </>
+                )}
+              </Button>
+            </div>
+          ) : null}
         </>
       ) : (
         <section

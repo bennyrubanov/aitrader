@@ -17,9 +17,14 @@ import {
 import {
   buildWelcomeEmailHtml,
   buildWelcomePaidTransitionEmail,
-  WELCOME_SMOKETEST_KINDS,
   type WelcomeSmoketestKind,
 } from '@/lib/notifications/welcome-email-templates';
+import {
+  ALL_SMOKETEST_EMAIL_KINDS,
+  CORE_EMAIL_SMOKETEST_KINDS,
+  type CoreEmailSmoketestKind,
+  type SmoketestEmailKind,
+} from '@/lib/notifications/notification-catalog';
 import { resolveDryUserIdForCron } from '@/lib/notifications/resolve-dry-user-for-cron';
 import { seedSmoketestInAppNotifications } from '@/lib/notifications/smoketest-inapp-seed';
 import { createAdminClient } from '@/utils/supabase/admin';
@@ -58,34 +63,11 @@ export const dynamic = 'force-dynamic';
  *     → seed in-app for Benny **and** send the full email batch to `to` (default tryaitrader@gmail.com).
  */
 
-type CoreEmailKind =
-  | 'rating-changes'
-  | 'rebalance'
-  | 'model-ratings-ready'
-  | 'entries-exits'
-  | 'price-move'
-  | 'weekly-bundle-all'
-  | 'weekly-bundle-product'
-  | 'weekly-bundle-portfolio'
-  | 'weekly-bundle-followed'
-  | 'weekly-bundle-tracked';
+type SmoketestKind = SmoketestEmailKind;
 
-type SmoketestKind = CoreEmailKind | WelcomeSmoketestKind;
+const CORE_KINDS: CoreEmailSmoketestKind[] = [...CORE_EMAIL_SMOKETEST_KINDS];
 
-const CORE_KINDS: CoreEmailKind[] = [
-  'rating-changes',
-  'rebalance',
-  'model-ratings-ready',
-  'entries-exits',
-  'price-move',
-  'weekly-bundle-all',
-  'weekly-bundle-product',
-  'weekly-bundle-portfolio',
-  'weekly-bundle-followed',
-  'weekly-bundle-tracked',
-];
-
-const ALL_KINDS: SmoketestKind[] = [...CORE_KINDS, ...WELCOME_SMOKETEST_KINDS];
+const ALL_KINDS: SmoketestKind[] = [...ALL_SMOKETEST_EMAIL_KINDS];
 
 /** Operator default for HTML smoketest sends (Resend / Gmail). */
 const DEFAULT_RECIPIENT = 'tryaitrader@gmail.com';
@@ -270,7 +252,7 @@ function renderSamples(): RenderedEmail[] {
     'NVDA: sell -> buy',
   ]);
 
-  const pushBundle = (kind: CoreEmailKind, tag: string, sections: WeeklyBundleSection[], textLines: string[]) => {
+  const pushBundle = (kind: CoreEmailSmoketestKind, tag: string, sections: WeeklyBundleSection[], textLines: string[]) => {
     const { html, text, subject } = buildWeeklyBundleEmailHtml({
       runWeekEnding,
       sections,

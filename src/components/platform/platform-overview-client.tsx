@@ -2043,6 +2043,10 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   useEffect(() => {
     const handler = (e: Event) => {
       const d = (e as CustomEvent<UserPortfolioProfilesInvalidateDetail>).detail;
+      if (d?.profilesListOnly) {
+        void refreshOverviewProfiles();
+        return;
+      }
       portfolioMovementFetchCache.clear();
       portfolioMovementInflight.clear();
       portfolioMovementWarmSessionKeys.clear();
@@ -2963,7 +2967,6 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
           }}
           profileId={portfolioAlertsProfile.id}
           initial={overviewPortfolioAlertsInitial(portfolioAlertsProfile)}
-          onSaved={() => void refreshOverviewProfiles()}
         />
       ) : null}
       <div className="flex h-full min-h-0 flex-1 flex-col">

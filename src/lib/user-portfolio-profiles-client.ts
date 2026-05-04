@@ -25,7 +25,7 @@ function bindInvalidateListener() {
   invalidateListenerBound = true;
   window.addEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, (e: Event) => {
     const d = (e as CustomEvent<UserPortfolioProfilesInvalidateDetail>).detail;
-    if (d?.entrySettingsOnly) {
+    if (d?.entrySettingsOnly || d?.profilesListOnly) {
       const key = cacheKey();
       inflight.delete(key);
       resolved.delete(key);

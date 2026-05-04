@@ -18,6 +18,11 @@ export const USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT = 'user-portfolio-profiles
 export type UserPortfolioProfilesInvalidateDetail = {
   profileId?: string;
   entrySettingsOnly?: boolean;
+  /**
+   * Notify-channel or other row-only updates on `user_portfolio_profiles`.
+   * Listeners should refetch the profile list only — no timeline/movement nukes, no `profileId` here.
+   */
+  profilesListOnly?: boolean;
   /** When true, overview already refetched profiles; skip profileFetchNonce to avoid duplicate GET. */
   skipOverviewProfileRefetch?: boolean;
   /** Present after entry settings save so listeners can merge state without a full profile list refetch. */
@@ -28,6 +33,16 @@ export type UserPortfolioProfilesInvalidateDetail = {
 export function invalidateUserPortfolioProfiles(): void {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT));
+}
+
+/** After portfolio notify PATCH (bell, alerts dialog, settings rows). Omit `profileId` to avoid entry perf cache busts. */
+export function invalidateUserPortfolioProfilesList(): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(
+    new CustomEvent<UserPortfolioProfilesInvalidateDetail>(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, {
+      detail: { profilesListOnly: true },
+    })
+  );
 }
 
 /** After entry date / investment PATCH — same event; set `skipOverviewProfileRefetch` when overview already called GET. */

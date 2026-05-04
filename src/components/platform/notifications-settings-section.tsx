@@ -1,9 +1,18 @@
 'use client';
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
-import { ArrowUpRight, Bell, ChevronDown, Lock, Search, Trash2, X } from 'lucide-react';
+import { ArrowRight, ArrowUpRight, Bell, ChevronDown, Lock, Search, Trash2, X } from 'lucide-react';
 import { SubscriptionUpgradeDialog } from '@/components/account/subscription-upgrade-dialog';
 import { useAuthState } from '@/components/auth/auth-state-context';
 import { Badge } from '@/components/ui/badge';
@@ -25,7 +34,14 @@ import {
 } from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
 import { getAppAccessState } from '@/lib/app-access';
+import { hrefStockSymbol, hrefYourPortfolio } from '@/lib/notifications/hrefs';
+import { MAX_TRACKED_NOTIFICATION_STOCKS_PAID } from '@/lib/notification-plan-gating';
 import { cn } from '@/lib/utils';
+import {
+  USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT,
+  invalidateUserPortfolioProfilesList,
+  type UserPortfolioProfilesInvalidateDetail,
+} from '@/components/platform/portfolio-unfollow-toast';
 import {
   readCachedModelSubs,
   readCachedPortfolioProfiles,
@@ -33,6 +49,7 @@ import {
   setCachedModelSubs,
   setCachedPortfolioProfiles,
   setCachedPrefs,
+  type ModelStrategyCatalogRow,
   type ModelSub,
   type Prefs,
   type ProfileRow,
@@ -67,12 +84,14 @@ function normalizePrefs(raw: Record<string, unknown>): Prefs {
     weekly_portfolio_summary_email: b('weekly_portfolio_summary_email'),
     weekly_per_portfolio_email: b('weekly_per_portfolio_email'),
     weekly_tracked_stocks_email: b('weekly_tracked_stocks_email'),
-    weekly_product_updates_inapp: b('weekly_product_updates_inapp'),
+    weekly_product_updates_inapp: true,
     weekly_portfolio_summary_inapp: b('weekly_portfolio_summary_inapp'),
     weekly_per_portfolio_inapp: b('weekly_per_portfolio_inapp'),
     weekly_tracked_stocks_inapp: b('weekly_tracked_stocks_inapp'),
     email_enabled: b('email_enabled'),
     inapp_enabled: b('inapp_enabled'),
+    model_performance_updates_email: b('model_performance_updates_email'),
+    model_performance_updates_inapp: b('model_performance_updates_inapp'),
   };
 }
 
@@ -85,6 +104,146 @@ function isPortfolioInappTrioOn(p: ProfileRow): boolean {
     Boolean(p.notify_rebalance_inapp) &&
     Boolean(p.notify_price_move_inapp) &&
     (p.notify_entries_exits_inapp ?? true)
+  );
+}
+
+function allStrategyCatalogModelsEmailOn(
+  catalog: ModelStrategyCatalogRow[],
+  subs: ModelSub[]
+): boolean {
+  if (catalog.length === 0) return true;
+  return catalog.every((m) => Boolean(subs.find((s) => s.strategy_id === m.strategy_id)?.email_enabled));
+}
+
+function allStrategyCatalogModelsInappOn(
+  catalog: ModelStrategyCatalogRow[],
+  subs: ModelSub[]
+): boolean {
+  if (catalog.length === 0) return true;
+  return catalog.every((m) => Boolean(subs.find((s) => s.strategy_id === m.strategy_id)?.inapp_enabled));
+}
+
+/** Optimistic `subs` after master Email column: set every catalog model’s email; preserve in-app per row. */
+function buildSubsAfterBulkModelEmail(
+  catalog: ModelStrategyCatalogRow[],
+  prevSubs: ModelSub[],
+  emailEnabled: boolean
+): ModelSub[] {
+  if (catalog.length === 0) return prevSubs;
+  const ids = new Set(catalog.map((m) => m.strategy_id));
+  const base = prevSubs.filter((s) => !ids.has(s.strategy_id));
+  const added: ModelSub[] = [];
+  for (const m of catalog) {
+    const prev = prevSubs.find((s) => s.strategy_id === m.strategy_id);
+    const nextInapp = Boolean(prev?.inapp_enabled);
+    const nextEmail = emailEnabled;
+    if (!nextEmail && !nextInapp) continue;
+    const strategy_models =
+      m.slug != null && m.slug !== '' ? { slug: m.slug, name: m.name } : null;
+    added.push({
+      strategy_id: m.strategy_id,
+      notify_rating_changes: prev?.notify_rating_changes ?? true,
+      email_enabled: nextEmail,
+      inapp_enabled: nextInapp,
+      strategy_models,
+    });
+  }
+  return [...base, ...added];
+}
+
+/** Optimistic `subs` after master In-app column: set every catalog model’s in-app; preserve email per row. */
+function buildSubsAfterBulkModelInapp(
+  catalog: ModelStrategyCatalogRow[],
+  prevSubs: ModelSub[],
+  inappEnabled: boolean
+): ModelSub[] {
+  if (catalog.length === 0) return prevSubs;
+  const ids = new Set(catalog.map((m) => m.strategy_id));
+  const base = prevSubs.filter((s) => !ids.has(s.strategy_id));
+  const added: ModelSub[] = [];
+  for (const m of catalog) {
+    const prev = prevSubs.find((s) => s.strategy_id === m.strategy_id);
+    const nextEmail = Boolean(prev?.email_enabled);
+    const nextInapp = inappEnabled;
+    if (!nextEmail && !nextInapp) continue;
+    const strategy_models =
+      m.slug != null && m.slug !== '' ? { slug: m.slug, name: m.name } : null;
+    added.push({
+      strategy_id: m.strategy_id,
+      notify_rating_changes: prev?.notify_rating_changes ?? true,
+      email_enabled: nextEmail,
+      inapp_enabled: nextInapp,
+      strategy_models,
+    });
+  }
+  return [...base, ...added];
+}
+
+async function persistBulkModelSubsForEmailColumn(
+  catalog: ModelStrategyCatalogRow[],
+  subsSnapshot: ModelSub[],
+  emailEnabled: boolean
+): Promise<boolean[]> {
+  if (catalog.length === 0) return [];
+  return Promise.all(
+    catalog.map(async (m) => {
+      const prev = subsSnapshot.find((s) => s.strategy_id === m.strategy_id);
+      const inapp = Boolean(prev?.inapp_enabled);
+      const email = emailEnabled;
+      if (!prev && !email && !inapp) return true;
+      if (prev && !email && !inapp) {
+        const res = await fetch(
+          `/api/platform/model-subscriptions?strategyId=${encodeURIComponent(m.strategy_id)}`,
+          { method: 'DELETE' }
+        );
+        return res.ok;
+      }
+      const res = await fetch('/api/platform/model-subscriptions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          strategyId: m.strategy_id,
+          notifyRatingChanges: true,
+          emailEnabled: email,
+          inappEnabled: inapp,
+        }),
+      });
+      return res.ok;
+    })
+  );
+}
+
+async function persistBulkModelSubsForInappColumn(
+  catalog: ModelStrategyCatalogRow[],
+  subsSnapshot: ModelSub[],
+  inappEnabled: boolean
+): Promise<boolean[]> {
+  if (catalog.length === 0) return [];
+  return Promise.all(
+    catalog.map(async (m) => {
+      const prev = subsSnapshot.find((s) => s.strategy_id === m.strategy_id);
+      const email = Boolean(prev?.email_enabled);
+      const inapp = inappEnabled;
+      if (!prev && !email && !inapp) return true;
+      if (prev && !email && !inapp) {
+        const res = await fetch(
+          `/api/platform/model-subscriptions?strategyId=${encodeURIComponent(m.strategy_id)}`,
+          { method: 'DELETE' }
+        );
+        return res.ok;
+      }
+      const res = await fetch('/api/platform/model-subscriptions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          strategyId: m.strategy_id,
+          notifyRatingChanges: true,
+          emailEnabled: email,
+          inappEnabled: inapp,
+        }),
+      });
+      return res.ok;
+    })
   );
 }
 
@@ -106,16 +265,28 @@ function mergeProfileRowWithApiPatch(row: ProfileRow, patch: Record<string, unkn
   return next;
 }
 
-function firstModel(
-  m: ModelSub['strategy_models']
-): { slug: string; name: string } | null {
-  if (!m) return null;
-  return Array.isArray(m) ? m[0] ?? null : m;
+function mapPortfolioProfilesResponse(j: { profiles?: ProfileRow[] }): ProfileRow[] {
+  return (j.profiles ?? []).map((p) => {
+    const email = p.email_enabled;
+    const inapp = p.inapp_enabled;
+    const nr = p.notify_rebalance;
+    const nh = p.notify_holdings_change;
+    return {
+      ...p,
+      notify_rebalance_inapp: p.notify_rebalance_inapp ?? (nr && inapp),
+      notify_rebalance_email: p.notify_rebalance_email ?? (nr && email),
+      notify_price_move_inapp: p.notify_price_move_inapp ?? false,
+      notify_price_move_email: p.notify_price_move_email ?? false,
+      notify_entries_exits_inapp: p.notify_entries_exits_inapp ?? (nh && inapp),
+      notify_entries_exits_email: p.notify_entries_exits_email ?? (nh && email),
+      notify_weekly_email: p.notify_weekly_email ?? true,
+    };
+  });
 }
 
 type ChannelPairProps = {
-  label: React.ReactNode;
-  description?: React.ReactNode;
+  label: ReactNode;
+  description?: ReactNode;
   inAppChecked: boolean;
   emailChecked: boolean;
   onInApp: (v: boolean) => void;
@@ -126,14 +297,51 @@ type ChannelPairProps = {
   disableEmail?: boolean;
   inAppMode?: 'switch' | 'dash';
   emailMode?: 'switch' | 'dash';
+  /** Shown when the email switch is disabled (e.g. required notices). */
+  emailTooltipWhenDisabled?: string;
+  /** Shown when the in-app switch is disabled (e.g. always-on product lines). */
+  inAppTooltipWhenDisabled?: string;
+  /** Align Email/In-app switches toward the trailing edge of the row (e.g. portfolio table). */
+  switchJustify?: 'center' | 'end';
 };
 
 /** Tighter toggle track on small screens so labels/descriptions get more width. */
 const notificationsRowGridClass =
   'grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-2 gap-y-0.5 sm:gap-x-3 sm:gap-y-0 items-center';
 const notificationsSwitchColClass = 'flex w-11 shrink-0 justify-center sm:w-14';
+const notificationsSwitchColClassEnd = 'flex w-11 shrink-0 justify-end sm:w-14';
 /** Slightly less right padding on mobile so the Email/In-app columns sit nearer the edge. */
 const notificationsSectionX = 'px-4 pr-2.5 sm:px-5';
+/** Space above and below each full-width section divider. */
+const notificationsSectionAroundDivider = 'py-10 sm:py-10 md:py-9';
+
+/**
+ * Settings (not bell): inner `overflow-y-auto` clips list rows below the header. On mobile, when the
+ * notifications tab is active, `page.tsx` adds a flex-1 `overflow-hidden` chain so the platform shell does not
+ * scroll that page—only this inner scroller does (no double scrollbars, no bleed under the header). Desktop
+ * behavior is unchanged.
+ */
+const notificationsSettingsRootClass =
+  'flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden md:max-h-full';
+
+const notificationsSettingsScrollBodyClass =
+  'min-h-0 flex-1 overflow-y-auto overscroll-y-contain pb-8 max-md:pb-10';
+
+function switchWithOptionalDisabledTooltip(
+  node: ReactNode,
+  disabled: boolean,
+  tooltip: string | undefined
+) {
+  if (!tooltip || !disabled) return node;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex cursor-default justify-center">{node}</span>
+      </TooltipTrigger>
+      <TooltipContent side="top">{tooltip}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 function ChannelPair({
   label,
@@ -147,9 +355,46 @@ function ChannelPair({
   disableEmail,
   inAppMode = 'switch',
   emailMode = 'switch',
+  emailTooltipWhenDisabled,
+  inAppTooltipWhenDisabled,
+  switchJustify = 'center',
 }: ChannelPairProps) {
   const dIn = disableInApp ?? disabled;
   const dEm = disableEmail ?? disabled;
+  const switchCol =
+    switchJustify === 'end' ? notificationsSwitchColClassEnd : notificationsSwitchColClass;
+  const emailSwitch =
+    emailMode === 'dash' ? (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="text-sm text-muted-foreground tabular-nums cursor-default">—</span>
+        </TooltipTrigger>
+        <TooltipContent side="top">Not applicable for this row.</TooltipContent>
+      </Tooltip>
+    ) : (
+      <Switch
+        checked={emailChecked}
+        disabled={dEm}
+        onCheckedChange={onEmail}
+        aria-label="Email"
+      />
+    );
+  const inAppSwitch =
+    inAppMode === 'dash' ? (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="text-sm text-muted-foreground tabular-nums cursor-default">—</span>
+        </TooltipTrigger>
+        <TooltipContent side="top">This newsletter is email only.</TooltipContent>
+      </Tooltip>
+    ) : (
+      <Switch
+        checked={inAppChecked}
+        disabled={dIn}
+        onCheckedChange={onInApp}
+        aria-label="In-app"
+      />
+    );
   return (
     <div className={cn(notificationsRowGridClass, 'py-2.5')}>
       <div className="min-w-0">
@@ -159,38 +404,14 @@ function ChannelPair({
         ) : null}
       </div>
       <div className={notificationsSwitchColClass}>
-        {emailMode === 'dash' ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="text-sm text-muted-foreground tabular-nums cursor-default">—</span>
-            </TooltipTrigger>
-            <TooltipContent side="top">Not applicable for this row.</TooltipContent>
-          </Tooltip>
-        ) : (
-          <Switch
-            checked={emailChecked}
-            disabled={dEm}
-            onCheckedChange={onEmail}
-            aria-label="Email"
-          />
-        )}
+        {emailMode === 'dash'
+          ? emailSwitch
+          : switchWithOptionalDisabledTooltip(emailSwitch, dEm, emailTooltipWhenDisabled)}
       </div>
       <div className={notificationsSwitchColClass}>
-        {inAppMode === 'dash' ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="text-sm text-muted-foreground tabular-nums cursor-default">—</span>
-            </TooltipTrigger>
-            <TooltipContent side="top">This newsletter is email only.</TooltipContent>
-          </Tooltip>
-        ) : (
-          <Switch
-            checked={inAppChecked}
-            disabled={dIn}
-            onCheckedChange={onInApp}
-            aria-label="In-app"
-          />
-        )}
+        {inAppMode === 'dash'
+          ? inAppSwitch
+          : switchWithOptionalDisabledTooltip(inAppSwitch, dIn, inAppTooltipWhenDisabled)}
       </div>
     </div>
   );
@@ -199,24 +420,47 @@ function ChannelPair({
 function NotificationsSettingsSkeleton({
   embedMode = 'settings',
 }: Pick<NotificationsSettingsSectionProps, 'embedMode'>) {
-  const switchSkeleton = () => (
-    <Skeleton className="h-6 w-11 shrink-0 justify-self-center rounded-full" aria-hidden />
+  const switchSkeleton = (justify: 'center' | 'end' = 'center') => (
+    <Skeleton
+      className={cn(
+        'h-6 w-11 shrink-0 rounded-full',
+        justify === 'end' ? 'justify-self-end' : 'justify-self-center'
+      )}
+      aria-hidden
+    />
   );
 
-  const channelRowSkeleton = (id: string, opts: { desc?: boolean; titleWidth: string }) => (
-    <div key={id} className={cn(notificationsRowGridClass, 'py-2.5')}>
-      <div className="min-w-0 space-y-2">
-        <Skeleton className={cn('h-4 max-w-full', opts.titleWidth)} aria-hidden />
-        {opts.desc ? <Skeleton className="h-3 w-full max-w-lg" aria-hidden /> : null}
+  const channelRowSkeleton = (
+    id: string,
+    opts: { desc?: boolean; titleWidth: string; switchJustify?: 'center' | 'end' }
+  ) => {
+    const sj = opts.switchJustify ?? 'center';
+    return (
+      <div key={id} className={cn(notificationsRowGridClass, 'py-2.5')}>
+        <div className="min-w-0 space-y-2">
+          <Skeleton className={cn('h-4 max-w-full', opts.titleWidth)} aria-hidden />
+          {opts.desc ? <Skeleton className="h-3 w-full max-w-lg" aria-hidden /> : null}
+        </div>
+        {switchSkeleton(sj)}
+        {switchSkeleton(sj)}
       </div>
-      {switchSkeleton()}
-      {switchSkeleton()}
-    </div>
-  );
+    );
+  };
 
   return (
-    <div className="w-full" role="status" aria-busy="true">
-      <div className={cn(notificationsSectionX, 'pt-2 pb-3 sm:pt-3 md:pt-3')}>
+    <div
+      className={cn(embedMode !== 'bell' ? notificationsSettingsRootClass : 'w-full')}
+      role="status"
+      aria-busy="true"
+    >
+      <div
+        className={cn(
+          notificationsSectionX,
+          embedMode !== 'bell'
+            ? 'shrink-0 border-b border-border/60 max-md:pt-1 max-md:pb-2 sm:py-3'
+            : 'pt-2 pb-3 sm:pt-3 md:pt-3'
+        )}
+      >
         <div className={cn(notificationsRowGridClass, 'items-center pb-0.5')}>
           <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             {embedMode !== 'bell' ? (
@@ -247,6 +491,11 @@ function NotificationsSettingsSkeleton({
         </div>
       </div>
 
+      <div
+        className={
+          embedMode !== 'bell' ? notificationsSettingsScrollBodyClass : 'contents'
+        }
+      >
       <div className={cn(notificationsSectionX, 'py-4 space-y-3')}>
         <div
           className={cn(
@@ -264,21 +513,25 @@ function NotificationsSettingsSkeleton({
           </div>
         </div>
         {channelRowSkeleton('wk-product', { titleWidth: 'w-[min(100%,22rem)]', desc: true })}
-        {channelRowSkeleton('wk-portfolio', { titleWidth: 'w-[min(100%,20rem)]', desc: true })}
-        {channelRowSkeleton('wk-followed', { titleWidth: 'w-[min(100%,18rem)]', desc: false })}
-        {channelRowSkeleton('wk-stocks', { titleWidth: 'w-[min(100%,24rem)]', desc: true })}
-        <div className="pt-2">
-          <Skeleton className="mb-2 h-4 w-28" aria-hidden />
-          {channelRowSkeleton('wk-digest', { titleWidth: 'w-[min(100%,19rem)]', desc: true })}
-        </div>
       </div>
 
-      <div className={cn(notificationsSectionX, 'border-t border-border py-4 space-y-3')}>
-        <div className="space-y-2">
-          <Skeleton className="h-4 w-56 max-w-full" aria-hidden />
-          <Skeleton className="h-3 w-full max-w-xl" aria-hidden />
+      <div
+        className={cn(
+          notificationsSectionX,
+          'border-t border-border space-y-3',
+          notificationsSectionAroundDivider
+        )}
+      >
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between md:gap-3">
+          <div className="min-w-0 space-y-2 md:max-w-[min(100%,28rem)]">
+            <Skeleton className="h-4 w-56 max-w-full" aria-hidden />
+            <Skeleton className="h-3 w-full max-w-xl" aria-hidden />
+          </div>
+          <Skeleton
+            className="h-9 w-full max-w-md shrink-0 rounded-md md:ml-auto md:max-w-[17rem]"
+            aria-hidden
+          />
         </div>
-        <Skeleton className="h-9 w-full max-w-md rounded-md" aria-hidden />
         <div className="space-y-1 rounded-lg border bg-muted/15 p-2">
           <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-x-1.5 gap-y-0.5 px-0.5 pb-1 sm:gap-x-2 sm:px-1">
             <span />
@@ -303,7 +556,13 @@ function NotificationsSettingsSkeleton({
         </div>
       </div>
 
-      <div className={cn(notificationsSectionX, 'border-t border-border py-4 space-y-3')}>
+      <div
+        className={cn(
+          notificationsSectionX,
+          'border-t border-border space-y-3',
+          notificationsSectionAroundDivider
+        )}
+      >
         <div className="flex flex-nowrap items-end justify-between gap-3">
           <div className="min-w-0 flex-1 space-y-2">
             <Skeleton className="h-4 w-44 max-w-full" aria-hidden />
@@ -314,13 +573,62 @@ function NotificationsSettingsSkeleton({
             <Skeleton className="h-9 w-full rounded-md" aria-hidden />
           </div>
         </div>
-        <div className="rounded-lg border bg-muted/15 px-2 py-1 sm:px-3 divide-y divide-border/80">
-          {channelRowSkeleton('fp-a', { titleWidth: 'w-[min(100%,14rem)]', desc: false })}
-          {channelRowSkeleton('fp-b', { titleWidth: 'w-[min(100%,12rem)]', desc: false })}
+        <div className="rounded-lg border bg-muted/15 py-1 pl-2 pr-0.5 sm:pl-3 sm:pr-1 divide-y divide-border/80">
+          <div
+            className={cn(
+              notificationsRowGridClass,
+              'px-0.5 pb-1 text-[10px] font-medium uppercase leading-tight tracking-wide text-muted-foreground sm:px-1 sm:text-[11px]'
+            )}
+          >
+            <span />
+            <span className={`${notificationsSwitchColClass} text-center`}>Email</span>
+            <span className={`${notificationsSwitchColClass} text-center`}>In-app</span>
+          </div>
+          {channelRowSkeleton('fp-a', {
+            titleWidth: 'w-[min(100%,14rem)]',
+            desc: false,
+            switchJustify: 'end',
+          })}
+          {channelRowSkeleton('fp-b', {
+            titleWidth: 'w-[min(100%,12rem)]',
+            desc: false,
+            switchJustify: 'end',
+          })}
+        </div>
+      </div>
+
+      <div
+        className={cn(
+          notificationsSectionX,
+          'border-t border-border space-y-3',
+          notificationsSectionAroundDivider
+        )}
+      >
+        <div className="space-y-2">
+          <Skeleton className="h-4 w-48 max-w-full" aria-hidden />
+          <Skeleton className="h-3 w-full max-w-md" aria-hidden />
+        </div>
+        <div className="space-y-1 rounded-lg border bg-muted/15 p-2">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-1.5 px-0.5 pb-1 sm:gap-x-2 sm:px-1">
+            <Skeleton className="h-2.5 w-14 max-w-full sm:w-16" aria-hidden />
+            <Skeleton className="h-2.5 w-9 justify-self-center rounded sm:w-11" aria-hidden />
+            <Skeleton className="h-2.5 w-12 justify-self-center rounded sm:w-14" aria-hidden />
+          </div>
+          {Array.from({ length: 2 }).map((_, i) => (
+            <div
+              key={i}
+              className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-1.5 items-center border-t border-border/80 py-2 first:border-t-0 sm:gap-x-2"
+            >
+              <Skeleton className="h-4 w-32 max-w-full" aria-hidden />
+              {switchSkeleton()}
+              {switchSkeleton()}
+            </div>
+          ))}
         </div>
       </div>
 
       <span className="sr-only">Loading notification settings</span>
+      </div>
     </div>
   );
 }
@@ -339,8 +647,13 @@ export function NotificationsSettingsSection({
 
   const [prefs, setPrefs] = useState<Prefs | null>(() => readCachedPrefs());
   const [subs, setSubs] = useState<ModelSub[]>(() => readCachedModelSubs() ?? []);
+  const [strategyCatalog, setStrategyCatalog] = useState<ModelStrategyCatalogRow[]>([]);
   const [profiles, setProfiles] = useState<ProfileRow[]>(() => readCachedPortfolioProfiles() ?? []);
   const [tracked, setTracked] = useState<TrackedItem[]>([]);
+  const atPaidTrackedStockCap = useMemo(
+    () => hasPaidStockAccess && tracked.length >= MAX_TRACKED_NOTIFICATION_STOCKS_PAID,
+    [hasPaidStockAccess, tracked.length]
+  );
   const [loading, setLoading] = useState(() => readCachedPrefs() == null);
   const [savingPrefs, setSavingPrefs] = useState(false);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
@@ -376,29 +689,18 @@ export function NotificationsSettingsSection({
         setCachedPrefs(normalized);
       }
       if (sRes.ok) {
-        const j = (await sRes.json()) as { subscriptions: ModelSub[] };
+        const j = (await sRes.json()) as {
+          subscriptions: ModelSub[];
+          strategies?: ModelStrategyCatalogRow[];
+        };
         const nextSubs = j.subscriptions ?? [];
         setSubs(nextSubs);
         setCachedModelSubs(nextSubs);
+        setStrategyCatalog(Array.isArray(j.strategies) ? j.strategies : []);
       }
       if (profRes.ok) {
         const j = (await profRes.json()) as { profiles: ProfileRow[] };
-        const nextProfiles = (j.profiles ?? []).map((p) => {
-          const email = p.email_enabled;
-          const inapp = p.inapp_enabled;
-          const nr = p.notify_rebalance;
-          const nh = p.notify_holdings_change;
-          return {
-            ...p,
-            notify_rebalance_inapp: p.notify_rebalance_inapp ?? (nr && inapp),
-            notify_rebalance_email: p.notify_rebalance_email ?? (nr && email),
-            notify_price_move_inapp: p.notify_price_move_inapp ?? false,
-            notify_price_move_email: p.notify_price_move_email ?? false,
-            notify_entries_exits_inapp: p.notify_entries_exits_inapp ?? (nh && inapp),
-            notify_entries_exits_email: p.notify_entries_exits_email ?? (nh && email),
-            notify_weekly_email: p.notify_weekly_email ?? true,
-          };
-        });
+        const nextProfiles = mapPortfolioProfilesResponse(j);
         setProfiles(nextProfiles);
         setCachedPortfolioProfiles(nextProfiles);
       }
@@ -424,6 +726,29 @@ export function NotificationsSettingsSection({
     }
   }, []);
 
+  const refreshPortfolioProfilesOnly = useCallback(async () => {
+    try {
+      const profRes = await fetch('/api/platform/user-portfolio-profile');
+      if (!profRes.ok) return;
+      const j = (await profRes.json()) as { profiles?: ProfileRow[] };
+      const nextProfiles = mapPortfolioProfilesResponse(j);
+      setProfiles(nextProfiles);
+      setCachedPortfolioProfiles(nextProfiles);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const d = (e as CustomEvent<UserPortfolioProfilesInvalidateDetail>).detail;
+      if (d?.profilesListOnly !== true) return;
+      void refreshPortfolioProfilesOnly();
+    };
+    window.addEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, handler);
+    return () => window.removeEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, handler);
+  }, [refreshPortfolioProfilesOnly]);
+
   useEffect(() => {
     void load();
   }, [load]);
@@ -436,7 +761,7 @@ export function NotificationsSettingsSection({
         if (Array.isArray(data)) setCatalog(data);
       })
       .catch(() => {});
-  }, [authState.isAuthenticated]);
+  }, [authState.isAuthenticated, authState.subscriptionTier]);
 
   const cancelStockSearchBlur = useCallback(() => {
     if (stockSearchBlurTimeoutRef.current != null) {
@@ -504,6 +829,7 @@ export function NotificationsSettingsSection({
       });
       if (!res.ok) throw new Error('Save failed');
       toast({ title: 'Saved' });
+      invalidateUserPortfolioProfilesList();
     } catch {
       toast({ title: 'Could not save portfolio alerts', variant: 'destructive' });
       void load();
@@ -548,6 +874,94 @@ export function NotificationsSettingsSection({
     }
   };
 
+  const patchModelSub = async (strategyId: string, nextEmail: boolean, nextInapp: boolean) => {
+    const catalogMeta = strategyCatalog.find((s) => s.strategy_id === strategyId);
+    const existing = subs.find((s) => s.strategy_id === strategyId);
+    const strategy_models =
+      catalogMeta?.slug != null && catalogMeta.slug !== ''
+        ? { slug: catalogMeta.slug, name: catalogMeta.name }
+        : (existing?.strategy_models ?? null);
+
+    const buildNextSubs = (): ModelSub[] => {
+      if (existing && !nextEmail && !nextInapp) {
+        return subs.filter((s) => s.strategy_id !== strategyId);
+      }
+      const row: ModelSub = {
+        strategy_id: strategyId,
+        notify_rating_changes: existing?.notify_rating_changes ?? true,
+        email_enabled: nextEmail,
+        inapp_enabled: nextInapp,
+        strategy_models,
+      };
+      const i = subs.findIndex((s) => s.strategy_id === strategyId);
+      if (i < 0) return [...subs, row];
+      const copy = [...subs];
+      copy[i] = row;
+      return copy;
+    };
+
+    const prevSubs = subs;
+    const optimistic = buildNextSubs();
+    setSubs(optimistic);
+    setCachedModelSubs(optimistic);
+
+    try {
+      if (existing && !nextEmail && !nextInapp) {
+        const res = await fetch(
+          `/api/platform/model-subscriptions?strategyId=${encodeURIComponent(strategyId)}`,
+          { method: 'DELETE' }
+        );
+        if (!res.ok) throw new Error('delete failed');
+        toast({ title: 'Saved' });
+        return;
+      }
+
+      const res = await fetch('/api/platform/model-subscriptions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          strategyId,
+          notifyRatingChanges: true,
+          emailEnabled: nextEmail,
+          inappEnabled: nextInapp,
+        }),
+      });
+      if (!res.ok) throw new Error('save failed');
+      const j = (await res.json()) as {
+        subscription?: {
+          strategy_id: string;
+          notify_rating_changes?: boolean;
+          email_enabled?: boolean;
+          inapp_enabled?: boolean;
+        };
+      };
+      const sub = j.subscription;
+      if (sub?.strategy_id) {
+        const normalized: ModelSub = {
+          strategy_id: sub.strategy_id,
+          notify_rating_changes: sub.notify_rating_changes !== false,
+          email_enabled: Boolean(sub.email_enabled),
+          inapp_enabled: Boolean(sub.inapp_enabled),
+          strategy_models:
+            catalogMeta?.slug != null && catalogMeta.slug !== ''
+              ? { slug: catalogMeta.slug, name: catalogMeta.name }
+              : null,
+        };
+        setSubs((cur) => {
+          const i = cur.findIndex((s) => s.strategy_id === strategyId);
+          const next = i < 0 ? [...cur, normalized] : cur.map((s, idx) => (idx === i ? normalized : s));
+          setCachedModelSubs(next);
+          return next;
+        });
+      }
+      toast({ title: 'Saved' });
+    } catch {
+      setSubs(prevSubs);
+      setCachedModelSubs(prevSubs);
+      toast({ title: 'Could not save model alerts', variant: 'destructive' });
+    }
+  };
+
   const removeStock = async (stockId: string) => {
     setTracked((p) => p.filter((t) => t.stock_id !== stockId));
     try {
@@ -572,6 +986,14 @@ export function NotificationsSettingsSection({
     const id = row.id?.trim();
     if (!id) {
       toast({ title: 'Stock id missing', description: 'Refresh and try again.', variant: 'destructive' });
+      return;
+    }
+    if (hasPaidStockAccess && tracked.length >= MAX_TRACKED_NOTIFICATION_STOCKS_PAID) {
+      toast({
+        title: 'Stock limit reached',
+        description: `Supporter and Outperformer accounts can track up to ${MAX_TRACKED_NOTIFICATION_STOCKS_PAID} stocks for notifications. Remove one to add another.`,
+        variant: 'destructive',
+      });
       return;
     }
     if (isFreeTier && row.isPremium) {
@@ -683,13 +1105,11 @@ export function NotificationsSettingsSection({
     const q = stockQuery.trim().toLowerCase();
     if (q.length === 0) return [];
     const trackedIds = new Set(tracked.map((t) => t.stock_id));
-    return catalog
-      .filter(
-        (s) =>
-          !trackedIds.has(s.id ?? '') &&
-          (s.symbol.toLowerCase().includes(q) || s.name.toLowerCase().includes(q))
-      )
-      .slice(0, 10);
+    return catalog.filter(
+      (s) =>
+        !trackedIds.has(s.id ?? '') &&
+        (s.symbol.toLowerCase().includes(q) || s.name.toLowerCase().includes(q))
+    );
   }, [stockQuery, catalog, tracked]);
 
   const stockSearchListOpen = stockSearchDropdownActive && searchResults.length > 0;
@@ -768,7 +1188,7 @@ export function NotificationsSettingsSection({
   }, [closeStockSearchDropdown]);
 
   const handleStockSearchKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLInputElement>) => {
+    (e: KeyboardEvent<HTMLInputElement>) => {
       if (e.key === 'Escape') {
         e.preventDefault();
         clearStockSearch();
@@ -792,8 +1212,9 @@ export function NotificationsSettingsSection({
         e.preventDefault();
         const row = searchResults[stockSearchActiveIndex];
         if (!row) return;
-        const locked = isFreeTier && row.isPremium;
-        if (locked && !hasPaidStockAccess) return;
+        const lockedPremium = isFreeTier && row.isPremium;
+        if (lockedPremium && !hasPaidStockAccess) return;
+        if (atPaidTrackedStockCap) return;
         cancelStockSearchBlur();
         closeStockSearchDropdown();
         void addStock(row);
@@ -805,6 +1226,7 @@ export function NotificationsSettingsSection({
       clearStockSearch,
       closeStockSearchDropdown,
       hasPaidStockAccess,
+      atPaidTrackedStockCap,
       isFreeTier,
       searchResults,
       stockSearchActiveIndex,
@@ -819,65 +1241,86 @@ export function NotificationsSettingsSection({
 
   const allEmailOn = useMemo(() => {
     if (!prefs) return false;
-    if (
-      !prefs.email_enabled ||
-      !prefs.weekly_digest_email ||
-      !prefs.weekly_product_updates_email ||
-      !prefs.weekly_portfolio_summary_email ||
-      !prefs.weekly_per_portfolio_email ||
-      !prefs.weekly_tracked_stocks_email
-    ) {
-      return false;
+    if (isFreeTier) {
+      if (!prefs.email_enabled || !prefs.weekly_product_updates_email) {
+        return false;
+      }
+      if (!trackedForAggregate.every((t) => t.notify_rating_email)) return false;
+      if (!allStrategyCatalogModelsEmailOn(strategyCatalog, subs)) return false;
+      return true;
     }
-    if (
-      prefs.weekly_per_portfolio_email &&
-      prefs.email_enabled &&
-      !profiles.every((p) => isPortfolioWeeklyEmailOn(p))
-    ) {
+    if (!prefs.email_enabled || !prefs.weekly_product_updates_email) {
       return false;
     }
     if (!trackedForAggregate.every((t) => t.notify_rating_email)) return false;
+    // Followed-portfolio Email column is `notify_weekly_email` per row; keep master switch in sync.
+    if (!profiles.every((p) => isPortfolioWeeklyEmailOn(p))) return false;
+    if (!allStrategyCatalogModelsEmailOn(strategyCatalog, subs)) return false;
     return true;
-  }, [prefs, profiles, trackedForAggregate]);
+  }, [isFreeTier, prefs, profiles, strategyCatalog, subs, trackedForAggregate]);
 
   const allInAppOn = useMemo(() => {
     if (!prefs) return false;
-    if (
-      !prefs.inapp_enabled ||
-      !prefs.weekly_digest_inapp ||
-      !prefs.weekly_product_updates_inapp ||
-      !prefs.weekly_portfolio_summary_inapp ||
-      !prefs.weekly_per_portfolio_inapp ||
-      !prefs.weekly_tracked_stocks_inapp
-    ) {
+    if (isFreeTier) {
+      if (!prefs.inapp_enabled) {
+        return false;
+      }
+      if (!trackedForAggregate.every((t) => t.notify_rating_inapp)) return false;
+      if (!allStrategyCatalogModelsInappOn(strategyCatalog, subs)) return false;
+      return true;
+    }
+    if (!prefs.inapp_enabled || !prefs.weekly_product_updates_inapp) {
       return false;
     }
     if (!profiles.every((p) => isPortfolioInappTrioOn(p))) {
       return false;
     }
     if (!trackedForAggregate.every((t) => t.notify_rating_inapp)) return false;
+    if (!allStrategyCatalogModelsInappOn(strategyCatalog, subs)) return false;
     return true;
-  }, [prefs, profiles, trackedForAggregate]);
+  }, [isFreeTier, prefs, profiles, strategyCatalog, subs, trackedForAggregate]);
 
   const applyAllEmailColumn = async (enabled: boolean) => {
     if (!prefs) return;
-    const nextPrefs: Prefs = {
-      ...prefs,
-      email_enabled: enabled,
-      weekly_digest_email: enabled,
-      weekly_product_updates_email: enabled,
-      weekly_portfolio_summary_email: enabled,
-      weekly_per_portfolio_email: enabled,
-      weekly_tracked_stocks_email: enabled,
-    };
+    const nextPrefs: Prefs = isFreeTier
+      ? {
+          ...prefs,
+          email_enabled: enabled,
+          weekly_digest_email: false,
+          weekly_portfolio_summary_email: false,
+          weekly_per_portfolio_email: false,
+          weekly_product_updates_email: enabled,
+          ...(!enabled ? { weekly_tracked_stocks_email: false } : {}),
+        }
+      : {
+          ...prefs,
+          email_enabled: enabled,
+          weekly_product_updates_email: enabled,
+          ...(enabled
+            ? {}
+            : {
+                weekly_digest_email: false,
+                weekly_portfolio_summary_email: false,
+                weekly_per_portfolio_email: false,
+                weekly_tracked_stocks_email: false,
+              }),
+        };
     setPrefs(nextPrefs);
     setCachedPrefs(nextPrefs);
-    setProfiles((ps) => ps.map((p) => ({ ...p, notify_weekly_email: enabled })));
+    setProfiles((ps) =>
+      ps.map((p) => ({
+        ...p,
+        notify_weekly_email: isFreeTier ? false : enabled,
+      }))
+    );
     setTracked((ts) =>
       ts.map((t) =>
         !(isFreeTier && t.is_premium_stock) ? { ...t, notify_rating_email: enabled } : t
       )
     );
+    const nextModelSubsEmail = buildSubsAfterBulkModelEmail(strategyCatalog, subs, enabled);
+    setSubs(nextModelSubsEmail);
+    setCachedModelSubs(nextModelSubsEmail);
     setSavingPrefs(true);
     try {
       const res = await fetch('/api/platform/notification-preferences', {
@@ -890,6 +1333,7 @@ export function NotificationsSettingsSection({
       setPrefs(j.preferences);
       setCachedPrefs(j.preferences);
 
+      const profileWeekly = isFreeTier ? false : enabled;
       const profileResults = await Promise.all(
         profiles.map((p) =>
           fetch('/api/platform/user-portfolio-profile', {
@@ -897,7 +1341,7 @@ export function NotificationsSettingsSection({
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               profileId: p.id,
-              notifyWeeklyEmail: enabled,
+              notifyWeeklyEmail: profileWeekly,
             }),
           }).then((r) => r.ok)
         )
@@ -911,12 +1355,18 @@ export function NotificationsSettingsSection({
           }).then((r) => r.ok)
         )
       );
-      if (profileResults.some((ok) => !ok) || stockResults.some((ok) => !ok)) {
+      const modelResults = await persistBulkModelSubsForEmailColumn(strategyCatalog, subs, enabled);
+      if (
+        profileResults.some((ok) => !ok) ||
+        stockResults.some((ok) => !ok) ||
+        modelResults.some((ok) => !ok)
+      ) {
         toast({ title: 'Could not save all changes', variant: 'destructive' });
         void load();
         return;
       }
       toast({ title: 'Saved' });
+      invalidateUserPortfolioProfilesList();
     } catch {
       toast({ title: 'Could not save', variant: 'destructive' });
       void load();
@@ -927,23 +1377,41 @@ export function NotificationsSettingsSection({
 
   const applyAllInAppColumn = async (enabled: boolean) => {
     if (!prefs) return;
-    const nextPrefs: Prefs = {
-      ...prefs,
-      inapp_enabled: enabled,
-      weekly_digest_inapp: enabled,
-      weekly_product_updates_inapp: enabled,
-      weekly_portfolio_summary_inapp: enabled,
-      weekly_per_portfolio_inapp: enabled,
-      weekly_tracked_stocks_inapp: enabled,
-    };
+    const nextPrefs: Prefs = isFreeTier
+      ? {
+          ...prefs,
+          inapp_enabled: enabled,
+          weekly_digest_inapp: false,
+          weekly_portfolio_summary_inapp: false,
+          weekly_per_portfolio_inapp: false,
+          weekly_product_updates_inapp: true,
+          ...(!enabled ? { weekly_tracked_stocks_inapp: false } : {}),
+        }
+      : {
+          ...prefs,
+          inapp_enabled: enabled,
+          weekly_product_updates_inapp: enabled,
+          ...(enabled
+            ? {}
+            : {
+                weekly_digest_inapp: false,
+                weekly_portfolio_summary_inapp: false,
+                weekly_per_portfolio_inapp: false,
+                weekly_tracked_stocks_inapp: false,
+              }),
+        };
+    if (!enabled) {
+      nextPrefs.weekly_product_updates_inapp = true;
+    }
     setPrefs(nextPrefs);
     setCachedPrefs(nextPrefs);
+    const profileInapp = isFreeTier ? false : enabled;
     setProfiles((ps) =>
       ps.map((p) => ({
         ...p,
-        notify_rebalance_inapp: enabled,
-        notify_price_move_inapp: enabled,
-        notify_entries_exits_inapp: enabled,
+        notify_rebalance_inapp: profileInapp,
+        notify_price_move_inapp: profileInapp,
+        notify_entries_exits_inapp: profileInapp,
       }))
     );
     setTracked((ts) =>
@@ -951,6 +1419,11 @@ export function NotificationsSettingsSection({
         !(isFreeTier && t.is_premium_stock) ? { ...t, notify_rating_inapp: enabled } : t
       )
     );
+    /** Model rows follow stock toggles on free tier; paid tier matches portfolio in-app bulk. */
+    const modelInappBulkTarget = enabled;
+    const nextModelSubsInapp = buildSubsAfterBulkModelInapp(strategyCatalog, subs, modelInappBulkTarget);
+    setSubs(nextModelSubsInapp);
+    setCachedModelSubs(nextModelSubsInapp);
     setSavingPrefs(true);
     try {
       const res = await fetch('/api/platform/notification-preferences', {
@@ -970,9 +1443,9 @@ export function NotificationsSettingsSection({
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               profileId: p.id,
-              notifyRebalanceInapp: enabled,
-              notifyPriceMoveInapp: enabled,
-              notifyEntriesExitsInapp: enabled,
+              notifyRebalanceInapp: profileInapp,
+              notifyPriceMoveInapp: profileInapp,
+              notifyEntriesExitsInapp: profileInapp,
             }),
           }).then((r) => r.ok)
         )
@@ -986,12 +1459,22 @@ export function NotificationsSettingsSection({
           }).then((r) => r.ok)
         )
       );
-      if (profileResults.some((ok) => !ok) || stockResults.some((ok) => !ok)) {
+      const modelResults = await persistBulkModelSubsForInappColumn(
+        strategyCatalog,
+        subs,
+        modelInappBulkTarget
+      );
+      if (
+        profileResults.some((ok) => !ok) ||
+        stockResults.some((ok) => !ok) ||
+        modelResults.some((ok) => !ok)
+      ) {
         toast({ title: 'Could not save all changes', variant: 'destructive' });
         void load();
         return;
       }
       toast({ title: 'Saved' });
+      invalidateUserPortfolioProfilesList();
     } catch {
       toast({ title: 'Could not save', variant: 'destructive' });
       void load();
@@ -1015,18 +1498,27 @@ export function NotificationsSettingsSection({
     return <NotificationsSettingsSkeleton embedMode={embedMode} />;
   }
 
-  const disableInAppCol = savingPrefs || !prefs.inapp_enabled;
-  const disableEmailCol = savingPrefs || !prefs.email_enabled;
+  /** Row switches stay editable; `email_enabled` / `inapp_enabled` are delivery masters at send time, not form locks. */
+  const disableInAppCol = savingPrefs;
+  const disableEmailCol = savingPrefs;
 
-  const stocksIntro =
-    isFreeTier
-      ? 'In-app weekly-style alerts for non-premium stocks. Upgrade for in-app alerts on any stock.'
-      : 'In-app when a tracked stock’s AI rating bucket changes (default model).';
+  const stockSectionSub = isFreeTier
+    ? 'Weekly-style alerts for free-tracked symbols only.'
+    : atPaidTrackedStockCap
+      ? `You are at the ${MAX_TRACKED_NOTIFICATION_STOCKS_PAID}-stock notification limit. Remove a ticker to add another.`
+      : 'AI ratings, price alerts, action nudges.';
 
   return (
     <TooltipProvider>
-      <div className="w-full">
-        <div className={cn(notificationsSectionX, 'pt-2 pb-3 sm:pt-3 md:pt-3')}>
+      <div className={cn(embedMode !== 'bell' ? notificationsSettingsRootClass : 'w-full')}>
+        <div
+          className={cn(
+            notificationsSectionX,
+            embedMode !== 'bell'
+              ? 'shrink-0 border-b border-border/60 max-md:pt-1 max-md:pb-2 sm:py-3'
+              : 'pt-2 pb-3 sm:pt-3 md:pt-3'
+          )}
+        >
           <div className={cn(notificationsRowGridClass, 'items-center pb-0.5')}>
             <div className="flex min-w-0 items-center gap-2 sm:gap-3">
               {embedMode !== 'bell' ? (
@@ -1059,7 +1551,12 @@ export function NotificationsSettingsSection({
           </div>
         </div>
 
-        <div className={cn(notificationsSectionX, 'py-4 space-y-3')}>
+        <div
+          className={
+            embedMode !== 'bell' ? notificationsSettingsScrollBodyClass : 'contents'
+          }
+        >
+        <div className={cn(notificationsSectionX, 'space-y-3 pt-4 pb-10 sm:pb-10 md:pb-9')}>
           <div
             className={cn(
               'rounded-lg border border-border bg-muted/20 p-3 sm:p-4',
@@ -1069,9 +1566,6 @@ export function NotificationsSettingsSection({
             <div className={cn(notificationsRowGridClass, 'items-center')}>
               <div className="min-w-0">
                 <div className="text-sm font-semibold">All notifications</div>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Turn all notifications on or off.
-                </p>
               </div>
               <div className={notificationsSwitchColClass}>
                 <Switch
@@ -1091,286 +1585,121 @@ export function NotificationsSettingsSection({
               </div>
             </div>
           </div>
-          {!prefs.email_enabled ? (
-            <p className="text-xs text-amber-600 dark:text-amber-500">
-              Turn on the Email toggle in the All notifications row to change individual email options.
-            </p>
-          ) : null}
-          {!prefs.inapp_enabled ? (
-            <p className="text-xs text-amber-600 dark:text-amber-500">
-              Turn on the In-app toggle in the All notifications row to change individual in-app options.
-            </p>
-          ) : null}
+        </div>
 
-          <ChannelPair
-            label="Product updates and market highlights"
-            description="Friday email section; in-app recap can include it when both are on."
-            inAppChecked={prefs.weekly_product_updates_inapp}
-            emailChecked={prefs.weekly_product_updates_email}
-            onInApp={(v) => void savePrefs({ weekly_product_updates_inapp: v })}
-            onEmail={(v) => void savePrefs({ weekly_product_updates_email: v })}
-            disableEmail={disableEmailCol}
-            disableInApp={disableInAppCol}
-          />
-          <ChannelPair
-            label="Weekly portfolio summary"
-            description="Week-over-week change in email; in-app recap can count portfolio activity when on."
-            inAppChecked={prefs.weekly_portfolio_summary_inapp}
-            emailChecked={prefs.weekly_portfolio_summary_email}
-            onInApp={(v) => void savePrefs({ weekly_portfolio_summary_inapp: v })}
-            onEmail={(v) => void savePrefs({ weekly_portfolio_summary_email: v })}
-            disableEmail={disableEmailCol}
-            disableInApp={disableInAppCol}
-          />
-          <ChannelPair
-            label="Followed-portfolio summaries"
-            inAppChecked={prefs.weekly_per_portfolio_inapp}
-            emailChecked={prefs.weekly_per_portfolio_email}
-            onInApp={(v) => void savePrefs({ weekly_per_portfolio_inapp: v })}
-            onEmail={(v) => void savePrefs({ weekly_per_portfolio_email: v })}
-            disableEmail={disableEmailCol}
-            disableInApp={disableInAppCol}
-          />
-          <ChannelPair
-            label="Tracked stock rating changes (default model)"
-            description="Weekly email summary of bucket changes; in-app recap can count rating changes when on."
-            inAppChecked={prefs.weekly_tracked_stocks_inapp}
-            emailChecked={prefs.weekly_tracked_stocks_email}
-            onInApp={(v) => void savePrefs({ weekly_tracked_stocks_inapp: v })}
-            onEmail={(v) => void savePrefs({ weekly_tracked_stocks_email: v })}
-            disableEmail={disableEmailCol}
-            disableInApp={disableInAppCol}
-          />
-
-          <div className="pt-2">
-            <p className="text-sm font-medium">General</p>
-            <ChannelPair
-              label="Weekly digest (Friday)"
-              description="Legacy digest email plus the short Friday summary row in your notification inbox."
-              inAppChecked={prefs.weekly_digest_inapp}
-              emailChecked={prefs.weekly_digest_email}
-              onInApp={(v) => void savePrefs({ weekly_digest_inapp: v })}
-              onEmail={(v) => void savePrefs({ weekly_digest_email: v })}
-              disableEmail={disableEmailCol}
-              disableInApp={disableInAppCol}
-            />
+        <div
+          className={cn(
+            notificationsSectionX,
+            'border-t border-border space-y-3',
+            notificationsSectionAroundDivider
+          )}
+        >
+          <div className={cn(notificationsRowGridClass, 'items-start py-2.5')}>
+            <div className="min-w-0">
+              <p className="text-sm font-medium">Account activity</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Security, billing, and account notices.
+              </p>
+            </div>
+            <div className={notificationsSwitchColClass}>
+              {switchWithOptionalDisabledTooltip(
+                <Switch
+                  checked
+                  disabled
+                  onCheckedChange={() => {}}
+                  aria-label="Email for account activity"
+                />,
+                true,
+                'Required notice'
+              )}
+            </div>
+            <div className={notificationsSwitchColClass}>
+              {switchWithOptionalDisabledTooltip(
+                <Switch
+                  checked
+                  disabled
+                  onCheckedChange={() => {}}
+                  aria-label="In-app for account activity"
+                />,
+                true,
+                'Required notice'
+              )}
+            </div>
           </div>
         </div>
 
-        <div className={cn(notificationsSectionX, 'border-t border-border py-4 space-y-3')}>
-          <div>
-            <p className="text-sm font-medium">Stocks — AI rating changes</p>
-            <p className="text-xs text-muted-foreground mt-0.5">{stocksIntro}</p>
-          </div>
-            <div ref={stockSearchComboAnchorRef} className="relative w-full max-w-md">
-              <Search
-                className="pointer-events-none absolute left-2.5 top-1/2 z-[1] size-3.5 -translate-y-1/2 text-muted-foreground"
-                aria-hidden
-              />
-              <Input
-                ref={stockSearchInputRef}
-                role="combobox"
-                aria-expanded={stockSearchListOpen}
-                aria-controls={stockSearchListOpen ? NOTIFICATIONS_STOCK_SEARCH_LISTBOX_ID : undefined}
-                aria-autocomplete="list"
-                aria-activedescendant={
-                  stockSearchListOpen && stockSearchActiveIndex >= 0
-                    ? `notifications-stock-search-option-${stockSearchActiveIndex}`
-                    : undefined
-                }
-                value={stockQuery}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setStockQuery(v);
-                  setStockSearchActiveIndex(-1);
-                  openStockSearchDropdown(v);
-                }}
-                onKeyDown={handleStockSearchKeyDown}
-                onFocus={() => {
-                  if (hasStockSearchMatches) {
-                    openStockSearchDropdown(stockQuery);
-                  }
-                }}
-                onBlur={() => {
-                  cancelStockSearchBlur();
-                  stockSearchBlurTimeoutRef.current = window.setTimeout(() => {
-                    setStockSearchActiveIndex(-1);
-                    setStockSearchDropdownActive(false);
-                    stockSearchBlurTimeoutRef.current = null;
-                  }, 200);
-                }}
-                placeholder="Search symbol or company…"
-                className={cn('h-9 pl-8 text-sm', stockQuery ? 'pr-9' : '')}
-                aria-label="Search stocks to track"
-              />
-              {stockQuery ? (
-                <button
-                  type="button"
-                  aria-label="Clear search"
-                  className="absolute right-1.5 top-1/2 z-[1] inline-flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => {
-                    clearStockSearch();
-                    stockSearchInputRef.current?.focus();
-                  }}
-                >
-                  <X className="size-3.5 shrink-0" aria-hidden />
-                </button>
-              ) : null}
-              {stockSearchListOpen &&
-                stockSearchDropdownRect &&
-                typeof document !== 'undefined' &&
-                createPortal(
-                  <div
-                    className="pointer-events-auto fixed z-[10000] text-left"
-                    style={{
-                      top: stockSearchDropdownRect.top,
-                      left: stockSearchDropdownRect.left,
-                      width: stockSearchDropdownRect.width,
-                    }}
-                  >
-                    <div
-                      id={NOTIFICATIONS_STOCK_SEARCH_LISTBOX_ID}
-                      role="listbox"
-                      aria-label="Stock matches"
-                      className="max-h-[14rem] overflow-y-auto rounded-md border bg-popover p-1.5 text-sm shadow-md [scrollbar-color:hsl(var(--border))_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-2"
-                    >
-                      {searchResults.map((s, index) => {
-                        const locked = isFreeTier && s.isPremium;
-                        const disabledPick = Boolean(addingSymbol) || (locked && !hasPaidStockAccess);
-                        return (
-                          <button
-                            key={`${s.symbol}-${s.id ?? index}`}
-                            id={`notifications-stock-search-option-${index}`}
-                            type="button"
-                            role="option"
-                            aria-selected={stockSearchActiveIndex === index}
-                            disabled={disabledPick}
-                            className={cn(
-                              'flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors',
-                              stockSearchActiveIndex === index
-                                ? 'bg-muted/60 dark:bg-muted/50'
-                                : 'hover:bg-muted/45 dark:hover:bg-muted/35',
-                              disabledPick && 'cursor-not-allowed opacity-60'
-                            )}
-                            onMouseEnter={() => setStockSearchActiveIndex(index)}
-                            onMouseDown={(e) => e.preventDefault()}
-                            onClick={() => {
-                              if (disabledPick) return;
-                              cancelStockSearchBlur();
-                              closeStockSearchDropdown();
-                              void addStock(s);
-                            }}
-                          >
-                            <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
-                              <span className="shrink-0 font-medium tabular-nums">{s.symbol}</span>
-                              <span className="shrink-0 text-muted-foreground" aria-hidden>
-                                ·
-                              </span>
-                              <span className="min-w-0 truncate text-muted-foreground">{s.name}</span>
-                            </span>
-                            {locked ? (
-                              <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-trader-blue/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-trader-blue">
-                                <Lock className="size-2.5" aria-hidden />
-                                Premium
-                              </span>
-                            ) : null}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>,
-                  document.body
-                )}
+        <div
+          className={cn(
+            notificationsSectionX,
+            'border-t border-border space-y-3',
+            notificationsSectionAroundDivider
+          )}
+        >
+          <div className={cn(notificationsRowGridClass, 'items-start py-2.5')}>
+            <div className="min-w-0">
+              <p className="text-sm font-medium">Product updates</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {`New feature and strategy model releases (you don't want to miss these).`}
+              </p>
             </div>
-
-            {tracked.length === 0 ? (
-              <p className="text-xs text-muted-foreground">No tracked stocks yet.</p>
-            ) : (
-              <div className="space-y-1 rounded-lg border bg-muted/15 p-2">
-                <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-x-1.5 gap-y-0.5 px-0.5 pb-1 text-[10px] font-medium uppercase leading-tight tracking-wide text-muted-foreground sm:gap-x-2 sm:px-1 sm:text-[11px]">
-                  <span />
-                  <span className={notificationsSwitchColClass} aria-hidden />
-                  <span className={`${notificationsSwitchColClass} text-center`}>Email</span>
-                  <span className={`${notificationsSwitchColClass} text-center`}>In-app</span>
-                </div>
-                {tracked.map((t) => {
-                  const lockedRow = isFreeTier && t.is_premium_stock;
-                  const rowDisabled = Boolean(lockedRow);
-                  return (
-                    <div
-                      key={t.stock_id}
-                      className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-x-1.5 gap-y-0.5 items-center py-1.5 border-t first:border-t-0 sm:gap-x-2"
-                    >
-                      <div className="min-w-0 flex items-center gap-1.5">
-                        {lockedRow ? (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Lock className="size-3.5 shrink-0 text-muted-foreground" />
-                            </TooltipTrigger>
-                            <TooltipContent>Requires Supporter+ to enable alerts on this symbol.</TooltipContent>
-                          </Tooltip>
-                        ) : null}
-                        <div className="min-w-0">
-                          <div className="text-sm font-medium truncate">{t.symbol}</div>
-                          {t.company_name ? (
-                            <div className="text-[11px] text-muted-foreground truncate">{t.company_name}</div>
-                          ) : null}
-                        </div>
-                      </div>
-                      <div className={notificationsSwitchColClass}>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="size-8 shrink-0 text-muted-foreground hover:text-destructive"
-                          aria-label={`Remove ${t.symbol}`}
-                          onClick={() => void removeStock(t.stock_id)}
-                        >
-                          <Trash2 className="size-3.5" />
-                        </Button>
-                      </div>
-                      <div className={notificationsSwitchColClass}>
-                        <Switch
-                          checked={t.notify_rating_email}
-                          disabled={rowDisabled || disableEmailCol}
-                          onCheckedChange={(v) => void patchStock(t.stock_id, { notifyRatingEmail: v })}
-                          aria-label={`Email for ${t.symbol}`}
-                        />
-                      </div>
-                      <div className={notificationsSwitchColClass}>
-                        <Switch
-                          checked={t.notify_rating_inapp}
-                          disabled={rowDisabled || disableInAppCol}
-                          onCheckedChange={(v) => void patchStock(t.stock_id, { notifyRatingInapp: v })}
-                          aria-label={`In-app for ${t.symbol}`}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+            <div className={notificationsSwitchColClass}>
+              <Switch
+                checked={prefs.weekly_product_updates_email}
+                disabled={disableEmailCol}
+                onCheckedChange={(v) => void savePrefs({ weekly_product_updates_email: v })}
+                aria-label="Email for product updates"
+              />
+            </div>
+            <div className={notificationsSwitchColClass}>
+              {switchWithOptionalDisabledTooltip(
+                <Switch
+                  checked
+                  disabled
+                  onCheckedChange={() => {}}
+                  aria-label="In-app for product updates"
+                />,
+                true,
+                "Making sure you won't miss the good stuff!"
+              )}
+            </div>
           </div>
+        </div>
 
-          <div className={cn(notificationsSectionX, 'border-t border-border py-4 space-y-3')}>
+        <div
+          className={cn(
+            notificationsSectionX,
+            'border-t border-border space-y-3',
+            notificationsSectionAroundDivider
+          )}
+        >
+          <div className="space-y-3">
+            {isFreeTier ? (
+              <p className="text-xs text-muted-foreground">
+                Followed-portfolio toggles require{' '}
+                <Link href="/pricing" className="font-medium text-foreground underline-offset-2 hover:underline">
+                  Supporter or Outperformer
+                </Link>
+                . On the free plan you still get account activity, product updates, stock updates for included tickers,
+                and strategy model updates.
+              </p>
+            ) : null}
             {profiles.length === 0 ? (
               <>
                 <div>
-                  <p className="text-sm font-medium">Followed portfolios</p>
+                  <p className="text-sm font-medium">Your Portfolios</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Rebalances, entries/exits, and price milestones.
+                    Rebalances, entries/exits, price milestones.
                   </p>
                 </div>
-                <p className="text-xs text-muted-foreground">No followed portfolios.</p>
+                <p className="text-xs text-muted-foreground">None followed.</p>
               </>
             ) : (
               <div className="space-y-3">
                 <div className="flex flex-nowrap items-end justify-between gap-3">
                   <div className="min-w-0 flex-1 pr-1">
-                    <p className="text-sm font-medium">Followed portfolios</p>
+                    <p className="text-sm font-medium">Your Portfolios</p>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      Rebalances, entries/exits, and price milestones.
+                      Rebalances, entries/exits, price milestones.
                     </p>
                   </div>
                   <div className="flex w-[min(18rem,46vw)] shrink-0 flex-col items-end gap-1.5 sm:w-auto sm:min-w-[12rem] sm:max-w-md">
@@ -1442,15 +1771,37 @@ export function NotificationsSettingsSection({
                   {profilesForSelectedModel.length === 0 ? (
                     <p className="py-3 text-xs text-muted-foreground">No portfolios for this model.</p>
                   ) : (
-                    profilesForSelectedModel.map((p) => (
+                    <>
+                      <div
+                        className={cn(
+                          notificationsRowGridClass,
+                          'px-0.5 pb-1 text-[10px] font-medium uppercase leading-tight tracking-wide text-muted-foreground sm:px-1 sm:text-[11px]'
+                        )}
+                      >
+                        <span />
+                        <span className={`${notificationsSwitchColClass} text-center`}>Email</span>
+                        <span className={`${notificationsSwitchColClass} text-center`}>In-app</span>
+                      </div>
+                      {profilesForSelectedModel.map((p) => (
                       <ChannelPair
                         key={p.id}
+                        switchJustify="end"
                         label={
-                          <span className="truncate">
-                            {p.portfolio_config?.label?.trim()
-                              ? p.portfolio_config.label
-                              : 'Followed portfolio'}
-                          </span>
+                          <Link
+                            href={hrefYourPortfolio(p.id)}
+                            prefetch
+                            className="group inline-flex min-w-0 max-w-full items-center gap-1.5 text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                          >
+                            <span className="min-w-0 truncate">
+                              {p.portfolio_config?.label?.trim()
+                                ? p.portfolio_config.label
+                                : 'Followed portfolio'}
+                            </span>
+                            <ArrowRight
+                              className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100"
+                              aria-hidden
+                            />
+                          </Link>
                         }
                         emailChecked={isPortfolioWeeklyEmailOn(p)}
                         inAppChecked={isPortfolioInappTrioOn(p)}
@@ -1462,34 +1813,327 @@ export function NotificationsSettingsSection({
                             notifyEntriesExitsInapp: v,
                           })
                         }
-                        disableEmail={disableEmailCol}
-                        disableInApp={disableInAppCol}
+                        disableEmail={disableEmailCol || isFreeTier}
+                        disableInApp={disableInAppCol || isFreeTier}
+                        emailTooltipWhenDisabled={
+                          isFreeTier
+                            ? 'Upgrade to Supporter or Outperformer for followed-portfolio email alerts.'
+                            : undefined
+                        }
+                        inAppTooltipWhenDisabled={
+                          isFreeTier
+                            ? 'Upgrade to Supporter or Outperformer for followed-portfolio in-app alerts.'
+                            : undefined
+                        }
                       />
-                    ))
+                    ))}
+                    </>
                   )}
                 </div>
               </div>
             )}
           </div>
+        </div>
 
-          {subs.length > 0 ? (
-            <div className={cn(notificationsSectionX, 'py-4 space-y-2 border-t bg-muted/5')}>
-              <p className="text-xs font-medium text-muted-foreground">Model subscriptions (from strategy pages)</p>
-              <ul className="space-y-1 text-xs text-muted-foreground">
-                {subs.map((s) => {
-                  const meta = firstModel(s.strategy_models);
+        <div
+        className={cn(
+          notificationsSectionX,
+          'border-t border-border space-y-3',
+          notificationsSectionAroundDivider
+        )}
+      >
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between md:gap-3">
+            <div className="min-w-0 md:max-w-[min(100%,28rem)]">
+              <p className="text-sm font-medium">Stock Alerts</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{stockSectionSub}</p>
+            </div>
+            <div
+              ref={stockSearchComboAnchorRef}
+              className="relative w-full max-w-md shrink-0 md:ml-auto md:max-w-[17rem]"
+            >
+              <Search
+                className="pointer-events-none absolute left-2.5 top-1/2 z-[1] size-3.5 -translate-y-1/2 text-muted-foreground"
+                aria-hidden
+              />
+              <Input
+                ref={stockSearchInputRef}
+                role="combobox"
+                aria-expanded={stockSearchListOpen}
+                aria-controls={stockSearchListOpen ? NOTIFICATIONS_STOCK_SEARCH_LISTBOX_ID : undefined}
+                aria-autocomplete="list"
+                aria-activedescendant={
+                  stockSearchListOpen && stockSearchActiveIndex >= 0
+                    ? `notifications-stock-search-option-${stockSearchActiveIndex}`
+                    : undefined
+                }
+                value={stockQuery}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setStockQuery(v);
+                  setStockSearchActiveIndex(-1);
+                  openStockSearchDropdown(v);
+                }}
+                onKeyDown={handleStockSearchKeyDown}
+                onFocus={() => {
+                  if (hasStockSearchMatches) {
+                    openStockSearchDropdown(stockQuery);
+                  }
+                }}
+                onBlur={() => {
+                  cancelStockSearchBlur();
+                  stockSearchBlurTimeoutRef.current = window.setTimeout(() => {
+                    setStockSearchActiveIndex(-1);
+                    setStockSearchDropdownActive(false);
+                    stockSearchBlurTimeoutRef.current = null;
+                  }, 200);
+                }}
+                placeholder="Search symbol or company"
+                className={cn('h-9 pl-8 text-sm', stockQuery ? 'pr-9' : '')}
+                aria-label="Search stocks to track"
+              />
+              {stockQuery ? (
+                <button
+                  type="button"
+                  aria-label="Clear search"
+                  className="absolute right-1.5 top-1/2 z-[1] inline-flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    clearStockSearch();
+                    stockSearchInputRef.current?.focus();
+                  }}
+                >
+                  <X className="size-3.5 shrink-0" aria-hidden />
+                </button>
+              ) : null}
+              {stockSearchListOpen &&
+                stockSearchDropdownRect &&
+                typeof document !== 'undefined' &&
+                createPortal(
+                  <div
+                    className="pointer-events-auto fixed z-[10000] text-left"
+                    style={{
+                      top: stockSearchDropdownRect.top,
+                      left: stockSearchDropdownRect.left,
+                      width: stockSearchDropdownRect.width,
+                    }}
+                  >
+                    <div
+                      id={NOTIFICATIONS_STOCK_SEARCH_LISTBOX_ID}
+                      role="listbox"
+                      aria-label="Stock matches"
+                      className="max-h-[min(22rem,70vh)] overflow-y-auto rounded-md border bg-popover p-1.5 text-sm shadow-md [scrollbar-color:hsl(var(--border))_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-2"
+                    >
+                      {searchResults.map((s, index) => {
+                        const lockedPremium = isFreeTier && s.isPremium;
+                        const disabledPick =
+                          Boolean(addingSymbol) ||
+                          (lockedPremium && !hasPaidStockAccess) ||
+                          atPaidTrackedStockCap;
+                        return (
+                          <button
+                            key={`${s.symbol}-${s.id ?? index}`}
+                            id={`notifications-stock-search-option-${index}`}
+                            type="button"
+                            role="option"
+                            aria-selected={stockSearchActiveIndex === index}
+                            disabled={disabledPick}
+                            className={cn(
+                              'flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors',
+                              stockSearchActiveIndex === index
+                                ? 'bg-muted/60 dark:bg-muted/50'
+                                : 'hover:bg-muted/45 dark:hover:bg-muted/35',
+                              disabledPick && 'cursor-not-allowed opacity-60'
+                            )}
+                            onMouseEnter={() => setStockSearchActiveIndex(index)}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              if (disabledPick) return;
+                              cancelStockSearchBlur();
+                              closeStockSearchDropdown();
+                              void addStock(s);
+                            }}
+                          >
+                            <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
+                              <span className="shrink-0 font-medium tabular-nums">{s.symbol}</span>
+                              <span className="shrink-0 text-muted-foreground" aria-hidden>
+                                ·
+                              </span>
+                              <span className="min-w-0 truncate text-muted-foreground">{s.name}</span>
+                            </span>
+                            {lockedPremium ? (
+                              <Badge
+                                variant="secondary"
+                                className="shrink-0 gap-0.5 border border-border/80 px-1.5 py-0 text-[10px] font-medium normal-case text-muted-foreground"
+                              >
+                                <Lock className="size-2.5" aria-hidden />
+                                Premium
+                              </Badge>
+                            ) : null}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>,
+                  document.body
+                )}
+            </div>
+          </div>
+
+            {tracked.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No tracked stocks.</p>
+            ) : (
+              <div className="space-y-1 rounded-lg border bg-muted/15 p-2">
+                <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-x-1.5 gap-y-0.5 px-0.5 pb-1 text-[10px] font-medium uppercase leading-tight tracking-wide text-muted-foreground sm:gap-x-2 sm:px-1 sm:text-[11px]">
+                  <span />
+                  <span className={notificationsSwitchColClass} aria-hidden />
+                  <span className={`${notificationsSwitchColClass} text-center`}>Email</span>
+                  <span className={`${notificationsSwitchColClass} text-center`}>In-app</span>
+                </div>
+                {tracked.map((t) => {
+                  const lockedRow = isFreeTier && t.is_premium_stock;
+                  const rowDisabled = Boolean(lockedRow);
                   return (
-                    <li key={s.strategy_id} className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <span className="font-medium text-foreground">{meta?.name ?? 'Model'}</span>
-                      <span>
-                        email {s.email_enabled ? 'on' : 'off'} · in-app {s.inapp_enabled ? 'on' : 'off'}
-                      </span>
-                    </li>
+                    <div
+                      key={t.stock_id}
+                      className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-x-1.5 gap-y-0.5 items-center py-1.5 border-t first:border-t-0 sm:gap-x-2"
+                    >
+                      <div className="min-w-0 flex items-center gap-1.5">
+                        {lockedRow ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Lock className="size-3.5 shrink-0 text-muted-foreground" />
+                            </TooltipTrigger>
+                            <TooltipContent>Supporter+ required for this symbol.</TooltipContent>
+                          </Tooltip>
+                        ) : null}
+                        <Link
+                          href={hrefStockSymbol(t.symbol)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          prefetch={false}
+                          aria-label={`${t.symbol} stock page (opens in new tab)`}
+                          className="group block min-w-0 text-foreground underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        >
+                          <div className="flex min-w-0 items-center gap-1">
+                            <span className="min-w-0 truncate text-sm font-medium">{t.symbol}</span>
+                            <ArrowUpRight
+                              className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-[opacity,transform] duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:opacity-100 group-focus-visible:translate-x-0.5 group-focus-visible:-translate-y-0.5 group-focus-visible:opacity-100"
+                              aria-hidden
+                            />
+                          </div>
+                          {t.company_name ? (
+                            <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                              {t.company_name}
+                            </div>
+                          ) : null}
+                        </Link>
+                      </div>
+                      <div className={notificationsSwitchColClass}>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 shrink-0 text-muted-foreground hover:text-destructive"
+                          aria-label={`Remove ${t.symbol}`}
+                          onClick={() => void removeStock(t.stock_id)}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </div>
+                      <div className={notificationsSwitchColClass}>
+                        <Switch
+                          checked={t.notify_rating_email}
+                          disabled={rowDisabled || disableEmailCol}
+                          onCheckedChange={(v) => void patchStock(t.stock_id, { notifyRatingEmail: v })}
+                          aria-label={`Email for ${t.symbol}`}
+                        />
+                      </div>
+                      <div className={notificationsSwitchColClass}>
+                        <Switch
+                          checked={t.notify_rating_inapp}
+                          disabled={rowDisabled || disableInAppCol}
+                          onCheckedChange={(v) => void patchStock(t.stock_id, { notifyRatingInapp: v })}
+                          aria-label={`In-app for ${t.symbol}`}
+                        />
+                      </div>
+                    </div>
                   );
                 })}
-              </ul>
+              </div>
+            )}
+          </div>
+
+        <div
+          className={cn(
+            notificationsSectionX,
+            'border-t border-border space-y-3',
+            notificationsSectionAroundDivider
+          )}
+        >
+          <div>
+            <p className="text-sm font-medium">Strategy model updates</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Model stats, analytics, and research digests.
+            </p>
+          </div>
+          {strategyCatalog.length > 0 ? (
+            <div className="space-y-1 rounded-lg border bg-muted/15 p-2">
+              <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-1.5 gap-y-0.5 px-0.5 pb-1 text-[10px] font-medium uppercase leading-tight tracking-wide text-muted-foreground sm:gap-x-2 sm:px-1 sm:text-[11px]">
+                <span>Model</span>
+                <span className={`${notificationsSwitchColClass} text-center`}>Email</span>
+                <span className={`${notificationsSwitchColClass} text-center`}>In-app</span>
+              </div>
+              {strategyCatalog.map((m) => {
+                const sub = subs.find((s) => s.strategy_id === m.strategy_id);
+                const emailOn = Boolean(sub?.email_enabled);
+                const inappOn = Boolean(sub?.inapp_enabled);
+                return (
+                  <div
+                    key={m.strategy_id}
+                    className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-1.5 gap-y-0.5 items-center border-t border-border/80 py-2 first:border-t-0 sm:gap-x-2"
+                  >
+                    <div className="min-w-0 flex flex-wrap items-center gap-1.5 pl-0.5">
+                      <div className="min-w-0">
+                        {m.slug ? (
+                          <Link
+                            href={`/strategy-models/${encodeURIComponent(m.slug)}`}
+                            className="text-sm font-medium hover:underline"
+                          >
+                            {m.name}
+                          </Link>
+                        ) : (
+                          <div className="text-sm font-medium truncate">{m.name}</div>
+                        )}
+                      </div>
+                      {m.is_default ? (
+                        <Badge className="shrink-0 border-0 bg-trader-blue px-1.5 py-0 text-[10px] text-white">
+                          Top
+                        </Badge>
+                      ) : null}
+                    </div>
+                    <div className={notificationsSwitchColClass}>
+                      <Switch
+                        checked={emailOn}
+                        disabled={disableEmailCol}
+                        onCheckedChange={(v) => void patchModelSub(m.strategy_id, v, inappOn)}
+                        aria-label={`Email for ${m.name}`}
+                      />
+                    </div>
+                    <div className={notificationsSwitchColClass}>
+                      <Switch
+                        checked={inappOn}
+                        disabled={disableInAppCol}
+                        onCheckedChange={(v) => void patchModelSub(m.strategy_id, emailOn, v)}
+                        aria-label={`In-app for ${m.name}`}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           ) : null}
+        </div>
+      </div>
       </div>
 
       <SubscriptionUpgradeDialog

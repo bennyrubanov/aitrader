@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { getStrategiesList } from '@/lib/platform-performance-payload';
 import { createClient } from '@/utils/supabase/server';
 
 export const runtime = 'nodejs';
@@ -12,10 +13,13 @@ export async function GET() {
   } = await supabase.auth.getUser();
   if (!user) return unauthorized();
 
-  const { data: subs, error } = await supabase
-    .from('user_model_subscriptions')
-    .select('id, strategy_id, notify_rating_changes, email_enabled, inapp_enabled')
-    .eq('user_id', user.id);
+  const [{ data: subs, error }, strategies] = await Promise.all([
+    supabase
+      .from('user_model_subscriptions')
+      .select('id, strategy_id, notify_rating_changes, email_enabled, inapp_enabled')
+      .eq('user_id', user.id),
+    getStrategiesList(),
+  ]);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -38,7 +42,14 @@ export async function GET() {
     return { ...row, strategy_models: m ? { slug: m.slug, name: m.name } : null };
   });
 
-  return NextResponse.json({ subscriptions: merged });
+  const strategyCatalog = strategies.map((s) => ({
+    strategy_id: s.id,
+    slug: s.slug,
+    name: s.name,
+    is_default: s.isDefault,
+  }));
+
+  return NextResponse.json({ subscriptions: merged, strategies: strategyCatalog });
 }
 
 export async function POST(req: Request) {

@@ -11,7 +11,7 @@ import {
   type ReactNode,
 } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { ArrowLeft, Bell, Loader2, Settings } from 'lucide-react';
+import { ArrowLeft, Bell, ChevronDown, ChevronRight, Loader2, Settings } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import {
@@ -31,7 +31,14 @@ import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/s
 import { useAuthState } from '@/components/auth/auth-state-context';
 import { NotificationsSettingsSection } from '@/components/platform/notifications-settings-section';
 import { requestPlatformPostOnboardingTourAgain } from '@/lib/platform-post-onboarding-tour';
-import { partitionNotificationsByRecency } from '@/lib/platform-notifications-sections';
+import {
+  groupNotificationsIntoThreads,
+  partitionThreadsByRecency,
+  threadMatchesFilter,
+  type NotificationThreadGroup,
+} from '@/lib/notifications/inbox-threads';
+import type { InboxFilterCategory } from '@/lib/notifications/notification-catalog';
+import { Badge } from '@/components/ui/badge';
 import {
   invalidateNotificationSettingsCache,
   prewarmNotificationSettings,
@@ -49,30 +56,16 @@ type NotifRow = {
   created_at: string;
 };
 
-type FilterId = 'all' | 'portfolio' | 'rebalance' | 'model';
+type FilterId = 'all' | InboxFilterCategory;
 
 const FILTER_CHIPS: { id: FilterId; label: string }[] = [
   { id: 'all', label: 'All' },
-  { id: 'portfolio', label: 'Portfolio alerts' },
-  { id: 'rebalance', label: 'Rebalance actions' },
-  { id: 'model', label: 'Model alerts' },
+  { id: 'account', label: 'Account' },
+  { id: 'product', label: 'Product' },
+  { id: 'portfolio', label: 'Portfolio' },
+  { id: 'stock', label: 'Stock' },
+  { id: 'model_performance', label: 'Strategy models' },
 ];
-
-function matchesFilter(row: NotifRow, filter: FilterId): boolean {
-  if (filter === 'all') return true;
-  if (filter === 'rebalance') return row.type === 'rebalance_action';
-  if (filter === 'model') return row.type === 'stock_rating_change' || row.type === 'model_ratings_ready';
-  if (filter === 'portfolio') {
-    return (
-      row.type === 'weekly_digest' ||
-      row.type === 'system' ||
-      row.type === 'portfolio_price_move' ||
-      row.type === 'portfolio_entries_exits' ||
-      row.type === 'stock_rating_weekly'
-    );
-  }
-  return true;
-}
 
 function isWelcomeNotification(n: NotifRow): boolean {
   return n.data?.welcome === '1' || (n.type === 'system' && n.title === 'Welcome to AI Trader');
@@ -119,8 +112,10 @@ function NotificationsPanelInner({
   setFilter,
   loading,
   items,
-  filteredItems,
+  filteredThreads,
   recentlyOpenedUnreadIds,
+  expandedThreadKeys,
+  onToggleThreadExpand,
   onRowActivate,
   onOpenSettingsPage,
   onPrefetchSettingsPage,
@@ -132,48 +127,98 @@ function NotificationsPanelInner({
   setFilter: (f: FilterId) => void;
   loading: boolean;
   items: NotifRow[];
-  filteredItems: NotifRow[];
+  filteredThreads: NotificationThreadGroup[];
   recentlyOpenedUnreadIds: ReadonlySet<string>;
-  onRowActivate: (n: NotifRow) => void | Promise<void>;
+  expandedThreadKeys: ReadonlySet<string>;
+  onToggleThreadExpand: (threadKey: string) => void;
+  onRowActivate: (g: NotificationThreadGroup) => void | Promise<void>;
   onOpenSettingsPage: (variant: 'sheet' | 'menu') => void;
   onPrefetchSettingsPage: () => void;
 }) {
   const sheetListHeader = variant === 'sheet' && panelView === 'list';
-  const { last7Days, earlier } = partitionNotificationsByRecency(filteredItems);
+  const { last7Days, earlier } = partitionThreadsByRecency(filteredThreads);
 
-  const rowButton = (n: NotifRow) => {
-    const showRecentUnreadChrome = recentlyOpenedUnreadIds.has(n.id) || n.read_at == null;
+  const threadRow = (g: NotificationThreadGroup) => {
+    const n = g.latest;
+    const showRecentUnreadChrome =
+      g.rows.some((r) => recentlyOpenedUnreadIds.has(r.id)) || g.unreadInThread > 0;
+    const expanded = expandedThreadKeys.has(g.key);
+    const canExpand = g.rows.length > 1;
     return (
-    <li key={n.id}>
-      <button
-        type="button"
-        className={cn(
-          'flex w-full flex-col items-start gap-0.5 rounded-lg border border-transparent px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted/70',
-          showRecentUnreadChrome && 'border-border/60 bg-muted/40'
-        )}
-        onClick={() => void onRowActivate(n)}
-      >
-        <span className="flex w-full items-start justify-between gap-3">
-          <span className="font-medium leading-snug">{n.title}</span>
-          <span className="shrink-0 text-[11px] text-muted-foreground">
-            {formatDistanceToNow(new Date(n.created_at), { addSuffix: true })}
-          </span>
-        </span>
-        {n.body?.trim() ? (
-          <span
-            className="w-full whitespace-pre-wrap text-xs leading-5 text-muted-foreground"
-            style={{
-              display: '-webkit-box',
-              WebkitLineClamp: 5,
-              WebkitBoxOrient: 'vertical',
-              overflow: 'hidden',
-            }}
+      <li key={g.key} className="space-y-0">
+        <div className="flex w-full items-stretch gap-0.5 rounded-lg border border-transparent px-1 py-0.5 hover:bg-muted/70">
+          {canExpand ? (
+            <button
+              type="button"
+              className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/80"
+              aria-expanded={expanded}
+              aria-label={expanded ? 'Collapse thread' : 'Expand thread'}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleThreadExpand(g.key);
+              }}
+            >
+              {expanded ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+            </button>
+          ) : (
+            <span className="w-2 shrink-0" aria-hidden />
+          )}
+          <button
+            type="button"
+            className={cn(
+              'flex min-w-0 flex-1 flex-col items-start gap-0.5 rounded-md px-2 py-2 text-left text-sm transition-colors',
+              showRecentUnreadChrome && 'border-border/60 bg-muted/40'
+            )}
+            onClick={() => void onRowActivate(g)}
           >
-            {n.body.trim()}
-          </span>
+            {g.subtitle ? (
+              <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                {g.subtitle}
+              </span>
+            ) : null}
+            <span className="flex w-full items-start justify-between gap-3">
+              <span className="flex min-w-0 items-center gap-2">
+                <span className="font-medium leading-snug">{n.title}</span>
+                {g.rows.length > 1 ? (
+                  <Badge variant="secondary" className="h-5 shrink-0 px-1.5 text-[10px] tabular-nums">
+                    {g.rows.length}
+                  </Badge>
+                ) : null}
+              </span>
+              <span className="shrink-0 text-[11px] text-muted-foreground">
+                {formatDistanceToNow(new Date(n.created_at), { addSuffix: true })}
+              </span>
+            </span>
+            {n.body?.trim() ? (
+              <span
+                className="w-full whitespace-pre-wrap text-xs leading-5 text-muted-foreground"
+                style={{
+                  display: '-webkit-box',
+                  WebkitLineClamp: 5,
+                  WebkitBoxOrient: 'vertical',
+                  overflow: 'hidden',
+                }}
+              >
+                {n.body.trim()}
+              </span>
+            ) : null}
+          </button>
+        </div>
+        {canExpand && expanded ? (
+          <ul className="ml-6 border-l border-border/60 pl-2 pb-1">
+            {g.rows.slice(1).map((child) => (
+              <li key={child.id} className="py-1.5 text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">{child.title}</span>
+                {child.body?.trim() ? (
+                  <span className="mt-0.5 block whitespace-pre-wrap text-[11px] leading-snug">
+                    {child.body.trim()}
+                  </span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
         ) : null}
-      </button>
-    </li>
+      </li>
     );
   };
 
@@ -288,7 +333,7 @@ function NotificationsPanelInner({
               <div className="flex justify-center py-10 text-muted-foreground">
                 <Loader2 className="size-6 animate-spin" />
               </div>
-            ) : filteredItems.length === 0 ? (
+            ) : filteredThreads.length === 0 ? (
               <p className="px-2 py-10 text-center text-sm text-muted-foreground">
                 No notifications in this category.
               </p>
@@ -302,7 +347,7 @@ function NotificationsPanelInner({
                     >
                       Last 7 days
                     </h3>
-                    <ul className="space-y-1">{last7Days.map(rowButton)}</ul>
+                    <ul className="space-y-1">{last7Days.map(threadRow)}</ul>
                   </section>
                 ) : null}
                 {earlier.length > 0 ? (
@@ -313,7 +358,7 @@ function NotificationsPanelInner({
                     >
                       Earlier
                     </h3>
-                    <ul className="space-y-1">{earlier.map(rowButton)}</ul>
+                    <ul className="space-y-1">{earlier.map(threadRow)}</ul>
                   </section>
                 ) : null}
               </div>
@@ -377,6 +422,7 @@ export function NotificationsBell() {
     () => new Set()
   );
   const [filter, setFilter] = useState<FilterId>('all');
+  const [expandedThreadKeys, setExpandedThreadKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [panelView, setPanelView] = useState<'list' | 'settings'>('list');
   const [detail, setDetail] = useState<NotifRow | null>(null);
   const lastLoadedAtRef = useRef<number | null>(null);
@@ -536,8 +582,18 @@ export function NotificationsBell() {
     if (!open) {
       setPanelView('list');
       setFilter('all');
+      setExpandedThreadKeys(new Set());
     }
   }, [open]);
+
+  const toggleThreadExpand = useCallback((threadKey: string) => {
+    setExpandedThreadKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(threadKey)) next.delete(threadKey);
+      else next.add(threadKey);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -601,10 +657,27 @@ export function NotificationsBell() {
     };
   }, [open, inboxOpenEpoch, load, scheduleHighlightTtl, clearRecentlyOpenedUnread]);
 
-  const filteredItems = useMemo(
-    () => items.filter((n) => matchesFilter(n, filter)),
-    [items, filter]
+  const threadGroups = useMemo(() => groupNotificationsIntoThreads(items), [items]);
+  const filteredThreads = useMemo(
+    () => threadGroups.filter((g) => threadMatchesFilter(g, filter)),
+    [threadGroups, filter]
   );
+
+  const markThreadNotificationsRead = useCallback(async (g: NotificationThreadGroup) => {
+    const unread = g.rows.filter((r) => !r.read_at);
+    if (!unread.length) return;
+    await Promise.all(unread.map((r) => markNotificationRead(r.id)));
+    const readAt = new Date().toISOString();
+    setItems((prev) =>
+      prev.map((x) => {
+        if (unread.some((u) => u.id === x.id)) {
+          return { ...x, read_at: x.read_at ?? readAt };
+        }
+        return x;
+      })
+    );
+    setUnreadCount((c) => Math.max(0, c - unread.length));
+  }, []);
 
   const handleOpenSettingsPage = useCallback(
     (variant: 'sheet' | 'menu') => {
@@ -624,14 +697,8 @@ export function NotificationsBell() {
   );
 
   const openDetail = useCallback(async (n: NotifRow) => {
-    let next = n;
-    if (!n.read_at) {
-      await markNotificationRead(n.id);
-      const readAt = new Date().toISOString();
-      next = { ...n, read_at: readAt };
-      setItems((prev) => prev.map((x) => (x.id === n.id ? { ...x, read_at: readAt } : x)));
-      setUnreadCount((c) => Math.max(0, c - 1));
-    }
+    const readAt = new Date().toISOString();
+    const next = { ...n, read_at: n.read_at ?? readAt };
     setDetail(next);
     if (isMobile) setOpen(false);
   }, [isMobile]);
@@ -653,7 +720,10 @@ export function NotificationsBell() {
   );
 
   const onRowActivate = useCallback(
-    async (n: NotifRow) => {
+    async (g: NotificationThreadGroup) => {
+      await markThreadNotificationsRead(g);
+      const readAt = new Date().toISOString();
+      const n = { ...g.latest, read_at: g.latest.read_at ?? readAt };
       if (shouldOpenDetailDialog(n)) {
         await openDetail(n);
         return;
@@ -665,7 +735,7 @@ export function NotificationsBell() {
       }
       await openDetail(n);
     },
-    [navigateToHref, openDetail]
+    [markThreadNotificationsRead, navigateToHref, openDetail]
   );
 
   const handleTourAgain = useCallback(() => {
@@ -695,8 +765,10 @@ export function NotificationsBell() {
       setFilter={setFilter}
       loading={loading}
       items={items}
-      filteredItems={filteredItems}
+      filteredThreads={filteredThreads}
       recentlyOpenedUnreadIds={recentlyOpenedUnreadIds}
+      expandedThreadKeys={expandedThreadKeys}
+      onToggleThreadExpand={toggleThreadExpand}
       onRowActivate={onRowActivate}
       onOpenSettingsPage={handleOpenSettingsPage}
       onPrefetchSettingsPage={prefetchSettingsPage}

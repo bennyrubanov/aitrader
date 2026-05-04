@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
+import { invalidateUserPortfolioProfilesList } from '@/components/platform/portfolio-unfollow-toast';
 
 export type PortfolioAlertsInitial = {
   notifyRebalanceInapp: boolean;
@@ -113,6 +114,7 @@ export function PortfolioAlertsDialog({ open, onOpenChange, profileId, initial, 
         throw new Error(j?.error ?? 'Save failed');
       }
       toast({ title: 'Alerts saved' });
+      invalidateUserPortfolioProfilesList();
       onSaved?.();
       onOpenChange(false);
     } catch (e) {

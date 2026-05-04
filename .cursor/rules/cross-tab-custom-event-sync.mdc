@@ -1,0 +1,25 @@
+---
+description: Cross-tab client state sync via window CustomEvent with typed detail and light vs full invalidation. Apply when adding listeners, dispatching after PATCH/mutations, or mirroring this pattern outside portfolio profiles.
+alwaysApply: false
+---
+
+# Cross-tab sync: CustomEvent + typed detail
+
+Use this when **one tab mutates** data that **other open tabs** show (toggles, settings rows, bells). Prefer a **single event name** and a **discriminated `detail`** so listeners can choose **light** vs **heavy** refresh.
+
+## Canonical example (portfolio profiles)
+
+- **Constants + helpers + detail type**: [`src/components/platform/portfolio-unfollow-toast.tsx`](mdc:src/components/platform/portfolio-unfollow-toast.tsx) — `USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT`, `invalidateUserPortfolioProfiles()`, `invalidateUserPortfolioProfilesList()` (`detail: { profilesListOnly: true }`, **no `profileId`**), `invalidateUserPortfolioProfilesEntrySave(...)`.
+- **Shared fetch cache** (invalidate in-memory cache without full clear): [`src/lib/user-portfolio-profiles-client.ts`](mdc:src/lib/user-portfolio-profiles-client.ts) — listener deletes only the default key for light flags (`entrySettingsOnly` / `profilesListOnly`), full path clears all keys.
+- **Listeners** (each chooses work by `detail`): e.g. [`src/components/platform/your-portfolio-client.tsx`](mdc:src/components/platform/your-portfolio-client.tsx) (timeline: light path skips `portfolioTimelineCache.clear()`), [`src/components/platform/platform-overview-client.tsx`](mdc:src/components/platform/platform-overview-client.tsx) (movement: light path only `refreshOverviewProfiles()`, no movement cache nukes / no `profileFetchNonce` bump), [`src/components/platform/notifications-settings-section.tsx`](mdc:src/components/platform/notifications-settings-section.tsx) (narrow refetch of profiles slice only).
+
+## Pattern to copy
+
+1. **Export** a string event name and a **TypeScript `Detail` type** with optional flags (e.g. `profilesListOnly`, `entrySettingsOnly`) — never overload unrelated meanings on one flag.
+2. **Dispatch** `new CustomEvent<YourDetail>(EVENT, { detail: { ... } })` **after successful** server mutation (`typeof window !== 'undefined'` guard for SSR).
+3. **Subscribe** in `useEffect`: `window.addEventListener`, cleanup `removeEventListener`. Handlers should **branch in a fixed order** (e.g. merge patch → light refetch → full invalidate) so flags are mutually exclusive by convention.
+4. **Light vs full**: heavy listeners (large caches, movement tables, forced remount nonces) should **early-return** on the light flag and only refetch the **minimal slice** (or one `GET`); full invalidation clears caches and refetches broadly.
+5. **Same tab**: `CustomEvent` runs **synchronously**; avoid **double GET** by either dispatching **or** calling the refetch directly, not both, unless intentional.
+6. **New surface**: import the helper, dispatch on success, add a listener (or extend an existing one) with the right light/full branch.
+
+For a new domain, prefer a **new event name** (or a new detail flag on an existing event only if the same listeners should react) — do not reuse portfolio event strings for unrelated data.

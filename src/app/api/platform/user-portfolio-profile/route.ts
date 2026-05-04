@@ -365,6 +365,8 @@ export async function PATCH(req: Request) {
   } = await supabase.auth.getUser();
   if (!user) return unauthorized();
 
+  const subscriptionTierForNotify = await loadSubscriptionTierForUser(supabase, user.id);
+
   const body = (await req.json().catch(() => null)) ?? {};
   const now = new Date().toISOString();
   const profileId = typeof body.profileId === 'string' ? body.profileId.trim() : '';
@@ -586,6 +588,28 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: 'profileId is required.' }, { status: 400 });
     }
 
+    if (subscriptionTierForNotify === 'free') {
+      const portfolioNotifyOn =
+        updates.notify_weekly_email === true ||
+        updates.notify_rebalance_inapp === true ||
+        updates.notify_rebalance_email === true ||
+        updates.notify_price_move_inapp === true ||
+        updates.notify_price_move_email === true ||
+        updates.notify_entries_exits_inapp === true ||
+        updates.notify_entries_exits_email === true ||
+        updates.notify_rebalance === true ||
+        updates.notify_holdings_change === true;
+      if (portfolioNotifyOn) {
+        return NextResponse.json(
+          {
+            error:
+              'Portfolio notification alerts are not available on the free plan. Upgrade to Supporter or Outperformer to manage followed-portfolio alerts.',
+          },
+          { status: 403 }
+        );
+      }
+    }
+
     if (updates.is_active === true) {
       const { data: priorRow, error: priorErr } = await supabase
         .from('user_portfolio_profiles')
@@ -601,8 +625,7 @@ export async function PATCH(req: Request) {
       }
       const wasInactive = (priorRow as { is_active: boolean }).is_active === false;
       if (wasInactive) {
-        const subscriptionTierPatch = await loadSubscriptionTierForUser(supabase, user.id);
-        const maxFollowsPatch = getMaxFollowedPortfoliosForTier(subscriptionTierPatch);
+        const maxFollowsPatch = getMaxFollowedPortfoliosForTier(subscriptionTierForNotify);
         const { count: reactivateCount, error: reactivateCountErr } = await supabase
           .from('user_portfolio_profiles')
           .select('id', { count: 'exact', head: true })
@@ -617,7 +640,7 @@ export async function PATCH(req: Request) {
         }
         if ((reactivateCount ?? 0) >= maxFollowsPatch) {
           const { error: limitMsg, code } = followLimitReachedPayload(
-            subscriptionTierPatch,
+            subscriptionTierForNotify,
             maxFollowsPatch
           );
           return NextResponse.json({ error: limitMsg, code }, { status: 409 });

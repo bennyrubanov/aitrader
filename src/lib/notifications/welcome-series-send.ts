@@ -11,6 +11,7 @@ import {
   welcomeSeriesDueAtForStep,
   type WelcomeEmailStep,
 } from '@/lib/notifications/welcome-email-templates';
+import { welcomeStepCatalogId } from '@/lib/notifications/notification-catalog';
 
 function siteBase(): string {
   return process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, '') ?? '';
@@ -22,6 +23,34 @@ function listUnsubscribeHeaders(unsubscribeUrl: string): Record<string, string> 
     'List-Unsubscribe': `<${unsubscribeUrl}>`,
     'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
   };
+}
+
+async function insertOnboardingMilestoneInApp(
+  admin: SupabaseClient,
+  params: {
+    userId: string;
+    catalogId: string;
+    title: string;
+    body: string;
+    extraData?: Record<string, unknown>;
+  }
+): Promise<void> {
+  const threadId = `onboarding:${params.userId}`;
+  const { error } = await admin.from('notifications').insert({
+    user_id: params.userId,
+    type: 'system',
+    title: params.title,
+    body: params.body,
+    data: {
+      catalog_id: params.catalogId,
+      thread_id: threadId,
+      thread_role: 'child',
+      ...params.extraData,
+    },
+  });
+  if (error) {
+    console.error('[welcome] in-app milestone insert', error.message);
+  }
 }
 
 function normalizeTier(raw: string | null | undefined): SubscriptionTier {
@@ -42,7 +71,7 @@ export type WelcomeSeriesProgressRow = {
     full_name: string | null;
     subscription_tier: string | null;
   } | null;
-  user_notification_preferences: { email_enabled: boolean } | null;
+  user_notification_preferences: { email_enabled: boolean; inapp_enabled: boolean } | null;
 };
 
 /**
@@ -122,7 +151,7 @@ export async function runWelcomeSeriesTick(
       next_step_due_at,
       series_anchor_at,
       user_profiles ( email, full_name, subscription_tier ),
-      user_notification_preferences ( email_enabled )
+      user_notification_preferences ( email_enabled, inapp_enabled )
     `
     )
     .is('completed_at', null)
@@ -155,15 +184,7 @@ export async function runWelcomeSeriesTick(
     }
 
     const prefs = row.user_notification_preferences;
-    if (prefs?.email_enabled === false) {
-      summary.skippedEmailDisabled += 1;
-      const defer = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-      await admin
-        .from('user_welcome_email_progress')
-        .update({ next_step_due_at: defer, updated_at: nowIso })
-        .eq('user_id', row.user_id);
-      continue;
-    }
+    const allowWelcomeInApp = prefs?.inapp_enabled !== false;
 
     const currentTier = normalizeTier(row.user_profiles?.subscription_tier ?? undefined);
     const transitionTier = paidTransitionTargetTier(row.locked_tier, currentTier);
@@ -176,6 +197,100 @@ export async function runWelcomeSeriesTick(
     const onboardingUnsubscribeUrl = `${base || ''}/api/platform/notifications/unsubscribe?token=${encodeURIComponent(token)}`;
 
     const firstName = firstNameFromProfile(row.user_profiles?.full_name);
+
+    const emailDisabled = prefs?.email_enabled === false;
+
+    if (emailDisabled) {
+      summary.skippedEmailDisabled += 1;
+      if (!allowWelcomeInApp) {
+        const defer = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+        await admin
+          .from('user_welcome_email_progress')
+          .update({ next_step_due_at: defer, updated_at: nowIso })
+          .eq('user_id', row.user_id);
+        continue;
+      }
+
+      if (transitionTier) {
+        const { subject, text } = buildWelcomePaidTransitionEmail({
+          paidTier: transitionTier,
+          firstName,
+          siteBase: base,
+          settingsUrl,
+          onboardingUnsubscribeUrl,
+        });
+        summary.paidTransitions += 1;
+        summary.sent += 1;
+        const bodyPreview = text.split('\n').slice(0, 4).join('\n').slice(0, 900);
+        await insertOnboardingMilestoneInApp(admin, {
+          userId: row.user_id,
+          catalogId: `onboarding.welcome.paid_transition.${transitionTier}`,
+          title: subject,
+          body: bodyPreview || subject,
+          extraData: { paid_transition: transitionTier },
+        });
+        await admin
+          .from('user_welcome_email_progress')
+          .update({
+            completed_at: nowIso,
+            last_sent_at: nowIso,
+            updated_at: nowIso,
+          })
+          .eq('user_id', row.user_id);
+        continue;
+      }
+
+      const locked = normalizeTier(row.locked_tier);
+      const step = row.next_step as WelcomeEmailStep;
+      if (step < 1 || step > 4) {
+        summary.errors += 1;
+        continue;
+      }
+
+      const { subject, text } = buildWelcomeEmailHtml({
+        tier: locked,
+        step,
+        firstName,
+        siteBase: base,
+        settingsUrl,
+        onboardingUnsubscribeUrl,
+      });
+      summary.sent += 1;
+      const bodyPreview = text.split('\n').slice(0, 4).join('\n').slice(0, 900);
+      await insertOnboardingMilestoneInApp(admin, {
+        userId: row.user_id,
+        catalogId: welcomeStepCatalogId(locked, step),
+        title: subject,
+        body: bodyPreview || subject,
+        extraData: { welcome_step: step, welcome_tier: locked },
+      });
+
+      if (step === 4) {
+        await admin
+          .from('user_welcome_email_progress')
+          .update({
+            completed_at: nowIso,
+            last_sent_at: nowIso,
+            last_sent_step: step,
+            updated_at: nowIso,
+          })
+          .eq('user_id', row.user_id);
+      } else {
+        const nextStep = (step + 1) as WelcomeEmailStep;
+        const nextDue = welcomeSeriesDueAtForStep(row.series_anchor_at, nextStep);
+        await admin
+          .from('user_welcome_email_progress')
+          .update({
+            next_step: nextStep,
+            next_step_due_at: nextDue,
+            last_sent_at: nowIso,
+            last_sent_step: step,
+            updated_at: nowIso,
+          })
+          .eq('user_id', row.user_id);
+      }
+      continue;
+    }
 
     if (transitionTier) {
       const { subject, html, text } = buildWelcomePaidTransitionEmail({
@@ -198,6 +313,16 @@ export async function runWelcomeSeriesTick(
       }
       summary.paidTransitions += 1;
       summary.sent += 1;
+      if (allowWelcomeInApp) {
+        const bodyPreview = text.split('\n').slice(0, 4).join('\n').slice(0, 900);
+        await insertOnboardingMilestoneInApp(admin, {
+          userId: row.user_id,
+          catalogId: `onboarding.welcome.paid_transition.${transitionTier}`,
+          title: subject,
+          body: bodyPreview || subject,
+          extraData: { paid_transition: transitionTier },
+        });
+      }
       await admin
         .from('user_welcome_email_progress')
         .update({
@@ -239,6 +364,17 @@ export async function runWelcomeSeriesTick(
 
     summary.sent += 1;
 
+    if (allowWelcomeInApp) {
+      const bodyPreview = text.split('\n').slice(0, 4).join('\n').slice(0, 900);
+      await insertOnboardingMilestoneInApp(admin, {
+        userId: row.user_id,
+        catalogId: welcomeStepCatalogId(locked, step),
+        title: subject,
+        body: bodyPreview || subject,
+        extraData: { welcome_step: step, welcome_tier: locked },
+      });
+    }
+
     if (step === 4) {
       await admin
         .from('user_welcome_email_progress')
@@ -274,7 +410,7 @@ type WelcomeProgressForPostSeries = {
   welcome_paid_transition_sent_at: string | null;
   unsubscribed_at: string | null;
   user_profiles: { email: string | null; full_name: string | null } | null;
-  user_notification_preferences: { email_enabled: boolean } | null;
+  user_notification_preferences: { email_enabled: boolean; inapp_enabled: boolean } | null;
 };
 
 /**
@@ -300,7 +436,7 @@ export async function trySendWelcomePaidTransitionAfterCompletedFreeSeries(
       welcome_paid_transition_sent_at,
       unsubscribed_at,
       user_profiles ( email, full_name ),
-      user_notification_preferences ( email_enabled )
+      user_notification_preferences ( email_enabled, inapp_enabled )
     `
     )
     .eq('user_id', userId)
@@ -331,7 +467,7 @@ export async function trySendWelcomePaidTransitionAfterCompletedFreeSeries(
   const email = w!.user_profiles?.email?.trim();
   if (!email) return;
   const prefs = w!.user_notification_preferences;
-  if (prefs?.email_enabled === false) return;
+  if (prefs?.email_enabled === false && prefs?.inapp_enabled === false) return;
 
   const secretOk = Boolean(process.env.NOTIFICATIONS_UNSUBSCRIBE_SECRET?.trim());
   if (!secretOk) return;
@@ -374,18 +510,35 @@ export async function trySendWelcomePaidTransitionAfterCompletedFreeSeries(
     settingsUrl,
     onboardingUnsubscribeUrl,
   });
-  const send = await sendTransactionalEmail({
-    to: email,
-    subject,
-    html,
-    text,
-    headers: listUnsubscribeHeaders(onboardingUnsubscribeUrl),
-  });
-  if (send.ok === false) {
-    console.error('welcome paid transition post-series: send failed', send.error ?? 'unknown');
-    await admin
-      .from('user_welcome_email_progress')
-      .update({ welcome_paid_transition_sent_at: null, updated_at: new Date().toISOString() })
-      .eq('user_id', userId);
+
+  const shouldSendEmail = prefs?.email_enabled !== false;
+  if (shouldSendEmail) {
+    const send = await sendTransactionalEmail({
+      to: email,
+      subject,
+      html,
+      text,
+      headers: listUnsubscribeHeaders(onboardingUnsubscribeUrl),
+    });
+    if (send.ok === false) {
+      console.error('welcome paid transition post-series: send failed', send.error ?? 'unknown');
+      await admin
+        .from('user_welcome_email_progress')
+        .update({ welcome_paid_transition_sent_at: null, updated_at: new Date().toISOString() })
+        .eq('user_id', userId);
+      return;
+    }
+  }
+
+  const allowInApp = w!.user_notification_preferences?.inapp_enabled !== false;
+  if (allowInApp) {
+    const bodyPreview = text.split('\n').slice(0, 4).join('\n').slice(0, 900);
+    await insertOnboardingMilestoneInApp(admin, {
+      userId,
+      catalogId: `onboarding.welcome.paid_transition.${paidTier}`,
+      title: subject,
+      body: bodyPreview || subject,
+      extraData: { paid_transition: paidTier },
+    });
   }
 }

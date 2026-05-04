@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { hrefStockSymbol, hrefStrategyModel, hrefYourPortfolio } from '@/lib/notifications/hrefs';
+import { CATALOG_ID } from '@/lib/notifications/notification-catalog';
 
 const SEED_MARKER = { smoketest_seed: true as const };
 
@@ -49,6 +50,7 @@ export async function seedSmoketestInAppNotifications(
       body: `${strategyName} weekly rating moved this week on ${runDate}.`,
       data: {
         ...SEED_MARKER,
+        catalog_id: CATALOG_ID.STOCK_RATING_CHANGE,
         strategy_id: strategyId,
         strategy_slug: strategySlug,
         stock_id: stockId,
@@ -66,6 +68,7 @@ export async function seedSmoketestInAppNotifications(
       body: `3 position update(s) in your followed portfolio on ${runDate}.`,
       data: {
         ...SEED_MARKER,
+        catalog_id: CATALOG_ID.PORTFOLIO_REBALANCE,
         strategy_id: strategyId,
         strategy_slug: strategySlug,
         profile_id: profileId,
@@ -81,6 +84,7 @@ export async function seedSmoketestInAppNotifications(
       body: `Weekly rating run completed on ${runDate}.`,
       data: {
         ...SEED_MARKER,
+        catalog_id: CATALOG_ID.PORTFOLIO_MODEL_RATINGS_READY,
         strategy_id: strategyId,
         strategy_slug: strategySlug,
         run_date: runDate,
@@ -94,6 +98,7 @@ export async function seedSmoketestInAppNotifications(
       body: `Entered: NVDA, AMD. Exited: none. (${runDate})`,
       data: {
         ...SEED_MARKER,
+        catalog_id: CATALOG_ID.PORTFOLIO_ENTRIES_EXITS,
         strategy_id: strategyId,
         strategy_slug: strategySlug,
         profile_id: profileId,
@@ -110,6 +115,7 @@ export async function seedSmoketestInAppNotifications(
       body: `Your followed portfolio moved about +6.2% since the prior snapshot (${runDate}).`,
       data: {
         ...SEED_MARKER,
+        catalog_id: CATALOG_ID.PORTFOLIO_PRICE_MOVE,
         profile_id: profileId,
         strategy_id: strategyId,
         config_id: configId,
@@ -125,6 +131,9 @@ export async function seedSmoketestInAppNotifications(
       body: '2 portfolio updates, 4 rating changes, 1 price alerts this week.',
       data: {
         ...SEED_MARKER,
+        catalog_id: CATALOG_ID.WEEKLY_BUNDLE,
+        thread_id: `weekly:${userId}:${weekEnding}`,
+        thread_role: 'head',
         run_week_ending: weekEnding,
         by_type: {
           portfolio_updates: 2,

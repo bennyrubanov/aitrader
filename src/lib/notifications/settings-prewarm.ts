@@ -21,6 +21,8 @@ export type Prefs = {
   weekly_tracked_stocks_inapp: boolean;
   email_enabled: boolean;
   inapp_enabled: boolean;
+  model_performance_updates_email: boolean;
+  model_performance_updates_inapp: boolean;
 };
 
 export type ModelSub = {
@@ -29,6 +31,14 @@ export type ModelSub = {
   email_enabled: boolean;
   inapp_enabled: boolean;
   strategy_models: { slug: string; name: string } | { slug: string; name: string }[] | null;
+};
+
+/** Strategy rows from `GET /api/platform/model-subscriptions` for settings UI (all catalog models). */
+export type ModelStrategyCatalogRow = {
+  strategy_id: string;
+  slug: string;
+  name: string;
+  is_default: boolean;
 };
 
 export type ProfileRow = {

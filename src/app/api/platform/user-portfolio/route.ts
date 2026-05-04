@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { canQueryStockCurrentRecommendation, getAppAccessState } from '@/lib/app-access';
 import { buildAuthStateFromUserAndProfile } from '@/lib/build-auth-state';
+import { MAX_TRACKED_NOTIFICATION_STOCKS_PAID } from '@/lib/notification-plan-gating';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { createClient } from '@/utils/supabase/server';
 
@@ -208,6 +209,25 @@ export async function POST(req: Request) {
       { error: 'Premium stock tracking requires a Supporter or Outperformer plan.' },
       { status: 403 }
     );
+  }
+
+  if (access === 'supporter' || access === 'outperformer') {
+    const { count, error: countErr } = await supabase
+      .from('user_portfolio_stocks')
+      .select('stock_id', { count: 'exact', head: true })
+      .eq('user_id', user.id);
+    if (countErr) {
+      console.error('[user-portfolio] tracked stock count', countErr.message);
+      return NextResponse.json({ error: 'Unable to verify stock limit.' }, { status: 500 });
+    }
+    if ((count ?? 0) >= MAX_TRACKED_NOTIFICATION_STOCKS_PAID) {
+      return NextResponse.json(
+        {
+          error: `You can track up to ${MAX_TRACKED_NOTIFICATION_STOCKS_PAID} stocks for notifications. Remove one to add another.`,
+        },
+        { status: 403 }
+      );
+    }
   }
 
   const notifyOn = notifyRatingInapp || notifyRatingEmail;

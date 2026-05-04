@@ -1,4 +1,11 @@
 import { NextResponse } from 'next/server';
+import { buildAuthStateFromUserAndProfile } from '@/lib/build-auth-state';
+import { getAppAccessState } from '@/lib/app-access';
+import {
+  clampNotificationPreferencesForFreeTier,
+  computeWeeklyDigestEnabled,
+  notificationPrefsViolateFreeTierPlan,
+} from '@/lib/notification-plan-gating';
 import { createClient } from '@/utils/supabase/server';
 
 export const runtime = 'nodejs';
@@ -20,6 +27,8 @@ const defaultRow = (userId: string) => ({
   weekly_tracked_stocks_inapp: true,
   email_enabled: true,
   inapp_enabled: true,
+  model_performance_updates_email: true,
+  model_performance_updates_inapp: true,
 });
 
 export async function GET() {
@@ -28,6 +37,15 @@ export async function GET() {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return unauthorized();
+
+  const { data: profile, error: profileError } = await supabase
+    .from('user_profiles')
+    .select('subscription_tier, full_name, email')
+    .eq('id', user.id)
+    .maybeSingle();
+  const access = getAppAccessState(
+    buildAuthStateFromUserAndProfile(user, profile, Boolean(profileError))
+  );
 
   const { data, error } = await supabase
     .from('user_notification_preferences')
@@ -43,7 +61,27 @@ export async function GET() {
     if (ins.error) {
       return NextResponse.json({ error: ins.error.message }, { status: 500 });
     }
-    return NextResponse.json({ preferences: ins.data });
+    let row = ins.data as Record<string, unknown>;
+    if (access === 'free') {
+      const fixed = clampNotificationPreferencesForFreeTier({ ...row, user_id: user.id });
+      const persisted = await supabase
+        .from('user_notification_preferences')
+        .upsert(fixed, { onConflict: 'user_id' })
+        .select('*')
+        .single();
+      if (!persisted.error && persisted.data) {
+        row = persisted.data as Record<string, unknown>;
+      } else {
+        row = fixed;
+      }
+    }
+    return NextResponse.json({ preferences: row });
+  }
+  const row = data as Record<string, unknown>;
+  if (access === 'free' && notificationPrefsViolateFreeTierPlan(row)) {
+    const fixed = clampNotificationPreferencesForFreeTier({ ...row, user_id: user.id });
+    await supabase.from('user_notification_preferences').upsert(fixed, { onConflict: 'user_id' });
+    return NextResponse.json({ preferences: fixed });
   }
   return NextResponse.json({ preferences: data });
 }
@@ -60,6 +98,15 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: 'Invalid JSON.' }, { status: 400 });
   }
 
+  const { data: profile, error: profileError } = await supabase
+    .from('user_profiles')
+    .select('subscription_tier, full_name, email')
+    .eq('id', user.id)
+    .maybeSingle();
+  const access = getAppAccessState(
+    buildAuthStateFromUserAndProfile(user, profile, Boolean(profileError))
+  );
+
   const { data: existing } = await supabase
     .from('user_notification_preferences')
     .select('*')
@@ -67,7 +114,7 @@ export async function PUT(req: Request) {
     .maybeSingle();
 
   const base = (existing as Record<string, unknown> | null) ?? defaultRow(user.id);
-  const merged: Record<string, unknown> = {
+  let merged: Record<string, unknown> = {
     ...base,
     user_id: user.id,
     updated_at: new Date().toISOString(),
@@ -87,23 +134,19 @@ export async function PUT(req: Request) {
     'weekly_tracked_stocks_inapp',
     'email_enabled',
     'inapp_enabled',
+    'model_performance_updates_email',
+    'model_performance_updates_inapp',
   ] as const;
 
   for (const k of boolKeys) {
     if (typeof body[k] === 'boolean') merged[k] = body[k];
   }
 
-  merged.weekly_digest_enabled =
-    Boolean(merged.weekly_digest_inapp) ||
-    Boolean(merged.weekly_digest_email) ||
-    Boolean(merged.weekly_product_updates_email) ||
-    Boolean(merged.weekly_product_updates_inapp) ||
-    Boolean(merged.weekly_portfolio_summary_email) ||
-    Boolean(merged.weekly_portfolio_summary_inapp) ||
-    Boolean(merged.weekly_per_portfolio_email) ||
-    Boolean(merged.weekly_per_portfolio_inapp) ||
-    Boolean(merged.weekly_tracked_stocks_email) ||
-    Boolean(merged.weekly_tracked_stocks_inapp);
+  if (access === 'free') {
+    merged = clampNotificationPreferencesForFreeTier(merged);
+  }
+
+  merged.weekly_digest_enabled = computeWeeklyDigestEnabled(merged);
 
   const { data, error } = await supabase
     .from('user_notification_preferences')

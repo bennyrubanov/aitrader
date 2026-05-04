@@ -1,7 +1,23 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { sendTransactionalEmail } from '@/lib/mailer';
+import { buildModelRatingsReadyEmailHtml } from '@/lib/notifications/email-templates';
 import { hrefStockSymbol, hrefStrategyModel, hrefYourPortfolio } from '@/lib/notifications/hrefs';
+import { CATALOG_ID } from '@/lib/notifications/notification-catalog';
+import { signUnsubscribePayload } from '@/lib/notifications/unsubscribe-token';
 import type { Bucket, RatingBucketChange } from '@/lib/notifications/types';
-import { loadUserPrefs, resolvePrefsForFanout } from '@/lib/notifications/user-notify-queries';
+import { loadUserEmails, loadUserPrefs, resolvePrefsForFanout } from '@/lib/notifications/user-notify-queries';
+
+function siteBase(): string {
+  return process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, '') ?? '';
+}
+
+function listUnsubscribeHeaders(unsubscribeUrl: string): Record<string, string> {
+  if (!unsubscribeUrl) return {};
+  return {
+    'List-Unsubscribe': `<${unsubscribeUrl}>`,
+    'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+  };
+}
 
 type AiOk = { status: 'ok'; stock_id: string; symbol: string; bucket: Bucket };
 export type AiCronResult = AiOk | { status: string; stock_id?: string };
@@ -103,6 +119,7 @@ export async function notifyRatingBucketChanges(
           title: `${ch.symbol}: ${ch.prev_bucket} -> ${ch.next_bucket}`,
           body: `${params.strategyName} weekly rating moved this week on ${params.runDate}.`,
           data: {
+            catalog_id: CATALOG_ID.STOCK_RATING_CHANGE,
             strategy_id: params.strategyId,
             strategy_slug: params.strategySlug,
             stock_id: ch.stock_id,
@@ -193,6 +210,7 @@ export async function notifyPortfolioRebalances(
         title: `Rebalance: ${params.strategyName}`,
         body: `${params.actionCount} position update(s) in your followed portfolio on ${params.runDate}.`,
         data: {
+          catalog_id: CATALOG_ID.PORTFOLIO_REBALANCE,
           strategy_id: params.strategyId,
           strategy_slug: params.strategySlug,
           profile_id: p.id,
@@ -243,6 +261,11 @@ export async function notifyModelRatingsReady(
 
   const userIds = [...new Set(subsFiltered.map((s) => s.user_id))];
   const { map: prefsMap, hadError: hadPrefsError } = await loadUserPrefs(admin, userIds);
+  const { map: emailMap, hadError: hadEmailError } = await loadUserEmails(admin, userIds);
+
+  const base = siteBase();
+  const settingsUrl = base ? `${base}/platform/settings/notifications` : '/platform/settings/notifications';
+  const modelPathBase = base || 'https://example.com';
 
   const inappRows: Array<{
     user_id: string;
@@ -251,15 +274,20 @@ export async function notifyModelRatingsReady(
     body: string;
     data: Record<string, unknown>;
   }> = [];
+  let emailsSent = 0;
+
   for (const sub of subsFiltered) {
     const prefs = resolvePrefsForFanout(prefsMap, hadPrefsError, sub.user_id);
-    if (prefs.inapp_enabled && sub.inapp_enabled) {
+    const mpInapp = prefs.model_performance_updates_inapp !== false;
+    const mpEmail = prefs.model_performance_updates_email !== false;
+    if (prefs.inapp_enabled && mpInapp && sub.inapp_enabled) {
       inappRows.push({
         user_id: sub.user_id,
         type: 'model_ratings_ready' as const,
         title: `New ratings: ${params.strategyName}`,
         body: `Weekly rating run completed on ${params.runDate}.`,
         data: {
+          catalog_id: CATALOG_ID.PORTFOLIO_MODEL_RATINGS_READY,
           strategy_id: params.strategyId,
           strategy_slug: params.strategySlug,
           run_date: params.runDate,
@@ -267,6 +295,38 @@ export async function notifyModelRatingsReady(
         },
       });
     }
+
+    const allowEmail =
+      !hadEmailError &&
+      prefs.email_enabled &&
+      mpEmail &&
+      sub.email_enabled;
+    if (!allowEmail) continue;
+
+    const to = emailMap.get(sub.user_id)?.trim();
+    if (!to) continue;
+
+    const token = signUnsubscribePayload({ userId: sub.user_id, scope: 'all' });
+    const unsubscribeUrl = token
+      ? `${base || ''}/api/platform/notifications/unsubscribe?token=${encodeURIComponent(token)}`
+      : settingsUrl;
+    const modelUrl = `${modelPathBase}/strategy-models/${encodeURIComponent(params.strategySlug)}`;
+    const { html, text } = buildModelRatingsReadyEmailHtml({
+      strategyName: params.strategyName,
+      runDate: params.runDate,
+      modelUrl,
+      settingsUrl,
+      unsubscribeUrl,
+    });
+    const subject = `New AI ratings — ${params.strategyName}`;
+    const send = await sendTransactionalEmail({
+      to,
+      subject,
+      html,
+      text,
+      headers: listUnsubscribeHeaders(unsubscribeUrl),
+    });
+    if (send.ok) emailsSent += 1;
   }
 
   let inappInserted = 0;
@@ -277,7 +337,7 @@ export async function notifyModelRatingsReady(
     else inappInserted += batch.length;
   }
 
-  return { inappInserted, emailsSent: 0 };
+  return { inappInserted, emailsSent };
 }
 
 const PAID_STOCK_TIERS = new Set(['supporter', 'outperformer']);
@@ -381,6 +441,7 @@ export async function notifyStockRatingChangesPerStock(
         title: `${ch.symbol}: ${ch.prev_bucket} -> ${ch.next_bucket}`,
         body: `${params.strategyName} weekly rating moved this week on ${params.runDate}.`,
         data: {
+          catalog_id: CATALOG_ID.STOCK_RATING_CHANGE_TRACKED,
           strategy_id: params.strategyId,
           strategy_slug: params.strategySlug,
           stock_id: ch.stock_id,
@@ -480,6 +541,7 @@ export async function notifyPortfolioEntriesExits(
         title: `Holdings update: ${params.strategyName}`,
         body: holdingsBody,
         data: {
+          catalog_id: CATALOG_ID.PORTFOLIO_ENTRIES_EXITS,
           strategy_id: params.strategyId,
           strategy_slug: params.strategySlug,
           profile_id: p.id,
@@ -634,6 +696,7 @@ export async function notifyPortfolioPriceMoves(
         title: `${strategyName}: ${pctSigned}`,
         body: `Your followed portfolio moved about ${pctSigned} since the prior snapshot (${params.runDate}).`,
         data: {
+          catalog_id: CATALOG_ID.PORTFOLIO_PRICE_MOVE,
           profile_id: p.id,
           strategy_id: p.strategy_id,
           config_id: p.config_id,

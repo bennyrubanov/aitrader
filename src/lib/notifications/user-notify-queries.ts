@@ -11,13 +11,21 @@ function chunk<T>(arr: T[], size: number): T[][] {
 export type UserPrefs = {
   email_enabled: boolean;
   inapp_enabled: boolean;
+  /** Strategy-model performance / “ratings ready” style sends; default true when absent. */
+  model_performance_updates_email?: boolean;
+  model_performance_updates_inapp?: boolean;
 };
 
 export function defaultPrefs(): UserPrefs {
-  return { email_enabled: true, inapp_enabled: true };
+  return {
+    email_enabled: true,
+    inapp_enabled: true,
+    model_performance_updates_email: true,
+    model_performance_updates_inapp: true,
+  };
 }
 
-/** When prefs chunk load had errors, missing users must not default email to true (over-send). */
+/** When prefs chunk load had errors, missing users get no email and no in-app from fan-out (conservative). */
 export function resolvePrefsForFanout(
   map: Map<string, UserPrefs>,
   hadPrefsError: boolean,
@@ -25,7 +33,14 @@ export function resolvePrefsForFanout(
 ): UserPrefs {
   const p = map.get(userId);
   if (p) return p;
-  if (hadPrefsError) return { email_enabled: false, inapp_enabled: true };
+  if (hadPrefsError) {
+    return {
+      email_enabled: false,
+      inapp_enabled: false,
+      model_performance_updates_email: false,
+      model_performance_updates_inapp: false,
+    };
+  }
   return defaultPrefs();
 }
 
@@ -43,7 +58,9 @@ export async function loadUserPrefs(
     if (!ids.length) continue;
     const { data, error } = await admin
       .from('user_notification_preferences')
-      .select('user_id, email_enabled, inapp_enabled')
+      .select(
+        'user_id, email_enabled, inapp_enabled, model_performance_updates_email, model_performance_updates_inapp'
+      )
       .in('user_id', ids);
     if (error) {
       hadError = true;
@@ -55,10 +72,14 @@ export async function loadUserPrefs(
         user_id: string;
         email_enabled: boolean;
         inapp_enabled: boolean;
+        model_performance_updates_email?: boolean | null;
+        model_performance_updates_inapp?: boolean | null;
       };
       map.set(r.user_id, {
         email_enabled: r.email_enabled,
         inapp_enabled: r.inapp_enabled,
+        model_performance_updates_email: r.model_performance_updates_email ?? true,
+        model_performance_updates_inapp: r.model_performance_updates_inapp ?? true,
       });
     }
   }
