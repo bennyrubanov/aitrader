@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
+import { trySendWelcomePaidTransitionAfterCompletedFreeSeries } from "@/lib/notifications/welcome-series-send";
 import { createAdminClient } from "@/utils/supabase/admin";
 import type { SubscriptionTier } from "@/lib/auth-state";
 import {
@@ -58,7 +59,7 @@ const applyBillingToUserId = async (
   const supabase = createAdminClient();
   const { data: existing, error: existingError } = await supabase
     .from("user_profiles")
-    .select("stripe_last_event_created")
+    .select("stripe_last_event_created, subscription_tier")
     .eq("id", userId)
     .maybeSingle();
 
@@ -101,12 +102,30 @@ const applyBillingToUserId = async (
     }
   }
 
+  const previousSubscriptionTier = existing?.subscription_tier ?? null;
+
   const { error: upsertError } = await supabase.from("user_profiles").upsert(payload, {
     onConflict: "id",
   });
 
   if (upsertError) {
     throw new Error(upsertError.message);
+  }
+
+  if (
+    previousSubscriptionTier !== "supporter" &&
+    previousSubscriptionTier !== "outperformer" &&
+    (tier === "supporter" || tier === "outperformer")
+  ) {
+    try {
+      await trySendWelcomePaidTransitionAfterCompletedFreeSeries(supabase, {
+        userId,
+        paidTier: tier,
+        previousSubscriptionTier,
+      });
+    } catch (err) {
+      console.error("Stripe webhook: welcome paid transition post-series", err);
+    }
   }
 };
 

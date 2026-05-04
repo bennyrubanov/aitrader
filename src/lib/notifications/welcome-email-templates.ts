@@ -153,6 +153,38 @@ export function paidTransitionTargetTier(
   return null;
 }
 
+function normalizeTierForWelcome(raw: string | null | undefined): SubscriptionTier {
+  if (raw === 'supporter' || raw === 'outperformer' || raw === 'free') return raw;
+  return 'free';
+}
+
+/**
+ * Webhook-only path: user completed all 4 free emails (`completed_at` set) while still free, then upgrades.
+ * Cron does not select rows with `completed_at` set, so this gates the one-shot paid transition email.
+ */
+export function shouldSendWelcomePaidTransitionPostSeriesOnUpgrade(params: {
+  previousSubscriptionTier: string | null | undefined;
+  newSubscriptionTier: SubscriptionTier;
+  welcomeRow: {
+    locked_tier: string;
+    completed_at: string | null;
+    welcome_paid_transition_sent_at: string | null;
+    unsubscribed_at: string | null;
+  } | null;
+}): boolean {
+  const prev = normalizeTierForWelcome(params.previousSubscriptionTier);
+  const next = normalizeTierForWelcome(params.newSubscriptionTier);
+  if (prev !== 'free') return false;
+  if (next !== 'supporter' && next !== 'outperformer') return false;
+  const row = params.welcomeRow;
+  if (!row) return false;
+  if (row.locked_tier !== 'free') return false;
+  if (!row.completed_at) return false;
+  if (row.welcome_paid_transition_sent_at) return false;
+  if (row.unsubscribed_at) return false;
+  return true;
+}
+
 export function buildWelcomePaidTransitionEmail(params: {
   paidTier: 'supporter' | 'outperformer';
   firstName: string | null;

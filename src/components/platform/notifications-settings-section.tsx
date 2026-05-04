@@ -1,12 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Lock, Search, Trash2 } from 'lucide-react';
+import { Bell, Lock, Search, Trash2 } from 'lucide-react';
 import { SubscriptionUpgradeDialog } from '@/components/account/subscription-upgrade-dialog';
 import { useAuthState } from '@/components/auth/auth-state-context';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
@@ -17,6 +18,7 @@ import {
 } from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
 import { getAppAccessState } from '@/lib/app-access';
+import { cn } from '@/lib/utils';
 import {
   readCachedModelSubs,
   readCachedPortfolioProfiles,
@@ -196,7 +198,66 @@ function ChannelPair({
   );
 }
 
-export function NotificationsSettingsSection(_props: NotificationsSettingsSectionProps) {
+function NotificationsSettingsSkeleton({
+  embedMode = 'settings',
+}: Pick<NotificationsSettingsSectionProps, 'embedMode'>) {
+  return (
+    <div className="w-full" role="status" aria-busy="true">
+      <div
+        className={cn(
+          'flex flex-row flex-nowrap items-center justify-between gap-2 border-b border-border px-5 pt-2 pb-0 md:pt-0 md:pb-0',
+          embedMode === 'bell' && 'justify-end'
+        )}
+      >
+        {embedMode !== 'bell' ? (
+          <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
+            <Skeleton className="size-5 shrink-0 rounded-md" aria-hidden />
+            <Skeleton className="h-6 w-36 max-w-[55vw] sm:h-7 sm:w-44" aria-hidden />
+          </div>
+        ) : null}
+        <div className="mb-0 flex shrink-0 gap-1">
+          <Skeleton className="h-9 w-14 rounded-none sm:w-16" aria-hidden />
+          <Skeleton className="h-9 w-16 rounded-none sm:w-20" aria-hidden />
+        </div>
+      </div>
+      <div className="divide-y divide-border">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div
+            key={i}
+            className="flex flex-col gap-1.5 px-5 py-4 sm:flex-row sm:items-start sm:justify-between sm:gap-4"
+          >
+            <div className="min-w-0 flex-1 space-y-2">
+              <Skeleton className="h-4 w-[min(100%,18rem)]" aria-hidden />
+              <Skeleton className="h-3 w-full max-w-lg" aria-hidden />
+            </div>
+            <Skeleton className="h-6 w-10 shrink-0 rounded-full sm:mt-0.5" aria-hidden />
+          </div>
+        ))}
+        <div className="px-5 py-4">
+          <Skeleton className="mb-3 h-4 w-48 max-w-full" aria-hidden />
+          <div className="grid grid-cols-[1fr_auto_auto] items-center gap-3">
+            <div className="min-w-0 space-y-2">
+              <Skeleton className="h-4 w-40 max-w-full" aria-hidden />
+              <Skeleton className="h-3 w-full max-w-md" aria-hidden />
+            </div>
+            <Skeleton className="h-6 w-10 justify-self-center rounded-full" aria-hidden />
+            <Skeleton className="h-6 w-10 justify-self-center rounded-full" aria-hidden />
+          </div>
+        </div>
+      </div>
+      <span className="sr-only">Loading notification settings</span>
+    </div>
+  );
+}
+
+const channelTabsListClass =
+  'h-auto gap-1 rounded-none bg-transparent p-0 text-muted-foreground shadow-none';
+const channelTabsTriggerClass =
+  '-mb-px rounded-none border-b-2 border-transparent bg-transparent px-3 pb-2.5 pt-1 text-sm font-medium text-muted-foreground shadow-none ring-offset-background transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none';
+
+export function NotificationsSettingsSection({
+  embedMode = 'settings',
+}: NotificationsSettingsSectionProps) {
   const { toast } = useToast();
   const authState = useAuthState();
   const access = getAppAccessState({
@@ -404,7 +465,7 @@ export function NotificationsSettingsSection(_props: NotificationsSettingsSectio
   }, [stockQuery, catalog, tracked]);
 
   if (!authState.isLoaded) {
-    return <p className="px-5 py-3 text-sm text-muted-foreground">Loading…</p>;
+    return <NotificationsSettingsSkeleton embedMode={embedMode} />;
   }
   if (!authState.isAuthenticated) {
     return (
@@ -415,7 +476,7 @@ export function NotificationsSettingsSection(_props: NotificationsSettingsSectio
   }
 
   if (loading || !prefs) {
-    return <p className="px-5 py-3 text-sm text-muted-foreground">Loading notification settings…</p>;
+    return <NotificationsSettingsSkeleton embedMode={embedMode} />;
   }
 
   const disableInAppCol = savingPrefs || !prefs.inapp_enabled;
@@ -432,12 +493,31 @@ export function NotificationsSettingsSection(_props: NotificationsSettingsSectio
   return (
     <TooltipProvider>
       <Tabs defaultValue="email" className="w-full">
-        <div className="border-b px-5 pt-3">
-          <TabsList className="mb-3 h-9">
-            <TabsTrigger value="email" className="text-xs sm:text-sm">
+        <div
+          className={cn(
+            'flex flex-row flex-nowrap items-center justify-between gap-2 border-b border-border px-5 pt-2 pb-0 md:pt-0 md:pb-0',
+            embedMode === 'bell' && 'justify-end'
+          )}
+        >
+          {embedMode !== 'bell' ? (
+            <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
+              <Bell className="size-5 shrink-0 text-muted-foreground" aria-hidden />
+              <h2 className="min-w-0 truncate text-lg font-semibold tracking-tight text-foreground sm:text-xl">
+                Notifications
+              </h2>
+            </div>
+          ) : null}
+          <TabsList className={cn(channelTabsListClass, 'mb-0 shrink-0')}>
+            <TabsTrigger
+              value="email"
+              className={cn(channelTabsTriggerClass, 'px-2 text-xs sm:px-3 sm:text-sm')}
+            >
               Email
             </TabsTrigger>
-            <TabsTrigger value="inapp" className="text-xs sm:text-sm">
+            <TabsTrigger
+              value="inapp"
+              className={cn(channelTabsTriggerClass, 'px-2 text-xs sm:px-3 sm:text-sm')}
+            >
               In-app
             </TabsTrigger>
           </TabsList>
@@ -445,9 +525,6 @@ export function NotificationsSettingsSection(_props: NotificationsSettingsSectio
 
         <TabsContent value="email" className="mt-0 space-y-0 divide-y outline-none">
           <div className="px-5 py-4 space-y-3">
-            <p className="text-xs text-muted-foreground">
-              We send one summary email per user per week (Fridays). Pick the sections to include.
-            </p>
             <EmailSectionRow
               label="Receive the weekly email"
               description="Master switch for product email from AITrader."

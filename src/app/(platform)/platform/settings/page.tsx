@@ -7,7 +7,6 @@ import {
   Loader2,
   LogOut,
   CreditCard,
-  Bell,
   UserRound,
   UserPlus,
   KeyRound,
@@ -32,6 +31,7 @@ import {
 } from '@/components/account/downgrade-to-supporter-dialog';
 import { useAuthState, useRefreshAuthProfile } from '@/components/auth/auth-state-context';
 import { NotificationsSettingsSection } from '@/components/platform/notifications-settings-section';
+import { SettingsPageAuthSkeleton } from '@/components/platform/settings-page-skeleton';
 import { cn } from '@/lib/utils';
 
 type ProfileState = {
@@ -692,14 +692,14 @@ const SettingsPageContent = () => {
   return (
     <div
       className={cn(
-        'mx-auto w-full pt-2 md:pt-4',
+        'mx-auto w-full md:pt-2',
         authState.isLoaded
           ? 'flex min-h-0 min-w-0 w-full max-w-5xl flex-col gap-6 max-md:h-auto max-md:flex-none md:h-full md:max-h-full md:flex-1 md:flex-row md:items-stretch md:overflow-hidden md:overscroll-y-contain lg:gap-10'
           : 'max-w-2xl space-y-6'
       )}
     >
       {authState.isLoaded && (
-        <aside className="hidden shrink-0 md:flex md:h-full md:min-h-0 md:w-56 md:max-h-full md:flex-col md:pt-4 lg:w-64">
+        <aside className="hidden shrink-0 md:flex md:h-full md:min-h-0 md:w-56 md:max-h-full md:flex-col md:pt-2 lg:w-64">
           <SettingsSidebarNav
             items={settingsTocItems}
             activeId={activeSection}
@@ -709,9 +709,10 @@ const SettingsPageContent = () => {
       )}
       <div
         className={cn(
-          'min-w-0 space-y-6',
+          /* flex + gap (not space-y) so md:hidden mobile strip is skipped for gap and does not push content down */
+          'flex min-w-0 flex-col gap-6',
           authState.isLoaded
-            ? 'flex min-h-0 min-w-0 flex-col md:max-w-2xl md:flex-1 md:overflow-y-auto md:overscroll-y-contain md:pl-6 lg:pl-8 md:h-full md:max-h-full md:min-h-0'
+            ? 'min-h-0 md:max-w-2xl md:flex-1 md:overflow-y-auto md:overscroll-y-contain md:pl-6 lg:pl-8 md:h-full md:max-h-full md:min-h-0'
             : 'mx-auto max-w-2xl'
         )}
       >
@@ -719,7 +720,7 @@ const SettingsPageContent = () => {
         <div className="sticky top-0 z-20 pb-3 pt-0 md:hidden">
           <h1 className="sr-only">Settings</h1>
 
-          {authState.isLoaded && (
+          {authState.isLoaded ? (
             <div className="overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               <div className="mx-auto flex w-max gap-2">
                 {settingsTocItems.map((item) => (
@@ -739,14 +740,20 @@ const SettingsPageContent = () => {
                 ))}
               </div>
             </div>
+          ) : (
+            <div className="overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <div className="mx-auto flex w-max gap-2" aria-hidden>
+                <Skeleton className="h-8 w-20 shrink-0 rounded-full" />
+                <Skeleton className="h-8 w-24 shrink-0 rounded-full" />
+                <Skeleton className="h-8 w-16 shrink-0 rounded-full" />
+                <Skeleton className="h-8 w-28 shrink-0 rounded-full" />
+              </div>
+            </div>
           )}
         </div>
 
         {!authState.isLoaded ? (
-          <div className="flex items-center justify-center py-16">
-            <Loader2 className="mr-2 size-5 animate-spin text-muted-foreground" />
-            <span className="text-sm text-muted-foreground">Loading settings...</span>
-          </div>
+          <SettingsPageAuthSkeleton />
         ) : authState.isAuthenticated ? (
           <>
             {/* ── Account ── */}
@@ -754,13 +761,13 @@ const SettingsPageContent = () => {
               <section
                 id="account"
                 className={cn(
-                  'scroll-mt-4 rounded-xl border bg-card md:scroll-mt-6',
+                  'scroll-mt-4 md:scroll-mt-6',
                   activeSection === 'account' ? 'block' : 'hidden'
                 )}
               >
-            <div className="flex items-center gap-2 border-b px-5 py-3">
-              <UserRound className="size-4 text-muted-foreground" />
-              <h2 className="text-sm font-semibold">Account</h2>
+            <div className="flex items-center gap-3 px-5 pb-4 pt-2 md:pt-0">
+              <UserRound className="size-5 shrink-0 text-muted-foreground" aria-hidden />
+              <h2 className="text-xl font-semibold tracking-tight text-foreground">Account</h2>
             </div>
             <div className="divide-y">
               <div className="grid grid-cols-[100px_1fr] items-start gap-x-4 px-5 py-3 text-sm sm:grid-cols-[120px_1fr] sm:items-center">
@@ -845,9 +852,9 @@ const SettingsPageContent = () => {
                   )}
                 </div>
               </div>
-              <div className="grid grid-cols-[100px_1fr] items-center gap-x-4 px-5 py-3 text-sm sm:grid-cols-[120px_1fr]">
+              <div className="grid grid-cols-[100px_1fr] items-start gap-x-4 px-5 py-3 text-sm sm:grid-cols-[120px_1fr] sm:items-center">
                 <span className="text-muted-foreground">Plan</span>
-                <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+                <div className="flex min-w-0 flex-col items-start gap-1.5 sm:flex-row sm:flex-wrap sm:items-baseline sm:gap-x-2 sm:gap-y-1">
                   <span className="inline-flex max-w-full min-w-0 shrink-0 items-center rounded-full border border-border px-2.5 py-0.5 sm:max-w-[min(12rem,45vw)]">
                     <PlanLabel
                       isPremium={authState.hasPremiumAccess}
@@ -859,7 +866,7 @@ const SettingsPageContent = () => {
                   {authState.hasPremiumAccess &&
                     (authState.stripeRecurringInterval === 'month' ||
                       authState.stripeRecurringInterval === 'year') && (
-                      <span className="min-w-0 max-w-full flex-1 break-words text-xs leading-snug text-muted-foreground">
+                      <span className="w-full min-w-0 text-xs leading-snug text-muted-foreground sm:w-auto sm:max-w-full sm:flex-1 sm:break-words">
                         {authState.stripeRecurringInterval === 'month'
                           ? 'Billed monthly.'
                           : 'Billed yearly.'}
@@ -921,13 +928,13 @@ const SettingsPageContent = () => {
             <section
               id="security"
               className={cn(
-                'scroll-mt-4 rounded-xl border bg-card md:scroll-mt-6',
+                'scroll-mt-4 md:scroll-mt-6',
                 activeSection === 'security' ? 'block' : 'hidden'
               )}
             >
-            <div className="flex items-center gap-2 border-b px-5 py-3">
-              <KeyRound className="size-4 text-muted-foreground" />
-              <h2 className="text-sm font-semibold">Security</h2>
+            <div className="flex items-center gap-3 px-5 pb-4 pt-2 md:pt-0">
+              <KeyRound className="size-5 shrink-0 text-muted-foreground" aria-hidden />
+              <h2 className="text-xl font-semibold tracking-tight text-foreground">Security</h2>
             </div>
             <div className="divide-y">
               <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -1010,14 +1017,14 @@ const SettingsPageContent = () => {
             <section
               id="billing"
               className={cn(
-                'scroll-mt-4 rounded-xl border bg-card md:scroll-mt-6',
+                'scroll-mt-4 md:scroll-mt-6',
                 activeSection === 'billing' ? 'block' : 'hidden'
               )}
             >
-            <div className="border-b px-5 py-3">
-              <div className="flex items-center gap-2">
-                <CreditCard className="size-4 text-muted-foreground" />
-                <h2 className="text-sm font-semibold">Billing</h2>
+            <div className="px-5 pb-4 pt-2 md:pt-0">
+              <div className="flex items-center gap-3">
+                <CreditCard className="size-5 shrink-0 text-muted-foreground" aria-hidden />
+                <h2 className="text-xl font-semibold tracking-tight text-foreground">Billing</h2>
               </div>
               {authState.hasPremiumAccess && authState.stripeCurrentPeriodEnd && (
                 <p className="mt-2 text-xs text-muted-foreground">
@@ -1242,14 +1249,10 @@ const SettingsPageContent = () => {
             <section
               id="notifications"
               className={cn(
-                'scroll-mt-4 rounded-xl border bg-card md:scroll-mt-6',
+                'scroll-mt-4 md:scroll-mt-6',
                 activeSection === 'notifications' ? 'block' : 'hidden'
               )}
             >
-            <div className="flex items-center gap-2 border-b px-5 py-3">
-              <Bell className="size-4 text-muted-foreground" />
-              <h2 className="text-sm font-semibold">Notifications</h2>
-            </div>
             <NotificationsSettingsSection />
             </section>
           )}
@@ -1280,7 +1283,7 @@ const SettingsPageContent = () => {
       ) : (
         <section
           id="sign-up"
-          className="scroll-mt-4 flex flex-col items-center justify-center rounded-xl border bg-card px-6 py-16 text-center md:scroll-mt-6"
+          className="scroll-mt-4 flex flex-col items-center justify-center px-6 py-16 text-center md:scroll-mt-6"
         >
           <UserRound className="mb-3 size-10 text-muted-foreground/40" />
           <p className="text-sm font-medium">Sign up to manage your settings</p>

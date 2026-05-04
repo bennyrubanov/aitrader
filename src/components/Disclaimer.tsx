@@ -3,6 +3,18 @@ import Link from 'next/link';
 import { Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
+/** Short legal tail + link — reuse inside chart footnotes and other tight UI. */
+export function DisclaimerInlineTail() {
+  return (
+    <>
+      Not investment advice. Past performance does not guarantee future results.{' '}
+      <Link href="/disclaimer" className="text-trader-blue hover:underline">
+        Full disclaimer
+      </Link>
+    </>
+  );
+}
+
 interface DisclaimerProps {
   variant?: 'default' | 'compact' | 'inline';
   className?: string;
@@ -12,10 +24,7 @@ export const Disclaimer: React.FC<DisclaimerProps> = ({ variant = 'default', cla
   if (variant === 'inline') {
     return (
       <p className={cn('text-xs text-muted-foreground', className)}>
-        Not investment advice. Past performance does not guarantee future results.{' '}
-        <Link href="/disclaimer" className="text-trader-blue hover:underline">
-          Full disclaimer
-        </Link>
+        <DisclaimerInlineTail />
       </p>
     );
   }

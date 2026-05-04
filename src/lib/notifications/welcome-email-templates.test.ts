@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   buildWelcomeEmailHtml,
   paidTransitionTargetTier,
+  shouldSendWelcomePaidTransitionPostSeriesOnUpgrade,
   welcomeSeriesDueAtForStep,
 } from '@/lib/notifications/welcome-email-templates';
 
@@ -20,6 +21,58 @@ test('paidTransitionTargetTier only when locked free and current paid', () => {
   assert.equal(paidTransitionTargetTier('free', 'supporter'), 'supporter');
   assert.equal(paidTransitionTargetTier('free', 'outperformer'), 'outperformer');
   assert.equal(paidTransitionTargetTier('supporter', 'outperformer'), null);
+});
+
+const row = (over: Partial<{ locked_tier: string; completed_at: string | null; welcome_paid_transition_sent_at: string | null; unsubscribed_at: string | null }>) => ({
+  locked_tier: 'free',
+  completed_at: '2026-01-01T00:00:00.000Z',
+  welcome_paid_transition_sent_at: null,
+  unsubscribed_at: null,
+  ...over,
+});
+
+test('shouldSendWelcomePaidTransitionPostSeriesOnUpgrade happy path', () => {
+  assert.equal(
+    shouldSendWelcomePaidTransitionPostSeriesOnUpgrade({
+      previousSubscriptionTier: 'free',
+      newSubscriptionTier: 'supporter',
+      welcomeRow: row({}),
+    }),
+    true
+  );
+});
+
+test('shouldSendWelcomePaidTransitionPostSeriesOnUpgrade rejects without completed free series', () => {
+  assert.equal(
+    shouldSendWelcomePaidTransitionPostSeriesOnUpgrade({
+      previousSubscriptionTier: 'free',
+      newSubscriptionTier: 'supporter',
+      welcomeRow: row({ completed_at: null }),
+    }),
+    false
+  );
+});
+
+test('shouldSendWelcomePaidTransitionPostSeriesOnUpgrade rejects if already sent', () => {
+  assert.equal(
+    shouldSendWelcomePaidTransitionPostSeriesOnUpgrade({
+      previousSubscriptionTier: 'free',
+      newSubscriptionTier: 'supporter',
+      welcomeRow: row({ welcome_paid_transition_sent_at: '2026-01-02T00:00:00.000Z' }),
+    }),
+    false
+  );
+});
+
+test('shouldSendWelcomePaidTransitionPostSeriesOnUpgrade rejects paid to paid', () => {
+  assert.equal(
+    shouldSendWelcomePaidTransitionPostSeriesOnUpgrade({
+      previousSubscriptionTier: 'supporter',
+      newSubscriptionTier: 'outperformer',
+      welcomeRow: row({}),
+    }),
+    false
+  );
 });
 
 test('buildWelcomeEmailHtml free step 1 includes onboarding unsub and founder', () => {

@@ -19,6 +19,7 @@ import {
 import { cn } from '@/lib/utils';
 import { toDrawdownPercentSeries } from '@/lib/performance-series-drawdown';
 import { useIsBelowMd } from '@/hooks/use-is-below-md';
+import { DisclaimerInlineTail } from '@/components/Disclaimer';
 
 type PerformancePoint = {
   date: string;
@@ -87,6 +88,10 @@ function formatDisplayDate(date: string) {
 
 const DEFAULT_INITIAL_NOTIONAL = 10_000;
 
+/** Equity chart in nominal dollars — shared with your-portfolios mobile layout (before legal tail). */
+export const PERFORMANCE_CHART_FOOTNOTE_EQUITY_NOMINAL_DOLLARS =
+  'Net of trading costs.';
+
 /**
  * Y-axis ticks: full dollars with grouping under $1M so adjacent Recharts ticks never collapse
  * to the same label (the old $Nk + round-to-10 logic made many values near 10k all read as $10k).
@@ -153,6 +158,8 @@ type PerformanceChartProps = {
   hideTimeRangeControls?: boolean;
   /** When true, omits the methodology line under the chart (e.g. onboarding celebrate step) */
   hideFootnote?: boolean;
+  /** Optional classes for the methodology line (e.g. `text-right` on your-portfolios). */
+  footnoteClassName?: string;
   /** When true, no extra vertical padding around the starting-investment hint row */
   tightStartingInvestmentLabel?: boolean;
   /**
@@ -189,6 +196,7 @@ export function PerformanceChart({
   hideDrawdown = false,
   hideTimeRangeControls = false,
   hideFootnote = false,
+  footnoteClassName,
   tightStartingInvestmentLabel = false,
   initialNotional = DEFAULT_INITIAL_NOTIONAL,
   firstPointDisplayNotional,
@@ -579,13 +587,22 @@ export function PerformanceChart({
       )}
 
       {!hideFootnote ? (
-        <p className="text-[11px] text-muted-foreground">
-          {view === 'equity'
-            ? nominalDollars
-              ? `Portfolio value over time. Net of trading costs.`
-              : `Simulated growth of $10,000 from inception, net of trading
-          costs.`
-            : `Drawdown from rolling peak for each series. Deeper troughs = larger losses from peak.`}
+        <p className={cn('text-[11px] text-muted-foreground', footnoteClassName)}>
+          {view === 'equity' ? (
+            nominalDollars ? (
+              <>
+                {PERFORMANCE_CHART_FOOTNOTE_EQUITY_NOMINAL_DOLLARS}{' '}
+                <DisclaimerInlineTail />
+              </>
+            ) : (
+              <>
+                Simulated growth of $10,000 from inception, net of trading costs.{' '}
+                <DisclaimerInlineTail />
+              </>
+            )
+          ) : (
+            `Drawdown from rolling peak for each series. Deeper troughs = larger losses from peak.`
+          )}
         </p>
       ) : null}
     </div>

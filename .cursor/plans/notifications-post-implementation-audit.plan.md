@@ -1,3 +1,10 @@
+---
+name: ''
+overview: ''
+todos: []
+isProject: false
+---
+
 # Notifications v2 — post-implementation audit (follow-up for junior implementer)
 
 Preconditions: migration applied; Resend + cron deployed. Work top-down by priority.
@@ -16,7 +23,7 @@ Preconditions: migration applied; Resend + cron deployed. Work top-down by prior
 2. If **0 rows** → `notFound: true` (400).
 3. If **2+ rows** → `notFound: true` or a dedicated `ambiguous: true` (400) with message `dryUser email matches multiple accounts`.
 4. If **1 row** → return that `id`.
-5. Add a one-line note in [`docs/notifications-runbook.md`](docs/notifications-runbook.md).
+5. Add a one-line comment in `resolve-dry-user-for-cron.ts` or the calling cron route documenting the 400 vs 500 behavior.
 
 **Verify:** Two test users with same `user_profiles.email` (if possible in staging) → cron returns 400, not 500.
 
@@ -128,12 +135,12 @@ Staging: `GET /api/cron/weekly-digest?dryUser=<email>&secret=…` with a user wh
 
 ## Summary
 
-| Priority | Topic |
-|----------|--------|
-| P1 | `dryUser` email: handle 0 / 1 / many rows cleanly (avoid 500 on duplicates) |
-| P1 | Chunk large `.in()` lists for weekly perf + optional `loadUserEmails` |
-| P2 | Weekly digest: consider emailing when only performance strip has content |
-| P2 | Gmail fallback: forward text + List-Unsubscribe headers |
-| P3 | In-app duplicate rating rows; price-move one-email-per-user; refactor `loadUserEmails` import; document `leadHtml` contract |
+| Priority | Topic                                                                                                                       |
+| -------- | --------------------------------------------------------------------------------------------------------------------------- |
+| P1       | `dryUser` email: handle 0 / 1 / many rows cleanly (avoid 500 on duplicates)                                                 |
+| P1       | Chunk large `.in()` lists for weekly perf + optional `loadUserEmails`                                                       |
+| P2       | Weekly digest: consider emailing when only performance strip has content                                                    |
+| P2       | Gmail fallback: forward text + List-Unsubscribe headers                                                                     |
+| P3       | In-app duplicate rating rows; price-move one-email-per-user; refactor `loadUserEmails` import; document `leadHtml` contract |
 
 No separate P0 was found in this pass; core fan-out, cooldown, and template escaping paths look consistent with the intended design.

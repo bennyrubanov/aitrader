@@ -7,6 +7,7 @@ import {
   buildWelcomePaidTransitionEmail,
   firstNameFromProfile,
   paidTransitionTargetTier,
+  shouldSendWelcomePaidTransitionPostSeriesOnUpgrade,
   welcomeSeriesDueAtForStep,
   type WelcomeEmailStep,
 } from '@/lib/notifications/welcome-email-templates';
@@ -265,4 +266,126 @@ export async function runWelcomeSeriesTick(
   }
 
   return summary;
+}
+
+type WelcomeProgressForPostSeries = {
+  locked_tier: string;
+  completed_at: string | null;
+  welcome_paid_transition_sent_at: string | null;
+  unsubscribed_at: string | null;
+  user_profiles: { email: string | null; full_name: string | null } | null;
+  user_notification_preferences: { email_enabled: boolean } | null;
+};
+
+/**
+ * Stripe webhook path: free user already finished all 4 welcome emails (`completed_at` while free),
+ * then becomes paid. Welcome cron skips completed rows, so we send the same paid transition email here once.
+ * Best-effort (logs, does not throw) so billing upsert still succeeds if email fails.
+ */
+export async function trySendWelcomePaidTransitionAfterCompletedFreeSeries(
+  admin: SupabaseClient,
+  params: {
+    userId: string;
+    paidTier: 'supporter' | 'outperformer';
+    previousSubscriptionTier: string | null | undefined;
+  }
+): Promise<void> {
+  const { userId, paidTier, previousSubscriptionTier } = params;
+  const { data: row, error: loadErr } = await admin
+    .from('user_welcome_email_progress')
+    .select(
+      `
+      locked_tier,
+      completed_at,
+      welcome_paid_transition_sent_at,
+      unsubscribed_at,
+      user_profiles ( email, full_name ),
+      user_notification_preferences ( email_enabled )
+    `
+    )
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (loadErr) {
+    console.error('welcome paid transition post-series: load progress', loadErr.message);
+    return;
+  }
+  const w = row as unknown as WelcomeProgressForPostSeries | null;
+  if (
+    !shouldSendWelcomePaidTransitionPostSeriesOnUpgrade({
+      previousSubscriptionTier,
+      newSubscriptionTier: paidTier,
+      welcomeRow: w
+        ? {
+            locked_tier: w.locked_tier,
+            completed_at: w.completed_at,
+            welcome_paid_transition_sent_at: w.welcome_paid_transition_sent_at,
+            unsubscribed_at: w.unsubscribed_at,
+          }
+        : null,
+    })
+  ) {
+    return;
+  }
+
+  const email = w!.user_profiles?.email?.trim();
+  if (!email) return;
+  const prefs = w!.user_notification_preferences;
+  if (prefs?.email_enabled === false) return;
+
+  const secretOk = Boolean(process.env.NOTIFICATIONS_UNSUBSCRIBE_SECRET?.trim());
+  if (!secretOk) return;
+
+  const nowIso = new Date().toISOString();
+  const { data: claimed, error: claimErr } = await admin
+    .from('user_welcome_email_progress')
+    .update({ welcome_paid_transition_sent_at: nowIso, updated_at: nowIso })
+    .eq('user_id', userId)
+    .eq('locked_tier', 'free')
+    .is('welcome_paid_transition_sent_at', null)
+    .not('completed_at', 'is', null)
+    .is('unsubscribed_at', null)
+    .select('user_id')
+    .maybeSingle();
+
+  if (claimErr) {
+    console.error('welcome paid transition post-series: claim', claimErr.message);
+    return;
+  }
+  if (!claimed) return;
+
+  const base = siteBase();
+  const settingsUrl = base ? `${base}/platform/settings/notifications` : '/platform/settings/notifications';
+  const token = signUnsubscribePayload({ userId, scope: 'onboarding' });
+  if (!token) {
+    await admin
+      .from('user_welcome_email_progress')
+      .update({ welcome_paid_transition_sent_at: null, updated_at: new Date().toISOString() })
+      .eq('user_id', userId);
+    return;
+  }
+  const onboardingUnsubscribeUrl = `${base || ''}/api/platform/notifications/unsubscribe?token=${encodeURIComponent(token)}`;
+  const firstName = firstNameFromProfile(w!.user_profiles?.full_name);
+
+  const { subject, html, text } = buildWelcomePaidTransitionEmail({
+    paidTier,
+    firstName,
+    siteBase: base,
+    settingsUrl,
+    onboardingUnsubscribeUrl,
+  });
+  const send = await sendTransactionalEmail({
+    to: email,
+    subject,
+    html,
+    text,
+    headers: listUnsubscribeHeaders(onboardingUnsubscribeUrl),
+  });
+  if (!send.ok) {
+    console.error('welcome paid transition post-series: send failed', send.error ?? 'unknown');
+    await admin
+      .from('user_welcome_email_progress')
+      .update({ welcome_paid_transition_sent_at: null, updated_at: new Date().toISOString() })
+      .eq('user_id', userId);
+  }
 }

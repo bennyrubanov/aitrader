@@ -482,7 +482,7 @@ export function SubscriptionUpgradeDialog({
           <div
             ref={bodyScrollRef}
             onScroll={updateBodyScrollFade}
-            className="absolute inset-0 overflow-y-auto overflow-x-hidden overscroll-y-contain px-6 pb-4"
+            className="absolute inset-0 overflow-y-auto overscroll-y-contain px-6 pb-4"
           >
             {phase === 'loading' && (
               <div className="absolute inset-0 z-[2] flex items-center justify-center gap-2 text-sm text-muted-foreground">

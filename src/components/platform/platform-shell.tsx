@@ -9,6 +9,7 @@ import { AccountSignupPromptProvider } from '@/components/platform/account-promp
 import { GuestPendingPortfolioFollowResume } from '@/components/platform/guest-pending-portfolio-follow-resume';
 import { PlatformOnboardingRedirect } from '@/components/platform/platform-onboarding-redirect';
 import { PostOnboardingPlatformTour } from '@/components/platform/post-onboarding-platform-tour';
+import { BgDots } from '@/components/landing/bg-dots';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 
 type PlatformShellProps = {
@@ -35,7 +36,12 @@ export function PlatformShell({ children }: PlatformShellProps) {
             <AppSidebar />
             <SidebarInset className="!min-h-0 max-h-full min-w-0 flex-1 overflow-hidden !bg-transparent md:peer-data-[variant=inset]:!min-h-0 md:peer-data-[variant=inset]:!rounded-none md:peer-data-[variant=inset]:!shadow-none">
               <div className="relative box-border flex min-h-0 min-w-0 max-h-full flex-1 flex-col overflow-hidden p-4 has-[[data-workspace-page-flush=true]]:!p-0 md:p-6">
-                <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-y-contain">
+                <BgDots
+                  mode="static"
+                  color="rgba(10, 132, 255, 0.10)"
+                  className="pointer-events-none absolute inset-0 z-0 opacity-[0.5] dark:opacity-100"
+                />
+                <div className="relative z-10 flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-y-contain">
                   {children}
                 </div>
               </div>
