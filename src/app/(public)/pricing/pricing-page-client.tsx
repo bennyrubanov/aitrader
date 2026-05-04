@@ -260,6 +260,13 @@ function PricingPageContent() {
     stripeCurrentPeriodEnd,
     stripeCancelAtPeriodEnd,
   } = useAuthState();
+  const [hasHydrated, setHasHydrated] = useState(false);
+  const authUiReady = hasHydrated && isLoaded;
+
+  useEffect(() => {
+    setHasHydrated(true);
+  }, []);
+
   const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>('monthly');
   const [isProcessingCheckout, setIsProcessingCheckout] = useState(false);
   const [checkoutPlan, setCheckoutPlan] = useState<Plan | null>(null);
@@ -290,11 +297,18 @@ function PricingPageContent() {
   /** No further plan switches while a downgrade/upgrade is pending or cancel-at-period-end is set. */
   const planChangeActionsLocked = useMemo(
     () =>
+      authUiReady &&
       hasPremiumAccess &&
       (Boolean(stripePendingTier) ||
         Boolean(stripePendingRecurringInterval) ||
         Boolean(stripeCancelAtPeriodEnd)),
-    [hasPremiumAccess, stripePendingTier, stripePendingRecurringInterval, stripeCancelAtPeriodEnd]
+    [
+      authUiReady,
+      hasPremiumAccess,
+      stripePendingTier,
+      stripePendingRecurringInterval,
+      stripeCancelAtPeriodEnd,
+    ]
   );
 
   const startStripeCheckout = useCallback(
@@ -388,12 +402,12 @@ function PricingPageContent() {
   };
 
   const getCtaLabel = (plan: Plan) => {
-    if (subscriptionTier === plan) return 'Current plan';
+    if (authUiReady && subscriptionTier === plan) return 'Current plan';
     return plan === 'supporter' ? 'Get Supporter' : 'Get Outperformer';
   };
 
-  const isCurrentPlan = (plan: Plan) => subscriptionTier === plan;
-  const isCurrentFreePlan = isAuthenticated && subscriptionTier === 'free';
+  const isCurrentPlan = (plan: Plan) => authUiReady && subscriptionTier === plan;
+  const isCurrentFreePlan = authUiReady && isAuthenticated && subscriptionTier === 'free';
 
   const currentPlanCardClass =
     'border-2 border-trader-blue shadow-md ring-2 ring-trader-blue/25 ring-offset-2 ring-offset-background';
@@ -492,7 +506,8 @@ function PricingPageContent() {
                 </div>
               )}
 
-              {isAuthenticated &&
+              {authUiReady &&
+                isAuthenticated &&
                 hasPremiumAccess &&
                 stripeCurrentPeriodEnd &&
                 (stripeCancelAtPeriodEnd || stripePendingTier) && (
@@ -546,7 +561,7 @@ function PricingPageContent() {
                       </li>
                     ))}
                   </ul>
-                  {isAuthenticated && hasPremiumAccess ? (
+                  {authUiReady && isAuthenticated && hasPremiumAccess ? (
                     <p className="mt-auto text-center text-sm text-muted-foreground">
                       Billing and cancellation are in{' '}
                       <Link
@@ -576,7 +591,7 @@ function PricingPageContent() {
                   ) : (
                     <Button asChild variant="outline" className="w-full mt-auto">
                       <Link href="/platform/overview">
-                        {isAuthenticated ? 'Follow the experiment' : 'Explore the platform'}
+                        {authUiReady && isAuthenticated ? 'Follow the experiment' : 'Explore the platform'}
                       </Link>
                     </Button>
                   )}
@@ -639,7 +654,7 @@ function PricingPageContent() {
                         </Button>
                       )}
                     </div>
-                  ) : subscriptionTier === 'outperformer' ? (
+                  ) : authUiReady && subscriptionTier === 'outperformer' ? (
                     stripePendingTier === 'supporter' ? (
                       <Button
                         type="button"
@@ -759,7 +774,7 @@ function PricingPageContent() {
                     <Button disabled variant="secondary" className="w-full mt-auto">
                       Current plan
                     </Button>
-                  ) : subscriptionTier === 'supporter' ? (
+                  ) : authUiReady && subscriptionTier === 'supporter' ? (
                     planChangeActionsLocked ? (
                       <p className="mt-auto text-center text-sm text-muted-foreground">
                         A subscription change is already scheduled. Use{' '}

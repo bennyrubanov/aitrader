@@ -88,9 +88,12 @@ function formatDisplayDate(date: string) {
 
 const DEFAULT_INITIAL_NOTIONAL = 10_000;
 
-/** Equity chart in nominal dollars — shared with your-portfolios mobile layout (before legal tail). */
+/** Shorter nominal-equity lead — your-portfolios only; full sentence kept as default elsewhere. */
+export const PERFORMANCE_CHART_FOOTNOTE_NET_OF_TRADING_COSTS = 'Net of trading costs.';
+
+/** Equity chart in nominal dollars (before legal tail) — default when `nominalFootnoteLead` is not set. */
 export const PERFORMANCE_CHART_FOOTNOTE_EQUITY_NOMINAL_DOLLARS =
-  'Net of trading costs.';
+  'Portfolio value over time. Net of trading costs.';
 
 /**
  * Y-axis ticks: full dollars with grouping under $1M so adjacent Recharts ticks never collapse
@@ -174,6 +177,11 @@ type PerformanceChartProps = {
   firstPointDisplayNotional?: number;
   /** When true, equity view plots nominal dollars (no window-start rebase). */
   nominalDollars?: boolean;
+  /**
+   * Replaces the default nominal-equity footnote lead (e.g. your-portfolios uses
+   * {@link PERFORMANCE_CHART_FOOTNOTE_NET_OF_TRADING_COSTS} only).
+   */
+  nominalFootnoteLead?: string;
   /** Series keys to exclude from the chart and legend chips entirely */
   omitSeriesKeys?: PerformanceChartSeriesKey[];
   /** Per-series label overrides (e.g. shorter benchmark names) */
@@ -201,6 +209,7 @@ export function PerformanceChart({
   initialNotional = DEFAULT_INITIAL_NOTIONAL,
   firstPointDisplayNotional,
   nominalDollars = false,
+  nominalFootnoteLead,
   omitSeriesKeys = [],
   seriesLabelOverrides,
   chartContainerClassName,
@@ -561,7 +570,8 @@ export function PerformanceChart({
         <div
           className={cn(
             'flex items-center justify-center',
-            tightStartingInvestmentLabel ? 'pt-1' : 'pt-3'
+            tightStartingInvestmentLabel ? 'pt-1' : 'pt-3',
+            !hideFootnote && 'pb-4'
           )}
         >
           <div
@@ -591,7 +601,7 @@ export function PerformanceChart({
           {view === 'equity' ? (
             nominalDollars ? (
               <>
-                {PERFORMANCE_CHART_FOOTNOTE_EQUITY_NOMINAL_DOLLARS}{' '}
+                {nominalFootnoteLead ?? PERFORMANCE_CHART_FOOTNOTE_EQUITY_NOMINAL_DOLLARS}{' '}
                 <DisclaimerInlineTail />
               </>
             ) : (

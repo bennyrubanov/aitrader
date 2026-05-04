@@ -251,6 +251,8 @@ function RatingsStrategyModelPicker({
                 </div>
                 <Link
                   href={`/strategy-models/${strategy.slug}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
                   onPointerDown={(e) => e.preventDefault()}
                   onClick={(e) => e.stopPropagation()}
@@ -313,6 +315,8 @@ function RatingsStrategyModelPicker({
                     </div>
                     <Link
                       href={`/strategy-models/${strategy.slug}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
                       className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
                       onPointerDown={(e) => e.preventDefault()}
                       onClick={(e) => e.stopPropagation()}

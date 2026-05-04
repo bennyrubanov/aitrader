@@ -50,7 +50,7 @@ import { Label } from '@/components/ui/label';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { createPerformanceChartDynamic } from '@/components/platform/performance-chart-dynamic';
 import { DisclaimerInlineTail } from '@/components/Disclaimer';
-import { PERFORMANCE_CHART_FOOTNOTE_EQUITY_NOMINAL_DOLLARS } from '@/components/platform/performance-chart';
+import { PERFORMANCE_CHART_FOOTNOTE_NET_OF_TRADING_COSTS } from '@/components/platform/performance-chart';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -3895,7 +3895,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
 
   const renderYourPortfolioPerformanceChartCard = (opts?: { hideFootnote?: boolean }) => (
 
-                <div className="min-w-0 w-full max-w-full lg:pt-4">
+                <div className="min-w-0 w-full max-w-full">
                   <p className="mb-2 text-xs font-semibold text-muted-foreground">
                     {selectedProfile?.user_start_date
                       ? 'Portfolio vs. benchmarks'
@@ -3907,6 +3907,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                       strategyName={chartStrategyName}
                       hideDrawdown
                       nominalDollars
+                      nominalFootnoteLead={PERFORMANCE_CHART_FOOTNOTE_NET_OF_TRADING_COSTS}
                       initialNotional={chartInitialNotional}
                       firstPointDisplayNotional={
                         selectedProfile?.user_start_date && num(selectedProfile?.investment_size) > 0
@@ -4598,7 +4599,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                           </div>
                           {effectiveDisplaySeries.length > 1 ? (
                             <p className="pb-10 text-left text-[11px] text-muted-foreground">
-                              {PERFORMANCE_CHART_FOOTNOTE_EQUITY_NOMINAL_DOLLARS}{' '}
+                              {PERFORMANCE_CHART_FOOTNOTE_NET_OF_TRADING_COSTS}{' '}
                               <DisclaimerInlineTail />
                             </p>
                           ) : null}
@@ -4689,7 +4690,9 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
 
                       {renderYourPortfolioHoldingsAndRebalancePanels()}
                     </div>
-                    {renderYourPortfolioPerformanceChartCard()}
+                    <div className="">
+                      {renderYourPortfolioPerformanceChartCard()}
+                    </div>
                   </>
                 )}
               </div>

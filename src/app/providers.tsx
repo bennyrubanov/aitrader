@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/components/theme-provider";
+import { ThemeFaviconSync } from "@/components/theme-favicon-sync";
 import { type AuthState } from "@/lib/auth-state";
 import { AuthStateProvider } from "@/components/auth/auth-state-provider";
 import { PortfolioConfigProvider } from "@/components/portfolio-config";
@@ -23,6 +24,7 @@ const Providers = ({ children, initialAuthState }: ProvidersProps) => {
     <AuthStateProvider initialState={initialAuthState}>
       <PortfolioConfigProvider>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+          <ThemeFaviconSync />
           <QueryClientProvider client={queryClient}>
             <TooltipProvider>
               <MobileStaticRouteScrollToTop />

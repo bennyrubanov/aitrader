@@ -142,6 +142,25 @@ const SETTINGS_TOC_GUEST = [
   { id: 'sign-up', label: 'Sign up', href: '/platform/settings/sign-up' },
 ] as const;
 
+/** Billing rows: copy column takes remaining width; action column is only as wide as its control. */
+const billingSettingsRowClass =
+  'grid grid-cols-1 gap-3 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start sm:gap-x-8';
+const billingSettingsCopyClass = 'min-w-0';
+/** Aligns actions to the right on desktop; children can be `w-full` on narrow screens. */
+const billingSettingsActionWrapClass =
+  'flex w-full min-w-0 items-center justify-stretch sm:w-auto sm:shrink-0 sm:justify-end';
+/** Same footprint as other `size="sm"` buttons (`text-sm`); `sm:w-fit` avoids wide empty gutters. */
+const billingSettingsButtonClass =
+  'box-border inline-flex h-9 min-h-9 max-h-9 w-full max-w-full min-w-0 shrink-0 items-center justify-center gap-2 whitespace-nowrap px-3 py-0 text-sm font-medium sm:w-fit';
+/** Ghost billing CTAs: transparent border keeps height aligned; hover carries blue vs destructive vs neutral cues. */
+const billingSettingsGhostChromeClass = 'border border-transparent bg-transparent shadow-none';
+const billingSettingsBlueGhostClass =
+  'text-foreground hover:border-trader-blue/35 hover:bg-trader-blue/10 hover:text-trader-blue dark:hover:text-trader-blue-light';
+const billingSettingsDestructiveGhostClass =
+  'text-destructive hover:border-destructive/45 hover:bg-destructive/15 hover:text-destructive-foreground';
+const billingSettingsNeutralGhostClass =
+  'text-foreground hover:bg-accent hover:text-accent-foreground';
+
 type SettingsSectionId = (typeof SETTINGS_TOC_AUTHENTICATED)[number]['id'] | 'sign-up';
 type AuthSettingsSectionId = Exclude<SettingsSectionId, 'sign-up'>;
 
@@ -716,8 +735,8 @@ const SettingsPageContent = () => {
             : 'mx-auto max-w-2xl'
         )}
       >
-        {/* Mobile: sticky band so section chips stay above the card body (layout + scroll). */}
-        <div className="sticky top-0 z-20 pb-3 pt-0 md:hidden">
+        {/* Mobile: horizontal section chips (in flow; md+ uses sidebar). */}
+        <div className="pb-3 pt-0 md:hidden">
           <h1 className="sr-only">Settings</h1>
 
           {authState.isLoaded ? (
@@ -1044,25 +1063,32 @@ const SettingsPageContent = () => {
             </div>
             <div className="divide-y">
               {authState.subscriptionTier === 'free' && (
-                <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
+                <div className={billingSettingsRowClass}>
+                  <div className={billingSettingsCopyClass}>
                     <p className="text-sm font-medium">Upgrade to a paid plan</p>
                     <p className="mt-0.5 text-xs text-muted-foreground">
                       Choose Supporter or Outperformer on the pricing page to unlock premium features.
                     </p>
                   </div>
-                  <Button
-                    size="sm"
-                    asChild
-                    className="w-full shrink-0 bg-trader-blue text-white hover:bg-trader-blue-dark sm:w-auto"
-                  >
-                    <Link href="/pricing">Upgrade</Link>
-                  </Button>
+                  <div className={billingSettingsActionWrapClass}>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      asChild
+                      className={cn(
+                        billingSettingsButtonClass,
+                        billingSettingsGhostChromeClass,
+                        billingSettingsBlueGhostClass
+                      )}
+                    >
+                      <Link href="/pricing">Upgrade</Link>
+                    </Button>
+                  </div>
                 </div>
               )}
               {authState.hasPremiumAccess && authState.subscriptionTier === 'supporter' && (
-                <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
+                <div className={billingSettingsRowClass}>
+                  <div className={billingSettingsCopyClass}>
                     <p className="text-sm font-medium">Upgrade plan</p>
                     <p className="mt-0.5 text-xs text-muted-foreground">
                       Unlock features like chatting with models, creating your own strategy models, and full live AI ratings access any model.
@@ -1076,19 +1102,26 @@ const SettingsPageContent = () => {
                       Explore features & pricing
                     </a>
                   </div>
-                  <Button
-                    size="sm"
-                    className="w-full shrink-0 bg-trader-blue text-white hover:bg-trader-blue-dark sm:w-auto"
-                    disabled={isOpeningPortal}
-                    onClick={() => setUpgradeDialogOpen(true)}
-                  >
-                    Upgrade to Outperformer
-                  </Button>
+                  <div className={billingSettingsActionWrapClass}>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className={cn(
+                        billingSettingsButtonClass,
+                        billingSettingsGhostChromeClass,
+                        billingSettingsBlueGhostClass
+                      )}
+                      disabled={isOpeningPortal}
+                      onClick={() => setUpgradeDialogOpen(true)}
+                    >
+                      Upgrade to Outperformer
+                    </Button>
+                  </div>
                 </div>
               )}
               {accountCreditRow && (
-                <div className="flex flex-col gap-2 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
+                <div className={billingSettingsRowClass}>
+                  <div className={billingSettingsCopyClass}>
                     <p className="text-sm font-medium">Account credit</p>
                     <p className="mt-0.5 text-xs text-muted-foreground">
                       Applied automatically to upcoming invoices until depleted.
@@ -1102,48 +1135,56 @@ const SettingsPageContent = () => {
                       View credit history
                     </Button>
                   </div>
-                  <p
-                    className={cn(
-                      'text-sm font-semibold sm:shrink-0 tabular-nums',
-                      accountCreditRow.creditCents > 0
-                        ? 'text-green-600 dark:text-green-400'
-                        : 'text-muted-foreground'
-                    )}
-                  >
-                    {formatBillingCharge(accountCreditRow.creditCents, accountCreditRow.currency)}
-                  </p>
+                  <div className={billingSettingsActionWrapClass}>
+                    <p
+                      className={cn(
+                        'flex h-9 w-full items-center justify-end text-sm font-semibold tabular-nums sm:w-fit sm:justify-end sm:text-right',
+                        accountCreditRow.creditCents > 0
+                          ? 'text-green-600 dark:text-green-400'
+                          : 'text-muted-foreground'
+                      )}
+                    >
+                      {formatBillingCharge(accountCreditRow.creditCents, accountCreditRow.currency)}
+                    </p>
+                  </div>
                 </div>
               )}
-              <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0">
+              <div className={billingSettingsRowClass}>
+                <div className={billingSettingsCopyClass}>
                   <p className="text-sm font-medium">Customer portal</p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
                     Review & change payment details, your past payment invoices, or cancel your subscription.
                   </p>
                 </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => void handleOpenPortal()}
-                  disabled={isOpeningPortal}
-                  className="w-full shrink-0 sm:w-auto"
-                >
-                  {isOpeningPortal ? (
-                    <>
-                      <Loader2 className="mr-1.5 size-3.5 animate-spin" />
-                      Opening...
-                    </>
-                  ) : (
-                    <>
-                      Billing & invoices
-                      <ExternalLink className="ml-1.5 size-3.5" />
-                    </>
-                  )}
-                </Button>
+                <div className={billingSettingsActionWrapClass}>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void handleOpenPortal()}
+                    disabled={isOpeningPortal}
+                    className={cn(
+                      billingSettingsButtonClass,
+                      billingSettingsGhostChromeClass,
+                      billingSettingsNeutralGhostClass
+                    )}
+                  >
+                    {isOpeningPortal ? (
+                      <>
+                        <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                        Opening...
+                      </>
+                    ) : (
+                      <>
+                        Billing & invoices
+                        <ExternalLink className="ml-1.5 size-3.5" />
+                      </>
+                    )}
+                  </Button>
+                </div>
               </div>
               {authState.hasPremiumAccess && authState.subscriptionTier === 'outperformer' && (
-                <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
+                <div className={billingSettingsRowClass}>
+                  <div className={billingSettingsCopyClass}>
                     <p className="text-sm font-medium">
                       {authState.stripePendingTier === 'supporter'
                         ? 'Downgrade scheduled'
@@ -1155,34 +1196,45 @@ const SettingsPageContent = () => {
                         : 'Schedule a switch to Supporter at your next renewal.'}
                     </p>
                   </div>
-                  {authState.stripePendingTier === 'supporter' ? (
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      className="w-full shrink-0 sm:w-auto"
-                      disabled={isOpeningPortal}
-                      onClick={() => setScheduledDowngradeDetailOpen(true)}
-                    >
-                      Scheduled {formatBillingDate(authState.stripeCurrentPeriodEnd)}
-                    </Button>
-                  ) : (
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      className="w-full shrink-0 sm:w-auto"
-                      disabled={isOpeningPortal}
-                      onClick={() => setDowngradeDialogOpen(true)}
-                    >
-                      Downgrade to Supporter
-                    </Button>
-                  )}
+                  <div className={billingSettingsActionWrapClass}>
+                    {authState.stripePendingTier === 'supporter' ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className={cn(
+                          billingSettingsButtonClass,
+                          billingSettingsGhostChromeClass,
+                          billingSettingsDestructiveGhostClass
+                        )}
+                        title={`Scheduled ${formatBillingDate(authState.stripeCurrentPeriodEnd)}`}
+                        disabled={isOpeningPortal}
+                        onClick={() => setScheduledDowngradeDetailOpen(true)}
+                      >
+                        Scheduled {formatBillingDate(authState.stripeCurrentPeriodEnd)}
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className={cn(
+                          billingSettingsButtonClass,
+                          billingSettingsGhostChromeClass,
+                          billingSettingsDestructiveGhostClass
+                        )}
+                        disabled={isOpeningPortal}
+                        onClick={() => setDowngradeDialogOpen(true)}
+                      >
+                        Downgrade to Supporter
+                      </Button>
+                    )}
+                  </div>
                 </div>
               )}
               {authState.hasPremiumAccess &&
                 authState.stripePendingRecurringInterval &&
                 authState.stripeCurrentPeriodEnd && (
-                  <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="min-w-0">
+                  <div className={billingSettingsRowClass}>
+                    <div className={billingSettingsCopyClass}>
                       <p className="text-sm font-medium">
                         {authState.stripePendingRecurringInterval === 'year'
                           ? 'Yearly billing scheduled'
@@ -1195,26 +1247,33 @@ const SettingsPageContent = () => {
                         Cancel if you want to keep your current billing cadence.
                       </p>
                     </div>
-                    <Button
-                      size="sm"
-                      className="w-full shrink-0 bg-trader-blue text-white hover:bg-trader-blue-dark sm:w-auto"
-                      disabled={isCancellingSchedule}
-                      onClick={() => void handleCancelScheduledBilling('cancel_scheduled_downgrade')}
-                    >
-                      {isCancellingSchedule ? (
-                        <>
-                          <Loader2 className="mr-1.5 size-3.5 animate-spin" />
-                          Canceling…
-                        </>
-                      ) : (
-                        'Cancel scheduled change'
-                      )}
-                    </Button>
+                    <div className={billingSettingsActionWrapClass}>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className={cn(
+                          billingSettingsButtonClass,
+                          billingSettingsGhostChromeClass,
+                          billingSettingsBlueGhostClass
+                        )}
+                        disabled={isCancellingSchedule}
+                        onClick={() => void handleCancelScheduledBilling('cancel_scheduled_downgrade')}
+                      >
+                        {isCancellingSchedule ? (
+                          <>
+                            <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                            Canceling…
+                          </>
+                        ) : (
+                          'Cancel scheduled change'
+                        )}
+                      </Button>
+                    </div>
                   </div>
                 )}
               {authState.hasPremiumAccess && canSwitchBillingInterval && (
-                <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
+                <div className={billingSettingsRowClass}>
+                  <div className={billingSettingsCopyClass}>
                     <p className="text-sm font-medium">Billing interval</p>
                     <p className="mt-0.5 text-xs text-muted-foreground">
                       {authState.stripeRecurringInterval === 'month'
@@ -1222,22 +1281,28 @@ const SettingsPageContent = () => {
                         : 'Monthly billing starts when your current yearly period ends.'}
                     </p>
                   </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="w-full shrink-0 sm:w-auto"
-                    disabled={isOpeningPortal}
-                    onClick={() => {
-                      setBillingSwitchTarget(
-                        authState.stripeRecurringInterval === 'month' ? 'year' : 'month'
-                      );
-                      setBillingIntervalDialogOpen(true);
-                    }}
-                  >
-                    {authState.stripeRecurringInterval === 'month'
-                      ? 'Switch to yearly billing'
-                      : 'Switch to monthly billing'}
-                  </Button>
+                  <div className={billingSettingsActionWrapClass}>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className={cn(
+                        billingSettingsButtonClass,
+                        billingSettingsGhostChromeClass,
+                        billingSettingsNeutralGhostClass
+                      )}
+                      disabled={isOpeningPortal}
+                      onClick={() => {
+                        setBillingSwitchTarget(
+                          authState.stripeRecurringInterval === 'month' ? 'year' : 'month'
+                        );
+                        setBillingIntervalDialogOpen(true);
+                      }}
+                    >
+                      {authState.stripeRecurringInterval === 'month'
+                        ? 'Switch to yearly billing'
+                        : 'Switch to monthly billing'}
+                    </Button>
+                  </div>
                 </div>
               )}
             </div>

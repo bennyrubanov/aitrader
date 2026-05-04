@@ -1122,6 +1122,10 @@ create table if not exists public.user_notification_preferences (
   weekly_portfolio_summary_email boolean not null default true,
   weekly_per_portfolio_email boolean not null default true,
   weekly_tracked_stocks_email boolean not null default true,
+  weekly_product_updates_inapp boolean not null default true,
+  weekly_portfolio_summary_inapp boolean not null default true,
+  weekly_per_portfolio_inapp boolean not null default true,
+  weekly_tracked_stocks_inapp boolean not null default true,
   updated_at timestamptz not null default now()
 );
 

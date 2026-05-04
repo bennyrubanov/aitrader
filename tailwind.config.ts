@@ -182,7 +182,16 @@ export default {
 				'star-movement-top': 'star-movement-top linear infinite alternate',
 			},
 			fontFamily: {
-				sans: ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', 'sans-serif'],
+				sans: [
+					'var(--font-sans)',
+					'-apple-system',
+					'BlinkMacSystemFont',
+					'Segoe UI',
+					'Roboto',
+					'Helvetica',
+					'Arial',
+					'sans-serif',
+				],
 			},
 			boxShadow: {
 				'glass': '0 4px 30px rgba(0, 0, 0, 0.1)',

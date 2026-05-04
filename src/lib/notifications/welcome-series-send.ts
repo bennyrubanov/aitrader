@@ -381,7 +381,7 @@ export async function trySendWelcomePaidTransitionAfterCompletedFreeSeries(
     text,
     headers: listUnsubscribeHeaders(onboardingUnsubscribeUrl),
   });
-  if (!send.ok) {
+  if (send.ok === false) {
     console.error('welcome paid transition post-series: send failed', send.error ?? 'unknown');
     await admin
       .from('user_welcome_email_progress')

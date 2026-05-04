@@ -214,6 +214,10 @@ type PrefRow = {
   weekly_portfolio_summary_email: boolean;
   weekly_per_portfolio_email: boolean;
   weekly_tracked_stocks_email: boolean;
+  weekly_product_updates_inapp: boolean;
+  weekly_portfolio_summary_inapp: boolean;
+  weekly_per_portfolio_inapp: boolean;
+  weekly_tracked_stocks_inapp: boolean;
 };
 
 type ProfileDigestRow = {
@@ -373,19 +377,26 @@ async function fetchTrackedStockDiffLinesByUser(
   return out;
 }
 
-function weeklyInappCounts(rows: { type: string }[]) {
+function weeklyInappCounts(rows: { type: string }[], pref: PrefRow) {
   let portfolioUpdates = 0;
   let ratingChanges = 0;
   let priceAlerts = 0;
+  const perPort = pref.weekly_per_portfolio_inapp;
+  const tracked = pref.weekly_tracked_stocks_inapp;
+  const summary = pref.weekly_portfolio_summary_inapp;
+  const portfolioDigest = perPort || summary;
   for (const r of rows) {
-    if (r.type === 'stock_rating_change') ratingChanges += 1;
-    else if (r.type === 'portfolio_price_move') priceAlerts += 1;
-    else if (
+    if (r.type === 'stock_rating_change') {
+      if (tracked) ratingChanges += 1;
+    } else if (r.type === 'portfolio_price_move') {
+      if (perPort) priceAlerts += 1;
+    } else if (
       r.type === 'rebalance_action' ||
       r.type === 'portfolio_entries_exits' ||
       r.type === 'model_ratings_ready'
-    )
-      portfolioUpdates += 1;
+    ) {
+      if (portfolioDigest) portfolioUpdates += 1;
+    }
   }
   return { portfolioUpdates, ratingChanges, priceAlerts };
 }
@@ -411,7 +422,9 @@ export async function runWeeklyEmailBundle(
     .select(
       `user_id, email_enabled, inapp_enabled,
        weekly_digest_inapp, weekly_product_updates_email, weekly_portfolio_summary_email,
-       weekly_per_portfolio_email, weekly_tracked_stocks_email`
+       weekly_per_portfolio_email, weekly_tracked_stocks_email,
+       weekly_product_updates_inapp, weekly_portfolio_summary_inapp,
+       weekly_per_portfolio_inapp, weekly_tracked_stocks_inapp`
     )
     .eq('weekly_digest_enabled', true);
 
@@ -532,7 +545,7 @@ export async function runWeeklyEmailBundle(
         .eq('user_id', pref.user_id)
         .gte('created_at', weekAgoIso)
         .limit(500);
-      const c = weeklyInappCounts((countRows ?? []) as { type: string }[]);
+      const c = weeklyInappCounts((countRows ?? []) as { type: string }[], pref);
       const body = `${c.portfolioUpdates} portfolio updates, ${c.ratingChanges} rating changes, ${c.priceAlerts} price alerts this week.`;
       const { error: insErr } = await admin.from('notifications').insert({
         user_id: pref.user_id,

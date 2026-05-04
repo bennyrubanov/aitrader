@@ -1,7 +1,15 @@
 import type { Metadata } from 'next';
 import Script from 'next/script';
+import { Inter } from 'next/font/google';
 import { Analytics } from '@vercel/analytics/next';
+import { SITE_FAVICON_DARK, SITE_FAVICON_LIGHT } from '@/lib/site-brand-icons';
 import './globals.css';
+
+const inter = Inter({
+  subsets: ['latin'],
+  variable: '--font-sans',
+  display: 'swap',
+});
 
 const siteUrl =
   process.env.NEXT_PUBLIC_SITE_URL ||
@@ -18,12 +26,18 @@ export const metadata: Metadata = {
       'A live AI-driven stock rating and portfolio system built on research and tracked transparently.',
     images: ['/og-image.png'],
   },
+  icons: {
+    icon: [
+      { url: SITE_FAVICON_LIGHT, type: 'image/png', media: '(prefers-color-scheme: light)' },
+      { url: SITE_FAVICON_DARK, type: 'image/png', media: '(prefers-color-scheme: dark)' },
+    ],
+  },
 };
 
 const RootLayout = async ({ children }: { children: React.ReactNode }) => {
   const plausibleEnabled = process.env.NODE_ENV === 'production';
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning className={`${inter.variable} font-sans antialiased`}>
       <body>
         {plausibleEnabled ? (
           <>

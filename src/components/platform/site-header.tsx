@@ -16,6 +16,7 @@ import { useAuthState } from '@/components/auth/auth-state-context';
 import { SiteHeaderGuestAuth } from '@/components/platform/site-header-guest-auth';
 import { PLATFORM_TOUR_SHELL_READY_ATTR } from '@/lib/platform-post-onboarding-tour';
 import { NotificationsBell } from '@/components/platform/notifications-bell';
+import { useSiteBrandFaviconSrc } from '@/hooks/use-site-brand-favicon-src';
 
 type ViewMeta = {
   title: string;
@@ -106,6 +107,7 @@ export function SiteHeader() {
       : authName?.trim() || email?.split('@')[0] || 'Account';
 
   const guestSignUpHref = `/sign-up?next=${encodeURIComponent(pathname || '/platform')}`;
+  const homeIconSrc = useSiteBrandFaviconSrc();
 
   return (
     <header
@@ -122,7 +124,13 @@ export function SiteHeader() {
           className="hidden items-center rounded-md p-1 hover:bg-muted md:inline-flex"
           aria-label="Go to home"
         >
-          <Image src="/favicon.ico" alt="AITrader home" width={24} height={24} />
+          <Image
+            key={homeIconSrc}
+            src={homeIconSrc}
+            alt="AITrader home"
+            width={24}
+            height={24}
+          />
         </Link>
 
         <Button

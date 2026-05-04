@@ -14,6 +14,10 @@ const defaultRow = (userId: string) => ({
   weekly_portfolio_summary_email: true,
   weekly_per_portfolio_email: true,
   weekly_tracked_stocks_email: true,
+  weekly_product_updates_inapp: true,
+  weekly_portfolio_summary_inapp: true,
+  weekly_per_portfolio_inapp: true,
+  weekly_tracked_stocks_inapp: true,
   email_enabled: true,
   inapp_enabled: true,
 });
@@ -77,6 +81,10 @@ export async function PUT(req: Request) {
     'weekly_portfolio_summary_email',
     'weekly_per_portfolio_email',
     'weekly_tracked_stocks_email',
+    'weekly_product_updates_inapp',
+    'weekly_portfolio_summary_inapp',
+    'weekly_per_portfolio_inapp',
+    'weekly_tracked_stocks_inapp',
     'email_enabled',
     'inapp_enabled',
   ] as const;
@@ -89,9 +97,13 @@ export async function PUT(req: Request) {
     Boolean(merged.weekly_digest_inapp) ||
     Boolean(merged.weekly_digest_email) ||
     Boolean(merged.weekly_product_updates_email) ||
+    Boolean(merged.weekly_product_updates_inapp) ||
     Boolean(merged.weekly_portfolio_summary_email) ||
+    Boolean(merged.weekly_portfolio_summary_inapp) ||
     Boolean(merged.weekly_per_portfolio_email) ||
-    Boolean(merged.weekly_tracked_stocks_email);
+    Boolean(merged.weekly_per_portfolio_inapp) ||
+    Boolean(merged.weekly_tracked_stocks_email) ||
+    Boolean(merged.weekly_tracked_stocks_inapp);
 
   const { data, error } = await supabase
     .from('user_notification_preferences')

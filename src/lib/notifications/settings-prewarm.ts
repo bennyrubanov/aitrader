@@ -15,6 +15,10 @@ export type Prefs = {
   weekly_portfolio_summary_email: boolean;
   weekly_per_portfolio_email: boolean;
   weekly_tracked_stocks_email: boolean;
+  weekly_product_updates_inapp: boolean;
+  weekly_portfolio_summary_inapp: boolean;
+  weekly_per_portfolio_inapp: boolean;
+  weekly_tracked_stocks_inapp: boolean;
   email_enabled: boolean;
   inapp_enabled: boolean;
 };
@@ -29,6 +33,7 @@ export type ModelSub = {
 
 export type ProfileRow = {
   id: string;
+  strategy_id: string;
   notify_rebalance: boolean;
   notify_holdings_change: boolean;
   email_enabled: boolean;

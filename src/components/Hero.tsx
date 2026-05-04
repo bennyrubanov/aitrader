@@ -60,7 +60,7 @@ const Hero = ({ performance }: HeroProps) => {
         <div className="mx-auto grid max-w-6xl grid-cols-1 gap-12 md:grid-cols-12 md:gap-8">
           <div className="text-center md:col-span-7 md:text-left">
             <h1
-              className={`mb-6 text-[clamp(2.2rem,5.4vw,4.5rem)] font-bold leading-[1.02] tracking-tight text-foreground ${HERO_FADE_IN}`}
+              className={`mb-6 text-[clamp(2.05rem,5vw,4.25rem)] font-bold leading-[1.02] tracking-tight text-foreground ${HERO_FADE_IN}`}
             >
               We&apos;re testing if{' '}
               <span className="text-gradient">AI can beat the market</span>, in public.
