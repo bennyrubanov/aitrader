@@ -134,7 +134,9 @@ function NavbarAccountDropdown({
                 className={`transition-opacity duration-300 ${avatarLoaded ? "opacity-100" : "opacity-0"}`}
                 onLoad={() => setAvatarLoaded(true)}
               />
-              <AvatarFallback>{accountInitials}</AvatarFallback>
+              <AvatarFallback className="text-foreground">
+                {accountInitials}
+              </AvatarFallback>
             </Avatar>
           </div>
         </button>

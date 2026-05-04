@@ -13,6 +13,7 @@ import { CartesianGrid, Line, LineChart, ReferenceLine, XAxis, YAxis } from 'rec
 import { ChartContainer, ChartTooltip } from '@/components/ui/chart';
 import {
   dataKeyForExploreConfig,
+  formatExploreEquityAxisDate,
   formatModelInceptionFootnoteDate,
   type ExploreBenchmarkSeries,
   type ExploreEquitySeriesRow,
@@ -86,19 +87,6 @@ function colorForConfigId(id: string): string {
 type TimeRange = '1M' | '3M' | '6M' | 'YTD' | 'All';
 const TIME_RANGES: TimeRange[] = ['1M', '3M', '6M', 'YTD', 'All'];
 
-const displayDateFormatter = new Intl.DateTimeFormat('en-US', {
-  weekday: 'short',
-  month: 'short',
-  day: 'numeric',
-  timeZone: 'UTC',
-});
-
-function formatDisplayDate(date: string) {
-  const parsed = new Date(`${date}T00:00:00Z`);
-  if (Number.isNaN(parsed.getTime())) return date;
-  return displayDateFormatter.format(parsed);
-}
-
 function filterDates(dates: string[], range: TimeRange): string[] {
   if (range === 'All' || !dates.length) return dates;
   const lastDate = new Date(`${dates[dates.length - 1]}T00:00:00Z`);
@@ -132,8 +120,12 @@ function formatEquityTooltipValue(v: number): string {
   return `$${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
 }
 
-/** Same relative measure as `RelativeOutperformanceChart` in mini-charts: (port growth / bm growth − 1)×100. */
-function cumulativeOutperfPct(
+/**
+ * Arithmetic excess: (portfolio simple return − benchmark simple return)×100.
+ * Same definition as landing “Mean Portfolio Return vs S&amp;P 500”
+ * (`avgExcessReturnVsSp500FromConfigs` in `@/lib/avg-excess-vs-sp500`).
+ */
+function cumulativeArithmeticExcessPct(
   portAtStart: number,
   portAtDate: number,
   bmAtStart: number,
@@ -150,10 +142,10 @@ function cumulativeOutperfPct(
   ) {
     return null;
   }
-  const aiGrowth = portAtDate / portAtStart;
-  const bmGrowth = bmAtDate / bmAtStart;
-  if (!Number.isFinite(bmGrowth) || bmGrowth === 0) return null;
-  return ((aiGrowth / bmGrowth) - 1) * 100;
+  const rp = portAtDate / portAtStart - 1;
+  const rb = bmAtDate / bmAtStart - 1;
+  if (!Number.isFinite(rp) || !Number.isFinite(rb)) return null;
+  return (rp - rb) * 100;
 }
 
 function formatSignedPct1(v: number): string {
@@ -385,7 +377,7 @@ export function ExplorePortfoliosEquityChart({
       const i = dateIndex.get(d) ?? 0;
       const row: Record<string, string | number> = {
         date: d,
-        shortDate: formatDisplayDate(d),
+        shortDate: formatExploreEquityAxisDate(d),
       };
       for (const s of effectiveSeries) {
         const k = dataKeyForExploreConfig(s.configId);
@@ -432,7 +424,7 @@ export function ExplorePortfoliosEquityChart({
     const i = effectiveDates.length - 1;
     const row: Record<string, string | number> = {
       date: effectiveDates[i]!,
-      shortDate: formatDisplayDate(effectiveDates[i]!),
+      shortDate: formatExploreEquityAxisDate(effectiveDates[i]!),
     };
     for (const s of effectiveSeries) {
       row[dataKeyForExploreConfig(s.configId)] = s.equities[i] ?? 10_000;
@@ -508,8 +500,8 @@ export function ExplorePortfoliosEquityChart({
     for (const s of effectiveSeries) {
       const e0 = s.equities[0];
       const eT = s.equities[dateIdx];
-      const oSp = cumulativeOutperfPct(e0, eT, bmSp0, bmSpT);
-      const oNd = cumulativeOutperfPct(e0, eT, bmNd0, bmNdT);
+      const oSp = cumulativeArithmeticExcessPct(e0, eT, bmSp0, bmSpT);
+      const oNd = cumulativeArithmeticExcessPct(e0, eT, bmNd0, bmNdT);
       if (oSp != null && oNd != null) {
         vsSp.push(oSp);
         vsNd.push(oNd);
@@ -761,6 +753,46 @@ export function ExplorePortfoliosEquityChart({
 
   return (
     <div className={cn('space-y-3', className)}>
+      {!isPicker && averageBenchOutperformance ? (
+        <div className="rounded-lg border border-border/80 bg-muted/20 px-3 py-2">
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-muted-foreground">
+                Mean Portfolio Return vs Benchmarks
+              </p>
+            </div>
+            <div className="flex shrink-0 flex-wrap items-baseline justify-end gap-x-5 gap-y-1 text-sm max-sm:basis-full">
+              <div className="flex items-baseline justify-end gap-2">
+                <span className="shrink-0 text-xs text-muted-foreground">S&amp;P 500</span>
+                <span
+                  className={cn(
+                    'font-semibold tabular-nums',
+                    averageBenchOutperformance.vsSp500 >= 0
+                      ? 'text-emerald-600 dark:text-emerald-500'
+                      : 'text-rose-600 dark:text-rose-500'
+                  )}
+                >
+                  {formatSignedPct1(averageBenchOutperformance.vsSp500)}
+                </span>
+              </div>
+              <div className="flex items-baseline justify-end gap-2">
+                <span className="shrink-0 text-xs text-muted-foreground">Nasdaq-100</span>
+                <span
+                  className={cn(
+                    'font-semibold tabular-nums',
+                    averageBenchOutperformance.vsNasdaqCap >= 0
+                      ? 'text-emerald-600 dark:text-emerald-500'
+                      : 'text-rose-600 dark:text-rose-500'
+                  )}
+                >
+                  {formatSignedPct1(averageBenchOutperformance.vsNasdaqCap)}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div className="flex flex-wrap items-center gap-6">
         <div className="flex items-center gap-1">
           {TIME_RANGES.map((r) => (
@@ -940,46 +972,6 @@ export function ExplorePortfoliosEquityChart({
           </div>
         ) : null}
       </div>
-
-      {!isPicker && averageBenchOutperformance ? (
-        <div className="rounded-lg border border-border/80 bg-muted/20 px-3 py-2">
-          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-            <div className="min-w-0 flex-1">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Average portfolio performance versus benchmarks
-              </p>
-            </div>
-            <div className="flex shrink-0 flex-wrap items-baseline justify-end gap-x-5 gap-y-1 text-sm max-sm:basis-full">
-              <div className="flex items-baseline justify-end gap-2">
-                <span className="shrink-0 text-xs text-muted-foreground">S&amp;P 500</span>
-                <span
-                  className={cn(
-                    'font-semibold tabular-nums',
-                    averageBenchOutperformance.vsSp500 >= 0
-                      ? 'text-emerald-600 dark:text-emerald-500'
-                      : 'text-rose-600 dark:text-rose-500'
-                  )}
-                >
-                  {formatSignedPct1(averageBenchOutperformance.vsSp500)}
-                </span>
-              </div>
-              <div className="flex items-baseline justify-end gap-2">
-                <span className="shrink-0 text-xs text-muted-foreground">Nasdaq-100</span>
-                <span
-                  className={cn(
-                    'font-semibold tabular-nums',
-                    averageBenchOutperformance.vsNasdaqCap >= 0
-                      ? 'text-emerald-600 dark:text-emerald-500'
-                      : 'text-rose-600 dark:text-rose-500'
-                  )}
-                >
-                  {formatSignedPct1(averageBenchOutperformance.vsNasdaqCap)}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
 
       <div className="grid min-h-0 gap-3 lg:h-[360px] lg:min-h-[360px] lg:max-h-[360px] lg:grid-cols-[minmax(0,1fr)_minmax(260px,300px)] lg:items-stretch lg:gap-4">
         <div className="flex min-h-[320px] min-w-0 flex-col lg:min-h-0">
@@ -1241,9 +1233,18 @@ export function ExplorePortfoliosEquityChart({
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                   Portfolio values
                 </p>
-                {!isPicker && !isNarrowLayout && pinnedIndex != null ? (
-                  <span className="shrink-0 rounded-full bg-trader-blue/15 px-2 py-0.5 text-[10px] font-medium text-trader-blue">
-                    Pinned
+                {!isPicker &&
+                displayValueRow != null &&
+                typeof displayValueRow.shortDate === 'string' ? (
+                  <span
+                    className="max-w-[min(100%,11rem)] shrink-0 truncate text-right text-[10px] tabular-nums text-muted-foreground"
+                    title={
+                      typeof displayValueRow.date === 'string'
+                        ? displayValueRow.date
+                        : displayValueRow.shortDate
+                    }
+                  >
+                    {displayValueRow.shortDate}
                   </span>
                 ) : null}
               </div>

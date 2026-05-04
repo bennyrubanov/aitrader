@@ -37,3 +37,17 @@ export function formatModelInceptionFootnoteDate(isoDate: string | undefined): s
     timeZone: 'UTC',
   }).format(parsed);
 }
+
+const exploreEquityAxisDateFormatter = new Intl.DateTimeFormat('en-US', {
+  weekday: 'short',
+  month: 'short',
+  day: 'numeric',
+  timeZone: 'UTC',
+});
+
+/** `YYYY-MM-DD` (UTC) → short labels aligned with the explore equity chart X-axis. */
+export function formatExploreEquityAxisDate(isoYmd: string): string {
+  const parsed = new Date(`${isoYmd}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return isoYmd;
+  return exploreEquityAxisDateFormatter.format(parsed);
+}

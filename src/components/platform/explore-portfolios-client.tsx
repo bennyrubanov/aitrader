@@ -3,10 +3,11 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ExplorePortfoliosEquityChart } from '@/components/platform/explore-portfolios-equity-chart';
-import type {
-  ExploreBenchmarkSeries,
-  ExploreEquitySeriesLivePoint,
-  ExploreEquitySeriesRow,
+import {
+  formatExploreEquityAxisDate,
+  type ExploreBenchmarkSeries,
+  type ExploreEquitySeriesLivePoint,
+  type ExploreEquitySeriesRow,
 } from '@/components/platform/explore-portfolios-equity-chart-shared';
 import { ExplorePortfolioDetailDialog } from '@/components/platform/explore-portfolio-detail-dialog';
 import {
@@ -711,6 +712,22 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
     return n;
   }, [filterBeatNasdaq, filterBeatSp500, riskFilter, freqFilter, weightFilter]);
 
+  const rankingsToolbarAsOfLabel = useMemo(() => {
+    const d = latestPerformanceDate?.trim();
+    if (!d) return null;
+    return formatExploreEquityAxisDate(d);
+  }, [latestPerformanceDate]);
+
+  const rankingsDateTail =
+    rankingsToolbarAsOfLabel != null ? (
+      <>
+        {' · '}
+        <span title={latestPerformanceDate ?? undefined} className="tabular-nums">
+          {rankingsToolbarAsOfLabel}
+        </span>
+      </>
+    ) : null;
+
   const asideFiltersScrollRef = useRef<HTMLDivElement | null>(null);
   const asideFiltersInnerRef = useRef<HTMLDivElement | null>(null);
   const [showAsideFiltersScrollFade, setShowAsideFiltersScrollFade] = useState(false);
@@ -1032,6 +1049,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
                         <span className="min-w-0 truncate text-xs text-muted-foreground">
                           {filteredConfigs.length} portfolio{filteredConfigs.length !== 1 ? 's' : ''}
                           {activeFilterCount > 0 ? ' matching filters' : ''}
+                          {rankingsDateTail}
                         </span>
                       </div>
                     ) : (
@@ -1133,6 +1151,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
                         <span className="text-xs text-muted-foreground">
                           {filteredConfigs.length} portfolio{filteredConfigs.length !== 1 ? 's' : ''}
                           {activeFilterCount > 0 ? ' matching filters' : ''}
+                          {rankingsDateTail}
                         </span>
                       </>
                     ) : (
@@ -1211,7 +1230,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
             {/* Config list or multi-line equity chart */}
             {isLoading ? (
               browseMode === 'chart' ? (
-                <div className="rounded-xl border bg-card p-4">
+                <div>
                   <Skeleton className="h-[380px] w-full rounded-lg" />
                 </div>
               ) : (
@@ -1226,7 +1245,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
                 No portfolios match the selected filters.
               </div>
             ) : browseMode === 'chart' ? (
-              <div className="rounded-xl border bg-card p-4">
+              <div>
                 {equitySeriesLoading || equitySeriesPayload == null ? (
                   <Skeleton className="h-[380px] w-full rounded-lg" />
                 ) : (
