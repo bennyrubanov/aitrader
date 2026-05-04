@@ -3,6 +3,17 @@
  * Tooltips explain how each badge was assigned; styles used by explore / pickers.
  */
 
+/** Names removed from product UI but that may still appear in cached ranked payloads — strip before rendering. */
+const RETIRED_PORTFOLIO_CONFIG_BADGE_NAMES = new Set<string>(['Default']);
+
+export function portfolioConfigBadgesForDisplay(badges: readonly string[]): string[] {
+  return badges.filter((b) => !RETIRED_PORTFOLIO_CONFIG_BADGE_NAMES.has(b));
+}
+
+export function portfolioConfigBadgeHidden(name: string): boolean {
+  return RETIRED_PORTFOLIO_CONFIG_BADGE_NAMES.has(name);
+}
+
 export const PORTFOLIO_CONFIG_BADGE_TOOLTIPS: Record<string, string> = {
   'Top ranked':
     'Ranked #1 by composite score among portfolios with enough data for all inputs. The score blends normalized peers: 30% Sharpe, 35% total return, 15% consistency (% of weeks beating Nasdaq-100), 10% drawdown (shallower is better), and 10% excess return vs Nasdaq-100 over the same period.',
@@ -10,8 +21,6 @@ export const PORTFOLIO_CONFIG_BADGE_TOOLTIPS: Record<string, string> = {
     'Highest Sharpe ratio among ranked portfolios — weekly returns vs volatility, annualized. Ties go to the first match in our sort order.',
   'Most consistent':
     'Highest “consistency” score among ranked portfolios: the fraction of weeks where this portfolio’s weekly return outperformed the Nasdaq-100 benchmark that week.',
-  Default:
-    'This portfolio is the platform default for new portfolios (balanced risk, typical cadence).',
 
   'Best CAGR':
     'Highest compound annual growth rate (CAGR) from inception among ranked portfolios, using the same simulated $10k track as the chart.',
@@ -27,7 +36,6 @@ export const PORTFOLIO_CONFIG_BADGE_CLASSES: Record<string, string> = {
     'bg-violet-500/10 text-violet-700 dark:text-violet-300 border-violet-500/30',
   'Most consistent':
     'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30',
-  Default: 'bg-muted text-muted-foreground border-border',
 
   'Best CAGR': 'bg-sky-500/10 text-sky-800 dark:text-sky-300 border-sky-500/30',
   'Best total return': 'bg-amber-500/10 text-amber-900 dark:text-amber-300 border-amber-500/35',

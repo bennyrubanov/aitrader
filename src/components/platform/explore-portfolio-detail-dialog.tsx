@@ -36,6 +36,7 @@ import {
   type RiskLevel,
 } from '@/components/portfolio-config';
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
+import { portfolioConfigBadgesForDisplay } from '@/lib/portfolio-config-badges';
 import {
   HoldingsAllocationColumnTooltip,
   HoldingsCostBasisColumnTooltip,
@@ -1329,9 +1330,9 @@ export function ExplorePortfolioDetailDialog({
                   ? `Data tracked since ${inceptionLabel} (inception)`
                   : 'Data tracked from inception'}
               </p>
-              {config.badges.length > 0 ? (
+              {portfolioConfigBadgesForDisplay(config.badges).length > 0 ? (
                 <div className="flex flex-wrap gap-1 pt-0.5">
-                  {config.badges.map((b) => (
+                  {portfolioConfigBadgesForDisplay(config.badges).map((b) => (
                     <PortfolioConfigBadgePill key={b} name={b} strategySlug={strategySlug} />
                   ))}
                 </div>
@@ -1362,9 +1363,9 @@ export function ExplorePortfolioDetailDialog({
                   {config.label}
                 </span>
               </div>
-              {config.badges.length > 0 ? (
+              {portfolioConfigBadgesForDisplay(config.badges).length > 0 ? (
                 <div className="flex flex-wrap gap-1">
-                  {config.badges.map((b) => (
+                  {portfolioConfigBadgesForDisplay(config.badges).map((b) => (
                     <PortfolioConfigBadgePill key={b} name={b} strategySlug={strategySlug} />
                   ))}
                 </div>

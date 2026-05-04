@@ -59,6 +59,24 @@ export const PLATFORM_POST_ONBOARDING_TOUR_REQUEST_READINESS_EVENT =
 /** Fired when overview + shell markers show the app is ready for the tour overlay (after rAF paint). */
 export const PLATFORM_POST_ONBOARDING_TOUR_PRIMED_EVENT = 'aitrader:platform-post-tour-primed';
 
+/**
+ * Tour asks overview spotlight to switch the below-`lg` Performance / Holdings sub-tab.
+ * Overview listens and calls `setSpotlightMobileSubTab` (avoids relying on synthetic clicks).
+ */
+export const PLATFORM_POST_ONBOARDING_TOUR_SPOTLIGHT_MOBILE_SUBTAB_EVENT =
+  'aitrader:platform-post-tour-spotlight-mobile-subtab';
+
+export type PlatformTourSpotlightMobileSubTab = 'performance' | 'holdings';
+
+export function dispatchPlatformTourSpotlightMobileSubTab(tab: PlatformTourSpotlightMobileSubTab): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(
+    new CustomEvent(PLATFORM_POST_ONBOARDING_TOUR_SPOTLIGHT_MOBILE_SUBTAB_EVENT, {
+      detail: { tab },
+    })
+  );
+}
+
 /** DOM marker for shell auth loaded (site header + sidebar account module). */
 export const PLATFORM_TOUR_SHELL_READY_ATTR = 'data-platform-tour-shell-ready';
 

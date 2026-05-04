@@ -10,7 +10,7 @@ import {
   type ComponentPropsWithoutRef,
   type ReactNode,
 } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { ArrowLeft, Bell, Loader2, Settings } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { Button } from '@/components/ui/button';
@@ -95,12 +95,20 @@ function hrefFromRow(n: NotifRow): string | null {
 /** Refetch notifications at most this often when not forced (daily cadence; saves API + Supabase). */
 const NOTIFICATIONS_STALE_MS = 15 * 60 * 1000;
 
+/** Ephemeral row chrome after inbox open + mark-all-read (plan: clear on nav / new unread / TTL). */
+const NOTIFICATION_RECENT_HIGHLIGHT_MS = 120_000;
+
 async function markNotificationRead(id: string): Promise<void> {
   await fetch(`/api/platform/notifications/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ read: true }),
   });
+}
+
+async function postMarkAllNotificationsRead(): Promise<boolean> {
+  const res = await fetch('/api/platform/notifications/mark-all-read', { method: 'POST' });
+  return res.ok;
 }
 
 function NotificationsPanelInner({
@@ -112,6 +120,7 @@ function NotificationsPanelInner({
   loading,
   items,
   filteredItems,
+  recentlyOpenedUnreadIds,
   onRowActivate,
   onOpenSettingsPage,
   onPrefetchSettingsPage,
@@ -124,20 +133,23 @@ function NotificationsPanelInner({
   loading: boolean;
   items: NotifRow[];
   filteredItems: NotifRow[];
+  recentlyOpenedUnreadIds: ReadonlySet<string>;
   onRowActivate: (n: NotifRow) => void | Promise<void>;
   onOpenSettingsPage: (variant: 'sheet' | 'menu') => void;
   onPrefetchSettingsPage: () => void;
 }) {
-  const headerPad = variant === 'sheet' ? 'pr-12' : 'pr-1';
+  const sheetListHeader = variant === 'sheet' && panelView === 'list';
   const { last7Days, earlier } = partitionNotificationsByRecency(filteredItems);
 
-  const rowButton = (n: NotifRow) => (
+  const rowButton = (n: NotifRow) => {
+    const showRecentUnreadChrome = recentlyOpenedUnreadIds.has(n.id) || n.read_at == null;
+    return (
     <li key={n.id}>
       <button
         type="button"
         className={cn(
           'flex w-full flex-col items-start gap-0.5 rounded-lg border border-transparent px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted/70',
-          !n.read_at && 'border-border/60 bg-muted/40'
+          showRecentUnreadChrome && 'border-border/60 bg-muted/40'
         )}
         onClick={() => void onRowActivate(n)}
       >
@@ -162,14 +174,21 @@ function NotificationsPanelInner({
         ) : null}
       </button>
     </li>
-  );
+    );
+  };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col">
       <div
         className={cn(
-          'flex shrink-0 items-center justify-between gap-2 border-b px-3 py-2.5 sm:px-4 sm:py-3',
-          headerPad
+          'flex shrink-0 items-center py-2.5 sm:py-3',
+          panelView === 'settings' && 'border-b',
+          sheetListHeader
+            ? 'relative w-full justify-start pl-3 pr-0 sm:pl-4 sm:pr-0'
+            : cn(
+                'justify-between gap-2 px-3 sm:px-4',
+                variant === 'menu' ? 'pr-1' : 'pr-4'
+              )
         )}
       >
         {panelView === 'settings' ? (
@@ -193,7 +212,14 @@ function NotificationsPanelInner({
         ) : (
           <>
             {variant === 'sheet' ? (
-              <SheetTitle className="text-base font-semibold">Notifications</SheetTitle>
+              <SheetTitle
+                className={cn(
+                  'text-base font-semibold',
+                  sheetListHeader && 'min-w-0 flex-1 pr-12 sm:pr-14'
+                )}
+              >
+                Notifications
+              </SheetTitle>
             ) : (
               <span className="text-sm font-semibold">Notifications</span>
             )}
@@ -201,7 +227,10 @@ function NotificationsPanelInner({
               type="button"
               variant="ghost"
               size="icon"
-              className="size-8 shrink-0 text-muted-foreground"
+              className={cn(
+                'size-8 shrink-0 text-muted-foreground',
+                sheetListHeader && 'absolute right-2 top-1/2 -translate-y-1/2'
+              )}
               aria-label="Notification settings"
               onMouseEnter={onPrefetchSettingsPage}
               onFocus={onPrefetchSettingsPage}
@@ -223,7 +252,7 @@ function NotificationsPanelInner({
 
       {panelView === 'list' ? (
         <>
-          <div className="shrink-0 border-b px-2 py-2">
+          <div className="shrink-0 px-2 py-2">
             <div
               className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-0.5 pt-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
               role="tablist"
@@ -320,7 +349,10 @@ const BellTriggerButton = forwardRef<HTMLButtonElement, BellTriggerButtonProps>(
       type="button"
       variant="ghost"
       size="icon"
-      className={cn('relative shrink-0', className)}
+      className={cn(
+        'relative shrink-0 outline-none focus:outline-none focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0',
+        className
+      )}
       aria-label={`Notifications${unreadCount ? `, ${unreadCount} unread` : ''}`}
       {...props}
     >
@@ -333,18 +365,60 @@ const BellTriggerButton = forwardRef<HTMLButtonElement, BellTriggerButtonProps>(
 export function NotificationsBell() {
   const { isAuthenticated, isLoaded, userId } = useAuthState();
   const router = useRouter();
+  const pathname = usePathname();
   const isMobile = useIsMobile();
   const suppressNextMenuCloseRef = useRef(false);
   const [open, setOpen] = useState(false);
+  const [inboxOpenEpoch, setInboxOpenEpoch] = useState(0);
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState<NotifRow[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [recentlyOpenedUnreadIds, setRecentlyOpenedUnreadIds] = useState<ReadonlySet<string>>(
+    () => new Set()
+  );
   const [filter, setFilter] = useState<FilterId>('all');
   const [panelView, setPanelView] = useState<'list' | 'settings'>('list');
   const [detail, setDetail] = useState<NotifRow | null>(null);
   const lastLoadedAtRef = useRef<number | null>(null);
+  const itemsRef = useRef<NotifRow[]>([]);
+  const unreadCountRef = useRef(0);
+  const inboxMarkInFlightRef = useRef(false);
+  const markAllReadSucceededRef = useRef(false);
+  const inboxOpenEpochRef = useRef(0);
+  const highlightTtlRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevPathnameRef = useRef<string | null>(null);
+  const openRef = useRef(false);
+  const wasOpenRef = useRef(false);
+
+  openRef.current = open;
+  itemsRef.current = items;
+  unreadCountRef.current = unreadCount;
+  inboxOpenEpochRef.current = inboxOpenEpoch;
+
+  const clearHighlightTtl = useCallback(() => {
+    if (highlightTtlRef.current != null) {
+      clearTimeout(highlightTtlRef.current);
+      highlightTtlRef.current = null;
+    }
+  }, []);
+
+  const clearRecentlyOpenedUnread = useCallback(() => {
+    clearHighlightTtl();
+    setRecentlyOpenedUnreadIds(new Set());
+  }, [clearHighlightTtl]);
+
+  const scheduleHighlightTtl = useCallback(() => {
+    clearHighlightTtl();
+    highlightTtlRef.current = setTimeout(() => {
+      highlightTtlRef.current = null;
+      setRecentlyOpenedUnreadIds(new Set());
+    }, NOTIFICATION_RECENT_HIGHLIGHT_MS);
+  }, [clearHighlightTtl]);
 
   const load = useCallback(async (force = false) => {
+    if (inboxMarkInFlightRef.current) {
+      return;
+    }
     if (
       !force &&
       lastLoadedAtRef.current != null &&
@@ -359,6 +433,8 @@ export function NotificationsBell() {
         setItems([]);
         setUnreadCount(0);
         lastLoadedAtRef.current = null;
+        markAllReadSucceededRef.current = false;
+        clearRecentlyOpenedUnread();
         return;
       }
       if (!res.ok) return;
@@ -369,6 +445,9 @@ export function NotificationsBell() {
         typeof j.unreadCount === 'number'
           ? j.unreadCount
           : nextItems.filter((row) => row.read_at == null).length;
+      if (markAllReadSucceededRef.current && unread > 0) {
+        clearRecentlyOpenedUnread();
+      }
       setUnreadCount(unread);
       lastLoadedAtRef.current = Date.now();
     } catch {
@@ -376,7 +455,7 @@ export function NotificationsBell() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [clearRecentlyOpenedUnread]);
 
   const prefetchSettingsPage = useCallback(() => {
     router.prefetch('/platform/settings/notifications');
@@ -390,6 +469,12 @@ export function NotificationsBell() {
       invalidateNotificationSettingsCache();
       setItems([]);
       setUnreadCount(0);
+      setRecentlyOpenedUnreadIds(new Set());
+      if (highlightTtlRef.current != null) {
+        clearTimeout(highlightTtlRef.current);
+        highlightTtlRef.current = null;
+      }
+      markAllReadSucceededRef.current = false;
       setLoading(false);
       lastLoadedAtRef.current = null;
       return;
@@ -415,7 +500,36 @@ export function NotificationsBell() {
   }, [isAuthenticated, isLoaded, load, userId]);
 
   useEffect(() => {
-    if (open) void load(false);
+    if (prevPathnameRef.current !== null && prevPathnameRef.current !== pathname) {
+      clearRecentlyOpenedUnread();
+    }
+    prevPathnameRef.current = pathname;
+  }, [pathname, clearRecentlyOpenedUnread]);
+
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (!nextOpen && suppressNextMenuCloseRef.current) {
+        suppressNextMenuCloseRef.current = false;
+        setOpen(true);
+        return;
+      }
+      if (nextOpen && !openRef.current) {
+        setInboxOpenEpoch((e) => e + 1);
+      }
+      setOpen(nextOpen);
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (open) {
+      wasOpenRef.current = true;
+      return;
+    }
+    if (wasOpenRef.current) {
+      wasOpenRef.current = false;
+      void load(true);
+    }
   }, [open, load]);
 
   useEffect(() => {
@@ -424,6 +538,68 @@ export function NotificationsBell() {
       setFilter('all');
     }
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const seqAtStart = inboxOpenEpochRef.current;
+    let cancelled = false;
+
+    const unreadAtOpen = unreadCountRef.current;
+    const snap = itemsRef.current.filter((r) => r.read_at == null).map((r) => r.id);
+
+    setUnreadCount(0);
+    inboxMarkInFlightRef.current = true;
+    markAllReadSucceededRef.current = false;
+
+    if (snap.length > 0) {
+      setRecentlyOpenedUnreadIds(new Set(snap));
+    } else {
+      setRecentlyOpenedUnreadIds(new Set());
+    }
+
+    void (async () => {
+      try {
+        if (snap.length === 0 && unreadAtOpen === 0) {
+          inboxMarkInFlightRef.current = false;
+          if (!cancelled && inboxOpenEpochRef.current === seqAtStart) {
+            void load(false);
+          }
+          return;
+        }
+        const ok = await postMarkAllNotificationsRead();
+        if (cancelled || inboxOpenEpochRef.current !== seqAtStart) {
+          return;
+        }
+        if (!ok) {
+          throw new Error('mark-all-read failed');
+        }
+        markAllReadSucceededRef.current = true;
+        const now = new Date().toISOString();
+        if (snap.length > 0) {
+          setItems((prev) =>
+            prev.map((row) => (snap.includes(row.id) ? { ...row, read_at: row.read_at ?? now } : row))
+          );
+          scheduleHighlightTtl();
+        }
+        setUnreadCount(0);
+        inboxMarkInFlightRef.current = false;
+        await load(true);
+      } catch {
+        if (cancelled || inboxOpenEpochRef.current !== seqAtStart) {
+          return;
+        }
+        markAllReadSucceededRef.current = false;
+        inboxMarkInFlightRef.current = false;
+        clearRecentlyOpenedUnread();
+        await load(true);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      inboxMarkInFlightRef.current = false;
+    };
+  }, [open, inboxOpenEpoch, load, scheduleHighlightTtl, clearRecentlyOpenedUnread]);
 
   const filteredItems = useMemo(
     () => items.filter((n) => matchesFilter(n, filter)),
@@ -520,6 +696,7 @@ export function NotificationsBell() {
       loading={loading}
       items={items}
       filteredItems={filteredItems}
+      recentlyOpenedUnreadIds={recentlyOpenedUnreadIds}
       onRowActivate={onRowActivate}
       onOpenSettingsPage={handleOpenSettingsPage}
       onPrefetchSettingsPage={prefetchSettingsPage}
@@ -529,7 +706,7 @@ export function NotificationsBell() {
   return (
     <>
       {isMobile ? (
-        <Sheet open={open} onOpenChange={setOpen}>
+        <Sheet open={open} onOpenChange={handleOpenChange}>
           <SheetTrigger asChild>
             <BellTriggerButton unreadCount={unreadCount} badge={badge} />
           </SheetTrigger>
@@ -541,17 +718,7 @@ export function NotificationsBell() {
           </SheetContent>
         </Sheet>
       ) : (
-        <DropdownMenu
-          open={open}
-          onOpenChange={(nextOpen) => {
-            if (!nextOpen && suppressNextMenuCloseRef.current) {
-              suppressNextMenuCloseRef.current = false;
-              setOpen(true);
-              return;
-            }
-            setOpen(nextOpen);
-          }}
-        >
+        <DropdownMenu open={open} onOpenChange={handleOpenChange}>
           <DropdownMenuTrigger asChild>
             <BellTriggerButton unreadCount={unreadCount} badge={badge} />
           </DropdownMenuTrigger>

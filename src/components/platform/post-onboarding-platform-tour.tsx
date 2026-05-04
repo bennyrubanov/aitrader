@@ -13,15 +13,87 @@ import {
   PLATFORM_POST_ONBOARDING_TOUR_REQUEST_READINESS_EVENT,
   PLATFORM_POST_ONBOARDING_TOUR_STEPS,
   consumePlatformPostOnboardingTourQueue,
+  dispatchPlatformTourSpotlightMobileSubTab,
   discardPlatformPostOnboardingTourQueue,
   getPlatformPostOnboardingTourNavigationPath,
   isPlatformPostOnboardingTourDone,
   markPlatformPostOnboardingTourDone,
   type PlatformPostOnboardingTourStep,
+  type PlatformPostOnboardingTourStepId,
 } from '@/lib/platform-post-onboarding-tour';
 import { cn } from '@/lib/utils';
 const HIGHLIGHT_PAD = 6;
 const POLL_INTERVAL_MS = 100;
+
+/** Matches Tailwind `lg:` — same as `useIsBelowLg` (overview spotlight uses inner tabs only below this). */
+function isViewportBelowLg(): boolean {
+  return typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches;
+}
+
+/** Radix spotlight sub-tabs: holdings/rebalance live under Holdings; chart step needs Performance. */
+function syncOverviewSpotlightMobileTabForTourStep(stepId: PlatformPostOnboardingTourStepId): void {
+  if (!isViewportBelowLg()) return;
+  if (stepId === 'overview-portfolio-value-and-chart') {
+    dispatchPlatformTourSpotlightMobileSubTab('performance');
+    return;
+  }
+  if (stepId === 'overview-portfolio-holdings' || stepId === 'overview-rebalance-actions') {
+    dispatchPlatformTourSpotlightMobileSubTab('holdings');
+  }
+}
+
+/** Minimal axis-aligned union of visible rects (tour spotlight hole). */
+function unionVisibleDomRects(selectors: string[]): DOMRect | null {
+  const rects: DOMRect[] = [];
+  for (const sel of selectors) {
+    const r = queryFirstVisibleRect(sel);
+    if (r) rects.push(r);
+  }
+  if (rects.length === 0) return null;
+  let left = Infinity;
+  let top = Infinity;
+  let right = -Infinity;
+  let bottom = -Infinity;
+  for (const r of rects) {
+    left = Math.min(left, r.left);
+    top = Math.min(top, r.top);
+    right = Math.max(right, r.right);
+    bottom = Math.max(bottom, r.bottom);
+  }
+  return new DOMRect(left, top, right - left, bottom - top);
+}
+
+/**
+ * Tour steps list multiple anchors; on mobile, `nav-overview` can be visible while holdings
+ * content stays in the inactive sub-tab — require the step's primary panel before succeeding.
+ */
+function tryMeasureStep(step: PlatformPostOnboardingTourStep): DOMRect[] | null {
+  if (step.id === 'overview-portfolio-holdings' && isViewportBelowLg()) {
+    const merged = unionVisibleDomRects([
+      '[data-platform-tour="overview-spotlight-mobile-holdings-tab"]',
+      '[data-platform-tour="overview-portfolio-holdings"]',
+      '[data-platform-tour="overview-portfolio-holdings-table"]',
+    ]);
+    if (!merged || merged.width <= 0 || merged.height <= 0) return null;
+    const nav = queryFirstVisibleRect('[data-platform-tour="nav-overview"]');
+    return nav ? [merged, nav] : [merged];
+  }
+
+  const selectors = step.anchors;
+  const rects: DOMRect[] = [];
+  for (const selector of selectors) {
+    const r = queryFirstVisibleRect(selector);
+    if (r) rects.push(r);
+  }
+  if (rects.length === 0) return null;
+  if (!isViewportBelowLg()) return rects;
+
+  if (step.id === 'overview-rebalance-actions') {
+    if (!queryFirstVisibleRect('[data-platform-tour="overview-latest-rebalance-actions"]')) return null;
+  }
+
+  return rects;
+}
 
 /** First matching element with a non-zero layout rect; optional checkVisibility when supported. */
 function queryFirstVisibleRect(selector: string): DOMRect | null {
@@ -253,14 +325,13 @@ export function PostOnboardingPlatformTour() {
       lastReplacedPathRef.current = nextPath;
     }
 
-    const tryMeasure = (): DOMRect[] | null => {
-      const rects: DOMRect[] = [];
-      for (const selector of selectors) {
-        const r = queryFirstVisibleRect(selector);
-        if (r) rects.push(r);
-      }
-      return rects.length > 0 ? rects : null;
-    };
+    syncOverviewSpotlightMobileTabForTourStep(step.id);
+
+    const needsMobileSpotlightTabSync =
+      isViewportBelowLg() &&
+      (step.id === 'overview-portfolio-value-and-chart' ||
+        step.id === 'overview-portfolio-holdings' ||
+        step.id === 'overview-rebalance-actions');
 
     const scrollToTarget = () => {
       const scrollTargetSelector =
@@ -283,7 +354,10 @@ export function PostOnboardingPlatformTour() {
 
     const poll = (attempt: number) => {
       if (cancelled) return;
-      const rects = tryMeasure();
+      if (needsMobileSpotlightTabSync) {
+        syncOverviewSpotlightMobileTabForTourStep(step.id);
+      }
+      const rects = tryMeasureStep(step);
       if (rects) {
         setTargetRects(rects);
         updateViewport();
@@ -304,18 +378,28 @@ export function PostOnboardingPlatformTour() {
       );
     };
 
-    timers.push(
-      window.setTimeout(() => {
-        poll(0);
-      }, ROUTE_SETTLE_MS)
-    );
+    const scheduleInitialPoll = () => {
+      timers.push(
+        window.setTimeout(() => {
+          poll(0);
+        }, ROUTE_SETTLE_MS)
+      );
+    };
+
+    if (needsMobileSpotlightTabSync) {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(scheduleInitialPoll);
+      });
+    } else {
+      scheduleInitialPoll();
+    }
 
     updateViewport();
 
     const onResizeOrScroll = () => {
       if (cancelled) return;
       updateViewport();
-      const rects = tryMeasure();
+      const rects = tryMeasureStep(step);
       if (rects) setTargetRects(rects);
     };
 

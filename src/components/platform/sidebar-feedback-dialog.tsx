@@ -134,7 +134,7 @@ export function SidebarFeedbackMenuSlot() {
             setOpen(true);
             if (isMobile) setOpenMobile(false);
           }}
-          className="border border-sidebar-border bg-sidebar-accent/40 shadow-none hover:bg-sidebar-accent"
+          className="border-0 bg-transparent shadow-none hover:bg-sidebar-accent md:border md:border-sidebar-border md:bg-sidebar-accent/40 md:hover:bg-sidebar-accent"
         >
           <MessageSquare className="size-4 shrink-0" />
           <span className={SIDEBAR_MENU_TRAILING_CLASSNAME}>

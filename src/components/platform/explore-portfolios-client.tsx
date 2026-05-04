@@ -25,6 +25,7 @@ import { portfolioEntryDateBounds } from '@/components/platform/portfolio-entry-
 import { ExplorePortfolioFilterControls } from '@/components/platform/explore-portfolio-filter-controls';
 import { MetricReadinessPill } from '@/components/platform/metric-readiness-pill';
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
+import { portfolioConfigBadgesForDisplay } from '@/lib/portfolio-config-badges';
 import { StrategyModelSidebarDropdown } from '@/components/platform/strategy-model-sidebar-dropdown';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { format } from 'date-fns';
@@ -1688,9 +1689,9 @@ function ConfigCard({
               {config.label}
             </span>
           </div>
-          {config.badges.length > 0 ? (
+          {portfolioConfigBadgesForDisplay(config.badges).length > 0 ? (
             <div className="flex min-w-0 flex-row flex-wrap items-center gap-1.5 gap-y-1">
-              {config.badges.map((b) => (
+              {portfolioConfigBadgesForDisplay(config.badges).map((b) => (
                 <div key={b} className="min-w-0 shrink-0">
                   <PortfolioConfigBadgePill name={b} strategySlug={strategySlug} />
                 </div>
@@ -1810,7 +1811,7 @@ function ConfigCard({
                 <span className="text-sm font-semibold text-foreground min-w-0">
                   {config.label}
                 </span>
-                {config.badges.map((b) => (
+                {portfolioConfigBadgesForDisplay(config.badges).map((b) => (
                   <PortfolioConfigBadgePill key={b} name={b} strategySlug={strategySlug} />
                 ))}
               </div>

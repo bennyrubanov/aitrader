@@ -5,7 +5,6 @@ import type { LucideIcon } from 'lucide-react';
 import {
   Anchor,
   HelpCircle,
-  LayoutTemplate,
   Layers,
   Percent,
   Scale,
@@ -20,6 +19,7 @@ import {
 } from '@/components/ui/tooltip';
 import {
   portfolioConfigBadgeClassName,
+  portfolioConfigBadgeHidden,
   portfolioConfigBadgeTooltip,
 } from '@/lib/portfolio-config-badges';
 import { cn } from '@/lib/utils';
@@ -28,7 +28,6 @@ const BADGE_ICON: Record<string, LucideIcon> = {
   'Top ranked': Trophy,
   'Best risk-adjusted': Scale,
   'Most consistent': Layers,
-  Default: LayoutTemplate,
   'Best CAGR': TrendingUp,
   'Best total return': Percent,
   Steadiest: Anchor,
@@ -42,6 +41,7 @@ type Props = {
 };
 
 export function PortfolioConfigBadgePill({ name, className }: Props) {
+  if (portfolioConfigBadgeHidden(name)) return null;
   const tip = portfolioConfigBadgeTooltip(name);
   const styles = portfolioConfigBadgeClassName(name);
   const Icon = BADGE_ICON[name] ?? HelpCircle;

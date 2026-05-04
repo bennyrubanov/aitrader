@@ -25,6 +25,7 @@ import { ExplorePortfolioFilterControls } from '@/components/platform/explore-po
 import { PortfolioListSortActiveIndicator } from '@/components/platform/portfolio-list-sort-active-indicator';
 import { PortfolioListSortDialog } from '@/components/platform/portfolio-list-sort-dialog';
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
+import { portfolioConfigBadgesForDisplay } from '@/lib/portfolio-config-badges';
 import { StrategyModelSidebarDropdown } from '@/components/platform/strategy-model-sidebar-dropdown';
 import { HoldingRankWithChange } from '@/components/platform/holding-rank-with-change';
 import { StockChartDialog } from '@/components/platform/stock-chart-dialog';
@@ -1368,11 +1369,10 @@ function PresetBentoGrid({
                     {preset.weightingMethod === 'equal' ? 'Equal wt' : 'Cap wt'}
                   </Badge>
                 </div>
-                {ranked?.badges && ranked.badges.length > 0 && (
+                {ranked?.badges &&
+                  portfolioConfigBadgesForDisplay(ranked.badges).length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1">
-                    {ranked.badges
-                      .filter((b) => b !== 'Default')
-                      .map((b) => (
+                    {portfolioConfigBadgesForDisplay(ranked.badges).map((b) => (
                         <PortfolioConfigBadgePill key={b} name={b} strategySlug={strategySlug} />
                       ))}
                   </div>
@@ -4102,9 +4102,9 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                             )}
                           </div>
                         </div>
-                        {(rowRanked?.badges ?? []).length > 0 ? (
+                        {portfolioConfigBadgesForDisplay(rowRanked?.badges ?? []).length > 0 ? (
                           <div className="flex flex-wrap items-center gap-1.5">
-                            {(rowRanked?.badges ?? []).map((b) => (
+                            {portfolioConfigBadgesForDisplay(rowRanked?.badges ?? []).map((b) => (
                               <PortfolioConfigBadgePill
                                 key={b}
                                 name={b}
@@ -4306,9 +4306,9 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                                 )}
                               </div>
                             </div>
-                            {(rowRanked?.badges ?? []).length > 0 ? (
+                            {portfolioConfigBadgesForDisplay(rowRanked?.badges ?? []).length > 0 ? (
                               <div className="flex flex-wrap items-center gap-1.5">
-                                {(rowRanked?.badges ?? []).map((b) => (
+                                {portfolioConfigBadgesForDisplay(rowRanked?.badges ?? []).map((b) => (
                                   <PortfolioConfigBadgePill
                                     key={b}
                                     name={b}
@@ -4355,9 +4355,9 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                       Portfolio
                     </h2>
                   )}
-                  {(selectedRanked?.badges ?? []).length > 0 ? (
+                  {portfolioConfigBadgesForDisplay(selectedRanked?.badges ?? []).length > 0 ? (
                     <div className="hidden min-w-0 flex-wrap items-center gap-1.5 lg:flex">
-                      {(selectedRanked?.badges ?? []).map((b) => (
+                      {portfolioConfigBadgesForDisplay(selectedRanked?.badges ?? []).map((b) => (
                         <PortfolioConfigBadgePill key={b} name={b} strategySlug={strategySlug} />
                       ))}
                     </div>
@@ -4407,9 +4407,9 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                   </Tooltip>
                 </div>
               </div>
-              {(selectedRanked?.badges ?? []).length > 0 ? (
+              {portfolioConfigBadgesForDisplay(selectedRanked?.badges ?? []).length > 0 ? (
                 <div className="flex flex-row flex-wrap items-center gap-1.5 lg:hidden">
-                  {(selectedRanked?.badges ?? []).map((b) => (
+                  {portfolioConfigBadgesForDisplay(selectedRanked?.badges ?? []).map((b) => (
                     <PortfolioConfigBadgePill key={b} name={b} strategySlug={strategySlug} />
                   ))}
                 </div>

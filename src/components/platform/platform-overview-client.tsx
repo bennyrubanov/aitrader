@@ -45,6 +45,7 @@ import {
 import { MetricReadinessPill } from '@/components/platform/metric-readiness-pill';
 import { HoldingRankWithChange } from '@/components/platform/holding-rank-with-change';
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
+import { portfolioConfigBadgesForDisplay } from '@/lib/portfolio-config-badges';
 import { PortfolioOnboardingDialog } from '@/components/platform/portfolio-onboarding-dialog';
 import {
   USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT,
@@ -55,8 +56,9 @@ import {
   PLATFORM_POST_ONBOARDING_TOUR_PRIMED_EVENT,
   PLATFORM_POST_ONBOARDING_TOUR_REQUEST_READINESS_EVENT,
   PLATFORM_POST_ONBOARDING_TOUR_SHELL_READY_EVENT,
+  PLATFORM_POST_ONBOARDING_TOUR_SPOTLIGHT_MOBILE_SUBTAB_EVENT,
   PLATFORM_TOUR_SHELL_READY_ATTR,
-  queuePlatformPostOnboardingTour,
+  requestPlatformPostOnboardingTourAgain,
 } from '@/lib/platform-post-onboarding-tour';
 import { UserPortfolioEntrySettingsDialog } from '@/components/platform/user-portfolio-entry-settings-dialog';
 import { Badge } from '@/components/ui/badge';
@@ -196,6 +198,9 @@ const OVERVIEW_MODEL_INITIAL = 10_000;
 
 /** Abort bootstrap GET if it hangs so the overview skeleton cannot stay forever. */
 const OVERVIEW_PROFILE_FETCH_TIMEOUT_MS = 25_000;
+
+/** Operator email: show overview dev tools (onboarding + tour) in production. */
+const ADMIN_DEV_EMAIL = 'bennyrubanov112@gmail.com';
 
 const OVERVIEW_PAGE_QUICK_LINKS: {
   href: string;
@@ -700,7 +705,7 @@ function OverviewPortfolioTile({
       weightingMethod: cfg.weighting_method,
       rebalanceFrequency: cfg.rebalance_frequency,
     });
-  const configBadges = rankedCfg?.badges ?? [];
+  const configBadges = portfolioConfigBadgesForDisplay(rankedCfg?.badges ?? []);
   const { excessVsNasdaqCap } = benchmarkStatsFromSeries(series);
   const riskTitle =
     cfg && ((cfg.risk_label && cfg.risk_label.trim()) || RISK_LABELS[cfg.risk_level as RiskLevel]);
@@ -1428,6 +1433,8 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     [router, pathname]
   );
   const authState = useAuthState();
+  const showOverviewDevTools =
+    process.env.NODE_ENV === 'development' || authState.email === ADMIN_DEV_EMAIL;
   const refreshAuthProfile = useRefreshAuthProfile();
   const { openSignupPrompt } = useAccountSignupPrompt();
   const appAccess = useMemo(() => getAppAccessState(authState), [authState]);
@@ -2306,6 +2313,26 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   useEffect(() => {
     setSpotlightMobileSubTab('performance');
   }, [topSpotlightProfileId]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onTourMobileSubTab = (e: Event) => {
+      if (!isBelowLg) return;
+      const tab = (e as CustomEvent<{ tab?: unknown }>).detail?.tab;
+      if (tab === 'performance' || tab === 'holdings') {
+        setSpotlightMobileSubTab(tab);
+      }
+    };
+    window.addEventListener(
+      PLATFORM_POST_ONBOARDING_TOUR_SPOTLIGHT_MOBILE_SUBTAB_EVENT,
+      onTourMobileSubTab as EventListener
+    );
+    return () =>
+      window.removeEventListener(
+        PLATFORM_POST_ONBOARDING_TOUR_SPOTLIGHT_MOBILE_SUBTAB_EVENT,
+        onTourMobileSubTab as EventListener
+      );
+  }, [isBelowLg]);
 
   const fetchTopSpotlightHoldings = useCallback(
     async (asOf: string | null) => {
@@ -3593,6 +3620,10 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                     Could not load the prior rebalance to compare.
                                   </p>
                                 ) : null}
+                                <div
+                                  className="min-w-0"
+                                  data-platform-tour="overview-portfolio-holdings-table"
+                                >
                                 {topSpotlightHoldingsLoading ? (
                                   <Skeleton className="h-48 w-full rounded-md" />
                                 ) : topSpotlightHoldings.length === 0 ? (
@@ -4067,6 +4098,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                     </div>
                                   </TooltipProvider>
                                 )}
+                                </div>
                                   </>
                                 )}
                                 <div
@@ -4166,18 +4198,16 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                           : undefined
                                       }
                                     />
-                                    <div className="col-span-2">
-                                      <SpotlightStatCard
-                                        tooltipKey="max_drawdown"
-                                        label="Max drawdown"
-                                        value={fmt.pct(st.maxDrawdown)}
-                                        positive={
-                                          st.maxDrawdown != null && Number.isFinite(st.maxDrawdown)
-                                            ? st.maxDrawdown > -0.2
-                                            : undefined
-                                        }
-                                      />
-                                    </div>
+                                    <SpotlightStatCard
+                                      tooltipKey="max_drawdown"
+                                      label="Max drawdown"
+                                      value={fmt.pct(st.maxDrawdown)}
+                                      positive={
+                                        st.maxDrawdown != null && Number.isFinite(st.maxDrawdown)
+                                          ? st.maxDrawdown > -0.2
+                                          : undefined
+                                      }
+                                    />
                                   </div>
                         </>
                         );
@@ -4325,12 +4355,14 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                 <TabsList className="relative grid h-auto w-full grid-cols-2 gap-0 rounded-none border-0 border-b border-border bg-transparent p-0 text-muted-foreground shadow-none">
                                   <TabsTrigger
                                     value="performance"
+                                    data-platform-tour="overview-spotlight-mobile-performance-tab"
                                     className="relative rounded-none border-0 bg-transparent py-3 text-sm font-medium text-muted-foreground shadow-none ring-offset-0 transition-colors hover:text-foreground focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=inactive]:after:opacity-0 data-[state=active]:after:absolute data-[state=active]:after:inset-x-1 data-[state=active]:after:bottom-0 data-[state=active]:after:h-0.5 data-[state=active]:after:rounded-full data-[state=active]:after:bg-trader-blue data-[state=active]:after:content-[''] dark:data-[state=active]:after:bg-trader-blue-light"
                                   >
                                     Performance
                                   </TabsTrigger>
                                   <TabsTrigger
                                     value="holdings"
+                                    data-platform-tour="overview-spotlight-mobile-holdings-tab"
                                     className="relative rounded-none border-0 bg-transparent py-3 text-sm font-medium text-muted-foreground shadow-none ring-offset-0 transition-colors hover:text-foreground focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=inactive]:after:opacity-0 data-[state=active]:after:absolute data-[state=active]:after:inset-x-1 data-[state=active]:after:bottom-0 data-[state=active]:after:h-0.5 data-[state=active]:after:rounded-full data-[state=active]:after:bg-trader-blue data-[state=active]:after:content-[''] dark:data-[state=active]:after:bg-trader-blue-light"
                                   >
                                     Holdings
@@ -4430,7 +4462,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                             const slug = c.strategy_models?.slug;
                             const bundle = slug ? rankedBySlug[slug] : undefined;
                             const rankedCfg = resolveRankedConfigForProfile(c, bundle);
-                            const badges = rankedCfg?.badges ?? [];
+                            const badges = portfolioConfigBadgesForDisplay(rankedCfg?.badges ?? []);
                             const overviewLine =
                               pc &&
                               formatPortfolioConfigOverviewLine({
@@ -4664,7 +4696,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                       </Link>
                     );
                   })}
-                  {process.env.NODE_ENV === 'development' ? (
+                  {showOverviewDevTools ? (
                     <>
                       <Button
                         type="button"
@@ -4677,7 +4709,6 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                         }}
                       >
                         <span>Open onboarding</span>
-                        <span className="font-normal text-muted-foreground">(local only)</span>
                       </Button>
                       <Button
                         type="button"
@@ -4685,11 +4716,10 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                         size="sm"
                         className="h-auto shrink-0 gap-1.5 rounded-xl border border-dashed border-border/80 bg-background/95 px-3 py-1.5 text-sm font-medium shadow-sm hover:bg-muted/60"
                         onClick={() => {
-                          queuePlatformPostOnboardingTour();
+                          requestPlatformPostOnboardingTourAgain();
                         }}
                       >
                         <span>Start tour</span>
-                        <span className="font-normal text-muted-foreground">(local only)</span>
                       </Button>
                     </>
                   ) : null}

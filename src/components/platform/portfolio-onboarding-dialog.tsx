@@ -40,6 +40,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { useAuthState } from '@/components/auth/auth-state-context';
+import { portfolioConfigBadgesForDisplay } from '@/lib/portfolio-config-badges';
 import {
   DEFAULT_PORTFOLIO_CONFIG,
   RISK_LABELS,
@@ -1269,11 +1270,9 @@ export function PortfolioOnboardingDialog({
                         {recommendedModelInceptionDisplay ? (
                           <>
                             {' '}
-                            (
                             <span className="font-medium text-foreground tabular-nums">
                               {recommendedModelInceptionDisplay}
                             </span>
-                            )
                           </>
                         ) : null}
                         .
@@ -1313,9 +1312,12 @@ export function PortfolioOnboardingDialog({
                           </div>
                         </div>
                       </div>
-                      {recommendedMeta?.matched && recommendedMeta.matched.badges.length > 0 ? (
+                      {recommendedMeta?.matched &&
+                      portfolioConfigBadgesForDisplay(recommendedMeta.matched.badges).length > 0 ? (
                         <div className="flex flex-wrap gap-1">
-                          {recommendedMeta.matched.badges.slice(0, 3).map((b) => (
+                          {portfolioConfigBadgesForDisplay(recommendedMeta.matched.badges)
+                            .slice(0, 3)
+                            .map((b) => (
                             <Badge key={b} variant="outline" className="text-[10px] font-normal">
                               {b}
                             </Badge>

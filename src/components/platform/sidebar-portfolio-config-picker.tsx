@@ -17,6 +17,7 @@ import type {
 } from '@/components/platform/explore-portfolios-equity-chart-shared';
 import { ExplorePortfolioFilterControls } from '@/components/platform/explore-portfolio-filter-controls';
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
+import { portfolioConfigBadgesForDisplay } from '@/lib/portfolio-config-badges';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -428,7 +429,7 @@ function PortfolioPickerTableRow({
             </div>
           </div>
           <div className="flex flex-wrap gap-1">
-            {c.badges.map((b) => (
+            {portfolioConfigBadgesForDisplay(c.badges).map((b) => (
               <PortfolioConfigBadgePill key={b} name={b} strategySlug={strategySlug} />
             ))}
           </div>

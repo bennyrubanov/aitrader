@@ -21,6 +21,7 @@ import {
 } from '@/components/portfolio-config';
 import type { PortfolioConfigSlice } from '@/components/platform/portfolio-config-controls';
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
+import { portfolioConfigBadgesForDisplay } from '@/lib/portfolio-config-badges';
 import { MetricReadinessPill } from '@/components/platform/metric-readiness-pill';
 import type { PublicPortfolioPerfApiPayload } from '@/components/platform/use-public-portfolio-config-performance';
 import {
@@ -329,7 +330,7 @@ export function PortfolioAtAGlanceCard({
       out.push('Top ranked');
       seen.add('Top ranked');
     }
-    for (const b of badges) {
+    for (const b of portfolioConfigBadgesForDisplay(badges)) {
       if (!seen.has(b)) {
         out.push(b);
         seen.add(b);

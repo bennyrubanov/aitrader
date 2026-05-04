@@ -353,7 +353,6 @@ export async function loadPortfolioConfigsRankedPayload(
 
     const badges: string[] = [];
     if (hasComposite && cfg.id === topRankedId && rank === 1) badges.push('Top ranked');
-    if (cfg.is_default) badges.push('Default');
     if (hasComposite && cfg.id === bestSharpeId) badges.push('Best risk-adjusted');
     if (hasComposite && cfg.id === mostConsistentId) badges.push('Most consistent');
     if (hasComposite && bestCagrId && cfg.id === bestCagrId) badges.push('Best CAGR');
