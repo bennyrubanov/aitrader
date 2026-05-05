@@ -3,7 +3,8 @@
  *
  * Frozen `notifications.data` keys (writers must align):
  * - `catalog_id` (string): stable id for product/onboarding rows; see `CATALOG_ID` exports.
- * - `thread_id` (string, when threaded): `weekly:${userId}:${runWeekEnding}` or `onboarding:${userId}`.
+ * - `thread_id` (string, when threaded): `weekly:${userId}:${runWeekEnding}`, `onboarding:${userId}`, or
+ *   `portfolio:${userId}:${profileId}` for followed-portfolio product rows (rebalance, entries/exits, price move).
  * - `thread_role`: `"head"` | `"child"` — head rows collapse in inbox UI; children nest under the same `thread_id`.
  */
 
@@ -340,4 +341,9 @@ export function inferInboxFilterCategory(row: NotifRowLike): InboxCategoryGuess 
 export function welcomeStepCatalogId(tier: string, step: number): string {
   const t = tier === 'supporter' || tier === 'outperformer' || tier === 'free' ? tier : 'free';
   return `onboarding.welcome.${t}.step${step}`;
+}
+
+/** Groups in-app rebalance / holdings / price-move rows for one followed `user_portfolio_profiles` row in the bell. */
+export function portfolioFollowedThreadId(userId: string, profileId: string): string {
+  return `portfolio:${userId}:${profileId}`;
 }

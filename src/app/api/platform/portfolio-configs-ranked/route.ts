@@ -6,8 +6,13 @@ import {
   type RankedConfig,
 } from '@/lib/portfolio-configs-ranked-core';
 import { runWithSupabaseQueryCount } from '@/utils/supabase/query-counter';
+import {
+  PLATFORM_PORTFOLIO_JSON_S_MAXAGE_SECONDS,
+  PLATFORM_PORTFOLIO_JSON_STALE_WHILE_DEFAULT,
+  platformPortfolioJsonCacheControl,
+} from '@/lib/public-cache';
 
-export const revalidate = 300;
+export const revalidate = PLATFORM_PORTFOLIO_JSON_S_MAXAGE_SECONDS;
 export const maxDuration = 60;
 
 export type { BenchmarkEndingValues, ConfigMetrics, RankedConfig };
@@ -26,7 +31,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(payload, {
       headers: {
-        'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=1800',
+        'Cache-Control': platformPortfolioJsonCacheControl(PLATFORM_PORTFOLIO_JSON_STALE_WHILE_DEFAULT),
       },
     });
   });

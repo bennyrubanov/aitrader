@@ -161,6 +161,13 @@ type CronRatingDigestMeta = {
   benchmarkDailyPricesIngest?: BenchmarkDailyPriceIngestRow[];
   /** Top holdings count written to `strategy_portfolio_holdings`. */
   holdingsCount?: number;
+  /** Uncached landing all-portfolios probe at digest time (same path as `/api/public/landing-all-portfolios-performance`). */
+  landingHomeAllPortfoliosProbe?: 'ok' | 'null' | 'error';
+  landingHomeAllPortfoliosComputeStatus?: string;
+  landingHomeAllPortfoliosProbeError?: string;
+  /** Count of `landing_recovery_exhausted_events` rows for prior UTC calendar day. */
+  landingRecoveryExhaustedYesterdayCount?: number;
+  landingRecoveryExhaustedYesterdayUtc?: string;
   notifications?: {
     dryUserId?: string | null;
     ratingInapp?: number;
@@ -1211,6 +1218,8 @@ const handleRequest = async (req: Request) => {
   const errors: CronErrorEntry[] = [];
   const errorKeys = new Set<string>();
   const runStartedAt = new Date().toISOString();
+  /** Set at start of `try` so `recordCronError` can reuse the same admin client as the handler. */
+  let cronRunIssuesSupabase: ReturnType<typeof createAdminClient> | undefined;
 
   /** When set, `finally` sends HTML digest (daily or rating-day) instead of errors-only email. */
   let cronDigestEmailEnabled = false;
@@ -1237,6 +1246,26 @@ const handleRequest = async (req: Request) => {
       message,
       at: new Date().toISOString(),
     });
+
+    const gitCommitSha = process.env.VERCEL_GIT_COMMIT_SHA?.trim();
+    void (async () => {
+      try {
+        const client = cronRunIssuesSupabase ?? createAdminClient();
+        const { error: insertError } = await client.from('cron_run_issues').insert({
+          run_date: runDate,
+          run_started_at: runStartedAt,
+          subject,
+          context: context ?? null,
+          message,
+          git_commit_sha: gitCommitSha && gitCommitSha.length > 0 ? gitCommitSha : null,
+        });
+        if (insertError) {
+          console.warn(`[cron] cron_run_issues insert failed: ${insertError.message}`);
+        }
+      } catch (err) {
+        console.warn('[cron] cron_run_issues insert failed', err);
+      }
+    })();
   };
 
   const sendCronErrorEmail = async () => {
@@ -1314,6 +1343,47 @@ const handleRequest = async (req: Request) => {
     let subject: string;
 
     try {
+      try {
+        const { loadLandingAllPortfoliosPerformanceUncached } = await import(
+          '@/lib/landing-all-portfolios-performance'
+        );
+        const landingProbe = await loadLandingAllPortfoliosPerformanceUncached();
+        if (landingProbe === null) {
+          digestMeta.landingHomeAllPortfoliosProbe = 'null';
+        } else {
+          digestMeta.landingHomeAllPortfoliosProbe = 'ok';
+          digestMeta.landingHomeAllPortfoliosComputeStatus = landingProbe.computeStatus;
+        }
+      } catch (err) {
+        digestMeta.landingHomeAllPortfoliosProbe = 'error';
+        digestMeta.landingHomeAllPortfoliosProbeError =
+          err instanceof Error ? err.message : JSON.stringify(err, null, 2);
+      }
+
+      try {
+        const sb = createAdminClient();
+        const now = new Date();
+        const todayUtcMid = new Date(
+          Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+        );
+        const yesterdayUtcMid = new Date(todayUtcMid);
+        yesterdayUtcMid.setUTCDate(yesterdayUtcMid.getUTCDate() - 1);
+        const yLabel = yesterdayUtcMid.toISOString().slice(0, 10);
+        const yStart = `${yLabel}T00:00:00.000Z`;
+        const yEnd = todayUtcMid.toISOString();
+        const { count, error } = await sb
+          .from('landing_recovery_exhausted_events')
+          .select('*', { count: 'exact', head: true })
+          .gte('created_at', yStart)
+          .lt('created_at', yEnd);
+        if (!error && count != null && count > 0) {
+          digestMeta.landingRecoveryExhaustedYesterdayCount = count;
+          digestMeta.landingRecoveryExhaustedYesterdayUtc = yLabel;
+        }
+      } catch {
+        /* table may be absent before migration */
+      }
+
       const endMs = digestMarks.doneMs ?? Date.now();
       const totalSec = ((endMs - t0) / 1000).toFixed(1);
       const hadFatal = Boolean(cronDigestFatalMessage);
@@ -1377,6 +1447,33 @@ const handleRequest = async (req: Request) => {
       const fatalBlock = cronDigestFatalMessage
         ? `<h3 style="color:#b91c1c;">Fatal / thrown error</h3><pre style="background:#fef2f2;padding:12px;border-radius:8px;">${escapeHtml(cronDigestFatalMessage)}</pre>`
         : '';
+
+      const landingHomeProbeBlock =
+        digestMeta.landingHomeAllPortfoliosProbe === 'null' ||
+        digestMeta.landingHomeAllPortfoliosProbe === 'error'
+          ? `<h3 style="margin-top:20px;color:#92400e;">Public home — landing all-portfolios probe</h3>
+        <p style="font-size:13px;line-height:1.5;">One check per digest (after path revalidation). Not driven by visitor traffic.</p>
+        <ul style="padding-left:18px;">
+          <li><strong>Uncached loader:</strong> ${escapeHtml(digestMeta.landingHomeAllPortfoliosProbe)}${
+            digestMeta.landingHomeAllPortfoliosProbe === 'null'
+              ? ' — no strategy/ranked payload for <code>STRATEGY_CONFIG.slug</code>, or DB read returned empty. Home charts stay empty until fixed; client recovery only helps transient/cache glitches.'
+              : ''
+          }</li>
+          ${
+            digestMeta.landingHomeAllPortfoliosProbeError
+              ? `<li><strong>Thrown while probing:</strong><pre style="background:#fefce8;padding:8px;border-radius:6px;font-size:12px;">${escapeHtml(digestMeta.landingHomeAllPortfoliosProbeError)}</pre></li>`
+              : ''
+          }
+        </ul>`
+          : '';
+
+      const landingRecoveryExhaustedBlock =
+        digestMeta.landingRecoveryExhaustedYesterdayCount != null &&
+        digestMeta.landingRecoveryExhaustedYesterdayCount > 0 &&
+        digestMeta.landingRecoveryExhaustedYesterdayUtc
+          ? `<h3 style="margin-top:20px;color:#92400e;">Public home — client recovery exhausted</h3>
+        <p style="font-size:13px;line-height:1.5;">Sessions where the browser exhausted landing recovery without receiving data (UTC <strong>${escapeHtml(digestMeta.landingRecoveryExhaustedYesterdayUtc)}</strong>): <strong>${escapeHtml(String(digestMeta.landingRecoveryExhaustedYesterdayCount))}</strong>. Ingest is capped server-side; counts may undercount.</p>`
+          : '';
 
       const notificationsBlock = (() => {
         const n = digestMeta.notifications;
@@ -1585,6 +1682,8 @@ const handleRequest = async (req: Request) => {
         <table style="border-collapse:collapse;width:100%;font-size:14px;">${sectionTable}</table>
         ${fatalBlock}
         ${errorBlock}
+        ${landingHomeProbeBlock}
+        ${landingRecoveryExhaustedBlock}
         ${notificationsBlock}
         <p style="margin-top:24px;font-size:12px;color:#64748b;">If any line reads &quot;unavailable&quot;, that statistic could not be collected for this run.</p>
       </div>
@@ -1618,6 +1717,18 @@ const handleRequest = async (req: Request) => {
       log('CRON RATING DIGEST EMAIL FAILED', 'Could not send after retries');
     } else {
       log('CRON RATING DIGEST EMAIL SENT');
+      try {
+        const pruneBefore = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+        const { error: pruneErr } = await createAdminClient()
+          .from('landing_recovery_exhausted_events')
+          .delete()
+          .lt('created_at', pruneBefore);
+        if (pruneErr) {
+          log('CRON LANDING RECOVERY TELEMETRY PRUNE', pruneErr.message);
+        }
+      } catch (pruneCatch) {
+        log('CRON LANDING RECOVERY TELEMETRY PRUNE', pruneCatch);
+      }
     }
   };
 
@@ -1686,6 +1797,9 @@ const handleRequest = async (req: Request) => {
   log('START', `pid=${process.pid}`);
 
   try {
+    const supabase = createAdminClient();
+    cronRunIssuesSupabase = supabase;
+
     const auth = isAuthorized(req);
     if (!auth.ok) {
       log('AUTH FAILED', auth.reason);
@@ -1711,8 +1825,6 @@ const handleRequest = async (req: Request) => {
         `Not rebalance day. run_weekday=${runWeekday}, rebalance_day=${STRATEGY_CONFIG.rebalanceDayOfWeek}. Will save prices only.`
       );
     }
-
-    const supabase = createAdminClient();
 
     let dryUserId: string | null = null;
     if (dryUserRaw) {

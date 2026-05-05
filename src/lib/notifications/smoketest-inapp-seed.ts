@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { hrefStockSymbol, hrefStrategyModel, hrefYourPortfolio } from '@/lib/notifications/hrefs';
-import { CATALOG_ID } from '@/lib/notifications/notification-catalog';
+import { CATALOG_ID, portfolioFollowedThreadId } from '@/lib/notifications/notification-catalog';
 
 const SEED_MARKER = { smoketest_seed: true as const };
 
@@ -41,6 +41,7 @@ export async function seedSmoketestInAppNotifications(
     (profRow as { id: string } | null)?.id ?? '00000000-0000-0000-0000-000000000002';
   const stockId = '00000000-0000-0000-0000-000000000003';
   const configId = '00000000-0000-4000-8000-000000000004';
+  const portfolioThreadId = portfolioFollowedThreadId(userId, profileId);
 
   const rows: InsertRow[] = [
     {
@@ -75,6 +76,8 @@ export async function seedSmoketestInAppNotifications(
         run_date: runDate,
         action_count: 3,
         href: hrefYourPortfolio(profileId),
+        thread_id: portfolioThreadId,
+        thread_role: 'child',
       },
     },
     {
@@ -106,6 +109,8 @@ export async function seedSmoketestInAppNotifications(
         entries: ['NVDA', 'AMD'],
         exits: [],
         href: hrefYourPortfolio(profileId),
+        thread_id: portfolioThreadId,
+        thread_role: 'child',
       },
     },
     {
@@ -122,6 +127,8 @@ export async function seedSmoketestInAppNotifications(
         run_date: runDate,
         pct: 0.062,
         href: hrefYourPortfolio(profileId),
+        thread_id: portfolioThreadId,
+        thread_role: 'child',
       },
     },
     {

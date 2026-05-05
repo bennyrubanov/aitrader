@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /**
- * Triggers a full portfolio config backfill for the active strategy.
+ * Triggers a full portfolio config backfill for a strategy (default: latest active).
  *
  * Usage:
- *   node scripts/backfill-all-configs.mjs            # against localhost:3000
- *   node scripts/backfill-all-configs.mjs --prod      # against NEXT_PUBLIC_SITE_URL
+ *   node scripts/backfill-all-configs.mjs                         # active strategy, localhost:3000
+ *   node scripts/backfill-all-configs.mjs --prod                  # active strategy, NEXT_PUBLIC_SITE_URL
+ *   node scripts/backfill-all-configs.mjs --strategy-id=<uuid>   # explicit strategy
  *
  * Requires your dev server to be running for localhost, or --prod for production.
  * Reads CRON_SECRET and strategy ID from .env.local / Supabase.
@@ -43,18 +44,46 @@ if (!supabaseUrl || !supabaseServiceKey) {
 const isProd = process.argv.includes('--prod');
 const baseUrl = isProd ? siteUrl : 'http://localhost:3000';
 
+const strategyIdArg = process.argv
+  .find((a) => a.startsWith('--strategy-id='))
+  ?.slice('--strategy-id='.length)
+  ?.trim();
+
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-const { data: strategy, error } = await supabase
-  .from('strategy_models')
-  .select('id, slug, name')
-  .eq('status', 'active')
-  .order('created_at', { ascending: false })
-  .limit(1)
-  .maybeSingle();
+let strategy;
+let error;
+
+if (strategyIdArg) {
+  const res = await supabase
+    .from('strategy_models')
+    .select('id, slug, name')
+    .eq('id', strategyIdArg)
+    .maybeSingle();
+  strategy = res.data;
+  error = res.error;
+  if (!error && !strategy) {
+    console.error(`No strategy_models row for id=${strategyIdArg}`);
+    process.exit(1);
+  }
+} else {
+  const res = await supabase
+    .from('strategy_models')
+    .select('id, slug, name')
+    .eq('status', 'active')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  strategy = res.data;
+  error = res.error;
+  if (error || !strategy) {
+    console.error('Could not find active strategy:', error?.message ?? 'none found');
+    process.exit(1);
+  }
+}
 
 if (error || !strategy) {
-  console.error('Could not find active strategy:', error?.message ?? 'none found');
+  console.error('Strategy lookup failed:', error?.message ?? 'unknown');
   process.exit(1);
 }
 

@@ -7,7 +7,7 @@ import { CreditCard, Loader2, LogIn, LogOut, Settings } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
-import { getSupabaseBrowserClient } from "@/utils/supabase/browser";
+import { logoutToHome } from "@/lib/client-logout";
 import { PlanLabel } from "@/components/account/plan-label";
 import { useAuthState } from "@/components/auth/auth-state-context";
 import { cn } from "@/lib/utils";
@@ -50,15 +50,9 @@ export function SidebarAccountModule({ onNavigateStart }: SidebarAccountModulePr
     router.push("/sign-in?next=/platform/settings");
   };
 
-  const handleSignOut = async () => {
-    const supabase = getSupabaseBrowserClient();
-    if (!supabase) {
-      return;
-    }
+  const handleSignOut = () => {
     setIsSigningOut(true);
-    await supabase.auth.signOut();
-    router.push("/");
-    router.refresh();
+    logoutToHome(router);
   };
 
   const openSettings = () => {

@@ -1014,6 +1014,33 @@ create index if not exists portfolio_compute_diagnostic_events_event_created_idx
 
 alter table public.portfolio_compute_diagnostic_events enable row level security;
 
+create table if not exists public.cron_run_issues (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  run_date date not null,
+  run_started_at timestamptz not null,
+  subject text not null,
+  context text,
+  message text not null,
+  git_commit_sha text
+);
+
+create index if not exists cron_run_issues_created_at_idx
+  on public.cron_run_issues (created_at desc);
+
+alter table public.cron_run_issues enable row level security;
+
+create table if not exists public.landing_recovery_exhausted_events (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  deployment text null
+);
+
+create index if not exists landing_recovery_exhausted_events_created_at_idx
+  on public.landing_recovery_exhausted_events (created_at desc);
+
+alter table public.landing_recovery_exhausted_events enable row level security;
+
 create table if not exists public.portfolio_strategy_daily_series (
   strategy_id uuid not null references public.strategy_models(id) on delete cascade,
   as_of_run_date date not null,

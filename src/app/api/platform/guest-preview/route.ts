@@ -1,7 +1,12 @@
 import { NextResponse } from 'next/server';
 import { getGuestPlatformPreviewPayloadCached } from '@/lib/guest-platform-preview';
+import {
+  PLATFORM_PORTFOLIO_JSON_S_MAXAGE_SECONDS,
+  PLATFORM_PORTFOLIO_JSON_STALE_WHILE_GUEST_PREVIEW,
+  platformPortfolioJsonCacheControl,
+} from '@/lib/public-cache';
 
-export const revalidate = 300;
+export const revalidate = PLATFORM_PORTFOLIO_JSON_S_MAXAGE_SECONDS;
 
 /**
  * Signed-out safe: guest-visible stock recommendations + top 10 ranked portfolio configs
@@ -12,7 +17,9 @@ export async function GET() {
     const payload = await getGuestPlatformPreviewPayloadCached();
     return NextResponse.json(payload, {
       headers: {
-        'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
+        'Cache-Control': platformPortfolioJsonCacheControl(
+          PLATFORM_PORTFOLIO_JSON_STALE_WHILE_GUEST_PREVIEW
+        ),
       },
     });
   } catch (error) {

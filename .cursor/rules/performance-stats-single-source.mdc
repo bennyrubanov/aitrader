@@ -1,6 +1,6 @@
 ---
 description: Canonical methodology for portfolio-value and performance stats — one effective equity series drives every displayed number
-globs: src/components/performance/**, src/components/platform/**, src/lib/config-performance-chart.ts, src/lib/live-holdings-allocation.ts, src/lib/live-mark-to-market.ts, src/lib/config-daily-series.ts, src/lib/portfolio-config-holdings*.ts, src/lib/portfolio-configs-ranked-core.ts, src/app/api/platform/explore-portfolio-config-holdings/**, src/app/api/platform/explore-portfolios-equity-series/**
+globs: src/components/performance/**, src/components/platform/**, src/lib/config-performance-chart.ts, src/lib/live-holdings-allocation.ts, src/lib/live-mark-to-market.ts, src/lib/config-daily-series.ts, src/lib/portfolio-config-holdings*.ts, src/lib/portfolio-configs-ranked-core.ts, src/lib/your-portfolio-data-cache.ts, src/lib/portfolio-configs-ranked-client.ts, src/app/api/platform/explore-portfolio-config-holdings/**, src/app/api/platform/explore-portfolios-equity-series/**
 alwaysApply: false
 ---
 
@@ -382,3 +382,44 @@ tail) with this rule: lift first, then apply effective-series logic.
 `startingCapital` reflect lifted dollars; total return %, CAGR, max
 drawdown, Sharpe, beat-rates are scale-invariant and are unchanged by the
 lift.
+
+## 12. Client-side freshness (cron / rebalance vs open tabs)
+
+Server `revalidateTag` clears Next **`unstable_cache`**; it does **not** clear
+in-memory **`Map`** / **`sessionStorage`** caches in the browser. After cron
+or a rebalance compute, an open **platform** tab can still show **stale**
+`user-portfolio-performance` or slice-keyed **`portfolio-config-performance`**
+JSON until the next fetch.
+
+**Staleness signal:** Prefer **`latestRawRunDate`** (from
+`loadPortfolioConfigsRankedPayload` / ranked API) vs the **last `date`** on the
+client-held series, or **`asOfRunDate < latestRawRunDate`** when the API
+exposes snapshot `asOfRunDate`. This matches §7–§8’s snapshot-vs-raw mental
+model. Do **not** use **`latestPerformanceDate`** on the ranked payload as the
+sole signal — it is derived from **`liveTail`** dates only and is **`null`**
+when no tails exist (common steady state).
+
+**TTL alignment:** Any new client max-age for platform portfolio JSON should
+use a **shared constant** from [`src/lib/public-cache.ts`](mdc:src/lib/public-cache.ts)
+alongside `PUBLIC_DATA_CACHE_TTL_SECONDS` / tags so route `Cache-Control:
+s-maxage=…` and client eviction stay aligned (see
+[`public-pages-caching.mdc`](mdc:.cursor/rules/public-pages-caching.mdc)).
+
+**Cross-tab / visibility:** Debounced `visibilitychange` refetches must follow
+[`cross-tab-custom-event-sync.mdc`](mdc:.cursor/rules/cross-tab-custom-event-sync.mdc)
+— avoid duplicate GETs in the same turn when a profile invalidation already
+forced a bypass.
+
+**Triple constraint (portfolio caching):** Changes here sit in tension with
+three product/engineering goals — optimize **all** of them, not one in isolation:
+**(1) correctness & same-page consistency** (single effective series + bounded
+client staleness + `latestRawRunDate` / `asOfRunDate` signals above),
+**(2) computational efficiency** on Vercel/Node (keep `unstable_cache` +
+`revalidateTag`, debounced refetch, no sub-second polling),
+**(3) low Postgres egress** (CDN + aligned `s-maxage` + client max-age from
+[`public-cache.ts`](mdc:src/lib/public-cache.ts), no bulk `ensureConfigDailySeries`
+fan-out per [`daily-snapshot-invariant.mdc`](mdc:.cursor/rules/daily-snapshot-invariant.mdc)).
+“Always live query Supabase” violates (2) and (3); “infinite client `Map`”
+violates (1).
+
+Implementation plan: [`.cursor/plans/portfolio-cache-refresh-ux.plan.md`](mdc:.cursor/plans/portfolio-cache-refresh-ux.plan.md).

@@ -38,9 +38,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetClose, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { getSupabaseBrowserClient } from "@/utils/supabase/browser";
 import { useAuthState } from "@/components/auth/auth-state-context";
 import { PlanLabel } from "@/components/account/plan-label";
+import { logoutToHome } from "@/lib/client-logout";
 import { navigateWithFallback } from "@/lib/client-navigation";
 import { shouldPersistSignInReturnPath } from "@/lib/auth-redirect";
 import type { SubscriptionTier } from "@/lib/auth-state";
@@ -407,18 +407,10 @@ const Navbar: React.FC = () => {
     navigateWithFallback((href) => router.push(href), signInHref);
   };
 
-  const handleSignOut = async () => {
-    const supabase = getSupabaseBrowserClient();
-    if (!supabase) {
-      return;
-    }
-
+  const handleSignOut = () => {
     setIsSigningOut(true);
-    await supabase.auth.signOut();
-    setIsSigningOut(false);
     setIsMobileMenuOpen(false);
-    navigateWithFallback((href) => router.push(href), "/");
-    router.refresh();
+    logoutToHome(router);
   };
 
   const handlePrefetch = (href: string) => {

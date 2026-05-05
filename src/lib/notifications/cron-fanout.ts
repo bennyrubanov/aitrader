@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { sendTransactionalEmail } from '@/lib/mailer';
 import { buildModelRatingsReadyEmailHtml } from '@/lib/notifications/email-templates';
 import { hrefStockSymbol, hrefStrategyModel, hrefYourPortfolio } from '@/lib/notifications/hrefs';
-import { CATALOG_ID } from '@/lib/notifications/notification-catalog';
+import { CATALOG_ID, portfolioFollowedThreadId } from '@/lib/notifications/notification-catalog';
 import { signUnsubscribePayload } from '@/lib/notifications/unsubscribe-token';
 import type { Bucket, RatingBucketChange } from '@/lib/notifications/types';
 import { loadUserEmails, loadUserPrefs, resolvePrefsForFanout } from '@/lib/notifications/user-notify-queries';
@@ -217,6 +217,8 @@ export async function notifyPortfolioRebalances(
           run_date: params.runDate,
           action_count: params.actionCount,
           href: hrefYourPortfolio(p.id),
+          thread_id: portfolioFollowedThreadId(p.user_id, p.id),
+          thread_role: 'child',
         },
       });
     }
@@ -549,6 +551,8 @@ export async function notifyPortfolioEntriesExits(
           entries: entrySyms,
           exits: exitSyms,
           href: hrefYourPortfolio(p.id),
+          thread_id: portfolioFollowedThreadId(p.user_id, p.id),
+          thread_role: 'child',
         },
       });
     }
@@ -703,6 +707,8 @@ export async function notifyPortfolioPriceMoves(
           run_date: params.runDate,
           pct,
           href: hrefYourPortfolio(p.id),
+          thread_id: portfolioFollowedThreadId(p.user_id, p.id),
+          thread_role: 'child',
         },
       });
     }

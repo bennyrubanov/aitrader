@@ -1,0 +1,28 @@
+# Live Stooq + Yahoo benchmark smoke (bounded CSV, chart window, weekly return path).
+# Add repository secret STOOQ_API_KEY (same as Vercel) for scheduled / manual runs.
+name: Live benchmark feeds
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Mondays 15:00 UTC — light traffic; adjust if needed
+    - cron: '0 15 * * 1'
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Live probe (Stooq + Yahoo)
+        env:
+          STOOQ_API_KEY: ${{ secrets.STOOQ_API_KEY }}
+        run: npm run probe:benchmark-feeds

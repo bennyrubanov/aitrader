@@ -162,6 +162,7 @@ import {
 } from '@/lib/guest-local-profile';
 import {
   getCachedConfigPerfPayload,
+  invalidateUserEntryPerformanceCache,
   loadUserEntryPayloadCached,
 } from '@/lib/your-portfolio-data-cache';
 import { resolveHoldingsLiveRebalanceNotional } from '@/lib/resolve-holdings-live-notional';
@@ -1589,6 +1590,9 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   >({});
   const [rankedLoading, setRankedLoading] = useState(false);
   const [cardState, setCardState] = useState<Record<string, OverviewCardPerfState>>({});
+  /** Bumps when tab becomes visible to re-run spotlight user-entry fetch (debounced). */
+  const [overviewSpotlightVisibilityBump, setOverviewSpotlightVisibilityBump] = useState(0);
+  const overviewSpotlightVisibilityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Dedupe overview user-perf fetches per profile when sort order effect re-runs. */
   const overviewUserEntryFetchStartedRef = useRef<Map<string, string>>(new Map());
   /** Fingerprint last time user-perf fetch finished for a profile (cleared when profile set changes). */
@@ -2303,7 +2307,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     return () => {
       cancelled = true;
     };
-  }, [profiles, overviewUserPerfFetchKey]);
+  }, [profiles, overviewUserPerfFetchKey, overviewSpotlightVisibilityBump]);
 
   const topSpotlightProfileId = topSpotlightOverview?.profile.id ?? null;
   const topSpotlightConfigId = topSpotlightOverview?.profile.portfolio_config?.id ?? null;
@@ -2317,6 +2321,40 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   useEffect(() => {
     setSpotlightMobileSubTab('performance');
   }, [topSpotlightProfileId]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const onVisibility = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (!authState.isLoaded || !authState.isAuthenticated) return;
+      const pid = topSpotlightOverview?.profile.id;
+      if (!pid || isGuestLocalProfileId(pid)) return;
+      if (!topSpotlightOverview?.profile.user_start_date?.trim()) return;
+      if (overviewSpotlightVisibilityTimerRef.current) {
+        clearTimeout(overviewSpotlightVisibilityTimerRef.current);
+      }
+      overviewSpotlightVisibilityTimerRef.current = setTimeout(() => {
+        overviewSpotlightVisibilityTimerRef.current = null;
+        invalidateUserEntryPerformanceCache(pid);
+        overviewUserEntryTerminalFpRef.current.delete(pid);
+        overviewUserEntryFetchStartedRef.current.delete(pid);
+        setOverviewSpotlightVisibilityBump((n) => n + 1);
+      }, 1000);
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      if (overviewSpotlightVisibilityTimerRef.current) {
+        clearTimeout(overviewSpotlightVisibilityTimerRef.current);
+        overviewSpotlightVisibilityTimerRef.current = null;
+      }
+    };
+  }, [
+    authState.isAuthenticated,
+    authState.isLoaded,
+    topSpotlightOverview?.profile.id,
+    topSpotlightOverview?.profile.user_start_date,
+  ]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;

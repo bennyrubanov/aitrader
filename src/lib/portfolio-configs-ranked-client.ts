@@ -5,9 +5,9 @@ import {
   USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT,
   type UserPortfolioProfilesInvalidateDetail,
 } from '@/components/platform/portfolio-unfollow-toast';
+import { PLATFORM_PORTFOLIO_JSON_S_MAXAGE_SECONDS } from '@/lib/public-cache';
 
-/** Aligns with explore equity API CDN `s-maxage=300` — stale in-tab ranked $ refetches after this window. */
-const RANKED_CLIENT_MAX_AGE_MS = 300_000;
+const RANKED_CLIENT_MAX_AGE_MS = PLATFORM_PORTFOLIO_JSON_S_MAXAGE_SECONDS * 1000;
 
 type RankedResolvedEntry = {
   payload: PortfolioConfigsRankedPayload | null;

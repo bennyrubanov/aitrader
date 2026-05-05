@@ -6,6 +6,7 @@ import {
   USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT,
   type UserPortfolioProfilesInvalidateDetail,
 } from '@/components/platform/portfolio-unfollow-toast';
+import { PLATFORM_PORTFOLIO_JSON_S_MAXAGE_SECONDS } from '@/lib/public-cache';
 
 export type ExploreEquitySeriesPayload = {
   dates: string[];
@@ -19,7 +20,7 @@ type CacheEntry<T> = {
 };
 
 const CACHE_PREFIX = 'aitrader.platform.cache.v2.explore-equity-series';
-const TTL_MS = 5 * 60_000;
+const TTL_MS = PLATFORM_PORTFOLIO_JSON_S_MAXAGE_SECONDS * 1000;
 
 const memoryStore = new Map<string, CacheEntry<ExploreEquitySeriesPayload>>();
 const inflight = new Map<string, Promise<ExploreEquitySeriesPayload | null>>();

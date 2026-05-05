@@ -4,6 +4,8 @@ globs:
   - src/app/(public)/**
   - src/app/(platform)/**
   - src/lib/public-cache.ts
+  - src/lib/auth-snapshot-storage-key.ts
+  - src/lib/client-logout.ts
   - src/components/auth/auth-state-provider.tsx
   - src/lib/get-initial-auth-state.ts
 alwaysApply: false
@@ -23,6 +25,8 @@ All TTLs and cache tags used by public pages live in [`src/lib/public-cache.ts`]
 - `PUBLIC_CACHE_TAGS` — registry of `revalidateTag` strings shared by writers and readers.
 
 Do not hardcode TTL numbers or tag literals in route or lib files; import from `public-cache.ts` so cron writers and page readers cannot drift.
+
+**Platform JSON `s-maxage` + client Maps:** Several `GET /api/platform/*` routes use `Cache-Control: public, s-maxage=300` (or similar) while client modules (`portfolio-configs-ranked-client`, `your-portfolio-data-cache`, explore equity cache) evict on comparable intervals. When adding or changing those seconds, **add a named export to `public-cache.ts`** (e.g. seconds matching the route header) and import it in **both** the route handler and the client cache module so CDN, browser, and in-memory layers cannot drift. Tier-2 **page** `revalidate` literals stay numeric in `page.tsx` per Next.js constraints above; this bullet is for **shared lib + API** alignment. **Tradeoff framing** (correctness vs compute vs egress) for portfolio client refresh: [`performance-stats-single-source.mdc`](mdc:.cursor/rules/performance-stats-single-source.mdc) §12 + [`.cursor/plans/portfolio-cache-refresh-ux.plan.md`](mdc:.cursor/plans/portfolio-cache-refresh-ux.plan.md).
 
 ### Scope: Postgres egress, not Storage egress
 
@@ -71,7 +75,7 @@ The viewer's auth + profile state is fetched in exactly one place per render bou
 `AuthStateProvider` in [`src/components/auth/auth-state-provider.tsx`](mdc:src/components/auth/auth-state-provider.tsx) is the single client-side source. Its `useState` lazy initializer picks the best signal available **before first paint** in this exact priority order:
 
 - **Tier A — fresh SSR state.** If `initialState.isLoaded && initialState.isAuthenticated` (set by `(platform)/layout.tsx` via `getInitialAuthState()`), use it as-is. Real data, instant paint, zero client critical-path Supabase calls.
-- **Tier B — localStorage snapshot.** If `AUTH_SNAPSHOT_KEY` is present in `localStorage` from a prior signed-in session, hydrate from it. Real data, instant paint, one background refresh follows.
+- **Tier B — localStorage snapshot.** If [`AUTH_SNAPSHOT_STORAGE_KEY`](mdc:src/lib/auth-snapshot-storage-key.ts) is present in `localStorage` from a prior signed-in session, hydrate from it. Real data, instant paint, one background refresh follows.
 - **Tier C — Supabase auth-token cookie present, no snapshot.** If `document.cookie` contains an `sb-*-auth-token` cookie but Tier B missed (cleared `localStorage`, signed in on another device, etc.), paint an **optimistic signed-in placeholder** (`isAuthenticated: true`, `name: 'Account'`, `subscriptionTier: 'free'`, `hasPremiumAccess: false`). Navbar shows the account avatar slot instead of "Sign in"; one background fetch fills in real values.
 - **Tier D — true guest.** No SSR state, no snapshot, no cookie → guest. `loadFreshState` MUST early-return without calling Supabase.
 
@@ -81,6 +85,12 @@ Additional client-side requirements:
 - `loadFreshState` MUST early-return when Tier D applies (no cookie AND no snapshot).
 - `onAuthStateChange` subscription MUST stay in place so token refresh and cross-tab sign-out propagate.
 
+### Client logout (landing + Tier B correctness)
+
+- **Single entrypoint:** all user-facing “log out and go home” flows MUST call [`logoutToHome`](mdc:src/lib/client-logout.ts) with the App Router instance from `useRouter()`. Do **not** hand-roll `await supabase.auth.signOut()` plus `router.push('/')` in feature components — parallel sign-out + immediate `router.replace` + snapshot clear live only in that helper.
+- **Snapshot key:** the storage key string lives in exactly one module — [`src/lib/auth-snapshot-storage-key.ts`](mdc:src/lib/auth-snapshot-storage-key.ts). `AuthStateProvider` imports it for Tier B read/write/remove on guest transition. **Bump the version suffix** in that file when the persisted `AuthState` snapshot shape or Tier B parsing changes (orphans old blobs).
+- **Why `logoutToHome` clears `localStorage` synchronously:** Tier B runs in the lazy initializer **before** `onAuthStateChange` can run. If the user leaves `(platform)` immediately after starting `signOut()`, the previous `AuthStateProvider` may unmount **before** the effect that removes the snapshot on `isAuthenticated === false`. Without a synchronous `removeItem` in `logoutToHome`, `/` can briefly hydrate Tier B as still signed-in. Clearing the key after starting `void signOut()` and before `router.replace('/')` prevents that regression.
+
 ### API routes
 
 Route handlers under `src/app/api/**` may call `supabase.auth.getUser()` for authorization. Do not duplicate the `user_profiles` join in route handlers; if the route needs the same fields, factor a shared helper that consumes `getInitialAuthState()` or accepts a pre-fetched `AuthState`.
@@ -88,6 +98,8 @@ Route handlers under `src/app/api/**` may call `supabase.auth.getUser()` for aut
 ### PR review gate
 
 Any change that adds a new server-side `supabase.auth.getUser()` or `user_profiles` read outside `getInitialAuthState`, or that bypasses the four-tier client lazy initializer, MUST justify it in the PR description.
+
+Any new **user-facing** sign-out that navigates to `/` (or replaces `logoutToHome`) MUST justify it in the PR description — the default is [`logoutToHome`](mdc:src/lib/client-logout.ts) plus [`AUTH_SNAPSHOT_STORAGE_KEY`](mdc:src/lib/auth-snapshot-storage-key.ts) handling above.
 
 ### Hydration-safe client islands on Tier-1 / Tier-2 pages
 

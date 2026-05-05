@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { RISK_LABELS, type RiskLevel } from "@/components/portfolio-config";
+import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { PerformanceSeriesPoint } from "@/lib/platform-performance-payload";
 import { cn } from "@/lib/utils";
@@ -76,11 +77,11 @@ function AuthPreviewChartBlockSkeleton() {
 /** Matches recommendation row height/spacing; no copy — used while preview payload is loading. */
 function AuthPreviewRecsSkeleton() {
   return (
-    <div className="space-y-2 rounded-md border border-border px-2 py-2">
+    <div className="space-y-2">
       {Array.from({ length: RECS_VISIBLE }, (_, i) => (
         <div
           key={i}
-          className="flex items-center justify-between gap-2 rounded-md border border-border/60 bg-muted/15 px-3 py-2"
+          className="flex items-center justify-between gap-2 px-3 py-2"
         >
           <div className="min-w-0 flex-1 space-y-1.5">
             <Skeleton className="h-4 w-14" />
@@ -403,7 +404,7 @@ export function AuthPreviewPlaceholder() {
     (chartStatus === "loading" || chartStatus === "in_progress");
 
   return (
-    <div className="w-full max-w-xl rounded-2xl border border-border bg-card p-6 shadow-elevated">
+    <div className="w-full max-w-xl p-6">
       <p className="text-xs font-semibold uppercase tracking-wider text-trader-blue">Live results</p>
 
       {loadError ? (
@@ -411,19 +412,14 @@ export function AuthPreviewPlaceholder() {
       ) : null}
 
       <div className="mt-6 space-y-5">
-        <div className="rounded-xl border border-border bg-background p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <p className="text-sm font-medium">Current recommendations</p>
-            <span className="rounded-full bg-trader-blue/10 px-2 py-0.5 text-xs text-trader-blue">
-              Live
-            </span>
-          </div>
+        <div className="space-y-3">
+          <p className="mb-3 text-sm font-medium">Current recommendations</p>
           {guestPreviewPending ? (
             <AuthPreviewRecsSkeleton />
           ) : visibleRecs.length > 0 ? (
             <div
               className={cn(
-                "space-y-2 rounded-md border border-border px-2 py-2 transition-opacity duration-500",
+                "space-y-2 transition-opacity duration-500",
                 recOpacity === 1 ? "opacity-100" : "opacity-0",
               )}
             >
@@ -433,7 +429,7 @@ export function AuthPreviewPlaceholder() {
                   href={`/stocks/${r.symbol.toLowerCase()}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center justify-between gap-2 rounded-md border border-border/60 bg-muted/15 px-3 py-2 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                  className="flex items-center justify-between gap-2 rounded-md px-3 py-2 text-left transition-colors hover:bg-muted/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                 >
                   <div className="min-w-0">
                     <p className="text-sm font-semibold">{r.symbol}</p>
@@ -446,14 +442,13 @@ export function AuthPreviewPlaceholder() {
               ))}
             </div>
           ) : (
-            <div
-              className="min-h-[140px] rounded-md border border-dashed border-border/80 bg-muted/5"
-              aria-hidden
-            />
+            <div className="min-h-[140px]" aria-hidden />
           )}
         </div>
 
-        <div className="rounded-xl border border-border bg-background p-4">
+        <Separator />
+
+        <div className="space-y-3">
           <div className="mb-2 flex items-center justify-between gap-2">
             <p className="text-sm font-medium">Top portfolios</p>
             {guestPreviewPending ? (

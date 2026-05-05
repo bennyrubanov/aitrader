@@ -3,6 +3,7 @@ import { createAdminClient } from '@/utils/supabase/admin';
 import { getGuestStockRows } from '@/lib/stocks-cache';
 import { loadPortfolioConfigsRankedPayload } from '@/lib/portfolio-configs-ranked-core';
 import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
+import { PLATFORM_PORTFOLIO_JSON_S_MAXAGE_SECONDS } from '@/lib/public-cache';
 
 export type GuestPlatformPreviewPayload = {
   strategySlug: string;
@@ -123,5 +124,5 @@ async function loadGuestPlatformPreviewUncached(): Promise<GuestPlatformPreviewP
 export const getGuestPlatformPreviewPayloadCached = unstable_cache(
   loadGuestPlatformPreviewUncached,
   ['guest-platform-preview', STRATEGY_CONFIG.slug],
-  { revalidate: 300 }
+  { revalidate: PLATFORM_PORTFOLIO_JSON_S_MAXAGE_SECONDS }
 );

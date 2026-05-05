@@ -15,6 +15,35 @@ import { CHART_SP500_LANDING_LINE } from '@/lib/chart-index-series-colors';
 import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import { useHasBeenVisible } from '@/lib/animations';
 
+const LANDING_ALL_PORTFOLIOS_RECOVERY_URL = '/api/public/landing-all-portfolios-performance';
+const LANDING_RECOVERY_TELEMETRY_URL = '/api/public/landing-performance-recovery-telemetry';
+/** Max attempts; gaps are ms between successive attempts (first attempt is immediate). */
+const RECOVERY_ATTEMPT_GAPS_MS = [800, 2000, 4000] as const;
+
+const LANDING_COMPUTE_STATUSES = new Set<LandingAllPortfoliosPerformance['computeStatus']>([
+  'ready',
+  'in_progress',
+  'failed',
+  'empty',
+  'unsupported',
+]);
+
+function looksLikeLandingAllPortfolios(v: unknown): v is LandingAllPortfoliosPerformance {
+  if (!v || typeof v !== 'object') return false;
+  const o = v as Record<string, unknown>;
+  const bench = o.benchmarks;
+  if (!bench || typeof bench !== 'object') return false;
+  const computeStatus = o.computeStatus;
+  return (
+    typeof o.strategySlug === 'string' &&
+    typeof computeStatus === 'string' &&
+    LANDING_COMPUTE_STATUSES.has(computeStatus as LandingAllPortfoliosPerformance['computeStatus']) &&
+    Array.isArray(o.dates) &&
+    Array.isArray(o.series) &&
+    Array.isArray((bench as { sp500?: unknown }).sp500)
+  );
+}
+
 function formatInceptionFootnote(ymd: string | null | undefined): string | null {
   if (!ymd?.trim()) return null;
   const parsed = new Date(`${ymd.trim()}T00:00:00Z`);
@@ -66,9 +95,95 @@ type Props = {
 export function LandingPerformanceSection({ allPortfolios, heroStats, visibleRef }: Props) {
   const localRef = useRef<HTMLDivElement>(null);
   const sectionIoRef = useRef<HTMLElement | null>(null);
+  const prevAllPortfoliosRef = useRef(allPortfolios);
   const [mountAmbient, setMountAmbient] = useState(false);
+  /** `false` = use SSR prop; otherwise client recovery result (object or confirmed null). */
+  const [clientAllPortfolios, setClientAllPortfolios] = useState<
+    false | LandingAllPortfoliosPerformance | null
+  >(false);
+  const [recoveryInFlight, setRecoveryInFlight] = useState(false);
   const ref = visibleRef ?? localRef;
   const hasRevealed = useHasBeenVisible(ref);
+
+  const effectiveAllPortfolios = useMemo(
+    () => (clientAllPortfolios !== false ? clientAllPortfolios : allPortfolios),
+    [clientAllPortfolios, allPortfolios],
+  );
+
+  useEffect(() => {
+    const prev = prevAllPortfoliosRef.current;
+    prevAllPortfoliosRef.current = allPortfolios;
+
+    if (allPortfolios !== null) {
+      setClientAllPortfolios(false);
+      setRecoveryInFlight(false);
+      return;
+    }
+    // SSR regressed from a real payload to null (e.g. refresh) — drop stale client recovery so effects can re-run.
+    if (prev !== null && allPortfolios === null) {
+      setClientAllPortfolios(false);
+      setRecoveryInFlight(false);
+    }
+  }, [allPortfolios]);
+
+  useEffect(() => {
+    if (allPortfolios !== null) return;
+
+    const ac = new AbortController();
+    let cancelled = false;
+    setRecoveryInFlight(true);
+
+    const sleep = (ms: number) =>
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, ms);
+      });
+
+    (async () => {
+      const totalAttempts = 1 + RECOVERY_ATTEMPT_GAPS_MS.length;
+      for (let i = 0; i < totalAttempts; i++) {
+        if (cancelled) return;
+        if (i > 0) {
+          await sleep(RECOVERY_ATTEMPT_GAPS_MS[i - 1]!);
+          if (cancelled) return;
+        }
+        try {
+          const res = await fetch(LANDING_ALL_PORTFOLIOS_RECOVERY_URL, {
+            cache: 'no-store',
+            signal: ac.signal,
+          });
+          if (cancelled) return;
+          if (!res.ok) continue;
+          const body: unknown = await res.json();
+          if (body === null) continue;
+          if (looksLikeLandingAllPortfolios(body)) {
+            if (!cancelled) {
+              setClientAllPortfolios(body);
+              setRecoveryInFlight(false);
+            }
+            return;
+          }
+        } catch {
+          if (ac.signal.aborted || cancelled) return;
+        }
+      }
+      if (!cancelled) {
+        setClientAllPortfolios(null);
+        setRecoveryInFlight(false);
+        void fetch(LANDING_RECOVERY_TELEMETRY_URL, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: '{}',
+          keepalive: true,
+          cache: 'no-store',
+        }).catch(() => {});
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
+  }, [allPortfolios]);
 
   useEffect(() => {
     const el = sectionIoRef.current;
@@ -85,29 +200,29 @@ export function LandingPerformanceSection({ allPortfolios, heroStats, visibleRef
 
   const modelPagePath = useMemo(() => {
     const slug =
-      allPortfolios?.strategySlug ?? heroStats?.strategySlug ?? STRATEGY_CONFIG.slug;
+      effectiveAllPortfolios?.strategySlug ?? heroStats?.strategySlug ?? STRATEGY_CONFIG.slug;
     return `/strategy-models/${encodeURIComponent(slug)}`;
-  }, [allPortfolios?.strategySlug, heroStats?.strategySlug]);
+  }, [effectiveAllPortfolios?.strategySlug, heroStats?.strategySlug]);
 
   const showCharts =
-    allPortfolios &&
-    allPortfolios.computeStatus === 'ready' &&
-    allPortfolios.dates.length >= 2 &&
-    allPortfolios.series.length > 0 &&
-    allPortfolios.benchmarks.sp500.length === allPortfolios.dates.length;
+    effectiveAllPortfolios &&
+    effectiveAllPortfolios.computeStatus === 'ready' &&
+    effectiveAllPortfolios.dates.length >= 2 &&
+    effectiveAllPortfolios.series.length > 0 &&
+    effectiveAllPortfolios.benchmarks.sp500.length === effectiveAllPortfolios.dates.length;
 
   const statusLine =
-    allPortfolios && !showCharts
-      ? allPortfolios.computeStatus === 'in_progress'
+    effectiveAllPortfolios && !showCharts
+      ? effectiveAllPortfolios.computeStatus === 'in_progress'
         ? 'Performance is still computing — open the model page for live status.'
-        : allPortfolios.computeStatus === 'empty'
+        : effectiveAllPortfolios.computeStatus === 'empty'
           ? 'Performance is recomputed after every rebalance. The next compute will appear here automatically.'
-          : allPortfolios.computeStatus === 'failed'
+          : effectiveAllPortfolios.computeStatus === 'failed'
             ? 'We could not load performance right now.'
-            : allPortfolios.computeStatus === 'unsupported'
+            : effectiveAllPortfolios.computeStatus === 'unsupported'
               ? 'This view is not available yet.'
               : 'Live charts will appear here after the next portfolio compute.'
-      : !allPortfolios
+      : !effectiveAllPortfolios
         ? 'Live performance data is not available yet.'
         : null;
 
@@ -118,8 +233,8 @@ export function LandingPerformanceSection({ allPortfolios, heroStats, visibleRef
     Number.isFinite(heroStats.beatSp500Pct);
 
   const inceptionFormatted =
-    formatInceptionFootnote(heroStats?.inceptionDate ?? allPortfolios?.inceptionDate) ??
-    formatInceptionFootnote(allPortfolios?.dates[0]);
+    formatInceptionFootnote(heroStats?.inceptionDate ?? effectiveAllPortfolios?.inceptionDate) ??
+    formatInceptionFootnote(effectiveAllPortfolios?.dates[0]);
 
   const beatPct = heroStats?.beatSp500Pct ?? null;
   const beatPositive = beatPct != null && beatPct > 50;
@@ -291,7 +406,7 @@ export function LandingPerformanceSection({ allPortfolios, heroStats, visibleRef
         </div>
 
         <div>
-        {showCharts && allPortfolios ? (
+        {showCharts && effectiveAllPortfolios ? (
           <div className="mt-8">
             <div className="mb-3 flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-sm font-semibold text-foreground">All portfolios vs S&amp;P 500</p>
@@ -300,10 +415,10 @@ export function LandingPerformanceSection({ allPortfolios, heroStats, visibleRef
 
             <div className="-mx-4 w-[calc(100%+2rem)] overflow-visible sm:-mx-5 sm:w-[calc(100%+2.5rem)] md:-mx-6 md:w-[calc(100%+3rem)]">
               <AllPortfoliosEquityChart
-                dates={allPortfolios.dates}
-                series={allPortfolios.series}
-                benchmarks={allPortfolios.benchmarks}
-                topPortfolioConfigId={allPortfolios.topPortfolioConfigId}
+                dates={effectiveAllPortfolios.dates}
+                series={effectiveAllPortfolios.series}
+                benchmarks={effectiveAllPortfolios.benchmarks}
+                topPortfolioConfigId={effectiveAllPortfolios.topPortfolioConfigId}
               />
             </div>
 
@@ -316,6 +431,11 @@ export function LandingPerformanceSection({ allPortfolios, heroStats, visibleRef
             <p className="mx-auto max-w-md text-sm text-muted-foreground">
               {statusLine ?? 'Live charts will appear here after the next portfolio compute.'}
             </p>
+            {recoveryInFlight && allPortfolios === null ? (
+              <p className="mx-auto mt-2 max-w-md text-xs text-muted-foreground" aria-live="polite">
+                Checking again for live performance…
+              </p>
+            ) : null}
           </div>
         )}
 

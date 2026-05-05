@@ -22,6 +22,7 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { toast } from '@/hooks/use-toast';
+import { logoutToHome } from '@/lib/client-logout';
 import { getSupabaseBrowserClient } from '@/utils/supabase/browser';
 import { PlanLabel } from '@/components/account/plan-label';
 import { SubscriptionUpgradeDialog } from '@/components/account/subscription-upgrade-dialog';
@@ -568,16 +569,9 @@ const SettingsPageContent = () => {
     !authState.stripePendingTier &&
     !authState.stripePendingRecurringInterval;
 
-  const handleSignOut = async () => {
-    const supabase = getSupabaseBrowserClient();
-    if (!supabase) {
-      return;
-    }
-
+  const handleSignOut = () => {
     setIsSigningOut(true);
-    await supabase.auth.signOut();
-    router.push('/');
-    router.refresh();
+    logoutToHome(router);
   };
 
   const handleSendPasswordReset = async () => {

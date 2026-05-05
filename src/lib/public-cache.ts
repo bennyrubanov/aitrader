@@ -19,6 +19,24 @@ export const PUBLIC_ISR_REVALIDATE_SECONDS = 3600;
 export const PUBLIC_DATA_CACHE_TTL_SECONDS = 3600;
 
 /**
+ * CDN `s-maxage` (seconds) for portfolio JSON APIs (`portfolio-config-performance`,
+ * `portfolio-configs-ranked`, `explore-portfolios-equity-series`, etc.) and matching
+ * client-side Map/session max-age. Must stay aligned with route `Cache-Control` headers.
+ */
+export const PLATFORM_PORTFOLIO_JSON_S_MAXAGE_SECONDS = 300;
+
+/** Default `stale-while-revalidate` for portfolio JSON (seconds). */
+export const PLATFORM_PORTFOLIO_JSON_STALE_WHILE_DEFAULT = 1800;
+
+/** Guest preview route uses a shorter SWR window. */
+export const PLATFORM_PORTFOLIO_JSON_STALE_WHILE_GUEST_PREVIEW = 600;
+
+/** Build `Cache-Control` for portfolio JSON routes sharing `PLATFORM_PORTFOLIO_JSON_S_MAXAGE_SECONDS`. */
+export function platformPortfolioJsonCacheControl(staleWhileRevalidateSeconds: number): string {
+  return `public, s-maxage=${PLATFORM_PORTFOLIO_JSON_S_MAXAGE_SECONDS}, stale-while-revalidate=${staleWhileRevalidateSeconds}`;
+}
+
+/**
  * Registry of cache tags for `unstable_cache` loaders (public pages + shared platform data).
  * Cron / compute writers must call `revalidateTag` for these exact strings when mutating backing data.
  * Feature modules re-export these values instead of owning them to avoid circular imports.

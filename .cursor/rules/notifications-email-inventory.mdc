@@ -1,0 +1,32 @@
+---
+description: >-
+  Where the notifications/email inventory lives and how to keep it aligned with
+  code. Use when adding or changing user-facing email, in-app notification rows,
+  transports (Resend vs Gmail), thread_id conventions, or notification settings.
+alwaysApply: false
+---
+
+# Notifications and email — where to look
+
+## For humans and agents (maintenance)
+
+- **Written matrix (product “what / when / transport”):** [`.cursor/plans/notifications-email-inapp-catalog.plan.md`](mdc:.cursor/plans/notifications-email-inapp-catalog.plan.md) — update this when behavior, subjects, or threading rules change.
+- **Implementation runbook:** [`.cursor/plans/notifications-catalog-alignment.plan.md`](mdc:.cursor/plans/notifications-catalog-alignment.plan.md).
+- **What the repo actually implements:** [`src/lib/notifications/notification-catalog.ts`](mdc:src/lib/notifications/notification-catalog.ts) (`CATALOG_ID`, prefs notes, `portfolioFollowedThreadId`, inbox helpers).
+- **All send paths:** search for `sendTransactionalEmail` and `sendEmailByGmail` under `src/`.
+- **Rendered email samples:** JSDoc + behavior on [`src/app/api/platform/notifications/smoketest/route.ts`](mdc:src/app/api/platform/notifications/smoketest/route.ts).
+
+Prefer **updating the plan + `notification-catalog.ts` in the same change** when you add a new notification kind or transport so the inventory stays truthful.
+
+## Thread ids (in-app `notifications.data`)
+
+- Weekly recap: `weekly:{userId}:{runWeekEnding}`, role `head`.
+- Onboarding: `onboarding:{userId}`; welcome milestones use role `child` where applicable.
+- Followed portfolio (rebalance, entries/exits, price move): `portfolio:{userId}:{profileId}`, role `child` — use `portfolioFollowedThreadId` from `notification-catalog.ts`; writers in [`cron-fanout.ts`](mdc:src/lib/notifications/cron-fanout.ts).
+
+DB overview: [`.cursor/rules/supabase-schema.mdc`](mdc:.cursor/rules/supabase-schema.mdc) (Notifications bullet).
+
+## Why not duplicate everything in `docs/` or always-on rules?
+
+- Long tables belong in **`.cursor/plans/`** (this repo’s versioned plan location; see [repo-plans-location](mdc:.cursor/rules/repo-plans-location.mdc)).
+- A **short, agent-requestable rule** (this file) gives Cursor a stable hook without pasting large tables into every chat.

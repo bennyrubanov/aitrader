@@ -6,6 +6,10 @@ import {
 import { loadLatestRawRunDate } from '@/lib/live-mark-to-market';
 import { createAdminClient } from '@/utils/supabase/admin';
 import { runWithSupabaseQueryCount } from '@/utils/supabase/query-counter';
+import {
+  platformPortfolioJsonCacheControl,
+  PLATFORM_PORTFOLIO_JSON_STALE_WHILE_DEFAULT,
+} from '@/lib/public-cache';
 
 export type { ExplorePortfoliosEquitySeriesPayload } from '@/lib/explore-portfolios-equity-series';
 
@@ -37,7 +41,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(payload, {
       headers: {
         'Cache-Control': hasChartData
-          ? 'public, s-maxage=300, stale-while-revalidate=1800'
+          ? platformPortfolioJsonCacheControl(PLATFORM_PORTFOLIO_JSON_STALE_WHILE_DEFAULT)
           : 'no-store',
       },
     });

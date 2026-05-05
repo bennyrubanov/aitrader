@@ -1,9 +1,13 @@
 import type { ConfigPerfRow } from '@/lib/portfolio-config-utils';
 import type { PerformanceSeriesPoint } from '@/lib/platform-performance-payload';
+import { PLATFORM_PORTFOLIO_JSON_S_MAXAGE_SECONDS } from '@/lib/public-cache';
 import {
   USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT,
   type UserPortfolioProfilesInvalidateDetail,
 } from '@/components/platform/portfolio-unfollow-toast';
+
+/** Aligns with `PLATFORM_PORTFOLIO_JSON_S_MAXAGE_SECONDS` and portfolio JSON `Cache-Control` `s-maxage`. */
+const CLIENT_MAX_AGE_MS = PLATFORM_PORTFOLIO_JSON_S_MAXAGE_SECONDS * 1000;
 
 /** Mirrors client usage of `/api/platform/portfolio-config-performance`. */
 export type CachedConfigPerfPayload = {
@@ -48,9 +52,11 @@ function configPerfKey(
 }
 
 const configPerfStore = new Map<string, CachedConfigPerfPayload>();
+const configPerfFetchedAt = new Map<string, number>();
 const configPerfInflight = new Map<string, Promise<CachedConfigPerfPayload | null>>();
 
 const userEntryStore = new Map<string, CachedUserEntryPayload>();
+const userEntryFetchedAt = new Map<string, number>();
 const userEntryInflight = new Map<string, Promise<CachedUserEntryPayload>>();
 
 let userProfilesInvalidateListenerBound = false;
@@ -63,11 +69,14 @@ function bindUserProfilesInvalidateListener() {
       const id = d.profileId.trim();
       userEntryStore.delete(id);
       userEntryInflight.delete(id);
+      userEntryFetchedAt.delete(id);
       return;
     }
     userEntryStore.clear();
     userEntryInflight.clear();
+    userEntryFetchedAt.clear();
     configPerfStore.clear();
+    configPerfFetchedAt.clear();
     configPerfInflight.clear();
   });
 }
@@ -78,7 +87,16 @@ export function getCachedConfigPerfPayload(
   frequency: string,
   weighting: string
 ): CachedConfigPerfPayload | undefined {
-  return configPerfStore.get(configPerfKey(slug, String(risk), frequency, weighting));
+  const k = configPerfKey(slug, String(risk), frequency, weighting);
+  const hit = configPerfStore.get(k);
+  if (!hit) return undefined;
+  const t = configPerfFetchedAt.get(k);
+  if (t == null || Date.now() - t > CLIENT_MAX_AGE_MS) {
+    configPerfStore.delete(k);
+    configPerfFetchedAt.delete(k);
+    return undefined;
+  }
+  return hit;
 }
 
 export async function loadConfigPerfPayloadCached(
@@ -93,10 +111,18 @@ export async function loadConfigPerfPayloadCached(
   const k = configPerfKey(s, String(risk), frequency, weighting);
   if (opts?.bypassCache) {
     configPerfStore.delete(k);
+    configPerfFetchedAt.delete(k);
     configPerfInflight.delete(k);
   } else {
     const hit = configPerfStore.get(k);
-    if (hit) return hit;
+    const t = configPerfFetchedAt.get(k);
+    if (hit && t != null && Date.now() - t <= CLIENT_MAX_AGE_MS) {
+      return hit;
+    }
+    if (hit) {
+      configPerfStore.delete(k);
+      configPerfFetchedAt.delete(k);
+    }
   }
 
   let p = configPerfInflight.get(k);
@@ -113,6 +139,7 @@ export async function loadConfigPerfPayloadCached(
         const json = (await res.json()) as CachedConfigPerfPayload;
         if (!res.ok) return null;
         configPerfStore.set(k, json);
+        configPerfFetchedAt.set(k, Date.now());
         return json;
       } catch {
         return null;
@@ -125,10 +152,16 @@ export async function loadConfigPerfPayloadCached(
   return p;
 }
 
-export function getCachedUserEntryPayload(
-  profileId: string
-): CachedUserEntryPayload | undefined {
-  return userEntryStore.get(profileId);
+export function getCachedUserEntryPayload(profileId: string): CachedUserEntryPayload | undefined {
+  const hit = userEntryStore.get(profileId);
+  if (!hit) return undefined;
+  const t = userEntryFetchedAt.get(profileId);
+  if (t == null || Date.now() - t > CLIENT_MAX_AGE_MS) {
+    userEntryStore.delete(profileId);
+    userEntryFetchedAt.delete(profileId);
+    return undefined;
+  }
+  return hit;
 }
 
 function cachedFailedUserEntryPayload(): CachedUserEntryPayload {
@@ -147,10 +180,18 @@ export async function loadUserEntryPayloadCached(
 
   if (opts?.bypassCache) {
     userEntryStore.delete(profileId);
+    userEntryFetchedAt.delete(profileId);
     userEntryInflight.delete(profileId);
   } else {
     const hit = userEntryStore.get(profileId);
-    if (hit) return hit;
+    const t = userEntryFetchedAt.get(profileId);
+    if (hit && t != null && Date.now() - t <= CLIENT_MAX_AGE_MS) {
+      return hit;
+    }
+    if (hit) {
+      userEntryStore.delete(profileId);
+      userEntryFetchedAt.delete(profileId);
+    }
   }
 
   let p = userEntryInflight.get(profileId);
@@ -164,13 +205,16 @@ export async function loadUserEntryPayloadCached(
         if (!res.ok) {
           const failed = cachedFailedUserEntryPayload();
           userEntryStore.set(profileId, failed);
+          userEntryFetchedAt.set(profileId, Date.now());
           return failed;
         }
         userEntryStore.set(profileId, json);
+        userEntryFetchedAt.set(profileId, Date.now());
         return json;
       } catch {
         const failed = cachedFailedUserEntryPayload();
         userEntryStore.set(profileId, failed);
+        userEntryFetchedAt.set(profileId, Date.now());
         return failed;
       } finally {
         userEntryInflight.delete(profileId);
@@ -185,6 +229,7 @@ export async function loadUserEntryPayloadCached(
 export function invalidateUserEntryPerformanceCache(profileId: string): void {
   userEntryStore.delete(profileId);
   userEntryInflight.delete(profileId);
+  userEntryFetchedAt.delete(profileId);
 }
 
 /** Concurrent in-flight requests per batch; profiles earlier in the array start first. */

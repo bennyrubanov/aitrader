@@ -33,6 +33,8 @@ export function SidebarFeedbackMenuSlot() {
   const [sending, setSending] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const sendInFlightRef = useRef(false);
+  /** Ignore overlay pointer-dismiss briefly after open (mobile: Sheet + Dialog are both Radix Dialog). */
+  const ignoreOverlayPointerDismissUntilRef = useRef(0);
 
   const reset = useCallback(() => {
     setMessage('');
@@ -131,8 +133,16 @@ export function SidebarFeedbackMenuSlot() {
           tooltip="Feedback"
           aria-keyshortcuts={showKbdHints ? 'F' : undefined}
           onClick={() => {
+            if (isMobile) {
+              ignoreOverlayPointerDismissUntilRef.current = Date.now() + 450;
+            }
             setOpen(true);
-            if (isMobile) setOpenMobile(false);
+            // Mobile sidebar is a Radix Dialog (Sheet). Closing it in the same turn as
+            // opening this Dialog makes the new dismiss layer treat the same pointer /
+            // Sheet teardown as an outside close. Defer closing the sheet to the next task.
+            if (isMobile) {
+              window.setTimeout(() => setOpenMobile(false), 0);
+            }
           }}
           className="border-0 bg-transparent shadow-none hover:bg-sidebar-accent md:border md:border-sidebar-border md:bg-sidebar-accent/40 md:hover:bg-sidebar-accent"
         >
@@ -160,7 +170,15 @@ export function SidebarFeedbackMenuSlot() {
           if (!next) reset();
         }}
       >
-        <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-md" showCloseButton={false}>
+        <DialogContent
+          className="gap-0 overflow-hidden p-0 sm:max-w-md"
+          showCloseButton={false}
+          onPointerDownOutside={(e) => {
+            if (isMobile && Date.now() < ignoreOverlayPointerDismissUntilRef.current) {
+              e.preventDefault();
+            }
+          }}
+        >
           <DialogHeader className="sr-only">
             <DialogTitle>Feedback</DialogTitle>
           </DialogHeader>

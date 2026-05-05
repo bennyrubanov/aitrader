@@ -21,5 +21,6 @@ Use this when **one tab mutates** data that **other open tabs** show (toggles, s
 4. **Light vs full**: heavy listeners (large caches, movement tables, forced remount nonces) should **early-return** on the light flag and only refetch the **minimal slice** (or one `GET`); full invalidation clears caches and refetches broadly.
 5. **Same tab**: `CustomEvent` runs **synchronously**; avoid **double GET** by either dispatching **or** calling the refetch directly, not both, unless intentional.
 6. **New surface**: import the helper, dispatch on success, add a listener (or extend an existing one) with the right light/full branch.
+7. **`visibilitychange` / `pageshow`**: debounce background→foreground refetches; if a refetch is also triggered by the same user action that dispatches a portfolio `CustomEvent`, keep §5’s single-flight rule so one tab does not issue redundant identical GETs in one turn. Portfolio client freshness vs cron is summarized in [`performance-stats-single-source.mdc`](mdc:.cursor/rules/performance-stats-single-source.mdc) §12.
 
 For a new domain, prefer a **new event name** (or a new detail flag on an existing event only if the same listeners should react) — do not reuse portfolio event strings for unrelated data.

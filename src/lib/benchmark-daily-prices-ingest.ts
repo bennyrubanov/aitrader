@@ -14,6 +14,9 @@ const RECENT_BARS_PER_CRON = 10;
 /** Yahoo window when Stooq fails — enough calendar days for ~10 sessions + holidays. */
 const YAHOO_TAIL_CALENDAR_DAYS = 50;
 
+/** Stooq `d1`/`d2` window: wider than Yahoo tail so daily ingest rarely needs Yahoo when Stooq is healthy. */
+const STOOQ_DAILY_INGEST_LOOKBACK_CALENDAR_DAYS = 70;
+
 export type BenchmarkDailyPriceSource = 'stooq' | 'yahoo' | 'none';
 
 export type BenchmarkDailyPriceIngestRow = {
@@ -42,9 +45,13 @@ function isoDateUtcDaysFromToday(offsetDays: number): string {
 export async function upsertBenchmarkDailyPricesFromStooq(
   supabase: SupabaseClient
 ): Promise<BenchmarkDailyPriceIngestRow[]> {
+  const stooqD2 = isoDateUtcDaysFromToday(0);
+  const stooqD1 = isoDateUtcDaysFromToday(STOOQ_DAILY_INGEST_LOOKBACK_CALENDAR_DAYS);
+  const stooqBounds = { d1Iso: stooqD1, d2Iso: stooqD2 };
+
   const fetched = await Promise.all(
     BENCHMARK_SYMBOLS.map(async (symbol) => {
-      const fetchResult = await fetchStooqRowsWithMeta(symbol);
+      const fetchResult = await fetchStooqRowsWithMeta(symbol, stooqBounds);
       return { symbol, fetchResult };
     })
   );

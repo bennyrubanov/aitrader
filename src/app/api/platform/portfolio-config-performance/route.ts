@@ -28,10 +28,14 @@ import {
   loadPublicPortfolioConfigPerformance,
 } from '@/lib/public-portfolio-config-performance';
 import type { RebalanceFrequency, RiskLevel, WeightingMethod } from '@/components/portfolio-config';
+import {
+  platformPortfolioJsonCacheControl,
+  PLATFORM_PORTFOLIO_JSON_STALE_WHILE_DEFAULT,
+} from '@/lib/public-cache';
 
 export const runtime = 'nodejs';
 
-const CACHE_CONTROL_PUBLIC = 'public, s-maxage=300, stale-while-revalidate=1800';
+const CACHE_CONTROL_PUBLIC = platformPortfolioJsonCacheControl(PLATFORM_PORTFOLIO_JSON_STALE_WHILE_DEFAULT);
 const CACHE_CONTROL_NO_STORE = 'no-store';
 
 export async function GET(req: Request) {

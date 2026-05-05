@@ -1621,6 +1621,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const [userEntryPayload, setUserEntryPayload] = useState<UserEntryPerfApiResponse | null>(null);
   const [isLoadingUserEntry, setIsLoadingUserEntry] = useState(false);
   const userEntryRequestIdRef = useRef(0);
+  const userEntryVisibilityRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [hasSettledInitialSelectedPortfolioLoad, setHasSettledInitialSelectedPortfolioLoad] =
     useState(false);
   const [entrySettingsOpen, setEntrySettingsOpen] = useState(false);
@@ -2257,6 +2258,38 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   useEffect(() => {
     void loadUserEntry();
   }, [loadUserEntry]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const onVisibility = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (!authState.isLoaded || !authState.isAuthenticated) return;
+      const pid = selectedProfile?.id;
+      if (!pid || !selectedProfile?.user_start_date?.trim()) return;
+      if (isGuestLocalProfileId(pid)) return;
+      if (userEntryVisibilityRefreshTimerRef.current) {
+        clearTimeout(userEntryVisibilityRefreshTimerRef.current);
+      }
+      userEntryVisibilityRefreshTimerRef.current = setTimeout(() => {
+        userEntryVisibilityRefreshTimerRef.current = null;
+        void loadUserEntry({ bypassCache: true });
+      }, 1000);
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      if (userEntryVisibilityRefreshTimerRef.current) {
+        clearTimeout(userEntryVisibilityRefreshTimerRef.current);
+        userEntryVisibilityRefreshTimerRef.current = null;
+      }
+    };
+  }, [
+    authState.isAuthenticated,
+    authState.isLoaded,
+    selectedProfile?.id,
+    selectedProfile?.user_start_date,
+    loadUserEntry,
+  ]);
 
   useEffect(() => {
     const pid = selectedProfile?.id;

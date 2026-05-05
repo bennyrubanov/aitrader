@@ -390,6 +390,20 @@ alter table public.portfolio_config_compute_queue enable row level security;
 -- No policies = no access except via service role key.
 
 -- -------------------------------------------------------
+-- 14h) cron_run_issues – service role only (no public access)
+--     Durable cron error/digest issues; written from /api/cron/daily via service role.
+-- -------------------------------------------------------
+alter table public.cron_run_issues enable row level security;
+-- No policies = no access except via service role key.
+
+-- -------------------------------------------------------
+-- 14i) landing_recovery_exhausted_events – service role only (no public access)
+--      Capped POST from public landing recovery; cron reads for digest + retention delete.
+-- -------------------------------------------------------
+alter table public.landing_recovery_exhausted_events enable row level security;
+-- No policies = no access except via service role key.
+
+-- -------------------------------------------------------
 -- 16) View access grants (views do not use RLS policies)
 -- -------------------------------------------------------
 alter view public.nasdaq100_scores_7d_view set (security_invoker = true);
@@ -451,6 +465,8 @@ grant select, insert, update, delete on public.user_notification_preferences to 
 --   operations from the cron continue to work unchanged.
 --
 -- * nasdaq_100_daily_raw has RLS enabled with zero policies (service role only).
+-- * cron_run_issues: RLS enabled with zero policies (service role INSERT from daily cron only).
+-- * landing_recovery_exhausted_events: RLS enabled with zero policies (service role only).
 -- * benchmark_daily_prices: public SELECT (index closes for MTM charts); writes via service role only.
 --
 -- * Strategy performance/research aggregates (weekly performance, quintiles,

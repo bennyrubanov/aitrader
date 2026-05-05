@@ -36,8 +36,8 @@ import {
 import { NavMain } from '@/components/platform/nav-main';
 import { NavSecondary } from '@/components/platform/nav-secondary';
 import { NavUser } from '@/components/platform/nav-user';
-import { getSupabaseBrowserClient } from '@/utils/supabase/browser';
 import { useAuthState } from '@/components/auth/auth-state-context';
+import { logoutToHome } from '@/lib/client-logout';
 import { navigateWithFallback } from '@/lib/client-navigation';
 import { useYourPortfoliosNavHref } from '@/lib/your-portfolios-last-profile-session';
 import { cn } from '@/lib/utils';
@@ -236,15 +236,8 @@ export function AppSidebar() {
     openPath('/sign-up?next=/platform/overview');
   };
 
-  const handleSignOut = async () => {
-    const supabase = getSupabaseBrowserClient();
-    if (!supabase) {
-      return;
-    }
-
-    await supabase.auth.signOut();
-    openPath('/');
-    router.refresh();
+  const handleSignOut = () => {
+    logoutToHome(router);
   };
 
   return (

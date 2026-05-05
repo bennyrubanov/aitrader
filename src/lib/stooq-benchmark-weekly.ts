@@ -1,5 +1,7 @@
 /**
  * Stooq daily CSV → weekly benchmark returns for NDX cap, Nasdaq-100 equal proxy, S&P 500.
+ * When Stooq returns empty or unusable CSV (same as `benchmark_daily_prices` ingest),
+ * `fetchBenchmarkReturnDetail` falls back to Yahoo Finance v8 chart for that window.
  * Shared by the rating-day cron and `scripts/repair-weekly-benchmarks.ts`.
  */
 
@@ -50,6 +52,29 @@ export type DateLagDetail = {
 
 const STOOQ_BENCHMARK_RETRY_MS = 2000;
 
+/**
+ * Stooq `/q/d/l/` without `d1`/`d2` returns **full** history (e.g. ^ndx since 1938, ~1MB+).
+ * Large responses often fail under parallel cron fetches (`terminated` / empty bodies).
+ * Cron paths should always pass a tight window; `scripts/backfill-benchmark-daily-prices.ts` omits bounds for deep history.
+ */
+export type StooqDailyCsvBounds = { d1Iso: string; d2Iso: string };
+
+/** Calendar days before weekly `fromDate` for Stooq `d1` — covers holidays + edge cases. */
+const STOOQ_WEEKLY_STOOQ_LOOKBACK_CALENDAR_DAYS = 140;
+
+/** Matches `YAHOO_TAIL_CALENDAR_DAYS` in benchmark-daily-prices-ingest — enough bars before `fromDate` for holidays. */
+const BENCHMARK_WEEKLY_YAHOO_LOOKBACK_CALENDAR_DAYS = 50;
+
+function isoDateSubtractCalendarDays(isoDate: string, days: number): string {
+  const d = new Date(`${isoDate}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+
+function isoToStooqDParam(iso: string): string {
+  return iso.replace(/-/g, '');
+}
+
 function parseIsoDateUtc(value: string): Date | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     return null;
@@ -99,8 +124,11 @@ export function shouldWarnForStaleBenchmarkBar(lastBarDate: string, runDate: str
 }
 
 /** Stooq may require `apikey` on `/q/d/l/` CSV requests; set in Vercel + `.env.local` for cron/repair. */
-function stooqDailyCsvUrl(symbol: string): string {
-  const base = `https://stooq.com/q/d/l/?s=${encodeURIComponent(symbol)}&i=d`;
+function stooqDailyCsvUrl(symbol: string, bounds?: StooqDailyCsvBounds): string {
+  let base = `https://stooq.com/q/d/l/?s=${encodeURIComponent(symbol)}&i=d`;
+  if (bounds) {
+    base += `&d1=${isoToStooqDParam(bounds.d1Iso)}&d2=${isoToStooqDParam(bounds.d2Iso)}`;
+  }
   const key = process.env.STOOQ_API_KEY?.trim() || process.env.STOOQ_APIKEY?.trim();
   return key ? `${base}&apikey=${encodeURIComponent(key)}` : base;
 }
@@ -118,10 +146,13 @@ export function computeSimpleReturn(fromPrice: number | null, toPrice: number | 
   return (toPrice - fromPrice) / fromPrice;
 }
 
-export const fetchStooqRowsWithMeta = async (symbol: string): Promise<StooqFetchResult> => {
+export const fetchStooqRowsWithMeta = async (
+  symbol: string,
+  bounds?: StooqDailyCsvBounds
+): Promise<StooqFetchResult> => {
   const attempt = async (): Promise<StooqFetchResult> => {
     try {
-      const response = await fetch(stooqDailyCsvUrl(symbol), {
+      const response = await fetch(stooqDailyCsvUrl(symbol, bounds), {
         cache: 'no-store',
       });
       const httpStatus = response.status;
@@ -164,7 +195,10 @@ export const fetchStooqRowsWithMeta = async (symbol: string): Promise<StooqFetch
         };
       }
 
-      const lines = csv.trim().split('\n');
+      const lines = csv
+        .trim()
+        .split(/\r?\n/)
+        .filter((line) => line.length > 0);
       if (lines.length < 2) {
         return {
           ok: false,
@@ -255,7 +289,19 @@ export async function fetchBenchmarkReturnDetail(
   fromDate: string,
   toDate: string
 ): Promise<BenchmarkReturnDetail> {
-  const fetchResult = await fetchStooqRowsWithMeta(symbol);
+  const stooqBounds: StooqDailyCsvBounds = {
+    d1Iso: isoDateSubtractCalendarDays(fromDate, STOOQ_WEEKLY_STOOQ_LOOKBACK_CALENDAR_DAYS),
+    d2Iso: toDate,
+  };
+  let fetchResult = await fetchStooqRowsWithMeta(symbol, stooqBounds);
+  if (!fetchResult.ok || !fetchResult.rows?.length) {
+    const { fetchYahooDailyRowsWithMeta } = await import('@/lib/yahoo-benchmarks');
+    const yahooFrom = isoDateSubtractCalendarDays(fromDate, BENCHMARK_WEEKLY_YAHOO_LOOKBACK_CALENDAR_DAYS);
+    const yahooRes = await fetchYahooDailyRowsWithMeta(symbol, { from: yahooFrom, to: toDate });
+    if (yahooRes.ok && yahooRes.rows?.length) {
+      fetchResult = yahooRes;
+    }
+  }
   if (!fetchResult.ok || !fetchResult.rows?.length) {
     return {
       returnValue: 0,

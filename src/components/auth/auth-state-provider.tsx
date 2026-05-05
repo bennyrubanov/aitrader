@@ -5,8 +5,8 @@ import type { User } from "@supabase/supabase-js";
 import { DEFAULT_AUTH_STATE, type AuthState, type SubscriptionTier } from "@/lib/auth-state";
 import { buildAuthStateFromUserAndProfile } from "@/lib/build-auth-state";
 import { AuthStateContext } from "@/components/auth/auth-state-context";
+import { AUTH_SNAPSHOT_STORAGE_KEY } from "@/lib/auth-snapshot-storage-key";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/utils/supabase/browser";
-const AUTH_SNAPSHOT_KEY = "aitrader.auth.snapshot.v7";
 
 const SUPABASE_AUTH_COOKIE_INFIX = "auth-token";
 
@@ -64,7 +64,7 @@ export function AuthStateProvider({ children, initialState }: AuthStateProviderP
 
     // Tier B: localStorage snapshot from a prior signed-in session
     if (typeof window !== "undefined") {
-      const rawSnapshot = window.localStorage.getItem(AUTH_SNAPSHOT_KEY);
+      const rawSnapshot = window.localStorage.getItem(AUTH_SNAPSHOT_STORAGE_KEY);
       if (rawSnapshot) {
         try {
           const parsed = JSON.parse(rawSnapshot) as Partial<AuthState>;
@@ -180,7 +180,7 @@ export function AuthStateProvider({ children, initialState }: AuthStateProviderP
       // Tier D: true guest (no cookie, no snapshot) — don't even ask Supabase.
       const hasSnapshot =
         typeof window !== "undefined" &&
-        window.localStorage.getItem(AUTH_SNAPSHOT_KEY) !== null;
+        window.localStorage.getItem(AUTH_SNAPSHOT_STORAGE_KEY) !== null;
       if (!hasSupabaseAuthCookie() && !hasSnapshot) {
         setAuthState({ ...DEFAULT_AUTH_STATE, isLoaded: true });
         return;
@@ -258,11 +258,11 @@ export function AuthStateProvider({ children, initialState }: AuthStateProviderP
     }
 
     if (!authState.isAuthenticated) {
-      window.localStorage.removeItem(AUTH_SNAPSHOT_KEY);
+      window.localStorage.removeItem(AUTH_SNAPSHOT_STORAGE_KEY);
       return;
     }
 
-    window.localStorage.setItem(AUTH_SNAPSHOT_KEY, JSON.stringify(authState));
+    window.localStorage.setItem(AUTH_SNAPSHOT_STORAGE_KEY, JSON.stringify(authState));
   }, [authState]);
 
   const refreshProfile = useCallback(async () => {

@@ -1,4 +1,19 @@
 import { unstable_cache } from 'next/cache';
+
+/** Thrown inside `unstable_cache` when uncached load is `null` so `null` is never persisted in the data cache. */
+class LandingAllPortfoliosUncachedNullError extends Error {
+  constructor() {
+    super('landing-all-portfolios:uncached-null');
+    this.name = 'LandingAllPortfoliosUncachedNullError';
+  }
+}
+
+function isLandingAllPortfoliosUncachedNullError(e: unknown): boolean {
+  return (
+    e instanceof LandingAllPortfoliosUncachedNullError ||
+    (e instanceof Error && e.name === 'LandingAllPortfoliosUncachedNullError')
+  );
+}
 import { loadStrategyDailySeriesBulk, rebaseSeriesForDisplay } from '@/lib/config-daily-series';
 import { loadPortfolioConfigsRankedPayload } from '@/lib/portfolio-configs-ranked-core';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
@@ -44,7 +59,8 @@ export type LandingAllPortfoliosPerformance = {
   computeStatus: 'ready' | 'in_progress' | 'failed' | 'empty' | 'unsupported';
 };
 
-async function loadLandingAllPortfoliosPerformanceUncached(): Promise<LandingAllPortfoliosPerformance | null> {
+/** Uncached load (RSC uses `getLandingAllPortfoliosPerformance`; recovery API uses this to bypass stale `unstable_cache`). */
+export async function loadLandingAllPortfoliosPerformanceUncached(): Promise<LandingAllPortfoliosPerformance | null> {
   const slug = STRATEGY_CONFIG.slug;
   const ranked = await loadPortfolioConfigsRankedPayload(slug);
   if (!ranked) {
@@ -167,8 +183,25 @@ async function loadLandingAllPortfoliosPerformanceUncached(): Promise<LandingAll
   };
 }
 
-export const getLandingAllPortfoliosPerformance = unstable_cache(
-  loadLandingAllPortfoliosPerformanceUncached,
+const getLandingAllPortfoliosPerformanceCached = unstable_cache(
+  async (): Promise<LandingAllPortfoliosPerformance> => {
+    const result = await loadLandingAllPortfoliosPerformanceUncached();
+    if (result === null) {
+      throw new LandingAllPortfoliosUncachedNullError();
+    }
+    return result;
+  },
   ['landing-all-portfolios-performance', STRATEGY_CONFIG.slug],
   { revalidate: PUBLIC_DATA_CACHE_TTL_SECONDS, tags: [LANDING_TOP_PORTFOLIO_PERFORMANCE_CACHE_TAG] }
 );
+
+export async function getLandingAllPortfoliosPerformance(): Promise<LandingAllPortfoliosPerformance | null> {
+  try {
+    return await getLandingAllPortfoliosPerformanceCached();
+  } catch (e) {
+    if (isLandingAllPortfoliosUncachedNullError(e)) {
+      return null;
+    }
+    throw e;
+  }
+}

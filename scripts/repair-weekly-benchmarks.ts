@@ -1,17 +1,22 @@
 /**
- * Repair `strategy_performance_weekly` benchmark columns from Stooq (same windows as cron), then run `npm run backfill-configs`.
+ * Repair `strategy_performance_weekly` benchmark columns from Stooq (same windows as cron).
+ * Default-config alignment uses benchmark equities copied from weekly rows into
+ * `strategy_portfolio_config_performance` via `compute-portfolio-configs-batch`, not ad‑hoc overwrites.
  *
  * Runbook:
  * 1. Export a CSV backup of `strategy_performance_weekly` for your strategy_id from Supabase.
  * 2. `npx tsx scripts/repair-weekly-benchmarks.ts --strategy-id=<uuid>` (dry-run; hits Stooq).
  * 3. If output looks sane: same command with `--apply`.
- * 4. `npm run backfill-configs` (local dev server on :3000) or `npm run backfill-configs -- --prod`.
+ * 4. Optionally `--apply --with-config-backfill` (and `--prod` for production URL) to POST the batch job for this strategy (needs CRON_SECRET + dev server or NEXT_PUBLIC_SITE_URL). Otherwise run `npm run backfill-configs -- --strategy-id=<uuid>`.
  * 5. `npx tsx scripts/repair-weekly-benchmarks.ts --strategy-id=<uuid> --verify-only` to confirm DB + default config alignment.
  *
  * Env (from .env.local): NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SECRET_KEY or SUPABASE_SERVICE_ROLE_KEY.
+ * Config backfill additionally requires CRON_SECRET (and NEXT_PUBLIC_SITE_URL when using `--prod`).
  */
 
+import { execFile } from 'child_process';
 import { readFileSync } from 'fs';
+import { promisify } from 'util';
 import { resolve } from 'path';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import {
@@ -19,6 +24,8 @@ import {
   STOOQ_BENCHMARK_SYMBOLS,
   fetchBenchmarkReturnDetail,
 } from '../src/lib/stooq-benchmark-weekly';
+
+const execFileAsync = promisify(execFile);
 
 const FLOAT_EPS = 1e-9;
 const CHAIN_TOL_REL = 1e-4;
@@ -55,6 +62,8 @@ function parseArgs(argv: string[]) {
   let strategyId: string | null = null;
   let apply = false;
   let verifyOnly = false;
+  let withConfigBackfill = false;
+  let configBackfillProd = false;
   for (const a of argv) {
     if (a.startsWith('--strategy-id=')) {
       strategyId = a.slice('--strategy-id='.length).trim();
@@ -62,9 +71,34 @@ function parseArgs(argv: string[]) {
       apply = true;
     } else if (a === '--verify-only') {
       verifyOnly = true;
+    } else if (a === '--with-config-backfill') {
+      withConfigBackfill = true;
+    } else if (a === '--prod') {
+      configBackfillProd = true;
     }
   }
-  return { strategyId, apply, verifyOnly };
+  return { strategyId, apply, verifyOnly, withConfigBackfill, configBackfillProd };
+}
+
+async function runPortfolioConfigBackfillAfterRepair(
+  strategyId: string,
+  prod: boolean
+): Promise<void> {
+  const scriptPath = resolve(process.cwd(), 'scripts/backfill-all-configs.mjs');
+  const args = [scriptPath, `--strategy-id=${strategyId}`];
+  if (prod) args.push('--prod');
+  console.log('\n[with-config-backfill] Running portfolio config batch via backfill-all-configs.mjs …');
+  try {
+    await execFileAsync(process.execPath, args, {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: 'inherit',
+    });
+  } catch (err: unknown) {
+    const e = err as { stderr?: string; message?: string };
+    console.error('[with-config-backfill] Failed:', e.stderr ?? e.message ?? err);
+    process.exit(1);
+  }
 }
 
 function num(v: unknown, fallback = 0): number {
@@ -368,15 +402,29 @@ async function runVerify(supabase: SupabaseClient, strategyId: string): Promise<
 
 async function main() {
   loadEnvLocal();
-  const { strategyId, apply, verifyOnly } = parseArgs(process.argv.slice(2));
+  const { strategyId, apply, verifyOnly, withConfigBackfill, configBackfillProd } = parseArgs(
+    process.argv.slice(2)
+  );
 
   if (!strategyId) {
     console.error(
       'Usage: npx tsx scripts/repair-weekly-benchmarks.ts --strategy-id=<uuid> [--apply] [--verify-only]\n' +
+        '  [--with-config-backfill] [--prod]\n' +
         '  Default: dry-run (fetches Stooq, prints diffs, no DB writes).\n' +
         '  --apply: write benchmark columns after a successful dry-run pass.\n' +
-        '  --verify-only: DB checks only (run after backfill-configs).'
+        '  --verify-only: DB checks only (run after backfill-configs).\n' +
+        '  --with-config-backfill: after successful --apply, run scripts/backfill-all-configs.mjs for this strategy (needs CRON_SECRET; --prod uses NEXT_PUBLIC_SITE_URL).'
     );
+    process.exit(1);
+  }
+
+  if (verifyOnly && withConfigBackfill) {
+    console.error('--with-config-backfill cannot be combined with --verify-only.');
+    process.exit(1);
+  }
+
+  if (withConfigBackfill && !apply) {
+    console.error('--with-config-backfill requires --apply.');
     process.exit(1);
   }
 
@@ -470,12 +518,17 @@ async function main() {
   console.log(`max(run_date): ${computed[computed.length - 1]!.run_date}`);
 
   if (!apply) {
-    console.log('\nDry-run only. Re-run with --apply to write updates, then npm run backfill-configs.');
+    console.log(
+      '\nDry-run only. Re-run with --apply to write updates, then npm run backfill-configs -- --strategy-id=… or --apply --with-config-backfill.'
+    );
     process.exit(0);
   }
 
   if (changeCount === 0) {
     console.log('Nothing to update.');
+    if (withConfigBackfill) {
+      await runPortfolioConfigBackfillAfterRepair(strategyId, configBackfillProd);
+    }
     process.exit(0);
   }
 
@@ -513,7 +566,11 @@ async function main() {
   }
 
   console.log(`\nApply complete: updated ${changeCount} row(s).`);
-  console.log('Next: npm run backfill-configs (then --verify-only).');
+  if (withConfigBackfill) {
+    await runPortfolioConfigBackfillAfterRepair(strategyId, configBackfillProd);
+  } else {
+    console.log('Next: npm run backfill-configs -- --strategy-id=<uuid> (then --verify-only).');
+  }
   process.exit(0);
 }
 
