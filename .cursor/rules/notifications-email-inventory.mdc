@@ -10,7 +10,7 @@ alwaysApply: false
 
 ## For humans and agents (maintenance)
 
-- **Written matrix (product “what / when / transport”):** [`.cursor/plans/notifications-email-inapp-catalog.plan.md`](mdc:.cursor/plans/notifications-email-inapp-catalog.plan.md) — update this when behavior, subjects, or threading rules change.
+- **Written matrix + operator in-app smoketest (product “what / when / transport”, exhaustive seeded rows, `SMOKETEST_INAPP_SEED_ROW_COUNT`, curl without `sendEmails`):** [`.cursor/plans/notifications-email-inapp-catalog.plan.md`](mdc:.cursor/plans/notifications-email-inapp-catalog.plan.md) — update when behavior, subjects, threading rules, or the seed matrix change.
 - **Implementation runbook:** [`.cursor/plans/notifications-catalog-alignment.plan.md`](mdc:.cursor/plans/notifications-catalog-alignment.plan.md).
 - **What the repo actually implements:** [`src/lib/notifications/notification-catalog.ts`](mdc:src/lib/notifications/notification-catalog.ts) (`CATALOG_ID`, prefs notes, `portfolioFollowedThreadId`, `inferInboxFilterCategory`, `showInternalNotificationInboxFilter`, inbox helpers).
 - **All send paths:** search for `sendTransactionalEmail` and `sendEmailByGmail` under `src/`.

@@ -122,12 +122,26 @@ function isPortfolioWeeklyEmailOn(p: ProfileRow): boolean {
   return Boolean(p.notify_weekly_email);
 }
 
+/** Rebalance / price / entries-exits in-app: all three must match “on” for the row switch. */
 function isPortfolioInappTrioOn(p: ProfileRow): boolean {
   return (
     Boolean(p.notify_rebalance_inapp) &&
     Boolean(p.notify_price_move_inapp) &&
-    (p.notify_entries_exits_inapp ?? true)
+    Boolean(p.notify_entries_exits_inapp)
   );
+}
+
+/** Rebalance / price / entries-exits email: all three move together. */
+function isPortfolioEmailTrioOn(p: ProfileRow): boolean {
+  return (
+    Boolean(p.notify_rebalance_email) &&
+    Boolean(p.notify_price_move_email) &&
+    Boolean(p.notify_entries_exits_email)
+  );
+}
+
+function isPortfolioEmailColumnOn(p: ProfileRow): boolean {
+  return isPortfolioWeeklyEmailOn(p) && isPortfolioEmailTrioOn(p);
 }
 
 function allStrategyCatalogModelsEmailOn(
@@ -273,19 +287,52 @@ async function persistBulkModelSubsForInappColumn(
 /** Maps API PATCH body keys (camelCase from client) onto `ProfileRow` for optimistic updates. */
 function mergeProfileRowWithApiPatch(row: ProfileRow, patch: Record<string, unknown>): ProfileRow {
   let next: ProfileRow = { ...row };
+  if (typeof patch.emailEnabled === 'boolean') {
+    next = { ...next, email_enabled: patch.emailEnabled };
+  }
+  if (typeof patch.inappEnabled === 'boolean') {
+    next = { ...next, inapp_enabled: patch.inappEnabled };
+  }
   if (typeof patch.notifyWeeklyEmail === 'boolean') {
     next = { ...next, notify_weekly_email: patch.notifyWeeklyEmail };
   }
-  if (typeof patch.notifyRebalanceInapp === 'boolean') {
-    next = { ...next, notify_rebalance_inapp: patch.notifyRebalanceInapp };
+  const hasPortfolioEventInapp =
+    typeof patch.notifyRebalanceInapp === 'boolean' ||
+    typeof patch.notifyPriceMoveInapp === 'boolean' ||
+    typeof patch.notifyEntriesExitsInapp === 'boolean';
+  if (hasPortfolioEventInapp) {
+    const v =
+      typeof patch.notifyRebalanceInapp === 'boolean'
+        ? patch.notifyRebalanceInapp
+        : typeof patch.notifyPriceMoveInapp === 'boolean'
+          ? patch.notifyPriceMoveInapp
+          : Boolean(patch.notifyEntriesExitsInapp);
+    next = { ...next, notify_rebalance_inapp: v, notify_price_move_inapp: v, notify_entries_exits_inapp: v };
   }
-  if (typeof patch.notifyPriceMoveInapp === 'boolean') {
-    next = { ...next, notify_price_move_inapp: patch.notifyPriceMoveInapp };
+  const hasPortfolioEventEmail =
+    typeof patch.notifyRebalanceEmail === 'boolean' ||
+    typeof patch.notifyPriceMoveEmail === 'boolean' ||
+    typeof patch.notifyEntriesExitsEmail === 'boolean';
+  if (hasPortfolioEventEmail) {
+    const v =
+      typeof patch.notifyRebalanceEmail === 'boolean'
+        ? patch.notifyRebalanceEmail
+        : typeof patch.notifyPriceMoveEmail === 'boolean'
+          ? patch.notifyPriceMoveEmail
+          : Boolean(patch.notifyEntriesExitsEmail);
+    next = { ...next, notify_rebalance_email: v, notify_price_move_email: v, notify_entries_exits_email: v };
   }
-  if (typeof patch.notifyEntriesExitsInapp === 'boolean') {
-    next = { ...next, notify_entries_exits_inapp: patch.notifyEntriesExitsInapp };
-  }
-  return next;
+  const rbIn = next.notify_rebalance_inapp;
+  const rbEm = next.notify_rebalance_email;
+  const pmIn = next.notify_price_move_inapp;
+  const pmEm = next.notify_price_move_email;
+  const eeIn = next.notify_entries_exits_inapp;
+  const eeEm = next.notify_entries_exits_email;
+  return {
+    ...next,
+    notify_rebalance: rbIn || rbEm || pmIn || pmEm,
+    notify_holdings_change: eeIn || eeEm,
+  };
 }
 
 function mapPortfolioProfilesResponse(j: { profiles?: ProfileRow[] }): ProfileRow[] {
@@ -763,14 +810,24 @@ export function NotificationsSettingsSection({
   }, []);
 
   useEffect(() => {
+    if (!authState.isAuthenticated) return;
     const handler = (e: Event) => {
       const d = (e as CustomEvent<UserPortfolioProfilesInvalidateDetail>).detail;
-      if (d?.profilesListOnly !== true) return;
+      const ymd = typeof d?.userStartDate === 'string' ? d.userStartDate.trim() : '';
+      const entryMerge =
+        d?.entrySettingsOnly === true &&
+        typeof d?.profileId === 'string' &&
+        d.profileId.trim().length > 0 &&
+        typeof d?.investmentSize === 'number' &&
+        Number.isFinite(d.investmentSize) &&
+        d.investmentSize > 0 &&
+        /^\d{4}-\d{2}-\d{2}$/.test(ymd);
+      if (entryMerge) return;
       void refreshPortfolioProfilesOnly();
     };
     window.addEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, handler);
     return () => window.removeEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, handler);
-  }, [refreshPortfolioProfilesOnly]);
+  }, [authState.isAuthenticated, refreshPortfolioProfilesOnly]);
 
   useEffect(() => {
     void load();
@@ -1285,8 +1342,7 @@ export function NotificationsSettingsSection({
       return false;
     }
     if (!trackedForAggregate.every((t) => t.notify_rating_email)) return false;
-    // Followed-portfolio Email column is `notify_weekly_email` per row; keep master switch in sync.
-    if (!profiles.every((p) => isPortfolioWeeklyEmailOn(p))) return false;
+    if (!profiles.every((p) => isPortfolioEmailColumnOn(p))) return false;
     if (!allStrategyCatalogModelsEmailOn(strategyCatalog, subs)) return false;
     return true;
   }, [isFreeTier, prefs, profiles, strategyCatalog, subs, trackedForAggregate]);
@@ -1343,6 +1399,9 @@ export function NotificationsSettingsSection({
       ps.map((p) => ({
         ...p,
         notify_weekly_email: isFreeTier ? false : enabled,
+        notify_rebalance_email: isFreeTier ? false : enabled,
+        notify_price_move_email: isFreeTier ? false : enabled,
+        notify_entries_exits_email: isFreeTier ? false : enabled,
       }))
     );
     setTracked((ts) =>
@@ -1374,6 +1433,9 @@ export function NotificationsSettingsSection({
             body: JSON.stringify({
               profileId: p.id,
               notifyWeeklyEmail: profileWeekly,
+              notifyRebalanceEmail: profileWeekly,
+              notifyPriceMoveEmail: profileWeekly,
+              notifyEntriesExitsEmail: profileWeekly,
             }),
           }).then((r) => r.ok)
         )
@@ -1835,9 +1897,16 @@ export function NotificationsSettingsSection({
                             />
                           </Link>
                         }
-                        emailChecked={isPortfolioWeeklyEmailOn(p)}
+                        emailChecked={isPortfolioEmailColumnOn(p)}
                         inAppChecked={isPortfolioInappTrioOn(p)}
-                        onEmail={(v) => void patchProfile(p.id, { notifyWeeklyEmail: v })}
+                        onEmail={(v) =>
+                          void patchProfile(p.id, {
+                            notifyWeeklyEmail: v,
+                            notifyRebalanceEmail: v,
+                            notifyPriceMoveEmail: v,
+                            notifyEntriesExitsEmail: v,
+                          })
+                        }
                         onInApp={(v) =>
                           void patchProfile(p.id, {
                             notifyRebalanceInapp: v,

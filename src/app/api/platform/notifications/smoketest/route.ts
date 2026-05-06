@@ -25,7 +25,10 @@ import {
   type SmoketestEmailKind,
 } from '@/lib/notifications/notification-catalog';
 import { resolveDryUserIdForCron } from '@/lib/notifications/resolve-dry-user-for-cron';
-import { seedSmoketestInAppNotifications } from '@/lib/notifications/smoketest-inapp-seed';
+import {
+  seedSmoketestInAppNotifications,
+  SMOKETEST_INAPP_SEED_ROW_COUNT,
+} from '@/lib/notifications/smoketest-inapp-seed';
 import { createAdminClient } from '@/utils/supabase/admin';
 
 export const runtime = 'nodejs';
@@ -443,7 +446,7 @@ export async function GET(req: Request) {
       subjects: rendered.map((r) => r.subject),
       allowedKinds: ALL_KINDS,
       inapp: inappResult,
-      inappWouldInsertRows: inappResult?.ok === true ? 9 : undefined,
+      inappWouldInsertRows: inappResult?.ok === true ? SMOKETEST_INAPP_SEED_ROW_COUNT : undefined,
     });
   }
 

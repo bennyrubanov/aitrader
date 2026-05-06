@@ -29,7 +29,8 @@ function threadIdFromRow(row: InboxNotifRow): string | null {
   return tid || null;
 }
 
-function threadSubtitle(threadId: string | null): string | null {
+/** Subtitle for grouped inbox rows / thread dialog (matches `data.thread_id` prefixes). */
+export function inboxThreadSubtitle(threadId: string | null): string | null {
   if (!threadId) return null;
   if (threadId.startsWith('weekly:')) return 'Weekly summary';
   if (threadId.startsWith('paid_transition:')) return 'Paid upgrade';
@@ -59,7 +60,7 @@ export function groupNotificationsIntoThreads(items: InboxNotifRow[]): Notificat
     out.push({
       key,
       threadId,
-      subtitle: threadSubtitle(threadId),
+      subtitle: inboxThreadSubtitle(threadId),
       rows,
       latest,
       unreadInThread,

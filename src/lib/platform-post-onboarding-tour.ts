@@ -60,13 +60,13 @@ export const PLATFORM_POST_ONBOARDING_TOUR_REQUEST_READINESS_EVENT =
 export const PLATFORM_POST_ONBOARDING_TOUR_PRIMED_EVENT = 'aitrader:platform-post-tour-primed';
 
 /**
- * Tour asks overview spotlight to switch the below-`lg` Performance / Holdings sub-tab.
+ * Tour asks overview spotlight to switch the below-`lg` Performance / Holdings / Actions tab.
  * Overview listens and calls `setSpotlightMobileSubTab` (avoids relying on synthetic clicks).
  */
 export const PLATFORM_POST_ONBOARDING_TOUR_SPOTLIGHT_MOBILE_SUBTAB_EVENT =
   'aitrader:platform-post-tour-spotlight-mobile-subtab';
 
-export type PlatformTourSpotlightMobileSubTab = 'performance' | 'holdings';
+export type PlatformTourSpotlightMobileSubTab = 'performance' | 'holdings' | 'actions';
 
 export function dispatchPlatformTourSpotlightMobileSubTab(tab: PlatformTourSpotlightMobileSubTab): void {
   if (typeof window === 'undefined') return;

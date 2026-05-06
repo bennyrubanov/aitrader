@@ -1619,7 +1619,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     useState<PortfolioMovementResolved | null>(null);
   const isBelowLg = useIsBelowLg();
   const [yourPortfolioMobileSubTab, setYourPortfolioMobileSubTab] = useState<
-    'performance' | 'holdings'
+    'performance' | 'holdings' | 'actions'
   >('performance');
 
   const loadProfiles = useCallback(async (opts?: { silent?: boolean }) => {
@@ -3024,6 +3024,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         toast({ title: `Following "${preset.label}"` });
       }
       await loadProfiles();
+      invalidateUserPortfolioProfilesList();
       if (createdId) {
         router.replace(`/platform/your-portfolios?profile=${createdId}`, { scroll: false });
       }
@@ -3146,11 +3147,15 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       const eeIn = patch.notifyEntriesExitsInapp;
       const eeEm = patch.notifyEntriesExitsEmail;
       const weeklyEm = patch.notifyWeeklyEmail;
+      const emailEn = patch.emailEnabled;
+      const inappEn = patch.inappEnabled;
       setProfiles((rows) =>
         rows.map((row) =>
           row.id === profileId
             ? {
                 ...row,
+                email_enabled: emailEn,
+                inapp_enabled: inappEn,
                 notify_weekly_email: weeklyEm,
                 notify_rebalance_inapp: rbIn,
                 notify_rebalance_email: rbEm,
@@ -3172,6 +3177,8 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
               ? row
               : {
                   ...row,
+                  email_enabled: emailEn,
+                  inapp_enabled: inappEn,
                   notify_weekly_email: weeklyEm,
                   notify_rebalance_inapp: rbIn,
                   notify_rebalance_email: rbEm,
@@ -3480,8 +3487,11 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
 
   const chartStrategyName = 'Your portfolio';
 
-  const renderYourPortfolioHoldingsAndRebalancePanels = () => (
+  const renderYourPortfolioHoldingsAndRebalancePanels = (
+    holdPanel: 'all' | 'holdings' | 'actions' = 'all'
+  ) => (
     <>
+                  {(holdPanel === 'all' || holdPanel === 'holdings') ? (
                   <div className="relative flex min-h-0 w-full max-w-full min-w-0 flex-col gap-1.5 overflow-hidden sm:gap-2 lg:flex-1 lg:basis-0">
                   <div className="flex shrink-0 min-w-0 w-full flex-col gap-2">
                     {yourPortfoliosHoldingsPaid && scopedConfigHoldingsRebalanceDates.length > 0 ? (
@@ -3490,7 +3500,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                           <h4 className="hidden shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground lg:block">
                             Portfolio holdings
                           </h4>
-                          <div className="flex min-w-0 flex-nowrap items-center justify-start gap-x-1.5 overflow-x-auto sm:gap-x-2 lg:shrink-0 lg:justify-end">
+                          <div className="flex min-w-0 w-full flex-nowrap items-center gap-x-1.5 sm:gap-x-2 max-lg:justify-between lg:shrink-0 lg:justify-end">
                             <Select
                               value={holdingsDateSelect}
                               onValueChange={(v) => {
@@ -3541,7 +3551,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                               </SelectContent>
                             </Select>
                             {holdingsPrevRebalanceDate ? (
-                              <div className="ml-auto flex shrink-0 items-center gap-1.5 lg:hidden">
+                              <div className="flex shrink-0 items-center gap-1.5 lg:hidden">
                                 <Switch
                                   id="your-portfolio-holdings-movement"
                                   checked={holdingsMovementView}
@@ -4034,12 +4044,16 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                     ) : null}
                   </div>
                 </div>
+                  ) : null}
+                {holdPanel === 'all' ? (
                 <div
                   className="pointer-events-none relative hidden shrink-0 self-stretch lg:block lg:w-px"
                   aria-hidden
                 >
                   <div className="absolute left-1/2 top-1/2 h-1/2 w-px -translate-x-1/2 -translate-y-1/2 bg-border" />
                 </div>
+                ) : null}
+                {(holdPanel === 'all' || holdPanel === 'actions') ? (
                 <div className="relative flex min-h-0 w-full max-w-full min-w-0 flex-col gap-1.5 overflow-hidden sm:gap-2 lg:flex-1 lg:basis-0">
                   {!yourPortfoliosHoldingsPaid ? (
                     <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -4070,6 +4084,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                     <p className="text-sm text-muted-foreground">Select a portfolio to view actions.</p>
                   )}
                 </div>
+                ) : null}
     </>
   );
 
@@ -4945,21 +4960,27 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                     <Tabs
                       value={yourPortfolioMobileSubTab}
                       onValueChange={(v) =>
-                        setYourPortfolioMobileSubTab(v as 'performance' | 'holdings')}
+                        setYourPortfolioMobileSubTab(v as 'performance' | 'holdings' | 'actions')}
                       className="w-full space-y-4"
                     >
-                      <TabsList className="relative grid h-auto w-full grid-cols-2 gap-0 rounded-none border-0 border-b border-border bg-transparent p-0 text-muted-foreground shadow-none">
+                      <TabsList className="relative grid h-auto w-full grid-cols-3 gap-0 rounded-none border-0 border-b border-border bg-transparent p-0 text-muted-foreground shadow-none">
                         <TabsTrigger
                           value="performance"
-                          className="relative rounded-none border-0 bg-transparent py-3 text-sm font-medium text-muted-foreground shadow-none ring-offset-0 transition-colors hover:text-foreground focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=inactive]:after:opacity-0 data-[state=active]:after:absolute data-[state=active]:after:inset-x-1 data-[state=active]:after:bottom-0 data-[state=active]:after:h-0.5 data-[state=active]:after:rounded-full data-[state=active]:after:bg-trader-blue data-[state=active]:after:content-[''] dark:data-[state=active]:after:bg-trader-blue-light"
+                          className="relative rounded-none border-0 bg-transparent px-0.5 py-3 text-[11px] font-medium leading-tight text-muted-foreground shadow-none ring-offset-0 transition-colors hover:text-foreground focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=inactive]:after:opacity-0 data-[state=active]:after:absolute data-[state=active]:after:inset-x-0.5 data-[state=active]:after:bottom-0 data-[state=active]:after:h-0.5 data-[state=active]:after:rounded-full data-[state=active]:after:bg-trader-blue data-[state=active]:after:content-[''] dark:data-[state=active]:after:bg-trader-blue-light sm:px-1 sm:text-xs md:text-sm md:data-[state=active]:after:inset-x-1"
                         >
                           Performance
                         </TabsTrigger>
                         <TabsTrigger
                           value="holdings"
-                          className="relative rounded-none border-0 bg-transparent py-3 text-sm font-medium text-muted-foreground shadow-none ring-offset-0 transition-colors hover:text-foreground focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=inactive]:after:opacity-0 data-[state=active]:after:absolute data-[state=active]:after:inset-x-1 data-[state=active]:after:bottom-0 data-[state=active]:after:h-0.5 data-[state=active]:after:rounded-full data-[state=active]:after:bg-trader-blue data-[state=active]:after:content-[''] dark:data-[state=active]:after:bg-trader-blue-light"
+                          className="relative rounded-none border-0 bg-transparent px-0.5 py-3 text-[11px] font-medium leading-tight text-muted-foreground shadow-none ring-offset-0 transition-colors hover:text-foreground focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=inactive]:after:opacity-0 data-[state=active]:after:absolute data-[state=active]:after:inset-x-0.5 data-[state=active]:after:bottom-0 data-[state=active]:after:h-0.5 data-[state=active]:after:rounded-full data-[state=active]:after:bg-trader-blue data-[state=active]:after:content-[''] dark:data-[state=active]:after:bg-trader-blue-light sm:px-1 sm:text-xs md:text-sm md:data-[state=active]:after:inset-x-1"
                         >
                           Holdings
+                        </TabsTrigger>
+                        <TabsTrigger
+                          value="actions"
+                          className="relative rounded-none border-0 bg-transparent px-0.5 py-3 text-[11px] font-medium leading-tight text-muted-foreground shadow-none ring-offset-0 transition-colors hover:text-foreground focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=inactive]:after:opacity-0 data-[state=active]:after:absolute data-[state=active]:after:inset-x-0.5 data-[state=active]:after:bottom-0 data-[state=active]:after:h-0.5 data-[state=active]:after:rounded-full data-[state=active]:after:bg-trader-blue data-[state=active]:after:content-[''] dark:data-[state=active]:after:bg-trader-blue-light sm:px-1 sm:text-xs md:text-sm md:data-[state=active]:after:inset-x-1"
+                        >
+                          Actions
                         </TabsTrigger>
                       </TabsList>
                       <TabsContent
@@ -4984,7 +5005,15 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                         className="mt-0 space-y-2 ring-offset-0 focus-visible:outline-none focus-visible:ring-0 data-[state=inactive]:hidden"
                       >
                         <div className="flex min-w-0 flex-col gap-4">
-                          {renderYourPortfolioHoldingsAndRebalancePanels()}
+                          {renderYourPortfolioHoldingsAndRebalancePanels('holdings')}
+                        </div>
+                      </TabsContent>
+                      <TabsContent
+                        value="actions"
+                        className="mt-0 space-y-2 ring-offset-0 focus-visible:outline-none focus-visible:ring-0 data-[state=inactive]:hidden"
+                      >
+                        <div className="flex min-w-0 flex-col gap-4">
+                          {renderYourPortfolioHoldingsAndRebalancePanels('actions')}
                         </div>
                       </TabsContent>
                     </Tabs>

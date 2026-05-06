@@ -43,6 +43,7 @@ import {
   type PortfolioAlertsInitial,
 } from '@/components/platform/portfolio-alerts-dialog';
 import { MetricReadinessPill } from '@/components/platform/metric-readiness-pill';
+import { CHART_AGGREGATE_NASDAQ100 } from '@/lib/chart-index-series-colors';
 import { HoldingRankWithChange } from '@/components/platform/holding-rank-with-change';
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
 import { portfolioConfigBadgesForDisplay } from '@/lib/portfolio-config-badges';
@@ -380,13 +381,19 @@ function normalizeOverviewProfile(p: ProfileRow): ProfileRow {
 }
 
 function overviewPortfolioAlertsInitial(p: ProfileRow): PortfolioAlertsInitial {
+  const email = p.email_enabled ?? true;
+  const inapp = p.inapp_enabled ?? true;
+  const nr = p.notify_rebalance ?? true;
+  const nh = p.notify_holdings_change ?? true;
+  const rbIn = p.notify_rebalance_inapp ?? (nr && inapp);
+  const pmIn = p.notify_price_move_inapp ?? false;
+  const eeIn = p.notify_entries_exits_inapp ?? (nh && inapp);
+  const rbEm = p.notify_rebalance_email ?? (nr && email);
+  const pmEm = p.notify_price_move_email ?? false;
+  const eeEm = p.notify_entries_exits_email ?? (nh && email);
   return {
-    notifyRebalanceInapp: p.notify_rebalance_inapp ?? true,
-    notifyRebalanceEmail: p.notify_rebalance_email ?? true,
-    notifyPriceMoveInapp: p.notify_price_move_inapp ?? false,
-    notifyPriceMoveEmail: p.notify_price_move_email ?? false,
-    notifyEntriesExitsInapp: p.notify_entries_exits_inapp ?? true,
-    notifyEntriesExitsEmail: p.notify_entries_exits_email ?? true,
+    eventsInapp: Boolean(rbIn) && Boolean(pmIn) && Boolean(eeIn),
+    eventsEmail: Boolean(rbEm) && Boolean(pmEm) && Boolean(eeEm),
   };
 }
 
@@ -649,7 +656,7 @@ function MiniSparkline({
         <path
           d={benchPath}
           fill="none"
-          className="stroke-purple-500 dark:stroke-purple-400"
+          stroke={CHART_AGGREGATE_NASDAQ100}
           strokeWidth="1.25"
           vectorEffect="non-scaling-stroke"
         />
@@ -865,7 +872,7 @@ function OverviewPortfolioTile({
             <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[9px] leading-none">
               <span className="text-trader-blue">Your portfolio</span>
               {sparkNasdaqCap.length === spark.length ? (
-                <span className="text-purple-600 dark:text-purple-400">Nasdaq-100</span>
+                <span style={{ color: CHART_AGGREGATE_NASDAQ100 }}>Nasdaq-100</span>
               ) : null}
             </p>
           ) : null}
@@ -2314,9 +2321,9 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
   const topSpotlightSlug = topSpotlightOverview?.profile.strategy_models?.slug ?? null;
   const holdingsCacheVersion = useExploreHoldingsCacheVersion();
   const isBelowLg = useIsBelowLg();
-  const [spotlightMobileSubTab, setSpotlightMobileSubTab] = useState<'performance' | 'holdings'>(
-    'performance'
-  );
+  const [spotlightMobileSubTab, setSpotlightMobileSubTab] = useState<
+    'performance' | 'holdings' | 'actions'
+  >('performance');
 
   useEffect(() => {
     setSpotlightMobileSubTab('performance');
@@ -2361,7 +2368,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
     const onTourMobileSubTab = (e: Event) => {
       if (!isBelowLg) return;
       const tab = (e as CustomEvent<{ tab?: unknown }>).detail?.tab;
-      if (tab === 'performance' || tab === 'holdings') {
+      if (tab === 'performance' || tab === 'holdings' || tab === 'actions') {
         setSpotlightMobileSubTab(tab);
       }
     };
@@ -3428,7 +3435,59 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                               </div>
                         );
                       }
-                      function renderOverviewSpotlightHoldingsInner() {
+                      function renderOverviewSpotlightHoldingsInner(
+                        variant: 'full' | 'holdingsWithoutActions' | 'actionsOnly' = 'full'
+                      ) {
+                        if (variant === 'actionsOnly') {
+                          return (
+                            <>
+                              {overviewPaidHoldings ? (
+                                <div
+                                  className="min-w-0 pt-1"
+                                  data-platform-tour="overview-latest-rebalance-actions"
+                                >
+                                  <TopPortfolioLatestRebalanceSection
+                                    profileId={bp.id}
+                                    weightingMethod={pc?.weighting_method}
+                                    enabled
+                                  />
+                                </div>
+                              ) : (
+                                <div className="space-y-3">
+                                  {!authState.isAuthenticated ? (
+                                    <Card className="border-trader-blue/25 bg-trader-blue/[0.06] dark:bg-trader-blue/[0.08]">
+                                      <CardHeader className="space-y-1 pb-2 pt-4">
+                                        <CardTitle className="text-base text-center">
+                                          Sign up to save this portfolio
+                                        </CardTitle>
+                                      </CardHeader>
+                                      <CardContent className="pb-4 pt-0">
+                                        <div className="flex justify-center">
+                                          <Button size="sm" asChild>
+                                            <Link
+                                              href={`/sign-up?next=${encodeURIComponent('/platform/overview')}`}
+                                            >
+                                              Sign up
+                                            </Link>
+                                          </Button>
+                                        </div>
+                                      </CardContent>
+                                    </Card>
+                                  ) : null}
+                                  <div className="flex min-h-[10rem] flex-col items-center justify-center gap-3 rounded-lg border border-dashed bg-muted/15 px-4 py-8 text-center">
+                                    <Lock className="size-8 shrink-0 text-muted-foreground" aria-hidden />
+                                    <p className="max-w-sm text-sm text-muted-foreground">
+                                      Rebalance actions are available on a paid plan.
+                                    </p>
+                                    <Button size="sm" asChild>
+                                      <Link href="/pricing">View plans</Link>
+                                    </Button>
+                                  </div>
+                                </div>
+                              )}
+                            </>
+                          );
+                        }
                         return (
                         <>
                                 <div
@@ -4142,6 +4201,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                 </div>
                                   </>
                                 )}
+                                {variant === 'full' ? (
                                 <div
                                   className="pt-4 sm:pt-5"
                                   data-platform-tour="overview-latest-rebalance-actions"
@@ -4152,6 +4212,7 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                     enabled={overviewPaidHoldings}
                                   />
                                 </div>
+                                ) : null}
                         </>
                         );
                       }
@@ -4390,23 +4451,30 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                               <Tabs
                                 value={spotlightMobileSubTab}
                                 onValueChange={(v) =>
-                                  setSpotlightMobileSubTab(v as 'performance' | 'holdings')}
+                                  setSpotlightMobileSubTab(v as 'performance' | 'holdings' | 'actions')}
                                 className="w-full space-y-4"
                               >
-                                <TabsList className="relative grid h-auto w-full grid-cols-2 gap-0 rounded-none border-0 border-b border-border bg-transparent p-0 text-muted-foreground shadow-none">
+                                <TabsList className="relative grid h-auto w-full grid-cols-3 gap-0 rounded-none border-0 border-b border-border bg-transparent p-0 text-muted-foreground shadow-none">
                                   <TabsTrigger
                                     value="performance"
                                     data-platform-tour="overview-spotlight-mobile-performance-tab"
-                                    className="relative rounded-none border-0 bg-transparent py-3 text-sm font-medium text-muted-foreground shadow-none ring-offset-0 transition-colors hover:text-foreground focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=inactive]:after:opacity-0 data-[state=active]:after:absolute data-[state=active]:after:inset-x-1 data-[state=active]:after:bottom-0 data-[state=active]:after:h-0.5 data-[state=active]:after:rounded-full data-[state=active]:after:bg-trader-blue data-[state=active]:after:content-[''] dark:data-[state=active]:after:bg-trader-blue-light"
+                                    className="relative rounded-none border-0 bg-transparent px-0.5 py-3 text-[11px] font-medium leading-tight text-muted-foreground shadow-none ring-offset-0 transition-colors hover:text-foreground focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=inactive]:after:opacity-0 data-[state=active]:after:absolute data-[state=active]:after:inset-x-0.5 data-[state=active]:after:bottom-0 data-[state=active]:after:h-0.5 data-[state=active]:after:rounded-full data-[state=active]:after:bg-trader-blue data-[state=active]:after:content-[''] dark:data-[state=active]:after:bg-trader-blue-light sm:px-1 sm:text-xs md:text-sm md:data-[state=active]:after:inset-x-1"
                                   >
                                     Performance
                                   </TabsTrigger>
                                   <TabsTrigger
                                     value="holdings"
                                     data-platform-tour="overview-spotlight-mobile-holdings-tab"
-                                    className="relative rounded-none border-0 bg-transparent py-3 text-sm font-medium text-muted-foreground shadow-none ring-offset-0 transition-colors hover:text-foreground focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=inactive]:after:opacity-0 data-[state=active]:after:absolute data-[state=active]:after:inset-x-1 data-[state=active]:after:bottom-0 data-[state=active]:after:h-0.5 data-[state=active]:after:rounded-full data-[state=active]:after:bg-trader-blue data-[state=active]:after:content-[''] dark:data-[state=active]:after:bg-trader-blue-light"
+                                    className="relative rounded-none border-0 bg-transparent px-0.5 py-3 text-[11px] font-medium leading-tight text-muted-foreground shadow-none ring-offset-0 transition-colors hover:text-foreground focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=inactive]:after:opacity-0 data-[state=active]:after:absolute data-[state=active]:after:inset-x-0.5 data-[state=active]:after:bottom-0 data-[state=active]:after:h-0.5 data-[state=active]:after:rounded-full data-[state=active]:after:bg-trader-blue data-[state=active]:after:content-[''] dark:data-[state=active]:after:bg-trader-blue-light sm:px-1 sm:text-xs md:text-sm md:data-[state=active]:after:inset-x-1"
                                   >
                                     Holdings
+                                  </TabsTrigger>
+                                  <TabsTrigger
+                                    value="actions"
+                                    data-platform-tour="overview-spotlight-mobile-actions-tab"
+                                    className="relative rounded-none border-0 bg-transparent px-0.5 py-3 text-[11px] font-medium leading-tight text-muted-foreground shadow-none ring-offset-0 transition-colors hover:text-foreground focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=inactive]:after:opacity-0 data-[state=active]:after:absolute data-[state=active]:after:inset-x-0.5 data-[state=active]:after:bottom-0 data-[state=active]:after:h-0.5 data-[state=active]:after:rounded-full data-[state=active]:after:bg-trader-blue data-[state=active]:after:content-[''] dark:data-[state=active]:after:bg-trader-blue-light sm:px-1 sm:text-xs md:text-sm md:data-[state=active]:after:inset-x-1"
+                                  >
+                                    Actions
                                   </TabsTrigger>
                                 </TabsList>
                                 <TabsContent
@@ -4425,7 +4493,15 @@ export function PlatformOverviewClient({ strategies }: OverviewProps) {
                                   className="mt-0 space-y-2 ring-offset-0 focus-visible:outline-none focus-visible:ring-0 data-[state=inactive]:hidden"
                                 >
                                   <div className="min-w-0 space-y-2 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
-                                    {renderOverviewSpotlightHoldingsInner()}
+                                    {renderOverviewSpotlightHoldingsInner('holdingsWithoutActions')}
+                                  </div>
+                                </TabsContent>
+                                <TabsContent
+                                  value="actions"
+                                  className="mt-0 space-y-2 ring-offset-0 focus-visible:outline-none focus-visible:ring-0 data-[state=inactive]:hidden"
+                                >
+                                  <div className="min-w-0 space-y-2 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
+                                    {renderOverviewSpotlightHoldingsInner('actionsOnly')}
                                   </div>
                                 </TabsContent>
                               </Tabs>

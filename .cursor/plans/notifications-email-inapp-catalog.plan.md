@@ -1,6 +1,6 @@
 ---
 name: Notifications email and in-app catalog
-overview: Single source of truth for product rules, transports, tables, DB prefs, and settings-category mapping for notifications. Implementation phases live only in notifications-catalog-alignment.plan.md (canonical; merged former master catalog plan).
+overview: Single source of truth for product rules, transports, tables, DB prefs, settings-category mapping, and the operator in-app smoketest matrix (exhaustive seeded rows, curl, thread conventions). Implementation phases live only in notifications-catalog-alignment.plan.md (canonical; merged former master catalog plan).
 todos: []
 isProject: true
 ---
@@ -11,7 +11,7 @@ isProject: true
 
 | Document                                                                               | Role                                                                                                                                                                                                                           |
 | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **This file** (`notifications-email-inapp-catalog.plan.md`)                            | **Product + inventory source of truth** — what exists today, what is planned, email vs in-app rules, tables A–F, migrations summary, **five** settings categories, welcome policy. **Update when behavior or schema changes.** |
+| **This file** (`notifications-email-inapp-catalog.plan.md`)                            | **Product + inventory + operator in-app QA** — what exists today, what is planned, email vs in-app rules, tables A–F, migrations summary, **five** settings categories, welcome policy, **and** the exhaustive in-app smoketest matrix (`SMOKETEST_INAPP_SEED_ROW_COUNT`, how to run in-app-only, thread prefixes, per-row table, inbox file pointers). **Update when behavior, schema, seed matrix, or bell branches change.** |
 | **[notifications-catalog-alignment.plan.md](notifications-catalog-alignment.plan.md)** | **Sole implementation runbook** — Phase 0–8, file paths, acceptance criteria, catalog module shape, merged content from the removed duplicate `master_notifications_catalog_4fa45e7c.plan.md`.                                 |
 
 There is **no** separate “master” implementation plan; do not add another notifications implementation doc in `~/.cursor/plans/` for this workstream.
@@ -171,6 +171,106 @@ Welcome smoketest kinds: `WELCOME_SMOKETEST_KINDS` in [`welcome-email-templates.
 | Notification catalog                 | `src/lib/notifications/notification-catalog.ts`                                                  |
 | Optional dispatcher (not shipped)    | `src/lib/notifications/notification-dispatch.ts` (if added later)                                |
 | **Canonical implementation runbook** | [.cursor/plans/notifications-catalog-alignment.plan.md](notifications-catalog-alignment.plan.md) |
+
+---
+
+## Operator in-app smoketest matrix
+
+### Purpose
+
+Operator-only QA: seed **one row per meaningful inbox branch** (DB `type`, `catalog_id`, avatar/category chrome, `thread_id` grouping, single-row navigate vs detail dialog, account CTAs). Re-running the smoketest **deletes** prior rows for that user where `data.smoketest_seed === true`, then inserts a fresh set.
+
+**Code source of truth:** [`src/lib/notifications/smoketest-inapp-seed.ts`](../../src/lib/notifications/smoketest-inapp-seed.ts) (`buildSmoketestInAppRows` + `seedSmoketestInAppNotifications`).
+
+**Row count constant:** `SMOKETEST_INAPP_SEED_ROW_COUNT` — **36** (must match `rows.length` at runtime; a mismatch throws in dev).
+
+### How to run (in-app only, no emails)
+
+`GET` the platform smoketest route with **`CRON_SECRET`** (query `secret=`, or `x-cron-secret` / `Authorization: Bearer` — same as other cron-style routes).
+
+- **Target user:** `inappFor=` email (resolved via `user_profiles`) or UUID. **`seedInapp=1`** without `inappFor` defaults to the operator email in route JSDoc.
+- **Skip emails:** pass **`inappFor`** (or `seedInapp=1`) and **do not** pass `sendEmails=1`. The route sets `skipEmails` when `inappFor` is set and `sendEmails` is absent/false.
+
+Example (local):
+
+```bash
+curl -sS "http://127.0.0.1:3000/api/platform/notifications/smoketest?secret=$CRON_SECRET&inappFor=you@example.com"
+```
+
+**Dry run:** `dryRun=1` resolves the user but does not insert; JSON includes `inappWouldInsertRows` = **`SMOKETEST_INAPP_SEED_ROW_COUNT`** (from the seed module).
+
+**Auth + full JSDoc:** [`src/app/api/platform/notifications/smoketest/route.ts`](../../src/app/api/platform/notifications/smoketest/route.ts).
+
+### Thread id conventions (seeded rows)
+
+| Prefix | Meaning | Subtitle in bell (see `inbox-threads`) |
+| ------ | ------- | -------------------------------------- |
+| `portfolio:{userId}:{profileId}` | Followed portfolio product rows | Followed portfolio |
+| `onboarding:{userId}` | Welcome milestones (free / supporter / outperformer steps) | Getting started |
+| `paid_transition:{userId}` | Free → paid transition milestones | Paid upgrade |
+| `weekly:{userId}:{runWeekEnding}` | Weekly digest head | Weekly summary |
+
+Second portfolio thread in the seed uses a fixed **`profileIdAlt`** (`00000000-…-0099` when the user has no second real profile) so QA always gets two **Followed portfolio** groups without depending on two DB profiles.
+
+### Matrix (36 rows)
+
+Order matches insertion order in `buildSmoketestInAppRows`. Titles are smoketest samples; production copy comes from writers listed in Table F and the paths below.
+
+| # | `type` | `thread_id` | `catalog_id` / notes | Exercises |
+| - | ------ | ----------- | -------------------- | --------- |
+| 1 | `stock_rating_change` | — | `stock.rating_change` | Rating change, ticker avatar, **navigate on tap** (`href`) |
+| 2 | `stock_rating_change` | — | `stock.rating_change.tracked` | Tracked-stock catalog variant |
+| 3 | `stock_rating_change` | — | `internal.smoketest_seed` | Internal chip when dev flag on |
+| 4 | `stock_rating_weekly` | — | `stock.rating_change` | Legacy DB type still allowed |
+| 5 | `rebalance_action` | `portfolio:…` | `portfolio.rebalance` | Rebalance glyph, portfolio thread A |
+| 6 | `portfolio_entries_exits` | `portfolio:…` | `portfolio.entries_exits` | Entries + exits |
+| 7 | `portfolio_entries_exits` | `portfolio:…` | same | Exits only |
+| 8 | `portfolio_entries_exits` | `portfolio:…` | same | Entries only |
+| 9 | `portfolio_price_move` | `portfolio:…` | `portfolio.price_move` | Trend **up** (`pct > 0`) |
+| 10 | `portfolio_price_move` | `portfolio:…` | same | Trend **down** |
+| 11 | `portfolio_price_move` | `portfolio:…` | same | Trend **flat** (`pct === 0`) |
+| 12 | `rebalance_action` | `portfolio:…` (alt `profile_id`) | `portfolio.rebalance` | Second portfolio thread |
+| 13 | `portfolio_price_move` | same alt thread | `portfolio.price_move` | Alt thread + move |
+| 14 | `model_ratings_ready` | — | `portfolio.model_ratings_ready` | Model ratings / strategy-model filter |
+| 15 | `weekly_digest` | `weekly:…` | `weekly.bundle`, `thread_role` head | Weekly summary + digest detail path |
+| 16 | `system` | — | `welcome: 1` | Signup welcome row |
+| 17–20 | `system` | `onboarding:…` | `onboarding.welcome.free.step{1–4}` | Free tier milestones (4 rows) |
+| 21–24 | `system` | `onboarding:…` | `onboarding.welcome.supporter.step{1–4}` | Supporter milestones |
+| 25–28 | `system` | `onboarding:…` | `onboarding.welcome.outperformer.step{1–4}` | Outperformer milestones |
+| 29 | `system` | `paid_transition:…` | `onboarding.welcome.paid_transition.supporter` | Paid thread |
+| 30 | `system` | `paid_transition:…` | `onboarding.welcome.paid_transition.outperformer` | Same thread, other tier |
+| 31 | `system` | — | `security.new_sign_in` | Account/security CTA |
+| 32 | `system` | — | `settings_section: billing` (+ sample catalog) | Billing settings CTA |
+| 33 | `system` | — | `settings_section: account` | Account settings CTA |
+| 34 | `system` | — | `settings_section: security` (no `security.*` catalog) | Security via section |
+| 35 | `system` | — | no `catalog_id` | Detail dialog, **no** `href` |
+| 36 | `system` | — | `onboarding.feature_rollout.smoketest` | Non-`welcome` `onboarding.*` catalog id |
+
+**Thread dialog caveat:** For threads with **multiple** rows, footer CTAs in [`notifications-bell.tsx`](../../src/components/platform/notifications-bell.tsx) use **`threadDetail.latest`** (newest by `created_at`), not a fixed row—factor that when validating CTAs on dense threads.
+
+### Inbox / copy paths (smoketest-related)
+
+| Area | Path |
+| ---- | ---- |
+| Canonical notification definitions (`CATALOG_ID`, lanes, transports, settings category) | [`src/lib/notifications/notification-catalog.ts`](../../src/lib/notifications/notification-catalog.ts) |
+| Allowed DB `type` values (`NOTIFICATION_TYPES`) | [`src/lib/notifications/types.ts`](../../src/lib/notifications/types.ts) |
+| Inbox row labels, avatars, time format | [`src/lib/notifications/inbox-row-display.ts`](../../src/lib/notifications/inbox-row-display.ts) |
+| Thread grouping + subtitles | [`src/lib/notifications/inbox-threads.ts`](../../src/lib/notifications/inbox-threads.ts) |
+| Detail vs navigate helpers; account / changelog CTA rules | [`src/lib/notifications/inbox-dialog-cta.ts`](../../src/lib/notifications/inbox-dialog-cta.ts) |
+| Bell UI, detail + thread dialogs, buttons | [`src/components/platform/notifications-bell.tsx`](../../src/components/platform/notifications-bell.tsx) |
+| Transactional / weekly **email** HTML | [`src/lib/notifications/email-templates.ts`](../../src/lib/notifications/email-templates.ts) |
+| Welcome **email** HTML | [`src/lib/notifications/welcome-email-templates.ts`](../../src/lib/notifications/welcome-email-templates.ts) |
+| Production in-app **writers** (representative) | [`src/lib/notifications/cron-fanout.ts`](../../src/lib/notifications/cron-fanout.ts), [`welcome-series-send.ts`](../../src/lib/notifications/welcome-series-send.ts), [`weekly-digest-cron.ts`](../../src/lib/notifications/weekly-digest-cron.ts) — also grep `from('notifications')` / inserts under `src/` |
+| Operator **in-app** seed rows | [`src/lib/notifications/smoketest-inapp-seed.ts`](../../src/lib/notifications/smoketest-inapp-seed.ts) |
+| Smoketest HTTP route (email + in-app, dry run) | [`src/app/api/platform/notifications/smoketest/route.ts`](../../src/app/api/platform/notifications/smoketest/route.ts) |
+
+### Smoketest matrix maintenance
+
+When adding a new inbox branch (new `type`, `catalog_id`, or thread shape):
+
+1. Extend **`smoketest-inapp-seed.ts`** and bump **`SMOKETEST_INAPP_SEED_ROW_COUNT`** if the row count changes.
+2. Update the **Matrix (36 rows)** table in **this** plan if the matrix stays exhaustive for operators.
+3. Update **notification-catalog** (and migrations for `type` check) if the product adds a new kind.
 
 ---
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import {
   CartesianGrid,
   Line,
@@ -113,6 +113,27 @@ function formatEquityAxisTick(v: number): string {
   return `$${Math.round(v).toLocaleString('en-US')}`;
 }
 
+/** Shorter Y-axis ticks on small phones (e.g. `$17.7k` vs `$17,706`) — matches explore values chart. */
+function formatEquityAxisTickCompact(v: number): string {
+  if (Number.isNaN(v) || !Number.isFinite(v)) return '';
+  const abs = Math.abs(v);
+  if (abs >= 1_000_000) {
+    const m = v / 1_000_000;
+    const s =
+      Math.abs(m - Math.round(m)) < 0.05
+        ? Math.round(m).toString()
+        : m.toFixed(1).replace(/\.0$/, '');
+    return `$${s}M`;
+  }
+  if (abs >= 1000) {
+    const k = v / 1000;
+    const t = Math.floor(k * 10) / 10;
+    const s = t % 1 === 0 ? String(t) : t.toFixed(1);
+    return `$${s.replace(/\.0$/, '')}k`;
+  }
+  return `$${Math.round(v)}`;
+}
+
 function formatEquityTooltipValue(v: number, initialNotional: number): string {
   const tol = Math.max(0.5, Math.abs(initialNotional) * 1e-9);
   if (Math.abs(v - initialNotional) < tol) {
@@ -195,7 +216,27 @@ type PerformanceChartProps = {
    * Growth/Drawdown on the same row.
    */
   chipsInControlsRow?: boolean;
+  /**
+   * Explore portfolio detail dialog: on small screens, stack legend chips below the time-range
+   * row, use compact equity Y-axis ticks, and tighter chart margins (pair with outer `-mx` bleed).
+   */
+  dialogChartMobileLayout?: boolean;
 };
+
+/** Tailwind `sm` (640px) — phones only. */
+function useIsMaxSmForDialogChartLayout() {
+  const query = '(max-width: 639px)';
+  return useSyncExternalStore(
+    (onStoreChange) => {
+      if (typeof window === 'undefined') return () => {};
+      const mq = window.matchMedia(query);
+      mq.addEventListener('change', onStoreChange);
+      return () => mq.removeEventListener('change', onStoreChange);
+    },
+    () => (typeof window !== 'undefined' ? window.matchMedia(query).matches : false),
+    () => false
+  );
+}
 
 export function PerformanceChart({
   series,
@@ -215,8 +256,10 @@ export function PerformanceChart({
   chartContainerClassName,
   disableLineAnimation = false,
   chipsInControlsRow = false,
+  dialogChartMobileLayout = false,
 }: PerformanceChartProps) {
   const isBelowMd = useIsBelowMd();
+  const isMaxSmDialog = useIsMaxSmForDialogChartLayout();
 
   const [range, setRange] = useState<TimeRange>('All');
   const [view, setView] = useState<'equity' | 'drawdown'>('equity');
@@ -224,6 +267,13 @@ export function PerformanceChart({
   const [startingRefHovered, setStartingRefHovered] = useState(false);
   /** Pill hover only — avoids Recharts Line mouse handlers (they fight tooltips / hit-testing). */
   const [emphasizedSeriesKey, setEmphasizedSeriesKey] = useState<SeriesKey | null>(null);
+
+  const dialogMobileStackControls = Boolean(
+    chipsInControlsRow && dialogChartMobileLayout && isMaxSmDialog
+  );
+  const dialogMobileChartDensity = Boolean(
+    dialogChartMobileLayout && isMaxSmDialog && view === 'equity'
+  );
 
   const omittedSet = useMemo(() => new Set(omitSeriesKeys), [omitSeriesKeys]);
   const chartSeriesKeys = useMemo(
@@ -363,8 +413,12 @@ export function PerformanceChart({
     return out;
   }, [chartSeriesKeys, strategyName, strategyLegendShortMobile, isBelowMd, seriesLabelOverrides]);
 
-  const yFormatter = (v: number) =>
-    view === 'drawdown' ? `${v.toFixed(1)}%` : formatEquityAxisTick(v);
+  const yTickFormat = (v: number) =>
+    view === 'drawdown'
+      ? `${v.toFixed(1)}%`
+      : dialogMobileChartDensity
+        ? formatEquityAxisTickCompact(v)
+        : formatEquityAxisTick(v);
 
   /** Lines need 2+ points to draw; show dots for sparse history so single-period portfolios are visible. */
   const usePointMarkers = chartData.length > 0 && chartData.length < 3;
@@ -417,8 +471,8 @@ export function PerformanceChart({
     </div>
   ) : null;
 
-  const renderSeriesChips = () => (
-    <div className="flex flex-wrap gap-1.5">
+  const renderSeriesChips = (opts?: { nowrap?: boolean }) => (
+    <div className={cn('flex gap-1.5', opts?.nowrap ? 'flex-nowrap' : 'flex-wrap')}>
       {(Object.entries(config) as [SeriesKey, { label: string; color: string }][]).map(
         ([key, cfg]) => {
           const chipEmphasized = emphasizedSeriesKey === key && !hidden.has(key);
@@ -458,15 +512,27 @@ export function PerformanceChart({
       }}
     >
       {showTopControlsRow && chipsInControlsRow ? (
-        <div className="flex flex-nowrap items-center justify-between gap-2">
-          {timeRangeControl ?? (!hideDrawdown ? <span className="min-w-0 shrink" aria-hidden /> : null)}
-          <div className="flex min-w-0 flex-1 items-center justify-end gap-2 overflow-hidden">
-            <div className="min-w-0 overflow-x-auto whitespace-nowrap [scrollbar-width:thin]">
-              {renderSeriesChips()}
+        dialogMobileStackControls ? (
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              {timeRangeControl ?? (!hideDrawdown ? <span className="min-w-0 shrink" aria-hidden /> : null)}
+              {drawdownToggle}
             </div>
-            {drawdownToggle}
+            <div className="-mx-1 min-w-0 overflow-x-auto px-1 [scrollbar-width:thin]">
+              {renderSeriesChips({ nowrap: true })}
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="flex flex-nowrap items-center justify-between gap-2">
+            {timeRangeControl ?? (!hideDrawdown ? <span className="min-w-0 shrink" aria-hidden /> : null)}
+            <div className="flex min-w-0 flex-1 items-center justify-end gap-2 overflow-hidden">
+              <div className="min-w-0 overflow-x-auto whitespace-nowrap [scrollbar-width:thin]">
+                {renderSeriesChips()}
+              </div>
+              {drawdownToggle}
+            </div>
+          </div>
+        )
       ) : showTopControlsRow && !chipsInControlsRow ? (
         <>
           <div className="space-y-3 lg:hidden">
@@ -492,14 +558,21 @@ export function PerformanceChart({
             Object.entries(config).map(([key, cfg]) => [key, { label: cfg.label, color: cfg.color }])
           )}
         >
-        <LineChart data={chartData} margin={{ top: 8, right: 8, left: 8, bottom: 4 }}>
+        <LineChart
+          data={chartData}
+          margin={
+            dialogMobileChartDensity
+              ? { top: 8, right: 2, left: 2, bottom: 4 }
+              : { top: 8, right: 8, left: 8, bottom: 4 }
+          }
+        >
           <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.4} />
           <XAxis dataKey="shortDate" tick={{ fontSize: 11 }} />
           <YAxis
             domain={yDomain}
-            tickFormatter={yFormatter}
+            tickFormatter={yTickFormat}
             tick={{ fontSize: 11 }}
-            width={72}
+            width={dialogMobileChartDensity ? 50 : 72}
             minTickGap={8}
           />
           {view === 'drawdown' && (
@@ -571,7 +644,8 @@ export function PerformanceChart({
           className={cn(
             'flex items-center justify-center',
             tightStartingInvestmentLabel ? 'pt-1' : 'pt-3',
-            !hideFootnote && 'pb-4'
+            !hideFootnote && 'pb-4',
+            dialogChartMobileLayout && isMaxSmDialog && 'max-sm:px-4'
           )}
         >
           <div
@@ -597,7 +671,13 @@ export function PerformanceChart({
       )}
 
       {!hideFootnote ? (
-        <p className={cn('text-[11px] text-muted-foreground', footnoteClassName)}>
+        <p
+          className={cn(
+            'text-[11px] text-muted-foreground',
+            footnoteClassName,
+            dialogChartMobileLayout && isMaxSmDialog && 'max-sm:px-4'
+          )}
+        >
           {view === 'equity' ? (
             nominalDollars ? (
               <>

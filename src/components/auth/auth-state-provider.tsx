@@ -7,6 +7,7 @@ import { buildAuthStateFromUserAndProfile } from "@/lib/build-auth-state";
 import { AuthStateContext } from "@/components/auth/auth-state-context";
 import { AUTH_SNAPSHOT_STORAGE_KEY } from "@/lib/auth-snapshot-storage-key";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/utils/supabase/browser";
+import { setPortfolioProfilesBroadcastAuthUserId } from "@/lib/user-portfolio-profiles-broadcast";
 
 const SUPABASE_AUTH_COOKIE_INFIX = "auth-token";
 
@@ -264,6 +265,12 @@ export function AuthStateProvider({ children, initialState }: AuthStateProviderP
 
     window.localStorage.setItem(AUTH_SNAPSHOT_STORAGE_KEY, JSON.stringify(authState));
   }, [authState]);
+
+  useEffect(() => {
+    setPortfolioProfilesBroadcastAuthUserId(
+      authState.isAuthenticated && authState.userId ? authState.userId : null
+    );
+  }, [authState.isAuthenticated, authState.userId]);
 
   const refreshProfile = useCallback(async () => {
     const supabase = getSupabaseBrowserClient();

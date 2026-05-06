@@ -11,6 +11,10 @@ import {
   isFollowLimitReachedCode,
 } from '@/lib/follow-limits';
 import { yourPortfoliosHrefWithSessionRecall } from '@/lib/your-portfolios-last-profile-session';
+import {
+  getPortfolioProfilesBroadcastAuthUserId,
+  postPortfolioProfilesInvalidateBroadcast,
+} from '@/lib/user-portfolio-profiles-broadcast';
 
 /** Fired after follow is undone (PATCH isActive: false) so clients can refetch profiles. */
 export const USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT = 'user-portfolio-profiles-invalidate';
@@ -33,16 +37,24 @@ export type UserPortfolioProfilesInvalidateDetail = {
 export function invalidateUserPortfolioProfiles(): void {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT));
+  postPortfolioProfilesInvalidateBroadcast({
+    userId: getPortfolioProfilesBroadcastAuthUserId(),
+  });
 }
 
 /** After portfolio notify PATCH (bell, alerts dialog, settings rows). Omit `profileId` to avoid entry perf cache busts. */
 export function invalidateUserPortfolioProfilesList(): void {
   if (typeof window === 'undefined') return;
+  const detail: UserPortfolioProfilesInvalidateDetail = { profilesListOnly: true };
   window.dispatchEvent(
     new CustomEvent<UserPortfolioProfilesInvalidateDetail>(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, {
-      detail: { profilesListOnly: true },
+      detail,
     })
   );
+  postPortfolioProfilesInvalidateBroadcast({
+    userId: getPortfolioProfilesBroadcastAuthUserId(),
+    detail,
+  });
 }
 
 /** After entry date / investment PATCH — same event; set `skipOverviewProfileRefetch` when overview already called GET. */
@@ -55,21 +67,28 @@ export function invalidateUserPortfolioProfilesEntrySave(
   }
 ): void {
   if (typeof window === 'undefined') return;
+  const detail: UserPortfolioProfilesInvalidateDetail = {
+    profileId,
+    entrySettingsOnly: true,
+    skipOverviewProfileRefetch: opts?.skipOverviewProfileRefetch === true,
+    ...(typeof opts?.userStartDate === 'string' && opts.userStartDate.trim()
+      ? { userStartDate: opts.userStartDate.trim() }
+      : {}),
+    ...(typeof opts?.investmentSize === 'number' &&
+    Number.isFinite(opts.investmentSize) &&
+    opts.investmentSize > 0
+      ? { investmentSize: opts.investmentSize }
+      : {}),
+  };
   window.dispatchEvent(
     new CustomEvent<UserPortfolioProfilesInvalidateDetail>(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, {
-      detail: {
-        profileId,
-        entrySettingsOnly: true,
-        skipOverviewProfileRefetch: opts?.skipOverviewProfileRefetch === true,
-        ...(typeof opts?.userStartDate === 'string' && opts.userStartDate.trim()
-          ? { userStartDate: opts.userStartDate.trim() }
-          : {}),
-        ...(typeof opts?.investmentSize === 'number' && Number.isFinite(opts.investmentSize) && opts.investmentSize > 0
-          ? { investmentSize: opts.investmentSize }
-          : {}),
-      },
+      detail,
     })
   );
+  postPortfolioProfilesInvalidateBroadcast({
+    userId: getPortfolioProfilesBroadcastAuthUserId(),
+    detail,
+  });
 }
 
 export type SetUserPortfolioProfileActiveResult = {

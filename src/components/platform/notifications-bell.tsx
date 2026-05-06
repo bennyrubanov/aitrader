@@ -15,8 +15,6 @@ import {
   ArrowLeft,
   Bell,
   CalendarDays,
-  ChevronDown,
-  ChevronRight,
   FlaskConical,
   Layers,
   Loader2,
@@ -49,6 +47,7 @@ import { NotificationsSettingsSection } from '@/components/platform/notification
 import { requestPlatformPostOnboardingTourAgain } from '@/lib/platform-post-onboarding-tour';
 import {
   groupNotificationsIntoThreads,
+  inboxThreadSubtitle,
   partitionThreadsByRecency,
   threadMatchesFilter,
   type NotificationThreadGroup,
@@ -239,8 +238,6 @@ function NotificationsPanelInner({
   items,
   filteredThreads,
   recentlyOpenedUnreadIds,
-  expandedThreadKeys,
-  onToggleThreadExpand,
   onRowActivate,
   onOpenSettingsPage,
   onPrefetchSettingsPage,
@@ -254,8 +251,6 @@ function NotificationsPanelInner({
   items: NotifRow[];
   filteredThreads: NotificationThreadGroup[];
   recentlyOpenedUnreadIds: ReadonlySet<string>;
-  expandedThreadKeys: ReadonlySet<string>;
-  onToggleThreadExpand: (threadKey: string) => void;
   onRowActivate: (g: NotificationThreadGroup) => void | Promise<void>;
   onOpenSettingsPage: (variant: 'sheet' | 'menu') => void;
   onPrefetchSettingsPage: () => void;
@@ -267,27 +262,10 @@ function NotificationsPanelInner({
     const n = g.latest;
     const showRecentUnreadChrome =
       g.rows.some((r) => recentlyOpenedUnreadIds.has(r.id)) || g.unreadInThread > 0;
-    const expanded = expandedThreadKeys.has(g.key);
-    const canExpand = g.rows.length > 1;
     return (
       <li key={g.key} className="space-y-0">
         <div className="flex w-full items-center gap-1 rounded-lg border border-transparent px-1 py-1 hover:bg-muted/70">
-          {canExpand ? (
-            <button
-              type="button"
-              className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/80"
-              aria-expanded={expanded}
-              aria-label={expanded ? 'Collapse thread' : 'Expand thread'}
-              onClick={(e) => {
-                e.stopPropagation();
-                onToggleThreadExpand(g.key);
-              }}
-            >
-              {expanded ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
-            </button>
-          ) : (
-            <span className="w-2 shrink-0 self-center" aria-hidden />
-          )}
+          <span className="w-2 shrink-0 self-center" aria-hidden />
           <NotificationRowAvatar row={n} />
           <button
             type="button"
@@ -331,36 +309,6 @@ function NotificationsPanelInner({
             ) : null}
           </button>
         </div>
-        {canExpand && expanded ? (
-          <ul className="ml-2 border-l border-border/60 pl-3 pb-1 sm:ml-3">
-            {g.rows.slice(1).map((child) => (
-              <li key={child.id} className="py-2">
-                <div className="flex items-center gap-2">
-                  <NotificationRowAvatar row={child} size="sm" />
-                  <div className="min-w-0 flex-1 text-xs text-muted-foreground">
-                    <div className="flex w-full min-w-0 items-baseline justify-between gap-2">
-                      <span className="min-w-0 truncate text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                        {inboxNotificationCategoryLabel(child)}
-                      </span>
-                      <time
-                        className="shrink-0 text-[10px] font-medium tabular-nums text-muted-foreground"
-                        dateTime={child.created_at}
-                      >
-                        {formatInboxNotificationTime(child.created_at)}
-                      </time>
-                    </div>
-                    <span className="mt-0.5 block font-semibold text-foreground">{child.title}</span>
-                    {child.body?.trim() ? (
-                      <span className="mt-0.5 block whitespace-pre-wrap text-[11px] leading-snug">
-                        {child.body.trim()}
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ul>
-        ) : null}
       </li>
     );
   };
@@ -565,9 +513,9 @@ export function NotificationsBell() {
     () => new Set()
   );
   const [filter, setFilter] = useState<FilterId>('all');
-  const [expandedThreadKeys, setExpandedThreadKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [panelView, setPanelView] = useState<'list' | 'settings'>('list');
   const [detail, setDetail] = useState<NotifRow | null>(null);
+  const [threadDetail, setThreadDetail] = useState<NotificationThreadGroup | null>(null);
   const lastLoadedAtRef = useRef<number | null>(null);
   const itemsRef = useRef<NotifRow[]>([]);
   const unreadCountRef = useRef(0);
@@ -725,18 +673,10 @@ export function NotificationsBell() {
     if (!open) {
       setPanelView('list');
       setFilter('all');
-      setExpandedThreadKeys(new Set());
+      return;
     }
+    setThreadDetail(null);
   }, [open]);
-
-  const toggleThreadExpand = useCallback((threadKey: string) => {
-    setExpandedThreadKeys((prev) => {
-      const next = new Set(prev);
-      if (next.has(threadKey)) next.delete(threadKey);
-      else next.add(threadKey);
-      return next;
-    });
-  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -842,6 +782,7 @@ export function NotificationsBell() {
   const openDetail = useCallback(async (n: NotifRow) => {
     const readAt = new Date().toISOString();
     const next = { ...n, read_at: n.read_at ?? readAt };
+    setThreadDetail(null);
     setDetail(next);
     // Always close the sheet/dropdown when stacking the detail Dialog on top. Leaving the
     // menu `open` on desktop breaks Radix focus/pointer handling so the bell often won't reopen.
@@ -872,7 +813,20 @@ export function NotificationsBell() {
     async (g: NotificationThreadGroup) => {
       await markThreadNotificationsRead(g);
       const readAt = new Date().toISOString();
-      const n = { ...g.latest, read_at: g.latest.read_at ?? readAt };
+      const rowsWithRead = g.rows.map((r) => ({ ...r, read_at: r.read_at ?? readAt }));
+      const latest = rowsWithRead[0]!;
+      if (g.rows.length > 1) {
+        setDetail(null);
+        setThreadDetail({
+          ...g,
+          rows: rowsWithRead,
+          latest,
+          unreadInThread: 0,
+        });
+        setOpen(false);
+        return;
+      }
+      const n = latest;
       if (shouldOpenDetailDialog(n)) {
         await openDetail(n);
         return;
@@ -890,6 +844,7 @@ export function NotificationsBell() {
   const handleTourAgain = useCallback(() => {
     requestPlatformPostOnboardingTourAgain();
     setDetail(null);
+    setThreadDetail(null);
     setOpen(false);
     router.push('/platform');
     void load(true);
@@ -916,8 +871,6 @@ export function NotificationsBell() {
       items={items}
       filteredThreads={filteredThreads}
       recentlyOpenedUnreadIds={recentlyOpenedUnreadIds}
-      expandedThreadKeys={expandedThreadKeys}
-      onToggleThreadExpand={toggleThreadExpand}
       onRowActivate={onRowActivate}
       onOpenSettingsPage={handleOpenSettingsPage}
       onPrefetchSettingsPage={prefetchSettingsPage}
@@ -952,7 +905,15 @@ export function NotificationsBell() {
         </DropdownMenu>
       )}
 
-      <Dialog open={detail != null} onOpenChange={(o) => !o && setDetail(null)}>
+      <Dialog
+        open={detail != null}
+        onOpenChange={(o) => {
+          if (!o) {
+            setDetail(null);
+            setThreadDetail(null);
+          }
+        }}
+      >
         <DialogContent className="max-h-[min(90vh,32rem)] w-[min(100vw-1rem,22rem)] max-w-[22rem] overflow-y-auto sm:w-full sm:max-w-md">
           {detail ? (
             <>
@@ -991,6 +952,7 @@ export function NotificationsBell() {
                     className="w-full bg-trader-blue text-white hover:bg-trader-blue-dark"
                     onClick={() => {
                       setDetail(null);
+                      setThreadDetail(null);
                       void navigateToHref(detail, accountActivitySettingsHref(detail));
                     }}
                   >
@@ -1013,6 +975,7 @@ export function NotificationsBell() {
                     className="w-full"
                     onClick={() => {
                       setDetail(null);
+                      setThreadDetail(null);
                       void navigateToHref(detail, PRODUCT_CHANGELOG_HREF);
                     }}
                   >
@@ -1028,12 +991,124 @@ export function NotificationsBell() {
                       const href = hrefFromRow(detail);
                       if (!href) return;
                       setDetail(null);
+                      setThreadDetail(null);
                       void navigateToHref(detail, href);
                     }}
                   >
                     {isWelcomeNotification(detail)
                       ? 'Go to overview'
                       : detail.type === 'weekly_digest'
+                        ? 'Notification settings'
+                        : 'Go to related page'}
+                  </Button>
+                ) : null}
+              </DialogFooter>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={threadDetail != null}
+        onOpenChange={(o) => {
+          if (!o) setThreadDetail(null);
+        }}
+      >
+        <DialogContent className="max-h-[min(90vh,32rem)] w-[min(100vw-1rem,22rem)] max-w-[22rem] overflow-y-auto sm:w-full sm:max-w-md">
+          {threadDetail ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-left text-base font-semibold">
+                  {inboxThreadSubtitle(threadDetail.threadId) ?? 'Notifications'}
+                </DialogTitle>
+                <DialogDescription className="text-left text-xs text-muted-foreground">
+                  {threadDetail.rows.length} notification{threadDetail.rows.length === 1 ? '' : 's'} in this thread
+                </DialogDescription>
+              </DialogHeader>
+              <div className="max-h-[min(55vh,24rem)] space-y-4 overflow-y-auto pr-1">
+                {threadDetail.rows.map((row) => (
+                  <div
+                    key={row.id}
+                    className="border-b border-border/60 pb-4 last:border-b-0 last:pb-0"
+                  >
+                    <div className="flex items-start gap-3">
+                      <NotificationRowAvatar row={row} size="sm" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex w-full min-w-0 items-baseline justify-between gap-2">
+                          <span className="min-w-0 truncate text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                            {inboxNotificationCategoryLabel(row)}
+                          </span>
+                          <time
+                            className="shrink-0 text-[10px] font-medium tabular-nums text-muted-foreground"
+                            dateTime={row.created_at}
+                          >
+                            {formatInboxNotificationTime(row.created_at)}
+                          </time>
+                        </div>
+                        <p className="mt-1 text-sm font-semibold leading-snug text-foreground">{row.title}</p>
+                        {row.body?.trim() ? (
+                          <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
+                            {row.body.trim()}
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <DialogFooter className="flex-col gap-2 sm:flex-col">
+                {isAccountActivityRow(threadDetail.latest) ? (
+                  <Button
+                    type="button"
+                    className="w-full bg-trader-blue text-white hover:bg-trader-blue-dark"
+                    onClick={() => {
+                      const row = threadDetail.latest;
+                      setThreadDetail(null);
+                      void navigateToHref(row, accountActivitySettingsHref(row));
+                    }}
+                  >
+                    {accountActivityButtonLabel(threadDetail.latest)}
+                  </Button>
+                ) : null}
+                {isWelcomeNotification(threadDetail.latest) ? (
+                  <Button
+                    type="button"
+                    className="w-full bg-trader-blue text-white hover:bg-trader-blue-dark"
+                    onClick={handleTourAgain}
+                  >
+                    Take the platform tour again
+                  </Button>
+                ) : null}
+                {wantsProductChangelogCta(threadDetail.latest) ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => {
+                      const row = threadDetail.latest;
+                      setThreadDetail(null);
+                      void navigateToHref(row, PRODUCT_CHANGELOG_HREF);
+                    }}
+                  >
+                    {'Roadmap & changelog'}
+                  </Button>
+                ) : null}
+                {hrefFromRow(threadDetail.latest) ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="w-full"
+                    onClick={() => {
+                      const row = threadDetail.latest;
+                      const href = hrefFromRow(row);
+                      if (!href) return;
+                      setThreadDetail(null);
+                      void navigateToHref(row, href);
+                    }}
+                  >
+                    {isWelcomeNotification(threadDetail.latest)
+                      ? 'Go to overview'
+                      : threadDetail.latest.type === 'weekly_digest'
                         ? 'Notification settings'
                         : 'Go to related page'}
                   </Button>

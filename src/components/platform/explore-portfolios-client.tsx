@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ExplorePortfoliosEquityChart } from '@/components/platform/explore-portfolios-equity-chart';
 import {
-  formatExploreEquityAxisDate,
+  formatModelInceptionFootnoteDate,
   type ExploreBenchmarkSeries,
   type ExploreEquitySeriesLivePoint,
   type ExploreEquitySeriesRow,
@@ -14,9 +14,10 @@ import {
   showPortfolioUnfollowToast,
   showPortfolioFollowToast,
   setUserPortfolioProfileActive,
-  invalidateUserPortfolioProfiles,
   invalidateUserPortfolioProfilesList,
   showFollowLimitToast,
+  USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT,
+  type UserPortfolioProfilesInvalidateDetail,
 } from '@/components/platform/portfolio-unfollow-toast';
 import { PortfolioEntryDatePicker } from '@/components/platform/portfolio-entry-date-picker';
 import { portfolioEntryDateBounds } from '@/components/platform/portfolio-entry-date-utils';
@@ -421,7 +422,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
     void loadConfigs();
   }, [loadConfigs, strategySlug]);
 
-  const loadFollowedProfiles = useCallback(async () => {
+  const loadFollowedProfiles = useCallback(async (opts?: { silent?: boolean }) => {
     if (!authState.isAuthenticated) {
       setFollowedProfileIdByConfigId({});
       setFollowedProfileAlertsByConfigId({});
@@ -430,7 +431,9 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
       return;
     }
     try {
-      const data = (await loadUserPortfolioProfilesClient()) as {
+      const data = (await loadUserPortfolioProfilesClient(
+        opts?.silent ? { bypassCache: true } : undefined
+      )) as {
         profiles?: UserProfileFollowRow[];
         maxFollowedPortfolios?: unknown;
       } | null;
@@ -460,6 +463,34 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
   useEffect(() => {
     void loadFollowedProfiles();
   }, [loadFollowedProfiles]);
+
+  useEffect(() => {
+    if (!authState.isAuthenticated) return;
+    const handler = (e: Event) => {
+      const d = (e as CustomEvent<UserPortfolioProfilesInvalidateDetail>).detail;
+      const ymd = typeof d?.userStartDate === 'string' ? d.userStartDate.trim() : '';
+      const entryMerge =
+        d?.entrySettingsOnly === true &&
+        typeof d?.profileId === 'string' &&
+        d.profileId.trim().length > 0 &&
+        typeof d?.investmentSize === 'number' &&
+        Number.isFinite(d.investmentSize) &&
+        d.investmentSize > 0 &&
+        /^\d{4}-\d{2}-\d{2}$/.test(ymd);
+      if (entryMerge) return;
+      if (d?.entrySettingsOnly) {
+        void loadFollowedProfiles({ silent: true });
+        return;
+      }
+      if (d?.profilesListOnly) {
+        void loadFollowedProfiles({ silent: true });
+        return;
+      }
+      void loadFollowedProfiles({ silent: true });
+    };
+    window.addEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, handler);
+    return () => window.removeEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, handler);
+  }, [authState.isAuthenticated, loadFollowedProfiles]);
 
   const followedConfigIdSet = useMemo(
     () => new Set(Object.keys(followedProfileIdByConfigId)),
@@ -769,6 +800,12 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
     [filteredConfigs]
   );
 
+  /** Ranked #1 config in the current filter set — drives “top portfolio” line/dot color on the values chart. */
+  const designatedTopPortfolioConfigId = useMemo(
+    () => filteredConfigs.find((c) => c.rank === 1)?.id ?? null,
+    [filteredConfigs]
+  );
+
   useEffect(() => {
     if (browseMode !== 'list' || !expandedId) return;
     const id = window.requestAnimationFrame(() => {
@@ -801,18 +838,31 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
     return n;
   }, [filterBeatNasdaq, filterBeatSp500, riskFilter, freqFilter, weightFilter]);
 
-  const rankingsToolbarAsOfLabel = useMemo(() => {
-    const d = latestPerformanceDate?.trim();
-    if (!d) return null;
-    return formatExploreEquityAxisDate(d);
-  }, [latestPerformanceDate]);
+  const rankingsToolbarDateRangeLabel = useMemo(() => {
+    const start = modelInceptionDate?.trim();
+    const end = latestPerformanceDate?.trim();
+    if (start && end) {
+      if (start === end) return formatModelInceptionFootnoteDate(start);
+      return `${formatModelInceptionFootnoteDate(start)} – ${formatModelInceptionFootnoteDate(end)}`;
+    }
+    if (end) return formatModelInceptionFootnoteDate(end);
+    return null;
+  }, [modelInceptionDate, latestPerformanceDate]);
+
+  const rankingsDateRangeTitle = useMemo(() => {
+    const start = modelInceptionDate?.trim();
+    const end = latestPerformanceDate?.trim();
+    if (!end) return undefined;
+    if (start && start !== end) return `Performance window: ${start} → ${end} (UTC)`;
+    return `As of ${end} (UTC)`;
+  }, [modelInceptionDate, latestPerformanceDate]);
 
   const rankingsDateTail =
-    rankingsToolbarAsOfLabel != null ? (
+    rankingsToolbarDateRangeLabel != null ? (
       <>
         {' · '}
-        <span title={latestPerformanceDate ?? undefined} className="tabular-nums">
-          {rankingsToolbarAsOfLabel}
+        <span title={rankingsDateRangeTitle} className="tabular-nums">
+          {rankingsToolbarDateRangeLabel}
         </span>
       </>
     ) : null;
@@ -961,7 +1011,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
         });
         return;
       }
-      invalidateUserPortfolioProfiles();
+      invalidateUserPortfolioProfilesList();
       showPortfolioFollowToast({
         profileId: newProfileId,
         title: `Following: ${addTarget.label}`,
@@ -1340,7 +1390,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
                 No portfolios match the selected filters.
               </div>
             ) : browseMode === 'chart' ? (
-              <div>
+              <div className="max-sm:-mx-4 sm:mx-0">
                 {equitySeriesLoading || equitySeriesPayload == null ? (
                   <Skeleton className="h-[380px] w-full rounded-lg" />
                 ) : (
@@ -1352,6 +1402,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
                     }))}
                     benchmarks={equitySeriesPayload.benchmarks}
                     visibleConfigIds={visibleConfigIds}
+                    designatedTopPortfolioConfigId={designatedTopPortfolioConfigId}
                     selectedConfigId={expandedId}
                     onSelectConfig={handleChartSeriesPick}
                   />

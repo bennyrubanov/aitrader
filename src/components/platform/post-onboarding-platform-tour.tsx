@@ -37,8 +37,12 @@ function syncOverviewSpotlightMobileTabForTourStep(stepId: PlatformPostOnboardin
     dispatchPlatformTourSpotlightMobileSubTab('performance');
     return;
   }
-  if (stepId === 'overview-portfolio-holdings' || stepId === 'overview-rebalance-actions') {
+  if (stepId === 'overview-portfolio-holdings') {
     dispatchPlatformTourSpotlightMobileSubTab('holdings');
+    return;
+  }
+  if (stepId === 'overview-rebalance-actions') {
+    dispatchPlatformTourSpotlightMobileSubTab('actions');
   }
 }
 

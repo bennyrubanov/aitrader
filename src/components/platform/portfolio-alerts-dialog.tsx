@@ -15,13 +15,10 @@ import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
 import { invalidateUserPortfolioProfilesList } from '@/components/platform/portfolio-unfollow-toast';
 
+/** One in-app + one email switch for rebalance, price move, and entries/exits (kept in lockstep). */
 export type PortfolioAlertsInitial = {
-  notifyRebalanceInapp: boolean;
-  notifyRebalanceEmail: boolean;
-  notifyPriceMoveInapp: boolean;
-  notifyPriceMoveEmail: boolean;
-  notifyEntriesExitsInapp: boolean;
-  notifyEntriesExitsEmail: boolean;
+  eventsInapp: boolean;
+  eventsEmail: boolean;
 };
 
 type Props = {
@@ -69,26 +66,14 @@ function Row({
 
 export function PortfolioAlertsDialog({ open, onOpenChange, profileId, initial, onSaved }: Props) {
   const { toast } = useToast();
-  const [notifyRebalanceInapp, setNotifyRebalanceInapp] = useState(initial.notifyRebalanceInapp);
-  const [notifyRebalanceEmail, setNotifyRebalanceEmail] = useState(initial.notifyRebalanceEmail);
-  const [notifyPriceMoveInapp, setNotifyPriceMoveInapp] = useState(initial.notifyPriceMoveInapp);
-  const [notifyPriceMoveEmail, setNotifyPriceMoveEmail] = useState(initial.notifyPriceMoveEmail);
-  const [notifyEntriesExitsInapp, setNotifyEntriesExitsInapp] = useState(
-    initial.notifyEntriesExitsInapp
-  );
-  const [notifyEntriesExitsEmail, setNotifyEntriesExitsEmail] = useState(
-    initial.notifyEntriesExitsEmail
-  );
+  const [eventsInapp, setEventsInapp] = useState(initial.eventsInapp);
+  const [eventsEmail, setEventsEmail] = useState(initial.eventsEmail);
   const [saving, setSaving] = useState(false);
 
   const handleOpenChange = (next: boolean) => {
     if (next) {
-      setNotifyRebalanceInapp(initial.notifyRebalanceInapp);
-      setNotifyRebalanceEmail(initial.notifyRebalanceEmail);
-      setNotifyPriceMoveInapp(initial.notifyPriceMoveInapp);
-      setNotifyPriceMoveEmail(initial.notifyPriceMoveEmail);
-      setNotifyEntriesExitsInapp(initial.notifyEntriesExitsInapp);
-      setNotifyEntriesExitsEmail(initial.notifyEntriesExitsEmail);
+      setEventsInapp(initial.eventsInapp);
+      setEventsEmail(initial.eventsEmail);
     }
     onOpenChange(next);
   };
@@ -101,12 +86,12 @@ export function PortfolioAlertsDialog({ open, onOpenChange, profileId, initial, 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           profileId,
-          notifyRebalanceInapp,
-          notifyRebalanceEmail,
-          notifyPriceMoveInapp,
-          notifyPriceMoveEmail,
-          notifyEntriesExitsInapp,
-          notifyEntriesExitsEmail,
+          notifyRebalanceInapp: eventsInapp,
+          notifyPriceMoveInapp: eventsInapp,
+          notifyEntriesExitsInapp: eventsInapp,
+          notifyRebalanceEmail: eventsEmail,
+          notifyPriceMoveEmail: eventsEmail,
+          notifyEntriesExitsEmail: eventsEmail,
         }),
       });
       if (!res.ok) {
@@ -134,31 +119,18 @@ export function PortfolioAlertsDialog({ open, onOpenChange, profileId, initial, 
         <DialogHeader>
           <DialogTitle>Portfolio notifications</DialogTitle>
           <DialogDescription>
-            Choose in-app and email for each alert type on this followed portfolio.
+            Rebalance reminders, price-move alerts, and entries/exits share the same in-app and email
+            settings for this portfolio.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3 py-2">
           <Row
-            label="Rebalance action reminders"
-            inApp={notifyRebalanceInapp}
-            email={notifyRebalanceEmail}
-            onInApp={setNotifyRebalanceInapp}
-            onEmail={setNotifyRebalanceEmail}
-          />
-          <Row
-            label="Portfolio price alerts"
-            description="±5% vs prior snapshot day."
-            inApp={notifyPriceMoveInapp}
-            email={notifyPriceMoveEmail}
-            onInApp={setNotifyPriceMoveInapp}
-            onEmail={setNotifyPriceMoveEmail}
-          />
-          <Row
-            label="Portfolio entries and exits"
-            inApp={notifyEntriesExitsInapp}
-            email={notifyEntriesExitsEmail}
-            onInApp={setNotifyEntriesExitsInapp}
-            onEmail={setNotifyEntriesExitsEmail}
+            label="Rebalances, price moves, entries & exits"
+            description="Includes ±5% vs prior snapshot day for price alerts."
+            inApp={eventsInapp}
+            email={eventsEmail}
+            onInApp={setEventsInapp}
+            onEmail={setEventsEmail}
           />
         </div>
         <DialogFooter>

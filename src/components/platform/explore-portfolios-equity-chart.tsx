@@ -19,13 +19,15 @@ import {
   type ExploreEquitySeriesRow,
 } from '@/components/platform/explore-portfolios-equity-chart-shared';
 import {
-  CHART_INDEX_SERIES_COLORS,
+  CHART_AGGREGATE_AVERAGE_PORTFOLIO,
+  CHART_AGGREGATE_NASDAQ100,
+  CHART_AGGREGATE_SP500,
+  CHART_AGGREGATE_TOP_PORTFOLIO,
   CHART_NEUTRAL_REFERENCE_STROKE,
-  CHART_PORTFOLIO_SERIES_COLOR,
 } from '@/lib/chart-index-series-colors';
 import { cn } from '@/lib/utils';
 
-/** Same labels/colors as `performance-chart.tsx` benchmarks (equal-weight Nasdaq not drawn). */
+/** Benchmark keys for this chart; colors from `CHART_AGGREGATE_*` (equal-weight Nasdaq not drawn). */
 const EXPLORE_BM_KEYS = {
   cap: 'bm_nasdaq_cap',
   sp: 'bm_sp500',
@@ -37,15 +39,15 @@ const EXPLORE_BM_ORDER: ExploreBenchmarkKey[] = [EXPLORE_BM_KEYS.cap, EXPLORE_BM
 
 /** Synthetic series: mean $ across visible configs (explore only, ≥2 lines). */
 const EXPLORE_AVERAGE_PORTFOLIO_DATA_KEY = 'avg_visible_portfolios';
-const EXPLORE_AVERAGE_PORTFOLIO_COLOR = CHART_PORTFOLIO_SERIES_COLOR;
+const EXPLORE_AVERAGE_PORTFOLIO_COLOR = CHART_AGGREGATE_AVERAGE_PORTFOLIO;
 const EXPLORE_AVERAGE_PORTFOLIO_LABEL = 'Average Portfolio';
 
 const EXPLORE_BM_CONFIG: Record<ExploreBenchmarkKey, { label: string; color: string }> = {
   [EXPLORE_BM_KEYS.cap]: {
     label: 'Nasdaq-100',
-    color: CHART_INDEX_SERIES_COLORS.nasdaq100CapWeight,
+    color: CHART_AGGREGATE_NASDAQ100,
   },
-  [EXPLORE_BM_KEYS.sp]: { label: 'S&P 500', color: CHART_INDEX_SERIES_COLORS.sp500 },
+  [EXPLORE_BM_KEYS.sp]: { label: 'S&P 500', color: CHART_AGGREGATE_SP500 },
 };
 
 const PICKER_MUTED_SERIES_COLOR = CHART_NEUTRAL_REFERENCE_STROKE;
@@ -115,6 +117,27 @@ function formatEquityAxisTick(v: number): string {
   return `$${Math.round(v).toLocaleString('en-US')}`;
 }
 
+/** Shorter Y-axis ticks on small phones (e.g. `$10.5k` vs `$10,561`). */
+function formatEquityAxisTickCompact(v: number): string {
+  if (Number.isNaN(v) || !Number.isFinite(v)) return '';
+  const abs = Math.abs(v);
+  if (abs >= 1_000_000) {
+    const m = v / 1_000_000;
+    const s =
+      Math.abs(m - Math.round(m)) < 0.05
+        ? Math.round(m).toString()
+        : m.toFixed(1).replace(/\.0$/, '');
+    return `$${s}M`;
+  }
+  if (abs >= 1000) {
+    const k = v / 1000;
+    const t = Math.floor(k * 10) / 10;
+    const s = t % 1 === 0 ? String(t) : t.toFixed(1);
+    return `$${s.replace(/\.0$/, '')}k`;
+  }
+  return `$${Math.round(v)}`;
+}
+
 function formatEquityTooltipValue(v: number): string {
   if (Math.abs(v - 10_000) < 1) return '$10,000';
   return `$${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
@@ -163,6 +186,21 @@ function scrollWithinContainer(root: HTMLElement, el: HTMLElement, margin = 4) {
   } else if (elRect.bottom > rootRect.bottom - margin) {
     root.scrollTop += elRect.bottom - rootRect.bottom + margin;
   }
+}
+
+/** Tailwind `sm` (640px) — phones only; used for compact chart Y-axis + margins. */
+function useIsMobileEquityChartTicks() {
+  const query = '(max-width: 639px)';
+  return useSyncExternalStore(
+    (onStoreChange) => {
+      if (typeof window === 'undefined') return () => {};
+      const mq = window.matchMedia(query);
+      mq.addEventListener('change', onStoreChange);
+      return () => mq.removeEventListener('change', onStoreChange);
+    },
+    () => (typeof window !== 'undefined' ? window.matchMedia(query).matches : false),
+    () => false
+  );
 }
 
 /** Tailwind `lg` breakpoint — chart/sidebar layout stacks below this width. */
@@ -222,6 +260,7 @@ export function ExplorePortfoliosEquityChart({
 }: Props) {
   const isPicker = variant === 'performancePicker';
   const isNarrowLayout = useIsNarrowExploreChartLayout();
+  const isMobileAxisTicks = useIsMobileEquityChartTicks();
   const [range, setRange] = useState<TimeRange>('All');
   /** Hidden benchmark lines — same interaction pattern as `PerformanceChart` legend pills */
   const [hiddenBenchmarkKeys, setHiddenBenchmarkKeys] = useState<Set<ExploreBenchmarkKey>>(
@@ -431,39 +470,6 @@ export function ExplorePortfoliosEquityChart({
     return row;
   }, [isPicker, effectiveDates, effectiveSeries, effectiveBenchmarks, effectiveBenchmarksValid]);
 
-  const pickerTopPortfolioDataKey = useMemo(() => {
-    if (!isPicker || !pickerLatestRow) return null;
-    if (designatedTopPortfolioConfigId) {
-      const dk = dataKeyForExploreConfig(designatedTopPortfolioConfigId);
-      if (dataKeys.includes(dk)) return dk;
-    }
-    let bestKey: string | null = null;
-    let bestValue = Number.NEGATIVE_INFINITY;
-    for (const key of dataKeys) {
-      const value = Number(pickerLatestRow[key]);
-      if (Number.isFinite(value) && value > bestValue) {
-        bestKey = key;
-        bestValue = value;
-      }
-    }
-    return bestKey;
-  }, [isPicker, pickerLatestRow, dataKeys, designatedTopPortfolioConfigId]);
-
-  const pickerTopPortfolioChip = useMemo(() => {
-    if (!isPicker || !pickerLatestRow || !pickerTopPortfolioDataKey) return null;
-    const s = effectiveSeries.find(
-      (row) => dataKeyForExploreConfig(row.configId) === pickerTopPortfolioDataKey
-    );
-    const value = Number(pickerLatestRow[pickerTopPortfolioDataKey]);
-    if (!s || !Number.isFinite(value)) return null;
-    return {
-      dataKey: pickerTopPortfolioDataKey,
-      configId: s.configId,
-      label: 'Top portfolio',
-      value,
-    };
-  }, [isPicker, pickerLatestRow, pickerTopPortfolioDataKey, effectiveSeries]);
-
   /** Unpinned + not hovering: sidebar / callout use the latest point in the current range. */
   const displayValueIndex = isPicker ? null : (pinnedIndex ?? hoverIndex ?? latestIdx);
   const displayValueRow = isPicker
@@ -471,6 +477,52 @@ export function ExplorePortfoliosEquityChart({
     : displayValueIndex != null
       ? chartData[displayValueIndex]
       : null;
+
+  /** Ranked top (or designated) portfolio series key — muted sidebar dot for other portfolios (explore + picker). */
+  const topPortfolioDataKey = useMemo(() => {
+    const row = isPicker
+      ? pickerLatestRow
+      : displayValueIndex != null
+        ? chartData[displayValueIndex]
+        : null;
+    if (!row || !dataKeys.length) return null;
+    if (designatedTopPortfolioConfigId) {
+      const dk = dataKeyForExploreConfig(designatedTopPortfolioConfigId);
+      if (dataKeys.includes(dk)) return dk;
+    }
+    let bestKey: string | null = null;
+    let bestValue = Number.NEGATIVE_INFINITY;
+    for (const key of dataKeys) {
+      const value = Number(row[key]);
+      if (Number.isFinite(value) && value > bestValue) {
+        bestKey = key;
+        bestValue = value;
+      }
+    }
+    return bestKey;
+  }, [
+    isPicker,
+    pickerLatestRow,
+    displayValueIndex,
+    chartData,
+    dataKeys,
+    designatedTopPortfolioConfigId,
+  ]);
+
+  const pickerTopPortfolioChip = useMemo(() => {
+    if (!isPicker || !pickerLatestRow || !topPortfolioDataKey) return null;
+    const s = effectiveSeries.find(
+      (row) => dataKeyForExploreConfig(row.configId) === topPortfolioDataKey
+    );
+    const value = Number(pickerLatestRow[topPortfolioDataKey]);
+    if (!s || !Number.isFinite(value)) return null;
+    return {
+      dataKey: topPortfolioDataKey,
+      configId: s.configId,
+      label: 'Top portfolio',
+      value,
+    };
+  }, [isPicker, pickerLatestRow, topPortfolioDataKey, effectiveSeries]);
 
   const averageBenchOutperformance = useMemo(() => {
     if (isPicker || !effectiveBenchmarksValid || !effectiveBenchmarks || !displayValueRow) return null;
@@ -532,8 +584,8 @@ export function ExplorePortfoliosEquityChart({
             label: chartConfig[k]?.label ?? k,
             value: Number(row[k]),
             lineColor:
-              isPicker && k === pickerTopPortfolioDataKey
-                ? CHART_PORTFOLIO_SERIES_COLOR
+              k === topPortfolioDataKey
+                ? CHART_AGGREGATE_TOP_PORTFOLIO
                 : (chartConfig[k]?.color ?? CHART_NEUTRAL_REFERENCE_STROKE),
           };
         })
@@ -589,7 +641,7 @@ export function ExplorePortfoliosEquityChart({
     dataKeys,
     effectiveSeries,
     chartConfig,
-    pickerTopPortfolioDataKey,
+    topPortfolioDataKey,
     effectiveBenchmarksValid,
     hiddenBenchmarkKeys,
     showAveragePortfolioLine,
@@ -750,13 +802,13 @@ export function ExplorePortfoliosEquityChart({
                 </span>
               ) : null}
             </div>
-            <div className="flex w-full flex-col items-start gap-1 text-sm sm:w-auto sm:flex-row sm:flex-wrap sm:items-baseline sm:justify-end sm:gap-x-5 sm:gap-y-1">
+            <div className="flex w-full flex-wrap items-baseline gap-x-4 gap-y-1 text-sm max-sm:justify-start sm:w-auto sm:justify-end sm:gap-x-5">
               {displayValueRow && typeof displayValueRow.shortDate === 'string' ? (
                 <span className="hidden shrink-0 text-[11px] tabular-nums text-muted-foreground sm:inline sm:mr-1">
                   {displayValueRow.shortDate}
                 </span>
               ) : null}
-              <div className="flex flex-col items-start gap-0.5 sm:flex-row sm:items-baseline sm:justify-end sm:gap-2">
+              <div className="flex shrink-0 flex-row items-baseline gap-2">
                 <span className="shrink-0 text-xs text-muted-foreground">S&amp;P 500</span>
                 <span
                   className={cn(
@@ -769,7 +821,7 @@ export function ExplorePortfoliosEquityChart({
                   {formatSignedPct1(averageBenchOutperformance.vsSp500)}
                 </span>
               </div>
-              <div className="flex flex-col items-start gap-0.5 sm:flex-row sm:items-baseline sm:justify-end sm:gap-2">
+              <div className="flex shrink-0 flex-row items-baseline gap-2">
                 <span className="shrink-0 text-xs text-muted-foreground">Nasdaq-100</span>
                 <span
                   className={cn(
@@ -817,7 +869,7 @@ export function ExplorePortfoliosEquityChart({
               >
                 <span
                   className="size-2 shrink-0 rounded-full"
-                  style={{ background: CHART_PORTFOLIO_SERIES_COLOR }}
+                  style={{ background: CHART_AGGREGATE_TOP_PORTFOLIO }}
                   aria-hidden
                 />
                 <span className="min-w-0 truncate font-medium text-foreground">
@@ -975,7 +1027,11 @@ export function ExplorePortfoliosEquityChart({
           >
             <LineChart
               data={chartData}
-              margin={{ top: 8, right: 8, left: 8, bottom: 4 }}
+              margin={
+                isMobileAxisTicks
+                  ? { top: 8, right: 2, left: 2, bottom: 4 }
+                  : { top: 8, right: 8, left: 8, bottom: 4 }
+              }
               onMouseMove={isPicker ? undefined : handleChartMouseMove}
               onMouseLeave={isPicker ? undefined : handleChartMouseLeave}
               onClick={isPicker ? undefined : handleChartClick}
@@ -984,9 +1040,9 @@ export function ExplorePortfoliosEquityChart({
               <XAxis dataKey="shortDate" tick={{ fontSize: 10 }} />
               <YAxis
                 domain={yDomain}
-                tickFormatter={formatEquityAxisTick}
+                tickFormatter={isMobileAxisTicks ? formatEquityAxisTickCompact : formatEquityAxisTick}
                 tick={{ fontSize: 10 }}
-                width={68}
+                width={isMobileAxisTicks ? 50 : 68}
                 minTickGap={8}
               />
               <ReferenceLine
@@ -999,7 +1055,7 @@ export function ExplorePortfoliosEquityChart({
               {pinnedXLabel != null ? (
                 <ReferenceLine
                   x={pinnedXLabel}
-                  stroke={CHART_PORTFOLIO_SERIES_COLOR}
+                  stroke={CHART_AGGREGATE_TOP_PORTFOLIO}
                   strokeWidth={1}
                   strokeDasharray="4 3"
                   strokeOpacity={0.65}
@@ -1032,35 +1088,27 @@ export function ExplorePortfoliosEquityChart({
                 const sel = selectedConfigId === cfgId;
                 const lineHover = hoveredLineKey === k;
                 const baseColor = chartConfig[k]?.color ?? CHART_NEUTRAL_REFERENCE_STROKE;
-                const pickerTopLine = isPicker && k === pickerTopPortfolioDataKey;
-                const color = isPicker
-                  ? pickerTopLine
-                    ? CHART_PORTFOLIO_SERIES_COLOR
-                    : lineHover
-                      ? baseColor
-                      : PICKER_MUTED_SERIES_COLOR
-                  : baseColor;
+                const topPortfolioLine = topPortfolioDataKey != null && k === topPortfolioDataKey;
+                /** Picker + explore: muted idle lines, full `baseColor` on hover; top portfolio stays green. */
+                const color = topPortfolioLine
+                  ? CHART_AGGREGATE_TOP_PORTFOLIO
+                  : lineHover
+                    ? baseColor
+                    : PICKER_MUTED_SERIES_COLOR;
                 const showPinDots = !isPicker && !isNarrowLayout && pinnedIndex != null;
-                const lineStroke =
-                  isPicker
-                    ? pickerTopLine
-                      ? lineHover
-                        ? 3.4
-                        : 2.75
-                      : lineHover
-                        ? 2.2
-                        : 1.15
-                    : isNarrowLayout && !isPicker
+                const lineStroke = topPortfolioLine
+                  ? lineHover
+                    ? 3.4
+                    : 2.75
+                  : isNarrowLayout && !isPicker
                     ? sel
                       ? 3.5
                       : lineHover
                         ? 3
-                        : 2.5
-                    : sel
-                      ? 2.75
-                      : lineHover
-                        ? 2.2
-                        : 1.15;
+                        : 2.2
+                    : lineHover
+                      ? 2.2
+                      : 1.15;
                 return (
                   <Line
                     key={k}
@@ -1069,21 +1117,7 @@ export function ExplorePortfoliosEquityChart({
                     stroke={color}
                     strokeWidth={lineStroke}
                     strokeOpacity={
-                      isPicker
-                        ? pickerTopLine
-                          ? 1
-                          : lineHover
-                            ? 0.9
-                            : 0.28
-                        : selectedConfigId && !sel
-                        ? lineHover
-                          ? 0.85
-                          : 0.14
-                        : selectedConfigId
-                          ? 1
-                          : lineHover
-                            ? 0.85
-                            : 0.45
+                      topPortfolioLine ? 1 : lineHover ? 0.9 : 0.28
                     }
                     dot={
                       showPinDots
@@ -1278,8 +1312,6 @@ export function ExplorePortfoliosEquityChart({
               <ul className="space-y-0.5">
                 {sidebarRows.map((r) => {
                   const rowActive = hoveredLineKey === r.dataKey;
-                  const rowIsPickerTopPortfolio =
-                    isPicker && r.kind === 'portfolio' && r.dataKey === pickerTopPortfolioDataKey;
                   if (r.kind === 'benchmark') {
                     return (
                       <li key={r.dataKey}>
@@ -1401,7 +1433,7 @@ export function ExplorePortfoliosEquityChart({
                           className="size-1.5 shrink-0 rounded-full"
                           style={{
                             backgroundColor:
-                              isPicker && !rowActive && !rowIsPickerTopPortfolio
+                              !rowActive && r.dataKey !== topPortfolioDataKey
                                 ? PICKER_MUTED_SERIES_COLOR
                                 : r.lineColor,
                           }}
@@ -1426,7 +1458,7 @@ export function ExplorePortfoliosEquityChart({
         </aside>
       </div>
 
-      <p className="text-[11px] text-muted-foreground max-sm:mb-3">
+      <p className="text-[11px] text-muted-foreground max-sm:mb-3 max-sm:px-3">
         Simulated portfolio value starting from <strong className="text-foreground">$10,000</strong>{' '}
         at inception on{' '}
         <strong className="text-foreground">

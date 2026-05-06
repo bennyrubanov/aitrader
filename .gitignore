@@ -16,6 +16,9 @@ dist-ssr
 # TypeScript incremental build (do not commit)
 tsconfig.tsbuildinfo
 
+# Local merge backups (do not commit)
+.cursor/backups/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

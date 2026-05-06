@@ -460,6 +460,39 @@ export async function PATCH(req: Request) {
   if (typeof body.notifyWeeklyEmail === 'boolean') {
     updates.notify_weekly_email = body.notifyWeeklyEmail;
   }
+
+  /** Rebalance / price / entries-exits toggles always move together per channel (in-app vs email). */
+  const hasAnyPortfolioEventInapp =
+    typeof body.notifyRebalanceInapp === 'boolean' ||
+    typeof body.notifyPriceMoveInapp === 'boolean' ||
+    typeof body.notifyEntriesExitsInapp === 'boolean';
+  if (hasAnyPortfolioEventInapp) {
+    const v =
+      typeof body.notifyRebalanceInapp === 'boolean'
+        ? body.notifyRebalanceInapp
+        : typeof body.notifyPriceMoveInapp === 'boolean'
+          ? body.notifyPriceMoveInapp
+          : Boolean(body.notifyEntriesExitsInapp);
+    updates.notify_rebalance_inapp = v;
+    updates.notify_price_move_inapp = v;
+    updates.notify_entries_exits_inapp = v;
+  }
+  const hasAnyPortfolioEventEmail =
+    typeof body.notifyRebalanceEmail === 'boolean' ||
+    typeof body.notifyPriceMoveEmail === 'boolean' ||
+    typeof body.notifyEntriesExitsEmail === 'boolean';
+  if (hasAnyPortfolioEventEmail) {
+    const v =
+      typeof body.notifyRebalanceEmail === 'boolean'
+        ? body.notifyRebalanceEmail
+        : typeof body.notifyPriceMoveEmail === 'boolean'
+          ? body.notifyPriceMoveEmail
+          : Boolean(body.notifyEntriesExitsEmail);
+    updates.notify_rebalance_email = v;
+    updates.notify_price_move_email = v;
+    updates.notify_entries_exits_email = v;
+  }
+
   if (typeof body.investmentSize === 'number' && body.investmentSize > 0) {
     updates.investment_size = body.investmentSize;
   }
@@ -532,7 +565,7 @@ export async function PATCH(req: Request) {
     const { data: scopeCur, error: scopeErr } = await supabase
       .from('user_portfolio_profiles')
       .select(
-        'notify_rebalance_inapp, notify_rebalance_email, notify_entries_exits_inapp, notify_entries_exits_email'
+        'notify_rebalance_inapp, notify_rebalance_email, notify_price_move_inapp, notify_price_move_email, notify_entries_exits_inapp, notify_entries_exits_email'
       )
       .eq('id', profileId)
       .eq('user_id', user.id)
@@ -544,11 +577,13 @@ export async function PATCH(req: Request) {
       const r = scopeCur as Record<string, boolean>;
       const rbIn = (updates.notify_rebalance_inapp as boolean | undefined) ?? r.notify_rebalance_inapp;
       const rbEm = (updates.notify_rebalance_email as boolean | undefined) ?? r.notify_rebalance_email;
+      const pmIn = (updates.notify_price_move_inapp as boolean | undefined) ?? r.notify_price_move_inapp;
+      const pmEm = (updates.notify_price_move_email as boolean | undefined) ?? r.notify_price_move_email;
       const exIn =
         (updates.notify_entries_exits_inapp as boolean | undefined) ?? r.notify_entries_exits_inapp;
       const exEm =
         (updates.notify_entries_exits_email as boolean | undefined) ?? r.notify_entries_exits_email;
-      updates.notify_rebalance = rbIn || rbEm;
+      updates.notify_rebalance = rbIn || rbEm || pmIn || pmEm;
       updates.notify_holdings_change = exIn || exEm;
     }
   }
