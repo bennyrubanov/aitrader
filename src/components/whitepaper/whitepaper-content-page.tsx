@@ -140,6 +140,8 @@ export default async function WhitepaperContentPage() {
                         example,{' '}
                         <Link
                           href="/strategy-models/ait-1-daneel"
+                          target="_blank"
+                          rel="noopener noreferrer"
                           className="text-trader-blue no-underline font-medium transition-colors hover:text-trader-blue/90"
                         >
                           AIT-1 Daneel
@@ -780,6 +782,8 @@ export default async function WhitepaperContentPage() {
             same relative-scoring idea, and the same OLS + quintile validation framework. See the{' '}
             <Link
               href="/strategy-models/ait-1-daneel#model-scoring"
+              target="_blank"
+              rel="noopener noreferrer"
               className="text-trader-blue no-underline transition-colors hover:text-trader-blue/90"
             >
               AIT-1 model page
@@ -799,14 +803,14 @@ export default async function WhitepaperContentPage() {
       <div className="mb-8 space-y-6">
         <div className="flex justify-center">
           <Button asChild>
-            <Link href="/strategy-models" className="gap-2">
+            <Link href="/strategy-models" target="_blank" rel="noopener noreferrer" className="gap-2">
               <TrendingUp className="size-4" /> See experiment performance
             </Link>
           </Button>
         </div>
         <div className="flex items-center justify-between gap-3">
           <Button asChild variant="ghost">
-            <Link href="/strategy-models">
+            <Link href="/strategy-models" target="_blank" rel="noopener noreferrer">
               <ArrowLeft className="size-4 mr-1" /> All models
             </Link>
           </Button>

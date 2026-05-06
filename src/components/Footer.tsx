@@ -24,7 +24,17 @@ const Footer: React.FC = () => {
           <div>
             <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider mb-4">Platform</h3>
             <ul className="space-y-3">
-              <li><Link href="/strategy-models" prefetch className="text-muted-foreground hover:text-trader-blue transition-colors">Strategy models</Link></li>
+              <li>
+                <Link
+                  href="/strategy-models"
+                  prefetch
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-muted-foreground hover:text-trader-blue transition-colors"
+                >
+                  Strategy models
+                </Link>
+              </li>
               <li><Link href="/whitepaper" prefetch className="text-muted-foreground hover:text-trader-blue transition-colors">Whitepaper</Link></li>
               <li><Link href="/pricing" prefetch className="text-muted-foreground hover:text-trader-blue transition-colors">Pricing & Features</Link></li>
               <li><Link href="/platform/overview" prefetch className="text-muted-foreground hover:text-trader-blue transition-colors">Explore Platform</Link></li>

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ComponentType, type ReactNode } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { Activity, ArrowRight, BarChart3, Star, TrendingUp } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -12,6 +13,7 @@ import {
   LEGACY_AIT1_SLUG,
 } from '@/lib/default-ait-model-grainient';
 import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
+import { stockModelLinkNewTabProps } from '@/lib/stock-model-link-new-tab';
 import { cn } from '@/lib/utils';
 import { pickBeatSlotToReplace } from '@/components/model-header-card-insights';
 import {
@@ -318,8 +320,10 @@ export function ModelHeaderCard({
   variant,
   omitTitle = false,
 }: ModelHeaderCardProps) {
+  const pathname = usePathname();
   const shortName = name.split(' ')[0] ?? name;
   const sp500ExcessInsightHref = sp500ExcessInsightHrefProp ?? `/strategy-models/${slug}#returns`;
+  const fullPerformanceHref = `/strategy-models/${slug}`;
 
   const [beatLoading, setBeatLoading] = useState(Boolean(beatMarketSlug));
   const [beatError, setBeatError] = useState<string | null>(null);
@@ -621,7 +625,7 @@ export function ModelHeaderCard({
           )}
           {variant === 'model' && (
             <Button asChild size="sm" variant="outline" className="gap-1.5">
-              <Link href={`/strategy-models/${slug}`}>
+              <Link href={fullPerformanceHref} {...stockModelLinkNewTabProps(fullPerformanceHref, pathname)}>
                 <TrendingUp className="size-3.5" /> Full performance
               </Link>
             </Button>

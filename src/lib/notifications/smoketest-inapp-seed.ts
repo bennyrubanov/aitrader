@@ -1,6 +1,10 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { hrefStockSymbol, hrefStrategyModel, hrefYourPortfolio } from '@/lib/notifications/hrefs';
-import { CATALOG_ID, portfolioFollowedThreadId } from '@/lib/notifications/notification-catalog';
+import { hrefStockSymbol, hrefYourPortfolio } from '@/lib/notifications/hrefs';
+import {
+  CATALOG_ID,
+  portfolioFollowedThreadId,
+  welcomeStepCatalogId,
+} from '@/lib/notifications/notification-catalog';
 
 const SEED_MARKER = { smoketest_seed: true as const };
 
@@ -13,8 +17,8 @@ type InsertRow = {
 };
 
 /**
- * Operator QA: insert one row per `notifications.type` for a user. Idempotent per user
- * (deletes prior rows with `data.smoketest_seed` before insert).
+ * Operator QA: canonical in-app shapes (one `stock_rating_change` sample; legacy
+ * `stock_rating_weekly` is not seeded — no production writer). Idempotent per user.
  */
 export async function seedSmoketestInAppNotifications(
   admin: SupabaseClient,
@@ -64,6 +68,24 @@ export async function seedSmoketestInAppNotifications(
     },
     {
       user_id: userId,
+      type: 'stock_rating_change',
+      title: 'Smoketest · internal catalog marker',
+      body: 'Operator-only internal catalog_id sample (still type stock_rating_change).',
+      data: {
+        ...SEED_MARKER,
+        catalog_id: CATALOG_ID.INTERNAL_SMOKETEST_SEED,
+        strategy_id: strategyId,
+        strategy_slug: strategySlug,
+        stock_id: stockId,
+        symbol: 'SMK',
+        prev_bucket: 'hold',
+        next_bucket: 'hold',
+        run_date: runDate,
+        href: hrefStockSymbol('SMK'),
+      },
+    },
+    {
+      user_id: userId,
       type: 'rebalance_action',
       title: `Rebalance: ${strategyName}`,
       body: `3 position update(s) in your followed portfolio on ${runDate}.`,
@@ -78,20 +100,6 @@ export async function seedSmoketestInAppNotifications(
         href: hrefYourPortfolio(profileId),
         thread_id: portfolioThreadId,
         thread_role: 'child',
-      },
-    },
-    {
-      user_id: userId,
-      type: 'model_ratings_ready',
-      title: `New ratings: ${strategyName}`,
-      body: `Weekly rating run completed on ${runDate}.`,
-      data: {
-        ...SEED_MARKER,
-        catalog_id: CATALOG_ID.PORTFOLIO_MODEL_RATINGS_READY,
-        strategy_id: strategyId,
-        strategy_slug: strategySlug,
-        run_date: runDate,
-        href: hrefStrategyModel(strategySlug),
       },
     },
     {
@@ -147,7 +155,7 @@ export async function seedSmoketestInAppNotifications(
           rating_changes: 4,
           price_alerts: 1,
         },
-        href: '/platform/notifications',
+        href: '/platform/settings/notifications',
       },
     },
     {
@@ -158,19 +166,34 @@ export async function seedSmoketestInAppNotifications(
       data: {
         ...SEED_MARKER,
         welcome: '1',
+        href: '/platform/overview',
+      },
+    },
+    {
+      user_id: userId,
+      type: 'system',
+      title: 'Smoketest · Welcome email step 1 (in-app milestone shape)',
+      body: 'Sample row matching welcome-series `insertOnboardingMilestoneInApp` (free tier step 1).',
+      data: {
+        ...SEED_MARKER,
+        catalog_id: welcomeStepCatalogId('free', 1),
+        thread_id: `onboarding:${userId}`,
+        thread_role: 'child',
         href: '/platform',
       },
     },
     {
       user_id: userId,
-      type: 'stock_rating_weekly',
-      title: 'Tracked stocks — weekly rating roundup',
-      body: 'AAPL: hold -> buy · MSFT: buy -> hold (legacy type; still supported in UI).',
+      type: 'system',
+      title: 'Smoketest · Paid transition milestone',
+      body: 'Sample paid-transition in-app row (Supporter path).',
       data: {
         ...SEED_MARKER,
-        run_week_ending: weekEnding,
-        lines: ['AAPL: hold -> buy', 'MSFT: buy -> hold'],
-        href: '/platform/notifications',
+        catalog_id: 'onboarding.welcome.paid_transition.supporter',
+        thread_id: `paid_transition:${userId}`,
+        thread_role: 'child',
+        paid_transition: 'supporter',
+        href: '/platform/settings/notifications',
       },
     },
   ];

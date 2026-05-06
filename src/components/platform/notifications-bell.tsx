@@ -11,8 +11,24 @@ import {
   type ReactNode,
 } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { ArrowLeft, Bell, ChevronDown, ChevronRight, Loader2, Settings } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
+import {
+  ArrowLeft,
+  Bell,
+  CalendarDays,
+  ChevronDown,
+  ChevronRight,
+  FlaskConical,
+  Layers,
+  Loader2,
+  Minus,
+  PartyPopper,
+  RefreshCw,
+  Settings,
+  Shield,
+  Sparkles,
+  TrendingDown,
+  TrendingUp,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -37,13 +53,36 @@ import {
   threadMatchesFilter,
   type NotificationThreadGroup,
 } from '@/lib/notifications/inbox-threads';
-import type { InboxFilterCategory } from '@/lib/notifications/notification-catalog';
+import {
+  formatInboxNotificationTime,
+  inboxNotificationAvatarKind,
+  inboxNotificationAvatarWrapClass,
+  inboxNotificationCategoryLabel,
+  type InboxNotifRowInput,
+} from '@/lib/notifications/inbox-row-display';
+import {
+  accountActivityButtonLabel,
+  accountActivitySettingsHref,
+  isAccountActivityRow,
+  isOnboardingWelcomeMilestone,
+  isWelcomeSignupRow,
+  PRODUCT_CHANGELOG_HREF,
+  wantsProductChangelogCta,
+} from '@/lib/notifications/inbox-dialog-cta';
+import {
+  showInternalNotificationInboxFilter,
+  type InboxFilterCategory,
+} from '@/lib/notifications/notification-catalog';
 import { Badge } from '@/components/ui/badge';
 import {
   invalidateNotificationSettingsCache,
   prewarmNotificationSettings,
 } from '@/lib/notifications/settings-prewarm';
 import { useIsMobile } from '@/hooks/use-mobile';
+import {
+  openStockOrStrategyModelHrefInNewTab,
+  stockModelLinkNewTabProps,
+} from '@/lib/stock-model-link-new-tab';
 import { cn } from '@/lib/utils';
 
 type NotifRow = {
@@ -65,15 +104,21 @@ const FILTER_CHIPS: { id: FilterId; label: string }[] = [
   { id: 'portfolio', label: 'Portfolio' },
   { id: 'stock', label: 'Stock' },
   { id: 'model_performance', label: 'Strategy models' },
+  ...(showInternalNotificationInboxFilter()
+    ? ([{ id: 'internal' as const, label: 'Internal (dev)' }] satisfies { id: FilterId; label: string }[])
+    : []),
 ];
 
+/** Signup welcome row (`welcome: 1` / legacy title); welcome *series* milestones use `isOnboardingWelcomeMilestone`. */
 function isWelcomeNotification(n: NotifRow): boolean {
-  return n.data?.welcome === '1' || (n.type === 'system' && n.title === 'Welcome to AI Trader');
+  return isWelcomeSignupRow(n);
 }
 
 function shouldOpenDetailDialog(n: NotifRow): boolean {
+  if (isAccountActivityRow(n)) return true;
   if (isWelcomeNotification(n)) return true;
-  /** In-app digest stores `href` for settings, but the digest text lives in `body` — open dialog first. */
+  if (isOnboardingWelcomeMilestone(n)) return true;
+  /** Digest summary lives in `body`; `href` points at notification settings for the footer CTA. */
   if (n.type === 'weekly_digest') return true;
   const href = typeof n.data?.href === 'string' ? n.data.href : null;
   if (href) return false;
@@ -102,6 +147,86 @@ async function markNotificationRead(id: string): Promise<void> {
 async function postMarkAllNotificationsRead(): Promise<boolean> {
   const res = await fetch('/api/platform/notifications/mark-all-read', { method: 'POST' });
   return res.ok;
+}
+
+const GLYPH_ICONS = {
+  rebalance: RefreshCw,
+  holdings: Layers,
+  model: Sparkles,
+  weekly: CalendarDays,
+  welcome: PartyPopper,
+  account: Shield,
+  internal: FlaskConical,
+  generic: Bell,
+} as const;
+
+function tickerAvatarTextClass(length: number, size: 'sm' | 'md'): string {
+  if (size === 'sm') {
+    if (length <= 3) return 'text-[9px]';
+    if (length <= 4) return 'text-[8px]';
+    if (length <= 5) return 'text-[7px]';
+    return 'text-[6px]';
+  }
+  if (length <= 3) return 'text-[10px]';
+  if (length <= 4) return 'text-[9px]';
+  if (length <= 5) return 'text-[8px]';
+  return 'text-[7px]';
+}
+
+function NotificationRowAvatar({
+  row,
+  size = 'md',
+  className,
+}: {
+  row: InboxNotifRowInput;
+  size?: 'sm' | 'md';
+  className?: string;
+}) {
+  const kind = inboxNotificationAvatarKind(row);
+  const wrap = inboxNotificationAvatarWrapClass(row);
+  const dim = size === 'sm' ? 'size-7 text-[9px]' : 'size-8 text-[10px]';
+  const iconClass = size === 'sm' ? 'size-3' : 'size-3.5';
+  const base = cn(
+    'flex shrink-0 items-center justify-center rounded-full font-bold',
+    wrap,
+    dim,
+    className
+  );
+
+  if (kind.kind === 'ticker') {
+    const show = kind.symbol.toUpperCase().replace(/[^A-Z0-9]/g, '') || '?';
+    return (
+      <span
+        className={cn(
+          'flex shrink-0 items-center justify-center rounded-full font-bold leading-none tabular-nums tracking-tight',
+          wrap,
+          size === 'sm' ? 'size-7' : 'size-8',
+          tickerAvatarTextClass(show.length, size),
+          className
+        )}
+        aria-hidden
+      >
+        {show}
+      </span>
+    );
+  }
+
+  if (kind.kind === 'trend') {
+    const Icon =
+      kind.direction === 'up' ? TrendingUp : kind.direction === 'down' ? TrendingDown : Minus;
+    return (
+      <span className={base} aria-hidden>
+        <Icon className={iconClass} strokeWidth={2.25} />
+      </span>
+    );
+  }
+
+  const Icon = GLYPH_ICONS[kind.id];
+  return (
+    <span className={base} aria-hidden>
+      <Icon className={iconClass} strokeWidth={2} />
+    </span>
+  );
 }
 
 function NotificationsPanelInner({
@@ -146,7 +271,7 @@ function NotificationsPanelInner({
     const canExpand = g.rows.length > 1;
     return (
       <li key={g.key} className="space-y-0">
-        <div className="flex w-full items-stretch gap-0.5 rounded-lg border border-transparent px-1 py-0.5 hover:bg-muted/70">
+        <div className="flex w-full items-center gap-1 rounded-lg border border-transparent px-1 py-1 hover:bg-muted/70">
           {canExpand ? (
             <button
               type="button"
@@ -161,33 +286,35 @@ function NotificationsPanelInner({
               {expanded ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
             </button>
           ) : (
-            <span className="w-2 shrink-0" aria-hidden />
+            <span className="w-2 shrink-0 self-center" aria-hidden />
           )}
+          <NotificationRowAvatar row={n} />
           <button
             type="button"
             className={cn(
-              'flex min-w-0 flex-1 flex-col items-start gap-0.5 rounded-md px-2 py-2 text-left text-sm transition-colors',
+              'flex min-w-0 flex-1 flex-col gap-1 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
               showRecentUnreadChrome && 'border-border/60 bg-muted/40'
             )}
             onClick={() => void onRowActivate(g)}
           >
-            {g.subtitle ? (
-              <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                {g.subtitle}
+            <div className="flex w-full min-w-0 items-baseline justify-between gap-2">
+              <span className="min-w-0 truncate text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                {inboxNotificationCategoryLabel(n)}
               </span>
-            ) : null}
-            <span className="flex w-full items-start justify-between gap-3">
-              <span className="flex min-w-0 items-center gap-2">
-                <span className="font-medium leading-snug">{n.title}</span>
-                {g.rows.length > 1 ? (
-                  <Badge variant="secondary" className="h-5 shrink-0 px-1.5 text-[10px] tabular-nums">
-                    {g.rows.length}
-                  </Badge>
-                ) : null}
-              </span>
-              <span className="shrink-0 text-[11px] text-muted-foreground">
-                {formatDistanceToNow(new Date(n.created_at), { addSuffix: true })}
-              </span>
+              <time
+                className="shrink-0 text-[10px] font-medium tabular-nums text-muted-foreground"
+                dateTime={n.created_at}
+              >
+                {formatInboxNotificationTime(n.created_at)}
+              </time>
+            </div>
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="min-w-0 font-semibold leading-snug text-foreground">{n.title}</span>
+              {g.rows.length > 1 ? (
+                <Badge variant="secondary" className="h-5 shrink-0 px-1.5 text-[10px] tabular-nums">
+                  {g.rows.length}
+                </Badge>
+              ) : null}
             </span>
             {n.body?.trim() ? (
               <span
@@ -205,15 +332,31 @@ function NotificationsPanelInner({
           </button>
         </div>
         {canExpand && expanded ? (
-          <ul className="ml-6 border-l border-border/60 pl-2 pb-1">
+          <ul className="ml-2 border-l border-border/60 pl-3 pb-1 sm:ml-3">
             {g.rows.slice(1).map((child) => (
-              <li key={child.id} className="py-1.5 text-xs text-muted-foreground">
-                <span className="font-medium text-foreground">{child.title}</span>
-                {child.body?.trim() ? (
-                  <span className="mt-0.5 block whitespace-pre-wrap text-[11px] leading-snug">
-                    {child.body.trim()}
-                  </span>
-                ) : null}
+              <li key={child.id} className="py-2">
+                <div className="flex items-center gap-2">
+                  <NotificationRowAvatar row={child} size="sm" />
+                  <div className="min-w-0 flex-1 text-xs text-muted-foreground">
+                    <div className="flex w-full min-w-0 items-baseline justify-between gap-2">
+                      <span className="min-w-0 truncate text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                        {inboxNotificationCategoryLabel(child)}
+                      </span>
+                      <time
+                        className="shrink-0 text-[10px] font-medium tabular-nums text-muted-foreground"
+                        dateTime={child.created_at}
+                      >
+                        {formatInboxNotificationTime(child.created_at)}
+                      </time>
+                    </div>
+                    <span className="mt-0.5 block font-semibold text-foreground">{child.title}</span>
+                    {child.body?.trim() ? (
+                      <span className="mt-0.5 block whitespace-pre-wrap text-[11px] leading-snug">
+                        {child.body.trim()}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
               </li>
             ))}
           </ul>
@@ -700,8 +843,10 @@ export function NotificationsBell() {
     const readAt = new Date().toISOString();
     const next = { ...n, read_at: n.read_at ?? readAt };
     setDetail(next);
-    if (isMobile) setOpen(false);
-  }, [isMobile]);
+    // Always close the sheet/dropdown when stacking the detail Dialog on top. Leaving the
+    // menu `open` on desktop breaks Radix focus/pointer handling so the bell often won't reopen.
+    setOpen(false);
+  }, []);
 
   const navigateToHref = useCallback(
     async (n: NotifRow, href: string) => {
@@ -713,10 +858,14 @@ export function NotificationsBell() {
         setUnreadCount((c) => Math.max(0, c - 1));
       }
       setOpen(false);
-      router.push(href);
+      if (stockModelLinkNewTabProps(href, pathname).target === '_blank') {
+        openStockOrStrategyModelHrefInNewTab(href);
+      } else {
+        router.push(href);
+      }
       void load(true);
     },
-    [load, router]
+    [load, pathname, router]
   );
 
   const onRowActivate = useCallback(
@@ -808,9 +957,27 @@ export function NotificationsBell() {
           {detail ? (
             <>
               <DialogHeader>
-                <DialogTitle>{detail.title}</DialogTitle>
+                <div className="flex items-center gap-3 text-left">
+                  <NotificationRowAvatar row={detail} />
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <div className="flex w-full min-w-0 items-baseline justify-between gap-2">
+                      <span className="min-w-0 truncate text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                        {inboxNotificationCategoryLabel(detail)}
+                      </span>
+                      <time
+                        className="shrink-0 text-[10px] font-medium tabular-nums text-muted-foreground"
+                        dateTime={detail.created_at}
+                      >
+                        {formatInboxNotificationTime(detail.created_at)}
+                      </time>
+                    </div>
+                    <DialogTitle className="text-left text-base font-semibold leading-snug">
+                      {detail.title}
+                    </DialogTitle>
+                  </div>
+                </div>
                 {detail.body ? (
-                  <DialogDescription className="whitespace-pre-wrap text-left text-sm text-muted-foreground">
+                  <DialogDescription className="whitespace-pre-wrap pt-1 text-left text-sm text-muted-foreground">
                     {detail.body}
                   </DialogDescription>
                 ) : (
@@ -818,6 +985,18 @@ export function NotificationsBell() {
                 )}
               </DialogHeader>
               <DialogFooter className="flex-col gap-2 sm:flex-col">
+                {isAccountActivityRow(detail) ? (
+                  <Button
+                    type="button"
+                    className="w-full bg-trader-blue text-white hover:bg-trader-blue-dark"
+                    onClick={() => {
+                      setDetail(null);
+                      void navigateToHref(detail, accountActivitySettingsHref(detail));
+                    }}
+                  >
+                    {accountActivityButtonLabel(detail)}
+                  </Button>
+                ) : null}
                 {isWelcomeNotification(detail) ? (
                   <Button
                     type="button"
@@ -825,6 +1004,19 @@ export function NotificationsBell() {
                     onClick={handleTourAgain}
                   >
                     Take the platform tour again
+                  </Button>
+                ) : null}
+                {wantsProductChangelogCta(detail) ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => {
+                      setDetail(null);
+                      void navigateToHref(detail, PRODUCT_CHANGELOG_HREF);
+                    }}
+                  >
+                    {'Roadmap & changelog'}
                   </Button>
                 ) : null}
                 {hrefFromRow(detail) ? (

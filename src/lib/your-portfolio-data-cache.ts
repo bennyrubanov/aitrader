@@ -72,6 +72,7 @@ function bindUserProfilesInvalidateListener() {
       userEntryFetchedAt.delete(id);
       return;
     }
+    if (d?.profilesListOnly) return;
     userEntryStore.clear();
     userEntryInflight.clear();
     userEntryFetchedAt.clear();

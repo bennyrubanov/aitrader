@@ -3,7 +3,6 @@ import { sendTransactionalEmail } from '@/lib/mailer';
 import { sendEmailByGmail } from '@/lib/sendEmailByGmail';
 import {
   buildFollowedPortfoliosBundleSectionHtml,
-  buildModelRatingsReadyEmailHtml,
   buildPerformanceSectionHtml,
   buildPortfolioEntriesExitsEmailHtml,
   buildPortfolioPriceMoveEmailHtml,
@@ -128,7 +127,6 @@ function renderSamples(): RenderedEmail[] {
   // will not actually unsubscribe anyone if clicked.
   const unsubscribeUrl = `${base}/api/platform/notifications/unsubscribe?token=TEST`;
   const portfolioUrl = `${base}/platform/your-portfolio`;
-  const modelUrl = `${base}/strategy-models/example-strategy`;
   const inboxUrl = `${base}/platform/notifications`;
   const runDate = new Date().toISOString().slice(0, 10);
   const runWeekEnding = runDate;
@@ -171,23 +169,6 @@ function renderSamples(): RenderedEmail[] {
     out.push({
       kind: 'rebalance',
       subject: st('Portfolio rebalance', 'Portfolio rebalance — Example strategy'),
-      html,
-      text,
-      unsubscribeUrl,
-    });
-  }
-
-  {
-    const { html, text } = buildModelRatingsReadyEmailHtml({
-      strategyName: 'Example strategy',
-      runDate,
-      modelUrl,
-      settingsUrl,
-      unsubscribeUrl,
-    });
-    out.push({
-      kind: 'model-ratings-ready',
-      subject: st('Weekly ratings ready', 'New AI ratings — Example strategy'),
       html,
       text,
       unsubscribeUrl,
@@ -462,7 +443,7 @@ export async function GET(req: Request) {
       subjects: rendered.map((r) => r.subject),
       allowedKinds: ALL_KINDS,
       inapp: inappResult,
-      inappWouldInsertRows: inappResult?.ok === true ? 8 : undefined,
+      inappWouldInsertRows: inappResult?.ok === true ? 9 : undefined,
     });
   }
 

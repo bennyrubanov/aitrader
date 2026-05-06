@@ -1,19 +1,24 @@
 import { createServerClient } from '@supabase/ssr';
+import { INVOKE_PATHNAME_HEADER } from '@/lib/invoke-pathname-header';
 import { type NextRequest, NextResponse } from 'next/server';
+
+function nextWithInvokePathname(request: NextRequest) {
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set(INVOKE_PATHNAME_HEADER, request.nextUrl.pathname);
+  return NextResponse.next({
+    request: { headers: requestHeaders },
+  });
+}
 
 export const updateSession = async (request: NextRequest) => {
   const hasSupabaseAuthCookie = request.cookies
     .getAll()
     .some((cookie) => cookie.name.startsWith('sb-') && cookie.name.includes('auth-token'));
   if (!hasSupabaseAuthCookie) {
-    return NextResponse.next({
-      request,
-    });
+    return nextWithInvokePathname(request);
   }
 
-  let supabaseResponse = NextResponse.next({
-    request,
-  });
+  let supabaseResponse = nextWithInvokePathname(request);
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -25,9 +30,7 @@ export const updateSession = async (request: NextRequest) => {
         },
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
-          supabaseResponse = NextResponse.next({
-            request,
-          });
+          supabaseResponse = nextWithInvokePathname(request);
           cookiesToSet.forEach(({ name, value, options }) =>
             supabaseResponse.cookies.set(name, value, options)
           );

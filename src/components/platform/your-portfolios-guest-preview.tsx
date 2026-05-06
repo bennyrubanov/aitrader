@@ -3,6 +3,7 @@
 import type { KeyboardEvent, ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import {
   ArrowUpDown,
   ChevronDown,
@@ -53,6 +54,7 @@ import {
 import type { StrategyListItem } from '@/lib/platform-performance-payload';
 import type { PortfolioListSortMetric } from '@/lib/portfolio-profile-list-sort';
 import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
+import { stockModelLinkNewTabProps } from '@/lib/stock-model-link-new-tab';
 import { useAccountSignupPrompt } from '@/components/platform/account-signup-prompt-context';
 import { HoldingsAllocationColumnTooltip } from '@/components/tooltips/holdings-allocation-column-tooltip';
 import { HoldingsMovementInfoTooltip } from '@/components/tooltips/holdings-movement-tooltip';
@@ -372,6 +374,7 @@ type Props = {
 };
 
 export function YourPortfoliosGuestPreview({ signInHref, signUpHref }: Props) {
+  const pathname = usePathname();
   const p = FAKE_YOUR_PORTFOLIOS_PREVIEW;
   const { openSignupPrompt } = useAccountSignupPrompt();
   const promptSignup = () => openSignupPrompt();
@@ -496,7 +499,13 @@ export function YourPortfoliosGuestPreview({ signInHref, signUpHref }: Props) {
                   size="sm"
                   className="h-7 w-full justify-start gap-1.5 px-1 text-xs"
                 >
-                  <Link href={`/strategy-models/${STRATEGY_CONFIG.slug}#model-overview`}>
+                  <Link
+                    href={`/strategy-models/${STRATEGY_CONFIG.slug}#model-overview`}
+                    {...stockModelLinkNewTabProps(
+                      `/strategy-models/${STRATEGY_CONFIG.slug}#model-overview`,
+                      pathname
+                    )}
+                  >
                     <ExternalLink className="size-3 shrink-0" />
                     How this model works
                   </Link>

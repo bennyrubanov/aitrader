@@ -12,7 +12,7 @@ alwaysApply: false
 
 - **Written matrix (product “what / when / transport”):** [`.cursor/plans/notifications-email-inapp-catalog.plan.md`](mdc:.cursor/plans/notifications-email-inapp-catalog.plan.md) — update this when behavior, subjects, or threading rules change.
 - **Implementation runbook:** [`.cursor/plans/notifications-catalog-alignment.plan.md`](mdc:.cursor/plans/notifications-catalog-alignment.plan.md).
-- **What the repo actually implements:** [`src/lib/notifications/notification-catalog.ts`](mdc:src/lib/notifications/notification-catalog.ts) (`CATALOG_ID`, prefs notes, `portfolioFollowedThreadId`, inbox helpers).
+- **What the repo actually implements:** [`src/lib/notifications/notification-catalog.ts`](mdc:src/lib/notifications/notification-catalog.ts) (`CATALOG_ID`, prefs notes, `portfolioFollowedThreadId`, `inferInboxFilterCategory`, `showInternalNotificationInboxFilter`, inbox helpers).
 - **All send paths:** search for `sendTransactionalEmail` and `sendEmailByGmail` under `src/`.
 - **Rendered email samples:** JSDoc + behavior on [`src/app/api/platform/notifications/smoketest/route.ts`](mdc:src/app/api/platform/notifications/smoketest/route.ts).
 
@@ -25,6 +25,10 @@ Prefer **updating the plan + `notification-catalog.ts` in the same change** when
 - Followed portfolio (rebalance, entries/exits, price move): `portfolio:{userId}:{profileId}`, role `child` — use `portfolioFollowedThreadId` from `notification-catalog.ts`; writers in [`cron-fanout.ts`](mdc:src/lib/notifications/cron-fanout.ts).
 
 DB overview: [`.cursor/rules/supabase-schema.mdc`](mdc:.cursor/rules/supabase-schema.mdc) (Notifications bullet).
+
+## Inbox filter chips (bell)
+
+Mapping lives in `inferInboxFilterCategory` (same file). **`internal`** = rows with `catalog_id` `internal.smoketest_seed` (operator seed). The **Internal (dev)** chip renders when `NODE_ENV === 'development'` or `NEXT_PUBLIC_SHOW_INTERNAL_NOTIFICATION_FILTER=1`; otherwise those rows only appear under **All**.
 
 ## Why not duplicate everything in `docs/` or always-on rules?
 

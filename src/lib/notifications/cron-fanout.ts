@@ -1,23 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { sendTransactionalEmail } from '@/lib/mailer';
-import { buildModelRatingsReadyEmailHtml } from '@/lib/notifications/email-templates';
-import { hrefStockSymbol, hrefStrategyModel, hrefYourPortfolio } from '@/lib/notifications/hrefs';
+import { hrefStockSymbol, hrefYourPortfolio } from '@/lib/notifications/hrefs';
 import { CATALOG_ID, portfolioFollowedThreadId } from '@/lib/notifications/notification-catalog';
-import { signUnsubscribePayload } from '@/lib/notifications/unsubscribe-token';
 import type { Bucket, RatingBucketChange } from '@/lib/notifications/types';
-import { loadUserEmails, loadUserPrefs, resolvePrefsForFanout } from '@/lib/notifications/user-notify-queries';
-
-function siteBase(): string {
-  return process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, '') ?? '';
-}
-
-function listUnsubscribeHeaders(unsubscribeUrl: string): Record<string, string> {
-  if (!unsubscribeUrl) return {};
-  return {
-    'List-Unsubscribe': `<${unsubscribeUrl}>`,
-    'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
-  };
-}
+import { loadUserPrefs, resolvePrefsForFanout } from '@/lib/notifications/user-notify-queries';
 
 type AiOk = { status: 'ok'; stock_id: string; symbol: string; bucket: Bucket };
 export type AiCronResult = AiOk | { status: string; stock_id?: string };
@@ -235,113 +220,6 @@ export async function notifyPortfolioRebalances(
   return { inappInserted, emailsSent: 0 };
 }
 
-export async function notifyModelRatingsReady(
-  admin: SupabaseClient,
-  params: {
-    strategyId: string;
-    strategySlug: string;
-    strategyName: string;
-    runDate: string;
-    dryUserId?: string | null;
-  }
-): Promise<{ inappInserted: number; emailsSent: number }> {
-  const { data: subs, error: subErr } = await admin
-    .from('user_model_subscriptions')
-    .select('user_id, email_enabled, inapp_enabled')
-    .eq('strategy_id', params.strategyId)
-    .eq('notify_rating_changes', true);
-
-  if (subErr || !subs?.length) {
-    if (subErr) console.error('[notifications] subs ratings ready', subErr.message);
-    return { inappInserted: 0, emailsSent: 0 };
-  }
-
-  const subsFiltered = (subs as { user_id: string; email_enabled: boolean; inapp_enabled: boolean }[]).filter(
-    (s) => !params.dryUserId || s.user_id === params.dryUserId
-  );
-  if (!subsFiltered.length) return { inappInserted: 0, emailsSent: 0 };
-
-  const userIds = [...new Set(subsFiltered.map((s) => s.user_id))];
-  const { map: prefsMap, hadError: hadPrefsError } = await loadUserPrefs(admin, userIds);
-  const { map: emailMap, hadError: hadEmailError } = await loadUserEmails(admin, userIds);
-
-  const base = siteBase();
-  const settingsUrl = base ? `${base}/platform/settings/notifications` : '/platform/settings/notifications';
-  const modelPathBase = base || 'https://example.com';
-
-  const inappRows: Array<{
-    user_id: string;
-    type: 'model_ratings_ready';
-    title: string;
-    body: string;
-    data: Record<string, unknown>;
-  }> = [];
-  let emailsSent = 0;
-
-  for (const sub of subsFiltered) {
-    const prefs = resolvePrefsForFanout(prefsMap, hadPrefsError, sub.user_id);
-    const mpInapp = prefs.model_performance_updates_inapp !== false;
-    const mpEmail = prefs.model_performance_updates_email !== false;
-    if (prefs.inapp_enabled && mpInapp && sub.inapp_enabled) {
-      inappRows.push({
-        user_id: sub.user_id,
-        type: 'model_ratings_ready' as const,
-        title: `New ratings: ${params.strategyName}`,
-        body: `Weekly rating run completed on ${params.runDate}.`,
-        data: {
-          catalog_id: CATALOG_ID.PORTFOLIO_MODEL_RATINGS_READY,
-          strategy_id: params.strategyId,
-          strategy_slug: params.strategySlug,
-          run_date: params.runDate,
-          href: hrefStrategyModel(params.strategySlug),
-        },
-      });
-    }
-
-    const allowEmail =
-      !hadEmailError &&
-      prefs.email_enabled &&
-      mpEmail &&
-      sub.email_enabled;
-    if (!allowEmail) continue;
-
-    const to = emailMap.get(sub.user_id)?.trim();
-    if (!to) continue;
-
-    const token = signUnsubscribePayload({ userId: sub.user_id, scope: 'all' });
-    const unsubscribeUrl = token
-      ? `${base || ''}/api/platform/notifications/unsubscribe?token=${encodeURIComponent(token)}`
-      : settingsUrl;
-    const modelUrl = `${modelPathBase}/strategy-models/${encodeURIComponent(params.strategySlug)}`;
-    const { html, text } = buildModelRatingsReadyEmailHtml({
-      strategyName: params.strategyName,
-      runDate: params.runDate,
-      modelUrl,
-      settingsUrl,
-      unsubscribeUrl,
-    });
-    const subject = `New AI ratings — ${params.strategyName}`;
-    const send = await sendTransactionalEmail({
-      to,
-      subject,
-      html,
-      text,
-      headers: listUnsubscribeHeaders(unsubscribeUrl),
-    });
-    if (send.ok) emailsSent += 1;
-  }
-
-  let inappInserted = 0;
-  for (const batch of chunk(inappRows, 80)) {
-    if (!batch.length) continue;
-    const { error: insErr } = await admin.from('notifications').insert(batch);
-    if (insErr) console.error('[notifications] insert ratings ready', insErr.message);
-    else inappInserted += batch.length;
-  }
-
-  return { inappInserted, emailsSent };
-}
-
 const PAID_STOCK_TIERS = new Set(['supporter', 'outperformer']);
 const PRICE_MOVE_THRESHOLD = 0.05;
 const PRICE_ALERT_COOLDOWN_DAYS = 3;
@@ -443,7 +321,7 @@ export async function notifyStockRatingChangesPerStock(
         title: `${ch.symbol}: ${ch.prev_bucket} -> ${ch.next_bucket}`,
         body: `${params.strategyName} weekly rating moved this week on ${params.runDate}.`,
         data: {
-          catalog_id: CATALOG_ID.STOCK_RATING_CHANGE_TRACKED,
+          catalog_id: CATALOG_ID.STOCK_RATING_CHANGE,
           strategy_id: params.strategyId,
           strategy_slug: params.strategySlug,
           stock_id: ch.stock_id,
@@ -452,7 +330,6 @@ export async function notifyStockRatingChangesPerStock(
           next_bucket: ch.next_bucket,
           run_date: params.runDate,
           href: hrefStockSymbol(ch.symbol),
-          source: 'tracked_stock',
         },
       });
     }

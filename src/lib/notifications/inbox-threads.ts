@@ -32,6 +32,7 @@ function threadIdFromRow(row: InboxNotifRow): string | null {
 function threadSubtitle(threadId: string | null): string | null {
   if (!threadId) return null;
   if (threadId.startsWith('weekly:')) return 'Weekly summary';
+  if (threadId.startsWith('paid_transition:')) return 'Paid upgrade';
   if (threadId.startsWith('onboarding:')) return 'Getting started';
   if (threadId.startsWith('portfolio:')) return 'Followed portfolio';
   return null;

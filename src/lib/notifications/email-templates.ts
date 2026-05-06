@@ -212,36 +212,6 @@ export function buildRebalanceEmailHtml(params: {
   return { html, text };
 }
 
-export function buildModelRatingsReadyEmailHtml(params: {
-  strategyName: string;
-  runDate: string;
-  modelUrl: string;
-  settingsUrl: string;
-  unsubscribeUrl: string;
-}): { html: string; text: string } {
-  const bodyHtml = `<p style="margin:0;font-size:15px;line-height:1.55;color:#111827;font-family:Arial,Helvetica,sans-serif">
-      <strong>${escapeHtml(params.strategyName)}</strong> finished its weekly rating run on <strong>${escapeHtml(params.runDate)}</strong>.
-    </p>`;
-  const html = buildEmailShell({
-    documentTitle: `AI ratings — ${params.strategyName}`,
-    preheader: `New AI ratings for ${params.strategyName}`,
-    heading: 'New AI ratings are live',
-    bodyHtml,
-    ctaLabel: 'Open model',
-    ctaUrl: params.modelUrl,
-    settingsUrl: params.settingsUrl,
-    unsubscribeUrl: params.unsubscribeUrl,
-  });
-  const text = [
-    `New AI ratings — ${params.strategyName} (${params.runDate})`,
-    params.modelUrl,
-    '',
-    `Settings: ${params.settingsUrl}`,
-    `Unsubscribe: ${params.unsubscribeUrl}`,
-  ].join('\n');
-  return { html, text };
-}
-
 export type WeeklyProductUpdateRow = { title: string; body_html: string };
 
 const BULLET_P =

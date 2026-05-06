@@ -19,7 +19,7 @@ const PORTFOLIO_GREY = '#94a3b8';
 /** Matches `theme.extend.colors.trader.green` in tailwind.config.ts */
 const TOP_PORTFOLIO_STROKE = '#30D158';
 
-const LABEL_TOP_PORTFOLIO = 'Top portfolio';
+const LABEL_TOP_PORTFOLIO = 'Top Portfolio';
 const LABEL_AVERAGE_PORTFOLIO = 'Average Portfolio';
 
 const displayDateFormatter = new Intl.DateTimeFormat('en-US', {
@@ -124,7 +124,7 @@ type Props = {
   benchmarks: {
     sp500: number[];
   };
-  /** Rank-1 portfolio config id; line is drawn in green as “Top portfolio”. */
+  /** Rank-1 portfolio config id; line is drawn in green as “Top Portfolio”. */
   topPortfolioConfigId?: string | null;
   className?: string;
 };

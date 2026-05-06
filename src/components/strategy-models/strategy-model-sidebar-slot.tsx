@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { ArrowRight, ChevronDown, TrendingUp } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { type StrategyListItem } from '@/lib/platform-performance-payload';
+import { stockModelLinkNewTabProps } from '@/lib/stock-model-link-new-tab';
 import { strategyModelDropdownSubtitle } from '@/lib/strategy-list-meta';
 
 type Props = {
@@ -30,7 +31,9 @@ export function StrategyModelSidebarSlot({
   performanceSlug,
 }: Props) {
   const router = useRouter();
+  const pathname = usePathname();
   const topModel = strategies[0];
+  const performanceHref = `/strategy-models/${performanceSlug}`;
 
   return (
     <>
@@ -84,14 +87,14 @@ export function StrategyModelSidebarSlot({
         </DropdownMenu>
 
         <Button asChild variant="ghost" size="sm" className="w-full justify-start gap-1.5 text-xs h-7 px-1">
-          <Link href={`/strategy-models/${performanceSlug}`}>
+          <Link href={performanceHref} {...stockModelLinkNewTabProps(performanceHref, pathname)}>
             <TrendingUp className="size-3" />
             See performance
           </Link>
         </Button>
 
         <Button asChild variant="ghost" size="sm" className="w-full justify-start gap-1.5 text-xs h-7 px-1">
-          <Link href="/strategy-models">
+          <Link href="/strategy-models" {...stockModelLinkNewTabProps('/strategy-models', pathname)}>
             <ArrowRight className="size-3" />
             All strategy models
           </Link>

@@ -28,6 +28,7 @@ import { PortfolioListSortDialog } from '@/components/platform/portfolio-list-so
 import { PortfolioConfigBadgePill } from '@/components/platform/portfolio-config-badge-pill';
 import { portfolioConfigBadgesForDisplay } from '@/lib/portfolio-config-badges';
 import { StrategyModelSidebarDropdown } from '@/components/platform/strategy-model-sidebar-dropdown';
+import { stockModelLinkNewTabProps } from '@/lib/stock-model-link-new-tab';
 import { HoldingRankWithChange } from '@/components/platform/holding-rank-with-change';
 import { StockChartDialog } from '@/components/platform/stock-chart-dialog';
 import { Badge } from '@/components/ui/badge';
@@ -74,6 +75,7 @@ import { HoldingsPortfolioValueLine } from '@/components/platform/holdings-portf
 import { MetricReadinessPill } from '@/components/platform/metric-readiness-pill';
 import { SpotlightStatCard } from '@/components/tooltips/spotlight-overview-tooltips';
 import { useToast } from '@/hooks/use-toast';
+import { ToastAction } from '@/components/ui/toast';
 import { useIsBelowLg } from '@/hooks/use-is-below-lg';
 import {
   showPortfolioUnfollowToast,
@@ -95,6 +97,11 @@ import {
   type RebalanceFrequency,
 } from '@/components/portfolio-config';
 import { ENTRY_DATE_KEY } from '@/components/portfolio-config/portfolio-config-storage';
+import {
+  PORTFOLIO_ALERTS_OFF_PATCH,
+  PORTFOLIO_ALERTS_ON_DEFAULT,
+  portfolioAlertsRowAnyOn,
+} from '@/lib/notifications/portfolio-alerts-toggle';
 import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
 import type {
   HoldingItem,
@@ -627,36 +634,6 @@ export type UserPortfolioProfileRow = {
   portfolio_config: PortfolioConfigEmbed;
   user_portfolio_positions: PositionRow[] | null;
 };
-
-/**
- * Matches the followed-portfolio row on `/platform/settings/notifications`:
- * Email = weekly section for this portfolio; In-app = rebalance + price + entries/exits all on.
- */
-function portfolioNotificationSettingsRowInappTrioOn(p: UserPortfolioProfileRow): boolean {
-  const nr = p.notify_rebalance;
-  const nh = p.notify_holdings_change;
-  const email = p.email_enabled;
-  const inapp = p.inapp_enabled;
-  const rbIn = Boolean(p.notify_rebalance_inapp ?? (nr && inapp));
-  const pmIn = Boolean(p.notify_price_move_inapp ?? false);
-  const eeIn = Boolean(p.notify_entries_exits_inapp ?? (nh && inapp));
-  return rbIn && pmIn && eeIn;
-}
-
-function portfolioNotificationSettingsRowAnyOn(p: UserPortfolioProfileRow): boolean {
-  const weeklyOn = Boolean(p.notify_weekly_email ?? true);
-  return weeklyOn || portfolioNotificationSettingsRowInappTrioOn(p);
-}
-
-const PORTFOLIO_ALERTS_ON_DEFAULT = {
-  notifyWeeklyEmail: true,
-  notifyRebalanceInapp: true,
-  notifyRebalanceEmail: true,
-  notifyPriceMoveInapp: true,
-  notifyPriceMoveEmail: false,
-  notifyEntriesExitsInapp: true,
-  notifyEntriesExitsEmail: true,
-} as const;
 
 type PortfolioMovementApiPayload = {
   status:
@@ -1583,6 +1560,8 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
   const [perfPayload, setPerfPayload] = useState<ConfigPerfApiResponse | null>(null);
   const [rawRows, setRawRows] = useState<ConfigPerfRow[]>([]);
   const perfRequestIdRef = useRef(0);
+  /** Until `?profile=` updates, keep the row the user should see (e.g. unfollow → neighbor above in sort). */
+  const pendingSelectProfileIdRef = useRef<string | null>(null);
 
   const yourPortfolioHoldingsRequestIdRef = useRef(0);
   const [configHoldings, setConfigHoldings] = useState<HoldingItem[]>([]);
@@ -1796,14 +1775,25 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
 
   const selectedProfile = useMemo(() => {
     if (!profiles.length) return null;
+    const pending = pendingSelectProfileIdRef.current?.trim() ?? '';
+    if (pending && profiles.some((p) => p.id === pending)) {
+      if (profileParam === pending) {
+        pendingSelectProfileIdRef.current = null;
+      }
+      return profiles.find((p) => p.id === pending)!;
+    }
+    if (pending) {
+      pendingSelectProfileIdRef.current = null;
+    }
     if (profileParam && profiles.some((p) => p.id === profileParam)) {
+      pendingSelectProfileIdRef.current = null;
       return profiles.find((p) => p.id === profileParam) ?? profiles[0]!;
     }
     return profiles[0]!;
   }, [profiles, profileParam]);
 
   const portfolioAlertsAnyOn = useMemo(
-    () => (selectedProfile ? portfolioNotificationSettingsRowAnyOn(selectedProfile) : false),
+    () => (selectedProfile ? portfolioAlertsRowAnyOn(selectedProfile) : false),
     [selectedProfile]
   );
 
@@ -2001,12 +1991,27 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     }
     const fromSession = readYourPortfoliosLastProfileId();
     const sessionOk = Boolean(fromSession && profiles.some((p) => p.id === fromSession));
-    const targetId = sessionOk ? fromSession! : profiles[0]!.id;
+    const firstInSidebarOrder =
+      filteredSidebarProfiles[0]?.id ??
+      sortedSidebarProfiles[0]?.id ??
+      profiles[0]!.id;
+    const fallbackId = profiles.some((p) => p.id === firstInSidebarOrder)
+      ? firstInSidebarOrder
+      : profiles[0]!.id;
+    const targetId = sessionOk ? fromSession! : fallbackId;
     router.replace(`/platform/your-portfolios?profile=${encodeURIComponent(targetId)}`, {
       scroll: false,
     });
     writeYourPortfoliosLastProfileId(targetId);
-  }, [isLoadingProfiles, isYourPortfoliosRoute, profiles, profileParam, router]);
+  }, [
+    isLoadingProfiles,
+    isYourPortfoliosRoute,
+    profiles,
+    profileParam,
+    router,
+    filteredSidebarProfiles,
+    sortedSidebarProfiles,
+  ]);
 
   const strategySlug = selectedProfile?.strategy_models?.slug ?? portfolioConfigCtx.strategySlug;
 
@@ -2331,6 +2336,20 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
 
   const selectedProfileConfigId =
     selectedProfile?.portfolio_config?.id ?? selectedProfile?.config_id ?? null;
+  /** Perf/holdings reset must not depend on `portfolio_config` object identity (list refetch / notify PATCH). */
+  const selectedProfilePerfDriverKey = useMemo(() => {
+    const c = selectedProfile?.portfolio_config;
+    const id = (c?.id ?? selectedProfile?.config_id ?? '').trim();
+    if (!id) return '';
+    if (!c) return id;
+    return `${id}\u0001${c.risk_level}\u0001${c.rebalance_frequency}\u0001${c.weighting_method}`;
+  }, [
+    selectedProfile?.portfolio_config?.id,
+    selectedProfile?.config_id,
+    selectedProfile?.portfolio_config?.risk_level,
+    selectedProfile?.portfolio_config?.rebalance_frequency,
+    selectedProfile?.portfolio_config?.weighting_method,
+  ]);
   const holdingsCacheVersion = useExploreHoldingsCacheVersion();
 
   const userStartForHoldingsYmd = selectedProfile?.user_start_date?.trim() ?? '';
@@ -2419,7 +2438,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     setConfigHoldingsLoading(shouldLoadHoldings);
   }, [
     selectedProfile?.id,
-    selectedProfile?.portfolio_config,
+    selectedProfilePerfDriverKey,
     selectedProfile?.user_start_date,
     selectedProfileConfigId,
     strategySlug,
@@ -3025,11 +3044,53 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
         toast({ title: 'Could not unfollow', variant: 'destructive' });
         return;
       }
-      setProfiles((prev) => prev.filter((p) => p.id !== profileId));
+
+      const remainingAfter = profiles.filter((p) => p.id !== profileId);
+      let ordered = filteredSidebarProfiles;
+      let idx = ordered.findIndex((p) => p.id === profileId);
+      if (idx < 0) {
+        ordered = sortedSidebarProfiles;
+        idx = ordered.findIndex((p) => p.id === profileId);
+      }
+      if (idx < 0) {
+        ordered = profiles;
+        idx = ordered.findIndex((p) => p.id === profileId);
+      }
+      let nextProfileId: string | null = null;
+      if (idx > 0) {
+        nextProfileId = ordered[idx - 1]!.id;
+      } else if (idx === 0 && ordered.length > 1) {
+        nextProfileId = ordered[1]!.id;
+      }
+
+      const targetAfter =
+        remainingAfter.length === 0
+          ? null
+          : nextProfileId && remainingAfter.some((p) => p.id === nextProfileId)
+            ? nextProfileId
+            : remainingAfter[0]!.id;
+      if (targetAfter) {
+        pendingSelectProfileIdRef.current = targetAfter;
+      } else {
+        pendingSelectProfileIdRef.current = null;
+      }
+
+      setProfiles(remainingAfter);
+      if (remainingAfter.length === 0) {
+        router.replace('/platform/your-portfolios', { scroll: false });
+      } else if (targetAfter) {
+        router.replace(
+          `/platform/your-portfolios?profile=${encodeURIComponent(targetAfter)}`,
+          { scroll: false }
+        );
+        writeYourPortfoliosLastProfileId(targetAfter);
+      }
+
       showPortfolioUnfollowToast({
         profileId,
         portfolioLabel: label,
         onAfterUndo: () => {
+          pendingSelectProfileIdRef.current = profileId;
           setProfiles((prev) =>
             prev.some((p) => p.id === profileId)
               ? prev
@@ -3039,17 +3100,18 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
             `/platform/your-portfolios?profile=${encodeURIComponent(profileId)}`,
             { scroll: false }
           );
+          writeYourPortfoliosLastProfileId(profileId);
         },
       });
     } finally {
       setUnfollowBusy(false);
     }
-  }, [selectedProfile, toast, router]);
+  }, [selectedProfile, profiles, filteredSidebarProfiles, sortedSidebarProfiles, toast, router]);
 
   const togglePortfolioAlerts = useCallback(async () => {
     if (!selectedProfile || isGuestLocalProfileId(selectedProfile.id)) return;
     const profileId = selectedProfile.id;
-    const turningOn = !portfolioNotificationSettingsRowAnyOn(selectedProfile);
+    const turningOn = !portfolioAlertsRowAnyOn(selectedProfile);
     if (turningOn && appAccess === 'free') {
       toast({
         title: 'Portfolio alerts require a paid plan',
@@ -3059,17 +3121,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
       return;
     }
 
-    const patch = turningOn
-      ? { ...PORTFOLIO_ALERTS_ON_DEFAULT }
-      : {
-          notifyWeeklyEmail: false,
-          notifyRebalanceInapp: false,
-          notifyRebalanceEmail: false,
-          notifyPriceMoveInapp: false,
-          notifyPriceMoveEmail: false,
-          notifyEntriesExitsInapp: false,
-          notifyEntriesExitsEmail: false,
-        };
+    const patch = turningOn ? { ...PORTFOLIO_ALERTS_ON_DEFAULT } : { ...PORTFOLIO_ALERTS_OFF_PATCH };
 
     setAlertsToggleSaving(true);
     try {
@@ -3133,14 +3185,48 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
           )
         );
       }
-      toast({ title: turningOn ? 'Alerts on' : 'Alerts off' });
+      const portfolioLabel = selectedProfile.portfolio_config?.label?.trim() || 'Portfolio';
+      const cfg = selectedProfile.portfolio_config;
+      const toastRisk = (cfg?.risk_level ?? 3) as RiskLevel;
+      const toastRiskDot = SIDEBAR_RISK_DOT[toastRisk] ?? 'bg-muted';
+      const toastRiskTitle =
+        (cfg?.risk_label && cfg.risk_label.trim()) || (RISK_LABELS[toastRisk] ?? 'Risk');
+      toast({
+        description: (
+          <span>
+            {turningOn
+              ? 'Turning on email + in-app notifications for '
+              : 'Turning off email + in-app notifications for '}
+            <span className="inline-flex items-center gap-1">
+              <span
+                className={cn('size-2 shrink-0 rounded-full', toastRiskDot)}
+                title={`Risk level: ${toastRiskTitle}`}
+                aria-hidden
+              />
+              <span>{portfolioLabel}</span>
+            </span>
+            .
+          </span>
+        ),
+        action: (
+          <ToastAction
+            altText="Notification settings"
+            onClick={() => {
+              router.push('/platform/settings/notifications');
+            }}
+          >
+            Notification settings
+          </ToastAction>
+        ),
+      });
       invalidateUserPortfolioProfilesList();
     } finally {
       setAlertsToggleSaving(false);
     }
-  }, [selectedProfile, appAccess, toast, loadProfiles]);
+  }, [selectedProfile, appAccess, toast, router]);
 
   const selectProfile = (id: string) => {
+    pendingSelectProfileIdRef.current = null;
     router.push(`/platform/your-portfolios?profile=${id}`);
   };
 
@@ -4266,6 +4352,10 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                 >
                   <Link
                     href={`/strategy-models/${selectedProfile?.strategy_models?.slug ?? strategySlug}#model-overview`}
+                    {...stockModelLinkNewTabProps(
+                      `/strategy-models/${selectedProfile?.strategy_models?.slug ?? strategySlug}#model-overview`,
+                      pathname
+                    )}
                   >
                     <ExternalLink className="size-3 shrink-0" />
                     How this model works
@@ -4467,6 +4557,10 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                     >
                       <Link
                         href={`/strategy-models/${selectedProfile?.strategy_models?.slug ?? strategySlug}#model-overview`}
+                        {...stockModelLinkNewTabProps(
+                          `/strategy-models/${selectedProfile?.strategy_models?.slug ?? strategySlug}#model-overview`,
+                          pathname
+                        )}
                       >
                         <ExternalLink className="size-3 shrink-0" />
                         How this model works

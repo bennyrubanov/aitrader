@@ -11,14 +11,11 @@ import {
 } from '@/components/platform/explore-portfolios-equity-chart-shared';
 import { ExplorePortfolioDetailDialog } from '@/components/platform/explore-portfolio-detail-dialog';
 import {
-  PortfolioAlertsDialog,
-  type PortfolioAlertsInitial,
-} from '@/components/platform/portfolio-alerts-dialog';
-import {
   showPortfolioUnfollowToast,
   showPortfolioFollowToast,
   setUserPortfolioProfileActive,
   invalidateUserPortfolioProfiles,
+  invalidateUserPortfolioProfilesList,
   showFollowLimitToast,
 } from '@/components/platform/portfolio-unfollow-toast';
 import { PortfolioEntryDatePicker } from '@/components/platform/portfolio-entry-date-picker';
@@ -70,6 +67,7 @@ import {
   type RebalanceFrequency,
 } from '@/components/portfolio-config';
 import { useToast } from '@/hooks/use-toast';
+import { ToastAction } from '@/components/ui/toast';
 import type { RankedConfig } from '@/app/api/platform/portfolio-configs-ranked/route';
 import { useAuthState } from '@/components/auth/auth-state-context';
 import { useAccountSignupPrompt } from '@/components/platform/account-signup-prompt-context';
@@ -98,6 +96,7 @@ import {
   parseExplorePortfoliosBrowseMode,
   type ExplorePortfoliosBrowseMode,
 } from '@/lib/platform-explore-portfolios-browse';
+import { stockModelLinkNewTabProps } from '@/lib/stock-model-link-new-tab';
 import { cn } from '@/lib/utils';
 import {
   followLimitDisabledTooltip,
@@ -105,6 +104,14 @@ import {
   maxFollowedPortfoliosFromApiPayload,
   MAX_FOLLOWED_PORTFOLIOS_PAID,
 } from '@/lib/follow-limits';
+import {
+  PORTFOLIO_ALERTS_OFF_PATCH,
+  PORTFOLIO_ALERTS_ON_DEFAULT,
+  portfolioAlertsRowAnyOn,
+  portfolioAlertsSnakeAfterPatch,
+  portfolioAlertsSnakeFromApiProfileRow,
+  type PortfolioAlertsSnakeRow,
+} from '@/lib/notifications/portfolio-alerts-toggle';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -134,21 +141,6 @@ type UserProfileFollowRow = {
   config_id: string;
   strategy_models: { slug?: string } | null;
 };
-
-function profileRowToAlertsInitial(p: Record<string, unknown>): PortfolioAlertsInitial {
-  const email = Boolean(p.email_enabled ?? true);
-  const inapp = Boolean(p.inapp_enabled ?? true);
-  const nr = Boolean(p.notify_rebalance ?? true);
-  const nh = Boolean(p.notify_holdings_change ?? true);
-  return {
-    notifyRebalanceInapp: Boolean(p.notify_rebalance_inapp ?? (nr && inapp)),
-    notifyRebalanceEmail: Boolean(p.notify_rebalance_email ?? (nr && email)),
-    notifyPriceMoveInapp: Boolean(p.notify_price_move_inapp ?? false),
-    notifyPriceMoveEmail: Boolean(p.notify_price_move_email ?? false),
-    notifyEntriesExitsInapp: Boolean(p.notify_entries_exits_inapp ?? (nh && inapp)),
-    notifyEntriesExitsEmail: Boolean(p.notify_entries_exits_email ?? (nh && email)),
-  };
-}
 
 const CONFIG_CARD_RISK_DOT: Record<RiskLevel, string> = {
   1: 'bg-emerald-500',
@@ -361,6 +353,9 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
   const [followedProfileIdByConfigId, setFollowedProfileIdByConfigId] = useState<
     Record<string, string>
   >({});
+  const [followedProfileAlertsByConfigId, setFollowedProfileAlertsByConfigId] = useState<
+    Record<string, PortfolioAlertsSnakeRow>
+  >({});
   /** Total active followed portfolios (all models); used for the global follow cap. */
   const [followedProfilesTotalCount, setFollowedProfilesTotalCount] = useState(0);
   /** From GET until known; permissive paid default avoids Tier C false blocks. */
@@ -370,10 +365,7 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
 
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailConfig, setDetailConfig] = useState<RankedConfig | null>(null);
-  const [exploreAlertsProfileId, setExploreAlertsProfileId] = useState<string | null>(null);
-  const [exploreAlertsInitial, setExploreAlertsInitial] = useState<PortfolioAlertsInitial | null>(
-    null
-  );
+  const [exploreDetailAlertsToggleSaving, setExploreDetailAlertsToggleSaving] = useState(false);
 
   const urlBrowseMode = useMemo(
     () => parseExplorePortfoliosBrowseMode(searchParams.get(EXPLORE_PORTFOLIOS_BROWSE_PARAM)),
@@ -429,23 +421,10 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
     void loadConfigs();
   }, [loadConfigs, strategySlug]);
 
-  const openExploreNotificationSettings = useCallback(async (profileId: string) => {
-    try {
-      const res = await fetch('/api/platform/user-portfolio-profile');
-      if (!res.ok) return;
-      const j = (await res.json()) as { profiles?: Record<string, unknown>[] };
-      const row = (j.profiles ?? []).find((p) => p.id === profileId);
-      if (!row) return;
-      setExploreAlertsInitial(profileRowToAlertsInitial(row));
-      setExploreAlertsProfileId(profileId);
-    } catch {
-      // ignore
-    }
-  }, []);
-
   const loadFollowedProfiles = useCallback(async () => {
     if (!authState.isAuthenticated) {
       setFollowedProfileIdByConfigId({});
+      setFollowedProfileAlertsByConfigId({});
       setFollowedProfilesTotalCount(0);
       setMaxFollowedPortfoliosCap(MAX_FOLLOWED_PORTFOLIOS_PAID);
       return;
@@ -459,13 +438,21 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
       setMaxFollowedPortfoliosCap(maxFollowedPortfoliosFromApiPayload(data));
       setFollowedProfilesTotalCount((data.profiles ?? []).length);
       const map: Record<string, string> = {};
+      const alertsMap: Record<string, PortfolioAlertsSnakeRow> = {};
       for (const p of data.profiles ?? []) {
         if (p.strategy_models?.slug !== strategySlug) continue;
-        if (map[p.config_id] == null) map[p.config_id] = p.id;
+        if (map[p.config_id] == null) {
+          map[p.config_id] = p.id;
+          alertsMap[p.config_id] = portfolioAlertsSnakeFromApiProfileRow(
+            p as unknown as Record<string, unknown>
+          );
+        }
       }
       setFollowedProfileIdByConfigId(map);
+      setFollowedProfileAlertsByConfigId(alertsMap);
     } catch {
       setFollowedProfileIdByConfigId({});
+      setFollowedProfileAlertsByConfigId({});
       setFollowedProfilesTotalCount(0);
     }
   }, [authState.isAuthenticated, strategySlug]);
@@ -513,19 +500,121 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
           delete next[configId];
           return next;
         });
+        setFollowedProfileAlertsByConfigId((prev) => {
+          const next = { ...prev };
+          delete next[configId];
+          return next;
+        });
         showPortfolioUnfollowToast({
           profileId,
           portfolioLabel: label,
           onAfterUndo: () => {
             setFollowedProfileIdByConfigId((prev) => ({ ...prev, [configId]: profileId }));
+            void loadFollowedProfiles();
           },
         });
       } finally {
         setUnfollowBusyProfileId(null);
       }
     },
-    [toast]
+    [toast, loadFollowedProfiles]
   );
+
+  const detailPortfolioAlertsAnyOn = useMemo(() => {
+    if (!detailConfig) return false;
+    const row =
+      followedProfileAlertsByConfigId[detailConfig.id] ??
+      portfolioAlertsSnakeFromApiProfileRow({});
+    return portfolioAlertsRowAnyOn(row);
+  }, [detailConfig, followedProfileAlertsByConfigId]);
+
+  const toggleExploreDetailPortfolioAlerts = useCallback(async () => {
+    if (!detailConfig) return;
+    const profileId = followedProfileIdByConfigId[detailConfig.id];
+    if (!profileId) return;
+    const prevRow =
+      followedProfileAlertsByConfigId[detailConfig.id] ??
+      portfolioAlertsSnakeFromApiProfileRow({});
+    const turningOn = !portfolioAlertsRowAnyOn(prevRow);
+    if (turningOn && appAccess === 'free') {
+      toast({
+        title: 'Portfolio alerts require a paid plan',
+        description: 'Upgrade to Supporter or Outperformer on the Pricing page.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    const patch = turningOn ? { ...PORTFOLIO_ALERTS_ON_DEFAULT } : { ...PORTFOLIO_ALERTS_OFF_PATCH };
+    setExploreDetailAlertsToggleSaving(true);
+    try {
+      const res = await fetch('/api/platform/user-portfolio-profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profileId, ...patch }),
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => null)) as { error?: string } | null;
+        toast({
+          title: 'Could not update alerts',
+          description: j?.error ?? 'Try again.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      const mergedSnake = {
+        ...prevRow,
+        ...portfolioAlertsSnakeAfterPatch(patch),
+      };
+      setFollowedProfileAlertsByConfigId((rows) => ({
+        ...rows,
+        [detailConfig.id]: mergedSnake,
+      }));
+      const portfolioLabel = detailConfig.label?.trim() || 'Portfolio';
+      const toastRisk = detailConfig.riskLevel as RiskLevel;
+      const toastRiskDot = CONFIG_CARD_RISK_DOT[toastRisk] ?? 'bg-muted';
+      const toastRiskTitle =
+        (detailConfig.riskLabel && detailConfig.riskLabel.trim()) ||
+        (RISK_LABELS[toastRisk] ?? 'Risk');
+      toast({
+        description: (
+          <span>
+            {turningOn
+              ? 'Turning on email + in-app notifications for '
+              : 'Turning off email + in-app notifications for '}
+            <span className="inline-flex items-center gap-1">
+              <span
+                className={cn('size-2 shrink-0 rounded-full', toastRiskDot)}
+                title={`Risk level: ${toastRiskTitle}`}
+                aria-hidden
+              />
+              <span>{portfolioLabel}</span>
+            </span>
+            .
+          </span>
+        ),
+        action: (
+          <ToastAction
+            altText="Notification settings"
+            onClick={() => {
+              router.push('/platform/settings/notifications');
+            }}
+          >
+            Notification settings
+          </ToastAction>
+        ),
+      });
+      invalidateUserPortfolioProfilesList();
+    } finally {
+      setExploreDetailAlertsToggleSaving(false);
+    }
+  }, [
+    detailConfig,
+    followedProfileIdByConfigId,
+    followedProfileAlertsByConfigId,
+    appAccess,
+    toast,
+    router,
+  ]);
 
   useEffect(() => {
     setEquitySeriesPayload(getCachedExploreEquitySeries(strategySlug));
@@ -937,7 +1026,13 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
                   size="sm"
                   className="w-full justify-start gap-1.5 text-xs h-7 px-1"
                 >
-                  <Link href={`/strategy-models/${strategySlug}#model-overview`}>
+                  <Link
+                    href={`/strategy-models/${strategySlug}#model-overview`}
+                    {...stockModelLinkNewTabProps(
+                      `/strategy-models/${strategySlug}#model-overview`,
+                      pathname
+                    )}
+                  >
                     <ExternalLink className="size-3 shrink-0" />
                     How this model works
                   </Link>
@@ -1328,7 +1423,13 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
                         size="sm"
                         className="h-7 w-full justify-start gap-1.5 px-1 text-xs"
                       >
-                        <Link href={`/strategy-models/${strategySlug}#model-overview`}>
+                        <Link
+                          href={`/strategy-models/${strategySlug}#model-overview`}
+                          {...stockModelLinkNewTabProps(
+                            `/strategy-models/${strategySlug}#model-overview`,
+                            pathname
+                          )}
+                        >
                           <ExternalLink className="size-3 shrink-0" />
                           How this model works
                         </Link>
@@ -1528,26 +1629,14 @@ export function ExplorePortfoliosClient({ strategies }: ExploreProps) {
           setDetailConfig(null);
           openAddDialog(c);
         }}
-        onOpenNotificationSettings={
+        portfolioAlertsAnyOn={detailPortfolioAlertsAnyOn}
+        portfolioAlertsToggleSaving={exploreDetailAlertsToggleSaving}
+        onTogglePortfolioAlerts={
           detailConfig && followedProfileIdByConfigId[detailConfig.id]
-            ? () => void openExploreNotificationSettings(followedProfileIdByConfigId[detailConfig.id]!)
+            ? () => void toggleExploreDetailPortfolioAlerts()
             : undefined
         }
       />
-      {exploreAlertsProfileId && exploreAlertsInitial ? (
-        <PortfolioAlertsDialog
-          open
-          onOpenChange={(o) => {
-            if (!o) {
-              setExploreAlertsProfileId(null);
-              setExploreAlertsInitial(null);
-            }
-          }}
-          profileId={exploreAlertsProfileId}
-          initial={exploreAlertsInitial}
-          onSaved={() => void loadFollowedProfiles()}
-        />
-      ) : null}
       <PortfolioListSortDialog
         open={sortDialogOpen}
         onOpenChange={setSortDialogOpen}

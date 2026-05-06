@@ -87,7 +87,8 @@ export async function setUserPortfolioProfileActive(
     body: JSON.stringify({ profileId, isActive }),
   });
   if (res.ok) {
-    invalidateUserPortfolioProfiles();
+    /** Follow/unfollow only changes the profile list — do not nuke shared perf caches (sidebar $ / %). */
+    invalidateUserPortfolioProfilesList();
     return { ok: true };
   }
   let code: string | undefined;

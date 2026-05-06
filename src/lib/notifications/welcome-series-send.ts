@@ -25,6 +25,10 @@ function listUnsubscribeHeaders(unsubscribeUrl: string): Record<string, string> 
   };
 }
 
+function paidTransitionThreadId(userId: string): string {
+  return `paid_transition:${userId}`;
+}
+
 async function insertOnboardingMilestoneInApp(
   admin: SupabaseClient,
   params: {
@@ -33,9 +37,11 @@ async function insertOnboardingMilestoneInApp(
     title: string;
     body: string;
     extraData?: Record<string, unknown>;
+    /** Default `onboarding:{userId}` (Getting started). Paid-upgrade rows use `paid_transition:{userId}`. */
+    threadId?: string;
   }
 ): Promise<void> {
-  const threadId = `onboarding:${params.userId}`;
+  const threadId = params.threadId ?? `onboarding:${params.userId}`;
   const { error } = await admin.from('notifications').insert({
     user_id: params.userId,
     type: 'system',
@@ -228,6 +234,7 @@ export async function runWelcomeSeriesTick(
           title: subject,
           body: bodyPreview || subject,
           extraData: { paid_transition: transitionTier },
+          threadId: paidTransitionThreadId(row.user_id),
         });
         await admin
           .from('user_welcome_email_progress')
@@ -321,6 +328,7 @@ export async function runWelcomeSeriesTick(
           title: subject,
           body: bodyPreview || subject,
           extraData: { paid_transition: transitionTier },
+          threadId: paidTransitionThreadId(row.user_id),
         });
       }
       await admin
@@ -539,6 +547,7 @@ export async function trySendWelcomePaidTransitionAfterCompletedFreeSeries(
       title: subject,
       body: bodyPreview || subject,
       extraData: { paid_transition: paidTier },
+      threadId: paidTransitionThreadId(userId),
     });
   }
 }

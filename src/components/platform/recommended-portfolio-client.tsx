@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -12,6 +13,7 @@ import {
 import { usePortfolioConfig } from '@/components/portfolio-config';
 import { MetricReadinessPill } from '@/components/platform/metric-readiness-pill';
 import { formatPortfolioConfigLabel } from '@/lib/portfolio-config-display';
+import { stockModelLinkNewTabProps } from '@/lib/stock-model-link-new-tab';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -79,6 +81,7 @@ function formatDate(d: string): string {
 const pctStr = (v: number | null) => (v !== null ? `${(v * 100).toFixed(2)}%` : '-');
 
 export function RecommendedPortfolioClient() {
+  const pathname = usePathname();
   const { config, riskLabel, topN, dataNote } = usePortfolioConfig();
   const [payload, setPayload] = useState<PortfolioPayload | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -315,7 +318,11 @@ export function RecommendedPortfolioClient() {
             <span>
               This portfolio is automatically constructed from the highest-performing strategy model by Sharpe ratio.
               Holdings update weekly on rebalance day. For full performance charts, visit the{' '}
-              <Link href="/strategy-models" className="font-medium text-foreground underline underline-offset-2 hover:no-underline">
+              <Link
+                href="/strategy-models"
+                {...stockModelLinkNewTabProps('/strategy-models', pathname)}
+                className="font-medium text-foreground underline underline-offset-2 hover:no-underline"
+              >
                 Performance page
               </Link>.
             </span>

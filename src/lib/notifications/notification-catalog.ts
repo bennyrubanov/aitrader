@@ -3,8 +3,9 @@
  *
  * Frozen `notifications.data` keys (writers must align):
  * - `catalog_id` (string): stable id for product/onboarding rows; see `CATALOG_ID` exports.
- * - `thread_id` (string, when threaded): `weekly:${userId}:${runWeekEnding}`, `onboarding:${userId}`, or
- *   `portfolio:${userId}:${profileId}` for followed-portfolio product rows (rebalance, entries/exits, price move).
+ * - `thread_id` (string, when threaded): `weekly:${userId}:${runWeekEnding}`, `onboarding:${userId}` (welcome steps),
+ *   `paid_transition:${userId}` (free→paid upgrade in-app), or `portfolio:${userId}:${profileId}` for followed-portfolio
+ *   product rows (rebalance, entries/exits, price move).
  * - `thread_role`: `"head"` | `"child"` — head rows collapse in inbox UI; children nest under the same `thread_id`.
  */
 
@@ -64,7 +65,6 @@ export type CatalogId = (typeof CATALOG_ID)[keyof typeof CATALOG_ID] | `onboardi
 export const CORE_EMAIL_SMOKETEST_KINDS = [
   'rating-changes',
   'rebalance',
-  'model-ratings-ready',
   'entries-exits',
   'price-move',
   'weekly-bundle-all',
@@ -178,20 +178,6 @@ export const NOTIFICATION_CATALOG: readonly NotificationCatalogEntry[] = [
     smoketestKind: 'rebalance',
   },
   {
-    id: CATALOG_ID.PORTFOLIO_MODEL_RATINGS_READY,
-    lane: 'product',
-    dbType: 'model_ratings_ready',
-    channels: { email: true, inapp: true },
-    emailTransport: 'immediate',
-    inappGranularity: 'per_event',
-    inappOnly: false,
-    inappOptOutAllowed: true,
-    settingsCategory: 'model_performance',
-    preferenceResolverNote:
-      'user_model_subscriptions + global prefs; optional model_performance_updates_* on user_notification_preferences.',
-    smoketestKind: 'model-ratings-ready',
-  },
-  {
     id: CATALOG_ID.PORTFOLIO_ENTRIES_EXITS,
     lane: 'product',
     dbType: 'portfolio_entries_exits',
@@ -227,7 +213,8 @@ export const NOTIFICATION_CATALOG: readonly NotificationCatalogEntry[] = [
     inappOnly: true,
     inappOptOutAllowed: true,
     settingsCategory: 'stock',
-    preferenceResolverNote: 'user_portfolio_stocks notify_rating_* + paid tier; deduped vs model path.',
+    preferenceResolverNote:
+      'Legacy id on older rows. New in-app writes use stock.rating_change for both model subscriptions and tracked tickers; tracked prefs remain user_portfolio_stocks.notify_rating_* + paid tier; deduped vs model path.',
   },
   {
     id: CATALOG_ID.ONBOARDING_WELCOME,
@@ -288,10 +275,22 @@ export function getCatalogEntryById(id: string): NotificationCatalogEntry | unde
   return NOTIFICATION_CATALOG.find((e) => e.id === id);
 }
 
-/** Inbox filter chips (excluding `all`). */
-export type InboxFilterCategory = 'account' | 'product' | 'portfolio' | 'stock' | 'model_performance';
+/** Inbox filter chips (excluding `all`). `internal` is dev-only in the UI (see `showInternalNotificationInboxFilter`). */
+export type InboxFilterCategory =
+  | 'account'
+  | 'product'
+  | 'portfolio'
+  | 'stock'
+  | 'model_performance'
+  | 'internal';
 
 export type InboxCategoryGuess = InboxFilterCategory | 'other';
+
+/** When false, rows categorized as `internal` only appear under “All” (no chip). */
+export function showInternalNotificationInboxFilter(): boolean {
+  if (process.env.NODE_ENV === 'development') return true;
+  return process.env.NEXT_PUBLIC_SHOW_INTERNAL_NOTIFICATION_FILTER === '1';
+}
 
 type NotifRowLike = {
   type: string;
@@ -300,15 +299,24 @@ type NotifRowLike = {
 };
 
 /**
- * Maps a row to a filter chip. Rows that should only appear under “All” return `other`
- * (e.g. onboarding milestones, legacy welcome signup).
+ * Maps a row to a filter chip. Last-resort `other` is only for unknown/legacy shapes.
+ * - `internal`: operator smoketest seed (`internal.smoketest_seed`); UI chip is dev-only.
+ * - Other `onboarding.*` (non-welcome): treat like product/onboarding surface.
+ * - Generic `system` rows: product unless a branch above matched.
  */
 export function inferInboxFilterCategory(row: NotifRowLike): InboxCategoryGuess {
   const data = row.data ?? {};
   const cid = typeof data.catalog_id === 'string' ? data.catalog_id : '';
 
+  if (cid === CATALOG_ID.INTERNAL_SMOKETEST_SEED) {
+    return 'internal';
+  }
+
+  if (cid.startsWith('onboarding.welcome.')) {
+    return 'product';
+  }
   if (cid.startsWith('onboarding.')) {
-    return 'other';
+    return 'product';
   }
   if (cid.startsWith('security.')) return 'account';
   if (cid === CATALOG_ID.WEEKLY_BUNDLE || cid.startsWith('weekly.email.')) return 'product';
@@ -323,7 +331,6 @@ export function inferInboxFilterCategory(row: NotifRowLike): InboxCategoryGuess 
   if (cid === CATALOG_ID.STOCK_RATING_CHANGE || cid === CATALOG_ID.STOCK_RATING_CHANGE_TRACKED) {
     return 'stock';
   }
-  if (cid === CATALOG_ID.INTERNAL_SMOKETEST_SEED) return 'other';
 
   if (row.type === 'weekly_digest') return 'product';
   if (row.type === 'model_ratings_ready') return 'model_performance';
@@ -332,7 +339,10 @@ export function inferInboxFilterCategory(row: NotifRowLike): InboxCategoryGuess 
     return 'portfolio';
   }
   if (row.type === 'system' && (data.welcome === '1' || row.title === 'Welcome to AI Trader')) {
-    return 'other';
+    return 'product';
+  }
+  if (row.type === 'system') {
+    return 'product';
   }
 
   return 'other';

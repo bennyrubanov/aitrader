@@ -76,6 +76,7 @@ import {
 import { ContentPageLayout } from '@/components/ContentPageLayout';
 import { BgDots } from '@/components/landing/bg-dots';
 import { Disclaimer } from '@/components/Disclaimer';
+import { stockModelLinkNewTabProps } from '@/lib/stock-model-link-new-tab';
 import { ModelHeaderCard } from '@/components/ModelHeaderCard';
 import {
   CagrOverTimeChart,
@@ -2281,7 +2282,9 @@ function PerformancePagePublicClientInner({
                 <BreadcrumbList>
                   <BreadcrumbItem>
                     <BreadcrumbLink asChild>
-                      <Link href="/strategy-models">Models</Link>
+                      <Link href="/strategy-models" {...stockModelLinkNewTabProps('/strategy-models', pathname)}>
+                        Models
+                      </Link>
                     </BreadcrumbLink>
                   </BreadcrumbItem>
                   <BreadcrumbSeparator />
@@ -2295,6 +2298,10 @@ function PerformancePagePublicClientInner({
                         <Link
                           href={`/strategy-models/${encodeURIComponent(slug ?? effectiveStrategy.slug)}`}
                           className="block truncate"
+                          {...stockModelLinkNewTabProps(
+                            `/strategy-models/${encodeURIComponent(slug ?? effectiveStrategy.slug)}`,
+                            pathname
+                          )}
                         >
                           {effectiveStrategy.name}
                         </Link>
@@ -2673,7 +2680,7 @@ function PerformancePagePublicClientInner({
 
               <div className="space-y-2">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Detailed metrics
+                  Detailed Metrics
                 </p>
                 <div className="space-y-2">
                   <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -4081,7 +4088,10 @@ function PerformancePagePublicClientInner({
       {!isModelLanding && slug && effectiveStrategy ? (
         <div className="mb-8 flex justify-center">
           <Button asChild variant="outline" className="gap-2">
-            <Link href={`/strategy-models/${encodeURIComponent(slug)}`}>
+            <Link
+              href={`/strategy-models/${encodeURIComponent(slug)}`}
+              {...stockModelLinkNewTabProps(`/strategy-models/${encodeURIComponent(slug)}`, pathname)}
+            >
               View strategy model
               <ArrowRight className="size-4 shrink-0" />
             </Link>

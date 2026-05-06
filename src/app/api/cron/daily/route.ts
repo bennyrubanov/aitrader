@@ -179,8 +179,6 @@ type CronRatingDigestMeta = {
     rebalanceEmails?: number;
     entriesExitsInapp?: number;
     entriesExitsEmails?: number;
-    ratingsReadyInapp?: number;
-    ratingsReadyEmails?: number;
     priceMoveProfilesChecked?: number;
     priceMoveInapp?: number;
     priceMoveEmails?: number;
@@ -1490,7 +1488,6 @@ const handleRequest = async (req: Request) => {
         addRow('Tracked-stock rating (paid)', n.ratingTrackedInapp, n.ratingTrackedEmails);
         addRow('Portfolio rebalances', n.rebalanceInapp, n.rebalanceEmails);
         addRow('Portfolio entries / exits', n.entriesExitsInapp, n.entriesExitsEmails);
-        addRow('Model ratings ready', n.ratingsReadyInapp, n.ratingsReadyEmails);
         addRow('Portfolio price-move alerts', n.priceMoveInapp, n.priceMoveEmails);
 
         const extraLines: string[] = [];
@@ -2191,7 +2188,7 @@ const handleRequest = async (req: Request) => {
       });
     }
 
-    /** Used after rebalance actions for optional `model_ratings_ready` fan-out. */
+    /** Rating bucket deltas for per-stock in-app + weekly digest counts (rebalance day). */
     let ratingChangesForNotifications: import('@/lib/notifications/types').RatingBucketChange[] = [];
 
     // ----- Step 5: Create/reuse weekly snapshot -----
@@ -3052,22 +3049,8 @@ const handleRequest = async (req: Request) => {
           digestMeta.notifications.entriesExitsEmails = ee.emailsSent;
         }
       }
-      if (ratingChangesForNotifications.length === 0) {
-        const mr = await cronFanout.notifyModelRatingsReady(supabase, {
-          strategyId: strategy.id,
-          strategySlug: strategy.slug,
-          strategyName: strategy.name,
-          runDate,
-          dryUserId,
-        });
-        log('NOTIFICATIONS RATINGS_READY', `inapp=${mr.inappInserted} emails=${mr.emailsSent}`);
-        if (digestMeta.notifications) {
-          digestMeta.notifications.ratingsReadyInapp = mr.inappInserted;
-          digestMeta.notifications.ratingsReadyEmails = mr.emailsSent;
-        }
-      }
     } catch (error) {
-      recordCronError('Notifications fan-out (rebalance / ratings ready) failed', error);
+      recordCronError('Notifications fan-out (rebalance / portfolio updates) failed', error);
     }
 
     // ----- Step 17: Weekly research layer (quintiles + regression) -----

@@ -2,7 +2,7 @@
 
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import {
   ArrowRight,
   ChevronDown,
@@ -39,6 +39,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { stockModelLinkNewTabProps } from '@/lib/stock-model-link-new-tab';
 import { cn } from '@/lib/utils';
 import type { StockNewsItem } from '@/lib/stock-news';
 import { formatDistanceToNow } from 'date-fns';
@@ -265,6 +266,7 @@ function StockSidebarSearch({
   authLoaded: boolean;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const blurTimeoutRef = useRef<number | null>(null);
   const showKbdHints = !useIsMobile();
@@ -516,6 +518,7 @@ function StockSidebarSearch({
               role="option"
               aria-selected={activeOptionIndex === index}
               href={`/stocks/${stock.symbol.toLowerCase()}`}
+              {...stockModelLinkNewTabProps(`/stocks/${stock.symbol.toLowerCase()}`, pathname)}
               prefetch
               className={cn(
                 'group block w-full rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none',
@@ -583,6 +586,7 @@ const StockDetailClient = ({
   initialStrategySlug,
 }: StockDetailClientProps) => {
   const router = useRouter();
+  const pathname = usePathname();
   const { isAuthenticated, isLoaded, hasPremiumAccess, subscriptionTier } = useAuthState();
   const upgradeHref = isAuthenticated ? '/pricing' : '/sign-up';
   // Premium stocks: Supporter+ for ratings, history, and chart.
@@ -1028,7 +1032,13 @@ const StockDetailClient = ({
                 size="sm"
                 className="w-full justify-start gap-1.5 text-xs h-7 px-1"
               >
-                <Link href={`/strategy-models/${effectivePickerStrategy.slug}`}>
+                <Link
+                  href={`/strategy-models/${effectivePickerStrategy.slug}`}
+                  {...stockModelLinkNewTabProps(
+                    `/strategy-models/${effectivePickerStrategy.slug}`,
+                    pathname
+                  )}
+                >
                   <ExternalLink className="size-3 shrink-0" />
                   How this model works
                 </Link>
@@ -1039,7 +1049,13 @@ const StockDetailClient = ({
                 size="sm"
                 className="w-full justify-start gap-1.5 text-xs h-7 px-1"
               >
-                <Link href={`/strategy-models/${effectivePickerStrategy.slug}`}>
+                <Link
+                  href={`/strategy-models/${effectivePickerStrategy.slug}`}
+                  {...stockModelLinkNewTabProps(
+                    `/strategy-models/${effectivePickerStrategy.slug}`,
+                    pathname
+                  )}
+                >
                   <TrendingUp className="size-3 shrink-0" />
                   See performance
                 </Link>

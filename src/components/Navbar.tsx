@@ -43,6 +43,7 @@ import { PlanLabel } from "@/components/account/plan-label";
 import { logoutToHome } from "@/lib/client-logout";
 import { navigateWithFallback } from "@/lib/client-navigation";
 import { shouldPersistSignInReturnPath } from "@/lib/auth-redirect";
+import { stockModelLinkNewTabProps } from "@/lib/stock-model-link-new-tab";
 import type { SubscriptionTier } from "@/lib/auth-state";
 import { ACCOUNT_SETTINGS_QUICK_LINKS } from "@/lib/account-settings-quick-links";
 
@@ -501,6 +502,7 @@ const Navbar: React.FC = () => {
                     <Link
                       key={item.href}
                       href={item.href}
+                      {...stockModelLinkNewTabProps(item.href, pathname)}
                       prefetch
                       onMouseEnter={() => handlePrefetch(item.href)}
                       onFocus={() => handlePrefetch(item.href)}
@@ -715,6 +717,7 @@ const Navbar: React.FC = () => {
                               <SheetClose asChild key={item.href}>
                                 <Link
                                   href={item.href}
+                                  {...stockModelLinkNewTabProps(item.href, pathname)}
                                   prefetch
                                   onMouseEnter={() => handlePrefetch(item.href)}
                                   onFocus={() => handlePrefetch(item.href)}

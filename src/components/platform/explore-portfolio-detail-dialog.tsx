@@ -81,6 +81,7 @@ import Link from 'next/link';
 import {
   ArrowUpRight,
   Bell,
+  BellOff,
   ChevronDown,
   ExternalLink,
   Lock,
@@ -434,7 +435,7 @@ function writeVisibleDateCountSession(slug: string, configId: string, count: num
 
 function ExploreHoldingsCardSkeleton({ rows = 5 }: { rows?: number }) {
   return (
-    <div className="space-y-1 rounded-md border bg-card/40 p-2">
+    <div className="space-y-1">
       <div className="flex flex-wrap items-center justify-between gap-1 text-xs">
         <Skeleton className="h-3 w-24" />
         <Skeleton className="h-3 w-24" />
@@ -466,7 +467,7 @@ function ExploreHoldingsCardSkeleton({ rows = 5 }: { rows?: number }) {
 
 function ExploreActionsCardSkeleton({ rows = 4 }: { rows?: number }) {
   return (
-    <div className="space-y-1 rounded-md border bg-card/40 p-2">
+    <div className="space-y-1">
       <div className="flex flex-wrap items-center justify-between gap-1 text-xs">
         <Skeleton className="h-3 w-24" />
         <Skeleton className="h-3 w-24" />
@@ -656,7 +657,9 @@ export function ExplorePortfolioDetailDialog({
   unfollowBusy = false,
   followLimitReached = false,
   followLimitMax = MAX_FOLLOWED_PORTFOLIOS_PAID,
-  onOpenNotificationSettings,
+  portfolioAlertsAnyOn = false,
+  portfolioAlertsToggleSaving = false,
+  onTogglePortfolioAlerts,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -681,8 +684,10 @@ export function ExplorePortfolioDetailDialog({
   followLimitReached?: boolean;
   /** Server cap from GET `maxFollowedPortfolios` (tooltip copy). */
   followLimitMax?: number;
-  /** Shown when already following; opens per-portfolio notification settings (parent handles UI). */
-  onOpenNotificationSettings?: () => void;
+  /** Master alerts toggle when already following (same behavior as Your Portfolios). */
+  portfolioAlertsAnyOn?: boolean;
+  portfolioAlertsToggleSaving?: boolean;
+  onTogglePortfolioAlerts?: () => void;
 }) {
   const exploreHoldingsRequestIdRef = useRef(0);
   const prevDialogConfigKeyRef = useRef<string | null>(null);
@@ -1408,7 +1413,7 @@ export function ExplorePortfolioDetailDialog({
                 )}
                 onClick={() => setDetailTab('metrics')}
               >
-                Detailed metrics
+                Details
               </button>
               <button
                 type="button"
@@ -1470,7 +1475,7 @@ export function ExplorePortfolioDetailDialog({
                 )}
                 onClick={() => setDetailTab('metrics')}
               >
-                Detailed metrics
+                Details
               </button>
               <button
                 type="button"
@@ -1484,7 +1489,7 @@ export function ExplorePortfolioDetailDialog({
                 )}
                 onClick={() => setDetailTab('holdings')}
               >
-                Holdings + actions
+                Holdings & Actions
               </button>
             </div>
           </>
@@ -1750,7 +1755,7 @@ export function ExplorePortfolioDetailDialog({
               <TooltipProvider delayDuration={200}>
                 <div className="space-y-2">
                   {exploreHoldingsTimeline.rows.map((row) => (
-                    <div key={row.date} className="space-y-1 rounded-md border bg-card/40 p-2">
+                    <div key={row.date} className="space-y-1">
                       <div className="flex flex-wrap items-center justify-between gap-1 text-xs">
                         <p className="font-medium text-foreground">
                           {shortDateFmt.format(new Date(`${row.date}T00:00:00Z`))}
@@ -2119,7 +2124,7 @@ export function ExplorePortfolioDetailDialog({
                 {exploreRebalanceActionsTimeline.rows.map((row) => {
                   const actionCount = row.hold.length + row.buy.length + row.sell.length;
                   return (
-                    <div key={row.date} className="space-y-1 rounded-md border bg-card/40 p-2">
+                    <div key={row.date} className="space-y-1">
                       <div className="flex flex-wrap items-center justify-between gap-1 text-xs">
                         <p className="font-medium text-foreground">
                           {shortDateFmt.format(new Date(`${row.date}T00:00:00Z`))}
@@ -2277,7 +2282,7 @@ export function ExplorePortfolioDetailDialog({
                     }
 
                     return (
-                      <div key={date} className="space-y-2 rounded-md border bg-card/40 p-2">
+                      <div key={date} className="space-y-2">
                         <div className="flex flex-wrap items-center justify-between gap-1 text-xs">
                           <p className="font-medium text-foreground">
                             {shortDateFmt.format(new Date(`${date}T00:00:00Z`))}
@@ -2649,18 +2654,37 @@ export function ExplorePortfolioDetailDialog({
           footerMode === 'follow' &&
           isFollowing &&
           followProfileId &&
-          onOpenNotificationSettings ? (
-            <Button
-              type="button"
-              variant="outline"
-              className="gap-1"
-              onClick={() => {
-                onOpenNotificationSettings();
-              }}
-            >
-              <Bell className="size-4 shrink-0" aria-hidden />
-              Notification settings
-            </Button>
+          onTogglePortfolioAlerts ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={cn('gap-1', !portfolioAlertsAnyOn && 'text-muted-foreground')}
+                  disabled={portfolioAlertsToggleSaving}
+                  aria-pressed={portfolioAlertsAnyOn}
+                  aria-label={
+                    portfolioAlertsAnyOn
+                      ? 'Turn portfolio alerts off'
+                      : 'Turn portfolio alerts on'
+                  }
+                  onClick={() => void onTogglePortfolioAlerts()}
+                >
+                  {portfolioAlertsAnyOn ? (
+                    <Bell className="size-4 shrink-0" aria-hidden />
+                  ) : (
+                    <BellOff className="size-4 shrink-0" aria-hidden />
+                  )}
+                  <span className="hidden sm:inline">Alerts</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs text-xs">
+                {portfolioAlertsAnyOn
+                  ? 'Turn off email and in-app alerts for this portfolio.'
+                  : 'Turn on email and in-app alerts for this portfolio.'}
+              </TooltipContent>
+            </Tooltip>
           ) : null}
           {config && footerMode === 'follow' && isFollowing && followProfileId && onUnfollow ? (
             <Tooltip>

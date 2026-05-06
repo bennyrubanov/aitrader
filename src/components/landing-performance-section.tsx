@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight } from 'lucide-react';
 import BorderGlow from '@/components/landing/border-glow';
@@ -14,6 +15,7 @@ import type { LandingHeroStats } from '@/lib/landing-hero-stats';
 import { CHART_SP500_LANDING_LINE } from '@/lib/chart-index-series-colors';
 import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
 import { useHasBeenVisible } from '@/lib/animations';
+import { stockModelLinkNewTabProps } from '@/lib/stock-model-link-new-tab';
 
 const LANDING_ALL_PORTFOLIOS_RECOVERY_URL = '/api/public/landing-all-portfolios-performance';
 const LANDING_RECOVERY_TELEMETRY_URL = '/api/public/landing-performance-recovery-telemetry';
@@ -57,6 +59,7 @@ function formatInceptionFootnote(ymd: string | null | undefined): string | null 
 }
 
 function PerformanceFullStatsCta({ href }: { href: string }) {
+  const pathname = usePathname();
   return (
     <BorderGlow
       className="group inline-flex shrink-0 border-transparent"
@@ -77,7 +80,7 @@ function PerformanceFullStatsCta({ href }: { href: string }) {
         variant="ghost"
         className="h-10 gap-2 rounded-[inherit] border-0 bg-transparent px-4 py-2 shadow-none hover:bg-transparent dark:hover:bg-transparent"
       >
-        <Link href={href}>
+        <Link href={href} {...stockModelLinkNewTabProps(href, pathname)}>
           See full performance stats
           <ArrowRight className="h-4 w-4 shrink-0 transition-transform duration-200 ease-out group-hover:translate-x-0.5" />
         </Link>
@@ -267,7 +270,7 @@ export function LandingPerformanceSection({ allPortfolios, heroStats, visibleRef
           style={{ backgroundColor: '#30D158' }}
           aria-hidden
         />
-        Top portfolio
+        Top Portfolio
       </li>
       <li className="flex items-center gap-1.5">
         <span
@@ -275,7 +278,7 @@ export function LandingPerformanceSection({ allPortfolios, heroStats, visibleRef
           style={{ backgroundColor: '#0A84FF' }}
           aria-hidden
         />
-        Avg. portfolio
+        Average Portfolio
       </li>
       <li className="flex items-center gap-1.5">
         <span

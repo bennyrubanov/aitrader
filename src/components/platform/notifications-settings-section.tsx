@@ -70,6 +70,29 @@ type TrackedItem = {
   notify_rating_email: boolean;
 };
 
+function compareStockSymbols(a: string, b: string): number {
+  return a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true });
+}
+
+type StockTrackedDisplayRow =
+  | { kind: 'stock'; item: TrackedItem }
+  | { kind: 'skeleton'; symbol: string };
+
+/** Alphabetical list with an optional pending-add skeleton at the correct insert index. */
+function buildStockTrackedDisplayRows(
+  tracked: TrackedItem[],
+  pendingSymbol: string | null
+): StockTrackedDisplayRow[] {
+  const sorted = [...tracked].sort((x, y) => compareStockSymbols(x.symbol, y.symbol));
+  const rows: StockTrackedDisplayRow[] = sorted.map((item) => ({ kind: 'stock', item }));
+  const pending = pendingSymbol?.trim();
+  if (!pending) return rows;
+  if (sorted.some((t) => t.symbol.toUpperCase() === pending.toUpperCase())) return rows;
+  const insertAt = sorted.findIndex((t) => compareStockSymbols(t.symbol, pending) > 0);
+  const i = insertAt === -1 ? sorted.length : insertAt;
+  return [...rows.slice(0, i), { kind: 'skeleton', symbol: pending }, ...rows.slice(i)];
+}
+
 export type NotificationsSettingsSectionProps = {
   embedMode?: 'settings' | 'bell';
 };
@@ -1105,12 +1128,14 @@ export function NotificationsSettingsSection({
     const q = stockQuery.trim().toLowerCase();
     if (q.length === 0) return [];
     const trackedIds = new Set(tracked.map((t) => t.stock_id));
+    const pendingSym = addingSymbol?.trim().toUpperCase() ?? '';
     return catalog.filter(
       (s) =>
         !trackedIds.has(s.id ?? '') &&
+        (!pendingSym || s.symbol.toUpperCase() !== pendingSym) &&
         (s.symbol.toLowerCase().includes(q) || s.name.toLowerCase().includes(q))
     );
-  }, [stockQuery, catalog, tracked]);
+  }, [stockQuery, catalog, tracked, addingSymbol]);
 
   const stockSearchListOpen = stockSearchDropdownActive && searchResults.length > 0;
 
@@ -1118,12 +1143,19 @@ export function NotificationsSettingsSection({
     const q = stockQuery.trim().toLowerCase();
     if (q.length === 0) return false;
     const trackedIds = new Set(tracked.map((t) => t.stock_id));
+    const pendingSym = addingSymbol?.trim().toUpperCase() ?? '';
     return catalog.some(
       (s) =>
         !trackedIds.has(s.id ?? '') &&
+        (!pendingSym || s.symbol.toUpperCase() !== pendingSym) &&
         (s.symbol.toLowerCase().includes(q) || s.name.toLowerCase().includes(q))
     );
-  }, [stockQuery, catalog, tracked]);
+  }, [stockQuery, catalog, tracked, addingSymbol]);
+
+  const stockTrackedDisplayRows = useMemo(
+    () => buildStockTrackedDisplayRows(tracked, addingSymbol),
+    [tracked, addingSymbol]
+  );
 
   useLayoutEffect(() => {
     if (!stockSearchListOpen) {
@@ -1979,7 +2011,7 @@ export function NotificationsSettingsSection({
             </div>
           </div>
 
-            {tracked.length === 0 ? (
+            {tracked.length === 0 && !addingSymbol ? (
               <p className="text-xs text-muted-foreground">No tracked stocks.</p>
             ) : (
               <div className="space-y-1 rounded-lg border bg-muted/15 p-2">
@@ -1989,7 +2021,32 @@ export function NotificationsSettingsSection({
                   <span className={`${notificationsSwitchColClass} text-center`}>Email</span>
                   <span className={`${notificationsSwitchColClass} text-center`}>In-app</span>
                 </div>
-                {tracked.map((t) => {
+                {stockTrackedDisplayRows.map((row) => {
+                  if (row.kind === 'skeleton') {
+                    return (
+                      <div
+                        key={`__adding-${row.symbol}`}
+                        className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-x-1.5 gap-y-0.5 items-center border-t py-1.5 first:border-t-0 sm:gap-x-2"
+                        aria-busy="true"
+                        aria-label={`Adding ${row.symbol}`}
+                      >
+                        <div className="min-w-0 space-y-1.5 py-0.5">
+                          <Skeleton className="h-4 w-[4.5rem] max-w-[40%]" aria-hidden />
+                          <Skeleton className="h-3 w-[min(100%,12rem)] max-w-full" aria-hidden />
+                        </div>
+                        <div className={notificationsSwitchColClass}>
+                          <Skeleton className="mx-auto size-8 shrink-0 rounded-md" aria-hidden />
+                        </div>
+                        <div className={notificationsSwitchColClass}>
+                          <Skeleton className="mx-auto h-6 w-10 rounded-full sm:h-7 sm:w-11" aria-hidden />
+                        </div>
+                        <div className={notificationsSwitchColClass}>
+                          <Skeleton className="mx-auto h-6 w-10 rounded-full sm:h-7 sm:w-11" aria-hidden />
+                        </div>
+                      </div>
+                    );
+                  }
+                  const t = row.item;
                   const lockedRow = isFreeTier && t.is_premium_stock;
                   const rowDisabled = Boolean(lockedRow);
                   return (
@@ -2097,6 +2154,8 @@ export function NotificationsSettingsSection({
                         {m.slug ? (
                           <Link
                             href={`/strategy-models/${encodeURIComponent(m.slug)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
                             className="text-sm font-medium hover:underline"
                           >
                             {m.name}

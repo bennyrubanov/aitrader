@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { Baby, BarChart2, Sparkles, Star, TrendingUp } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -17,6 +18,7 @@ import {
 } from '@/lib/default-ait-model-grainient';
 import { type RankedStrategyModel } from '@/lib/strategy-models-ranked';
 import { STRATEGY_CONFIG } from '@/lib/strategyConfig';
+import { stockModelLinkNewTabProps } from '@/lib/stock-model-link-new-tab';
 import { cn } from '@/lib/utils';
 import { hasAvgSp500ExcessInsight } from '@/components/model-header-card-insights';
 import {
@@ -133,6 +135,7 @@ type Props = {
 };
 
 export function StrategyModelsClient({ strategies, rankedStrategies }: Props) {
+  const pathname = usePathname();
   const [sort, setSort] = useState<SortKey>('performance');
 
   const rankedBySlug = useMemo(() => {
@@ -239,6 +242,7 @@ export function StrategyModelsClient({ strategies, rankedStrategies }: Props) {
               >
                 <Link
                   href={modelHref}
+                  {...stockModelLinkNewTabProps(modelHref, pathname)}
                   aria-label={`Open model: ${strategy.name}`}
                   className="absolute inset-0 z-0 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                 >

@@ -38,7 +38,7 @@ const EXPLORE_BM_ORDER: ExploreBenchmarkKey[] = [EXPLORE_BM_KEYS.cap, EXPLORE_BM
 /** Synthetic series: mean $ across visible configs (explore only, ≥2 lines). */
 const EXPLORE_AVERAGE_PORTFOLIO_DATA_KEY = 'avg_visible_portfolios';
 const EXPLORE_AVERAGE_PORTFOLIO_COLOR = CHART_PORTFOLIO_SERIES_COLOR;
-const EXPLORE_AVERAGE_PORTFOLIO_LABEL = 'Average portfolio';
+const EXPLORE_AVERAGE_PORTFOLIO_LABEL = 'Average Portfolio';
 
 const EXPLORE_BM_CONFIG: Record<ExploreBenchmarkKey, { label: string; color: string }> = {
   [EXPLORE_BM_KEYS.cap]: {
@@ -232,11 +232,6 @@ export function ExplorePortfoliosEquityChart({
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   /** Set on chart click; freezes date for sidebar until cleared */
   const [pinnedIndex, setPinnedIndex] = useState<number | null>(null);
-  /**
-   * Explore: last chart X-index scrubbed while unpinned — keeps chip / callout $ values after
-   * pointer leaves the SVG (e.g. when reading chips above the chart).
-   */
-  const [exploreScrubStickyIndex, setExploreScrubStickyIndex] = useState<number | null>(null);
   /** Sync: hover on a line ↔ highlight row; hover on row ↔ highlight line */
   const [hoveredLineKey, setHoveredLineKey] = useState<string | null>(null);
   const sidebarScrollRef = useRef<HTMLDivElement>(null);
@@ -469,9 +464,8 @@ export function ExplorePortfoliosEquityChart({
     };
   }, [isPicker, pickerLatestRow, pickerTopPortfolioDataKey, effectiveSeries]);
 
-  const displayValueIndex = isPicker
-    ? null
-    : (pinnedIndex ?? hoverIndex ?? exploreScrubStickyIndex ?? latestIdx);
+  /** Unpinned + not hovering: sidebar / callout use the latest point in the current range. */
+  const displayValueIndex = isPicker ? null : (pinnedIndex ?? hoverIndex ?? latestIdx);
   const displayValueRow = isPicker
     ? pickerLatestRow
     : displayValueIndex != null
@@ -614,14 +608,12 @@ export function ExplorePortfoliosEquityChart({
 
   const clearPin = useCallback(() => {
     setPinnedIndex(null);
-    setExploreScrubStickyIndex(null);
   }, []);
 
   /** New range = new slice; pinned index would not mean the same calendar date — drop pin/hover. */
   useEffect(() => {
     setPinnedIndex(null);
     setHoverIndex(null);
-    setExploreScrubStickyIndex(null);
   }, [range]);
 
   useEffect(() => {
@@ -643,16 +635,10 @@ export function ExplorePortfoliosEquityChart({
     if (n === 0) {
       setHoverIndex(null);
       setPinnedIndex(null);
-      setExploreScrubStickyIndex(null);
       return;
     }
     setHoverIndex((i) => (i != null && i >= n ? null : i));
     setPinnedIndex((i) => (i != null && i >= n ? null : i));
-    setExploreScrubStickyIndex((i) => {
-      if (i == null) return i;
-      if (i >= n) return n - 1;
-      return i;
-    });
   }, [chartData.length, range]);
 
   const handleChartMouseMove = useCallback(
@@ -661,7 +647,6 @@ export function ExplorePortfoliosEquityChart({
       const i = state.activeTooltipIndex;
       if (typeof i === 'number' && i >= 0 && i < chartData.length) {
         setHoverIndex(i);
-        setExploreScrubStickyIndex(i);
       }
     },
     [pinnedIndex, chartData.length]
@@ -678,7 +663,6 @@ export function ExplorePortfoliosEquityChart({
     (state: CategoricalChartState) => {
       const i = state.activeTooltipIndex;
       if (typeof i !== 'number' || i < 0 || i >= chartData.length) return;
-      setExploreScrubStickyIndex(i);
       if (isNarrowLayout) {
         setHoverIndex(i);
         return;
@@ -755,14 +739,24 @@ export function ExplorePortfoliosEquityChart({
     <div className={cn('space-y-3', className)}>
       {!isPicker && averageBenchOutperformance ? (
         <div className="rounded-lg border border-border/80 bg-muted/20 px-3 py-2">
-          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-muted-foreground">
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-x-4 sm:gap-y-2">
+            <div className="flex min-w-0 w-full items-start justify-between gap-2 sm:w-auto sm:flex-1 sm:justify-start">
+              <p className="min-w-0 flex-1 text-xs font-medium text-muted-foreground sm:flex-none sm:text-sm">
                 Mean Portfolio Return vs Benchmarks
               </p>
+              {displayValueRow && typeof displayValueRow.shortDate === 'string' ? (
+                <span className="shrink-0 text-right text-[11px] tabular-nums text-muted-foreground sm:hidden">
+                  {displayValueRow.shortDate}
+                </span>
+              ) : null}
             </div>
-            <div className="flex shrink-0 flex-wrap items-baseline justify-end gap-x-5 gap-y-1 text-sm max-sm:basis-full">
-              <div className="flex items-baseline justify-end gap-2">
+            <div className="flex w-full flex-col items-start gap-1 text-sm sm:w-auto sm:flex-row sm:flex-wrap sm:items-baseline sm:justify-end sm:gap-x-5 sm:gap-y-1">
+              {displayValueRow && typeof displayValueRow.shortDate === 'string' ? (
+                <span className="hidden shrink-0 text-[11px] tabular-nums text-muted-foreground sm:inline sm:mr-1">
+                  {displayValueRow.shortDate}
+                </span>
+              ) : null}
+              <div className="flex flex-col items-start gap-0.5 sm:flex-row sm:items-baseline sm:justify-end sm:gap-2">
                 <span className="shrink-0 text-xs text-muted-foreground">S&amp;P 500</span>
                 <span
                   className={cn(
@@ -775,7 +769,7 @@ export function ExplorePortfoliosEquityChart({
                   {formatSignedPct1(averageBenchOutperformance.vsSp500)}
                 </span>
               </div>
-              <div className="flex items-baseline justify-end gap-2">
+              <div className="flex flex-col items-start gap-0.5 sm:flex-row sm:items-baseline sm:justify-end sm:gap-2">
                 <span className="shrink-0 text-xs text-muted-foreground">Nasdaq-100</span>
                 <span
                   className={cn(
@@ -1432,7 +1426,7 @@ export function ExplorePortfoliosEquityChart({
         </aside>
       </div>
 
-      <p className="text-[11px] text-muted-foreground">
+      <p className="text-[11px] text-muted-foreground max-sm:mb-3">
         Simulated portfolio value starting from <strong className="text-foreground">$10,000</strong>{' '}
         at inception on{' '}
         <strong className="text-foreground">

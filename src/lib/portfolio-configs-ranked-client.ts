@@ -24,7 +24,7 @@ function bindInvalidateListener() {
   invalidateListenerBound = true;
   window.addEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, (e: Event) => {
     const d = (e as CustomEvent<UserPortfolioProfilesInvalidateDetail>).detail;
-    if (d?.entrySettingsOnly) return;
+    if (d?.entrySettingsOnly || d?.profilesListOnly) return;
     inflight.clear();
     resolved.clear();
   });

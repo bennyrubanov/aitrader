@@ -4,6 +4,7 @@ import { createPerformanceChartDynamic } from "@/components/platform/performance
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { GuestPlatformPreviewPayload } from "@/lib/guest-platform-preview";
 import { RISK_LABELS, type RiskLevel } from "@/components/portfolio-config";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -107,32 +108,6 @@ const PerformanceChart = createPerformanceChartDynamic({
   loading: () => <AuthPreviewChartBlockSkeleton />,
 });
 
-type GuestPreviewResponse = {
-  strategySlug: string;
-  strategyName: string | null;
-  recommendations: Array<{
-    symbol: string;
-    name: string;
-    bucket: "buy" | "hold" | "sell" | null;
-    score: number | null;
-    updatedAt: string | null;
-  }>;
-  topPortfolios: Array<{
-    configId: string;
-    rank: number;
-    label: string;
-    riskLabel: string;
-    riskLevel: number;
-    rebalanceFrequency: string;
-    weightingMethod: string;
-    totalReturnPct: number | null;
-    cagrPct: number | null;
-    beatsMarket: boolean | null;
-  }>;
-  portfolioRankTotal: number;
-  portfolioRankingNote: string | null;
-};
-
 function formatBucket(bucket: "buy" | "hold" | "sell" | null): string {
   if (!bucket) return "—";
   return bucket.charAt(0).toUpperCase() + bucket.slice(1);
@@ -169,7 +144,7 @@ type ChartCacheEntry = {
 };
 
 type AuthPreviewMemoryCache = {
-  data: GuestPreviewResponse | null;
+  data: GuestPlatformPreviewPayload | null;
   loadError: boolean;
   recPage: number;
   portfolioIdx: number;
@@ -181,9 +156,15 @@ let authPreviewMemoryCache: AuthPreviewMemoryCache | null = null;
 const AUTH_PREVIEW_CACHE_TTL_MS = 5 * 60 * 1000;
 
 
-export function AuthPreviewPlaceholder() {
+export function AuthPreviewPlaceholder({
+  guestPreviewInitial = null,
+}: {
+  guestPreviewInitial?: GuestPlatformPreviewPayload | null;
+}) {
   const memory = authPreviewMemoryCache;
-  const [data, setData] = useState<GuestPreviewResponse | null>(memory?.data ?? null);
+  const [data, setData] = useState<GuestPlatformPreviewPayload | null>(
+    () => memory?.data ?? guestPreviewInitial ?? null,
+  );
   const [loadError, setLoadError] = useState(memory?.loadError ?? false);
   const [recPage, setRecPage] = useState(memory?.recPage ?? 0);
   const [recOpacity, setRecOpacity] = useState(1);
@@ -191,6 +172,12 @@ export function AuthPreviewPlaceholder() {
   const [chartByConfigId, setChartByConfigId] = useState<Record<string, ChartCacheEntry>>(
     memory?.chartByConfigId ?? {}
   );
+
+  useEffect(() => {
+    if (guestPreviewInitial) {
+      setData((prev) => prev ?? guestPreviewInitial);
+    }
+  }, [guestPreviewInitial]);
 
   useEffect(() => {
     if (data) return;
@@ -201,9 +188,9 @@ export function AuthPreviewPlaceholder() {
       return;
     }
     let cancelled = false;
-    void fetch("/api/platform/guest-preview")
+    void fetch("/api/platform/guest-preview", { priority: "high" })
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error("preview"))))
-      .then((json: GuestPreviewResponse) => {
+      .then((json: GuestPlatformPreviewPayload) => {
         if (!cancelled) {
           setData(json);
           setLoadError(false);
@@ -313,7 +300,9 @@ export function AuthPreviewPlaceholder() {
           frequency: p.rebalanceFrequency,
           weighting: p.weightingMethod,
         });
-        const res = await fetch(`/api/platform/portfolio-config-performance?${params}`);
+        const res = await fetch(`/api/platform/portfolio-config-performance?${params}`, {
+          priority: "high",
+        });
         const j = (await res.json().catch(() => ({}))) as {
           computeStatus?: string;
           series?: PerformanceSeriesPoint[];

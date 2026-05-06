@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import { AuthPreviewPlaceholder } from "@/components/auth/auth-preview-placeholder";
+import type { GuestPlatformPreviewPayload } from "@/lib/guest-platform-preview";
 
 const AUTH_PREVIEW_PATHS = new Set([
   "/sign-in",
@@ -10,7 +11,11 @@ const AUTH_PREVIEW_PATHS = new Set([
   "/update-password",
 ]);
 
-export function AuthPreviewPersistentHost() {
+export function AuthPreviewPersistentHost({
+  guestPreviewInitial = null,
+}: {
+  guestPreviewInitial?: GuestPlatformPreviewPayload | null;
+}) {
   const pathname = usePathname();
 
   if (!pathname || !AUTH_PREVIEW_PATHS.has(pathname)) {
@@ -23,7 +28,7 @@ export function AuthPreviewPersistentHost() {
         <div />
         <section className="flex items-center justify-center px-10 py-12">
           <div className="pointer-events-auto w-full max-w-xl">
-            <AuthPreviewPlaceholder />
+            <AuthPreviewPlaceholder guestPreviewInitial={guestPreviewInitial} />
           </div>
         </section>
       </div>
