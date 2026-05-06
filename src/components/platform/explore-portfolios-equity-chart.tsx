@@ -1314,10 +1314,7 @@ export function ExplorePortfoliosEquityChart({
                           </span>
                           <span
                             className="size-1.5 shrink-0 rounded-full"
-                            style={{
-                              backgroundColor:
-                                isPicker && !rowActive ? PICKER_MUTED_SERIES_COLOR : r.color,
-                            }}
+                            style={{ backgroundColor: r.color }}
                             aria-hidden
                           />
                           <span
