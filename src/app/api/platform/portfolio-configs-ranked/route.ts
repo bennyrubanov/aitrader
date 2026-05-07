@@ -7,12 +7,12 @@ import {
 } from '@/lib/portfolio-configs-ranked-core';
 import { runWithSupabaseQueryCount } from '@/utils/supabase/query-counter';
 import {
-  PLATFORM_PORTFOLIO_JSON_S_MAXAGE_SECONDS,
   PLATFORM_PORTFOLIO_JSON_STALE_WHILE_DEFAULT,
   platformPortfolioJsonCacheControl,
 } from '@/lib/public-cache';
 
-export const revalidate = PLATFORM_PORTFOLIO_JSON_S_MAXAGE_SECONDS;
+/** Must match `PLATFORM_PORTFOLIO_JSON_S_MAXAGE_SECONDS` in `@/lib/public-cache` (Next requires a literal here). */
+export const revalidate = 300;
 export const maxDuration = 60;
 
 export type { BenchmarkEndingValues, ConfigMetrics, RankedConfig };

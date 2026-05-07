@@ -14,9 +14,8 @@
  * Config backfill additionally requires CRON_SECRET (and NEXT_PUBLIC_SITE_URL when using `--prod`).
  */
 
-import { execFile } from 'child_process';
+import { spawn } from 'child_process';
 import { readFileSync } from 'fs';
-import { promisify } from 'util';
 import { resolve } from 'path';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import {
@@ -24,8 +23,6 @@ import {
   STOOQ_BENCHMARK_SYMBOLS,
   fetchBenchmarkReturnDetail,
 } from '../src/lib/stooq-benchmark-weekly';
-
-const execFileAsync = promisify(execFile);
 
 const FLOAT_EPS = 1e-9;
 const CHAIN_TOL_REL = 1e-4;
@@ -89,10 +86,17 @@ async function runPortfolioConfigBackfillAfterRepair(
   if (prod) args.push('--prod');
   console.log('\n[with-config-backfill] Running portfolio config batch via backfill-all-configs.mjs …');
   try {
-    await execFileAsync(process.execPath, args, {
-      cwd: process.cwd(),
-      env: process.env,
-      stdio: 'inherit',
+    await new Promise<void>((resolvePromise, rejectPromise) => {
+      const child = spawn(process.execPath, args, {
+        cwd: process.cwd(),
+        env: process.env,
+        stdio: 'inherit',
+      });
+      child.on('error', rejectPromise);
+      child.on('close', (code) => {
+        if (code === 0) resolvePromise();
+        else rejectPromise(new Error(`backfill-all-configs exited with code ${code}`));
+      });
     });
   } catch (err: unknown) {
     const e = err as { stderr?: string; message?: string };

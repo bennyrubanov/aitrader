@@ -17,6 +17,7 @@
     "backfill:daily-snapshots": "tsx scripts/backfill-daily-snapshots.ts",
     "repair-weekly-benchmarks": "tsx scripts/repair-weekly-benchmarks.ts",
     "test:stooq-benchmarks": "tsx --test src/lib/stooq-benchmark-weekly.test.ts",
+    "test:portfolio-route-revalidate": "tsx --test src/lib/public-cache-route-revalidate.test.ts",
     "probe:benchmark-feeds": "tsx scripts/probe-benchmark-feeds.ts",
     "verify:notifications-migration": "sh -c 'test -n \"$DATABASE_URL\" || (echo \"Set DATABASE_URL (e.g. from Supabase project settings).\" >&2; exit 1); exec psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f scripts/verify-notifications-migration.sql'"
   },

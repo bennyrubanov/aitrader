@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
 import { getGuestPlatformPreviewPayloadCached } from '@/lib/guest-platform-preview';
 import {
-  PLATFORM_PORTFOLIO_JSON_S_MAXAGE_SECONDS,
   PLATFORM_PORTFOLIO_JSON_STALE_WHILE_GUEST_PREVIEW,
   platformPortfolioJsonCacheControl,
 } from '@/lib/public-cache';
 
-export const revalidate = PLATFORM_PORTFOLIO_JSON_S_MAXAGE_SECONDS;
+/** Must match `PLATFORM_PORTFOLIO_JSON_S_MAXAGE_SECONDS` in `@/lib/public-cache` (Next requires a literal here). */
+export const revalidate = 300;
 
 /**
  * Signed-out safe: guest-visible stock recommendations + top 10 ranked portfolio configs
