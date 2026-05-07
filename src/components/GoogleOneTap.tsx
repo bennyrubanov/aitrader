@@ -4,6 +4,7 @@ import Script from 'next/script';
 import { createClient } from '@/utils/supabase/browser';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { recordSignInContext } from '@/lib/auth-record-sign-in-context';
 
 // Google One-Tap types
 type CredentialResponse = {
@@ -104,6 +105,8 @@ const GoogleOneTap = ({
           if (error) throw error;
 
           console.log('Successfully logged in with Google One Tap');
+
+          recordSignInContext();
 
           // Redirect to protected page
           router.push(redirectTo);

@@ -3,6 +3,7 @@
   "crons": [
     { "path": "/api/cron/daily", "schedule": "30 22 * * 1-5" },
     { "path": "/api/cron/weekly-digest", "schedule": "30 23 * * 5" },
+    { "path": "/api/cron/portfolio-weekly-recap", "schedule": "35 23 * * 5" },
     { "path": "/api/cron/welcome-series", "schedule": "20 14 * * *" }
   ],
   "headers": [

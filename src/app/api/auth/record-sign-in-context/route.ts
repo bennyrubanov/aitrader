@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
+import { computeSignInFingerprint } from "@/lib/auth/sign-in-fingerprint";
+import { formatSignInClientSummary } from "@/lib/auth/sign-in-client-summary";
+import { buildSignInLocationLabel } from "@/lib/auth/sign-in-location-label";
 
 export const runtime = "nodejs";
 
@@ -51,11 +54,28 @@ export async function POST(request: Request) {
     last_sign_in_client.secChUaPlatform = secChUaPlatform;
   }
 
+  const fingerprint = computeSignInFingerprint({
+    userAgent,
+    secChUaMobile,
+    secChUaPlatform,
+  });
+
+  const clientSummary = formatSignInClientSummary({
+    userAgent,
+    secChUaPlatform,
+    deviceClass,
+  });
+
+  const locationLabel = buildSignInLocationLabel(request);
+
   const now = new Date().toISOString();
   const { error } = await supabase.rpc("record_user_sign_in_context", {
     p_device_class: deviceClass,
     p_client: last_sign_in_client,
     p_now: now,
+    p_fingerprint: fingerprint,
+    p_client_summary: clientSummary,
+    p_location_label: locationLabel,
   });
 
   if (error) {

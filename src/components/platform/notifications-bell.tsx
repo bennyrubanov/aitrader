@@ -100,8 +100,8 @@ const FILTER_CHIPS: { id: FilterId; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'account', label: 'Account' },
   { id: 'product', label: 'Product' },
-  { id: 'portfolio', label: 'Portfolio' },
-  { id: 'stock', label: 'Stock' },
+  { id: 'portfolio', label: 'Portfolios' },
+  { id: 'stock', label: 'Stocks' },
   { id: 'model_performance', label: 'Strategy models' },
   ...(showInternalNotificationInboxFilter()
     ? ([{ id: 'internal' as const, label: 'Internal (dev)' }] satisfies { id: FilterId; label: string }[])
@@ -264,17 +264,21 @@ function NotificationsPanelInner({
       g.rows.some((r) => recentlyOpenedUnreadIds.has(r.id)) || g.unreadInThread > 0;
     return (
       <li key={g.key} className="space-y-0">
-        <div className="flex w-full items-center gap-1 rounded-lg border border-transparent px-1 py-1 hover:bg-muted/70">
+        <button
+          type="button"
+          className={cn(
+            'flex w-full items-center gap-1 rounded-lg border px-1 py-1 text-left text-sm transition-colors',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+            showRecentUnreadChrome
+              ? 'border-border/60 bg-muted/40 hover:bg-muted/72 dark:hover:bg-muted/55'
+              : 'border-transparent hover:bg-muted/70 dark:hover:bg-muted/50'
+          )}
+          aria-label={`${inboxNotificationCategoryLabel(n)}: ${n.title}`}
+          onClick={() => void onRowActivate(g)}
+        >
           <span className="w-2 shrink-0 self-center" aria-hidden />
           <NotificationRowAvatar row={n} />
-          <button
-            type="button"
-            className={cn(
-              'flex min-w-0 flex-1 flex-col gap-1 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
-              showRecentUnreadChrome && 'border-border/60 bg-muted/40'
-            )}
-            onClick={() => void onRowActivate(g)}
-          >
+          <div className="flex min-w-0 flex-1 flex-col gap-1 px-2 py-1.5">
             <div className="flex w-full min-w-0 items-baseline justify-between gap-2">
               <span className="min-w-0 truncate text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                 {inboxNotificationCategoryLabel(n)}
@@ -307,8 +311,8 @@ function NotificationsPanelInner({
                 {n.body.trim()}
               </span>
             ) : null}
-          </button>
-        </div>
+          </div>
+        </button>
       </li>
     );
   };
@@ -317,7 +321,8 @@ function NotificationsPanelInner({
     <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col">
       <div
         className={cn(
-          'flex shrink-0 items-center py-2.5 sm:py-3',
+          'flex shrink-0 items-center',
+          panelView === 'list' ? 'py-1.5 sm:py-2' : 'py-2.5 sm:py-3',
           panelView === 'settings' && 'border-b',
           sheetListHeader
             ? 'relative w-full justify-start pl-3 pr-0 sm:pl-4 sm:pr-0'
@@ -388,9 +393,9 @@ function NotificationsPanelInner({
 
       {panelView === 'list' ? (
         <>
-          <div className="shrink-0 px-2 py-2">
+          <div className="shrink-0 px-2 pb-2 pt-0.5">
             <div
-              className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-0.5 pt-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+              className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-0.5 pt-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
               role="tablist"
               aria-label="Notification filters"
             >
@@ -914,7 +919,10 @@ export function NotificationsBell() {
           }
         }}
       >
-        <DialogContent className="max-h-[min(90vh,32rem)] w-[min(100vw-1rem,22rem)] max-w-[22rem] overflow-y-auto sm:w-full sm:max-w-md">
+        <DialogContent
+          showCloseButton={false}
+          className="max-h-[min(90vh,32rem)] w-[min(100vw-1rem,22rem)] max-w-[22rem] overflow-y-auto sm:w-full sm:max-w-md"
+        >
           {detail ? (
             <>
               <DialogHeader>
@@ -1014,7 +1022,10 @@ export function NotificationsBell() {
           if (!o) setThreadDetail(null);
         }}
       >
-        <DialogContent className="max-h-[min(90vh,32rem)] w-[min(100vw-1rem,22rem)] max-w-[22rem] overflow-y-auto sm:w-full sm:max-w-md">
+        <DialogContent
+          showCloseButton={false}
+          className="max-h-[min(90vh,32rem)] w-[min(100vw-1rem,22rem)] max-w-[22rem] overflow-y-auto sm:w-full sm:max-w-md"
+        >
           {threadDetail ? (
             <>
               <DialogHeader>

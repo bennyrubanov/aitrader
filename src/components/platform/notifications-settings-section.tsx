@@ -55,8 +55,19 @@ import {
   type ProfileRow,
 } from '@/lib/notifications/settings-prewarm';
 import type { Stock } from '@/types/stock';
+import {
+  portfolioAlertsRowEmailPathOn,
+  portfolioAlertsRowInappPathOn,
+  portfolioAlertsSnakeFromApiProfileRow,
+  type PortfolioAlertsSnakeRow,
+} from '@/lib/notifications/portfolio-alerts-toggle';
+import { encodePortfolioNotifyBits } from '@/lib/notifications/portfolio-notify-bits';
 
 type StockCatalogRow = Stock & { id?: string; currentRating?: string | null };
+
+function portfolioProfileRowToAlertsSnake(p: ProfileRow): PortfolioAlertsSnakeRow {
+  return portfolioAlertsSnakeFromApiProfileRow(p as unknown as Record<string, unknown>);
+}
 
 const NOTIFICATIONS_STOCK_SEARCH_LISTBOX_ID = 'notifications-stock-search-listbox';
 
@@ -116,32 +127,6 @@ function normalizePrefs(raw: Record<string, unknown>): Prefs {
     model_performance_updates_email: b('model_performance_updates_email'),
     model_performance_updates_inapp: b('model_performance_updates_inapp'),
   };
-}
-
-function isPortfolioWeeklyEmailOn(p: ProfileRow): boolean {
-  return Boolean(p.notify_weekly_email);
-}
-
-/** Rebalance / price / entries-exits in-app: all three must match “on” for the row switch. */
-function isPortfolioInappTrioOn(p: ProfileRow): boolean {
-  return (
-    Boolean(p.notify_rebalance_inapp) &&
-    Boolean(p.notify_price_move_inapp) &&
-    Boolean(p.notify_entries_exits_inapp)
-  );
-}
-
-/** Rebalance / price / entries-exits email: all three move together. */
-function isPortfolioEmailTrioOn(p: ProfileRow): boolean {
-  return (
-    Boolean(p.notify_rebalance_email) &&
-    Boolean(p.notify_price_move_email) &&
-    Boolean(p.notify_entries_exits_email)
-  );
-}
-
-function isPortfolioEmailColumnOn(p: ProfileRow): boolean {
-  return isPortfolioWeeklyEmailOn(p) && isPortfolioEmailTrioOn(p);
 }
 
 function allStrategyCatalogModelsEmailOn(
@@ -322,34 +307,68 @@ function mergeProfileRowWithApiPatch(row: ProfileRow, patch: Record<string, unkn
           : Boolean(patch.notifyEntriesExitsEmail);
     next = { ...next, notify_rebalance_email: v, notify_price_move_email: v, notify_entries_exits_email: v };
   }
+  if (typeof patch.notifyRebalance === 'boolean' && patch.notifyRebalance === false) {
+    next = {
+      ...next,
+      notify_rebalance_inapp: false,
+      notify_price_move_inapp: false,
+      notify_rebalance_email: false,
+      notify_price_move_email: false,
+    };
+  }
+  if (typeof patch.notifyHoldingsChange === 'boolean' && patch.notifyHoldingsChange === false) {
+    next = { ...next, notify_entries_exits_inapp: false, notify_entries_exits_email: false };
+  }
+
   const rbIn = next.notify_rebalance_inapp;
   const rbEm = next.notify_rebalance_email;
   const pmIn = next.notify_price_move_inapp;
   const pmEm = next.notify_price_move_email;
   const eeIn = next.notify_entries_exits_inapp;
   const eeEm = next.notify_entries_exits_email;
+  const portfolio_notify_inapp_bits = encodePortfolioNotifyBits({
+    rebalance: Boolean(rbIn),
+    priceMove: Boolean(pmIn),
+    entriesExits: Boolean(eeIn),
+  });
+  const portfolio_notify_email_bits = encodePortfolioNotifyBits({
+    rebalance: Boolean(rbEm),
+    priceMove: Boolean(pmEm),
+    entriesExits: Boolean(eeEm),
+  });
   return {
     ...next,
     notify_rebalance: rbIn || rbEm || pmIn || pmEm,
     notify_holdings_change: eeIn || eeEm,
+    portfolio_notify_inapp_bits,
+    portfolio_notify_email_bits,
   };
 }
 
 function mapPortfolioProfilesResponse(j: { profiles?: ProfileRow[] }): ProfileRow[] {
   return (j.profiles ?? []).map((p) => {
-    const email = p.email_enabled;
-    const inapp = p.inapp_enabled;
-    const nr = p.notify_rebalance;
-    const nh = p.notify_holdings_change;
+    const s = portfolioAlertsSnakeFromApiProfileRow(p as unknown as Record<string, unknown>);
     return {
       ...p,
-      notify_rebalance_inapp: p.notify_rebalance_inapp ?? (nr && inapp),
-      notify_rebalance_email: p.notify_rebalance_email ?? (nr && email),
-      notify_price_move_inapp: p.notify_price_move_inapp ?? false,
-      notify_price_move_email: p.notify_price_move_email ?? false,
-      notify_entries_exits_inapp: p.notify_entries_exits_inapp ?? (nh && inapp),
-      notify_entries_exits_email: p.notify_entries_exits_email ?? (nh && email),
-      notify_weekly_email: p.notify_weekly_email ?? true,
+      notify_rebalance: s.notify_rebalance,
+      notify_holdings_change: s.notify_holdings_change,
+      notify_rebalance_inapp: s.notify_rebalance_inapp,
+      notify_rebalance_email: s.notify_rebalance_email,
+      notify_price_move_inapp: s.notify_price_move_inapp,
+      notify_price_move_email: s.notify_price_move_email,
+      notify_entries_exits_inapp: s.notify_entries_exits_inapp,
+      notify_entries_exits_email: s.notify_entries_exits_email,
+      notify_weekly_email: s.notify_weekly_email,
+      portfolio_notify_inapp_bits: encodePortfolioNotifyBits({
+        rebalance: s.notify_rebalance_inapp,
+        priceMove: s.notify_price_move_inapp,
+        entriesExits: s.notify_entries_exits_inapp,
+      }),
+      portfolio_notify_email_bits: encodePortfolioNotifyBits({
+        rebalance: s.notify_rebalance_email,
+        priceMove: s.notify_price_move_email,
+        entriesExits: s.notify_entries_exits_email,
+      }),
     };
   });
 }
@@ -487,10 +506,8 @@ function ChannelPair({
   );
 }
 
-function NotificationsSettingsSkeleton({
-  embedMode = 'settings',
-}: Pick<NotificationsSettingsSectionProps, 'embedMode'>) {
-  const switchSkeleton = (justify: 'center' | 'end' = 'center') => (
+function notificationsSwitchRowSkeleton(justify: 'center' | 'end' = 'center') {
+  return (
     <Skeleton
       className={cn(
         'h-6 w-11 shrink-0 rounded-full',
@@ -499,6 +516,91 @@ function NotificationsSettingsSkeleton({
       aria-hidden
     />
   );
+}
+
+/** Matches the tracked-stocks grid (symbol + remove + email + in-app). */
+function StockAlertsTableSkeletonBlock() {
+  return (
+    <div
+      className="space-y-1 rounded-lg border bg-muted/15 p-2"
+      role="status"
+      aria-busy="true"
+      aria-label="Loading tracked stocks"
+    >
+      <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-x-1.5 gap-y-0.5 px-0.5 pb-1 sm:gap-x-2 sm:px-1">
+        <span />
+        <span className={notificationsSwitchColClass} aria-hidden />
+        <Skeleton className="h-2.5 w-9 justify-self-center rounded sm:w-11" aria-hidden />
+        <Skeleton className="h-2.5 w-12 justify-self-center rounded sm:w-14" aria-hidden />
+      </div>
+      {Array.from({ length: 2 }).map((_, i) => (
+        <div
+          key={i}
+          className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-x-1.5 gap-y-0.5 items-center border-t border-border/80 py-2 first:border-t-0 sm:gap-x-2"
+        >
+          <div className="min-w-0 space-y-1.5 pl-0.5">
+            <Skeleton className="h-3.5 w-20 max-w-full" aria-hidden />
+            <Skeleton className="h-3 w-32 max-w-full sm:hidden" aria-hidden />
+          </div>
+          <Skeleton className="h-8 w-8 justify-self-center rounded-md" aria-hidden />
+          {notificationsSwitchRowSkeleton()}
+          {notificationsSwitchRowSkeleton()}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Header + followed-portfolio rows (same bundle as `/api/platform/user-portfolio` in `load`). */
+function FollowedPortfoliosAlertsSkeletonBlock() {
+  const channelRow = (id: string, titleWidth: string) => (
+    <div key={id} className={cn(notificationsRowGridClass, 'py-2.5')}>
+      <div className="min-w-0 space-y-2">
+        <Skeleton className={cn('h-4 max-w-full', titleWidth)} aria-hidden />
+      </div>
+      {notificationsSwitchRowSkeleton('end')}
+      {notificationsSwitchRowSkeleton('end')}
+    </div>
+  );
+  return (
+    <>
+      <div className="flex flex-nowrap items-end justify-between gap-3">
+        <div className="min-w-0 flex-1 space-y-2">
+          <Skeleton className="h-4 w-44 max-w-full" aria-hidden />
+          <Skeleton className="h-3 w-full max-w-md" aria-hidden />
+        </div>
+        <div className="flex w-[min(18rem,46vw)] shrink-0 flex-col items-end gap-1.5 sm:w-auto sm:min-w-[12rem] sm:max-w-md">
+          <Skeleton className="h-3 w-24 self-end" aria-hidden />
+          <Skeleton className="h-9 w-full rounded-md" aria-hidden />
+        </div>
+      </div>
+      <div
+        className="rounded-lg border bg-muted/15 py-1 pl-2 pr-0.5 sm:pl-3 sm:pr-1 divide-y divide-border/80"
+        role="status"
+        aria-busy="true"
+        aria-label="Loading followed portfolios"
+      >
+        <div
+          className={cn(
+            notificationsRowGridClass,
+            'px-0.5 pb-1 text-[10px] font-medium uppercase leading-tight tracking-wide text-muted-foreground sm:px-1 sm:text-[11px]'
+          )}
+        >
+          <span />
+          <span className={`${notificationsSwitchColClass} text-center`}>Email</span>
+          <span className={`${notificationsSwitchColClass} text-center`}>In-app</span>
+        </div>
+        {channelRow('fp-a', 'w-[min(100%,14rem)]')}
+        {channelRow('fp-b', 'w-[min(100%,12rem)]')}
+      </div>
+    </>
+  );
+}
+
+function NotificationsSettingsSkeleton({
+  embedMode = 'settings',
+}: Pick<NotificationsSettingsSectionProps, 'embedMode'>) {
+  const switchSkeleton = (justify: 'center' | 'end' = 'center') => notificationsSwitchRowSkeleton(justify);
 
   const channelRowSkeleton = (
     id: string,
@@ -602,28 +704,7 @@ function NotificationsSettingsSkeleton({
             aria-hidden
           />
         </div>
-        <div className="space-y-1 rounded-lg border bg-muted/15 p-2">
-          <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-x-1.5 gap-y-0.5 px-0.5 pb-1 sm:gap-x-2 sm:px-1">
-            <span />
-            <span className={notificationsSwitchColClass} aria-hidden />
-            <Skeleton className="h-2.5 w-9 justify-self-center rounded sm:w-11" aria-hidden />
-            <Skeleton className="h-2.5 w-12 justify-self-center rounded sm:w-14" aria-hidden />
-          </div>
-          {Array.from({ length: 2 }).map((_, i) => (
-            <div
-              key={i}
-              className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-x-1.5 gap-y-0.5 items-center border-t border-border/80 py-2 first:border-t-0 sm:gap-x-2"
-            >
-              <div className="min-w-0 space-y-1.5 pl-0.5">
-                <Skeleton className="h-3.5 w-20 max-w-full" aria-hidden />
-                <Skeleton className="h-3 w-32 max-w-full sm:hidden" aria-hidden />
-              </div>
-              <Skeleton className="h-8 w-8 justify-self-center rounded-md" aria-hidden />
-              {switchSkeleton()}
-              {switchSkeleton()}
-            </div>
-          ))}
-        </div>
+        <StockAlertsTableSkeletonBlock />
       </div>
 
       <div
@@ -633,38 +714,7 @@ function NotificationsSettingsSkeleton({
           notificationsSectionAroundDivider
         )}
       >
-        <div className="flex flex-nowrap items-end justify-between gap-3">
-          <div className="min-w-0 flex-1 space-y-2">
-            <Skeleton className="h-4 w-44 max-w-full" aria-hidden />
-            <Skeleton className="h-3 w-full max-w-md" aria-hidden />
-          </div>
-          <div className="flex w-[min(18rem,46vw)] shrink-0 flex-col items-end gap-1.5 sm:w-auto sm:min-w-[12rem] sm:max-w-md">
-            <Skeleton className="h-3 w-24 self-end" aria-hidden />
-            <Skeleton className="h-9 w-full rounded-md" aria-hidden />
-          </div>
-        </div>
-        <div className="rounded-lg border bg-muted/15 py-1 pl-2 pr-0.5 sm:pl-3 sm:pr-1 divide-y divide-border/80">
-          <div
-            className={cn(
-              notificationsRowGridClass,
-              'px-0.5 pb-1 text-[10px] font-medium uppercase leading-tight tracking-wide text-muted-foreground sm:px-1 sm:text-[11px]'
-            )}
-          >
-            <span />
-            <span className={`${notificationsSwitchColClass} text-center`}>Email</span>
-            <span className={`${notificationsSwitchColClass} text-center`}>In-app</span>
-          </div>
-          {channelRowSkeleton('fp-a', {
-            titleWidth: 'w-[min(100%,14rem)]',
-            desc: false,
-            switchJustify: 'end',
-          })}
-          {channelRowSkeleton('fp-b', {
-            titleWidth: 'w-[min(100%,12rem)]',
-            desc: false,
-            switchJustify: 'end',
-          })}
-        </div>
+        <FollowedPortfoliosAlertsSkeletonBlock />
       </div>
 
       <div
@@ -725,6 +775,8 @@ export function NotificationsSettingsSection({
     [hasPaidStockAccess, tracked.length]
   );
   const [loading, setLoading] = useState(() => readCachedPrefs() == null);
+  /** False until first `load()` finishes (profiles + tracked ship together; avoids empty stock table with cached prefs). */
+  const [followedListsReady, setFollowedListsReady] = useState(false);
   const [savingPrefs, setSavingPrefs] = useState(false);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
 
@@ -780,6 +832,7 @@ export function NotificationsSettingsSection({
       }
     } finally {
       setLoading(false);
+      setFollowedListsReady(true);
     }
   }, []);
 
@@ -1342,7 +1395,8 @@ export function NotificationsSettingsSection({
       return false;
     }
     if (!trackedForAggregate.every((t) => t.notify_rating_email)) return false;
-    if (!profiles.every((p) => isPortfolioEmailColumnOn(p))) return false;
+    if (!profiles.every((p) => portfolioAlertsRowEmailPathOn(portfolioProfileRowToAlertsSnake(p))))
+      return false;
     if (!allStrategyCatalogModelsEmailOn(strategyCatalog, subs)) return false;
     return true;
   }, [isFreeTier, prefs, profiles, strategyCatalog, subs, trackedForAggregate]);
@@ -1360,7 +1414,7 @@ export function NotificationsSettingsSection({
     if (!prefs.inapp_enabled || !prefs.weekly_product_updates_inapp) {
       return false;
     }
-    if (!profiles.every((p) => isPortfolioInappTrioOn(p))) {
+    if (!profiles.every((p) => portfolioAlertsRowInappPathOn(portfolioProfileRowToAlertsSnake(p)))) {
       return false;
     }
     if (!trackedForAggregate.every((t) => t.notify_rating_inapp)) return false;
@@ -1777,7 +1831,9 @@ export function NotificationsSettingsSection({
                 and strategy model updates.
               </p>
             ) : null}
-            {profiles.length === 0 ? (
+            {!followedListsReady ? (
+              <FollowedPortfoliosAlertsSkeletonBlock />
+            ) : profiles.length === 0 ? (
               <>
                 <div>
                   <p className="text-sm font-medium">Your Portfolios</p>
@@ -1897,8 +1953,8 @@ export function NotificationsSettingsSection({
                             />
                           </Link>
                         }
-                        emailChecked={isPortfolioEmailColumnOn(p)}
-                        inAppChecked={isPortfolioInappTrioOn(p)}
+                        emailChecked={portfolioAlertsRowEmailPathOn(portfolioProfileRowToAlertsSnake(p))}
+                        inAppChecked={portfolioAlertsRowInappPathOn(portfolioProfileRowToAlertsSnake(p))}
                         onEmail={(v) =>
                           void patchProfile(p.id, {
                             notifyWeeklyEmail: v,
@@ -2080,7 +2136,9 @@ export function NotificationsSettingsSection({
             </div>
           </div>
 
-            {tracked.length === 0 && !addingSymbol ? (
+            {!followedListsReady ? (
+              <StockAlertsTableSkeletonBlock />
+            ) : tracked.length === 0 && !addingSymbol ? (
               <p className="text-xs text-muted-foreground">No tracked stocks.</p>
             ) : (
               <div className="space-y-1 rounded-lg border bg-muted/15 p-2">

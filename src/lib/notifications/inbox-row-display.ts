@@ -55,7 +55,8 @@ function pctDirection(data: Record<string, unknown>): 'up' | 'down' | 'flat' {
 }
 
 /**
- * Short uppercase line for the inbox row (matches filter semantics where possible).
+ * Short line for the inbox row header (aligned with five settings categories in
+ * `notifications-email-inapp-catalog.plan.md`: account, product, portfolios, stocks, strategy model).
  */
 export function inboxNotificationCategoryLabel(row: InboxNotifRowInput): string {
   const data = dataObject(row);
@@ -64,11 +65,20 @@ export function inboxNotificationCategoryLabel(row: InboxNotifRowInput): string 
   if (cid === CATALOG_ID.INTERNAL_SMOKETEST_SEED) return 'INTERNAL';
   if (cid.startsWith('onboarding.welcome.')) return 'GETTING STARTED';
   if (cid.startsWith('onboarding.')) return 'GETTING STARTED';
-  if (cid.startsWith('security.')) return 'ACCOUNT';
+  if (cid.startsWith('security.') || cid.startsWith('account.')) return 'ACCOUNT';
 
-  if (cid === CATALOG_ID.PORTFOLIO_PRICE_MOVE || row.type === 'portfolio_price_move') return 'PRICE ALERT';
-  if (cid === CATALOG_ID.PORTFOLIO_REBALANCE || row.type === 'rebalance_action') return 'REBALANCE';
-  if (cid === CATALOG_ID.PORTFOLIO_ENTRIES_EXITS || row.type === 'portfolio_entries_exits') return 'HOLDINGS';
+  if (
+    cid === CATALOG_ID.PORTFOLIO_PRICE_MOVE ||
+    row.type === 'portfolio_price_move' ||
+    cid === CATALOG_ID.PORTFOLIO_WEEKLY_RECAP ||
+    row.type === 'portfolio_weekly_recap' ||
+    cid === CATALOG_ID.PORTFOLIO_REBALANCE ||
+    row.type === 'rebalance_action' ||
+    cid === CATALOG_ID.PORTFOLIO_ENTRIES_EXITS ||
+    row.type === 'portfolio_entries_exits'
+  ) {
+    return 'Portfolios';
+  }
   if (cid === CATALOG_ID.PORTFOLIO_MODEL_RATINGS_READY || row.type === 'model_ratings_ready') return 'MODEL RATINGS';
   if (
     cid === CATALOG_ID.STOCK_RATING_CHANGE ||
@@ -76,7 +86,7 @@ export function inboxNotificationCategoryLabel(row: InboxNotifRowInput): string 
     row.type === 'stock_rating_change' ||
     row.type === 'stock_rating_weekly'
   ) {
-    return 'RATING CHANGE';
+    return 'Stocks';
   }
 
   if (cid === CATALOG_ID.WEEKLY_BUNDLE || cid.startsWith('weekly.email.') || row.type === 'weekly_digest') {
@@ -86,9 +96,23 @@ export function inboxNotificationCategoryLabel(row: InboxNotifRowInput): string 
   if (row.type === 'system' && (data.welcome === '1' || row.title === 'Welcome to AI Trader')) {
     return 'WELCOME';
   }
-  if (row.type === 'system') return 'UPDATE';
 
-  return 'NOTIFICATION';
+  switch (inferInboxFilterCategory(row)) {
+    case 'account':
+      return 'ACCOUNT';
+    case 'product':
+      return 'PRODUCT';
+    case 'portfolio':
+      return 'Portfolios';
+    case 'stock':
+      return 'Stocks';
+    case 'model_performance':
+      return 'MODEL RATINGS';
+    case 'internal':
+      return 'INTERNAL';
+    default:
+      return 'NOTIFICATION';
+  }
 }
 
 export function inboxNotificationAvatarKind(row: InboxNotifRowInput): InboxNotificationAvatarKind {
@@ -97,7 +121,14 @@ export function inboxNotificationAvatarKind(row: InboxNotifRowInput): InboxNotif
   const sym = symbolFromData(data);
 
   if (cid === CATALOG_ID.INTERNAL_SMOKETEST_SEED) return { kind: 'glyph', id: 'internal' };
-  if (cid.startsWith('security.')) return { kind: 'glyph', id: 'account' };
+  if (cid.startsWith('security.') || cid.startsWith('account.')) return { kind: 'glyph', id: 'account' };
+
+  if (row.type === 'system') {
+    const ss = typeof data.settings_section === 'string' ? data.settings_section : '';
+    if (ss === 'billing' || ss === 'account' || ss === 'security') {
+      return { kind: 'glyph', id: 'account' };
+    }
+  }
 
   if (row.type === 'stock_rating_change' || row.type === 'stock_rating_weekly') {
     if (sym) return { kind: 'ticker', symbol: sym };
@@ -110,6 +141,10 @@ export function inboxNotificationAvatarKind(row: InboxNotifRowInput): InboxNotif
   }
 
   if (row.type === 'portfolio_price_move' || cid === CATALOG_ID.PORTFOLIO_PRICE_MOVE) {
+    return { kind: 'trend', direction: pctDirection(data) };
+  }
+
+  if (row.type === 'portfolio_weekly_recap' || cid === CATALOG_ID.PORTFOLIO_WEEKLY_RECAP) {
     return { kind: 'trend', direction: pctDirection(data) };
   }
 

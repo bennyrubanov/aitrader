@@ -10,19 +10,20 @@ alwaysApply: false
 
 ## For humans and agents (maintenance)
 
-- **Written matrix + operator in-app smoketest (product “what / when / transport”, exhaustive seeded rows, `SMOKETEST_INAPP_SEED_ROW_COUNT`, curl without `sendEmails`):** [`.cursor/plans/notifications-email-inapp-catalog.plan.md`](mdc:.cursor/plans/notifications-email-inapp-catalog.plan.md) — update when behavior, subjects, threading rules, or the seed matrix change.
+- **Written matrix + operator in-app smoketest (product “what / when / transport”, exhaustive seeded rows, `SMOKETEST_INAPP_SEED_ROW_COUNT` (37 rows as of weekly recap seed), curl without `sendEmails`):** [`.cursor/plans/notifications-email-inapp-catalog.plan.md`](mdc:.cursor/plans/notifications-email-inapp-catalog.plan.md) — update when behavior, subjects, threading rules, or the seed matrix change.
+- **New sign-in (in-app, fingerprint, first session silent):** [`.cursor/plans/security-new-sign-in-inapp.plan.md`](mdc:.cursor/plans/security-new-sign-in-inapp.plan.md) — directive spec for `security.new_sign_in`, `record_user_sign_in_context` + `POST /api/auth/record-sign-in-context`, and Google One Tap. Update that plan + [`.cursor/plans/notifications-email-inapp-catalog.plan.md`](mdc:.cursor/plans/notifications-email-inapp-catalog.plan.md) + [`.cursor/rules/supabase-schema.mdc`](mdc:.cursor/rules/supabase-schema.mdc) when the migration and catalog land.
 - **Implementation runbook:** [`.cursor/plans/notifications-catalog-alignment.plan.md`](mdc:.cursor/plans/notifications-catalog-alignment.plan.md).
 - **What the repo actually implements:** [`src/lib/notifications/notification-catalog.ts`](mdc:src/lib/notifications/notification-catalog.ts) (`CATALOG_ID`, prefs notes, `portfolioFollowedThreadId`, `inferInboxFilterCategory`, `showInternalNotificationInboxFilter`, inbox helpers).
 - **All send paths:** search for `sendTransactionalEmail` and `sendEmailByGmail` under `src/`.
 - **Rendered email samples:** JSDoc + behavior on [`src/app/api/platform/notifications/smoketest/route.ts`](mdc:src/app/api/platform/notifications/smoketest/route.ts).
 
-Prefer **updating the plan + `notification-catalog.ts` in the same change** when you add a new notification kind or transport so the inventory stays truthful.
+Prefer **updating the catalog plan + `notification-catalog.ts` (+ security plan / `supabase-schema.mdc` when sign-in RPC or `user_profiles` columns change)** in the same change when you add a new notification kind or transport so the inventory stays truthful.
 
 ## Thread ids (in-app `notifications.data`)
 
-- Weekly recap: `weekly:{userId}:{runWeekEnding}`, role `head`.
+- Weekly digest head: `weekly:{userId}:{runWeekEnding}`, role `head`.
 - Onboarding: `onboarding:{userId}`; welcome milestones use role `child` where applicable.
-- Followed portfolio (rebalance, entries/exits, price move): `portfolio:{userId}:{profileId}`, role `child` — use `portfolioFollowedThreadId` from `notification-catalog.ts`; writers in [`cron-fanout.ts`](mdc:src/lib/notifications/cron-fanout.ts).
+- Followed portfolio (rebalance, entries/exits, price move, **Friday** `portfolio_weekly_recap`): `portfolio:{userId}:{profileId}`, role `child` — use `portfolioFollowedThreadId` from `notification-catalog.ts`; writers in [`cron-fanout.ts`](mdc:src/lib/notifications/cron-fanout.ts) and [`portfolio-weekly-recap-cron.ts`](mdc:src/lib/notifications/portfolio-weekly-recap-cron.ts).
 
 DB overview: [`.cursor/rules/supabase-schema.mdc`](mdc:.cursor/rules/supabase-schema.mdc) (Notifications bullet).
 

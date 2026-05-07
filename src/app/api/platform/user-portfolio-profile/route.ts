@@ -14,6 +14,10 @@ import {
   getMaxFollowedPortfoliosForTier,
   loadSubscriptionTierForUser,
 } from '@/lib/follow-limits';
+import {
+  finalizePortfolioNotifyScope,
+  type PortfolioNotifyScopeRow,
+} from '@/lib/notifications/portfolio-notify-bits';
 
 export const runtime = 'nodejs';
 
@@ -48,6 +52,8 @@ export async function GET() {
     notify_entries_exits_inapp,
     notify_entries_exits_email,
     notify_weekly_email,
+    portfolio_notify_email_bits,
+    portfolio_notify_inapp_bits,
     is_starting_portfolio,
     created_at,
     updated_at,
@@ -122,11 +128,13 @@ export async function GET() {
         inapp_enabled: true,
         notify_rebalance_inapp: true,
         notify_rebalance_email: true,
-        notify_price_move_inapp: false,
-        notify_price_move_email: false,
+        notify_price_move_inapp: true,
+        notify_price_move_email: true,
         notify_entries_exits_inapp: true,
         notify_entries_exits_email: true,
         notify_weekly_email: true,
+        portfolio_notify_email_bits: 7,
+        portfolio_notify_inapp_bits: 7,
       }));
     }
   } else {
@@ -286,6 +294,39 @@ export async function POST(req: Request) {
 
   const assignSlot1 = markStartingPortfolio || !hasPrimarySlot;
 
+  const paidNotifyDefaults =
+    subscriptionTier === 'free'
+      ? {
+          email_enabled: false,
+          inapp_enabled: false,
+          notify_weekly_email: false,
+          notify_rebalance: false,
+          notify_holdings_change: false,
+          notify_rebalance_inapp: false,
+          notify_rebalance_email: false,
+          notify_price_move_inapp: false,
+          notify_price_move_email: false,
+          notify_entries_exits_inapp: false,
+          notify_entries_exits_email: false,
+          portfolio_notify_email_bits: 0,
+          portfolio_notify_inapp_bits: 0,
+        }
+      : {
+          email_enabled: true,
+          inapp_enabled: true,
+          notify_weekly_email: true,
+          notify_rebalance: true,
+          notify_holdings_change: true,
+          notify_rebalance_inapp: true,
+          notify_rebalance_email: true,
+          notify_price_move_inapp: true,
+          notify_price_move_email: true,
+          notify_entries_exits_inapp: true,
+          notify_entries_exits_email: true,
+          portfolio_notify_email_bits: 7,
+          portfolio_notify_inapp_bits: 7,
+        };
+
   const insertPayload: Record<string, unknown> = {
     user_id: user.id,
     strategy_id: strategyId,
@@ -295,6 +336,7 @@ export async function POST(req: Request) {
     entry_prices_snapshot_at: now,
     is_active: true,
     updated_at: now,
+    ...paidNotifyDefaults,
     ...(markStartingPortfolio ? { is_starting_portfolio: true } : {}),
   };
 
@@ -561,11 +603,20 @@ export async function PATCH(req: Request) {
     'notify_entries_exits_email',
   ] as const;
   const touchedScopeChannel = scopeChannelKeys.some((k) => k in updates);
-  if (touchedScopeChannel && profileId) {
+  const shouldSyncPortfolioNotifyScope =
+    Boolean(profileId) &&
+    (touchedScopeChannel ||
+      typeof body.emailEnabled === 'boolean' ||
+      typeof body.inappEnabled === 'boolean' ||
+      typeof body.notifyWeeklyEmail === 'boolean' ||
+      typeof body.notifyRebalance === 'boolean' ||
+      typeof body.notifyHoldingsChange === 'boolean');
+
+  if (shouldSyncPortfolioNotifyScope) {
     const { data: scopeCur, error: scopeErr } = await supabase
       .from('user_portfolio_profiles')
       .select(
-        'notify_rebalance_inapp, notify_rebalance_email, notify_price_move_inapp, notify_price_move_email, notify_entries_exits_inapp, notify_entries_exits_email'
+        'notify_rebalance_inapp, notify_rebalance_email, notify_price_move_inapp, notify_price_move_email, notify_entries_exits_inapp, notify_entries_exits_email, email_enabled, inapp_enabled, notify_weekly_email, portfolio_notify_email_bits, portfolio_notify_inapp_bits'
       )
       .eq('id', profileId)
       .eq('user_id', user.id)
@@ -574,17 +625,22 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: scopeErr.message }, { status: 500 });
     }
     if (scopeCur) {
-      const r = scopeCur as Record<string, boolean>;
-      const rbIn = (updates.notify_rebalance_inapp as boolean | undefined) ?? r.notify_rebalance_inapp;
-      const rbEm = (updates.notify_rebalance_email as boolean | undefined) ?? r.notify_rebalance_email;
-      const pmIn = (updates.notify_price_move_inapp as boolean | undefined) ?? r.notify_price_move_inapp;
-      const pmEm = (updates.notify_price_move_email as boolean | undefined) ?? r.notify_price_move_email;
-      const exIn =
-        (updates.notify_entries_exits_inapp as boolean | undefined) ?? r.notify_entries_exits_inapp;
-      const exEm =
-        (updates.notify_entries_exits_email as boolean | undefined) ?? r.notify_entries_exits_email;
-      updates.notify_rebalance = rbIn || rbEm || pmIn || pmEm;
-      updates.notify_holdings_change = exIn || exEm;
+      const fin = finalizePortfolioNotifyScope(scopeCur as PortfolioNotifyScopeRow, updates);
+      Object.assign(updates, {
+        notify_rebalance_inapp: fin.inapp.rebalance,
+        notify_price_move_inapp: fin.inapp.priceMove,
+        notify_entries_exits_inapp: fin.inapp.entriesExits,
+        notify_rebalance_email: fin.email.rebalance,
+        notify_price_move_email: fin.email.priceMove,
+        notify_entries_exits_email: fin.email.entriesExits,
+        email_enabled: fin.email_enabled,
+        inapp_enabled: fin.inapp_enabled,
+        notify_weekly_email: fin.notify_weekly_email,
+        portfolio_notify_email_bits: fin.portfolio_notify_email_bits,
+        portfolio_notify_inapp_bits: fin.portfolio_notify_inapp_bits,
+        notify_rebalance: fin.notify_rebalance,
+        notify_holdings_change: fin.notify_holdings_change,
+      });
     }
   }
 
@@ -633,7 +689,9 @@ export async function PATCH(req: Request) {
         updates.notify_entries_exits_inapp === true ||
         updates.notify_entries_exits_email === true ||
         updates.notify_rebalance === true ||
-        updates.notify_holdings_change === true;
+        updates.notify_holdings_change === true ||
+        Number(updates.portfolio_notify_email_bits) > 0 ||
+        Number(updates.portfolio_notify_inapp_bits) > 0;
       if (portfolioNotifyOn) {
         return NextResponse.json(
           {

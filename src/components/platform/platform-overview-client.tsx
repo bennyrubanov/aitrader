@@ -42,6 +42,11 @@ import {
   PortfolioAlertsDialog,
   type PortfolioAlertsInitial,
 } from '@/components/platform/portfolio-alerts-dialog';
+import {
+  portfolioAlertsRowEmailPathOn,
+  portfolioAlertsRowInappPathOn,
+  portfolioAlertsSnakeFromApiProfileRow,
+} from '@/lib/notifications/portfolio-alerts-toggle';
 import { MetricReadinessPill } from '@/components/platform/metric-readiness-pill';
 import { CHART_AGGREGATE_NASDAQ100 } from '@/lib/chart-index-series-colors';
 import { HoldingRankWithChange } from '@/components/platform/holding-rank-with-change';
@@ -381,19 +386,10 @@ function normalizeOverviewProfile(p: ProfileRow): ProfileRow {
 }
 
 function overviewPortfolioAlertsInitial(p: ProfileRow): PortfolioAlertsInitial {
-  const email = p.email_enabled ?? true;
-  const inapp = p.inapp_enabled ?? true;
-  const nr = p.notify_rebalance ?? true;
-  const nh = p.notify_holdings_change ?? true;
-  const rbIn = p.notify_rebalance_inapp ?? (nr && inapp);
-  const pmIn = p.notify_price_move_inapp ?? false;
-  const eeIn = p.notify_entries_exits_inapp ?? (nh && inapp);
-  const rbEm = p.notify_rebalance_email ?? (nr && email);
-  const pmEm = p.notify_price_move_email ?? false;
-  const eeEm = p.notify_entries_exits_email ?? (nh && email);
+  const snake = portfolioAlertsSnakeFromApiProfileRow(p as unknown as Record<string, unknown>);
   return {
-    eventsInapp: Boolean(rbIn) && Boolean(pmIn) && Boolean(eeIn),
-    eventsEmail: Boolean(rbEm) && Boolean(pmEm) && Boolean(eeEm),
+    eventsInapp: portfolioAlertsRowInappPathOn(snake),
+    eventsEmail: portfolioAlertsRowEmailPathOn(snake),
   };
 }
 

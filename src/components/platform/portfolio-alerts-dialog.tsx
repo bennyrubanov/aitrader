@@ -92,6 +92,7 @@ export function PortfolioAlertsDialog({ open, onOpenChange, profileId, initial, 
           notifyRebalanceEmail: eventsEmail,
           notifyPriceMoveEmail: eventsEmail,
           notifyEntriesExitsEmail: eventsEmail,
+          notifyWeeklyEmail: eventsEmail,
         }),
       });
       if (!res.ok) {
@@ -119,14 +120,14 @@ export function PortfolioAlertsDialog({ open, onOpenChange, profileId, initial, 
         <DialogHeader>
           <DialogTitle>Portfolio notifications</DialogTitle>
           <DialogDescription>
-            Rebalance reminders, price-move alerts, and entries/exits share the same in-app and email
-            settings for this portfolio.
+            Rebalance reminders, the Friday weekly in-app performance recap, price-move alerts, and
+            entries/exits share the same in-app and email settings for this portfolio.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3 py-2">
           <Row
-            label="Rebalances, price moves, entries & exits"
-            description="Includes ±5% vs prior snapshot day for price alerts."
+            label="Rebalances, weekly recap, price moves, entries & exits"
+            description="Includes Friday’s in-app week-to-date recap (paid tiers) and ±5% vs prior snapshot day for price alerts."
             inApp={eventsInapp}
             email={eventsEmail}
             onInApp={setEventsInapp}

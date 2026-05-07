@@ -32,6 +32,15 @@ BEGIN
   SELECT count(*) INTO n
   FROM information_schema.columns
   WHERE table_schema = 'public'
+    AND table_name = 'user_portfolio_profiles'
+    AND column_name IN ('portfolio_notify_email_bits', 'portfolio_notify_inapp_bits');
+  IF n != 2 THEN
+    RAISE EXCEPTION 'Step 1A2 failed: expected 2 portfolio_notify_*_bits columns, got %', n;
+  END IF;
+
+  SELECT count(*) INTO n
+  FROM information_schema.columns
+  WHERE table_schema = 'public'
     AND table_name = 'user_portfolio_stocks'
     AND column_name IN ('notify_rating_inapp', 'notify_rating_email');
   IF n != 2 THEN

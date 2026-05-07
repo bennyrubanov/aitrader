@@ -31,6 +31,7 @@ const PORTFOLIO_DIGEST_TYPES = new Set([
   'rebalance_action',
   'portfolio_entries_exits',
   'portfolio_price_move',
+  'portfolio_weekly_recap',
 ]);
 
 function pairKey(strategyId: string, configId: string): string {
@@ -390,7 +391,11 @@ function weeklyInappCounts(rows: { type: string }[], pref: PrefRow) {
       if (tracked) ratingChanges += 1;
     } else if (r.type === 'portfolio_price_move') {
       if (perPort) priceAlerts += 1;
-    } else if (r.type === 'rebalance_action' || r.type === 'portfolio_entries_exits') {
+    } else if (
+      r.type === 'rebalance_action' ||
+      r.type === 'portfolio_entries_exits' ||
+      r.type === 'portfolio_weekly_recap'
+    ) {
       if (portfolioDigest) portfolioUpdates += 1;
     }
   }

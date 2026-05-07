@@ -1,3 +1,5 @@
+import { decodePortfolioNotifyBits } from '@/lib/notifications/portfolio-notify-bits';
+
 /**
  * Shared “portfolio alerts” master toggle for Your Portfolios / Explore.
  * Bell + master switch use {@link portfolioAlertsRowAnyOn}: the bell stays **on** if
@@ -42,7 +44,7 @@ export const PORTFOLIO_ALERTS_ON_DEFAULT: PortfolioAlertsTogglePatch = {
   notifyRebalanceInapp: true,
   notifyRebalanceEmail: true,
   notifyPriceMoveInapp: true,
-  notifyPriceMoveEmail: false,
+  notifyPriceMoveEmail: true,
   notifyEntriesExitsInapp: true,
   notifyEntriesExitsEmail: true,
 };
@@ -59,57 +61,95 @@ export const PORTFOLIO_ALERTS_OFF_PATCH: PortfolioAlertsTogglePatch = {
   notifyEntriesExitsEmail: false,
 };
 
-/** Normalize a `user_portfolio_profiles` API row for evaluation + PATCH optimistic updates. */
+/** `portfolio_notify_*_bits` from DB/API (0–7); unknown shapes fall back to legacy booleans. */
+function readPortfolioNotifyBitsColumn(v: unknown): number | null {
+  if (typeof v === 'number' && Number.isFinite(v)) {
+    return Math.max(0, Math.min(7, Math.trunc(v)));
+  }
+  if (typeof v === 'string' && /^\d+$/.test(v)) {
+    return Math.max(0, Math.min(7, parseInt(v, 10)));
+  }
+  return null;
+}
+
+/**
+ * Normalize a `user_portfolio_profiles` API row for evaluation + PATCH optimistic updates.
+ * When `portfolio_notify_*_bits` are present, trios are taken from **bits** (B5 / B10-ready); otherwise legacy six booleans + `notify_rebalance` / `notify_holdings_change` fallbacks apply.
+ */
 export function portfolioAlertsSnakeFromApiProfileRow(p: Record<string, unknown>): PortfolioAlertsSnakeRow {
   const email = Boolean(p.email_enabled ?? true);
   const inapp = Boolean(p.inapp_enabled ?? true);
   const nr = Boolean(p.notify_rebalance ?? true);
   const nh = Boolean(p.notify_holdings_change ?? true);
+
+  const inBits = readPortfolioNotifyBitsColumn(p.portfolio_notify_inapp_bits);
+  const emBits = readPortfolioNotifyBitsColumn(p.portfolio_notify_email_bits);
+  const triIn = inBits !== null ? decodePortfolioNotifyBits(inBits) : null;
+  const triEm = emBits !== null ? decodePortfolioNotifyBits(emBits) : null;
+
+  const rbIn = triIn
+    ? triIn.rebalance
+    : Boolean(p.notify_rebalance_inapp ?? (nr && inapp));
+  const pmIn = triIn
+    ? triIn.priceMove
+    : Boolean(p.notify_price_move_inapp ?? false);
+  const eeIn = triIn
+    ? triIn.entriesExits
+    : Boolean(p.notify_entries_exits_inapp ?? (nh && inapp));
+
+  const rbEm = triEm
+    ? triEm.rebalance
+    : Boolean(p.notify_rebalance_email ?? (nr && email));
+  const pmEm = triEm
+    ? triEm.priceMove
+    : Boolean(p.notify_price_move_email ?? false);
+  const eeEm = triEm
+    ? triEm.entriesExits
+    : Boolean(p.notify_entries_exits_email ?? (nh && email));
+
   return {
-    notify_rebalance: nr,
-    notify_holdings_change: nh,
+    notify_rebalance: rbIn || rbEm || pmIn || pmEm,
+    notify_holdings_change: eeIn || eeEm,
     email_enabled: email,
     inapp_enabled: inapp,
-    notify_rebalance_inapp: Boolean(p.notify_rebalance_inapp ?? (nr && inapp)),
-    notify_rebalance_email: Boolean(p.notify_rebalance_email ?? (nr && email)),
-    notify_price_move_inapp: Boolean(p.notify_price_move_inapp ?? false),
-    notify_price_move_email: Boolean(p.notify_price_move_email ?? false),
-    notify_entries_exits_inapp: Boolean(p.notify_entries_exits_inapp ?? (nh && inapp)),
-    notify_entries_exits_email: Boolean(p.notify_entries_exits_email ?? (nh && email)),
+    notify_rebalance_inapp: rbIn,
+    notify_rebalance_email: rbEm,
+    notify_price_move_inapp: pmIn,
+    notify_price_move_email: pmEm,
+    notify_entries_exits_inapp: eeIn,
+    notify_entries_exits_email: eeEm,
     notify_weekly_email: Boolean(p.notify_weekly_email ?? true),
   };
 }
 
-export function portfolioAlertsRowInappTrioOn(p: PortfolioAlertsSnakeRow): boolean {
-  const nr = p.notify_rebalance;
-  const nh = p.notify_holdings_change;
-  const email = p.email_enabled;
-  const inapp = p.inapp_enabled;
-  const rbIn = Boolean(p.notify_rebalance_inapp ?? (nr && inapp));
-  const pmIn = Boolean(p.notify_price_move_inapp ?? false);
-  const eeIn = Boolean(p.notify_entries_exits_inapp ?? (nh && inapp));
-  return rbIn && pmIn && eeIn;
+/** Uses {@link portfolioAlertsSnakeFromApiProfileRow} internally — pass raw API row or already-normalized snake. */
+export function portfolioAlertsRowEmailPathOn(row: PortfolioAlertsSnakeRow | Record<string, unknown>): boolean {
+  const s = portfolioAlertsSnakeFromApiProfileRow(row as Record<string, unknown>);
+  const emailMaster = Boolean(s.email_enabled);
+  const weekly = Boolean(s.notify_weekly_email);
+  const rbEm = Boolean(s.notify_rebalance_email);
+  const pmEm = Boolean(s.notify_price_move_email);
+  const eeEm = Boolean(s.notify_entries_exits_email);
+  return emailMaster && (weekly || rbEm || pmEm || eeEm);
+}
+
+/** Uses {@link portfolioAlertsSnakeFromApiProfileRow} internally — pass raw API row or already-normalized snake. */
+export function portfolioAlertsRowInappPathOn(row: PortfolioAlertsSnakeRow | Record<string, unknown>): boolean {
+  const s = portfolioAlertsSnakeFromApiProfileRow(row as Record<string, unknown>);
+  const inappMaster = Boolean(s.inapp_enabled);
+  const rbIn = Boolean(s.notify_rebalance_inapp);
+  const pmIn = Boolean(s.notify_price_move_inapp);
+  const eeIn = Boolean(s.notify_entries_exits_inapp);
+  return inappMaster && (rbIn || pmIn || eeIn);
 }
 
 /**
- * Bell / master “alerts on”: true if the **in-app** path can notify (master on + any
- * rebalance/price/entries in-app) **or** the **email** path can (master on + weekly email
- * and/or any per-type email). False only when both paths are fully off.
+ * Bell / master “alerts on”: true if the **in-app** path can notify **or** the **email** path can.
+ * False only when both paths are fully off.
  */
 export function portfolioAlertsRowAnyOn(p: PortfolioAlertsSnakeRow): boolean {
   const s = portfolioAlertsSnakeFromApiProfileRow(p as Record<string, unknown>);
-  const inappMaster = Boolean(s.inapp_enabled);
-  const emailMaster = Boolean(s.email_enabled);
-  const weekly = Boolean(s.notify_weekly_email);
-  const rbIn = Boolean(s.notify_rebalance_inapp);
-  const rbEm = Boolean(s.notify_rebalance_email);
-  const pmIn = Boolean(s.notify_price_move_inapp);
-  const pmEm = Boolean(s.notify_price_move_email);
-  const eeIn = Boolean(s.notify_entries_exits_inapp);
-  const eeEm = Boolean(s.notify_entries_exits_email);
-  const inappPath = inappMaster && (rbIn || pmIn || eeIn);
-  const emailPath = emailMaster && (weekly || rbEm || pmEm || eeEm);
-  return inappPath || emailPath;
+  return portfolioAlertsRowEmailPathOn(s) || portfolioAlertsRowInappPathOn(s);
 }
 
 export function portfolioAlertsSnakeAfterPatch(patch: PortfolioAlertsTogglePatch): PortfolioAlertsSnakeRow {
@@ -130,7 +170,7 @@ export function portfolioAlertsSnakeAfterPatch(patch: PortfolioAlertsTogglePatch
     notify_price_move_email: pmEm,
     notify_entries_exits_inapp: eeIn,
     notify_entries_exits_email: eeEm,
-    notify_rebalance: rbIn || rbEm,
+    notify_rebalance: rbIn || rbEm || pmIn || pmEm,
     notify_holdings_change: eeIn || eeEm,
   };
 }

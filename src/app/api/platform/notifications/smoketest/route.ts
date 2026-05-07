@@ -29,6 +29,11 @@ import {
   seedSmoketestInAppNotifications,
   SMOKETEST_INAPP_SEED_ROW_COUNT,
 } from '@/lib/notifications/smoketest-inapp-seed';
+import {
+  cannedSmoketestPersonalization,
+  loadSmoketestPersonalization,
+  type SmoketestPersonalization,
+} from '@/lib/notifications/smoketest-personalization';
 import { createAdminClient } from '@/utils/supabase/admin';
 
 export const runtime = 'nodejs';
@@ -46,7 +51,7 @@ export const dynamic = 'force-dynamic';
  *
  * Usage:
  *   GET /api/platform/notifications/smoketest?secret=…
- *     → sends every template to **tryaitrader@gmail.com** (override with `to=`); subjects use `[Smoketest · …]` tags
+ *     → sends every template to **bennyrubanov112@gmail.com** (override with `to=`); subjects use `[Smoketest · …]` tags
  *   GET /api/platform/notifications/smoketest?secret=…&to=you@example.com
  *     → overrides email recipient (defaults remain tryaitrader for normal runs)
  *   GET /api/platform/notifications/smoketest?secret=…&kinds=rebalance,price-move
@@ -62,7 +67,7 @@ export const dynamic = 'force-dynamic';
  *   GET …?secret=…&inappFor=you@example.com
  *     → same, but targets another user (UUID or `user_profiles.email`).
  *   GET …?secret=…&seedInapp=1&sendEmails=1
- *     → seed in-app for Benny **and** send the full email batch to `to` (default tryaitrader@gmail.com).
+ *     → seed in-app for Benny **and** send the full email batch to `to` (default bennyrubanov112@gmail.com).
  */
 
 type SmoketestKind = SmoketestEmailKind;
@@ -72,7 +77,7 @@ const CORE_KINDS: CoreEmailSmoketestKind[] = [...CORE_EMAIL_SMOKETEST_KINDS];
 const ALL_KINDS: SmoketestKind[] = [...ALL_SMOKETEST_EMAIL_KINDS];
 
 /** Operator default for HTML smoketest sends (Resend / Gmail). */
-const DEFAULT_RECIPIENT = 'tryaitrader@gmail.com';
+const DEFAULT_RECIPIENT = 'bennyrubanov112@gmail.com';
 
 /** Operator default for `seedInapp=1` when `inappFor` is omitted (`user_profiles.email`). */
 const DEFAULT_INAPP_USER_EMAIL = 'bennyrubanov112@gmail.com';
@@ -123,7 +128,7 @@ type RenderedEmail = {
   unsubscribeUrl: string;
 };
 
-function renderSamples(): RenderedEmail[] {
+function renderSamples(ctx: SmoketestPersonalization): RenderedEmail[] {
   const base = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, '') ?? 'https://example.com';
   const settingsUrl = `${base}/platform/settings/notifications`;
   // Token is intentionally non-verifiable ("TEST") so the link renders but
@@ -131,8 +136,10 @@ function renderSamples(): RenderedEmail[] {
   const unsubscribeUrl = `${base}/api/platform/notifications/unsubscribe?token=TEST`;
   const portfolioUrl = `${base}/platform/your-portfolio`;
   const inboxUrl = `${base}/platform/notifications`;
-  const runDate = new Date().toISOString().slice(0, 10);
-  const runWeekEnding = runDate;
+  const runDate = ctx.runDate;
+  const runWeekEnding = ctx.runWeekEnding;
+  const strategyName = ctx.strategyName;
+  const ratingLines = ctx.ratingLines.length ? ctx.ratingLines : cannedSmoketestPersonalization().ratingLines;
 
   /** Inbox-scannable prefix: `[Smoketest · …]` + real subject (from templates). */
   const st = (tag: string, subjectBody: string) => `[Smoketest · ${tag}] ${subjectBody}`;
@@ -141,19 +148,15 @@ function renderSamples(): RenderedEmail[] {
 
   {
     const { html, text } = buildRatingChangesEmailHtml({
-      strategyName: 'Example strategy',
+      strategyName,
       runDate,
-      lines: [
-        { symbol: 'AAPL', prev: 'hold', next: 'buy' },
-        { symbol: 'MSFT', prev: 'buy', next: 'hold' },
-        { symbol: 'NVDA', prev: 'sell', next: 'buy' },
-      ],
+      lines: ratingLines.slice(0, 8),
       settingsUrl,
       unsubscribeUrl,
     });
     out.push({
       kind: 'rating-changes',
-      subject: st('Model rating changes', 'Rating updates — Example strategy'),
+      subject: st('Model rating changes', `Rating updates — ${strategyName}`),
       html,
       text,
       unsubscribeUrl,
@@ -162,16 +165,16 @@ function renderSamples(): RenderedEmail[] {
 
   {
     const { html, text } = buildRebalanceEmailHtml({
-      strategyName: 'Example strategy',
+      strategyName,
       runDate,
-      actionCount: 4,
+      actionCount: ctx.rebalanceActionCount,
       portfolioUrl,
       settingsUrl,
       unsubscribeUrl,
     });
     out.push({
       kind: 'rebalance',
-      subject: st('Portfolio rebalance', 'Portfolio rebalance — Example strategy'),
+      subject: st('Portfolio rebalance', `Portfolio rebalance — ${strategyName}`),
       html,
       text,
       unsubscribeUrl,
@@ -180,17 +183,17 @@ function renderSamples(): RenderedEmail[] {
 
   {
     const { html, text } = buildPortfolioEntriesExitsEmailHtml({
-      strategyName: 'Example strategy',
+      strategyName,
       runDate,
-      entries: ['NVDA', 'AMD'],
-      exits: ['META'],
+      entries: ctx.entries,
+      exits: ctx.exits,
       portfolioUrl,
       settingsUrl,
       unsubscribeUrl,
     });
     out.push({
       kind: 'entries-exits',
-      subject: st('Holdings update', 'Holdings update — Example strategy'),
+      subject: st('Holdings update', `Holdings update — ${strategyName}`),
       html,
       text,
       unsubscribeUrl,
@@ -199,16 +202,16 @@ function renderSamples(): RenderedEmail[] {
 
   {
     const { html, text } = buildPortfolioPriceMoveEmailHtml({
-      strategyName: 'Example strategy',
+      strategyName,
       runDate,
-      pctLabel: '+6.2%',
+      pctLabel: ctx.pricePctLabel,
       portfolioUrl,
       settingsUrl,
       unsubscribeUrl,
     });
     out.push({
       kind: 'price-move',
-      subject: st('Price move alert', 'Price alert — Example strategy'),
+      subject: st('Price move alert', `Price alert — ${strategyName}`),
       html,
       text,
       unsubscribeUrl,
@@ -218,23 +221,20 @@ function renderSamples(): RenderedEmail[] {
   const productHtml = buildProductUpdatesSectionHtml([
     { title: 'What shipped this week', body_html: '<p>Smoketest product body.</p>' },
   ]);
-  const portfolioHtml = buildPerformanceSectionHtml(
-    [
-      { strategyName: 'Example strategy A', pctLabel: '+1.8%' },
-      { strategyName: 'Example strategy B', pctLabel: '-0.6%' },
-    ],
-    { viewAllHref: settingsUrl }
-  );
-  const followedHtml = buildFollowedPortfoliosBundleSectionHtml([
-    {
-      heading: 'Example strategy · Core',
-      bullets: ['Rebalance: Example strategy', 'Holdings update: Example strategy'],
-    },
-  ]);
-  const trackedHtml = buildTrackedStocksBundleSectionHtml([
-    'AAPL: hold -> buy',
-    'NVDA: sell -> buy',
-  ]);
+  const portfolioHtml = buildPerformanceSectionHtml(ctx.performanceRows, { viewAllHref: settingsUrl });
+  const followedHtml = buildFollowedPortfoliosBundleSectionHtml(ctx.followedBullets);
+  const trackedHtml = buildTrackedStocksBundleSectionHtml(ctx.trackedBullets);
+
+  const w = ctx.weeklyByType;
+  const digestPlain =
+    ctx.weeklyDigestBody ??
+    `${w.portfolio_updates} portfolio updates, ${w.rating_changes} rating changes, ${w.price_alerts} price alerts this week.`;
+  const perfTextLines = ctx.performanceRows.map((r) => `${r.strategyName}: ${r.pctLabel}`);
+  const followedBlock = ctx.followedBullets[0];
+  const followedTextLines = followedBlock
+    ? [followedBlock.heading, ...followedBlock.bullets.map((b) => `• ${b}`)]
+    : ['Followed portfolios', '(no sample rows)'];
+  const trackedTextLines = ctx.trackedBullets.map((t) => `• ${t}`);
 
   const pushBundle = (kind: CoreEmailSmoketestKind, tag: string, sections: WeeklyBundleSection[], textLines: string[]) => {
     const { html, text, subject } = buildWeeklyBundleEmailHtml({
@@ -264,15 +264,16 @@ function renderSamples(): RenderedEmail[] {
     '(see HTML email)',
     '',
     'Your portfolios this week',
-    'Example strategy A: +1.8%',
-    'Example strategy B: -0.6%',
+    ...perfTextLines,
     '',
     'Followed portfolios',
-    'Example strategy · Core',
-    '• Rebalance: Example strategy',
+    ...followedTextLines,
     '',
     'Tracked stocks (default model)',
-    '• AAPL: hold -> buy',
+    ...trackedTextLines,
+    '',
+    'In-app weekly recap (plain):',
+    digestPlain,
     '',
   ]);
 
@@ -287,25 +288,25 @@ function renderSamples(): RenderedEmail[] {
     'weekly-bundle-portfolio',
     'Weekly email · portfolio summary',
     [{ heading: 'Your portfolios this week', html: portfolioHtml }],
-    ['Your portfolios this week', 'Example strategy A: +1.8%', 'Example strategy B: -0.6%', '']
+    ['Your portfolios this week', ...perfTextLines, '']
   );
 
   pushBundle(
     'weekly-bundle-followed',
     'Weekly email · followed portfolios',
     [{ heading: 'Followed portfolios', html: followedHtml }],
-    ['Followed portfolios', 'Example strategy · Core', '• Rebalance: Example strategy', '']
+    ['Followed portfolios', ...followedTextLines, '']
   );
 
   pushBundle(
     'weekly-bundle-tracked',
     'Weekly email · tracked stocks',
     [{ heading: 'Tracked stocks (default model)', html: trackedHtml }],
-    ['Tracked stocks (default model)', '• AAPL: hold -> buy', '']
+    ['Tracked stocks (default model)', ...trackedTextLines, '']
   );
 
   const onboardingUnsubscribeUrl = `${base}/api/platform/notifications/unsubscribe?token=TEST`;
-  const welcomeFirstName = 'Alex';
+  const welcomeFirstName = ctx.firstName ?? 'Alex';
 
   const pushWelcome = (kind: WelcomeSmoketestKind, tier: 'free' | 'supporter' | 'outperformer', step: 1 | 2 | 3 | 4) => {
     const { html, text, subject } = buildWelcomeEmailHtml({
@@ -391,7 +392,28 @@ export async function GET(req: Request) {
     );
   }
 
-  const rendered = renderSamples().filter((r) => kinds.includes(r.kind));
+  let personalizationCtx: SmoketestPersonalization | null = null;
+  const needPersonalizationDb = Boolean(inappFor.trim()) || !dryRun;
+  if (needPersonalizationDb) {
+    try {
+      const adminPersonalize = createAdminClient();
+      const personalizeFrom = (inappFor || '').trim() || to;
+      const resolved = await resolveDryUserIdForCron(adminPersonalize, personalizeFrom);
+      const uid =
+        'dryUserId' in resolved && resolved.dryUserId
+          ? resolved.dryUserId
+          : null;
+      if (uid) {
+        personalizationCtx = await loadSmoketestPersonalization(adminPersonalize, uid);
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Unknown error';
+      console.error('[smoketest] personalization load failed', message);
+    }
+  }
+
+  const emailCtx = personalizationCtx ?? cannedSmoketestPersonalization();
+  const rendered = renderSamples(emailCtx).filter((r) => kinds.includes(r.kind));
 
   let inappResult:
     | { ok: true; for: string; userId: string; inserted: number; ids: string[] }
@@ -415,7 +437,11 @@ export async function GET(req: Request) {
         } else if (dryRun) {
           inappResult = { ok: true, for: inappFor, userId, inserted: 0, ids: [] };
         } else {
-          const seeded = await seedSmoketestInAppNotifications(admin, userId);
+          const seeded = await seedSmoketestInAppNotifications(
+            admin,
+            userId,
+            personalizationCtx ?? undefined
+          );
           if (seeded.ok === false) {
             return NextResponse.json({ error: `inapp seed failed: ${seeded.error}` }, { status: 500 });
           }
@@ -445,6 +471,8 @@ export async function GET(req: Request) {
       kinds: rendered.map((r) => r.kind),
       subjects: rendered.map((r) => r.subject),
       allowedKinds: ALL_KINDS,
+      personalizationFrom: needPersonalizationDb ? (inappFor || '').trim() || to : undefined,
+      productionNotificationCount: personalizationCtx?.productionNotifications.length,
       inapp: inappResult,
       inappWouldInsertRows: inappResult?.ok === true ? SMOKETEST_INAPP_SEED_ROW_COUNT : undefined,
     });

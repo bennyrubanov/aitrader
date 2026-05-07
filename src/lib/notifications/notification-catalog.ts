@@ -5,7 +5,7 @@
  * - `catalog_id` (string): stable id for product/onboarding rows; see `CATALOG_ID` exports.
  * - `thread_id` (string, when threaded): `weekly:${userId}:${runWeekEnding}`, `onboarding:${userId}` (welcome steps),
  *   `paid_transition:${userId}` (free→paid upgrade in-app), or `portfolio:${userId}:${profileId}` for followed-portfolio
- *   product rows (rebalance, entries/exits, price move).
+ *   product rows (rebalance, entries/exits, price move, weekly recap).
  * - `thread_role`: `"head"` | `"child"` — head rows collapse in inbox UI; children nest under the same `thread_id`.
  */
 
@@ -54,10 +54,12 @@ export const CATALOG_ID = {
   PORTFOLIO_MODEL_RATINGS_READY: 'portfolio.model_ratings_ready',
   PORTFOLIO_ENTRIES_EXITS: 'portfolio.entries_exits',
   PORTFOLIO_PRICE_MOVE: 'portfolio.price_move',
+  PORTFOLIO_WEEKLY_RECAP: 'portfolio.weekly_recap',
   /** Prefix; milestones use `onboarding.welcome.{tier}.step{n}`. */
   ONBOARDING_WELCOME: 'onboarding.welcome',
   ONBOARDING_WELCOME_PAID_TRANSITION: 'onboarding.welcome.paid_transition',
   INTERNAL_SMOKETEST_SEED: 'internal.smoketest_seed',
+  SECURITY_NEW_SIGN_IN: 'security.new_sign_in',
 } as const;
 
 export type CatalogId = (typeof CATALOG_ID)[keyof typeof CATALOG_ID] | `onboarding.welcome.${string}.step${number}`;
@@ -204,6 +206,19 @@ export const NOTIFICATION_CATALOG: readonly NotificationCatalogEntry[] = [
     smoketestKind: 'price-move',
   },
   {
+    id: CATALOG_ID.PORTFOLIO_WEEKLY_RECAP,
+    lane: 'product',
+    dbType: 'portfolio_weekly_recap',
+    channels: { email: false, inapp: true },
+    emailTransport: 'none',
+    inappGranularity: 'per_event',
+    inappOnly: false,
+    inappOptOutAllowed: true,
+    settingsCategory: 'portfolio',
+    preferenceResolverNote:
+      'Friday cron; same eligibility as rebalance in-app (`notify_rebalance_inapp`), master in-app prefs, non–free tier; `portfolio_config_daily_series_history` week %.',
+  },
+  {
     id: CATALOG_ID.STOCK_RATING_CHANGE_TRACKED,
     lane: 'product',
     dbType: 'stock_rating_change',
@@ -251,6 +266,19 @@ export const NOTIFICATION_CATALOG: readonly NotificationCatalogEntry[] = [
     inappOptOutAllowed: false,
     settingsCategory: 'account',
     preferenceResolverNote: 'Auth flows; catalog listing for ops.',
+  },
+  {
+    id: CATALOG_ID.SECURITY_NEW_SIGN_IN,
+    lane: 'security',
+    dbType: 'system',
+    channels: { email: false, inapp: true },
+    emailTransport: 'none',
+    inappGranularity: 'per_event',
+    inappOnly: false,
+    inappOptOutAllowed: false,
+    settingsCategory: 'none',
+    preferenceResolverNote:
+      'Inserted from record_user_sign_in_context when client fingerprint is new and not first recorded session.',
   },
   {
     id: CATALOG_ID.INTERNAL_SMOKETEST_SEED,
@@ -302,7 +330,8 @@ type NotifRowLike = {
  * Maps a row to a filter chip. Last-resort `other` is only for unknown/legacy shapes.
  * - `internal`: operator smoketest seed (`internal.smoketest_seed`); UI chip is dev-only.
  * - Other `onboarding.*` (non-welcome): treat like product/onboarding surface.
- * - Generic `system` rows: product unless a branch above matched.
+ * - `account.*` catalog and `settings_section` billing/account/security on `system`: **Account activity**.
+ * - Other generic `system` rows: product unless a branch above matched.
  */
 export function inferInboxFilterCategory(row: NotifRowLike): InboxCategoryGuess {
   const data = row.data ?? {};
@@ -319,11 +348,13 @@ export function inferInboxFilterCategory(row: NotifRowLike): InboxCategoryGuess 
     return 'product';
   }
   if (cid.startsWith('security.')) return 'account';
+  if (cid.startsWith('account.')) return 'account';
   if (cid === CATALOG_ID.WEEKLY_BUNDLE || cid.startsWith('weekly.email.')) return 'product';
   if (
     cid === CATALOG_ID.PORTFOLIO_REBALANCE ||
     cid === CATALOG_ID.PORTFOLIO_ENTRIES_EXITS ||
-    cid === CATALOG_ID.PORTFOLIO_PRICE_MOVE
+    cid === CATALOG_ID.PORTFOLIO_PRICE_MOVE ||
+    cid === CATALOG_ID.PORTFOLIO_WEEKLY_RECAP
   ) {
     return 'portfolio';
   }
@@ -335,13 +366,22 @@ export function inferInboxFilterCategory(row: NotifRowLike): InboxCategoryGuess 
   if (row.type === 'weekly_digest') return 'product';
   if (row.type === 'model_ratings_ready') return 'model_performance';
   if (row.type === 'stock_rating_change' || row.type === 'stock_rating_weekly') return 'stock';
-  if (row.type === 'rebalance_action' || row.type === 'portfolio_entries_exits' || row.type === 'portfolio_price_move') {
+  if (
+    row.type === 'rebalance_action' ||
+    row.type === 'portfolio_entries_exits' ||
+    row.type === 'portfolio_price_move' ||
+    row.type === 'portfolio_weekly_recap'
+  ) {
     return 'portfolio';
   }
   if (row.type === 'system' && (data.welcome === '1' || row.title === 'Welcome to AI Trader')) {
     return 'product';
   }
   if (row.type === 'system') {
+    const ss = typeof data.settings_section === 'string' ? data.settings_section : '';
+    if (ss === 'billing' || ss === 'account' || ss === 'security') {
+      return 'account';
+    }
     return 'product';
   }
 

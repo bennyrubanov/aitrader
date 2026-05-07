@@ -55,6 +55,9 @@ export type ProfileRow = {
   notify_entries_exits_inapp: boolean;
   notify_entries_exits_email: boolean;
   notify_weekly_email: boolean;
+  /** Present after `portfolio_notify_bitmasks` migration; optional for older cached rows. */
+  portfolio_notify_email_bits?: number;
+  portfolio_notify_inapp_bits?: number;
   strategy_models: { slug: string; name: string } | null;
   portfolio_config: { label: string | null } | null;
 };

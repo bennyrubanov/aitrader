@@ -5,6 +5,12 @@ import {
   portfolioFollowedThreadId,
   welcomeStepCatalogId,
 } from '@/lib/notifications/notification-catalog';
+import { buildPortfolioWeeklyRecapNotification } from '@/lib/notifications/portfolio-weekly-recap-copy';
+import {
+  loadSmoketestPersonalization,
+  mergeProductionIntoSmoketestRows,
+  type SmoketestPersonalization,
+} from '@/lib/notifications/smoketest-personalization';
 
 const SEED_MARKER = { smoketest_seed: true as const };
 
@@ -24,7 +30,7 @@ type InsertRow = {
  * Matrix (in-app only) — what each row exercises:
  * - Stock: `stock_rating_change` + `stock.rating_change` (href → navigate), + `stock.rating_change.tracked`,
  *   + `internal.smoketest_seed` (internal chip when dev flag on); legacy `stock_rating_weekly`.
- * - Portfolio thread A: `rebalance_action`, `portfolio_entries_exits` (both / exits-only / entries-only),
+ * - Portfolio thread A: `rebalance_action`, `portfolio_weekly_recap`, `portfolio_entries_exits` (both / exits-only / entries-only),
  *   `portfolio_price_move` (+ / − / flat pct → trend avatar).
  * - Portfolio thread B: second `profile_id` + `thread_id` → second “Followed portfolio” thread.
  * - `model_ratings_ready` + `portfolio.model_ratings_ready` (model_performance / MODEL RATINGS).
@@ -34,7 +40,7 @@ type InsertRow = {
  *   `security.*` catalog + `settings_section` billing/account/security (account detail CTAs),
  *   plain `system` body-only (detail, no href), `onboarding.*` non-welcome catalog (still GETTING STARTED label).
  */
-export const SMOKETEST_INAPP_SEED_ROW_COUNT = 36;
+export const SMOKETEST_INAPP_SEED_ROW_COUNT = 37;
 
 function buildSmoketestInAppRows(params: {
   userId: string;
@@ -146,6 +152,27 @@ function buildSmoketestInAppRows(params: {
         thread_role: 'child',
       },
     },
+    (() => {
+      const recap = buildPortfolioWeeklyRecapNotification({
+        userId,
+        profileId,
+        strategyId,
+        strategySlug,
+        strategyName,
+        portfolioDisplayName: 'Top 1 · Weekly · Equal',
+        weekEnding,
+        portfolioPctWeek: 0.031,
+        topHoldings: [{ symbol: 'NVDA', pct: 0.02 }],
+        bottomHoldings: [{ symbol: 'TSLA', pct: -0.01 }],
+      });
+      return {
+        user_id: userId,
+        type: recap.type,
+        title: recap.title,
+        body: recap.body,
+        data: { ...SEED_MARKER, ...recap.data },
+      };
+    })(),
     {
       user_id: userId,
       type: 'portfolio_entries_exits',
@@ -415,11 +442,14 @@ function buildSmoketestInAppRows(params: {
       user_id: userId,
       type: 'system',
       title: 'New sign-in detected',
-      body: 'We noticed a sign-in from a new device (smoketest security row).',
+      body: 'We noticed a sign-in from Chrome on macOS near Austin, TX, United States. (smoketest)',
       data: {
         ...SEED_MARKER,
-        catalog_id: 'security.new_sign_in',
+        catalog_id: CATALOG_ID.SECURITY_NEW_SIGN_IN,
         href: '/platform/settings/security',
+        device_class: 'desktop',
+        client_summary: 'Chrome on macOS',
+        approx_location: 'Austin, TX, United States',
       },
     },
     {
@@ -490,10 +520,16 @@ function buildSmoketestInAppRows(params: {
 
 export async function seedSmoketestInAppNotifications(
   admin: SupabaseClient,
-  userId: string
+  userId: string,
+  preloadedPersonalization?: SmoketestPersonalization | null
 ): Promise<{ ok: true; inserted: number; ids: string[] } | { ok: false; error: string }> {
-  const runDate = new Date().toISOString().slice(0, 10);
-  const weekEnding = runDate;
+  const ctx =
+    preloadedPersonalization !== undefined && preloadedPersonalization !== null
+      ? preloadedPersonalization
+      : await loadSmoketestPersonalization(admin, userId);
+
+  const runDate = ctx.runDate;
+  const weekEnding = ctx.runWeekEnding;
 
   const [{ data: stratRow }, { data: profRow }] = await Promise.all([
     admin.from('strategy_models').select('id, slug, name').limit(1).maybeSingle(),
@@ -506,14 +542,22 @@ export async function seedSmoketestInAppNotifications(
       .maybeSingle(),
   ]);
 
-  const strategyId = (stratRow as { id: string } | null)?.id ?? '00000000-0000-0000-0000-000000000001';
-  const strategySlug = (stratRow as { slug: string } | null)?.slug ?? 'example-strategy';
-  const strategyName = (stratRow as { name: string } | null)?.name ?? 'Example strategy';
+  const strategyId =
+    ctx.strategyId ||
+    (stratRow as { id: string } | null)?.id ||
+    '00000000-0000-0000-0000-000000000001';
+  const strategySlug =
+    ctx.strategySlug || (stratRow as { slug: string } | null)?.slug || 'example-strategy';
+  const strategyName =
+    ctx.strategyName || (stratRow as { name: string } | null)?.name || 'Example strategy';
   const profileId =
-    (profRow as { id: string } | null)?.id ?? '00000000-0000-0000-0000-000000000002';
-  const profileIdAlt = '00000000-0000-0000-0000-000000000099';
+    ctx.profileIdPrimary ??
+    (profRow as { id: string } | null)?.id ??
+    '00000000-0000-0000-0000-000000000002';
+  const profileIdAlt =
+    ctx.profileIdSecondary ?? '00000000-0000-0000-0000-000000000099';
 
-  const rows = buildSmoketestInAppRows({
+  let rows = buildSmoketestInAppRows({
     userId,
     profileId,
     profileIdAlt,
@@ -523,6 +567,8 @@ export async function seedSmoketestInAppNotifications(
     runDate,
     weekEnding,
   });
+
+  rows = mergeProductionIntoSmoketestRows(rows, ctx.productionNotifications);
 
   const { error: delErr } = await admin
     .from('notifications')

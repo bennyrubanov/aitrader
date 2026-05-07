@@ -7,6 +7,7 @@ export const NOTIFICATION_TYPES = [
   'portfolio_price_move',
   'portfolio_entries_exits',
   'stock_rating_weekly',
+  'portfolio_weekly_recap',
 ] as const;
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];

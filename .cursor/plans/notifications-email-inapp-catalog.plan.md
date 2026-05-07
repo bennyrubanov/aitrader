@@ -1,6 +1,6 @@
 ---
 name: Notifications email and in-app catalog
-overview: Single source of truth for product rules, transports, tables, DB prefs, settings-category mapping, and the operator in-app smoketest matrix (exhaustive seeded rows, curl, thread conventions). Implementation phases live only in notifications-catalog-alignment.plan.md (canonical; merged former master catalog plan).
+overview: Single source of truth for product rules, transports, tables, DB prefs, settings-category mapping, and the operator in-app smoketest matrix (exhaustive seeded rows, curl, thread conventions). In-app **new sign-in** (`security.new_sign_in`) — product rules + matrix row — tie to security-new-sign-in-inapp.plan.md (directive implementation). Implementation phases live only in notifications-catalog-alignment.plan.md (canonical; merged former master catalog plan).
 todos: []
 isProject: true
 ---
@@ -11,7 +11,8 @@ isProject: true
 
 | Document                                                                               | Role                                                                                                                                                                                                                           |
 | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **This file** (`notifications-email-inapp-catalog.plan.md`)                            | **Product + inventory + operator in-app QA** — what exists today, what is planned, email vs in-app rules, tables A–F, migrations summary, **five** settings categories, welcome policy, **and** the exhaustive in-app smoketest matrix (`SMOKETEST_INAPP_SEED_ROW_COUNT`, how to run in-app-only, thread prefixes, per-row table, inbox file pointers). **Update when behavior, schema, seed matrix, or bell branches change.** |
+| **This file** (`notifications-email-inapp-catalog.plan.md`)                            | **Product + inventory + operator in-app QA** — what exists today, what is planned, email vs in-app rules, tables A–F, migrations summary, **five** settings categories, welcome policy, **and** the exhaustive in-app smoketest matrix (`SMOKETEST_INAPP_SEED_ROW_COUNT`, how to run in-app-only, thread prefixes, per-row table, inbox file pointers). Includes **security new sign-in** inventory row (Table E + Table A note) aligned with [security-new-sign-in-inapp.plan.md](security-new-sign-in-inapp.plan.md). **Update when behavior, schema, seed matrix, or bell branches change.** |
+| **[security-new-sign-in-inapp.plan.md](security-new-sign-in-inapp.plan.md)**             | **Directive spec** — `security.new_sign_in`, `user_profiles.sign_in_client_fingerprints`, `record_user_sign_in_context` + `p_fingerprint`, `SECURITY DEFINER` insert, first session **no** notification, Google One Tap `recordSignInContext`. **Canonical for that feature’s implementation steps.** |
 | **[notifications-catalog-alignment.plan.md](notifications-catalog-alignment.plan.md)** | **Sole implementation runbook** — Phase 0–8, file paths, acceptance criteria, catalog module shape, merged content from the removed duplicate `master_notifications_catalog_4fa45e7c.plan.md`.                                 |
 
 There is **no** separate “master” implementation plan; do not add another notifications implementation doc in `~/.cursor/plans/` for this workstream.
@@ -53,6 +54,18 @@ Full toggle rules and tooltips are in the alignment plan (**Settings categories 
 | `Reset your AITrader password`  | `sendTransactionalEmail` | User requests password recovery     | [`src/app/api/auth/password-reset/route.ts`](../../src/app/api/auth/password-reset/route.ts) |
 
 **Settings category:** Map to **Account activity** (non-toggle row in UI; no user prefs today).
+
+### Security — new sign-in (in-app only)
+
+- **Email:** None for this signal (in-app only).
+- **Catalog id:** `security.new_sign_in` (`type` `system`). Inbox chip: **ACCOUNT** (`security.*` prefix in [`inbox-row-display.ts`](../../src/lib/notifications/inbox-row-display.ts)).
+- **Writer (directive):** [security-new-sign-in-inapp.plan.md](security-new-sign-in-inapp.plan.md) — browser calls `recordSignInContext()` → `POST /api/auth/record-sign-in-context` → Postgres `record_user_sign_in_context` (with `p_fingerprint`, **`p_client_summary`**, **`p_location_label`**); RPC updates `last_sign_in_*` / counts / **`sign_in_client_fingerprints`**, and **only if** the user already had ≥1 stored fingerprint **and** the current fingerprint is new, inserts one `notifications` row (`SECURITY DEFINER`; authenticated cannot `INSERT` into `notifications`).
+- **Copy / “where”:** Title `New sign-in detected`; body from sanitized **browser + OS** (`ua-parser-js`) and optional **coarse** location from **Vercel request headers** only (no raw IP / raw UA in body or `data`); structured `data` keys `client_summary`, `device_class`, optional `approx_location` — see directive plan **§B2–C3**.
+- **First sign-in or sign-up:** **Never** insert this notification when the fingerprint list was empty before the call (seed first device only).
+- **Client call sites:** Sign-in password success, sign-up `canSignIn`, `/auth/callback` — already use `recordSignInContext()`; **Google One Tap** must call it too (see directive plan §E).
+- **Smoketest:** Row #32 in [`smoketest-inapp-seed.ts`](../../src/lib/notifications/smoketest-inapp-seed.ts) must stay aligned with prod title/body/`data` (directive plan **§M**).
+- **Catalog module:** Add `NOTIFICATION_CATALOG` entry when implementing ([`notification-catalog.ts`](../../src/lib/notifications/notification-catalog.ts)); keep this plan’s Table E in sync.
+- **Schema / RLS notes:** [.cursor/rules/supabase-schema.mdc](../../.cursor/rules/supabase-schema.mdc).
 
 ---
 
@@ -136,17 +149,21 @@ Welcome smoketest kinds: `WELCOME_SMOKETEST_KINDS` in [`welcome-email-templates.
 | `type`                    | When inserted                                                        | Typical title / body                    | Settings category (target)                                                                      |
 | ------------------------- | -------------------------------------------------------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | `system`                  | New auth user (`handle_new_auth_user`). QA: smoketest seed.          | `Welcome to AI Trader` …                | Onboarding (no toggle) / one-off                                                                |
+| `system`                  | **New client fingerprint** (not first session): `record_user_sign_in_context` after `POST /api/auth/record-sign-in-context` — [security-new-sign-in-inapp.plan.md](security-new-sign-in-inapp.plan.md). | `New sign-in detected`; body = sanitized device + optional **near {location}**; `data`: `client_summary`, `device_class`, optional `approx_location` | **Account activity** (non-toggle) |
 | `stock_rating_change`     | Weekly AI; bucket changed. Model subs + paid tracked stocks; dedupe. | `{SYMBOL}: {prev} → {next}` …           | Stock updates                                                                                   |
 | `rebalance_action`        | Rebalance day; rebalance in-app on for that follow.                  | `Rebalance: {strategyName}` …           | Portfolio updates                                                                               |
 | `model_ratings_ready`     | After weekly run; subscription has in-app ratings-ready.             | `New ratings: {strategyName}`           | **Strategy model updates** — operational “run finished” alert; gated by `model_performance_updates_email` / `model_performance_updates_inapp` plus subscription flags |
 | `portfolio_entries_exits` | Holdings change; entries/exits in-app on.                            | `Holdings update: {strategyName}` …     | Portfolio updates                                                                               |
 | `portfolio_price_move`    | Weekday; MTM threshold; in-app on; cooldown.                         | `{strategyName}: ±N%` …                 | Portfolio updates                                                                               |
+| `portfolio_weekly_recap`  | Friday post–US-close cron; `notify_rebalance_inapp` + paid tier + series history week %. | `{model} · {label} — ±N% this week` … | Portfolio updates (same follow toggle as rebalance in-app)                                      |
 | `weekly_digest`           | Weekly cron; section in-app prefs + master in-app (see Phase 0).     | `Weekly summary - week ending {date}` … | Thread → Product / Portfolio / Stock                                                            |
 | `stock_rating_weekly`     | No production writer; QA seed only.                                  | Smoketest sample                        | QA                                                                                              |
 
 **Planned / future:** Additional **Strategy model** stats digests (e.g. regression highlights) may add new `notifications.type` and/or `data.catalog_id` prefixes — add a Table E row when the writer lands. Onboarding companions are **shipped** (`system` + `data.thread_id` / `data.catalog_id`).
 
-**Code / SQL:** [`cron-fanout.ts`](../../src/lib/notifications/cron-fanout.ts) · [`weekly-digest-cron.ts`](../../src/lib/notifications/weekly-digest-cron.ts) · [`20260429120000_user_welcome_email_series.sql`](../../supabase/migrations/20260429120000_user_welcome_email_series.sql) · [`smoketest-inapp-seed.ts`](../../src/lib/notifications/smoketest-inapp-seed.ts) · [`types.ts`](../../src/lib/notifications/types.ts)
+**Security `system` row:** The `security.new_sign_in` writer is specified in [security-new-sign-in-inapp.plan.md](security-new-sign-in-inapp.plan.md); until that migration ships, only the **operator smoketest** row (matrix #32) exercises the inbox branch.
+
+**Code / SQL:** [`cron-fanout.ts`](../../src/lib/notifications/cron-fanout.ts) · [`weekly-digest-cron.ts`](../../src/lib/notifications/weekly-digest-cron.ts) · [`portfolio-weekly-recap-cron.ts`](../../src/lib/notifications/portfolio-weekly-recap-cron.ts) · [`20260507120000_notifications_type_portfolio_weekly_recap.sql`](../../supabase/migrations/20260507120000_notifications_type_portfolio_weekly_recap.sql) · [`20260429120000_user_welcome_email_series.sql`](../../supabase/migrations/20260429120000_user_welcome_email_series.sql) · [`smoketest-inapp-seed.ts`](../../src/lib/notifications/smoketest-inapp-seed.ts) · [`types.ts`](../../src/lib/notifications/types.ts)
 
 ---
 
@@ -157,6 +174,7 @@ Welcome smoketest kinds: `WELCOME_SMOKETEST_KINDS` in [`welcome-email-templates.
 | Mailer                               | `src/lib/mailer.ts`                                                                              |
 | Fan-out                              | `src/lib/notifications/cron-fanout.ts`                                                           |
 | Weekly bundle                        | `src/lib/notifications/weekly-digest-cron.ts`                                                    |
+| Portfolio weekly in-app recap        | `src/lib/notifications/portfolio-weekly-recap-cron.ts`, `src/app/api/cron/portfolio-weekly-recap/route.ts`, `src/lib/notifications/portfolio-weekly-recap-copy.ts` |
 | Email HTML                           | `src/lib/notifications/email-templates.ts`                                                       |
 | Welcome copy                         | `src/lib/notifications/welcome-email-templates.ts`                                               |
 | Welcome send                         | `src/lib/notifications/welcome-series-send.ts`                                                   |
@@ -168,9 +186,13 @@ Welcome smoketest kinds: `WELCOME_SMOKETEST_KINDS` in [`welcome-email-templates.
 | Prefs API                            | `src/app/api/platform/notification-preferences/route.ts`                                         |
 | Settings UI                          | `src/components/platform/notifications-settings-section.tsx`                                     |
 | Bell UI                              | `src/components/platform/notifications-bell.tsx`                                                 |
+| Sign-in context POST + RPC          | `src/app/api/auth/record-sign-in-context/route.ts` · RPC `record_user_sign_in_context` (see [security-new-sign-in-inapp.plan.md](security-new-sign-in-inapp.plan.md): `p_fingerprint`, `p_client_summary`, `p_location_label`, conditional insert + body) |
+| Sign-in fingerprint (when landed)   | `src/lib/auth/sign-in-fingerprint.ts` (directive plan §B) |
+| Sign-in client summary + geo label  | `src/lib/auth/sign-in-client-summary.ts`, `src/lib/auth/sign-in-location-label.ts` (or colocated in route) — directive plan **§B2** |
 | Notification catalog                 | `src/lib/notifications/notification-catalog.ts`                                                  |
 | Optional dispatcher (not shipped)    | `src/lib/notifications/notification-dispatch.ts` (if added later)                                |
 | **Canonical implementation runbook** | [.cursor/plans/notifications-catalog-alignment.plan.md](notifications-catalog-alignment.plan.md) |
+| **New sign-in in-app (directive)**     | [.cursor/plans/security-new-sign-in-inapp.plan.md](security-new-sign-in-inapp.plan.md) |
 
 ---
 
@@ -182,7 +204,7 @@ Operator-only QA: seed **one row per meaningful inbox branch** (DB `type`, `cata
 
 **Code source of truth:** [`src/lib/notifications/smoketest-inapp-seed.ts`](../../src/lib/notifications/smoketest-inapp-seed.ts) (`buildSmoketestInAppRows` + `seedSmoketestInAppNotifications`).
 
-**Row count constant:** `SMOKETEST_INAPP_SEED_ROW_COUNT` — **36** (must match `rows.length` at runtime; a mismatch throws in dev).
+**Row count constant:** `SMOKETEST_INAPP_SEED_ROW_COUNT` — **37** (must match `rows.length` at runtime; a mismatch throws in dev).
 
 ### How to run (in-app only, no emails)
 
@@ -212,7 +234,7 @@ curl -sS "http://127.0.0.1:3000/api/platform/notifications/smoketest?secret=$CRO
 
 Second portfolio thread in the seed uses a fixed **`profileIdAlt`** (`00000000-…-0099` when the user has no second real profile) so QA always gets two **Followed portfolio** groups without depending on two DB profiles.
 
-### Matrix (36 rows)
+### Matrix (37 rows)
 
 Order matches insertion order in `buildSmoketestInAppRows`. Titles are smoketest samples; production copy comes from writers listed in Table F and the paths below.
 
@@ -223,28 +245,29 @@ Order matches insertion order in `buildSmoketestInAppRows`. Titles are smoketest
 | 3 | `stock_rating_change` | — | `internal.smoketest_seed` | Internal chip when dev flag on |
 | 4 | `stock_rating_weekly` | — | `stock.rating_change` | Legacy DB type still allowed |
 | 5 | `rebalance_action` | `portfolio:…` | `portfolio.rebalance` | Rebalance glyph, portfolio thread A |
-| 6 | `portfolio_entries_exits` | `portfolio:…` | `portfolio.entries_exits` | Entries + exits |
-| 7 | `portfolio_entries_exits` | `portfolio:…` | same | Exits only |
-| 8 | `portfolio_entries_exits` | `portfolio:…` | same | Entries only |
-| 9 | `portfolio_price_move` | `portfolio:…` | `portfolio.price_move` | Trend **up** (`pct > 0`) |
-| 10 | `portfolio_price_move` | `portfolio:…` | same | Trend **down** |
-| 11 | `portfolio_price_move` | `portfolio:…` | same | Trend **flat** (`pct === 0`) |
-| 12 | `rebalance_action` | `portfolio:…` (alt `profile_id`) | `portfolio.rebalance` | Second portfolio thread |
-| 13 | `portfolio_price_move` | same alt thread | `portfolio.price_move` | Alt thread + move |
-| 14 | `model_ratings_ready` | — | `portfolio.model_ratings_ready` | Model ratings / strategy-model filter |
-| 15 | `weekly_digest` | `weekly:…` | `weekly.bundle`, `thread_role` head | Weekly summary + digest detail path |
-| 16 | `system` | — | `welcome: 1` | Signup welcome row |
-| 17–20 | `system` | `onboarding:…` | `onboarding.welcome.free.step{1–4}` | Free tier milestones (4 rows) |
-| 21–24 | `system` | `onboarding:…` | `onboarding.welcome.supporter.step{1–4}` | Supporter milestones |
-| 25–28 | `system` | `onboarding:…` | `onboarding.welcome.outperformer.step{1–4}` | Outperformer milestones |
-| 29 | `system` | `paid_transition:…` | `onboarding.welcome.paid_transition.supporter` | Paid thread |
-| 30 | `system` | `paid_transition:…` | `onboarding.welcome.paid_transition.outperformer` | Same thread, other tier |
-| 31 | `system` | — | `security.new_sign_in` | Account/security CTA |
-| 32 | `system` | — | `settings_section: billing` (+ sample catalog) | Billing settings CTA |
-| 33 | `system` | — | `settings_section: account` | Account settings CTA |
-| 34 | `system` | — | `settings_section: security` (no `security.*` catalog) | Security via section |
-| 35 | `system` | — | no `catalog_id` | Detail dialog, **no** `href` |
-| 36 | `system` | — | `onboarding.feature_rollout.smoketest` | Non-`welcome` `onboarding.*` catalog id |
+| 6 | `portfolio_weekly_recap` | `portfolio:…` | `portfolio.weekly_recap` | Weekly recap, trend avatar (`pct`), same followed-portfolio thread |
+| 7 | `portfolio_entries_exits` | `portfolio:…` | `portfolio.entries_exits` | Entries + exits |
+| 8 | `portfolio_entries_exits` | `portfolio:…` | same | Exits only |
+| 9 | `portfolio_entries_exits` | `portfolio:…` | same | Entries only |
+| 10 | `portfolio_price_move` | `portfolio:…` | `portfolio.price_move` | Trend **up** (`pct > 0`) |
+| 11 | `portfolio_price_move` | `portfolio:…` | same | Trend **down** |
+| 12 | `portfolio_price_move` | `portfolio:…` | same | Trend **flat** (`pct === 0`) |
+| 13 | `rebalance_action` | `portfolio:…` (alt `profile_id`) | `portfolio.rebalance` | Second portfolio thread |
+| 14 | `portfolio_price_move` | same alt thread | `portfolio.price_move` | Alt thread + move |
+| 15 | `model_ratings_ready` | — | `portfolio.model_ratings_ready` | Model ratings / strategy-model filter |
+| 16 | `weekly_digest` | `weekly:…` | `weekly.bundle`, `thread_role` head | Weekly summary + digest detail path |
+| 17 | `system` | — | `welcome: 1` | Signup welcome row |
+| 18–21 | `system` | `onboarding:…` | `onboarding.welcome.free.step{1–4}` | Free tier milestones (4 rows) |
+| 22–25 | `system` | `onboarding:…` | `onboarding.welcome.supporter.step{1–4}` | Supporter milestones |
+| 26–29 | `system` | `onboarding:…` | `onboarding.welcome.outperformer.step{1–4}` | Outperformer milestones |
+| 30 | `system` | `paid_transition:…` | `onboarding.welcome.paid_transition.supporter` | Paid thread |
+| 31 | `system` | `paid_transition:…` | `onboarding.welcome.paid_transition.outperformer` | Same thread, other tier |
+| 32 | `system` | — | `security.new_sign_in` | Account/security CTA; production writer + first-session silence: [security-new-sign-in-inapp.plan.md](security-new-sign-in-inapp.plan.md) |
+| 33 | `system` | — | `settings_section: billing` (+ sample catalog) | Billing settings CTA |
+| 34 | `system` | — | `settings_section: account` | Account settings CTA |
+| 35 | `system` | — | `settings_section: security` (no `security.*` catalog) | Security via section |
+| 36 | `system` | — | no `catalog_id` | Detail dialog, **no** `href` |
+| 37 | `system` | — | `onboarding.feature_rollout.smoketest` | Non-`welcome` `onboarding.*` catalog id |
 
 **Thread dialog caveat:** For threads with **multiple** rows, footer CTAs in [`notifications-bell.tsx`](../../src/components/platform/notifications-bell.tsx) use **`threadDetail.latest`** (newest by `created_at`), not a fixed row—factor that when validating CTAs on dense threads.
 
@@ -260,7 +283,7 @@ Order matches insertion order in `buildSmoketestInAppRows`. Titles are smoketest
 | Bell UI, detail + thread dialogs, buttons | [`src/components/platform/notifications-bell.tsx`](../../src/components/platform/notifications-bell.tsx) |
 | Transactional / weekly **email** HTML | [`src/lib/notifications/email-templates.ts`](../../src/lib/notifications/email-templates.ts) |
 | Welcome **email** HTML | [`src/lib/notifications/welcome-email-templates.ts`](../../src/lib/notifications/welcome-email-templates.ts) |
-| Production in-app **writers** (representative) | [`src/lib/notifications/cron-fanout.ts`](../../src/lib/notifications/cron-fanout.ts), [`welcome-series-send.ts`](../../src/lib/notifications/welcome-series-send.ts), [`weekly-digest-cron.ts`](../../src/lib/notifications/weekly-digest-cron.ts) — also grep `from('notifications')` / inserts under `src/` |
+| Production in-app **writers** (representative) | [`src/lib/notifications/cron-fanout.ts`](../../src/lib/notifications/cron-fanout.ts), [`welcome-series-send.ts`](../../src/lib/notifications/welcome-series-send.ts), [`weekly-digest-cron.ts`](../../src/lib/notifications/weekly-digest-cron.ts), [`portfolio-weekly-recap-cron.ts`](../../src/lib/notifications/portfolio-weekly-recap-cron.ts), **`record_user_sign_in_context`** (new sign-in; [security-new-sign-in-inapp.plan.md](security-new-sign-in-inapp.plan.md)) — also grep `from('notifications')` / inserts under `src/` |
 | Operator **in-app** seed rows | [`src/lib/notifications/smoketest-inapp-seed.ts`](../../src/lib/notifications/smoketest-inapp-seed.ts) |
 | Smoketest HTTP route (email + in-app, dry run) | [`src/app/api/platform/notifications/smoketest/route.ts`](../../src/app/api/platform/notifications/smoketest/route.ts) |
 
@@ -269,12 +292,14 @@ Order matches insertion order in `buildSmoketestInAppRows`. Titles are smoketest
 When adding a new inbox branch (new `type`, `catalog_id`, or thread shape):
 
 1. Extend **`smoketest-inapp-seed.ts`** and bump **`SMOKETEST_INAPP_SEED_ROW_COUNT`** if the row count changes.
-2. Update the **Matrix (36 rows)** table in **this** plan if the matrix stays exhaustive for operators.
+2. Update the **Matrix (37 rows)** table in **this** plan if the matrix stays exhaustive for operators.
 3. Update **notification-catalog** (and migrations for `type` check) if the product adds a new kind.
+4. For **`security.new_sign_in`** (matrix #32): keep title/body/`data` keys aligned with production copy in [security-new-sign-in-inapp.plan.md](security-new-sign-in-inapp.plan.md) **§B2–§M** when that RPC ships.
 
 ---
 
 ## Related docs
 
 - [.cursor/plans/notifications-catalog-alignment.plan.md](notifications-catalog-alignment.plan.md) — Phases 0–8 (DB, catalog, threads, welcome, fan-out email, UI, settings, doc sync)
+- [.cursor/plans/security-new-sign-in-inapp.plan.md](security-new-sign-in-inapp.plan.md) — In-app `security.new_sign_in`: fingerprint column, `SECURITY DEFINER` RPC, first session silent, client call sites
 - [.cursor/plans/welcome-series-table-b-paid-transition.plan.md](welcome-series-table-b-paid-transition.plan.md) — Table B paid-transition behavior and QA
