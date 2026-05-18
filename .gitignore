@@ -29,3 +29,4 @@ tsconfig.tsbuildinfo
 *.njsproj
 *.sln
 *.sw?
+.vercel

@@ -121,7 +121,6 @@ export function PortfolioEntryDatePicker({
         onClick={() => {
           onChangeYmd(maxYmd);
           setCalendarMonth(maxEntryDate);
-          setPopoverOpen(false);
         }}
       >
         <span className="flex min-w-0 items-center gap-2">
@@ -158,7 +157,6 @@ export function PortfolioEntryDatePicker({
             if (!y) return;
             onChangeYmd(y);
             setCalendarMonth(inceptionForLegend);
-            setPopoverOpen(false);
           }}
         >
           <span className="flex min-w-0 items-center gap-2">

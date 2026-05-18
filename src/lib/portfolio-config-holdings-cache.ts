@@ -276,7 +276,8 @@ function bindInvalidateListener(): void {
   invalidateListenerBound = true;
   window.addEventListener(USER_PORTFOLIO_PROFILES_INVALIDATE_EVENT, (e: Event) => {
     const d = (e as CustomEvent<UserPortfolioProfilesInvalidateDetail>).detail;
-    if (d?.entrySettingsOnly || d?.profilesListOnly) return;
+    // Entry date / investment changes rebased user dollars; do not keep stale explore-holdings rows.
+    if (d?.profilesListOnly) return;
     invalidateExploreHoldingsCache();
   });
 }

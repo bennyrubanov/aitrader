@@ -1029,7 +1029,12 @@ function PortfolioRebalanceActionsTimeline({
     return () => {
       cancelled = true;
     };
-  }, [profileId, hasEntry]);
+  }, [
+    profileId,
+    hasEntry,
+    profile.user_start_date,
+    profile.investment_size,
+  ]);
 
   const riskLevel = (profile.portfolio_config?.risk_level ?? 3) as RiskLevel;
   const riskLabel =
@@ -2309,7 +2314,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     return () => {
       cancelled = true;
     };
-  }, [selectedProfile?.id, selectedProfile?.user_start_date]);
+  }, [selectedProfile?.id, selectedProfile?.user_start_date, selectedProfile?.investment_size]);
 
   // Poll while compute is in progress
   useEffect(() => {
@@ -2440,6 +2445,7 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
     selectedProfile?.id,
     selectedProfilePerfDriverKey,
     selectedProfile?.user_start_date,
+    selectedProfile?.investment_size,
     selectedProfileConfigId,
     strategySlug,
     yourPortfoliosHoldingsPaid,
@@ -3494,146 +3500,197 @@ export function YourPortfolioClient({ strategies }: YourPortfolioClientProps) {
                   {(holdPanel === 'all' || holdPanel === 'holdings') ? (
                   <div className="relative flex min-h-0 w-full max-w-full min-w-0 flex-col gap-1.5 overflow-hidden sm:gap-2 lg:flex-1 lg:basis-0">
                   <div className="flex shrink-0 min-w-0 w-full flex-col gap-2">
-                    {yourPortfoliosHoldingsPaid && scopedConfigHoldingsRebalanceDates.length > 0 ? (
-                      <>
-                        <div className="flex min-w-0 flex-col gap-2 lg:flex-row lg:items-center lg:justify-between lg:gap-3">
-                          <h4 className="hidden shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground lg:block">
-                            Portfolio holdings
-                          </h4>
-                          <div className="flex min-w-0 w-full flex-nowrap items-center gap-x-1.5 sm:gap-x-2 max-lg:justify-between lg:shrink-0 lg:justify-end">
-                            <Select
-                              value={holdingsDateSelect}
-                              onValueChange={(v) => {
-                                if (!v || v === holdingsDateSelect) return;
-                                setHoldingsDateSelect(v);
-                                const pid = selectedProfile?.id?.trim();
-                                if (pid) {
-                                  mergeYourPortfolioPortfolioUiSession(pid, { holdingsDateSelect: v });
-                                }
-                              }}
-                              disabled={configHoldingsLoading}
-                            >
-                              <SelectTrigger
-                                className={cn(
-                                  'h-9 rounded-md border border-input bg-background px-2 text-left text-xs shadow-none ring-0 hover:bg-muted/30 focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:ring-0 data-[state=open]:ring-offset-0',
-                                  'lg:h-8 lg:border-border/70',
-                                  PORTFOLIO_HOLDINGS_DATE_SELECT_WIDTH_CLASSES
-                                )}
-                              >
-                                <SelectValue placeholder="Rebalance date" />
-                              </SelectTrigger>
-                              <SelectContent align="start">
-                                <SelectItem value={HOLDINGS_TODAY_SENTINEL} className="text-xs">
-                                  Today
-                                </SelectItem>
-                                {scopedConfigHoldingsRebalanceDates.map((d) => {
-                                  const initialD =
-                                    scopedConfigHoldingsRebalanceDates[
-                                      scopedConfigHoldingsRebalanceDates.length - 1
-                                    ];
-                                  return (
-                                    <SelectItem key={d} value={d} className="text-xs">
-                                      {d === initialD
-                                        ? `${yourPortfolioHoldingsShortDateFmt.format(
-                                            new Date(
-                                              `${ymdForInitialRebalanceDisplay(
-                                                d,
-                                                userStartForHoldingsYmd
-                                              )}T00:00:00Z`
-                                            )
-                                          )} (initial)`
-                                        : yourPortfolioHoldingsShortDateFmt.format(
-                                            new Date(`${d}T00:00:00Z`)
-                                          )}
-                                    </SelectItem>
-                                  );
-                                })}
-                              </SelectContent>
-                            </Select>
-                            {holdingsPrevRebalanceDate ? (
-                              <div className="flex shrink-0 items-center gap-1.5 lg:hidden">
-                                <Switch
-                                  id="your-portfolio-holdings-movement"
-                                  checked={holdingsMovementView}
-                                  onCheckedChange={(v) => {
-                                    setHoldingsMovementView(v);
-                                    const pid = selectedProfile?.id?.trim();
-                                    if (pid) {
-                                      mergeYourPortfolioPortfolioUiSession(pid, {
-                                        holdingsMovementView: v,
-                                      });
-                                    }
-                                  }}
-                                  disabled={configHoldingsLoading}
-                                  aria-label="Show which holdings entered, stayed, or exited vs prior rebalance"
-                                />
-                                <Label
-                                  htmlFor="your-portfolio-holdings-movement"
-                                  className="cursor-pointer whitespace-nowrap text-xs leading-none text-muted-foreground"
-                                >
-                                  Movement
-                                </Label>
-                                <HoldingsMovementInfoTooltip />
-                                {holdingsMovementView && prevMovementLoading ? (
-                                  <Loader2
-                                    className="size-3.5 shrink-0 animate-spin text-muted-foreground"
-                                    aria-hidden
-                                  />
-                                ) : null}
-                              </div>
-                            ) : null}
-                          </div>
-                        </div>
-                        <div className="flex min-w-0 flex-col gap-2 lg:flex-row lg:items-center lg:justify-between lg:gap-3">
-                          <div className="min-w-0 lg:min-w-0 lg:flex-1">
+                    <div className="flex flex-col gap-2">
+                      <div className="md:hidden">
+                        <div className="mb-2 grid w-full max-sm:grid-cols-[minmax(0,1fr)_auto] max-sm:items-end max-sm:gap-x-2 sm:mb-4 sm:ml-auto sm:flex sm:w-auto sm:flex-none sm:flex-row sm:items-end sm:gap-4">
+                          {yourPortfoliosHoldingsPaid &&
+                          scopedConfigHoldingsRebalanceDates.length > 0 ? (
                             <HoldingsPortfolioValueLine
                               value={holdingsPortfolioValueLineAmount}
                               formatCurrency={formatYourPortfolioCurrency}
-                              className="shrink-0 lg:min-w-0"
+                              className="min-w-0 max-sm:col-start-1 max-sm:justify-self-start"
+                              stackAsOfOnNarrow
                               asOfCloseDate={holdingsPortfolioValueAsOfCloseLabel}
                             />
-                          </div>
-                          {holdingsPrevRebalanceDate ? (
-                            <div className="hidden shrink-0 items-center gap-1.5 lg:flex">
-                              <Switch
-                                id="your-portfolio-holdings-movement-desktop"
-                                checked={holdingsMovementView}
-                                onCheckedChange={(v) => {
-                                  setHoldingsMovementView(v);
+                          ) : null}
+                          {yourPortfoliosHoldingsPaid &&
+                          scopedConfigHoldingsRebalanceDates.length >= 1 ? (
+                            <div className="flex max-w-[13rem] flex-col items-end max-sm:col-start-2 max-sm:max-w-[min(100%,11.5rem)] max-sm:justify-self-end max-sm:shrink-0 sm:shrink-0">
+                              <Select
+                                value={holdingsDateSelect}
+                                onValueChange={(v) => {
+                                  if (!v || v === holdingsDateSelect) return;
+                                  setHoldingsDateSelect(v);
                                   const pid = selectedProfile?.id?.trim();
                                   if (pid) {
-                                    mergeYourPortfolioPortfolioUiSession(pid, {
-                                      holdingsMovementView: v,
-                                    });
+                                    mergeYourPortfolioPortfolioUiSession(pid, { holdingsDateSelect: v });
                                   }
                                 }}
                                 disabled={configHoldingsLoading}
-                                aria-label="Show which holdings entered, stayed, or exited vs prior rebalance"
-                              />
-                              <Label
-                                htmlFor="your-portfolio-holdings-movement-desktop"
-                                className="cursor-pointer whitespace-nowrap text-xs leading-none text-muted-foreground"
                               >
-                                Movement
-                              </Label>
-                              <HoldingsMovementInfoTooltip />
-                              {holdingsMovementView && prevMovementLoading ? (
-                                <Loader2
-                                  className="size-3.5 shrink-0 animate-spin text-muted-foreground"
-                                  aria-hidden
-                                />
-                              ) : null}
+                                <SelectTrigger
+                                  id="your-portfolio-holdings-rebalance-date"
+                                  aria-label="Rebalance date"
+                                  className={cn(
+                                    'h-8 min-h-8 w-full min-w-0 rounded-md border border-input bg-background px-2 text-left text-xs shadow-none ring-0 hover:bg-muted/30 focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:ring-0 data-[state=open]:ring-offset-0 [&_svg]:size-3.5',
+                                    PORTFOLIO_REBALANCE_DATE_SELECT_WIDTH_CLASSES,
+                                    'max-md:w-full max-md:min-w-[9rem] max-md:max-w-[min(100%,10rem)]'
+                                  )}
+                                >
+                                  <SelectValue placeholder="Choose date" />
+                                </SelectTrigger>
+                                <SelectContent align="start" className="text-xs">
+                                  <SelectItem value={HOLDINGS_TODAY_SENTINEL} className="py-1.5 text-xs">
+                                    Today
+                                  </SelectItem>
+                                  {scopedConfigHoldingsRebalanceDates.map((d) => {
+                                    const initialD =
+                                      scopedConfigHoldingsRebalanceDates[
+                                        scopedConfigHoldingsRebalanceDates.length - 1
+                                      ];
+                                    return (
+                                      <SelectItem key={d} value={d} className="py-1.5 text-xs">
+                                        {d === initialD
+                                          ? `${yourPortfolioHoldingsShortDateFmt.format(
+                                              new Date(
+                                                `${ymdForInitialRebalanceDisplay(
+                                                  d,
+                                                  userStartForHoldingsYmd
+                                                )}T00:00:00Z`
+                                              )
+                                            )} (initial)`
+                                          : yourPortfolioHoldingsShortDateFmt.format(
+                                              new Date(`${d}T00:00:00Z`)
+                                            )}
+                                      </SelectItem>
+                                    );
+                                  })}
+                                </SelectContent>
+                              </Select>
                             </div>
                           ) : null}
                         </div>
-                      </>
-                    ) : yourPortfoliosHoldingsPaid &&
-                      !configHoldingsLoading &&
-                      scopedConfigHoldingsRebalanceDates.length === 0 ? (
-                      <p className="shrink-0 text-left text-[11px] text-muted-foreground">
-                        No rebalance history yet.
-                      </p>
-                    ) : null}
+                        {yourPortfoliosHoldingsPaid &&
+                        !configHoldingsLoading &&
+                        scopedConfigHoldingsRebalanceDates.length === 0 ? (
+                          <p className="shrink-0 text-left text-[11px] text-muted-foreground">
+                            No rebalance history yet.
+                          </p>
+                        ) : null}
+                      </div>
+                      <div className="hidden md:flex md:flex-col md:gap-2">
+                        {yourPortfoliosHoldingsPaid && scopedConfigHoldingsRebalanceDates.length > 0 ? (
+                          <div className="flex min-w-0 flex-row items-start justify-between gap-4">
+                            <div className="min-w-0 flex-1 space-y-2 text-left">
+                              <h4 className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                Portfolio holdings
+                              </h4>
+                              <HoldingsPortfolioValueLine
+                                value={holdingsPortfolioValueLineAmount}
+                                formatCurrency={formatYourPortfolioCurrency}
+                                className="min-w-0"
+                                asOfCloseDate={holdingsPortfolioValueAsOfCloseLabel}
+                                stackValueAndAsOfLines
+                              />
+                            </div>
+                            <div className="flex shrink-0 flex-col items-end gap-2">
+                              <Select
+                                value={holdingsDateSelect}
+                                onValueChange={(v) => {
+                                  if (!v || v === holdingsDateSelect) return;
+                                  setHoldingsDateSelect(v);
+                                  const pid = selectedProfile?.id?.trim();
+                                  if (pid) {
+                                    mergeYourPortfolioPortfolioUiSession(pid, { holdingsDateSelect: v });
+                                  }
+                                }}
+                                disabled={configHoldingsLoading}
+                              >
+                                <SelectTrigger
+                                  id="your-portfolio-holdings-rebalance-date-md"
+                                  className={cn(
+                                    'h-9 rounded-md border border-input bg-background px-2 text-right text-xs shadow-none ring-0 hover:bg-muted/30 focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:ring-0 data-[state=open]:ring-offset-0',
+                                    PORTFOLIO_HOLDINGS_DATE_SELECT_WIDTH_CLASSES
+                                  )}
+                                >
+                                  <SelectValue placeholder="Rebalance date" />
+                                </SelectTrigger>
+                                <SelectContent align="end">
+                                  <SelectItem value={HOLDINGS_TODAY_SENTINEL} className="text-xs">
+                                    Today
+                                  </SelectItem>
+                                  {scopedConfigHoldingsRebalanceDates.map((d) => {
+                                    const initialD =
+                                      scopedConfigHoldingsRebalanceDates[
+                                        scopedConfigHoldingsRebalanceDates.length - 1
+                                      ];
+                                    return (
+                                      <SelectItem key={d} value={d} className="text-xs">
+                                        {d === initialD
+                                          ? `${yourPortfolioHoldingsShortDateFmt.format(
+                                              new Date(
+                                                `${ymdForInitialRebalanceDisplay(
+                                                  d,
+                                                  userStartForHoldingsYmd
+                                                )}T00:00:00Z`
+                                              )
+                                            )} (initial)`
+                                          : yourPortfolioHoldingsShortDateFmt.format(
+                                              new Date(`${d}T00:00:00Z`)
+                                            )}
+                                      </SelectItem>
+                                    );
+                                  })}
+                                </SelectContent>
+                              </Select>
+                              {holdingsPrevRebalanceDate ? (
+                                <div className="flex shrink-0 items-center justify-end gap-1.5">
+                                  <Switch
+                                    id="your-portfolio-holdings-movement"
+                                    checked={holdingsMovementView}
+                                    onCheckedChange={(v) => {
+                                      setHoldingsMovementView(v);
+                                      const pid = selectedProfile?.id?.trim();
+                                      if (pid) {
+                                        mergeYourPortfolioPortfolioUiSession(pid, {
+                                          holdingsMovementView: v,
+                                        });
+                                      }
+                                    }}
+                                    disabled={configHoldingsLoading}
+                                    aria-label="Show which holdings entered, stayed, or exited vs prior rebalance"
+                                  />
+                                  <Label
+                                    htmlFor="your-portfolio-holdings-movement"
+                                    className="cursor-pointer whitespace-nowrap text-xs leading-none text-muted-foreground"
+                                  >
+                                    Movement
+                                  </Label>
+                                  <HoldingsMovementInfoTooltip />
+                                  {holdingsMovementView && prevMovementLoading ? (
+                                    <Loader2
+                                      className="size-3.5 shrink-0 animate-spin text-muted-foreground"
+                                      aria-hidden
+                                    />
+                                  ) : null}
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                        ) : yourPortfoliosHoldingsPaid &&
+                          !configHoldingsLoading &&
+                          scopedConfigHoldingsRebalanceDates.length === 0 ? (
+                          <div className="space-y-2 text-left">
+                            <h4 className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                              Portfolio holdings
+                            </h4>
+                            <p className="shrink-0 text-[11px] text-muted-foreground">
+                              No rebalance history yet.
+                            </p>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
                     {holdingsMovementView && prevMovementError ? (
                       <p className="w-full text-[11px] text-destructive">
                         Could not load the prior rebalance to compare.

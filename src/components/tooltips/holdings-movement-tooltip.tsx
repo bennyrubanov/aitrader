@@ -24,8 +24,8 @@ export function HoldingsMovementInfoTooltip() {
               the portfolio (entered).
             </li>
             <li>
-              <span className="font-medium text-red-600 dark:text-red-400">Red</span> — exited the portfolio
-              . Those names appear at the <strong>bottom</strong> of the table under{' '}
+              <span className="font-medium text-red-600 dark:text-red-400">Red</span> — exited the portfolio. 
+              Those names appear at the <strong>bottom</strong> of the table under{' '}
               <strong>Exited</strong>.
             </li>
           </ul>
